@@ -1,79 +1,83 @@
-'use client';
-
-import { useEffect, useState, useCallback } from 'react';
+import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
+import SummerFooter from '@/components/SummerFooter';
+import StatusBoard from './StatusBoard';
+import { TELEGRAM_URL } from '@/lib/links';
 
-type Service = { id: string; label: string; url: string; ok: boolean; status: number; ms: number };
-type StatusData = { checkedAt: string; allUp: boolean; services: Service[] };
+export const metadata: Metadata = {
+  title: 'Status — Suwappu',
+  description:
+    'Live health checks for the Suwappu API, plus how the MCP server, A2A protocol, Telegram bot, and trading terminal map onto that same backend.',
+};
+
+// Surfaces that ride on top of the API checked live above. MCP and A2A are
+// the same Hono process as the REST API (no separate health endpoint to
+// poll), so their status mirrors it 1:1. The bot and terminal are Telegram
+// clients, not independently pollable services — linked here for reference
+// rather than faked with a synthetic health dot.
+const SURFACES = [
+  {
+    name: 'REST API',
+    desc: 'v1/agent/* — checked live below against api.suwappu.bot/health.',
+    href: '/docs/api-reference/overview',
+  },
+  {
+    name: 'MCP server',
+    desc: 'POST /mcp on the same backend process as the API — healthy whenever the API above is.',
+    href: '/docs/protocols/mcp',
+  },
+  {
+    name: 'A2A protocol',
+    desc: 'POST /a2a, also served from the API process — same uptime as the API above.',
+    href: '/docs/protocols/mcp',
+  },
+  {
+    name: 'Telegram bot',
+    desc: 'Runs as a single polling instance against the API. Not independently health-checked here.',
+    href: TELEGRAM_URL,
+  },
+  {
+    name: 'Trading terminal',
+    desc: 'Executes through the same API and wallet infrastructure as everything else on this page.',
+    href: TELEGRAM_URL,
+  },
+];
 
 export default function StatusPage() {
-  const [data, setData] = useState<StatusData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      const res = await fetch('/api/status', { cache: 'no-store' });
-      setData(await res.json());
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 30000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  const banner = error
-    ? { cls: 'is-unknown', text: 'Unable to reach status checks' }
-    : loading && !data
-      ? { cls: 'is-unknown', text: 'Checking services…' }
-      : data?.allUp
-        ? { cls: 'is-up', text: 'All systems operational' }
-        : { cls: 'is-down', text: 'Some systems are degraded' };
-
   return (
     <main id="main-content" className="summer-page docs-shell">
       <Navigation />
-      <div className="status-page">
-        <p className="section__label">System status</p>
-        <h1 className="section__heading">Suwappu Status</h1>
-
-        <div className={`status-banner ${banner.cls}`}>
-          <span className="status-dot" aria-hidden="true" />
-          <strong>{banner.text}</strong>
-          <button type="button" className="status-refresh" onClick={load} disabled={loading}>
-            {loading ? 'Checking…' : 'Refresh'}
-          </button>
-        </div>
-
-        <div className="status-list">
-          {(data?.services ?? []).map((s) => (
-            <div key={s.id} className="status-row">
-              <span className={`status-dot ${s.ok ? 'is-up' : 'is-down'}`} aria-hidden="true" />
-              <div className="status-row__main">
-                <strong>{s.label}</strong>
-                <span className="status-row__url">{s.url}</span>
-              </div>
-              <span className="status-row__meta">
-                {s.ok ? `${s.status} · ${s.ms}ms` : s.status ? `HTTP ${s.status}` : 'unreachable'}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {data?.checkedAt && (
-          <p className="status-checked">
-            Last checked {new Date(data.checkedAt).toLocaleTimeString()} · auto-refreshes every 30s
+      <div className="summer-shell mkt-page">
+        <header className="mkt-hero mkt-hero--center">
+          <p className="summer-kicker">System status</p>
+          <h1>Suwappu Status</h1>
+          <p className="mkt-hero__lead">
+            Live checks against the API that every surface below is built on, plus an honest map
+            of how MCP, A2A, the bot, and the terminal relate to it.
           </p>
-        )}
+        </header>
+
+        <StatusBoard />
+
+        <section className="status-surfaces" aria-label="Surfaces">
+          <h2 className="mkt-h2">Surfaces</h2>
+          <div className="status-surfaces__grid">
+            {SURFACES.map((s) => (
+              <a
+                className="status-surface"
+                href={s.href}
+                key={s.name}
+                target={s.href.startsWith('http') ? '_blank' : undefined}
+                rel={s.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                <h3>{s.name}</h3>
+                <p>{s.desc}</p>
+              </a>
+            ))}
+          </div>
+        </section>
       </div>
+      <SummerFooter />
     </main>
   );
 }

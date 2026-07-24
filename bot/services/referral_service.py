@@ -1,28 +1,104 @@
-"""Referral service for viral growth with 30% reward distribution.
+"""Referral service — multi-stream commission economics.
 
 Referral Program:
 - Each user gets a unique referral code
 - When someone signs up with the code, they're linked forever
-- Referrer earns 30% of all fees from their referrals
-- Rewards accumulate and can be claimed
+- Referrer earns from three commission streams:
+
+  1. Swap commission  : tier-based rate via _l1_rate_for_tier (standard/power
+                        30 %, elite 40 %) of every Suwappu swap fee the referred
+                        user pays, subject to the MIN_VOLUME_BEFORE_PAYOUT_USD
+                        gate and the MAX_REWARD_PER_REFEREE_PER_30D_USD rolling
+                        30-day per-referee cap. Recorded in both the legacy
+                        referral_rewards ledger and referral_earnings
+                        (stream_type='swap') keyed on swap_id for idempotency.
+
+  2. Perps commission : volume-tiered 20%–80% of the Suwappu builder fee earned
+                        on the referred user's HyperLiquid orders.  The rate is
+                        determined by the referee's 14-day rolling perps notional
+                        volume (perps_volume_14d_usd on the referrals row).
+                        Recorded in referral_earnings (stream_type='perps') keyed
+                        on perp_order_id for idempotency.
+
+  3. Milestone bonus  : fixed one-time USD payout when the referrer reaches
+                        5 / 10 / 20 / 50 / 100 verified referrals.  Idempotency
+                        is enforced at DB level via the UNIQUE index on
+                        (referrer_id, milestone_count) in referral_milestones.
+
+Perps volume tier table
+-----------------------
+  < $10 k  14-day vol  → 20 % of builder fee  (tier 1)
+  $10 k–$50 k          → 30 %                 (tier 2)
+  $50 k–$250 k         → 40 %                 (tier 3)
+  $250 k–$1 M          → 55 %                 (tier 4)
+  >= $1 M              → 80 %                 (tier 5)
+
+Milestone bonus table
+---------------------
+   5 verified referrals → $5
+  10 verified referrals → $15
+  20 verified referrals → $40
+  50 verified referrals → $125
+ 100 verified referrals → $300
 """
 
+import json
 import logging
 import secrets
 import string
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, text
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from bot.models.user import User, Wallet
-from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
+from bot.models.referral import (
+    Referral,
+    ReferralCode,
+    ReferralReward,
+    ReferralPayout,
+    ReferralEarning,
+    ReferralMilestone,
+)
 from bot.services.fee_service import REFERRAL_REWARD_DECIMAL, fee_service
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Swap commission rate
+# ---------------------------------------------------------------------------
+# 30 % of the Suwappu swap fee goes to the referrer.  This matches the legacy
+# REFERRAL_REWARD_DECIMAL used by the old ReferralReward table so both ledgers
+# agree on the amount.
+SWAP_COMMISSION_RATE: Decimal = REFERRAL_REWARD_DECIMAL  # 0.30
+
+# ---------------------------------------------------------------------------
+# Perps volume tier table  (14-day rolling notional USD → commission rate)
+# ---------------------------------------------------------------------------
+# Each entry: (min_volume_usd_exclusive, rate)
+# Evaluated in order; first matching tier wins.
+# Rate is a decimal fraction, clamped to [0, 1] before use.
+PERPS_TIERS: List[Tuple[float, float]] = [
+    (1_000_000.0, 0.80),  # tier 5: >= $1 M
+    (250_000.0, 0.55),  # tier 4: $250 k – $1 M
+    (50_000.0, 0.40),  # tier 3: $50 k – $250 k
+    (10_000.0, 0.30),  # tier 2: $10 k – $50 k
+    (0.0, 0.20),  # tier 1: < $10 k (base)
+]
+
+# ---------------------------------------------------------------------------
+# Milestone bonus table  (verified-referral threshold → fixed USD bonus)
+# ---------------------------------------------------------------------------
+MILESTONE_BONUSES: Dict[int, float] = {
+    5: 5.0,
+    10: 15.0,
+    20: 40.0,
+    50: 125.0,
+    100: 300.0,
+}
 
 # Rewards are recorded in USD (ReferralReward.reward_amount_usd). When a user
 # claims, the USD amount is credited to their custodial ledger as USDC (a 1:1
@@ -59,9 +135,15 @@ class ReferralService:
     """Service for managing referral relationships and rewards.
 
     Reward Structure:
-    - 30% of all swap fees go to the referrer
-    - Rewards are tracked per-swap for transparency
-    - Users can claim accumulated rewards
+    - Swap stream:     tier-based 30%/40% of swap fees (per referrer_tier), gated by
+                       MIN_VOLUME_BEFORE_PAYOUT_USD + a 30-day per-referee reward cap
+    - Perps stream:    20%-80% of builder fee, volume-tiered on 14-day rolling notional
+    - Milestone bonus: fixed one-time credits at 5/10/20/50/100 verified referrals
+
+    All credits are recorded in the referral_earnings append-only ledger.
+    Idempotency is enforced by unique indexes / duplicate checks so no credit
+    can be issued twice for the same on-chain event.
+    Self-referral is rejected at relationship creation time (process_referral).
     """
 
     def generate_code(self, user_id: int, username: Optional[str] = None) -> str:
@@ -290,173 +372,240 @@ class ReferralService:
 
         The rebate counter is NOT decremented here. consume_referee_rebate() is the
         single decrement point, called independently before this method.
+
+        Writes to two ledgers in the same transaction:
+          1. referral_rewards (legacy, used by claim_rewards flow) — amount computed
+             from the tier-based L1 rate (_l1_rate_for_tier), clamped to the 30-day cap.
+          2. referral_earnings (multi-stream ledger, stream_type='swap') — same
+             reward_amount and rate, plus earning_metadata, so both ledgers agree.
+
+        Idempotency: the FOR-UPDATE lock on the Referral row serializes concurrent
+        calls for the same referee; the SELECT-before-INSERT check plus the DB
+        UNIQUE constraint on referral_rewards.swap_id (and the partial unique index
+        on referral_earnings(swap_id) WHERE stream_type='swap') are the authoritative
+        backstop for a genuinely concurrent duplicate — caught via IntegrityError.
+
+        Self-referral cannot occur here because process_referral() already rejects
+        codes where code.user_id == referee_id.
+
+        Args:
+            referee_id: The user who made the swap
+            swap_id: The swap transaction ID
+            fee_amount_usd: Total Suwappu fee paid (USD), already net of any rebate
+
+        Returns:
+            ReferralReward if a reward was created (or already existed), else None.
         """
-        with get_session() as session:
-            # Lock the Referral row for the duration of this transaction.
-            # This prevents two concurrent swaps for the same referee from
-            # jointly computing a stale 30-day cap and both creating rewards
-            # that together exceed MAX_REWARD_PER_REFEREE_PER_30D_USD.
-            referral = (
-                session.query(Referral)
-                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
-                .with_for_update()
-                .first()
-            )
+        # Captured inside the session (objects detach once get_session() closes).
+        reward_id: Optional[int] = None
+        rate: float = 0.0
+        referral_id: Optional[int] = None
+        referrer_id: Optional[int] = None
 
-            if not referral:
-                return None
-
-            # Check if reward already exists for this swap (idempotency guard)
-            existing = (
-                session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
-            )
-
-            if existing:
-                return existing
-
-            # --- Referral v2: Item 3 — MIN-VOLUME GUARD ---
-            # Referee must have >= $10 lifetime swap volume before rewards are created.
-            # Queried from swap_transactions to avoid any denormalisation drift.
-            # NOTE: this guard may prevent reward recording even though a rebate slot
-            # was already consumed (by consume_referee_rebate above). That is intentional —
-            # the rebate is on the CHARGED FEE, not on the reward earned by the referrer.
-            from bot.models.swap import SwapTransaction
-
-            referee_volume = (
-                session.query(func.sum(SwapTransaction.from_amount_usd))
-                .filter(
-                    SwapTransaction.user_id == referee_id,
-                    SwapTransaction.status.in_(["completed", "submitted"]),
-                    SwapTransaction.from_amount_usd.isnot(None),
+        try:
+            with get_session() as session:
+                # Lock the Referral row for the duration of this transaction.
+                # This prevents two concurrent swaps for the same referee from
+                # jointly computing a stale 30-day cap and both creating rewards
+                # that together exceed MAX_REWARD_PER_REFEREE_PER_30D_USD.
+                referral = (
+                    session.query(Referral)
+                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .with_for_update()
+                    .first()
                 )
-                .scalar()
-            ) or 0.0
 
-            if referee_volume < MIN_VOLUME_BEFORE_PAYOUT_USD:
-                logger.info(
-                    f"Referral reward skipped: referee {referee_id} lifetime volume "
-                    f"${referee_volume:.2f} < ${MIN_VOLUME_BEFORE_PAYOUT_USD}"
+                if not referral:
+                    return None
+
+                # Check if reward already exists for this swap (idempotency guard)
+                existing = (
+                    session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
                 )
-                return None
 
-            # --- Referral v2: Item 2 — tier-based L1 rate ---
-            code = (
-                session.query(ReferralCode)
-                .filter(ReferralCode.user_id == referral.referrer_id)
-                .first()
-            )
-            tier = code.referrer_tier if code and code.referrer_tier else "standard"
-            l1_rate = _l1_rate_for_tier(tier)
+                if existing:
+                    return existing
 
-            # --- Referral v2: Item 4 — 30-DAY PER-REFEREE CAP ---
-            # Computed inside the FOR UPDATE lock so concurrent swaps see a consistent sum.
-            thirty_days_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
-            existing_30d_reward = (
-                session.query(func.sum(ReferralReward.reward_amount_usd))
-                .filter(
-                    ReferralReward.referral_id == referral.id,
-                    ReferralReward.created_at >= thirty_days_ago,
-                )
-                .scalar()
-            ) or 0.0
+                # --- Referral v2: Item 3 — MIN-VOLUME GUARD ---
+                # Referee must have >= $10 lifetime swap volume before rewards are created.
+                # Queried from swap_transactions to avoid any denormalisation drift.
+                # NOTE: this guard may prevent reward recording even though a rebate slot
+                # was already consumed (by consume_referee_rebate above). That is intentional —
+                # the rebate is on the CHARGED FEE, not on the reward earned by the referrer.
+                from bot.models.swap import SwapTransaction
 
-            remaining_cap = MAX_REWARD_PER_REFEREE_PER_30D_USD - existing_30d_reward
-            if remaining_cap <= 0:
-                logger.info(
-                    f"Referral reward capped: referee {referee_id} 30-day cap of "
-                    f"${MAX_REWARD_PER_REFEREE_PER_30D_USD} exhausted"
-                )
-                return None
-
-            # fee_amount_usd is the fee actually charged (already reduced 10% if a rebate
-            # slot was active, because fee_service.get_fee_decimal applied the discount).
-            reward_amount = float(Decimal(str(fee_amount_usd)) * l1_rate)
-            reward_amount = min(reward_amount, remaining_cap)
-
-            # Create reward record
-            reward = ReferralReward(
-                referral_id=referral.id,
-                swap_id=swap_id,
-                fee_amount_usd=fee_amount_usd,
-                reward_amount_usd=reward_amount,
-                is_paid=False,
-            )
-            session.add(reward)
-
-            # Update referral code stats
-            if code:
-                code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
-
-                # --- Referral v2: Item 2 — volume-milestone tier promotion ---
-                # Tier is keyed to cumulative REFERRED SWAP VOLUME (not reward dollars),
-                # per spec: $25K -> power, $50K -> elite.
-                # Cost: one SUM across all referees' swap_transactions. Acceptable as a
-                # post-submit background operation; if it becomes a bottleneck, add a
-                # denormalised total_referred_volume column and increment it here.
-                referee_ids = [
-                    r.referee_id
-                    for r in session.query(Referral.referee_id)
+                referee_volume = (
+                    session.query(func.sum(SwapTransaction.from_amount_usd))
                     .filter(
-                        Referral.referrer_id == referral.referrer_id,
-                        Referral.is_active == True,
+                        SwapTransaction.user_id == referee_id,
+                        SwapTransaction.status.in_(["completed", "submitted"]),
+                        SwapTransaction.from_amount_usd.isnot(None),
                     )
-                    .all()
-                ]
-                if referee_ids:
-                    total_referred_volume = (
-                        session.query(func.sum(SwapTransaction.from_amount_usd))
+                    .scalar()
+                ) or 0.0
+
+                if referee_volume < MIN_VOLUME_BEFORE_PAYOUT_USD:
+                    logger.info(
+                        f"Referral reward skipped: referee {referee_id} lifetime volume "
+                        f"${referee_volume:.2f} < ${MIN_VOLUME_BEFORE_PAYOUT_USD}"
+                    )
+                    return None
+
+                # --- Referral v2: Item 2 — tier-based L1 rate ---
+                code = (
+                    session.query(ReferralCode)
+                    .filter(ReferralCode.user_id == referral.referrer_id)
+                    .first()
+                )
+                tier = code.referrer_tier if code and code.referrer_tier else "standard"
+                l1_rate = _l1_rate_for_tier(tier)
+                # Clamp to [0, 1] — defensive guard regardless of tier table config.
+                l1_rate = max(Decimal("0"), min(Decimal("1"), l1_rate))
+
+                # --- Referral v2: Item 4 — 30-DAY PER-REFEREE CAP ---
+                # Computed inside the FOR UPDATE lock so concurrent swaps see a consistent sum.
+                thirty_days_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+                    days=30
+                )
+                existing_30d_reward = (
+                    session.query(func.sum(ReferralReward.reward_amount_usd))
+                    .filter(
+                        ReferralReward.referral_id == referral.id,
+                        ReferralReward.created_at >= thirty_days_ago,
+                    )
+                    .scalar()
+                ) or 0.0
+
+                remaining_cap = MAX_REWARD_PER_REFEREE_PER_30D_USD - existing_30d_reward
+                if remaining_cap <= 0:
+                    logger.info(
+                        f"Referral reward capped: referee {referee_id} 30-day cap of "
+                        f"${MAX_REWARD_PER_REFEREE_PER_30D_USD} exhausted"
+                    )
+                    return None
+
+                # fee_amount_usd is the fee actually charged (already reduced 10% if a rebate
+                # slot was active, because fee_service.get_fee_decimal applied the discount).
+                rate = float(l1_rate)
+                reward_amount = float(Decimal(str(fee_amount_usd)) * l1_rate)
+                reward_amount = min(reward_amount, remaining_cap)
+
+                # --- Legacy ledger row ---
+                reward = ReferralReward(
+                    referral_id=referral.id,
+                    swap_id=swap_id,
+                    fee_amount_usd=fee_amount_usd,
+                    reward_amount_usd=reward_amount,
+                    is_paid=False,
+                )
+                session.add(reward)
+
+                # --- New multi-stream ledger row (stream_type='swap') ---
+                # Same reward_amount and rate as the legacy row so both ledgers agree.
+                earning = ReferralEarning(
+                    referrer_id=referral.referrer_id,
+                    referred_id=referee_id,
+                    stream_type="swap",
+                    amount_usd=reward_amount,
+                    swap_id=swap_id,
+                    commission_rate=rate,
+                    earning_metadata=json.dumps(
+                        {"fee_amount_usd": fee_amount_usd, "referrer_tier": tier}
+                    ),
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(earning)
+
+                # Update referral code stats (add reward_amount exactly once)
+                if code:
+                    code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
+
+                    # --- Referral v2: Item 2 — volume-milestone tier promotion ---
+                    # Tier is keyed to cumulative REFERRED SWAP VOLUME (not reward dollars),
+                    # per spec: $25K -> power, $50K -> elite.
+                    # Cost: one SUM across all referees' swap_transactions. Acceptable as a
+                    # post-submit background operation; if it becomes a bottleneck, add a
+                    # denormalised total_referred_volume column and increment it here.
+                    referee_ids = [
+                        r.referee_id
+                        for r in session.query(Referral.referee_id)
                         .filter(
-                            SwapTransaction.user_id.in_(referee_ids),
-                            SwapTransaction.status.in_(["completed", "submitted"]),
-                            SwapTransaction.from_amount_usd.isnot(None),
+                            Referral.referrer_id == referral.referrer_id,
+                            Referral.is_active == True,
                         )
-                        .scalar()
-                    ) or 0.0
-                else:
-                    total_referred_volume = 0.0
+                        .all()
+                    ]
+                    if referee_ids:
+                        total_referred_volume = (
+                            session.query(func.sum(SwapTransaction.from_amount_usd))
+                            .filter(
+                                SwapTransaction.user_id.in_(referee_ids),
+                                SwapTransaction.status.in_(["completed", "submitted"]),
+                                SwapTransaction.from_amount_usd.isnot(None),
+                            )
+                            .scalar()
+                        ) or 0.0
+                    else:
+                        total_referred_volume = 0.0
 
-                if total_referred_volume >= 50_000 and code.referrer_tier != "elite":
-                    code.referrer_tier = "elite"
-                    logger.info(
-                        f"Referrer {referral.referrer_id} promoted to elite tier "
-                        f"(referred volume ${total_referred_volume:.2f})"
-                    )
-                elif total_referred_volume >= 25_000 and code.referrer_tier == "standard":
-                    code.referrer_tier = "power"
-                    logger.info(
-                        f"Referrer {referral.referrer_id} promoted to power tier "
-                        f"(referred volume ${total_referred_volume:.2f})"
-                    )
+                    if total_referred_volume >= 50_000 and code.referrer_tier != "elite":
+                        code.referrer_tier = "elite"
+                        logger.info(
+                            f"Referrer {referral.referrer_id} promoted to elite tier "
+                            f"(referred volume ${total_referred_volume:.2f})"
+                        )
+                    elif total_referred_volume >= 25_000 and code.referrer_tier == "standard":
+                        code.referrer_tier = "power"
+                        logger.info(
+                            f"Referrer {referral.referrer_id} promoted to power tier "
+                            f"(referred volume ${total_referred_volume:.2f})"
+                        )
 
-            # Update referrer's total rewards
-            referrer = session.query(User).filter(User.id == referral.referrer_id).first()
-            if referrer:
-                referrer.total_referral_rewards = (
-                    referrer.total_referral_rewards or 0
-                ) + reward_amount
+                # Update referrer's total rewards (denormalized fast-read column, once)
+                referrer = session.query(User).filter(User.id == referral.referrer_id).first()
+                if referrer:
+                    referrer.total_referral_rewards = (
+                        referrer.total_referral_rewards or 0
+                    ) + reward_amount
 
-            session.flush()
-            reward_id = reward.id
+                session.flush()
+                reward_id = reward.id
+                referral_id = referral.id
+                referrer_id = referral.referrer_id
+
+        except IntegrityError:
+            # Concurrent INSERT hit the unique index — return the existing row.
+            logger.debug(
+                f"Swap earning for swap {swap_id} already exists (concurrent write); skipping."
+            )
+            with get_session() as session:
+                return (
+                    session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
+                )
+
+        if reward_id is None:
+            # One of the guards above returned None (no referral, min-volume, or cap).
+            return None
 
         logger.info(
-            f"Referral reward recorded: ${reward_amount:.2f} for referrer of user {referee_id} "
-            f"from swap {swap_id}"
+            f"Referral swap commission: ${reward_amount:.4f} ({rate:.0%} of "
+            f"${fee_amount_usd:.4f}) for referrer of user {referee_id} swap {swap_id}"
         )
 
         # Check if this is referee's first swap and award bonus points to referrer
         with get_session() as session:
             reward_count = (
                 session.query(func.count(ReferralReward.id))
-                .filter(ReferralReward.referral_id == referral.id)
+                .filter(ReferralReward.referral_id == referral_id)
                 .scalar()
             )
 
-            if reward_count == 1:  # This is the first reward (first swap)
+            if reward_count == 1:  # first reward = first swap
                 try:
                     from bot.services.points_service import points_service
 
                     points_service.award_referral_points(
-                        referrer_id=referral.referrer_id,
+                        referrer_id=referrer_id,
                         referee_id=referee_id,
                         action="first_swap",
                     )
@@ -843,6 +992,397 @@ class ReferralService:
         code = self.get_or_create_code(user_id)
         return f"https://t.me/{bot_username}?start={code.code}"
 
+    # ------------------------------------------------------------------
+    # Perps commission stream
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_perps_tier_rate(volume_14d_usd: float) -> float:
+        """Return the commission rate (decimal) for a referee's 14-day perps volume.
+
+        Tier table (see module docstring):
+          tier 1 (base):  < $10 k  → 20 %
+          tier 2:  $10 k – $50 k   → 30 %
+          tier 3:  $50 k – $250 k  → 40 %
+          tier 4:  $250 k – $1 M   → 55 %
+          tier 5:  >= $1 M         → 80 %
+
+        Rate is clamped to [0.0, 1.0] before returning.
+        """
+        vol = float(volume_14d_usd or 0.0)
+        for threshold, rate in PERPS_TIERS:
+            if vol >= threshold:
+                return float(max(0.0, min(1.0, rate)))
+        return 0.20  # fallback (should never reach here)
+
+    def update_perps_volume_14d(self, referee_id: int, trade_notional_usd: float) -> float:
+        """Update the 14-day rolling perps volume for a referee and return the new total.
+
+        This is a simple additive increment on the referrals.perps_volume_14d_usd
+        column.  A background job or the perps close handler should call this
+        periodically to keep the column current.  The column is reset to zero when
+        a true 14-day window resets (future background job responsibility).
+
+        Returns the updated volume (float).
+        """
+        with get_session() as session:
+            referral = (
+                session.query(Referral)
+                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                .first()
+            )
+            if not referral:
+                return 0.0
+            current = float(referral.perps_volume_14d_usd or 0.0)
+            new_vol = current + float(max(0.0, trade_notional_usd))
+            referral.perps_volume_14d_usd = new_vol
+            return new_vol
+
+    def credit_perps_commission(
+        self,
+        referee_id: int,
+        perp_order_id: int,
+        builder_fee_usd: float,
+        trade_notional_usd: float = 0.0,
+        market: Optional[str] = None,
+    ) -> Optional[ReferralEarning]:
+        """Credit referrer with a volume-tiered share of the perps builder fee.
+
+        Idempotency: referral_earnings has no DB-level unique constraint on
+        perp_order_id, so we guard with an explicit SELECT before INSERT.  If
+        a row for (referrer_id, stream_type='perps', perp_order_id) already
+        exists, we skip and return that row.
+
+        Guards:
+          - No referral relationship → no credit
+          - builder_fee_usd <= 0    → no credit (avoid zero-amount rows)
+          - Rate clamped to [0, 1]
+          - Self-referral impossible (blocked at process_referral time)
+
+        Args:
+            referee_id:         user who placed the perp order
+            perp_order_id:      PerpOrder.id (DB primary key, not HL order id)
+            builder_fee_usd:    Suwappu builder fee earned on this order (USD)
+            trade_notional_usd: order notional used to increment 14-day volume
+            market:             e.g. 'ETH-USD' (stored in metadata for audit)
+
+        Returns:
+            ReferralEarning row created (or pre-existing), or None.
+        """
+        if builder_fee_usd <= 0:
+            return None
+
+        # HIGH #4: wrap the INSERT in try/except IntegrityError to handle the
+        # race window between the SELECT-before-INSERT idempotency check and the
+        # actual INSERT.  The DB partial unique index on
+        # referral_earnings(perp_order_id) WHERE stream_type='perps' (added by
+        # migration) is the authoritative guard; this catch makes it safe.
+        try:
+            with get_session() as session:
+                # HIGH #5: lock the referrals row with SELECT FOR UPDATE so the
+                # volume read-modify-write is atomic under concurrent closes.
+                # WARNING/TODO: perps_volume_14d_usd is a simple accumulator —
+                # it only grows and is never decayed.  True 14-day windowing
+                # (decay job or timestamped volume rows) is NOT yet implemented.
+                # Until a background decay job is added, high-volume referees
+                # permanently retain the highest tier they ever reached.
+                referral = (
+                    session.query(Referral)
+                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .with_for_update()
+                    .first()
+                )
+                if not referral:
+                    return None
+
+                referrer_id = referral.referrer_id
+
+                # Idempotency guard: check for an existing earning row for this order
+                existing = (
+                    session.query(ReferralEarning)
+                    .filter(
+                        ReferralEarning.referrer_id == referrer_id,
+                        ReferralEarning.stream_type == "perps",
+                        ReferralEarning.perp_order_id == perp_order_id,
+                    )
+                    .first()
+                )
+                if existing:
+                    return existing
+
+                # Determine rate from 14-day rolling volume BEFORE this trade.
+                # Clamp defensively to [0.0, 1.0] — matches get_perps_tier_rate
+                # but is an extra guard in case the tier table is misconfigured.
+                volume_14d = float(referral.perps_volume_14d_usd or 0.0)
+                rate = float(max(0.0, min(1.0, self.get_perps_tier_rate(volume_14d))))
+                commission = float(max(0.0, builder_fee_usd) * rate)
+
+                earning = ReferralEarning(
+                    referrer_id=referrer_id,
+                    referred_id=referee_id,
+                    stream_type="perps",
+                    amount_usd=commission,
+                    perp_order_id=perp_order_id,
+                    commission_rate=rate,
+                    earning_metadata=json.dumps(
+                        {
+                            "builder_fee_usd": builder_fee_usd,
+                            "volume_14d_usd": volume_14d,
+                            "trade_notional_usd": trade_notional_usd,
+                            "market": market,
+                        }
+                    ),
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(earning)
+
+                # Atomically increment 14-day volume with this trade's notional
+                # (safe because the referrals row is locked FOR UPDATE above).
+                if trade_notional_usd > 0:
+                    referral.perps_volume_14d_usd = (
+                        float(referral.perps_volume_14d_usd or 0.0) + trade_notional_usd
+                    )
+
+                # Update denormalized total on users table
+                referrer = session.query(User).filter(User.id == referrer_id).first()
+                if referrer:
+                    referrer.total_referral_rewards = (
+                        float(referrer.total_referral_rewards or 0.0) + commission
+                    )
+
+                # Also credit referral code stat
+                code = (
+                    session.query(ReferralCode).filter(ReferralCode.user_id == referrer_id).first()
+                )
+                if code:
+                    code.total_rewards_earned = (code.total_rewards_earned or 0.0) + commission
+
+                session.flush()
+                earning_id = earning.id
+
+        except IntegrityError:
+            # Concurrent INSERT hit the partial unique index — earning already exists.
+            logger.debug(
+                f"Perps earning for order {perp_order_id} / referrer of user {referee_id} "
+                f"already exists (concurrent write); skipping."
+            )
+            return None
+
+        logger.info(
+            f"Referral perps commission: ${commission:.4f} ({rate:.0%} of "
+            f"${builder_fee_usd:.4f}) for referrer {referrer_id} from user "
+            f"{referee_id} order {perp_order_id}"
+        )
+
+        # After crediting perps commission, check for newly unlocked milestones.
+        # Best-effort: never let a milestone error break the perps close.
+        try:
+            self._check_and_award_milestones(referrer_id)
+        except Exception as e:
+            logger.warning(f"Milestone check failed for referrer {referrer_id}: {e}")
+
+        with get_session() as session:
+            return session.query(ReferralEarning).filter(ReferralEarning.id == earning_id).first()
+
+    # ------------------------------------------------------------------
+    # Milestone bonus stream
+    # ------------------------------------------------------------------
+
+    def get_verified_referral_count(self, referrer_id: int) -> int:
+        """Return the number of verified (non-NULL verified_at) referrals for a referrer."""
+        with get_session() as session:
+            return (
+                session.query(func.count(Referral.id))
+                .filter(
+                    Referral.referrer_id == referrer_id,
+                    Referral.is_active == True,
+                    Referral.verified_at.isnot(None),
+                )
+                .scalar()
+                or 0
+            )
+
+    def verify_referral(self, referee_id: int) -> bool:
+        """Mark a referral as verified (sets verified_at = now).
+
+        Called by fraud/activity checks once the referee is confirmed legitimate.
+        Returns True if a referral row was found and updated.
+        """
+        # HIGH #6: capture referrer_id INSIDE the session block to avoid
+        # DetachedInstanceError when accessing the attribute after the session
+        # has closed (which silently swallowed milestone checks previously).
+        referrer_id: Optional[int] = None
+        with get_session() as session:
+            referral = (
+                session.query(Referral)
+                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                .first()
+            )
+            if not referral or referral.verified_at is not None:
+                return bool(referral)
+            referrer_id = referral.referrer_id  # captured while session is live
+            referral.verified_at = datetime.now(timezone.utc)
+
+        logger.info(f"Referral verified for referee {referee_id}")
+
+        # Check milestones after each new verified referral.
+        if referrer_id is not None:
+            try:
+                self._check_and_award_milestones(referrer_id)
+            except Exception as e:
+                logger.warning(
+                    f"Milestone check failed after verify for referrer {referrer_id}: {e}"
+                )
+
+        return True
+
+    def _check_and_award_milestones(self, referrer_id: int) -> List[int]:
+        """Idempotently credit any newly unlocked milestone bonuses.
+
+        Checks every milestone threshold in MILESTONE_BONUSES.  For each that
+        the referrer's verified-referral count has crossed but that does NOT yet
+        have a row in referral_milestones, insert a milestone row + an earning
+        row in one transaction.
+
+        The DB UNIQUE index on (referrer_id, milestone_count) is the final
+        safety net: even if two concurrent calls race through the Python check,
+        only one INSERT can succeed; the other raises IntegrityError which is
+        caught and silently skipped.
+
+        Returns list of milestone_count values that were newly awarded.
+        """
+        verified_count = self.get_verified_referral_count(referrer_id)
+        newly_awarded: List[int] = []
+
+        for milestone_count, bonus_usd in sorted(MILESTONE_BONUSES.items()):
+            if verified_count < milestone_count:
+                continue  # not yet reached
+
+            # Check if already awarded (fast path before touching DB for write)
+            with get_session() as session:
+                already = (
+                    session.query(ReferralMilestone)
+                    .filter(
+                        ReferralMilestone.referrer_id == referrer_id,
+                        ReferralMilestone.milestone_count == milestone_count,
+                    )
+                    .first()
+                )
+                if already:
+                    continue  # already credited — skip
+
+            # Award: write earning then milestone in a single transaction
+            try:
+                with get_session() as session:
+                    earning = ReferralEarning(
+                        referrer_id=referrer_id,
+                        referred_id=None,
+                        stream_type="milestone",
+                        amount_usd=bonus_usd,
+                        milestone_count=milestone_count,
+                        commission_rate=None,
+                        earning_metadata=json.dumps({"milestone_count": milestone_count}),
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    session.add(earning)
+                    session.flush()
+                    earning_id = earning.id
+
+                    milestone = ReferralMilestone(
+                        referrer_id=referrer_id,
+                        milestone_count=milestone_count,
+                        bonus_usd=bonus_usd,
+                        earned_at=datetime.now(timezone.utc),
+                        earning_id=earning_id,
+                    )
+                    session.add(milestone)
+
+                    # Update denormalized user total
+                    referrer = session.query(User).filter(User.id == referrer_id).first()
+                    if referrer:
+                        referrer.total_referral_rewards = (
+                            float(referrer.total_referral_rewards or 0.0) + bonus_usd
+                        )
+
+                    # Update code stat
+                    code = (
+                        session.query(ReferralCode)
+                        .filter(ReferralCode.user_id == referrer_id)
+                        .first()
+                    )
+                    if code:
+                        code.total_rewards_earned = (code.total_rewards_earned or 0.0) + bonus_usd
+
+                newly_awarded.append(milestone_count)
+                logger.info(
+                    f"Milestone bonus awarded: referrer {referrer_id} reached "
+                    f"{milestone_count} verified referrals → ${bonus_usd:.2f}"
+                )
+            except IntegrityError:
+                # Concurrent insertion hit the UNIQUE index — already credited.
+                logger.debug(
+                    f"Milestone {milestone_count} for referrer {referrer_id} already exists "
+                    f"(concurrent write); skipping."
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to award milestone {milestone_count} for referrer "
+                    f"{referrer_id}: {e}"
+                )
+
+        return newly_awarded
+
+    # ------------------------------------------------------------------
+    # Earnings breakdown queries
+    # ------------------------------------------------------------------
+
+    def get_earnings_breakdown(self, referrer_id: int) -> Dict[str, float]:
+        """Return per-stream total earnings (USD) from the referral_earnings ledger.
+
+        Returns a dict with keys: 'swap', 'perps', 'milestone', 'total'.
+        All values are floats (USD).  Returns zeros for streams with no rows.
+        """
+        with get_session() as session:
+            rows = (
+                session.query(
+                    ReferralEarning.stream_type,
+                    func.sum(ReferralEarning.amount_usd).label("total"),
+                )
+                .filter(ReferralEarning.referrer_id == referrer_id)
+                .group_by(ReferralEarning.stream_type)
+                .all()
+            )
+
+        breakdown: Dict[str, float] = {"swap": 0.0, "perps": 0.0, "milestone": 0.0}
+        for stream_type, total in rows:
+            if stream_type in breakdown:
+                breakdown[stream_type] = float(total or 0.0)
+            else:
+                breakdown[stream_type] = float(total or 0.0)
+
+        breakdown["total"] = sum(breakdown.values())
+        return breakdown
+
+    def get_next_milestone(self, referrer_id: int) -> Optional[Tuple[int, float, int]]:
+        """Return (milestone_count, bonus_usd, referrals_needed) for the next milestone.
+
+        Uses verified referral count.  Returns None if all milestones are cleared.
+        """
+        verified = self.get_verified_referral_count(referrer_id)
+        for count in sorted(MILESTONE_BONUSES.keys()):
+            with get_session() as session:
+                already = (
+                    session.query(ReferralMilestone)
+                    .filter(
+                        ReferralMilestone.referrer_id == referrer_id,
+                        ReferralMilestone.milestone_count == count,
+                    )
+                    .first()
+                )
+            if not already:
+                return (count, MILESTONE_BONUSES[count], max(0, count - verified))
+        return None
+
     def format_share_message(self, user_id: int, bot_username: str) -> str:
         """Forwardable share message a user can send to friends."""
         link = self.build_share_link(user_id, bot_username)
@@ -860,7 +1400,11 @@ class ReferralService:
             return float(user.total_referral_rewards or 0) if user else 0.0
 
     def get_referral_stats(self, user_id: int) -> dict:
-        """Get comprehensive referral statistics for a user."""
+        """Get comprehensive referral statistics for a user.
+
+        Includes per-stream breakdown from the referral_earnings ledger,
+        verified referral count, and next-milestone info.
+        """
         with get_session() as session:
             # Get user
             user = session.query(User).filter(User.id == user_id).first()
@@ -870,7 +1414,7 @@ class ReferralService:
             # Get referral code
             code = session.query(ReferralCode).filter(ReferralCode.user_id == user_id).first()
 
-            # Get pending rewards
+            # Get pending rewards (legacy ReferralReward table)
             pending_usd, pending_count = self.get_pending_rewards(user_id)
 
             # Get active referrals
@@ -881,15 +1425,27 @@ class ReferralService:
                 or 0
             )
 
-            return {
-                "referral_code": code.code if code else None,
-                "total_referrals": user.referral_count or 0,
-                "active_referrals": active_referrals,
-                "total_earnings_usd": user.total_referral_rewards or 0,
-                "pending_rewards_usd": pending_usd,
-                "pending_rewards_count": pending_count,
-                "code_times_used": code.times_used if code else 0,
-            }
+        # Per-stream breakdown from the new earnings ledger
+        breakdown = self.get_earnings_breakdown(user_id)
+
+        # Verified count and next milestone
+        verified_count = self.get_verified_referral_count(user_id)
+        next_milestone = self.get_next_milestone(user_id)
+
+        return {
+            "referral_code": code.code if code else None,
+            "total_referrals": user.referral_count or 0,
+            "active_referrals": active_referrals,
+            "verified_referrals": verified_count,
+            "total_earnings_usd": breakdown["total"],
+            "earnings_swap_usd": breakdown["swap"],
+            "earnings_perps_usd": breakdown["perps"],
+            "earnings_milestone_usd": breakdown["milestone"],
+            "pending_rewards_usd": pending_usd,
+            "pending_rewards_count": pending_count,
+            "code_times_used": code.times_used if code else 0,
+            "next_milestone": next_milestone,  # (count, bonus_usd, needed) or None
+        }
 
     def get_referrals_list(self, user_id: int, limit: int = 10) -> List[dict]:
         """Get list of users referred by this user."""
@@ -932,7 +1488,7 @@ class ReferralService:
             return result
 
     def format_referral_message(self, user_id: int, bot_username: str) -> str:
-        """Format referral information message."""
+        """Format referral information message with multi-stream breakdown."""
         stats = self.get_referral_stats(user_id)
 
         if not stats.get("referral_code"):
@@ -941,36 +1497,82 @@ class ReferralService:
         code = stats["referral_code"]
         link = f"https://t.me/{bot_username}?start={code}"
 
+        total = stats["total_earnings_usd"]
+        swap_e = stats["earnings_swap_usd"]
+        perps_e = stats["earnings_perps_usd"]
+        milestone_e = stats["earnings_milestone_usd"]
+        verified = stats["verified_referrals"]
+        total_refs = stats["total_referrals"]
+        pending = stats["pending_rewards_usd"]
+        next_ms = stats.get("next_milestone")  # (count, bonus_usd, needed) or None
+
+        # Milestone progress line
+        if next_ms:
+            ms_count, ms_bonus, ms_needed = next_ms
+            milestone_line = (
+                f"🎯 Next milestone: *{ms_count} referrals* (+${ms_bonus:.0f}) — "
+                f"*{ms_needed}* to go\n"
+            )
+        else:
+            milestone_line = "🏆 All milestones unlocked!\n"
+
         msg = (
             "*Your Referral Program*\n\n"
             f"*Code:* `{code}`\n"
             f"*Link:* [Click to share]({link})\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"Total Referrals: *{stats['total_referrals']}*\n"
-            f"Total Earned: *${stats['total_earnings_usd']:.2f}*\n"
-            f"Pending: *${stats['pending_rewards_usd']:.2f}*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "*How it works:*\n"
-            "Share your link or code\n"
-            "Friends sign up and swap\n"
-            "You earn *30%* of all their fees!\n\n"
-            "_Rewards are credited after each swap_"
+            f"👥 Referrals: *{total_refs}* total · *{verified}* verified\n"
+            f"💰 Total Earned: *${total:.2f}*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "*Earnings by stream:*\n"
+            f"  🔄 Swap commissions:  *${swap_e:.2f}*\n"
+            f"  📈 Perps commissions: *${perps_e:.2f}*\n"
+            f"  🏅 Milestone bonuses: *${milestone_e:.2f}*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏳ Claimable (swaps): *${pending:.2f}*\n"
+            f"{milestone_line}"
+            "\n"
+            "💡 *Commission rates:*\n"
+            "• Swaps: tier-based % of every fee — no cap, no expiry\n"
+            "• Perps: *20%–80%* of builder fee (volume tiered)\n"
+            "• Milestones: up to *$300* per threshold\n\n"
+            "_Rewards are credited after each event_"
         )
 
         return msg
 
     def format_rewards_message(self, user_id: int) -> str:
-        """Format rewards summary message."""
+        """Format rewards summary message with per-stream breakdown."""
         stats = self.get_referral_stats(user_id)
         referrals = self.get_referrals_list(user_id, limit=5)
 
+        total = stats["total_earnings_usd"]
+        swap_e = stats["earnings_swap_usd"]
+        perps_e = stats["earnings_perps_usd"]
+        milestone_e = stats["earnings_milestone_usd"]
+        pending = stats["pending_rewards_usd"]
+        total_refs = stats["total_referrals"]
+        verified = stats["verified_referrals"]
+        next_ms = stats.get("next_milestone")
+
         msg = (
-            "*Your Referral Rewards*\n\n"
-            "*Summary*\n"
-            f"Total Earned: *${stats['total_earnings_usd']:.2f}*\n"
-            f"Pending: *${stats['pending_rewards_usd']:.2f}*\n"
-            f"From {stats['total_referrals']} referrals\n\n"
+            "💰 *Your Referral Rewards*\n\n"
+            f"📊 *Summary*\n"
+            f"• Total Earned: *${total:.2f}*\n"
+            f"• Claimable (swap stream): *${pending:.2f}*\n"
+            f"• From *{total_refs}* referrals ({verified} verified)\n\n"
+            "*By stream:*\n"
+            f"  🔄 Swap:      *${swap_e:.2f}*\n"
+            f"  📈 Perps:     *${perps_e:.2f}*\n"
+            f"  🏅 Milestones: *${milestone_e:.2f}*\n\n"
         )
+
+        if next_ms:
+            ms_count, ms_bonus, ms_needed = next_ms
+            msg += (
+                f"🎯 Next milestone: *{ms_count} referrals* → +${ms_bonus:.0f} "
+                f"(*{ms_needed}* to go)\n\n"
+            )
 
         if referrals:
             msg += "*Top Referrals*\n"
@@ -979,7 +1581,7 @@ class ReferralService:
                 rewards = ref["total_rewards_usd"]
                 msg += f"{i}. {username}: ${rewards:.2f}\n"
 
-        msg += "\n_You earn 30% of all swap fees from your referrals!_"
+        msg += "\n_Swap: 30% | Perps: 20%–80% (volume tier) | No cap, no expiry_"
 
         return msg
 

@@ -124,7 +124,7 @@ function TokenCard({
 
   return (
     <div
-      className="flex-shrink-0 w-[200px]"
+      className="shrink-0 w-[200px]"
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(20px) scale(0.9)',
@@ -253,7 +253,7 @@ export function SakuraTokenRail({ tokens, title, subtitle }: SakuraTokenRailProp
         {tokens.map((token, i) => (
           <TokenCard key={token.id} token={token} index={i} isVisible={isVisible} />
         ))}
-        <div className="flex-shrink-0 w-1" />
+        <div className="shrink-0 w-1" />
       </div>
     </div>
   )

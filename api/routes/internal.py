@@ -171,6 +171,10 @@ class VerifyPaymentRequest(BaseModel):
 class VerifyPaymentResponse(BaseModel):
     verified: bool
     error: Optional[str] = None
+    # On-chain payer (tx `from`). SECURITY: the TS caller MUST assert this maps to
+    # a wallet bound to the authenticated agent/user (sender-spoof defense) before
+    # crediting. May be None if the tx could not be resolved.
+    sender: Optional[str] = None
 
 
 @router.post("/x402/verify", response_model=VerifyPaymentResponse)
@@ -206,7 +210,7 @@ async def verify_x402_payment(
         )
 
     try:
-        success, message = await x402_service._verify_transaction_on_chain(
+        success, message, sender = await x402_service._verify_transaction_on_chain(
             tx_hash=request.tx_hash,
             chain=request.chain,
             expected_recipient=request.expected_recipient,
@@ -217,6 +221,7 @@ async def verify_x402_payment(
         return VerifyPaymentResponse(
             verified=success,
             error=message if not success else None,
+            sender=sender,
         )
     except Exception as e:
         logger.error(f"x402 verification error: {e}")

@@ -531,6 +531,16 @@ class ApiClient {
     return response.leaderboard
   }
 
+  // === Rewards (on-chain fee cashback) ===
+
+  async getRewardsSummary(): Promise<RewardsSummary> {
+    return this.fetch('/webapp/rewards/summary')
+  }
+
+  async getRewardsClaimPayload(epochIndex: number): Promise<RewardsClaimPayload> {
+    return this.fetch(`/webapp/rewards/claim/${epochIndex}`)
+  }
+
   // === Copy Trading ===
 
   async getTopTraders(filters?: {
@@ -805,6 +815,41 @@ class ApiClient {
     return this.fetch<OrgUsage>(`/enterprise/orgs/${orgId}/usage`)
   }
 
+  // === Battle ===
+
+  /**
+   * Get battle feature config (markets, multiplier, durations, max open cap)
+   */
+  async getBattleConfig(): Promise<BattleConfig> {
+    return this.fetch<BattleConfig>('/webapp/battle/config')
+  }
+
+  /**
+   * List the current user's battles (open + recent)
+   */
+  async getBattleList(): Promise<BattleEntry[]> {
+    return this.fetch<BattleEntry[]>('/webapp/battle/list')
+  }
+
+  /**
+   * Open a new battle position
+   */
+  async openBattle(params: OpenBattleParams): Promise<BattleEntry> {
+    return this.fetch<BattleEntry>('/webapp/battle/open', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  // === xStocks ===
+
+  /**
+   * Get tokenized-stocks page data (geo-check + stock list)
+   */
+  async getStocks(): Promise<StocksResponse> {
+    return this.fetch<StocksResponse>('/webapp/stocks')
+  }
+
   /**
    * Lookup a token by contract address
    */
@@ -826,6 +871,44 @@ class ApiClient {
       throw err
     }
   }
+}
+
+// Rewards (on-chain fee cashback) types — mirror api-ts RewardsSummaryView/ClaimPayload
+export interface RewardsEntryView {
+  epochIndex: number
+  amountUsd: number
+  cashbackUsd: number
+  carryoverUsd: number
+  status: string
+  claimDeadline: string | null
+  claimedTxHash: string | null
+  hasOnchainLeaf: boolean
+}
+
+export interface RewardsSummary {
+  accruingUsd: number
+  accruingEpochIndex: number
+  accruingEndsAt: string
+  claimableUsd: number
+  onchainUsd: number
+  lifetimeUsd: number
+  carryoverUsd: number
+  cashbackRate: number
+  payoutToken: string
+  payoutChain: string
+  entries: RewardsEntryView[]
+}
+
+export interface RewardsClaimPayload {
+  epochId: number
+  index: number
+  account: string
+  amount: string
+  merkleProof: string[]
+  distributor: string | null
+  chainId: number
+  claimDeadline: string | null
+  alreadyClaimed: boolean | null
 }
 
 // Points types
@@ -1251,6 +1334,55 @@ export interface OrgUsage {
   callsToday: number
   callsThisMonth: number
   rateLimitHits: number
+}
+
+// === Battle types ===
+
+export interface BattleConfig {
+  markets: string[]
+  multiplier: number
+  backings: string[]
+  durations_minutes: number[]
+  max_open: number
+}
+
+export interface BattleEntry {
+  id: number
+  market: string
+  direction: 'up' | 'down'
+  stake_usd: number
+  backing: string
+  status: 'open' | 'won' | 'lost' | 'cancelled'
+  outcome: 'win' | 'loss' | null
+  pnl_usd: number | null
+  expiry_at: string
+  created_at: string
+}
+
+export interface OpenBattleParams {
+  market: string
+  direction: 'up' | 'down'
+  stake_usd: number
+  backing: 'perps' | 'prediction'
+  duration_minutes: number
+}
+
+// === xStocks types ===
+
+export interface StockEntry {
+  ticker: string
+  name: string
+  mint: string
+  confidence: number
+}
+
+export interface StocksResponse {
+  allowed: boolean
+  region_status: string
+  blocked_message: string | null
+  stocks: StockEntry[]
+  market_open: boolean
+  off_hours_warning: string | null
 }
 
 // Export singleton instance

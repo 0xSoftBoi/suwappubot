@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
@@ -409,7 +409,7 @@ class Settings(BaseSettings):
 
     # Solana RPC
     solana_rpc_url: str = Field(
-        default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",
+        default="https://api.mainnet-beta.solana.com,https://solana-rpc.publicnode.com",
         description="Solana mainnet RPC URL(s)",
     )
 
@@ -775,6 +775,14 @@ class Settings(BaseSettings):
         "from whatsapp_phone_number_id (Meta's numeric API id)",
     )
 
+    # Linear (support ticket sync — bot/services/support_notifier.py)
+    linear_api_key: Optional[str] = Field(
+        default=None, description="Linear API key used to create issues from support tickets"
+    )
+    linear_team_id: Optional[str] = Field(
+        default=None, description="Linear team ID (UUID) that support-ticket issues are filed under"
+    )
+
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
     discord_guild_ids: Optional[str] = Field(
@@ -832,6 +840,45 @@ class Settings(BaseSettings):
     )
     admin_telegram_ids: str = Field(
         default="", description="Comma-separated Telegram user IDs for admin access"
+    )
+
+    # Natural-language trade intent parsing (Anthropic). OFF by default — NL
+    # parsing only ever produces a structured TradeIntent; it never quotes or
+    # executes a swap itself (see bot/services/nl_intent_service.py and
+    # bot/handlers/nl_trade.py, which hand off into the existing
+    # CONFIRM_SWAP -> ENTER_2FA_CODE flow).
+    ANTHROPIC_API_KEY: str = Field(
+        default="", description="Anthropic API key for NL trade intent parsing"
+    )
+    NL_TRADING_ENABLED: bool = Field(
+        default=False, description="Master switch for natural-language trade intent parsing"
+    )
+    NL_TRADING_MODEL: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Anthropic model used to parse natural-language trade intents",
+    )
+    NL_TRADING_PROVIDER: str = Field(
+        default="anthropic",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|groq|custom",
+    )
+    OPENAI_API_KEY: str = Field(
+        default="", description="OpenAI API key for NL trade intent parsing"
+    )
+    DEEPSEEK_API_KEY: str = Field(
+        default="", description="DeepSeek API key for NL trade intent parsing"
+    )
+    GROQ_API_KEY: str = Field(default="", description="Groq API key for NL trade intent parsing")
+    NL_TRADING_BASE_URL: str = Field(
+        default="",
+        description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+    NL_LLM_FALLBACK_PER_USER_DAILY: int = Field(
+        default=30,
+        description="Max LLM fallback calls (deterministic-parse misses) per user per day",
+    )
+    NL_LLM_FALLBACK_GLOBAL_DAILY: int = Field(
+        default=5000,
+        description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
     # Application Settings
@@ -910,6 +957,27 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
+    # SCAFFOLD — blocked on a live Bitrefill merchant account.
+    # Set BITREFILL_API_KEY to enable; leave unset to keep the feature dark.
+    # See bot/services/giftcard_api.py and bot/handlers/giftcard.py.
+    bitrefill_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API key — enables the /gift command. "
+            "Obtain from https://www.bitrefill.com/api/. "
+            "Unset = feature disabled (shows 'coming soon')."
+        ),
+    )
+    bitrefill_api_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API secret — used as the Basic-auth password alongside "
+            "bitrefill_api_key. Some read-only endpoints work with key-only; "
+            "order creation requires both key + secret."
+        ),
+    )
+
     # ── P2P marketplace ──────────────────────────────────────────────────────
     # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
     # on-chain escrow book plus external providers. Each provider is gated on its
@@ -948,6 +1016,14 @@ class Settings(BaseSettings):
             "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
             "Falls back to the primary EVM deposit hot wallet when unset."
         ),
+    )
+    # Comma-separated allowlist of chains on which native escrow may move funds.
+    # Defaults to testnet only so an armed executor cannot touch mainnet funds
+    # until native P2P is validated end-to-end. Set to "" to allow all chains,
+    # or e.g. "base,base-sepolia" to enable mainnet.
+    p2p_escrow_allowed_chains: str = Field(
+        default="base-sepolia",
+        description="Comma-separated chains native P2P escrow may settle on (empty = all)",
     )
     # Comma-separated ISO2 regions blocked from P2P (regulatory).
     p2p_restricted_regions: Optional[str] = Field(
@@ -1037,6 +1113,36 @@ class Settings(BaseSettings):
         default=None,
         description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
     )
+
+    # Battle treasury — sentinel user id for the house/treasury CustodialBalance account.
+    # Must be a negative integer to guarantee no collision with real auto-increment user ids.
+    # Override via BATTLE_TREASURY_USER_ID env var (must remain negative).
+    battle_treasury_user_id: int = Field(
+        default=-1,
+        description=(
+            "Sentinel user_id for the battle house/treasury CustodialBalance row. "
+            "Must be negative (never collides with real user rows). "
+            "Prediction battle stakes flow: user -> treasury at open; "
+            "treasury -> user on WIN/VOID at settlement."
+        ),
+    )
+
+    @field_validator("battle_treasury_user_id")
+    @classmethod
+    def _validate_battle_treasury_user_id(cls, v: int) -> int:
+        """Enforce the negative-sentinel invariant documented above.
+
+        A misconfigured non-negative BATTLE_TREASURY_USER_ID could collide with
+        a real auto-increment users.id row, letting battle treasury debits/
+        credits silently corrupt an actual user's CustodialBalance. Fail fast
+        at settings load rather than at first battle open.
+        """
+        if v >= 0:
+            raise ValueError(
+                f"BATTLE_TREASURY_USER_ID must be negative (got {v}). "
+                "A non-negative value can collide with a real users.id row."
+            )
+        return v
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

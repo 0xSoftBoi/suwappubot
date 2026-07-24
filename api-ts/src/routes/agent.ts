@@ -9,7 +9,10 @@ import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
+import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
+import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
+import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
@@ -21,6 +24,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
@@ -30,13 +34,16 @@ import {
 	CHAINS,
 	COMMON_TOKENS,
 	JupiterService,
+	type JupiterQuote,
 	PolicyService,
 	type QuoteParams,
 	SOLANA_TOKENS,
 	SwapService,
+	type SwapQuote,
 	TokenService,
 	TurnkeyService,
 } from '../services'
+import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
 	CreatePolicySchema,
 	ExecuteCommandSchema,
@@ -44,6 +51,7 @@ import {
 	formatZodErrors,
 	QuoteRequestSchema,
 	RegisterAgentSchema,
+	SimulateSwapSchema,
 	SwapRequestSchema,
 	SwapStatusQuerySchema,
 	TopupSchema,
@@ -463,6 +471,8 @@ agentRoutes.use('/quote', meteredPayment('quote'))
 agentRoutes.use('/swap', meteredPayment('swap'))
 agentRoutes.use('/execute', meteredPayment('execute'))
 agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
+// Read-only dry-run — same cost tier as /quote (1 credit). No funds move.
+agentRoutes.use('/swap/simulate', meteredPayment('swap/simulate'))
 agentRoutes.use('/portfolio', meteredPayment('portfolio'))
 agentRoutes.use('/prices', meteredPayment('prices'))
 agentRoutes.use('/tokens', meteredPayment('tokens'))
@@ -472,6 +482,7 @@ agentRoutes.use('*', recordUsage())
 
 // Scope enforcement on sensitive endpoints (API key paths only; bearer token paths bypass)
 agentRoutes.use('/swap/execute', requireScope('swap:execute'))
+agentRoutes.use('/swap/simulate', requireScope('trade:read'))
 agentRoutes.use('/portfolio', requireScope('trade:read'))
 agentRoutes.use('/wallets', requireScope('trade:read'))
 agentRoutes.use('/wallets/*', requireScope('trade:read'))
@@ -1102,6 +1113,283 @@ agentRoutes.post('/swap', async (c) => {
 		},
 		400,
 	)
+})
+
+// POST /v1/agent/swap/simulate - Tenderly-style dry run: fetch/reuse a quote and
+// report balance/allowance/gas/revert checks WITHOUT signing, broadcasting, or
+// persisting anything. Zero funds move. MONEY-PATH: reads live balances/quotes
+// and sits next to execution paths (/swap, /swap/execute) — reviewed accordingly.
+agentRoutes.post('/swap/simulate', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const parsed = SimulateSwapSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+				hint: 'Provide quote_id, or from_token + to_token + amount (+ optional chain, wallet_address).',
+			},
+			400,
+		)
+	}
+
+	const { quote_id, from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } =
+		parsed.data
+
+	// Track request (read-only — no swap-attempt counter bump, this never executes)
+	await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.incrementAgentStats(agent.id, 'request')
+		}),
+	)
+
+	// --- Case 1: simulate a previously fetched quote ---
+	if (quote_id) {
+		const cached = getCachedQuote(quote_id)
+		// Same generic message for missing vs. cross-agent quote — avoids leaking
+		// which quote_ids exist (mirrors /swap and /swap/execute).
+		if (!cached || cached.agentId !== agent.id) {
+			return c.json(
+				{
+					success: false,
+					error: 'Quote expired or not found',
+					hint: 'Request a new quote using POST /v1/agent/quote, or pass from_token/to_token/amount to fetch and simulate in one call',
+				},
+				400,
+			)
+		}
+
+		if (cached.isSolana) {
+			const quote = cached.quote as JupiterQuote
+			const report = await buildSolanaSimulationReport({
+				quoteId: quote_id,
+				fromAddress: wallet_address,
+				inputMint: quote.inputMint,
+				outputMint: quote.outputMint,
+				fromAmount: quote.inAmount,
+				toAmount: quote.outAmount,
+				toAmountMin: quote.otherAmountThreshold,
+				priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+				platformFeeAmount: quote.platformFee?.amount,
+			})
+			return c.json(report)
+		}
+
+		const quote = cached.quote as SwapQuote
+		const report = await buildEvmSimulationReport({
+			quoteId: quote_id,
+			fromAddress: wallet_address,
+			fromTokenSymbol: quote.fromToken.symbol,
+			fromTokenAddress: quote.fromToken.address,
+			toTokenSymbol: quote.toToken.symbol,
+			chainId: quote.transactionRequest.chainId,
+			fromAmount: quote.fromAmount,
+			toAmount: quote.toAmount,
+			toAmountMin: quote.toAmountMin,
+			toAmountUsd: quote.toAmountUsd,
+			priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+			approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+			gasEstimateUsd: quote.estimatedGasUsd,
+			bridgeFeeUsd: quote.bridgeFeeUsd,
+			tx: wallet_address
+				? {
+						to: quote.transactionRequest.to,
+						data: quote.transactionRequest.data,
+						value: quote.transactionRequest.value,
+						from: wallet_address,
+					}
+				: undefined,
+		})
+		return c.json(report)
+	}
+
+	// --- Case 2: no quote_id — fetch a fresh quote, then simulate it ---
+	if (!from_token || !to_token || !amount) {
+		return c.json(
+			{ success: false, error: 'quote_id is required, or from_token + to_token + amount' },
+			400,
+		)
+	}
+
+	const chainKey = from_chain || chain || 'ethereum'
+
+	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
+		return c.json(
+			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			400,
+		)
+	}
+
+	if (isSolanaChain(chainKey)) {
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const jupiterService = yield* JupiterService
+
+				const fromTokenInfo = jupiterService.resolveToken(from_token)
+				if (!fromTokenInfo) {
+					return yield* Effect.fail(
+						new ValidationError({ message: `Token not found on Solana: ${from_token}` }),
+					)
+				}
+				const toTokenInfo = jupiterService.resolveToken(to_token)
+				if (!toTokenInfo) {
+					return yield* Effect.fail(
+						new ValidationError({ message: `Token not found on Solana: ${to_token}` }),
+					)
+				}
+
+				const amountNum = parseFloat(amount)
+				if (isNaN(amountNum) || amountNum <= 0) {
+					return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+				}
+				const fromAmountLamports = BigInt(
+					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
+				).toString()
+
+				const quote = yield* jupiterService
+					.getQuote({
+						inputMint: fromTokenInfo.address,
+						outputMint: toTokenInfo.address,
+						amount: fromAmountLamports,
+						slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					})
+					.pipe(
+						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+					)
+
+				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+				cacheAgentQuote(quoteId, quote, agent.id, true)
+
+				return { quoteId, quote }
+			}),
+		)
+
+		if (Either.isLeft(result)) {
+			const { status, body } = mapErrorToResponse(result.left)
+			return c.json(body, status)
+		}
+
+		const { quoteId, quote } = result.right
+		const report = await buildSolanaSimulationReport({
+			quoteId,
+			fromAddress: wallet_address,
+			inputMint: quote.inputMint,
+			outputMint: quote.outputMint,
+			fromAmount: quote.inAmount,
+			toAmount: quote.outAmount,
+			toAmountMin: quote.otherAmountThreshold,
+			priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+			platformFeeAmount: quote.platformFee?.amount,
+		})
+		return c.json(report)
+	}
+
+	// EVM chains - use Li.Fi (same routing as POST /quote)
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const tokenService = yield* TokenService
+			const swapService = yield* SwapService
+
+			const sourceChain = from_chain || chain || 'ethereum'
+			const destChain = to_chain || chain || 'ethereum'
+
+			const sourceChainInfo = tokenService.resolveChain(sourceChain)
+			const destChainInfo = tokenService.resolveChain(destChain)
+
+			if (!sourceChainInfo) {
+				return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${sourceChain}` }))
+			}
+			if (!destChainInfo) {
+				return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${destChain}` }))
+			}
+
+			const fromTokenInfo = yield* tokenService.resolveToken(from_token, sourceChainInfo.id)
+			if (!fromTokenInfo) {
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${from_token} on ${sourceChainInfo.name}` }),
+				)
+			}
+			const toTokenInfo = yield* tokenService.resolveToken(to_token, destChainInfo.id)
+			if (!toTokenInfo) {
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${to_token} on ${destChainInfo.name}` }),
+				)
+			}
+
+			const amountNum = parseFloat(amount)
+			if (isNaN(amountNum) || amountNum <= 0) {
+				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+			}
+			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
+
+			// A placeholder sender when none is given keeps Li.Fi routing working (as
+			// /quote does); the simulation checks below only run against a REAL
+			// fromAddress (wallet_address), never the placeholder.
+			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+
+			const quoteParams: QuoteParams = {
+				fromChain: sourceChainInfo.id,
+				toChain: destChainInfo.id,
+				fromToken: fromTokenInfo.address,
+				toToken: toTokenInfo.address,
+				fromAmount: fromAmountWei,
+				fromAddress,
+				slippage: slippage || 0.03,
+				order: 'RECOMMENDED',
+				integrator: 'suwappu-agent',
+			}
+
+			const quote = yield* swapService.getQuote(quoteParams).pipe(
+				Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+			)
+
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+
+			return quote
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	const quote = result.right
+	const report = await buildEvmSimulationReport({
+		quoteId: quote.quoteId,
+		fromAddress: wallet_address,
+		fromTokenSymbol: quote.fromToken.symbol,
+		fromTokenAddress: quote.fromToken.address,
+		toTokenSymbol: quote.toToken.symbol,
+		chainId: quote.transactionRequest.chainId,
+		fromAmount: quote.fromAmount,
+		toAmount: quote.toAmount,
+		toAmountMin: quote.toAmountMin,
+		toAmountUsd: quote.toAmountUsd,
+		priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+		approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+		gasEstimateUsd: quote.estimatedGasUsd,
+		bridgeFeeUsd: quote.bridgeFeeUsd,
+		tx: wallet_address
+			? {
+					to: quote.transactionRequest.to,
+					data: quote.transactionRequest.data,
+					value: quote.transactionRequest.value,
+					from: wallet_address,
+				}
+			: undefined,
+	})
+	return c.json(report)
 })
 
 // POST /v1/agent/execute - Natural language command execution
@@ -2223,9 +2511,28 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const timestamp = Math.floor(Date.now() / 1000).toString()
 	const signature = crypto.createHmac('sha256', signingKey).update(jsonBody).digest('hex')
 
+	// Re-validate the stored callback URL right before fetching so a URL that now
+	// points at a private/metadata endpoint returns a clean 400 (policy error)
+	// rather than a generic connection failure.
+	try {
+		await assertUrlSafeForFetch(agent.callbackUrl)
+	} catch (err) {
+		return c.json(
+			{
+				success: false,
+				callback_url: agent.callbackUrl,
+				error: err instanceof Error ? err.message : 'callback_url is not allowed',
+			},
+			400,
+		)
+	}
+
+	// safeFetch re-resolves+validates and PINS the socket to that exact vetted IP,
+	// so the HTTP client cannot re-resolve to a freshly-rebound private address
+	// (closes the TOCTOU DNS-rebinding window left by validate-then-fetch).
 	const startTime = Date.now()
 	try {
-		const res = await fetch(agent.callbackUrl, {
+		const res = await safeFetch(agent.callbackUrl, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -2235,7 +2542,7 @@ agentRoutes.post('/webhooks/test', async (c) => {
 				'X-Suwappu-Signature': signature,
 			},
 			body: jsonBody,
-			signal: AbortSignal.timeout(10000),
+			timeoutMs: 10000,
 		})
 
 		return c.json({
@@ -2485,42 +2792,62 @@ agentRoutes.post('/billing/topup', async (c) => {
 			const internalUrl = env.INTERNAL_API_URL
 			const internalKey = env.INTERNAL_API_KEY
 
-			yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(amount),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const verification = (await res.json()) as { verified?: boolean; error?: string }
-					if (!verification.verified) {
-						throw new Error(verification.error || 'Payment not verified on-chain')
-					}
-					return verification
-				},
+			const verification = yield* Effect.tryPromise({
+				try: () =>
+					verifyX402Payment({
+						internalUrl,
+						internalKey,
+						txHash,
+						chain,
+						expectedAmount: String(amount),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) =>
 					new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
 
-			// 3) Credit atomically + idempotently inside a transaction.
-			//    Insert the ledger row with ON CONFLICT DO NOTHING — if a concurrent request
-			//    already inserted this txHash, we credit nothing (no double-credit).
+			// 2b) Sender-spoof defense: the on-chain payer MUST be this agent's own
+			//     managed wallet. Otherwise an agent could credit itself with another
+			//     user's inbound payment txHash.
+			if (!assertSenderBound(verification.sender, [getAgentWalletAddress(agent)])) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Payment sender does not match your managed wallet (sender-spoof rejected).',
+					}),
+				)
+			}
+
+			// 3) Credit atomically + idempotently inside a transaction. Consume the
+			//    payment in the SHARED (chain, txHash) ledger FIRST — this is the global
+			//    replay / cross-table double-redeem guard. If it's already consumed
+			//    (any path) or a concurrent request wins the race, we credit nothing.
 			const creditsAdded = amount / CREDIT_USD_VALUE
 
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						const consumed = await consumePayment(tx, {
+							chain,
+							txHash,
+							purpose: 'agent_topup',
+							consumedBy: String(agent.id),
+						})
+						if (!consumed) {
+							const balRows = await tx
+								.select()
+								.from(agentCredits)
+								.where(eq(agentCredits.agentId, agent.id))
+								.limit(1)
+							return { credited: false, balance: balRows[0]?.balance ?? 0 }
+						}
+
 						const inserted = await tx
 							.insert(agentCreditTopups)
 							.values({ agentId: agent.id, txHash, chain, amountUsd: amount, creditsAdded })
@@ -2561,6 +2888,11 @@ agentRoutes.post('/billing/topup', async (c) => {
 				catch: (e) => new Error(`Database error during topup: ${e}`),
 			})
 
+			// Normalize BOTH "already done" cases to a single idempotent no-op success
+			// shape: the fast-path pre-check (existing topup row) AND the consume-loss /
+			// race branches (credited:false) collapse to alreadyProcessed=true with
+			// creditsAdded=0. The caller renders this as a success ("already credited"),
+			// NOT a spurious error — a lost replay/race is a no-op, not a failure.
 			return {
 				alreadyProcessed: !txResult.credited,
 				creditsAdded: txResult.credited ? creditsAdded : 0,
@@ -2658,32 +2990,34 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			const internalUrl = env.INTERNAL_API_URL
 			const internalKey = env.INTERNAL_API_KEY
 
-			yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(price),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const verification = (await res.json()) as { verified?: boolean; error?: string }
-					if (!verification.verified) {
-						throw new Error(verification.error || 'Payment not verified on-chain')
-					}
-					return verification
-				},
+			const verification = yield* Effect.tryPromise({
+				try: () =>
+					verifyX402Payment({
+						internalUrl,
+						internalKey,
+						txHash,
+						chain,
+						expectedAmount: String(price),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
+
+			// 2b) Sender-spoof defense: on-chain payer must be this agent's managed wallet.
+			if (!assertSenderBound(verification.sender, [getAgentWalletAddress(agent)])) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Payment sender does not match your managed wallet (sender-spoof rejected).',
+					}),
+				)
+			}
 
 			// 3) Grant atomically + idempotently. The ledger row's UNIQUE txHash is the
 			//    idempotency guard; we also denormalize the active window onto the agent
@@ -2710,6 +3044,21 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						// Consume the payment in the SHARED (chain, txHash) ledger FIRST —
+						// global replay / cross-table double-redeem guard. Note the
+						// agent_subscriptions row is keyed by agentId (upserted on renew),
+						// so its own txHash uniqueness does NOT stop the same payment being
+						// reused for a topup or a webapp sub; this ledger does.
+						const consumed = await consumePayment(tx, {
+							chain,
+							txHash,
+							purpose: 'agent_subscribe',
+							consumedBy: String(agent.id),
+						})
+						if (!consumed) {
+							return { granted: false as const }
+						}
+
 						const inserted = await tx
 							.insert(agentSubscriptions)
 							.values({ agentId: agent.id, tier, txHash, chain, amountUsd: amount, startedAt: now, expiresAt })
@@ -2931,5 +3280,8 @@ agentRoutes.post('/billing/recurring', async (c) => {
 
 // GET /v1/agent/openapi - Machine-readable API spec
 agentRoutes.get('/openapi', (c) => c.json(openApiSpec))
+
+// GET /v1/agent/postman - Postman Collection v2.1, auto-derived from the live OpenAPI spec
+agentRoutes.get('/postman', (c) => c.json(openApiToPostmanCollection(openApiSpec as never)))
 
 export { agentRoutes }

@@ -237,7 +237,7 @@ export const PriceAlertCard = React.memo(function PriceAlertCard({
                   setTargetPrice('')
                 }
               }}
-              className="w-full px-3 py-2 rounded-suwappu-xl border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-sm text-suwappu-text font-medium focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30"
+              className="w-full px-3 py-2 rounded-suwappu-xl border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-sm text-suwappu-text font-medium focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30"
             >
               {MOCK_TOKENS.map((t) => (
                 <option key={t.symbol} value={t.symbol}>
@@ -298,7 +298,7 @@ export const PriceAlertCard = React.memo(function PriceAlertCard({
                 value={targetPrice}
                 onChange={(e) => setTargetPrice(e.target.value)}
                 placeholder={formatPrice(selectedToken.price)}
-                className="w-full pl-7 pr-3 py-2 rounded-suwappu-xl border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-sm text-suwappu-text font-medium focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30"
+                className="w-full pl-7 pr-3 py-2 rounded-suwappu-xl border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-sm text-suwappu-text font-medium focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30"
               />
             </div>
             {percentChange !== null && (

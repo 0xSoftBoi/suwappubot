@@ -29,6 +29,7 @@ import type {
   WalletWithdrawResult,
   MarketRegime,
   MarketSignal,
+  PulseToken,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -60,6 +61,8 @@ import type {
   ReferralStats,
   ReferralEntry,
   ReferralLeaderboardEntry,
+  RewardsSummary,
+  RewardsClaimPayload,
   CreateLimitOrderParams,
   LendingMarket,
   TrackedWallet,
@@ -372,6 +375,12 @@ export const api = {
     return request<MarketSignal[]>('/terminal/signals')
   },
 
+  // Final Stretch (pre-migration/pre-graduation) Pulse discovery stage —
+  // public, read-only, display/filter only.
+  getFinalStretch(limit = 30) {
+    return request<PulseToken[]>(`/terminal/discovery/final-stretch?limit=${limit}`)
+  },
+
   // Prediction probability history — Polymarket prices-history (public) for a
   // single outcome's CLOB token id. `range` is a window: 1H/6H/1D/1W/1M/ALL.
   getPredictHistory(tokenId: string, range = '1W') {
@@ -421,6 +430,16 @@ export const api = {
 
   getReferralLeaderboard(limit = 20) {
     return request<{ leaderboard: ReferralLeaderboardEntry[] }>(`/webapp/referrals/leaderboard?limit=${limit}`).then(r => r.leaderboard ?? [])
+  },
+
+  // Rewards (on-chain fee cashback) — read-only; custodial claims happen in the
+  // Telegram bot, on-chain claims are submitted from the user's own wallet.
+  getRewardsSummary() {
+    return request<RewardsSummary>('/webapp/rewards/summary')
+  },
+
+  getRewardsClaimPayload(epochIndex: number) {
+    return request<RewardsClaimPayload>(`/webapp/rewards/claim/${epochIndex}`)
   },
 
   // Discovery

@@ -15,8 +15,11 @@ const features: Feature[] = [
   { icon: '🔮', label: 'Markets', path: '/predict', badge: 'New' },
   { icon: '📊', label: 'Perps', path: '/perps', badge: 'New' },
   { icon: '🤝', label: 'P2P', path: '/p2p', badge: 'New' },
+  { icon: '⚔️', label: 'Battle', path: '/battle', badge: 'New' },
+  { icon: '🏛️', label: 'xStocks', path: '/stocks', badge: 'New' },
   { icon: '📋', label: 'Copy Trade', path: '/copy', badge: 'Soon' },
   { icon: '🎁', label: 'Referrals', path: '/referrals', badge: 'Soon' },
+  { icon: '💸', label: 'Cashback', path: '/rewards', badge: 'New' },
   { icon: '🔗', label: 'Wallets', path: '/settings' },
   { icon: '⚙️', label: 'Settings', path: '/settings' },
 ]

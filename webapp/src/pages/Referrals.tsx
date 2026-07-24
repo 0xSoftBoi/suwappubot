@@ -122,7 +122,7 @@ export function Referrals() {
         {!loading && (
           <>
             {/* Hero / share card — always shown so new users can immediately copy their link */}
-            <div className="bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white">
+            <div className="bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-3xl" aria-hidden="true">🎁</span>
                 {stats ? (
@@ -226,7 +226,7 @@ export function Referrals() {
                   onClick={() => setTab(t)}
                   className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     tab === t
-                      ? 'bg-white text-suwappu-purple-deep shadow-sm'
+                      ? 'bg-white text-suwappu-purple-deep shadow-xs'
                       : 'text-suwappu-text-secondary'
                   }`}
                 >

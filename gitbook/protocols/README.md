@@ -27,9 +27,9 @@ See the [API Reference](../api-reference/README.md) for the full endpoint list.
 
 ### MCP (Model Context Protocol)
 
-Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. The MCP endpoint exposes ten tools (get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market_detail) over JSON-RPC 2.0. Claude Desktop, Cursor, and other MCP clients pick them up automatically.
+Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. The MCP endpoint exposes 15 tools (get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market) over JSON-RPC 2.0. Claude Desktop, Claude Code, Cursor, Codex, OpenCode, and other MCP clients pick them up automatically.
 
-See [MCP](mcp.md) for the handshake, tool reference, and client configuration.
+See [MCP](mcp.md) for the handshake, tool reference, and pay-per-call costs, or [MCP Client Setup](../quickstart/mcp-clients.md) for exact config snippets per client.
 
 ### A2A (Agent-to-Agent)
 
@@ -52,4 +52,10 @@ Then send `Authorization: Bearer suwappu_sk_YOUR_KEY` on every request. The only
 
 ## Discovery
 
-Suwappu is built to be found by agents automatically. See [OpenAPI Spec](openapi.md) for the discovery files (`llms.txt`, `agent.json`, OpenAPI) and how agents bootstrap from them.
+Suwappu is built to be found by agents automatically. See [OpenAPI Spec](openapi.md) for the discovery files (`llms.txt`, `llms-full.txt`, `agent.json`, OpenAPI) and how agents bootstrap from them.
+
+For crawlers that don't want to guess well-known paths one at a time, `GET https://api.suwappu.bot/.well-known/ai-catalog.json` returns a single [Agentic Resource Discovery (ARD)](https://agenticresourcediscovery.org/spec) v0.9 manifest listing every resource above (A2A agent card, MCP server, OpenAPI spec, `llms.txt`) with its media type and URL. Suwappu's MCP server is also listed in the official [MCP registry](https://registry.modelcontextprotocol.io) under the domain-verified `bot.suwappu/mcp` namespace — see [MCP](mcp.md#mcp-registry-listing) for the manifest and publishing steps.
+
+## Pricing
+
+REST, MCP, and A2A calls are all subject to the same rate limits and pay-per-call metering. See [Pricing](../billing/pricing.md) for the tier table and [Agentic Payments](../billing/agentic-payments.md) for the x402 402-challenge flow.

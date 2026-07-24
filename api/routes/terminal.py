@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -1032,6 +1032,125 @@ async def get_terminal_token_safety(
     return _empty_report(chain, address)
 
 
+DEXSCREENER_SEARCH_URL = "https://api.dexscreener.com/latest/dex/search"
+FINAL_STRETCH_CHAIN = "solana"
+# Pre-migration (pump.fun bonding-curve) pairs have no dedicated public feed,
+# so we proxy "final stretch" with the newest, lowest-liquidity live pairs on
+# the canonical memecoin chain — same DexScreener source the webapp/terminal
+# Pulse "new" stage already uses, just narrowed to a pre-graduation band.
+FINAL_STRETCH_MAX_LIQUIDITY_USD = 60_000
+FINAL_STRETCH_MAX_AGE_MINUTES = 24 * 60
+
+
+def _final_stretch_insiders_pct(buys: int, sells: int) -> Optional[float]:
+    """Best-effort proxy for insider concentration: a heavily buy-skewed early
+    tape (few sells relative to buys) is the observable signature of coordinated
+    insider/sniper buying. Returns None (unknown) rather than a fabricated
+    number when there isn't enough tape to judge."""
+    total = buys + sells
+    if total < 5:
+        return None
+    return round(max(0.0, min(100.0, (buys - sells) / total * 100)), 1)
+
+
+def _final_stretch_bundle_pct(pair: dict) -> Optional[float]:
+    """Bundle-buy detection (many wallets funded from one source in the same
+    block) needs on-chain tracing we don't run here — honestly unknown rather
+    than guessed. Left as None; a real detector can populate this later."""
+    return None
+
+
+def _final_stretch_row(pair: dict) -> dict:
+    base = pair.get("baseToken") or {}
+    tx = (pair.get("txns") or {}).get("h24") or {}
+    buys = int(tx.get("buys") or 0)
+    sells = int(tx.get("sells") or 0)
+    created_ms = pair.get("pairCreatedAt") or 0
+    created_iso = (
+        datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+        if created_ms
+        else ""
+    )
+    liq = float((pair.get("liquidity") or {}).get("usd") or 0)
+    return {
+        "address": base.get("address"),
+        "symbol": base.get("symbol"),
+        "name": base.get("name") or base.get("symbol"),
+        "chain": FINAL_STRETCH_CHAIN,
+        "stage": "final_stretch",
+        "createdAt": created_iso,
+        "marketCap": float(pair.get("marketCap") or pair.get("fdv") or 0),
+        "volume24h": float((pair.get("volume") or {}).get("h24") or 0),
+        "liquidityUsd": liq,
+        "priceUsd": float(pair.get("priceUsd") or 0),
+        "txns24h": buys + sells,
+        "buys24h": buys,
+        "sells24h": sells,
+        "insidersPercent": _final_stretch_insiders_pct(buys, sells),
+        "bundlePercent": _final_stretch_bundle_pct(pair),
+        # No dedicated bonding-curve source yet, so progress is left unknown
+        # (None) rather than fabricated — the frontend hides the column
+        # gracefully when this is null.
+        "bondingProgress": None,
+    }
+
+
+@router.get("/discovery/final-stretch")
+async def get_terminal_final_stretch(limit: int = Query(default=30, ge=1, le=100)):
+    """Public, read-only "Final Stretch" discovery feed — pre-migration
+    (pre-graduation) tokens on the canonical memecoin chain, proxied from live
+    DexScreener pairs narrowed to a low-liquidity / recently-created band.
+    Display-and-filter only: no swap/order/execution logic. Degrades to an
+    empty list (never 5xx) if the upstream is unavailable, matching the other
+    public discovery endpoints in this module."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(
+                DEXSCREENER_SEARCH_URL,
+                params={"q": FINAL_STRETCH_CHAIN},
+                headers={"User-Agent": "suwappu-terminal/1.0"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        logger.warning("final-stretch: DexScreener fetch failed", exc_info=True)
+        return []
+
+    now_ms = datetime.now(tz=timezone.utc).timestamp() * 1000
+    pairs = [
+        p
+        for p in (data.get("pairs") or [])
+        if str(p.get("chainId", "")).lower() == FINAL_STRETCH_CHAIN
+        and (p.get("baseToken") or {}).get("address")
+    ]
+
+    # Narrow to the "pre-migration" band: young + still-thin liquidity.
+    candidates = []
+    for p in pairs:
+        liq = float((p.get("liquidity") or {}).get("usd") or 0)
+        created_ms = p.get("pairCreatedAt") or 0
+        age_min = (now_ms - created_ms) / 60_000 if created_ms else None
+        if liq > FINAL_STRETCH_MAX_LIQUIDITY_USD:
+            continue
+        if age_min is not None and age_min > FINAL_STRETCH_MAX_AGE_MINUTES:
+            continue
+        candidates.append(p)
+
+    # De-dupe by token, keep the highest-liquidity pair per mint.
+    best: dict[str, dict] = {}
+    for p in candidates:
+        addr = p["baseToken"]["address"]
+        liq = float((p.get("liquidity") or {}).get("usd") or 0)
+        prev = best.get(addr)
+        if not prev or liq > float((prev.get("liquidity") or {}).get("usd") or 0):
+            best[addr] = p
+
+    ordered = sorted(best.values(), key=lambda p: p.get("pairCreatedAt") or 0, reverse=True)[:limit]
+    return [_final_stretch_row(p) for p in ordered]
+
+
 @router.get("/orderbook")
 async def get_terminal_orderbook(
     symbol: str = Query(default="ETHUSDC"),
@@ -1848,16 +1967,33 @@ async def terminal_wallet_summary(request: Request):
 class WalletWithdrawBody(BaseModel):
     chain: str
     token: str
-    amount: float
+    # Accept amount as a string so we parse with Decimal(amount) directly and
+    # never round-trip through a binary float (Decimal(str(float)) inherits
+    # float rounding error). Client should send the exact decimal string.
+    amount: str
     toAddress: str
     memo: Optional[str] = None
+    # REQUIRED client-supplied idempotency key. A retry (e.g. after a dropped
+    # response) that reuses the same key is short-circuited instead of
+    # re-sending funds. Optional here only because pydantic needs a default to
+    # produce a clean 400 instead of a generic validation error; enforced as
+    # mandatory in the handler below. The server never generates one on the
+    # caller's behalf — that would defeat dedupe entirely.
+    idempotency_key: Optional[str] = None
 
 
 @router.post("/wallet/withdraw")
 async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
-    """Withdraw a custodial balance to an external address. Reuses the bot's
-    proven path: validate → balance check → on-chain send → debit only after a
-    successful send → record. Never debits on a failed/reverted send."""
+    """Withdraw a custodial balance to an external address.
+
+    Order of operations is deliberately: validate -> ATOMIC RESERVE (debit) ->
+    on-chain send -> record. The reserve is a single conditional UPDATE
+    (hot_wallet_service.reserve_custodial_balance) that only succeeds if the
+    balance covers the amount, so two concurrent withdraws can no longer both
+    pass a check and both send (TOCTOU close). If the on-chain send fails, the
+    reserved amount is refunded (operation="add") so a failed/reverted send
+    never leaves the user debited.
+    """
     if not _withdraw_enabled():
         raise HTTPException(
             status_code=503, detail="Withdrawals are temporarily paused. Please try again shortly."
@@ -1866,26 +2002,39 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
     chain = (body.chain or "").strip()
     token = (body.token or "").strip().upper()
     to_address = (body.toAddress or "").strip()
+    idempotency_key = (body.idempotency_key or "").strip() or None
+
+    # Idempotency is MANDATORY for withdrawals — an optional key makes the
+    # whole replay defense opt-in. We never generate one server-side on the
+    # caller's behalf; that would defeat dedupe (a naive client retry would
+    # just get a fresh key each time).
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=400,
+            detail="idempotency_key is required for withdrawals.",
+        )
 
     if not _valid_withdraw_address(chain, to_address):
         raise HTTPException(
             status_code=400, detail="That destination address isn't valid for this network."
         )
-    if not (body.amount and body.amount > 0):
-        raise HTTPException(status_code=400, detail="Enter an amount greater than zero.")
 
-    from decimal import Decimal as _D
-    from bot.services.hot_wallet import hot_wallet_service
+    from decimal import Decimal as _D, InvalidOperation
+    from bot.services.hot_wallet import (
+        hot_wallet_service,
+        WithdrawalsPausedError,
+        PostBroadcastAmbiguous,
+        quantize_to_decimals,
+    )
     from bot.models.custodial import TransactionType
     from bot.config.tokens import TOKENS, get_token_address
 
-    amount = _D(str(body.amount))
-    balance = hot_wallet_service.get_custodial_balance(uid, chain, token)
-    if amount > balance:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient balance — you have {_to_float(balance)} {token} on {chain}.",
-        )
+    try:
+        amount = _D(body.amount)
+    except (InvalidOperation, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Enter a valid amount.")
+    if not (amount and amount > 0):
+        raise HTTPException(status_code=400, detail="Enter an amount greater than zero.")
 
     chain_type = "solana" if chain.lower() in ("solana", "sol") else "evm"
     hot_wallet = hot_wallet_service.get_deposit_wallet(chain_type)
@@ -1894,11 +2043,61 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
 
     token_address = get_token_address(token, chain)
     memo = body.memo or ""
+    token_cfg = TOKENS.get(token) if token_address else None
+    is_native = not (
+        token_address and token_address != "0x0000000000000000000000000000000000000000"
+    )
+    if not is_native and not token_cfg:
+        raise HTTPException(status_code=400, detail=f"Unknown token {token}.")
+    # Native decimals: 9 for Solana lamports, 18 for EVM wei.
+    decimals = token_cfg.decimals if token_cfg else (9 if chain_type == "solana" else 18)
+    # Quantize BEFORE both the ledger debit and the on-chain int conversion so
+    # the two always agree exactly (no dust asymmetry from flooring only on
+    # the on-chain side).
+    amount = quantize_to_decimals(amount, decimals)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Enter an amount greater than zero.")
+
+    # Idempotency claim: atomically insert a PENDING placeholder guarded by the
+    # unique index on (user_id, idempotency_key). This closes the TOCTOU that a
+    # plain "check then later insert" would have — only one concurrent request
+    # with the same key (for this user) can win the claim; the loser is
+    # short-circuited immediately instead of proceeding to reserve/send.
+    claimed_tx_id = hot_wallet_service.claim_idempotency_key(
+        idempotency_key=idempotency_key,
+        user_id=uid,
+        tx_type=TransactionType.WITHDRAWAL,
+        chain=chain,
+        token_symbol=token,
+        amount=amount,
+        to_address=to_address,
+    )
+    if claimed_tx_id is None:
+        existing = hot_wallet_service.get_transaction_by_idempotency_key(uid, idempotency_key)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "This withdrawal was already submitted.",
+                "txHash": existing.tx_hash if existing else None,
+                "status": existing.status if existing else None,
+            },
+        )
+
+    # Reserve: atomically debit before any on-chain action is taken.
+    reserved = hot_wallet_service.reserve_custodial_balance(
+        user_id=uid, chain=chain, token_symbol=token, amount=amount
+    )
+    if not reserved:
+        # Never broadcast — safe to release the idempotency claim entirely.
+        hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+        balance = hot_wallet_service.get_custodial_balance(uid, chain, token)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient balance — you have {_to_float(balance)} {token} on {chain}.",
+        )
+
     try:
-        if token_address and token_address != "0x0000000000000000000000000000000000000000":
-            token_cfg = TOKENS.get(token)
-            if not token_cfg:
-                raise HTTPException(status_code=400, detail=f"Unknown token {token}.")
+        if not is_native:
             tx_hash = await hot_wallet_service.send_token(
                 wallet=hot_wallet,
                 chain_name=chain,
@@ -1907,6 +2106,7 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
                 amount=amount,
                 decimals=token_cfg.decimals,
                 memo=memo,
+                claimed_tx_id=claimed_tx_id,
             )
         else:
             tx_hash = await hot_wallet_service.send_native_token(
@@ -1914,28 +2114,69 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
                 chain_name=chain,
                 to_address=to_address,
                 amount=amount,
+                claimed_tx_id=claimed_tx_id,
             )
-    except HTTPException:
-        raise
+    except PostBroadcastAmbiguous as exc:
+        # DO NOT refund and DO NOT release the idempotency placeholder here.
+        # The node call failed/threw AFTER the tx may already have been
+        # accepted and propagated (timeout, dropped response, "already
+        # known", transient 5xx) — we genuinely don't know if funds moved.
+        # Refunding now (or releasing the key so a retry re-sends) risks a
+        # double-spend in the user's favor if the original tx actually lands.
+        # Leave the reservation debited and the placeholder PENDING; the
+        # withdraw reconciler resolves it against real chain state.
+        #
+        # The deterministic hash is normally already stamped pre-broadcast
+        # (see hot_wallet._broadcast_evm_raw_tx / _send_sol_native /
+        # _send_spl_token), but record it again here from the exception as an
+        # explicit, idempotent backstop so it is never silently dropped.
+        hot_wallet_service.record_pending_tx_hash(claimed_tx_id, exc.tx_hash)
+        logger.exception(
+            "terminal withdraw broadcast ambiguous for user %s (tx_id=%s, tx_hash=%s) — left PENDING for reconciler",
+            uid,
+            claimed_tx_id,
+            exc.tx_hash,
+        )
+        raise HTTPException(
+            status_code=202,
+            detail=(
+                "Your withdrawal was submitted but we couldn't confirm it reached the network. "
+                "We're checking — it will either complete or be refunded automatically; no action needed."
+            ),
+        )
+    except HTTPException as exc:
+        # Failed before broadcast (e.g. unknown token) — safe to fully undo.
+        hot_wallet_service.update_custodial_balance(
+            user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="add"
+        )
+        hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+        raise exc
+    except WithdrawalsPausedError as exc:
+        # Kill-switch check happens before any node call — safe to fully undo.
+        hot_wallet_service.update_custodial_balance(
+            user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="add"
+        )
+        hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+        raise HTTPException(status_code=503, detail=str(exc))
     except Exception:
+        # Anything else here (RPC URL missing, gas estimate failure, nonce
+        # fetch, signing) happens strictly BEFORE the broadcast call — the
+        # broadcast call itself is wrapped and raises PostBroadcastAmbiguous
+        # instead of a bare Exception, so reaching this branch means nothing
+        # was ever sent to the network. Safe to fully undo.
         logger.exception("terminal withdraw send failed for user %s", uid)
+        hot_wallet_service.update_custodial_balance(
+            user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="add"
+        )
+        hot_wallet_service.release_claimed_transaction(claimed_tx_id)
         raise HTTPException(
             status_code=502,
             detail="The withdrawal couldn't be submitted on-chain. Your balance is unchanged.",
         )
 
-    # Debit the ledger ONLY after a successful on-chain send (matches the bot).
-    hot_wallet_service.update_custodial_balance(
-        user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="subtract"
-    )
-    hot_wallet_service.record_transaction(
-        user_id=uid,
-        tx_type=TransactionType.WITHDRAWAL,
-        chain=chain,
-        token_symbol=token,
-        amount=amount,
-        tx_hash=tx_hash,
-        from_address=hot_wallet.address,
-        to_address=to_address,
+    # Balance was already debited by the reserve step above. Finalize the
+    # claimed idempotency placeholder.
+    hot_wallet_service.finalize_claimed_transaction(
+        tx_id=claimed_tx_id, tx_hash=tx_hash, from_address=hot_wallet.address
     )
     return {"ok": True, "txHash": tx_hash, "status": "submitted"}

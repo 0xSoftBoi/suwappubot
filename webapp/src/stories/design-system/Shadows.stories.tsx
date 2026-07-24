@@ -118,7 +118,7 @@ export const GlowEffects: Story = {
           </p>
         </div>
 
-        <div className="p-8 bg-gradient-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-xxl shadow-suwappu-glow">
+        <div className="p-8 bg-linear-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-xxl shadow-suwappu-glow">
           <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">Petal Card</h3>
           <p className="font-body text-suwappu-purple">
             Cards with the sakura glow effect for highlighted content

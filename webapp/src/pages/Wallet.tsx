@@ -371,7 +371,7 @@ function SendView({
             value={toAddress}
             onChange={(e) => setToAddress(e.target.value)}
             placeholder="0x..."
-            className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+            className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
           />
         </div>
 
@@ -389,7 +389,7 @@ function SendView({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0"
-              className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
             <button 
               onClick={() => setShowTokenSelect(!showTokenSelect)}

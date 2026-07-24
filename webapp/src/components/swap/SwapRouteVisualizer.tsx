@@ -81,7 +81,7 @@ function ChevronDown({ className }: { className?: string }) {
 // ──────────────────────────────────────────────
 function TokenCircle({ symbol }: { symbol: string }) {
   return (
-    <div className="w-8 h-8 rounded-suwappu-pill bg-suwappu-gradient flex items-center justify-center flex-shrink-0">
+    <div className="w-8 h-8 rounded-suwappu-pill bg-suwappu-gradient flex items-center justify-center shrink-0">
       <span className="text-white text-xs font-bold leading-none select-none">
         {symbol.slice(0, 2).toUpperCase()}
       </span>
@@ -171,12 +171,12 @@ function CompactMode({ hops, canToggle, onToggle }: CompactModeProps) {
 
     // Arrow with provider pill
     elements.push(
-      <ArrowRight key={`ar-${i}`} className="w-3.5 h-3.5 text-suwappu-text-secondary flex-shrink-0" />
+      <ArrowRight key={`ar-${i}`} className="w-3.5 h-3.5 text-suwappu-text-secondary shrink-0" />
     )
     elements.push(
       <span
         key={`prov-${i}`}
-        className={`text-xs font-medium px-1.5 py-0.5 rounded-suwappu-pill flex-shrink-0 ${
+        className={`text-xs font-medium px-1.5 py-0.5 rounded-suwappu-pill shrink-0 ${
           hop.type === 'bridge'
             ? 'bg-purple-500/10 text-purple-600'
             : 'bg-suwappu-sakura-100/50 text-suwappu-text-secondary'
@@ -186,7 +186,7 @@ function CompactMode({ hops, canToggle, onToggle }: CompactModeProps) {
       </span>
     )
     elements.push(
-      <ArrowRight key={`ar2-${i}`} className="w-3.5 h-3.5 text-suwappu-text-secondary flex-shrink-0" />
+      <ArrowRight key={`ar2-${i}`} className="w-3.5 h-3.5 text-suwappu-text-secondary shrink-0" />
     )
 
     // To token

@@ -5,8 +5,10 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { EnvService } from '../config/EnvService'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
-import { requireDb, subscriptions, x402Payments } from '../db'
+import { requireDb, subscriptions, wallets, x402Payments } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
+import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
+import { verifyX402Payment } from '../lib/x402Verify'
 import { telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -285,30 +287,40 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 				return yield* Effect.fail(new ValidationError({ message: 'Payment verification is not configured' }))
 			}
 			const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
-			yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${env.INTERNAL_API_URL}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': env.INTERNAL_API_KEY as string },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(price),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const v = (await res.json()) as { verified?: boolean; error?: string }
-					if (!v.verified) throw new Error(v.error || 'Payment not verified on-chain')
-					return v
-				},
+			const verification = yield* Effect.tryPromise({
+				try: () =>
+					verifyX402Payment({
+						internalUrl: env.INTERNAL_API_URL as string,
+						internalKey: env.INTERNAL_API_KEY as string,
+						txHash,
+						chain,
+						expectedAmount: String(price),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
+
+			// 2b) Sender-spoof defense: the on-chain payer MUST be one of THIS user's
+			//     bound wallets. Otherwise anyone could submit another user's inbound
+			//     payment txHash and be credited before the real payer.
+			const userWallets = yield* Effect.tryPromise({
+				try: () =>
+					db.select({ address: wallets.address }).from(wallets).where(eq(wallets.userId, dbUserId)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			if (!assertSenderBound(verification.sender, userWallets.map((w) => w.address))) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'Payment sender does not match any of your wallets (sender-spoof rejected).',
+					}),
+				)
+			}
 
 			// 3) Record payment (idempotent) + grant the subscription atomically.
 			const now = new Date()
@@ -332,6 +344,17 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 			const granted = yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						// Consume the payment in the SHARED (chain, txHash) ledger FIRST —
+						// global replay / cross-table double-redeem guard (the per-table
+						// x402_payments.paymentId guard only protects THIS table).
+						const consumed = await consumePayment(tx, {
+							chain,
+							txHash,
+							purpose: 'webapp_subscribe',
+							consumedBy: String(dbUserId),
+						})
+						if (!consumed) return { credited: false as const }
+
 						const ins = await tx
 							.insert(x402Payments)
 							.values({

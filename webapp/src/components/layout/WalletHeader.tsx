@@ -67,7 +67,7 @@ export function WalletHeader() {
       <div className="flex items-center justify-between h-14 px-3">
         {/* Logo */}
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-suwappu-gradient flex items-center justify-center shadow-sm">
+          <div className="w-8 h-8 rounded-full bg-suwappu-gradient flex items-center justify-center shadow-xs">
             <span className="text-white text-sm font-bold">S</span>
           </div>
           <span className="font-heading font-bold text-suwappu-purple-deep">Suwappu</span>

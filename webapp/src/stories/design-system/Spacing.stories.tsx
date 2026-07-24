@@ -26,7 +26,7 @@ export const SpacingScale: Story = {
             <div className="w-24 font-heading font-semibold text-suwappu-purple">{name}</div>
             <div className="w-16 text-sm text-suwappu-text-secondary">{value}px</div>
             <div
-              className="h-6 bg-gradient-to-r from-suwappu-sakura-mid to-suwappu-rose rounded"
+              className="h-6 bg-linear-to-r from-suwappu-sakura-mid to-suwappu-rose rounded"
               style={{ width: value }}
             />
           </div>
@@ -48,7 +48,7 @@ export const BorderRadius: Story = {
         {Object.entries(designTokens.borderRadius).map(([name, value]) => (
           <div key={name} className="text-center">
             <div
-              className="w-24 h-24 bg-gradient-to-br from-suwappu-sakura-light to-suwappu-rose shadow-suwappu-2 mx-auto mb-3"
+              className="w-24 h-24 bg-linear-to-br from-suwappu-sakura-light to-suwappu-rose shadow-suwappu-2 mx-auto mb-3"
               style={{ borderRadius: value }}
             />
             <div className="font-heading font-semibold text-suwappu-purple">{name}</div>
@@ -82,7 +82,7 @@ export const ContainerWidths: Story = {
               <span className="text-sm text-suwappu-text-secondary">{width}px</span>
             </div>
             <div
-              className="h-8 bg-gradient-to-r from-suwappu-sakura-mid to-suwappu-purple rounded-suwappu-sm"
+              className="h-8 bg-linear-to-r from-suwappu-sakura-mid to-suwappu-purple rounded-suwappu-sm"
               style={{ width: `${(width / 1536) * 100}%`, maxWidth: width }}
             />
           </div>
@@ -105,7 +105,7 @@ export const GridExample: Story = {
           {Array.from({ length: 12 }).map((_, i) => (
             <div
               key={i}
-              className="h-12 bg-gradient-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-sm shadow-suwappu-1 flex items-center justify-center text-xs font-heading font-bold text-suwappu-purple"
+              className="h-12 bg-linear-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-sm shadow-suwappu-1 flex items-center justify-center text-xs font-heading font-bold text-suwappu-purple"
             >
               {i + 1}
             </div>
@@ -113,34 +113,34 @@ export const GridExample: Story = {
         </div>
 
         <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-6 h-16 bg-gradient-to-br from-suwappu-rose to-suwappu-magenta-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
+          <div className="col-span-6 h-16 bg-linear-to-br from-suwappu-rose to-suwappu-magenta-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
             col-span-6
           </div>
-          <div className="col-span-6 h-16 bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
+          <div className="col-span-6 h-16 bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
             col-span-6
           </div>
         </div>
 
         <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-4 h-16 bg-gradient-to-br from-suwappu-sakura-mid to-suwappu-rose rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple-deep">
+          <div className="col-span-4 h-16 bg-linear-to-br from-suwappu-sakura-mid to-suwappu-rose rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple-deep">
             col-span-4
           </div>
-          <div className="col-span-8 h-16 bg-gradient-to-br from-suwappu-rose to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
+          <div className="col-span-8 h-16 bg-linear-to-br from-suwappu-rose to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
             col-span-8
           </div>
         </div>
 
         <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-3 h-16 bg-gradient-to-br from-suwappu-sakura-light to-suwappu-sakura-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple">
+          <div className="col-span-3 h-16 bg-linear-to-br from-suwappu-sakura-light to-suwappu-sakura-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple">
             3
           </div>
-          <div className="col-span-3 h-16 bg-gradient-to-br from-suwappu-sakura-mid to-suwappu-rose rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple-deep">
+          <div className="col-span-3 h-16 bg-linear-to-br from-suwappu-sakura-mid to-suwappu-rose rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-suwappu-purple-deep">
             3
           </div>
-          <div className="col-span-3 h-16 bg-gradient-to-br from-suwappu-rose to-suwappu-magenta-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
+          <div className="col-span-3 h-16 bg-linear-to-br from-suwappu-rose to-suwappu-magenta-mid rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
             3
           </div>
-          <div className="col-span-3 h-16 bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
+          <div className="col-span-3 h-16 bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple rounded-suwappu-md shadow-suwappu-2 flex items-center justify-center font-heading font-bold text-white">
             3
           </div>
         </div>

@@ -154,7 +154,7 @@ export function Support() {
                   : 'How can we help?'
               }
               aria-label={kind === 'bug' ? 'Describe the bug' : 'Describe what you need help with'}
-              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
             <div className="mt-1 text-right text-[10px] text-suwappu-text-secondary font-mono">
               {message.length}/{MAX_MESSAGE_LENGTH}
