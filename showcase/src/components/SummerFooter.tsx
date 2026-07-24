@@ -44,7 +44,8 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: 'Security', href: '/security' },
       { label: 'Careers', href: '/careers' },
       { label: 'GitHub', href: GITHUB_URL, external: true },
-      { label: 'Contact', href: TELEGRAM_URL, external: true },
+      { label: 'Talk to sales', href: '/contact' },
+      { label: 'Telegram', href: TELEGRAM_URL, external: true },
     ],
   },
   {
@@ -52,7 +53,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: 'Terms of Service', href: '/legal/terms' },
       { label: 'Privacy Policy', href: '/legal/privacy' },
-      { label: 'Risk Disclosures', href: '/legal/terms#risk' },
+      { label: 'Risk Disclosures', href: '/legal/risk' },
     ],
   },
 ];
