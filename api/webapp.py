@@ -194,6 +194,27 @@ class EnterpriseLeadResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MobileWaitlistRequest(BaseModel):
+    """Inbound mobile-app (iOS/Android + Suwappu Card by Rain) waitlist signup
+    from the marketing site.
+
+    Public (no auth). Kept minimal to maximize conversion. ``website`` is a
+    hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    email: str
+    name: Optional[str] = None
+    platform: Optional[str] = None  # "ios" | "android" | "both"
+    telegram: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+
+
+class MobileWaitlistResponse(BaseModel):
+    ok: bool
+    id: Optional[int] = None
+    error: Optional[str] = None
+
+
 class TelegramUser(BaseModel):
     id: int
     first_name: str
@@ -1124,6 +1145,79 @@ async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
 
     logger.info("Enterprise lead #%s captured from %s (%s)", lead_id, company[:80], email)
     return EnterpriseLeadResponse(ok=True, id=lead_id)
+
+
+@router.post("/mobile-waitlist", response_model=MobileWaitlistResponse)
+async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
+    """Capture a mobile-app (iOS/Android + Suwappu Card by Rain) waitlist signup
+    from the marketing site.
+
+    Public, no auth. Persists the signup as a ``SupportTicket`` of kind
+    ``mobile_waitlist`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval. Returns
+    ``{ok: true, id}`` on success.
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return MobileWaitlistResponse(ok=True)
+
+    email = (payload.email or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid email.")
+
+    def _clip(v: Optional[str], n: int) -> Optional[str]:
+        v = (v or "").strip()
+        return v[:n] if v else None
+
+    name = _clip(payload.name, 200)
+    platform = _clip(payload.platform, 20)
+    if platform and platform.lower() not in ("ios", "android", "both"):
+        platform = None
+    telegram = _clip(payload.telegram, 120)
+
+    # Human-readable body for the Telegram/Linear alert.
+    lines = [f"Email: {email}"]
+    if name:
+        lines.append(f"Name: {name}")
+    if platform:
+        lines.append(f"Platform: {platform}")
+    if telegram:
+        lines.append(f"Telegram: {telegram}")
+    message = "\n".join(lines)
+
+    context = {
+        "email": email,
+        "name": name,
+        "platform": platform,
+        "telegram": telegram,
+    }
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.MOBILE_WAITLIST,
+                source="website",
+                category="mobile_waitlist",
+                priority="normal",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            waitlist_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist mobile waitlist signup")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Mobile waitlist signup #%s captured (%s)", waitlist_id, email)
+    return MobileWaitlistResponse(ok=True, id=waitlist_id)
 
 
 @router.get("/billing/stripe/checkout")
