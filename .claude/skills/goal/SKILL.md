@@ -37,13 +37,14 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [x] D1. Webapp support form called `/webapp/support/tickets` with NO backend in either stack (the June api-ts routes were wiped). Fixed in PR #615: GET/POST `/webapp/support/tickets` added to Python `api/webapp.py` (terminal-JWT auth, support_notifier fan-out picks tickets up via notified_at).
 - [ ] D2. `/webapp/snipe` POST (`api.ts:634`) — no backend in either stack; webapp snipe is dead. MONEY-PATH when built.
 - [x] D3. Added GET /webapp/users/me/swaps/{id} (user-scoped, 404-not-403) + repointed webapp client. `GET /swaps/{id}` (`api.ts:122`) — no detail endpoint in either stack.
-- [ ] D4. Terminal tweet monitor (`terminal/src/components/tweets/TweetMonitorPanel.tsx`) — all `/webapp/tweets/*` calls 404; no backend.
+- [x] D4. Triaged: panel is correctly gated (COMING_SOON flag, no 404s reach users); account CRUD endpoints live in api/webapp.py:2037-2103; only the feed is a [] stub (api/webapp.py:2131) pending a tweet provider decision (Twitter API vs scraper) — product call, moved to F. Terminal tweet monitor (`terminal/src/components/tweets/TweetMonitorPanel.tsx`) — all `/webapp/tweets/*` calls 404; no backend.
 
 ### E. "Coming soon" stubs where the backend already EXISTS (quick wins)
 - [x] E1. Gate removed; panel wired to existing /webapp/alerts. Terminal AlertsPanel (`terminal/src/components/alerts/AlertsPanel.tsx:30,56`) — disabled stub, but `/webapp/alerts` backend exists. Wire it.
 - [x] E2. DCAPanel rewritten onto real useDCA hook (/webapp/dca/orders); DCAManager gate removed. Terminal DCAPanel (`terminal/src/components/trade/DCAPanel.tsx:68-73`) — stub, DCA backend exists (mobile/bot paths). Wire it.
 
 ### F. Genuine not-yet-built stubs (product decisions, not wiring)
+- [ ] F0. Tweet feed provider for terminal tweet monitor (see D4) — pick Twitter API vs scraper, implement feed at api/webapp.py:2131, flip COMING_SOON.
 - [ ] F1. Webapp Wallet "Send funds" (`Wallet.tsx:350`) — `alert('coming soon')`. Terminal has deposit/withdraw; port it.
 - [ ] F2. Terminal perps TP/SL (`PositionsTable.tsx:33,276`) — needs backend order-type support.
 - [ ] F3. P2P native escrow (`P2P.tsx:213,384`) — executor unwired (EscrowNotConfiguredError; known).
