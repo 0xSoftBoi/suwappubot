@@ -204,6 +204,13 @@ from bot.handlers.admin_performance import (
     perf_reset_handler,
     perf_slow_queries_handler,
 )
+from bot.handlers.support import (
+    support_conversation_handler,
+    tickets_handler,
+    ticket_handler,
+    treply_handler,
+    tclose_handler,
+)
 from bot.handlers.subscription import (
     subscription_handler,
     subscription_conversation,
@@ -311,6 +318,7 @@ from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
+from bot.services.support_notifier import support_notifier
 from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
@@ -431,6 +439,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
     application.add_handler(perf_handler)  # /perf
+    application.add_handler(tickets_handler)  # /tickets (admin: list support tickets)
+    application.add_handler(ticket_handler)  # /ticket (admin: view one ticket)
+    application.add_handler(treply_handler)  # /treply (admin: reply to a ticket)
+    application.add_handler(tclose_handler)  # /tclose (admin: resolve a ticket)
 
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
@@ -472,6 +484,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
     application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
     application.add_handler(gift_conversation)  # /gift gift cards (gated on BITREFILL_API_KEY)
+    application.add_handler(support_conversation_handler)  # /support, /bug — ticket filing
 
     # ============ COMMUNITY PAYMENT TOOLS (Bucket 2) ============
     # MONEY-PATH: custodial-balance transfers (tip / lucky box / split)
@@ -764,6 +777,8 @@ async def post_init(application) -> None:
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("support", "🆘 Contact support"),
+            BotCommand("bug", "🐞 Report a bug"),
             BotCommand("set", "⚙️ Settings"),
             BotCommand("h", "📖 Help — full command list"),
         ]
@@ -844,6 +859,10 @@ async def post_init(application) -> None:
         await rug_service.start(swap_engine=SwapEngine())
         logger.info("✓ Rug protection service started")
 
+        # Start support ticket fan-out (admin DM + support group + Linear sync)
+        await support_notifier.start(bot=application.bot)
+        logger.info("✓ Support notifier started")
+
         # Start HyperLiquid WebSocket alert feed
         if settings.hl_ws_alerts_enabled:
             await hl_ws_alerts.start(bot=application.bot)
@@ -863,6 +882,7 @@ async def post_shutdown(application) -> None:
         await launch_detector.stop()
         if settings.hl_ws_alerts_enabled:
             await hl_ws_alerts.stop()
+        await support_notifier.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()

@@ -233,6 +233,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             TreasuryPosition,
         )
 
+        # Support/bug ticket model — new table, create_all picks it up once imported.
+        from bot.models.support import SupportTicket
+
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
         # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns

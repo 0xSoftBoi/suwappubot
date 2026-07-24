@@ -4,6 +4,7 @@ JWT-authenticated REST endpoints for the Suwappu iOS/Android mobile app.
 All Phase 2 features: wallets, alerts, orders, DCA, points, referrals,
 copy trading, and sniping.  Delegates to existing service singletons.
 """
+
 import logging
 from datetime import datetime
 from typing import Optional, List
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/v1/mobile", tags=["mobile"])
 
 
 # ── helpers ──────────────────────────────────────────────────────────
+
 
 def _jwt_user(request: Request) -> dict:
     """Extract and validate JWT payload. Raises 401 on failure."""
@@ -46,11 +48,14 @@ def _require_db():
 
 # ── request / response models ────────────────────────────────────────
 
+
 class CreateWalletRequest(BaseModel):
     chainType: str = "evm"
 
+
 class SetDefaultWalletRequest(BaseModel):
     address: str
+
 
 # -- alerts --
 class CreateAlertBody(BaseModel):
@@ -60,6 +65,7 @@ class CreateAlertBody(BaseModel):
     alertType: str  # price_above | price_below | percent_change
     targetPrice: float | None = None
     percentChange: float | None = None
+
 
 # -- orders --
 class CreateOrderBody(BaseModel):
@@ -73,6 +79,7 @@ class CreateOrderBody(BaseModel):
     slippage: int | None = None
     expiresInHours: int | None = None
 
+
 # -- DCA --
 class CreateDCABody(BaseModel):
     fromToken: str
@@ -84,9 +91,11 @@ class CreateDCABody(BaseModel):
     maxExecutions: int | None = None
     maxTotalAmount: str | None = None
 
+
 # -- points --
 class RedeemRewardBody(BaseModel):
     rewardId: int
+
 
 # -- copy trading --
 class FollowTraderBody(BaseModel):
@@ -97,6 +106,7 @@ class FollowTraderBody(BaseModel):
     maxPerTrade: str | None = None
     dailyLimit: str | None = None
 
+
 # -- sniping --
 class CreateSnipeBody(BaseModel):
     tokenAddress: str | None = None
@@ -106,6 +116,7 @@ class CreateSnipeBody(BaseModel):
     slippage: int | None = None
     jitoTipLamports: int | None = None
     useMevProtection: bool = True
+
 
 class UpdateSnipeConfigBody(BaseModel):
     quickAmounts: list[float] | None = None
@@ -119,6 +130,7 @@ class UpdateSnipeConfigBody(BaseModel):
 #  WALLETS
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.post("/wallets")
 async def create_wallet(request: Request, body: CreateWalletRequest):
     """Create a new EVM or Solana wallet for the authenticated user."""
@@ -126,6 +138,7 @@ async def create_wallet(request: Request, body: CreateWalletRequest):
     _require_db()
 
     from bot.services.wallet import WalletService
+
     ws = WalletService()
     wallet = await ws.create_wallet(
         user_id=payload["user_id"],
@@ -147,11 +160,16 @@ async def set_default_wallet(request: Request, body: SetDefaultWalletRequest):
     _require_db()
 
     from bot.models.user import Wallet
+
     with get_session() as session:
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == payload["user_id"],
-            Wallet.is_active == True,
-        ).all()
+        wallets = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == payload["user_id"],
+                Wallet.is_active == True,
+            )
+            .all()
+        )
 
         found = False
         for w in wallets:
@@ -171,16 +189,23 @@ async def set_default_wallet(request: Request, body: SetDefaultWalletRequest):
 #  ALERTS
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/alerts")
 async def list_alerts(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.advanced import AdvancedPriceAlert
+
     with get_session() as session:
-        alerts = session.query(AdvancedPriceAlert).filter(
-            AdvancedPriceAlert.user_id == payload["user_id"],
-        ).order_by(AdvancedPriceAlert.created_at.desc()).all()
+        alerts = (
+            session.query(AdvancedPriceAlert)
+            .filter(
+                AdvancedPriceAlert.user_id == payload["user_id"],
+            )
+            .order_by(AdvancedPriceAlert.created_at.desc())
+            .all()
+        )
 
         return [
             {
@@ -188,7 +213,7 @@ async def list_alerts(request: Request):
                 "tokenSymbol": a.token_symbol,
                 "tokenAddress": a.token_address,
                 "chain": a.chain,
-                "alertType": a.alert_type.value if hasattr(a.alert_type, 'value') else a.alert_type,
+                "alertType": a.alert_type.value if hasattr(a.alert_type, "value") else a.alert_type,
                 "targetPrice": a.target_price,
                 "percentChange": a.percent_change,
                 "currentPrice": a.current_price,
@@ -208,6 +233,7 @@ async def create_alert(request: Request, body: CreateAlertBody):
     _require_db()
 
     from bot.models.advanced import AdvancedPriceAlert, AlertType
+
     with get_session() as session:
         alert = AdvancedPriceAlert(
             user_id=payload["user_id"],
@@ -232,11 +258,16 @@ async def delete_alert(request: Request, alert_id: int):
     _require_db()
 
     from bot.models.advanced import AdvancedPriceAlert
+
     with get_session() as session:
-        alert = session.query(AdvancedPriceAlert).filter(
-            AdvancedPriceAlert.id == alert_id,
-            AdvancedPriceAlert.user_id == payload["user_id"],
-        ).first()
+        alert = (
+            session.query(AdvancedPriceAlert)
+            .filter(
+                AdvancedPriceAlert.id == alert_id,
+                AdvancedPriceAlert.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not alert:
             raise HTTPException(status_code=404, detail="Alert not found")
         session.delete(alert)
@@ -250,11 +281,16 @@ async def toggle_alert(request: Request, alert_id: int):
     _require_db()
 
     from bot.models.advanced import AdvancedPriceAlert
+
     with get_session() as session:
-        alert = session.query(AdvancedPriceAlert).filter(
-            AdvancedPriceAlert.id == alert_id,
-            AdvancedPriceAlert.user_id == payload["user_id"],
-        ).first()
+        alert = (
+            session.query(AdvancedPriceAlert)
+            .filter(
+                AdvancedPriceAlert.id == alert_id,
+                AdvancedPriceAlert.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not alert:
             raise HTTPException(status_code=404, detail="Alert not found")
         alert.is_active = not alert.is_active
@@ -266,30 +302,37 @@ async def toggle_alert(request: Request, alert_id: int):
 #  LIMIT ORDERS
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/orders")
 async def list_orders(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.advanced import LimitOrder
+
     with get_session() as session:
-        orders = session.query(LimitOrder).filter(
-            LimitOrder.user_id == payload["user_id"],
-        ).order_by(LimitOrder.created_at.desc()).all()
+        orders = (
+            session.query(LimitOrder)
+            .filter(
+                LimitOrder.user_id == payload["user_id"],
+            )
+            .order_by(LimitOrder.created_at.desc())
+            .all()
+        )
 
         return [
             {
                 "id": o.id,
-                "orderType": o.order_type.value if hasattr(o.order_type, 'value') else o.order_type,
+                "orderType": o.order_type.value if hasattr(o.order_type, "value") else o.order_type,
                 "fromToken": o.from_token,
                 "toToken": o.to_token,
                 "fromChain": o.from_chain,
                 "toChain": o.to_chain,
                 "amount": o.amount,
                 "triggerPrice": o.trigger_price,
-                "currentPrice": getattr(o, 'current_price', None),
+                "currentPrice": getattr(o, "current_price", None),
                 "slippage": o.slippage_bps,
-                "status": o.status.value if hasattr(o.status, 'value') else o.status,
+                "status": o.status.value if hasattr(o.status, "value") else o.status,
                 "executedAt": o.executed_at.isoformat() if o.executed_at else None,
                 "expiresAt": o.expires_at.isoformat() if o.expires_at else None,
                 "txHash": o.tx_hash,
@@ -306,6 +349,7 @@ async def create_order(request: Request, body: CreateOrderBody):
 
     from bot.models.advanced import LimitOrder
     from datetime import timedelta
+
     with get_session() as session:
         order = LimitOrder(
             user_id=payload["user_id"],
@@ -320,7 +364,8 @@ async def create_order(request: Request, body: CreateOrderBody):
             status="pending",
             expires_at=(
                 datetime.utcnow() + timedelta(hours=body.expiresInHours)
-                if body.expiresInHours else None
+                if body.expiresInHours
+                else None
             ),
             created_at=datetime.utcnow(),
         )
@@ -336,11 +381,16 @@ async def cancel_order(request: Request, order_id: int):
     _require_db()
 
     from bot.models.advanced import LimitOrder
+
     with get_session() as session:
-        order = session.query(LimitOrder).filter(
-            LimitOrder.id == order_id,
-            LimitOrder.user_id == payload["user_id"],
-        ).first()
+        order = (
+            session.query(LimitOrder)
+            .filter(
+                LimitOrder.id == order_id,
+                LimitOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
         order.status = "cancelled"
@@ -352,16 +402,23 @@ async def cancel_order(request: Request, order_id: int):
 #  DCA
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/dca")
 async def list_dca(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.advanced import DCAOrder
+
     with get_session() as session:
-        plans = session.query(DCAOrder).filter(
-            DCAOrder.user_id == payload["user_id"],
-        ).order_by(DCAOrder.created_at.desc()).all()
+        plans = (
+            session.query(DCAOrder)
+            .filter(
+                DCAOrder.user_id == payload["user_id"],
+            )
+            .order_by(DCAOrder.created_at.desc())
+            .all()
+        )
 
         return [
             {
@@ -377,7 +434,7 @@ async def list_dca(request: Request):
                 "totalAmountSpent": str(d.total_spent or 0),
                 "totalAmountReceived": str(d.total_received or 0),
                 "averagePrice": d.average_price,
-                "status": d.status.value if hasattr(d.status, 'value') else d.status,
+                "status": d.status.value if hasattr(d.status, "value") else d.status,
                 "nextExecutionAt": d.next_execution_at.isoformat() if d.next_execution_at else None,
                 "createdAt": d.created_at.isoformat() if d.created_at else None,
             }
@@ -392,6 +449,7 @@ async def create_dca(request: Request, body: CreateDCABody):
 
     from bot.models.advanced import DCAOrder
     from datetime import timedelta
+
     with get_session() as session:
         dca = DCAOrder(
             user_id=payload["user_id"],
@@ -419,11 +477,16 @@ async def pause_dca(request: Request, dca_id: int):
     _require_db()
 
     from bot.models.advanced import DCAOrder
+
     with get_session() as session:
-        dca = session.query(DCAOrder).filter(
-            DCAOrder.id == dca_id,
-            DCAOrder.user_id == payload["user_id"],
-        ).first()
+        dca = (
+            session.query(DCAOrder)
+            .filter(
+                DCAOrder.id == dca_id,
+                DCAOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not dca:
             raise HTTPException(status_code=404, detail="DCA plan not found")
         dca.status = "paused"
@@ -438,11 +501,16 @@ async def resume_dca(request: Request, dca_id: int):
 
     from bot.models.advanced import DCAOrder
     from datetime import timedelta
+
     with get_session() as session:
-        dca = session.query(DCAOrder).filter(
-            DCAOrder.id == dca_id,
-            DCAOrder.user_id == payload["user_id"],
-        ).first()
+        dca = (
+            session.query(DCAOrder)
+            .filter(
+                DCAOrder.id == dca_id,
+                DCAOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not dca:
             raise HTTPException(status_code=404, detail="DCA plan not found")
         dca.status = "active"
@@ -457,11 +525,16 @@ async def cancel_dca(request: Request, dca_id: int):
     _require_db()
 
     from bot.models.advanced import DCAOrder
+
     with get_session() as session:
-        dca = session.query(DCAOrder).filter(
-            DCAOrder.id == dca_id,
-            DCAOrder.user_id == payload["user_id"],
-        ).first()
+        dca = (
+            session.query(DCAOrder)
+            .filter(
+                DCAOrder.id == dca_id,
+                DCAOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not dca:
             raise HTTPException(status_code=404, detail="DCA plan not found")
         dca.status = "cancelled"
@@ -475,17 +548,27 @@ async def list_dca_executions(request: Request, dca_id: int):
     _require_db()
 
     from bot.models.advanced import DCAOrder, DCAExecution
+
     with get_session() as session:
-        dca = session.query(DCAOrder).filter(
-            DCAOrder.id == dca_id,
-            DCAOrder.user_id == payload["user_id"],
-        ).first()
+        dca = (
+            session.query(DCAOrder)
+            .filter(
+                DCAOrder.id == dca_id,
+                DCAOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not dca:
             raise HTTPException(status_code=404, detail="DCA plan not found")
 
-        execs = session.query(DCAExecution).filter(
-            DCAExecution.dca_order_id == dca_id,
-        ).order_by(DCAExecution.executed_at.desc()).all()
+        execs = (
+            session.query(DCAExecution)
+            .filter(
+                DCAExecution.dca_order_id == dca_id,
+            )
+            .order_by(DCAExecution.executed_at.desc())
+            .all()
+        )
 
         return [
             {
@@ -507,22 +590,33 @@ async def list_dca_executions(request: Request, dca_id: int):
 #  POINTS / XP
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/points")
 async def get_points(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.points import UserPoints
+
     with get_session() as session:
-        up = session.query(UserPoints).filter(
-            UserPoints.user_id == payload["user_id"],
-        ).first()
+        up = (
+            session.query(UserPoints)
+            .filter(
+                UserPoints.user_id == payload["user_id"],
+            )
+            .first()
+        )
 
         if not up:
             return {
-                "points": 0, "spendablePoints": 0, "xp": 0,
-                "level": "Bronze", "levelEmoji": "", "feeDiscount": 0.8,
-                "dailyStreak": 0, "longestStreak": 0,
+                "points": 0,
+                "spendablePoints": 0,
+                "xp": 0,
+                "level": "Bronze",
+                "levelEmoji": "",
+                "feeDiscount": 0.8,
+                "dailyStreak": 0,
+                "longestStreak": 0,
                 "canCheckin": True,
             }
 
@@ -538,7 +632,7 @@ async def get_points(request: Request):
             "dailyStreak": up.daily_streak,
             "longestStreak": up.longest_streak,
             "lastCheckinAt": up.last_checkin_at.isoformat() if up.last_checkin_at else None,
-            "canCheckin": up.can_checkin if hasattr(up, 'can_checkin') else True,
+            "canCheckin": up.can_checkin if hasattr(up, "can_checkin") else True,
         }
 
 
@@ -548,6 +642,7 @@ async def daily_checkin(request: Request):
     _require_db()
 
     from bot.services.points_service import points_service
+
     try:
         result = await points_service.daily_checkin(payload["user_id"])
         return result
@@ -561,6 +656,7 @@ async def get_milestones(request: Request):
     _require_db()
 
     from bot.services.points_service import points_service
+
     try:
         return await points_service.get_milestones(payload["user_id"])
     except Exception as e:
@@ -574,6 +670,7 @@ async def get_rewards(request: Request):
     _require_db()
 
     from bot.models.points import Reward
+
     with get_session() as session:
         rewards = session.query(Reward).filter(Reward.is_active == True).all()
         return [
@@ -584,7 +681,7 @@ async def get_rewards(request: Request):
                 "cost": r.cost,
                 "rewardType": r.reward_type,
                 "rewardValue": r.reward_value,
-                "isAvailable": r.is_available if hasattr(r, 'is_available') else True,
+                "isAvailable": r.is_available if hasattr(r, "is_available") else True,
             }
             for r in rewards
         ]
@@ -596,6 +693,7 @@ async def redeem_reward(request: Request, reward_id: int):
     _require_db()
 
     from bot.services.points_service import points_service
+
     try:
         result = await points_service.redeem_reward(payload["user_id"], reward_id)
         return result
@@ -610,10 +708,18 @@ async def get_leaderboard(request: Request, limit: int = Query(default=50, le=10
 
     from bot.models.points import UserPoints
     from bot.models.user import User
+
     with get_session() as session:
-        rows = session.query(UserPoints, User).join(
-            User, UserPoints.user_id == User.id,
-        ).order_by(UserPoints.xp.desc()).limit(limit).all()
+        rows = (
+            session.query(UserPoints, User)
+            .join(
+                User,
+                UserPoints.user_id == User.id,
+            )
+            .order_by(UserPoints.xp.desc())
+            .limit(limit)
+            .all()
+        )
 
         return [
             {
@@ -639,12 +745,18 @@ async def get_points_history(
     _require_db()
 
     from bot.models.points import PointTransaction
+
     with get_session() as session:
-        txns = session.query(PointTransaction).filter(
-            PointTransaction.user_id == payload["user_id"],
-        ).order_by(
-            PointTransaction.created_at.desc()
-        ).offset(offset).limit(limit).all()
+        txns = (
+            session.query(PointTransaction)
+            .filter(
+                PointTransaction.user_id == payload["user_id"],
+            )
+            .order_by(PointTransaction.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
         return [
             {
@@ -662,16 +774,22 @@ async def get_points_history(
 #  REFERRALS
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/referral/code")
 async def get_referral_code(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.referral import ReferralCode
+
     with get_session() as session:
-        rc = session.query(ReferralCode).filter(
-            ReferralCode.user_id == payload["user_id"],
-        ).first()
+        rc = (
+            session.query(ReferralCode)
+            .filter(
+                ReferralCode.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not rc:
             return {"code": None}
         return {
@@ -688,14 +806,26 @@ async def get_referral_stats(request: Request):
     _require_db()
 
     from bot.services.referral_service import referral_service
+
     try:
-        stats = await referral_service.get_stats(payload["user_id"])
-        return stats
+        stats = referral_service.get_referral_stats(payload["user_id"])
+        return {
+            "code": stats.get("referral_code"),
+            "totalReferrals": stats.get("total_referrals", 0),
+            "activeReferrals": stats.get("active_referrals", 0),
+            "totalVolume": 0,
+            "totalRewards": float(stats.get("total_earnings_usd") or 0),
+            "unpaidRewards": float(stats.get("pending_rewards_usd") or 0),
+        }
     except Exception as e:
         logger.warning(f"Failed to get referral stats: {e}")
         return {
-            "code": None, "totalReferrals": 0, "activeReferrals": 0,
-            "totalVolume": 0, "totalRewards": 0, "unpaidRewards": 0,
+            "code": None,
+            "totalReferrals": 0,
+            "activeReferrals": 0,
+            "totalVolume": 0,
+            "totalRewards": 0,
+            "unpaidRewards": 0,
         }
 
 
@@ -706,12 +836,20 @@ async def get_referral_list(request: Request):
 
     from bot.models.referral import Referral
     from bot.models.user import User
+
     with get_session() as session:
-        refs = session.query(Referral, User).join(
-            User, Referral.referee_id == User.id,
-        ).filter(
-            Referral.referrer_id == payload["user_id"],
-        ).order_by(Referral.created_at.desc()).all()
+        refs = (
+            session.query(Referral, User)
+            .join(
+                User,
+                Referral.referee_id == User.id,
+            )
+            .filter(
+                Referral.referrer_id == payload["user_id"],
+            )
+            .order_by(Referral.created_at.desc())
+            .all()
+        )
 
         return [
             {
@@ -732,10 +870,17 @@ async def get_referral_rewards(request: Request):
     _require_db()
 
     from bot.models.referral import ReferralReward
+
     with get_session() as session:
-        rewards = session.query(ReferralReward).filter(
-            ReferralReward.referrer_id == payload["user_id"],
-        ).order_by(ReferralReward.created_at.desc()).limit(100).all()
+        rewards = (
+            session.query(ReferralReward)
+            .filter(
+                ReferralReward.referrer_id == payload["user_id"],
+            )
+            .order_by(ReferralReward.created_at.desc())
+            .limit(100)
+            .all()
+        )
 
         return [
             {
@@ -755,16 +900,24 @@ async def get_referral_rewards(request: Request):
 #  COPY TRADING
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/copy-trading/leaderboard")
 async def get_trader_leaderboard(request: Request, limit: int = Query(default=50, le=100)):
     _jwt_user(request)
     _require_db()
 
     from bot.models.copy_trading import TraderProfile
+
     with get_session() as session:
-        traders = session.query(TraderProfile).filter(
-            TraderProfile.is_public == True,
-        ).order_by(TraderProfile.rank_score.desc()).limit(limit).all()
+        traders = (
+            session.query(TraderProfile)
+            .filter(
+                TraderProfile.is_public == True,
+            )
+            .order_by(TraderProfile.rank_score.desc())
+            .limit(limit)
+            .all()
+        )
 
         return [
             {
@@ -794,6 +947,7 @@ async def get_trader_profile(request: Request, trader_id: int):
     _require_db()
 
     from bot.models.copy_trading import TraderProfile
+
     with get_session() as session:
         t = session.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
         if not t:
@@ -823,16 +977,21 @@ async def follow_trader(request: Request, trader_id: int, body: FollowTraderBody
     _require_db()
 
     from bot.models.copy_trading import CopyFollow, TraderProfile
+
     with get_session() as session:
         trader = session.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
         if not trader:
             raise HTTPException(status_code=404, detail="Trader not found")
 
-        existing = session.query(CopyFollow).filter(
-            CopyFollow.follower_id == payload["user_id"],
-            CopyFollow.trader_id == trader_id,
-            CopyFollow.is_active == True,
-        ).first()
+        existing = (
+            session.query(CopyFollow)
+            .filter(
+                CopyFollow.follower_id == payload["user_id"],
+                CopyFollow.trader_id == trader_id,
+                CopyFollow.is_active == True,
+            )
+            .first()
+        )
         if existing:
             raise HTTPException(status_code=409, detail="Already following this trader")
 
@@ -861,12 +1020,17 @@ async def unfollow_trader(request: Request, trader_id: int):
     _require_db()
 
     from bot.models.copy_trading import CopyFollow, TraderProfile
+
     with get_session() as session:
-        follow = session.query(CopyFollow).filter(
-            CopyFollow.follower_id == payload["user_id"],
-            CopyFollow.trader_id == trader_id,
-            CopyFollow.is_active == True,
-        ).first()
+        follow = (
+            session.query(CopyFollow)
+            .filter(
+                CopyFollow.follower_id == payload["user_id"],
+                CopyFollow.trader_id == trader_id,
+                CopyFollow.is_active == True,
+            )
+            .first()
+        )
         if not follow:
             raise HTTPException(status_code=404, detail="Not following this trader")
 
@@ -884,13 +1048,20 @@ async def get_my_follows(request: Request):
     _require_db()
 
     from bot.models.copy_trading import CopyFollow, TraderProfile
+
     with get_session() as session:
-        rows = session.query(CopyFollow, TraderProfile).join(
-            TraderProfile, CopyFollow.trader_id == TraderProfile.id,
-        ).filter(
-            CopyFollow.follower_id == payload["user_id"],
-            CopyFollow.is_active == True,
-        ).all()
+        rows = (
+            session.query(CopyFollow, TraderProfile)
+            .join(
+                TraderProfile,
+                CopyFollow.trader_id == TraderProfile.id,
+            )
+            .filter(
+                CopyFollow.follower_id == payload["user_id"],
+                CopyFollow.is_active == True,
+            )
+            .all()
+        )
 
         return [
             {
@@ -918,16 +1089,23 @@ async def get_copy_trades(request: Request, limit: int = Query(default=50, le=20
     _require_db()
 
     from bot.models.copy_trading import CopyTrade
+
     with get_session() as session:
-        trades = session.query(CopyTrade).filter(
-            CopyTrade.follower_id == payload["user_id"],
-        ).order_by(CopyTrade.created_at.desc()).limit(limit).all()
+        trades = (
+            session.query(CopyTrade)
+            .filter(
+                CopyTrade.follower_id == payload["user_id"],
+            )
+            .order_by(CopyTrade.created_at.desc())
+            .limit(limit)
+            .all()
+        )
 
         return [
             {
                 "id": ct.id,
                 "traderId": ct.trader_id,
-                "traderName": getattr(ct, 'trader_name', None),
+                "traderName": getattr(ct, "trader_name", None),
                 "fromToken": ct.from_token,
                 "toToken": ct.to_token,
                 "fromChain": ct.from_chain,
@@ -945,29 +1123,36 @@ async def get_copy_trades(request: Request, limit: int = Query(default=50, le=20
 #  SNIPING
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/sniping/orders")
 async def list_snipe_orders(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.snipe import SnipeOrder
+
     with get_session() as session:
-        orders = session.query(SnipeOrder).filter(
-            SnipeOrder.user_id == payload["user_id"],
-        ).order_by(SnipeOrder.created_at.desc()).all()
+        orders = (
+            session.query(SnipeOrder)
+            .filter(
+                SnipeOrder.user_id == payload["user_id"],
+            )
+            .order_by(SnipeOrder.created_at.desc())
+            .all()
+        )
 
         return [
             {
                 "id": o.id,
                 "tokenAddress": o.token_mint,
                 "tokenSymbol": o.token_symbol,
-                "platform": o.platform.value if hasattr(o.platform, 'value') else o.platform,
-                "mode": o.mode.value if hasattr(o.mode, 'value') else o.mode,
+                "platform": o.platform.value if hasattr(o.platform, "value") else o.platform,
+                "mode": o.mode.value if hasattr(o.mode, "value") else o.mode,
                 "amountSol": str(o.sol_amount),
                 "slippage": o.slippage_bps,
                 "jitoTipLamports": o.jito_tip_lamports,
                 "useMevProtection": o.use_jito,
-                "status": o.status.value if hasattr(o.status, 'value') else o.status,
+                "status": o.status.value if hasattr(o.status, "value") else o.status,
                 "txSignature": o.tx_signature,
                 "tokensReceived": o.tokens_received,
                 "executedAt": o.executed_at.isoformat() if o.executed_at else None,
@@ -983,6 +1168,7 @@ async def create_snipe_order(request: Request, body: CreateSnipeBody):
     _require_db()
 
     from bot.models.snipe import SnipeOrder
+
     with get_session() as session:
         order = SnipeOrder(
             user_id=payload["user_id"],
@@ -1008,11 +1194,16 @@ async def cancel_snipe_order(request: Request, order_id: int):
     _require_db()
 
     from bot.models.snipe import SnipeOrder
+
     with get_session() as session:
-        order = session.query(SnipeOrder).filter(
-            SnipeOrder.id == order_id,
-            SnipeOrder.user_id == payload["user_id"],
-        ).first()
+        order = (
+            session.query(SnipeOrder)
+            .filter(
+                SnipeOrder.id == order_id,
+                SnipeOrder.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not order:
             raise HTTPException(status_code=404, detail="Snipe order not found")
         order.status = "cancelled"
@@ -1026,10 +1217,15 @@ async def get_snipe_config(request: Request):
     _require_db()
 
     from bot.models.snipe import SnipeConfig
+
     with get_session() as session:
-        cfg = session.query(SnipeConfig).filter(
-            SnipeConfig.user_id == payload["user_id"],
-        ).first()
+        cfg = (
+            session.query(SnipeConfig)
+            .filter(
+                SnipeConfig.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not cfg:
             return {
                 "quickAmounts": [0.1, 0.25, 0.5, 1.0],
@@ -1051,6 +1247,7 @@ async def get_snipe_config(request: Request):
 #  TOKEN PRICE & DISCOVERY
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/token/{chain}/{address}/price")
 async def get_token_price(
     request: Request,
@@ -1065,12 +1262,18 @@ async def get_token_price(
 
     # Map timeframe to seconds for mock data generation
     tf_seconds = {
-        "1h": 3600, "1d": 86400, "1w": 604800,
-        "1m": 2592000, "1y": 31536000,
+        "1h": 3600,
+        "1d": 86400,
+        "1w": 604800,
+        "1m": 2592000,
+        "1y": 31536000,
     }
     tf_points = {
-        "1h": 60, "1d": 96, "1w": 168,
-        "1m": 120, "1y": 365,
+        "1h": 60,
+        "1d": 96,
+        "1w": 168,
+        "1m": 120,
+        "1y": 365,
     }
     total_seconds = tf_seconds.get(timeframe, 86400)
     num_points = tf_points.get(timeframe, 96)
@@ -1078,9 +1281,7 @@ async def get_token_price(
     # Try DexScreener public API for real data
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"https://api.dexscreener.com/latest/dex/tokens/{address}"
-            )
+            resp = await client.get(f"https://api.dexscreener.com/latest/dex/tokens/{address}")
             if resp.status_code == 200:
                 data = resp.json()
                 pairs = data.get("pairs") or []
@@ -1104,6 +1305,7 @@ async def get_token_price(
                         p = start_price + (price - start_price) * progress
                         # Add minor noise
                         import random
+
                         noise = p * random.uniform(-0.005, 0.005)
                         prices.append({"timestamp": t, "value": round(p + noise, 8)})
 
@@ -1125,6 +1327,7 @@ async def get_token_price(
 
     # Fallback: return mock data
     import random
+
     now = int(time.time())
     step = total_seconds // num_points
     mock_price = random.uniform(0.5, 100)
@@ -1174,17 +1377,19 @@ async def discover_trending(
                     if addr in seen:
                         continue
                     seen.add(addr)
-                    tokens.append({
-                        "address": addr,
-                        "symbol": item.get("symbol", item.get("tokenAddress", "")[:6]),
-                        "name": item.get("name", "Unknown"),
-                        "chain": item.get("chainId", "unknown"),
-                        "price": 0,
-                        "change24h": 0,
-                        "volume24h": 0,
-                        "marketCap": None,
-                        "logoUrl": item.get("icon"),
-                    })
+                    tokens.append(
+                        {
+                            "address": addr,
+                            "symbol": item.get("symbol", item.get("tokenAddress", "")[:6]),
+                            "name": item.get("name", "Unknown"),
+                            "chain": item.get("chainId", "unknown"),
+                            "price": 0,
+                            "change24h": 0,
+                            "volume24h": 0,
+                            "marketCap": None,
+                            "logoUrl": item.get("icon"),
+                        }
+                    )
                 return tokens
     except Exception as e:
         logger.warning(f"Trending tokens fetch failed: {e}")
@@ -1225,9 +1430,7 @@ async def discover_search(
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"https://api.dexscreener.com/latest/dex/search?q={q}"
-            )
+            resp = await client.get(f"https://api.dexscreener.com/latest/dex/search?q={q}")
             if resp.status_code == 200:
                 data = resp.json()
                 pairs = data.get("pairs") or []
@@ -1239,17 +1442,19 @@ async def discover_search(
                     if addr in seen:
                         continue
                     seen.add(addr)
-                    tokens.append({
-                        "address": addr,
-                        "symbol": base.get("symbol", ""),
-                        "name": base.get("name", ""),
-                        "chain": pair.get("chainId", "unknown"),
-                        "price": float(pair.get("priceUsd", 0)),
-                        "change24h": float(pair.get("priceChange", {}).get("h24", 0)),
-                        "volume24h": float(pair.get("volume", {}).get("h24", 0)),
-                        "marketCap": pair.get("marketCap"),
-                        "logoUrl": None,
-                    })
+                    tokens.append(
+                        {
+                            "address": addr,
+                            "symbol": base.get("symbol", ""),
+                            "name": base.get("name", ""),
+                            "chain": pair.get("chainId", "unknown"),
+                            "price": float(pair.get("priceUsd", 0)),
+                            "change24h": float(pair.get("priceChange", {}).get("h24", 0)),
+                            "volume24h": float(pair.get("volume", {}).get("h24", 0)),
+                            "marketCap": pair.get("marketCap"),
+                            "logoUrl": None,
+                        }
+                    )
                 return tokens
     except Exception as e:
         logger.warning(f"Token search failed: {e}")
@@ -1261,16 +1466,22 @@ async def discover_search(
 #  SNIPING (continued)
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.put("/sniping/config")
 async def update_snipe_config(request: Request, body: UpdateSnipeConfigBody):
     payload = _jwt_user(request)
     _require_db()
 
     from bot.models.snipe import SnipeConfig
+
     with get_session() as session:
-        cfg = session.query(SnipeConfig).filter(
-            SnipeConfig.user_id == payload["user_id"],
-        ).first()
+        cfg = (
+            session.query(SnipeConfig)
+            .filter(
+                SnipeConfig.user_id == payload["user_id"],
+            )
+            .first()
+        )
         if not cfg:
             cfg = SnipeConfig(user_id=payload["user_id"])
             session.add(cfg)
