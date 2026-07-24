@@ -28,8 +28,10 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [x] B3. Fixed: imports added to database/db.py. Models never imported in `database/db.py` schema init (tables may never be created — verify at runtime first; another import path may create them): `bot/models/custodial.py` (CustodialBalance, CustodialTransaction, HotWallet, GasSponsorshipConfig, UserGasUsage), `bot/models/favorites.py` (FavoriteSwapPair, PriceAlert, UserSettings), `bot/models/tempo_access_key.py`.
 
 ### C. Unmounted / missing API routes
-- [ ] C1. `api-ts/src/routes/tokens.ts` exports `tokenRoutes` but is never mounted in app.ts (intended `/webapp/tokens` per its comments) → webapp's `/webapp/tokens/prices` call (api.ts:322) has no backend.
-- [ ] C2. `api/main.py:653,660,667` — imports `api.routes.webapp`, `api.routes.swap`, `api.routes.a2a` which don't exist as files; silently skipped by try/except. Decide: create, repoint, or remove the imports.
+- [x] C1. Mounted at /webapp/tokens in app.ts. `api-ts/src/routes/tokens.ts` exports `tokenRoutes` but is never mounted in app.ts (intended `/webapp/tokens` per its comments) → webapp's `/webapp/tokens/prices` call (api.ts:322) has no backend.
+- [x] C2. Deleted all three stale try/except blocks (functionality already mounted via api/webapp.py + inline agent routes). `api/main.py:653,660,667` — imports `api.routes.webapp`, `api.routes.swap`, `api.routes.a2a` which don't exist as files; silently skipped by try/except. Decide: create, repoint, or remove the imports.
+
+- [ ] C3. NEW: webapp calls `/webapp/tokens/lookup` (webapp/src/lib/api.ts:868) which does not exist in api-ts tokens.ts — add or repoint.
 
 ### D. Frontend calls with no (or wrong-path) backend
 - [x] D1. Webapp support form called `/webapp/support/tickets` with NO backend in either stack (the June api-ts routes were wiped). Fixed in PR #615: GET/POST `/webapp/support/tickets` added to Python `api/webapp.py` (terminal-JWT auth, support_notifier fan-out picks tickets up via notified_at).

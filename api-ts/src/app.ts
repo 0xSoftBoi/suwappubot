@@ -25,6 +25,7 @@ import {
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
+	tokenRoutes,
 	webappRoutes,
 } from './routes'
 
@@ -94,6 +95,9 @@ export function createApp(config: AppConfig) {
 
 	// On-chain fee-cashback rewards (read API + wallet-claim payloads)
 	app.route('/webapp/rewards', rewardsRoutes)
+
+	// Token search/price routes - public, no Telegram auth required
+	app.route('/webapp/tokens', tokenRoutes)
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
