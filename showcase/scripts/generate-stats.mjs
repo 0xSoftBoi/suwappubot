@@ -17,6 +17,14 @@
  * Offline and deterministic by design: it parses repo files and never calls the
  * network, so a CI build cannot break because api.suwappu.bot blipped.
  *
+ * DO NOT WIRE THIS INTO `prebuild`. It reads bot/ and api-ts/ at the repo root,
+ * but showcase/Dockerfile builds from a context scoped to showcase/ (`COPY . .`),
+ * so those paths do not exist in the deploy container — a prebuild hook here fails
+ * the Railway build outright (it did, on 2026-07-24). The emitted JSON is committed
+ * and is what the build consumes. Regenerate locally via `bun run stats:generate`;
+ * `bun run stats:check` fails if the committed JSON has drifted from source, which
+ * is the drift guard and belongs in CI where the whole repo is present.
+ *
  * Fails loudly. A parse that finds zero entries means the upstream shape changed;
  * emitting a stale or zero count onto a public page is far worse than a red build.
  */
