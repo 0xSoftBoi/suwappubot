@@ -121,6 +121,7 @@ class AlertService:
                         "id": a.id,
                         "user_id": a.user_id,
                         "token_symbol": a.token_symbol,
+                        "chain": a.chain,
                         "alert_type": a.alert_type,
                         "target_price": a.target_price,
                         "base_price": a.base_price,
@@ -169,6 +170,7 @@ class AlertService:
                         "alert_id": ad["id"],
                         "user_id": ad["user_id"],
                         "token": ad["token_symbol"],
+                        "chain": ad["chain"],
                         "alert_type": ad["alert_type"],
                         "target_price": ad["target_price"],
                         "current_price": current_price,
@@ -274,10 +276,20 @@ class AlertService:
                     whatsapp_id = user.whatsapp_id
 
             if telegram_id:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                from bot.utils.deep_links import build_alert_deep_link
+
+                deep_link = build_alert_deep_link(alert)
+                reply_markup = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("💱 Review & Sign", url=deep_link)]]
+                )
+
                 await self._bot.send_message(
                     chat_id=telegram_id,
                     text=text,
                     parse_mode="Markdown",
+                    reply_markup=reply_markup,
                 )
 
             # Mirror to WhatsApp if the user has a linked number and WA is configured
