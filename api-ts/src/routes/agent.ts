@@ -26,7 +26,7 @@ import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '..
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
-import type { PolicyIntent } from '../services'
+import { buildEvmPolicyIntent, buildSolanaPolicyIntent, evaluateSwapPolicy } from '../services/SwapPolicyGate'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -926,68 +926,45 @@ agentRoutes.post('/swap', async (c) => {
 		// a self-signing EOA that could bypass this API entirely.
 		const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
 		if (apiKeyCtx?.orgId) {
-			const policyIntent: PolicyIntent = cached.isSolana
-				? {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
-						chain: 'solana',
-						fromToken: quote.inputMint ?? null,
-						toToken: quote.outputMint ?? null,
-						// TODO: Solana quote carries no USD value; USD-based caps are
-						// skipped until we price the input mint. Chain/token rules apply.
-						valueUsd: 0,
-					}
-				: {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
-						chain: String(quote.fromChain),
-						fromToken: quote.fromToken?.address ?? null,
-						toToken: quote.toToken?.address ?? null,
-						valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
-						gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
-					}
+			const agentIdStr = agent.uuid ?? String(agent.id)
+			// Shared intent builder + evaluator (SwapPolicyGate.ts) — kept in sync
+			// with the MCP execute_swap path so both entry points can never drift
+			// on chain-key/agentId/valueUsd basis, and both get the same
+			// fail-open (infra error) / fail-closed (unpriceable Solana trade
+			// against a USD-denominated policy) posture.
+			const { intent: policyIntent, canPriceUsd } = cached.isSolana
+				? buildSolanaPolicyIntent(quote as { inputMint?: string; outputMint?: string; slippageBps?: number }, apiKeyCtx.orgId, agentIdStr)
+				: buildEvmPolicyIntent(quote as SwapQuote, apiKeyCtx.orgId, agentIdStr)
 
-			const verdict = await runEffectEither(
-				Effect.gen(function* () {
-					const policy = yield* PolicyService
-					return yield* policy.evaluate(policyIntent)
-				}),
-			)
+			const verdict = await evaluateSwapPolicy(apiKeyCtx.orgId, agentIdStr, policyIntent, canPriceUsd)
 
-			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
-				const { decision, reason, matchedPolicyId } = verdict.right
+			if (verdict.decision !== 'allow') {
 				writeAuditLog({
 					userId: 0,
 					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
-					eventType: `policy.${decision}`,
-					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
+					agentId: agentIdStr,
+					eventType: `policy.${verdict.decision}`,
+					details: {
+						reason: verdict.reason,
+						matchedPolicyId: verdict.matchedPolicyId,
+						chain: policyIntent.chain,
+						valueUsd: policyIntent.valueUsd,
+						unpriceable: verdict.unpriceable ?? false,
+					},
 				})
-				const status = decision === 'require_approval' ? 202 : 403
+				const status = verdict.decision === 'require_approval' ? 202 : 403
 				return c.json(
 					{
 						success: false,
-						status: decision,
+						status: verdict.decision,
 						error:
-							decision === 'require_approval'
+							verdict.decision === 'require_approval'
 								? 'Transaction requires approval under org policy'
 								: 'Transaction blocked by org policy',
-						reason: reason ?? null,
+						reason: verdict.reason ?? null,
 					},
 					status,
 				)
-			}
-			// If the policy query itself errored (Left), fail open but log it — never
-			// block legitimate trades on an infra hiccup. The decision log captures
-			// successful evaluations; this branch is the rare DB-down case.
-			if (Either.isLeft(verdict)) {
-				writeAuditLog({
-					userId: 0,
-					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
-					eventType: 'policy.eval_error',
-					details: { error: String(verdict.left) },
-				})
 			}
 		}
 
