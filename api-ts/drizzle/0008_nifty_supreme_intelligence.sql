@@ -1,0 +1,1 @@
+ALTER TABLE "policy_decisions" ADD COLUMN "approval_id" uuid;

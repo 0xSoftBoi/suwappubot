@@ -46,6 +46,10 @@ export interface PolicyDecisionResult {
 	decision: PolicyVerdict
 	reason?: string
 	matchedPolicyId?: string
+	/** id of the append-only policy_decisions row this evaluation wrote — lets
+	 * callers (e.g. ApprovalService) link an approval request back to the
+	 * decision that triggered it. */
+	id?: number
 }
 
 export interface PolicyServiceInterface {
@@ -138,24 +142,28 @@ export const PolicyServiceLive = Layer.succeed(
 					result: PolicyDecisionResult,
 				): Effect.Effect<PolicyDecisionResult, never, DrizzleService> =>
 					Effect.gen(function* () {
-						yield* Effect.tryPromise({
+						const inserted = yield* Effect.tryPromise({
 							try: () =>
-								db.insert(policyDecisions).values({
-									organizationId: orgId,
-									agentId: intent.agentId ?? null,
-									decision: result.decision,
-									reason: result.reason?.slice(0, 300) ?? null,
-									matchedPolicyId: result.matchedPolicyId ?? null,
-									intent: intent as unknown as Record<string, unknown>,
-									valueUsd: intent.valueUsd,
-								}),
+								db
+									.insert(policyDecisions)
+									.values({
+										organizationId: orgId,
+										agentId: intent.agentId ?? null,
+										decision: result.decision,
+										reason: result.reason?.slice(0, 300) ?? null,
+										matchedPolicyId: result.matchedPolicyId ?? null,
+										intent: intent as unknown as Record<string, unknown>,
+										valueUsd: intent.valueUsd,
+									})
+									.returning({ id: policyDecisions.id }),
 							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 						}).pipe(
-							Effect.catchAll((e) =>
-								Effect.sync(() => logger.warn(`[policy] decision log failed: ${e}`)),
-							),
+							Effect.catchAll((e) => {
+								logger.warn(`[policy] decision log failed: ${e}`)
+								return Effect.succeed([] as Array<{ id: number }>)
+							}),
 						)
-						return result
+						return { ...result, id: inserted[0]?.id }
 					})
 
 				// 1. Kill switches (global / org / agent) — any active match blocks.

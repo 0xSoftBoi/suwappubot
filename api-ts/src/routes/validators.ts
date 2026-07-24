@@ -111,6 +111,9 @@ export const SwapRequestSchema = z.object({
 	chain: z.string().optional(),
 	wallet_address: z.string().min(1, 'wallet_address is required'),
 	slippage: z.number().min(0).max(1).optional(),
+	// Present when re-submitting an execute call that was previously deferred
+	// with a 202 require_approval response — see ApprovalService.consume().
+	approval_id: z.string().uuid().optional(),
 })
 
 export const ExecuteCommandSchema = z.object({

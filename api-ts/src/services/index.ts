@@ -5,6 +5,14 @@ export {
 	type UpdateAgentParams,
 } from './AgentService'
 export { type Alert, AlertService, AlertServiceLive, type CreateAlertParams } from './AlertService'
+export {
+	ApprovalService,
+	ApprovalServiceLive,
+	APPROVAL_TTL_MS,
+	type ApprovalServiceInterface,
+	type CreateApprovalInput,
+	hashCoreTerms,
+} from './ApprovalService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
 	CopyTradingService,

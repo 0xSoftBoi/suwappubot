@@ -1,13 +1,14 @@
 import crypto from 'crypto'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, organizations, policyDecisions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { type EconomicTerms, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -17,6 +18,7 @@ import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
+import { flexAuth } from '../middleware/flexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
@@ -30,6 +32,7 @@ import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
+	ApprovalService,
 	BalanceService,
 	CHAINS,
 	COMMON_TOKENS,
@@ -94,6 +97,17 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
+/**
+ * Canonical agent identifier used EVERYWHERE an agent-scoped varchar id is
+ * needed (policyDecisions.agentId, approvalRequests.agentId, audit logs).
+ * Prefers the stable uuid; falls back to the numeric id stringified for
+ * agents pre-dating the uuid column. Single source of truth so create/read/
+ * consume paths can never drift onto different identifiers for the same agent.
+ */
+export function agentIdentifierOf(agent: Agent): string {
+	return agent.uuid ?? String(agent.id)
 }
 
 // CoinGecko ID mapping for token prices
@@ -436,6 +450,14 @@ agentRoutes.use('/wallet/policies', agentFlexAuth())
 agentRoutes.use('/billing', agentFlexAuth())
 agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
+// Approval queue (human-in-the-loop maker-checker):
+// - GET /approvals/:id is the agent polling its OWN pending request -> agent key auth.
+// - Everything else (list / approve / deny) is the human owner acting on it -> JWT
+//   auth ONLY, never an agent key, since agent keys must never self-approve.
+agentRoutes.use('/approvals/:id', agentBearerAuth())
+agentRoutes.use('/approvals', flexAuth())
+agentRoutes.use('/approvals/:id/approve', flexAuth())
+agentRoutes.use('/approvals/:id/deny', flexAuth())
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -459,6 +481,16 @@ agentRoutes.use('/wallet/policies', rateLimit())
 agentRoutes.use('/billing', rateLimit())
 agentRoutes.use('/billing/*', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
+agentRoutes.use('/approvals', rateLimit())
+agentRoutes.use('/approvals/:id', rateLimit())
+agentRoutes.use('/approvals/:id/approve', rateLimit())
+agentRoutes.use('/approvals/:id/deny', rateLimit())
+// Extra per-IP throttle on the owner-facing (JWT) approval endpoints — these
+// gate real money movement, so cap brute-force/scripted approve-spam attempts
+// independent of the per-user rateLimit() above.
+agentRoutes.use('/approvals', ipRateLimit(30))
+agentRoutes.use('/approvals/:id/approve', ipRateLimit(30))
+agentRoutes.use('/approvals/:id/deny', ipRateLimit(30))
 
 // ===========================================
 // PAY-PER-CALL METERING (x402 prepaid credits)
@@ -864,9 +896,115 @@ agentRoutes.post('/quote', async (c) => {
 	})
 })
 
+// Builds the "ready to sign" JSON response for a quote (shared by the normal
+// quote_id path and the approval-resubmit path, which re-quotes fresh rather
+// than reusing a (long-expired) cached quote).
+async function buildSwapTxResponse(
+	c: Context,
+	agent: Agent,
+	quote: JupiterQuote | SwapQuote,
+	isSolana: boolean,
+	walletAddress: string,
+	quoteIdForDisplay: string,
+) {
+	if (isSolana) {
+		const jq = quote as JupiterQuote
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const jupiterService = yield* JupiterService
+				return yield* jupiterService
+					.getSwapTransaction({ quote: jq, userPublicKey: walletAddress, wrapUnwrapSOL: true })
+					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
+			}),
+		)
+
+		if (Either.isLeft(result)) {
+			return c.json(
+				{ success: false, error: 'Failed to get Solana transaction', details: result.left.message },
+				400,
+			)
+		}
+
+		const swapTx = result.right
+		return c.json({
+			success: true,
+			status: 'ready',
+			message: 'Solana transaction ready for signing',
+			quote_id: quoteIdForDisplay,
+			chain: 'solana',
+			swap: {
+				from_token: jq.inputMint,
+				to_token: jq.outputMint,
+				amount_in: jq.inAmount,
+				expected_amount_out: jq.outAmount,
+				minimum_amount_out: jq.otherAmountThreshold,
+			},
+			transaction: {
+				type: 'solana',
+				serialized_transaction: swapTx.swapTransaction,
+				last_valid_block_height: swapTx.lastValidBlockHeight,
+			},
+			instructions: [
+				'1. Deserialize the base64 transaction',
+				'2. Sign with your Solana wallet',
+				'3. Submit to Solana RPC (sendTransaction)',
+				'4. Monitor signature for confirmation',
+			],
+			explorer: 'https://solscan.io/tx/',
+		})
+	}
+
+	const evmQuote = quote as SwapQuote
+	if (!checkEvmWalletOwnership(agent, walletAddress)) {
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+	}
+
+	return c.json({
+		success: true,
+		status: 'ready',
+		message: 'Transaction ready for signing',
+		quote_id: quoteIdForDisplay,
+		chain_type: 'evm',
+		swap: {
+			from_chain: evmQuote.fromChain,
+			to_chain: evmQuote.toChain,
+			from_token: evmQuote.fromToken.symbol,
+			to_token: evmQuote.toToken.symbol,
+			amount_in: evmQuote.fromAmount,
+			expected_amount_out: evmQuote.toAmount,
+			minimum_amount_out: evmQuote.toAmountMin,
+		},
+		transaction: {
+			to: evmQuote.transactionRequest.to,
+			from: walletAddress,
+			value: evmQuote.transactionRequest.value,
+			data: evmQuote.transactionRequest.data,
+			chain_id: evmQuote.transactionRequest.chainId,
+			gas_limit: evmQuote.transactionRequest.gasLimit,
+			gas_price: evmQuote.transactionRequest.gasPrice,
+		},
+		instructions: [
+			'1. Sign this transaction with your wallet',
+			'2. Submit the signed transaction to the chain RPC',
+			'3. Monitor the transaction hash for confirmation',
+		],
+		explorer_base_urls: {
+			'1': 'https://etherscan.io/tx/',
+			'10': 'https://optimistic.etherscan.io/tx/',
+			'56': 'https://bscscan.com/tx/',
+			'137': 'https://polygonscan.com/tx/',
+			'42161': 'https://arbiscan.io/tx/',
+			'8453': 'https://basescan.org/tx/',
+			'43114': 'https://snowtrace.io/tx/',
+		},
+	})
+}
+
 // POST /v1/agent/swap - Execute a swap (returns unsigned transaction)
 agentRoutes.post('/swap', async (c) => {
 	const agent = c.get('agent')
+	const agentIdentifier = agentIdentifierOf(agent)
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
 
 	let body: unknown
 	try {
@@ -887,7 +1025,7 @@ agentRoutes.post('/swap', async (c) => {
 		)
 	}
 
-	const { quote_id, wallet_address } = parsed.data
+	const { quote_id, wallet_address, approval_id } = parsed.data
 
 	// Track swap attempt
 	await runEffectEither(
@@ -896,6 +1034,232 @@ agentRoutes.post('/swap', async (c) => {
 			yield* agentService.incrementAgentStats(agent.id, 'swap')
 		}),
 	)
+
+	// --- Resubmission of a previously deferred (require_approval) execute call ---
+	// The agent polled GET /v1/agent/approvals/:id until status flipped to
+	// 'approved', then re-submits with approval_id set (quote_id is NOT required —
+	// the original cached quote is long expired by the time a human approves).
+	// We re-quote server-side from the approval's stored economic terms, validate
+	// the fresh terms match (same chain/tokens/amount_in/wallet) and the fresh
+	// amount_out_min is >= the approved minimum (never a worse price), THEN
+	// re-run PolicyService.evaluate() — a valid approval only satisfies a
+	// require_approval verdict; a block (incl. kill switches) still 403s.
+	if (approval_id) {
+		const orgId = apiKeyCtx?.orgId ?? null
+
+		const loaded = await runEffectEither(
+			Effect.gen(function* () {
+				const approvals = yield* ApprovalService
+				return yield* approvals.getForAgent(approval_id, agentIdentifier)
+			}),
+		)
+		if (Either.isLeft(loaded)) {
+			const { status, body: errBody } = mapErrorToResponse(loaded.left)
+			return c.json({ success: false, ...errBody }, status)
+		}
+		const approvalRow = loaded.right
+		if (approvalRow.status !== 'approved') {
+			return c.json(
+				{
+					success: false,
+					error: `Approval request is '${approvalRow.status}', not 'approved'`,
+					status: approvalRow.status,
+				},
+				approvalRow.status === 'pending' ? 202 : 400,
+			)
+		}
+
+		const storedTerms = approvalRow.payload as unknown as EconomicTerms
+
+		// Re-quote server-side from the stored terms — NEVER trust a client-supplied quote here.
+		const requoted = await runEffectEither(
+			Effect.gen(function* () {
+				if (storedTerms.isSolana) {
+					const jupiterService = yield* JupiterService
+					const quote = yield* jupiterService
+						.getQuote({
+							inputMint: storedTerms.fromToken,
+							outputMint: storedTerms.toToken,
+							amount: storedTerms.amountIn,
+							slippageBps: storedTerms.slippageBps ?? 300,
+						})
+						.pipe(
+							Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+						)
+					return { quote, isSolana: true as const }
+				}
+				const swapService = yield* SwapService
+				const quote = yield* swapService
+					.getQuote({
+						fromChain: storedTerms.fromChain,
+						toChain: storedTerms.toChain,
+						fromToken: storedTerms.fromToken,
+						toToken: storedTerms.toToken,
+						fromAmount: storedTerms.amountIn,
+						fromAddress: storedTerms.walletAddress,
+						slippage: storedTerms.slippage ?? 0.03,
+						order: 'RECOMMENDED',
+						integrator: 'suwappu-agent',
+					})
+					.pipe(
+						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+					)
+				return { quote, isSolana: false as const }
+			}),
+		)
+
+		if (Either.isLeft(requoted)) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.requote_failed',
+				details: { approvalId: approval_id, error: requoted.left.message },
+			})
+			return c.json({ success: false, error: 'Failed to re-quote approved trade', details: requoted.left.message }, 400)
+		}
+
+		const { quote: freshQuote, isSolana } = requoted.right
+		const freshTerms = isSolana
+			? termsFromSolanaQuote(freshQuote as JupiterQuote, wallet_address)
+			: termsFromEvmQuote(freshQuote as SwapQuote, wallet_address)
+
+		const validated = await runEffectEither(
+			Effect.gen(function* () {
+				const approvals = yield* ApprovalService
+				return yield* approvals.validateForExecution(approval_id, agentIdentifier, orgId, freshTerms)
+			}),
+		)
+
+		if (Either.isLeft(validated)) {
+			const { status, body: errBody } = mapErrorToResponse(validated.left)
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.validation_failed',
+				details: { approvalId: approval_id, error: errBody.message ?? errBody.error },
+			})
+			return c.json({ success: false, ...errBody }, status)
+		}
+
+		// Always re-run the policy gate (kill switches / block rules still apply).
+		// A valid, price-checked approval only satisfies a 'require_approval'
+		// verdict — 'block' still 403s even with an approved approval_id.
+		if (orgId) {
+			const policyIntent: PolicyIntent = {
+				organizationId: orgId,
+				agentId: agentIdentifier,
+				chain: freshTerms.fromChain,
+				fromToken: freshTerms.fromToken,
+				toToken: freshTerms.toToken,
+				valueUsd: freshTerms.valueUsd,
+			}
+			const verdict = await runEffectEither(
+				Effect.gen(function* () {
+					const policy = yield* PolicyService
+					return yield* policy.evaluate(policyIntent)
+				}),
+			)
+
+			if (Either.isRight(verdict) && verdict.right.decision === 'block') {
+				writeAuditLog({
+					userId: 0,
+					orgId,
+					agentId: agentIdentifier,
+					eventType: 'approval.blocked_on_resubmit',
+					details: { approvalId: approval_id, reason: verdict.right.reason },
+				})
+				return c.json(
+					{
+						success: false,
+						status: 'block',
+						error: 'Transaction blocked by org policy',
+						reason: verdict.right.reason ?? null,
+					},
+					403,
+				)
+			}
+
+			if (Either.isRight(verdict) && verdict.right.decision === 'require_approval') {
+				// evaluate() logs its own 'require_approval' row (not counted toward
+				// daily/session/velocity caps by design). Since the human already
+				// approved this exact, price-checked trade, write an explicit 'allow'
+				// row linked to the approval so the cap math isn't silently blind to
+				// large approved trades.
+				await runEffectEither(
+					Effect.gen(function* () {
+						const db = yield* requireDb
+						yield* Effect.tryPromise({
+							try: () =>
+								db.insert(policyDecisions).values({
+									organizationId: orgId,
+									agentId: agentIdentifier,
+									decision: 'allow',
+									reason: 'human-in-the-loop approval override',
+									intent: policyIntent as unknown as Record<string, unknown>,
+									valueUsd: freshTerms.valueUsd,
+									approvalId: approval_id,
+								}),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						})
+					}),
+				)
+			}
+		}
+
+		// Build the transaction. Only flip the approval to 'consumed' AFTER a
+		// successful build — a Jupiter/RPC failure here must not burn the
+		// single-use approval for nothing.
+		const response = await buildSwapTxResponse(c, agent, freshQuote, isSolana, wallet_address, approval_id)
+
+		if (response.status >= 400) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.execution_failed',
+				details: { approvalId: approval_id, httpStatus: response.status },
+			})
+			return response
+		}
+
+		const finalized = await runEffectEither(
+			Effect.gen(function* () {
+				const approvals = yield* ApprovalService
+				return yield* approvals.finalizeConsume(approval_id)
+			}),
+		)
+
+		if (Either.isLeft(finalized)) {
+			// Build succeeded but the single-use flip lost a race (e.g. a duplicate
+			// concurrent resubmit consumed it first). Surface as a conflict rather
+			// than silently returning a tx tied to an already-consumed approval.
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.consume_race_lost',
+				details: { approvalId: approval_id },
+			})
+			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
+		}
+
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.consumed',
+			details: {
+				approvalId: approval_id,
+				approvedBy: approvalRow.decidedBy,
+				approvedAt: approvalRow.decidedAt,
+				payload: storedTerms,
+			},
+		})
+
+		return response
+	}
 
 	// If quote_id provided, use cached quote
 	if (quote_id) {
@@ -924,12 +1288,11 @@ agentRoutes.post('/swap', async (c) => {
 		// requests are un-orged and pass through (PolicyService allows when no org).
 		// Enforcement is hard for Suwappu-issued-key / custodial flows; advisory for
 		// a self-signing EOA that could bypass this API entirely.
-		const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
 		if (apiKeyCtx?.orgId) {
 			const policyIntent: PolicyIntent = cached.isSolana
 				? {
 						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
+						agentId: agentIdentifier,
 						chain: 'solana',
 						fromToken: quote.inputMint ?? null,
 						toToken: quote.outputMint ?? null,
@@ -939,7 +1302,7 @@ agentRoutes.post('/swap', async (c) => {
 					}
 				: {
 						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
+						agentId: agentIdentifier,
 						chain: String(quote.fromChain),
 						fromToken: quote.fromToken?.address ?? null,
 						toToken: quote.toToken?.address ?? null,
@@ -955,26 +1318,92 @@ agentRoutes.post('/swap', async (c) => {
 			)
 
 			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
-				const { decision, reason, matchedPolicyId } = verdict.right
+				const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
 				writeAuditLog({
 					userId: 0,
 					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
+					agentId: agentIdentifier,
 					eventType: `policy.${decision}`,
 					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
 				})
-				const status = decision === 'require_approval' ? 202 : 403
+
+				if (decision === 'require_approval') {
+					// Persist the RE-QUOTABLE economic terms (not quote_id — the 60s
+					// quote cache TTL is far shorter than the approval window, and is
+					// per-process so it wouldn't survive a multi-replica deploy either).
+					const economicTerms = cached.isSolana
+						? termsFromSolanaQuote(quote as JupiterQuote, wallet_address)
+						: termsFromEvmQuote(quote as SwapQuote, wallet_address)
+
+					const created = await runEffectEither(
+						Effect.gen(function* () {
+							const db = yield* requireDb
+							const orgOwnerRows = yield* Effect.tryPromise({
+								try: () =>
+									db
+										.select({ ownerId: organizations.ownerId })
+										.from(organizations)
+										.where(eq(organizations.id, apiKeyCtx.orgId))
+										.limit(1),
+								catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+							})
+							const approvals = yield* ApprovalService
+							return yield* approvals.create({
+								agentId: agentIdentifier,
+								organizationId: apiKeyCtx.orgId,
+								userId: orgOwnerRows[0]?.ownerId ?? null,
+								actionType: 'swap_execute',
+								payload: economicTerms,
+								policyDecisionId: policyDecisionId ?? null,
+								reason: reason ?? null,
+							})
+						}),
+					)
+
+					if (Either.isLeft(created)) {
+						writeAuditLog({
+							userId: 0,
+							orgId: apiKeyCtx.orgId,
+							agentId: agentIdentifier,
+							eventType: 'approval.create_failed',
+							details: { error: String(created.left) },
+						})
+						return c.json(
+							{ success: false, error: 'Failed to create approval request' },
+							500,
+						)
+					}
+
+					writeAuditLog({
+						userId: 0,
+						orgId: apiKeyCtx.orgId,
+						agentId: agentIdentifier,
+						eventType: 'approval.created',
+						details: { approvalId: created.right.id, reason, policyDecisionId },
+					})
+
+					return c.json(
+						{
+							success: false,
+							status: 'pending',
+							error: 'Transaction requires approval under org policy',
+							reason: reason ?? null,
+							approval_id: created.right.id,
+							expires_at: created.right.expiresAt.toISOString(),
+							hint: 'Poll GET /v1/agent/approvals/:id until status is "approved", then re-submit POST /v1/agent/swap with approval_id set (quote_id not required — the trade is re-quoted server-side).',
+						},
+						202,
+					)
+				}
+
 				return c.json(
 					{
 						success: false,
 						status: decision,
-						error:
-							decision === 'require_approval'
-								? 'Transaction requires approval under org policy'
-								: 'Transaction blocked by org policy',
+						error: 'Transaction blocked by org policy',
 						reason: reason ?? null,
 					},
-					status,
+					403,
 				)
 			}
 			// If the policy query itself errored (Left), fail open but log it — never
@@ -984,120 +1413,14 @@ agentRoutes.post('/swap', async (c) => {
 				writeAuditLog({
 					userId: 0,
 					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
+					agentId: agentIdentifier,
 					eventType: 'policy.eval_error',
 					details: { error: String(verdict.left) },
 				})
 			}
 		}
 
-		// Handle Solana swaps
-		if (cached.isSolana) {
-			// Get swap transaction from Jupiter
-			const result = await runEffectEither(
-				Effect.gen(function* () {
-					const jupiterService = yield* JupiterService
-
-					const swapResponse = yield* jupiterService
-						.getSwapTransaction({
-							quote,
-							userPublicKey: wallet_address,
-							wrapUnwrapSOL: true,
-						})
-						.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
-
-					return swapResponse
-				}),
-			)
-
-			if (Either.isLeft(result)) {
-				return c.json(
-					{
-						success: false,
-						error: 'Failed to get Solana transaction',
-						details: result.left.message,
-					},
-					400,
-				)
-			}
-
-			const swapTx = result.right
-
-			return c.json({
-				success: true,
-				status: 'ready',
-				message: 'Solana transaction ready for signing',
-				quote_id,
-				chain: 'solana',
-				swap: {
-					from_token: quote.inputMint,
-					to_token: quote.outputMint,
-					amount_in: quote.inAmount,
-					expected_amount_out: quote.outAmount,
-					minimum_amount_out: quote.otherAmountThreshold,
-				},
-				transaction: {
-					type: 'solana',
-					serialized_transaction: swapTx.swapTransaction, // Base64 encoded
-					last_valid_block_height: swapTx.lastValidBlockHeight,
-				},
-				instructions: [
-					'1. Deserialize the base64 transaction',
-					'2. Sign with your Solana wallet',
-					'3. Submit to Solana RPC (sendTransaction)',
-					'4. Monitor signature for confirmation',
-				],
-				explorer: 'https://solscan.io/tx/',
-			})
-		}
-
-		// The EVM tx below is built with from: wallet_address, so the caller must own
-		// that address (their managed wallet) — block constructing a fund-moving tx
-		// from an arbitrary/victim address (C16).
-		if (!checkEvmWalletOwnership(agent, wallet_address)) {
-			return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
-		}
-
-		// EVM swap - return unsigned transaction
-		return c.json({
-			success: true,
-			status: 'ready',
-			message: 'Transaction ready for signing',
-			quote_id,
-			chain_type: 'evm',
-			swap: {
-				from_chain: quote.fromChain,
-				to_chain: quote.toChain,
-				from_token: quote.fromToken.symbol,
-				to_token: quote.toToken.symbol,
-				amount_in: quote.fromAmount,
-				expected_amount_out: quote.toAmount,
-				minimum_amount_out: quote.toAmountMin,
-			},
-			transaction: {
-				to: quote.transactionRequest.to,
-				from: wallet_address,
-				value: quote.transactionRequest.value,
-				data: quote.transactionRequest.data,
-				chain_id: quote.transactionRequest.chainId,
-				gas_limit: quote.transactionRequest.gasLimit,
-				gas_price: quote.transactionRequest.gasPrice,
-			},
-			instructions: [
-				'1. Sign this transaction with your wallet',
-				'2. Submit the signed transaction to the chain RPC',
-				'3. Monitor the transaction hash for confirmation',
-			],
-			explorer_base_urls: {
-				'1': 'https://etherscan.io/tx/',
-				'10': 'https://optimistic.etherscan.io/tx/',
-				'56': 'https://bscscan.com/tx/',
-				'137': 'https://polygonscan.com/tx/',
-				'42161': 'https://arbiscan.io/tx/',
-				'8453': 'https://basescan.org/tx/',
-				'43114': 'https://snowtrace.io/tx/',
-			},
-		})
+		return buildSwapTxResponse(c, agent, quote, !!cached.isSolana, wallet_address, quote_id)
 	}
 
 	// No quote_id - need to get a fresh quote first
@@ -3271,6 +3594,158 @@ agentRoutes.post('/billing/recurring', async (c) => {
 		note: r.approvedTx
 			? 'Recurring authorization registered on-chain — we pull the tier price each period (cancel by revoking the permission).'
 			: 'Recurring authorization recorded; on-chain registration pending (operator not yet enabled).',
+	})
+})
+
+// ===========================================
+// HUMAN-IN-THE-LOOP APPROVALS
+// ===========================================
+
+// GET /v1/agent/approvals/:id - agent polls its own deferred (require_approval) request
+agentRoutes.get('/approvals/:id', async (c) => {
+	const agent = c.get('agent')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.getForAgent(id, agent.uuid ?? String(agent.id))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const row = result.right
+	return c.json({
+		success: true,
+		approval_id: row.id,
+		status: row.status,
+		action_type: row.actionType,
+		reason: row.reason,
+		expires_at: row.expiresAt.toISOString(),
+		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
+		created_at: row.createdAt.toISOString(),
+	})
+})
+
+// GET /v1/agent/approvals?status=pending - owner (JWT) lists approval requests
+// across the organizations they own. Never accepts an agent key.
+const APPROVAL_STATUSES = ['pending', 'approved', 'denied', 'expired', 'consumed'] as const
+
+agentRoutes.get('/approvals', async (c) => {
+	const authUser = c.get('authUser')
+	const statusRaw = c.req.query('status')
+	if (statusRaw && !(APPROVAL_STATUSES as readonly string[]).includes(statusRaw)) {
+		return c.json(
+			{
+				success: false,
+				error: `Invalid status filter. Must be one of: ${APPROVAL_STATUSES.join(', ')}`,
+			},
+			400,
+		)
+	}
+	const status = statusRaw as (typeof APPROVAL_STATUSES)[number] | undefined
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.listForOwner(authUser.userId, status)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status: httpStatus, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, httpStatus)
+	}
+
+	return c.json({
+		success: true,
+		approvals: result.right.map((row) => ({
+			approval_id: row.id,
+			agent_id: row.agentId,
+			organization_id: row.organizationId,
+			action_type: row.actionType,
+			payload: row.payload,
+			reason: row.reason,
+			status: row.status,
+			expires_at: row.expiresAt.toISOString(),
+			decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
+			created_at: row.createdAt.toISOString(),
+		})),
+	})
+})
+
+// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
+// Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
+// status='pending' so a duplicate click can only ever succeed once.
+agentRoutes.post('/approvals/:id/approve', async (c) => {
+	const authUser = c.get('authUser')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.decide(id, authUser.userId, 'approved')
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const row = result.right
+	writeAuditLog({
+		userId: authUser.userId,
+		orgId: row.organizationId,
+		agentId: row.agentId,
+		eventType: 'approval.approved',
+		details: { approvalId: row.id },
+	})
+
+	return c.json({
+		success: true,
+		approval_id: row.id,
+		status: row.status,
+		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
+		hint: 'The agent must re-submit the original request with approval_id set to execute it.',
+	})
+})
+
+// POST /v1/agent/approvals/:id/deny - owner (JWT) denies a pending request.
+agentRoutes.post('/approvals/:id/deny', async (c) => {
+	const authUser = c.get('authUser')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.decide(id, authUser.userId, 'denied')
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const row = result.right
+	writeAuditLog({
+		userId: authUser.userId,
+		orgId: row.organizationId,
+		agentId: row.agentId,
+		eventType: 'approval.denied',
+		details: { approvalId: row.id },
+	})
+
+	return c.json({
+		success: true,
+		approval_id: row.id,
+		status: row.status,
+		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
 	})
 })
 

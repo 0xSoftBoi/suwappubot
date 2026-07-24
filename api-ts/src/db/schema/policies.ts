@@ -96,6 +96,11 @@ export const policyDecisions = pgTable(
 		// Snapshot of the evaluated transaction intent (chain, tokens, amounts, usd…).
 		intent: jsonb('intent'),
 		valueUsd: real('value_usd'),
+		// Set when this decision row exists to make an approved human-in-the-loop
+		// trade count toward daily/session/velocity caps (see ApprovalService +
+		// the agent.ts swap-execute resubmit path). Nullable — most rows are a
+		// normal PolicyService.evaluate() call with no associated approval.
+		approvalId: uuid('approval_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => ({
