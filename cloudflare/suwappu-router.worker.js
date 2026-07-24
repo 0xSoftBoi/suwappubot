@@ -13,9 +13,7 @@
  *   www.suwappu.bot / apex     → showcase (Next.js marketing site)
  *   terminal.suwappu.bot       → terminal (trading UI; 502 fixed in PR #349 = listen on $PORT)
  *   app.suwappu.bot            → terminal (the old Mini App's source is gone; app now shows terminal)
- *
- * NOT wired here yet (backend not ready — see cloudflare/README.md):
- *   devapi.suwappu.bot    — dev environment has no public domains; stand those up first
+ *   devapi.suwappu.bot         → dev-environment python-api (see PYTHON_DEV note below)
  */
 
 const ORIGINS = {
@@ -23,6 +21,11 @@ const ORIGINS = {
   API_TS: "https://api-ts-production.up.railway.app",
   SHOWCASE: "https://showcase-production-6f89.up.railway.app",
   TERMINAL: "https://terminal-production-7906.up.railway.app",
+  // Dev environment (Railway env `dev`, forked from production). Unlike prod there is
+  // NO api-ts service in dev — the env contains only python-api, terminal and showcase.
+  // So devapi does NOT mirror api.suwappu.bot's python/api-ts path split: every path
+  // goes to dev python-api, because an API_TS_DEV origin does not exist to fall back to.
+  PYTHON_DEV: "https://python-api-dev-456d.up.railway.app",
 };
 
 // On api.suwappu.bot, these top-level prefixes belong to python-api. Everything else
@@ -41,6 +44,12 @@ function pickOrigin(hostname, pathname) {
   // (the old Mini App's deployable source no longer exists).
   if (hostname === "terminal.suwappu.bot" || hostname === "app.suwappu.bot") {
     return ORIGINS.TERMINAL;
+  }
+  // devapi.suwappu.bot → dev python-api for ALL paths (no api-ts in the dev env).
+  // Must be checked before the path-routing fallthrough below, which would otherwise
+  // send any non-PYTHON_PREFIXES path to the *production* api-ts origin.
+  if (hostname === "devapi.suwappu.bot") {
+    return ORIGINS.PYTHON_DEV;
   }
   // api.suwappu.bot (and any other host that reaches this Worker) → API path-routing
   for (const p of PYTHON_PREFIXES) {
