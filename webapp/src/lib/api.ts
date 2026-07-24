@@ -857,7 +857,7 @@ class ApiClient {
     name: string
     symbol: string
     price: number | null
-    safetyScore: number
+    safetyScore: number | null
     chain: string
     address: string
     logoUrl?: string

@@ -31,7 +31,7 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [x] C1. Mounted at /webapp/tokens in app.ts. `api-ts/src/routes/tokens.ts` exports `tokenRoutes` but is never mounted in app.ts (intended `/webapp/tokens` per its comments) → webapp's `/webapp/tokens/prices` call (api.ts:322) has no backend.
 - [x] C2. Deleted all three stale try/except blocks (functionality already mounted via api/webapp.py + inline agent routes). `api/main.py:653,660,667` — imports `api.routes.webapp`, `api.routes.swap`, `api.routes.a2a` which don't exist as files; silently skipped by try/except. Decide: create, repoint, or remove the imports.
 
-- [ ] C3. NEW: webapp calls `/webapp/tokens/lookup` (webapp/src/lib/api.ts:868) which does not exist in api-ts tokens.ts — add or repoint.
+- [x] C3. Added GET /webapp/tokens/lookup to api-ts (Li.Fi-backed; safetyScore=null until a real scorer is plumbed — UI shows "Unknown"). Was: webapp calls `/webapp/tokens/lookup` (webapp/src/lib/api.ts:868) which does not exist in api-ts tokens.ts — add or repoint.
 
 ### D. Frontend calls with no (or wrong-path) backend
 - [x] D1. Webapp support form called `/webapp/support/tickets` with NO backend in either stack (the June api-ts routes were wiped). Fixed in PR #615: GET/POST `/webapp/support/tickets` added to Python `api/webapp.py` (terminal-JWT auth, support_notifier fan-out picks tickets up via notified_at).
@@ -40,8 +40,8 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [ ] D4. Terminal tweet monitor (`terminal/src/components/tweets/TweetMonitorPanel.tsx`) — all `/webapp/tweets/*` calls 404; no backend.
 
 ### E. "Coming soon" stubs where the backend already EXISTS (quick wins)
-- [ ] E1. Terminal AlertsPanel (`terminal/src/components/alerts/AlertsPanel.tsx:30,56`) — disabled stub, but `/webapp/alerts` backend exists. Wire it.
-- [ ] E2. Terminal DCAPanel (`terminal/src/components/trade/DCAPanel.tsx:68-73`) — stub, DCA backend exists (mobile/bot paths). Wire it.
+- [x] E1. Gate removed; panel wired to existing /webapp/alerts. Terminal AlertsPanel (`terminal/src/components/alerts/AlertsPanel.tsx:30,56`) — disabled stub, but `/webapp/alerts` backend exists. Wire it.
+- [x] E2. DCAPanel rewritten onto real useDCA hook (/webapp/dca/orders); DCAManager gate removed. Terminal DCAPanel (`terminal/src/components/trade/DCAPanel.tsx:68-73`) — stub, DCA backend exists (mobile/bot paths). Wire it.
 
 ### F. Genuine not-yet-built stubs (product decisions, not wiring)
 - [ ] F1. Webapp Wallet "Send funds" (`Wallet.tsx:350`) — `alert('coming soon')`. Terminal has deposit/withdraw; port it.
