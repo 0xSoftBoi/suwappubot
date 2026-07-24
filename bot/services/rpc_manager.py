@@ -453,6 +453,20 @@ class RPCManager:
                 return ep
         return available[-1]
 
+    def chain_all_circuits_open(self, chain_name: str) -> bool:
+        """True if the chain has endpoints and every one is circuit-open.
+
+        Lets hot callers skip a fully-down chain instead of firing doomed
+        requests at it — each doomed request opens a socket, and under a
+        sustained outage that fd churn is what previously crashed the worker.
+        Returns False for an unknown chain so callers fall back to normal
+        selection (which raises a clear error) rather than silently skipping.
+        """
+        endpoints = self._endpoints.get(chain_name.lower())
+        if not endpoints:
+            return False
+        return all(ep.is_circuit_open for ep in endpoints)
+
     # === PUBLIC API ===
 
     def get_web3(self, chain_name: str) -> Web3:
