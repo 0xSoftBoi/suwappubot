@@ -1,0 +1,983 @@
+/* ================================================================
+   Kakis — Persimmon Terminal
+   Design tokens on the page root (see page.tsx)
+   ================================================================ */
+
+/* ── Page shell ─────────────────────────────────────────────── */
+.page {
+  --bg:     #161210;
+  --panel:  #1F1915;
+  --signal: #E86A2C;
+  --glow:   #FF8A3D;
+  --text:   #C7B8A9;
+  --dim:    #6E6157;
+  --keys:   #4E8C5A;
+  --rule:   rgba(110, 97, 87, 0.35);
+
+  min-height: 100vh;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-jb), 'Courier New', monospace;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* ── CRT overlays ───────────────────────────────────────────── */
+.scanlines {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.025) 3px,
+    rgba(0, 0, 0, 0.025) 4px
+  );
+}
+
+.vignette {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+/* film grain via SVG feTurbulence data URI */
+.grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  opacity: 0.028;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 300px 300px;
+}
+
+/* ── Content column ─────────────────────────────────────────── */
+.column {
+  position: relative;
+  z-index: 1;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 2rem 6rem;
+}
+
+/* ── Terminal chrome bar ─────────────────────────────────────── */
+.chromeBar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem 0 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2rem;
+}
+
+.chromeDots {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.dot:first-child {
+  background: var(--signal);
+  box-shadow: 0 0 6px rgba(232, 106, 44, 0.5);
+}
+
+.chromePrompt {
+  color: var(--signal);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  flex: 1;
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  background: var(--signal);
+  vertical-align: text-bottom;
+  animation: blink 1.1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor { animation: none; opacity: 1; }
+}
+
+.chromeLockup {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chromeLockup strong {
+  color: var(--text);
+}
+
+/* ── Race panel ─────────────────────────────────────────────── */
+.racePanel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.5rem 1.75rem 1.25rem;
+  margin-bottom: 4rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.racePanelHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.raceTitle { color: var(--text); }
+
+.racePair {
+  color: var(--signal);
+}
+
+.raceArrow { color: var(--dim); }
+
+.raceAmt {
+  margin-left: auto;
+}
+
+/* ── Router rows ────────────────────────────────────────────── */
+.raceRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1.25rem;
+}
+
+.raceRow {
+  display: grid;
+  grid-template-columns: 8ch 1fr 9ch auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text); /* loser rows: names + prices readable */
+  min-height: 1.6rem;
+}
+
+.raceRow[data-winner='true'] {
+  color: var(--signal);
+}
+
+.raceRouterName {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.raceBarWrap {
+  /* Explicit block + positioned so the absolute raceBar ::after is contained */
+  display: block;
+  position: relative;
+  height: 7px;
+  background: rgba(110, 97, 87, 0.15);
+  border-radius: 3px;
+  overflow: visible;
+}
+
+.raceBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  /* matte warm-white fill; rounded right cap */
+  background: rgba(199, 184, 169, 0.5);
+  border-radius: 3px 3px 3px 3px;
+  transition: width 140ms linear;
+}
+
+/* Leading-edge "head" dot on every bar */
+.raceBar::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(199, 184, 169, 0.75);
+}
+
+/* Winner bar: lit from within, not painted */
+.raceRow[data-winner='true'] .raceBar {
+  /* bright core fading to a dimmer persimmon at the trailing edge */
+  background: linear-gradient(
+    to right,
+    rgba(232, 106, 44, 0.55) 0%,
+    var(--signal) 60%,
+    #FFB07A 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 138, 61, 0.25),
+    0 0 8px 2px rgba(255, 138, 61, 0.35);
+}
+
+.raceRow[data-winner='true'] .raceBar::after {
+  background: #FFD0A0;
+  box-shadow: 0 0 5px 2px rgba(255, 138, 61, 0.7);
+}
+
+.raceRow[data-settled='true'] .raceBar {
+  background: linear-gradient(
+    to right,
+    rgba(232, 106, 44, 0.6) 0%,
+    var(--signal) 55%,
+    #FFB07A 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 138, 61, 0.3),
+    0 0 14px 5px rgba(255, 138, 61, 0.5);
+}
+
+.raceGlow {
+  position: absolute;
+  left: 0;
+  top: -7px;
+  right: 0;
+  height: 21px;
+  background: rgba(255, 138, 61, 0.18);
+  filter: blur(8px);
+  border-radius: 8px;
+  pointer-events: none;
+  animation: glowPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .raceGlow { animation: none; }
+}
+
+.raceQuote {
+  text-align: right;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.raceRow[data-winner='true'] .raceQuote,
+.raceRow[data-winner='true'] .raceRouterName {
+  color: var(--signal);
+}
+
+.raceBest {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--signal);
+  white-space: nowrap;
+}
+
+/* ── Summary line ───────────────────────────────────────────── */
+.raceSummary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.raceBestLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+
+.raceBestValue {
+  font-size: 1.875rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--signal);
+  text-shadow: 0 0 18px rgba(255, 138, 61, 0.5);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+}
+
+.raceMeta {
+  font-size: 0.625rem;
+  color: var(--dim);
+  letter-spacing: 0.07em;
+  margin: 0 0 0.625rem;
+}
+
+.raceCaption {
+  font-size: 0.6875rem;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+/* blinking cursor after value locks */
+.raceCursor {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.85em;
+  background: var(--signal);
+  opacity: 0.8;
+  vertical-align: baseline;
+  margin-left: 0.1em;
+  animation: blink 1.1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .raceCursor { animation: none; }
+}
+
+/* ── SplitFlap ──────────────────────────────────────────────── */
+.sfRoot {
+  display: inline-flex;
+  letter-spacing: 0;
+}
+
+.sfDigit {
+  display: inline-block;
+  transition: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.sfDigit[data-done='true'] {
+  /* settled — no extra style needed; parent handles glow */
+}
+
+/* Static separator glyphs — comma and period never shuffle */
+.sfSep {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  /* slightly dimmer so the digits pop */
+  opacity: 0.75;
+}
+
+/* ── Product sections ───────────────────────────────────────── */
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.section {
+  border-top: 1px solid var(--rule);
+  padding: 2.25rem 0;
+}
+
+.sectionPrompt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65em;
+  margin-bottom: 0.875rem;
+}
+
+.sectionDollar {
+  color: var(--signal);
+  font-weight: 700;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.sectionCmd {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.sectionBody {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text);
+  max-width: 62ch;
+  margin: 0 0 0 1.65rem;
+}
+
+.sectionBody p {
+  margin: 0 0 0.5rem;
+}
+
+/* MCP code block */
+.codeBlock {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.875rem 1rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.codeKey   { color: var(--dim); }
+.codeVal   { color: var(--signal); }
+.codeNote  { color: var(--dim); font-size: 0.6875rem; margin: 0.5rem 0 0; }
+
+/* ── CTA buttons (shared) ───────────────────────────────────── */
+.ctaButtons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ctaBtn {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: var(--text);
+  border: 1px solid var(--rule);
+  background: transparent;
+  padding: 0.6rem 1.25rem;
+  border-radius: 3px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 160ms, border-color 160ms, box-shadow 160ms;
+}
+
+.ctaBtn:hover,
+.ctaBtn:focus-visible {
+  color: var(--signal);
+  border-color: var(--signal);
+  box-shadow: 0 0 10px rgba(232, 106, 44, 0.2);
+  outline: none;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer {
+  border-top: 1px solid var(--rule);
+  padding: 1.5rem 0 2rem;
+  font-size: 0.6875rem;
+  color: var(--dim);
+  letter-spacing: 0.05em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.footerCopy {
+  color: var(--dim);
+}
+
+.footerNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.footerLink {
+  color: var(--dim);
+  text-decoration: none;
+  transition: color 120ms;
+}
+
+.footerLink:hover,
+.footerLink:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.footerSep {
+  color: var(--dim);
+  opacity: 0.5;
+}
+
+/* ── Stats readout strip ────────────────────────────────────── */
+.statsStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 2.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.statItem {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
+}
+
+.statLabel {
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.statVal {
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+}
+
+.statRule {
+  color: var(--rule);
+  user-select: none;
+}
+
+/* ── Generic panel ──────────────────────────────────────────── */
+.panel {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1rem 1.125rem;
+  margin-bottom: 0.875rem;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.875rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.panelTitle {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.panelBadge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.badgeLive {
+  color: var(--dim);
+}
+
+.liveDot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.panelCaption {
+  margin: 0.75rem 0 0;
+  font-size: 0.6875rem;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* ── Trace panel (engine --how) ─────────────────────────────── */
+.tracePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.traceStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 0.625rem 0;
+}
+
+.traceConnector {
+  color: var(--rule);
+  font-size: 0.875rem;
+  padding-left: 0.1rem;
+  line-height: 1;
+  user-select: none;
+}
+
+.traceNum {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  min-width: 2ch;
+  padding-top: 0.15em;
+  flex-shrink: 0;
+}
+
+.traceContent {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65em;
+  flex-wrap: wrap;
+}
+
+.traceLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--signal);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.traceArrow {
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.traceDesc {
+  font-size: 0.8125rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* ── Perps table ────────────────────────────────────────────── */
+.perpsTable {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.perpsHead {
+  display: grid;
+  grid-template-columns: 8ch 5ch 5ch 10ch 9ch;
+  gap: 0.75rem;
+  padding: 0 0 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 0.375rem;
+}
+
+.perpsRow {
+  display: grid;
+  grid-template-columns: 8ch 5ch 5ch 10ch 9ch;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(110, 97, 87, 0.12);
+  align-items: center;
+}
+
+.perpsRow:last-of-type {
+  border-bottom: none;
+}
+
+.perpsSym {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.perpsSide {
+  font-weight: 700;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+}
+
+.perpsSide[data-side='long'] {
+  color: var(--keys);
+}
+
+.perpsSide[data-side='short'] {
+  color: #C45858;
+}
+
+.perpsDim {
+  color: var(--dim);
+}
+
+.perpsPos {
+  color: var(--keys);
+  font-weight: 600;
+}
+
+.numCol {
+  text-align: right;
+}
+
+/* ── Command chips ──────────────────────────────────────────── */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
+}
+
+/* ── Tool registry grid ─────────────────────────────────────── */
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.25rem 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.toolItem {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65em;
+  font-size: 0.75rem;
+  padding: 0.2rem 0;
+}
+
+.toolIdx {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  min-width: 2ch;
+  flex-shrink: 0;
+}
+
+.toolName {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+/* ── ASCII diagram ──────────────────────────────────────────── */
+.asciiDiagram {
+  font-family: var(--font-jb), 'Courier New', monospace;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--dim);
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0 0 0.25rem;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+/* ── Ticker ─────────────────────────────────────────────────── */
+.tickerGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickerHead {
+  display: grid;
+  grid-template-columns: 6ch 1fr auto;
+  gap: 0.75rem;
+  padding: 0 0 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 0.25rem;
+}
+
+.tickerRow {
+  display: grid;
+  grid-template-columns: 6ch 1fr auto;
+  gap: 0.75rem;
+  padding: 0.325rem 0;
+  border-bottom: 1px solid rgba(110, 97, 87, 0.1);
+  align-items: center;
+}
+
+.tickerRow:last-of-type {
+  border-bottom: none;
+}
+
+.tickerSym {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.tickerRight {
+  text-align: right;
+}
+
+.tickerPrice {
+  color: var(--text);
+  min-width: 12ch;
+}
+
+.tickerChg {
+  min-width: 7ch;
+}
+
+.tickerPos {
+  color: var(--keys);
+}
+
+.tickerNeg {
+  color: #C45858;
+}
+
+.tickerCaption {
+  margin-top: 0.75rem;
+  font-size: 0.5625rem;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* ── CTA terminal block ─────────────────────────────────────── */
+.ctaBlock {
+  border-top: 1px solid var(--rule);
+  padding: 2.5rem 0 2rem;
+}
+
+.ctaPromptLine {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.25rem;
+}
+
+.ctaDollar {
+  color: var(--signal);
+  font-weight: 700;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.ctaCmd {
+  color: var(--signal);
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+}
+
+.ctaComment {
+  font-size: 0.75rem;
+  color: var(--dim);
+  margin-bottom: 1.75rem;
+  padding-left: 1.4rem;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 560px) {
+  /* Column padding: comfortable 1rem gutters */
+  .column {
+    padding: 0 1rem 4rem;
+  }
+
+  /* Chrome bar: hide the すわっぷ lockup so it fits at 360px */
+  .chromeLockup {
+    display: none;
+  }
+
+  /* Race panel: tighter internal padding */
+  .racePanel {
+    padding: 1.125rem 1rem 1rem;
+  }
+
+  /* Router lanes: tighter grid, smaller text, min bar width preserved */
+  .raceRow {
+    /* name: 6ch | bar: 1fr (flex, min ~40px) | price: 7ch | badge: auto */
+    grid-template-columns: 6ch 1fr 7ch auto;
+    gap: 0.4rem;
+    font-size: 0.6875rem;
+    min-height: 1.4rem;
+  }
+
+  /* Keep bar height readable at narrow width */
+  .raceBarWrap {
+    min-width: 40px;
+  }
+
+  /* Hero number: clamp so it never overflows a 360px viewport */
+  .raceBestValue {
+    font-size: clamp(1.25rem, 8vw, 1.875rem);
+    gap: 0.25em;
+  }
+
+  /* Section indentation reduced on small screens */
+  .sectionBody {
+    margin-left: 1rem;
+  }
+
+  /* MCP code block: scrollable inside the block, never pushes page wider */
+  .codeBlock {
+    font-size: 0.6875rem;   /* ~11px — still readable mono */
+    padding: 0.625rem 0.75rem;
+    max-width: 100%;
+    overflow-x: auto;       /* scroll inside the box only */
+    /* white-space: pre kept — overflow-x: auto handles containment */
+  }
+
+  /* CTA buttons: full-width stacked */
+  .ctaButtons {
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .ctaBtn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 0.75rem 1rem;
+  }
+}

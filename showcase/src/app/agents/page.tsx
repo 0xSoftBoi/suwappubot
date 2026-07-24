@@ -58,7 +58,7 @@ const CAPABILITIES = [
   { title: 'Trade perps', body: 'HyperLiquid perpetuals up to 20x, long or short.' },
   { title: 'Predict markets', body: 'Polymarket positions — buy, sell, monitor outcomes.' },
   { title: 'Earn yield', body: 'Morpho and Aave lending vaults with live APR.' },
-  { title: '7+ chains', body: 'Base, Ethereum, Arbitrum, Solana, Optimism, Polygon, BSC and more.' },
+  { title: '40+ chains', body: 'Base, Ethereum, Arbitrum, Solana, Optimism, Polygon, BSC and more.' },
 ];
 
 export default function AgentsPage() {
