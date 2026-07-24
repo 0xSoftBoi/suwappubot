@@ -644,10 +644,19 @@ async def daily_checkin(request: Request):
     from bot.services.points_service import points_service
 
     try:
-        result = await points_service.daily_checkin(payload["user_id"])
-        return result
+        points_earned, daily_streak, streak_continued, new_level = points_service.daily_checkin(
+            payload["user_id"]
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"daily_checkin failed for user {payload['user_id']}: {e}")
+        raise HTTPException(status_code=400, detail="Check-in failed")
+
+    return {
+        "pointsEarned": points_earned,
+        "dailyStreak": daily_streak,
+        "streakContinued": streak_continued,
+        "newLevel": new_level,
+    }
 
 
 @router.get("/points/milestones")
@@ -655,13 +664,35 @@ async def get_milestones(request: Request):
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.services.points_service import points_service
+    from bot.models.points import Milestone, UserMilestone
 
-    try:
-        return await points_service.get_milestones(payload["user_id"])
-    except Exception as e:
-        logger.warning(f"Failed to get milestones: {e}")
-        return []
+    with get_session() as session:
+        milestones = (
+            session.query(Milestone)
+            .filter(Milestone.is_active == True)
+            .order_by(Milestone.requirement_value)
+            .all()
+        )
+        achieved_ids = set(
+            m.milestone_id
+            for m in session.query(UserMilestone)
+            .filter(UserMilestone.user_id == payload["user_id"])
+            .all()
+        )
+
+        return [
+            {
+                "id": m.id,
+                "name": m.name,
+                "description": m.description,
+                "emoji": m.emoji,
+                "requirementType": m.requirement_type,
+                "requirementValue": m.requirement_value,
+                "pointsReward": m.points_reward,
+                "isAchieved": m.id in achieved_ids,
+            }
+            for m in milestones
+        ]
 
 
 @router.get("/points/rewards")
@@ -689,16 +720,72 @@ async def get_rewards(request: Request):
 
 @router.post("/points/rewards/{reward_id}/redeem")
 async def redeem_reward(request: Request, reward_id: int):
+    """Redeem a points reward. MONEY PATH — routes to the correct atomic
+    redemption method based on the reward's type/category. Never fabricates
+    success; real errors propagate as HTTP errors."""
     payload = _jwt_user(request)
     _require_db()
 
     from bot.services.points_service import points_service
+    from bot.models.points import Reward
+
+    with get_session() as session:
+        reward = (
+            session.query(Reward).filter(Reward.id == reward_id, Reward.is_active == True).first()
+        )
+        if not reward:
+            raise HTTPException(status_code=404, detail="Reward not found")
+        reward_type = reward.reward_type
+        reward_category = getattr(reward, "reward_category", None) or "own_product"
+        points_cost = reward.points_cost
+        base_reward_type = reward.reward_type
+        base_reward_value = reward.reward_value
+        base_reward_duration_days = reward.duration_days
+
+    # Cash-equivalent redemptions (airline miles, stablecoin cash-out) remain NOT
+    # enabled: they cross the cash-equivalent line and require a partner integration +
+    # compliance sign-off. Reject rather than silently deduct points for something we
+    # cannot fulfill (mirrors bot/handlers/points.py:429).
+    if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
+        raise HTTPException(
+            status_code=400,
+            detail="That reward isn't available — partner redemptions aren't live yet.",
+        )
 
     try:
-        result = await points_service.redeem_reward(payload["user_id"], reward_id)
-        return result
+        if reward_type == "subscription":
+            success, message, expires_at = points_service.redeem_subscription_reward(
+                payload["user_id"], reward_id
+            )
+            if not success:
+                raise HTTPException(status_code=400, detail=message)
+            return {"success": True, "message": message, "expiresAt": expires_at}
+
+        if reward_category != "own_product":
+            success, message, order_id = points_service.redeem_marketplace_reward(
+                payload["user_id"], reward_id
+            )
+            if not success:
+                raise HTTPException(status_code=400, detail=message)
+            return {"success": True, "message": message, "orderId": order_id}
+
+        success, message = points_service.spend_points(
+            payload["user_id"],
+            points_cost,
+            base_reward_type,
+            base_reward_value,
+            duration_days=base_reward_duration_days,
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+        return {"success": True, "message": message}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"redeem_reward failed for user {payload['user_id']}, reward {reward_id}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Redemption failed — your points were not spent."
+        )
 
 
 @router.get("/points/leaderboard")

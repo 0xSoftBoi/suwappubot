@@ -16,11 +16,11 @@ Standing goal: **no feature should exist in the codebase without being wired end
 
 ### A. Mobile API ghost methods (api/routes/mobile.py) — silent fake data
 All wrapped in broad `except Exception` returning defaults, so they "work" but lie.
-- [ ] A1. `mobile.py:552` — `await points_service.daily_checkin()` is a **sync** method being awaited → TypeError swallowed; mobile daily check-in never credits points. Fix: call sync, map response.
-- [ ] A2. `mobile.py:565` — `points_service.get_milestones()` **does not exist**. Find the real milestones source (points_service) and wire it.
-- [ ] A3. `mobile.py:600` — `points_service.redeem_reward()` **does not exist** (real: `redeem_subscription_reward` / `redeem_marketplace_reward`). Mobile redemption silently no-ops. MONEY-PATH — tag reviewer.
+- [x] A1. `mobile.py:552` — `await points_service.daily_checkin()` is a **sync** method being awaited → TypeError swallowed; mobile daily check-in never credits points. Fix: call sync, map response.
+- [x] A2. `mobile.py:565` — `points_service.get_milestones()` **does not exist**. Find the real milestones source (points_service) and wire it.
+- [x] A3. `mobile.py:600` — `points_service.redeem_reward()` **does not exist** (real: `redeem_subscription_reward` / `redeem_marketplace_reward`). Mobile redemption silently no-ops. MONEY-PATH — tag reviewer.
 - [x] A4. `mobile.py:692` — `referral_service.get_stats()` → fixed in PR #615 (`get_referral_stats`, key mapping).
-- [ ] A5. Sweep the REST of mobile.py for the same pattern (every `await <service>.<method>` inside try/except: verify the method exists and its sync/async-ness). Add tests for api/routes/mobile.py — currently zero coverage.
+- [x] A5. Sweep done (remaining awaits are legitimately async: ws.create_wallet, httpx calls). Tests for api/routes/mobile.py still missing — see F. Sweep the REST of mobile.py for the same pattern (every `await <service>.<method>` inside try/except: verify the method exists and its sync/async-ness). Add tests for api/routes/mobile.py — currently zero coverage.
 
 ### B. Bot: unstarted services & orphaned models
 - [x] B1. Support system (handlers + notifier + SupportTicket model) — wired in PR #615.

@@ -305,15 +305,33 @@ class PointsService:
         amount: int,
         reward_type: str,
         reward_value: str,
+        duration_days: Optional[int] = None,
     ) -> Tuple[bool, str]:
         """
         Spend points on a reward.
 
+        ``duration_days``, when provided (e.g. a ``fee_discount`` reward's
+        ``Reward.duration_days``), sets ``PointRedemption.expires_at`` so
+        time-bound rewards actually expire — otherwise ``get_active_fee_discount``
+        treats a NULL ``expires_at`` as "never expires".
+
         Returns:
             Tuple of (success, message)
         """
+        if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
+            return False, "That reward isn't available — partner redemptions aren't live yet."
+
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Lock the row for the duration of this transaction so two concurrent
+            # redemptions on the same account can't both read the same pre-debit
+            # balance and both succeed (double-spend). SQLite (tests) ignores
+            # FOR UPDATE harmlessly.
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 return False, "No points account found"
@@ -325,6 +343,10 @@ class PointsService:
             account.current_points -= amount
             account.points_spent += amount
 
+            expires_at = None
+            if duration_days is not None:
+                expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
+
             # Record redemption
             redemption = PointRedemption(
                 user_id=user_id,
@@ -333,6 +355,7 @@ class PointsService:
                 reward_value=reward_value,
                 status="completed",
                 completed_at=datetime.now(timezone.utc),
+                expires_at=expires_at,
             )
             session.add(redemption)
 
@@ -518,7 +541,14 @@ class PointsService:
                 if target_tier is None or target_tier == SubscriptionTier.FREE:
                     return False, "Unknown subscription tier.", None
 
-                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                # Lock the row so a concurrent redemption on the same account can't
+                # read the same pre-debit balance (double-spend race).
+                account = (
+                    session.query(UserPoints)
+                    .filter(UserPoints.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -645,7 +675,14 @@ class PointsService:
                 reward_name = reward.name
                 reward_value = reward.reward_value
 
-                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                # Lock the row so a concurrent redemption on the same account can't
+                # read the same pre-debit balance (double-spend race).
+                account = (
+                    session.query(UserPoints)
+                    .filter(UserPoints.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
