@@ -4,17 +4,18 @@ import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
   title: 'Agents — Suwappu API, MCP & A2A for AI agents',
   description:
-    'Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across 15+ chains. Self-serve registration, pay-per-call with x402, no signup required.',
+    `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, pay-per-call with x402, no signup required.`,
 };
 
 // ── b. Capability grid ──────────────────────────────────────────────
 const CAPABILITIES = [
   {
-    title: '15+ chains',
+    title: `${stats.agentApiChains} chains`,
     body: 'EVM (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo — one API, one bearer token.',
   },
   {
@@ -93,7 +94,7 @@ const FAQS = [
   },
   {
     q: 'Which chains are supported?',
-    a: '15+ chains through one API, including EVM networks (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo. Call GET /v1/agent/chains for the authoritative, current list rather than hardcoding it.',
+    a: `${stats.agentApiChains} chains through one API, including EVM networks (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo. Call GET /v1/agent/chains for the authoritative, current list rather than hardcoding it.`,
   },
   {
     q: 'What does it cost?',
@@ -123,7 +124,7 @@ export default function AgentsPage() {
           <p className="summer-kicker">Built for AI agents</p>
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
-            Quote, swap, and manage a portfolio across 15+ chains from a REST API, an MCP
+            Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
             server, or the A2A protocol — self-serve registration, no signup required, and
             pay only for the calls you make.
           </p>

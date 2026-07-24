@@ -7,6 +7,7 @@ import CopyInstall from '@/components/CopyInstall';
 import MarketProof from '@/components/MarketProof';
 import { getTranslations } from 'next-intl/server';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
+import productStats from '@/data/stats.generated.json';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
 export const revalidate = 60;
@@ -15,8 +16,10 @@ const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
 // Outcome-first stats — product facts only, no unverifiable usage/volume claims.
 const stats = [
-  { value: '9', label: 'Aggregators raced per quote' },
-  { value: '40+', label: 'Chains supported' },
+  // "Integrated", not "raced per quote": providers are chain-gated, so any single
+  // swap races the subset that supports its route, never all of them.
+  { value: String(productStats.routerCount), label: 'Routing providers integrated' },
+  { value: String(productStats.platformChains), label: 'Chains supported' },
   { value: 'Sub-second', label: 'Quote latency' },
   { value: 'Non-custodial', label: 'Always your keys' },
 ];
@@ -27,13 +30,13 @@ const engineFeatures = [
     mark: 'fruit',
     title: 'Always the best price',
     description:
-      '9 routers race to quote your trade — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, and more. You get the winner, automatically.',
+      `Every provider that supports your route races to quote it — ${productStats.routerCount} integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Across, Wormhole, and Jupiter. You get the winner, automatically.`,
   },
   {
     mark: 'sun',
     title: 'No slippage surprises',
     description:
-      'Pre-trade simulation flags bad fills before you confirm. Every route is priced across 40+ chains before a single transaction is signed.',
+      `Pre-trade simulation flags bad fills before you confirm. Every route is priced across ${productStats.platformChains} chains before a single transaction is signed.`,
   },
   {
     mark: 'soft',
@@ -60,7 +63,8 @@ const modules = [
     eyebrow: 'Execution layer',
     title: 'Agent API',
     body: 'Quotes, swaps, status checks, perps, prediction markets, lending, and managed wallet actions through one API.',
-    stat: '40+ chains',
+    // Agent-API scope, NOT the platform total — GET /v1/agent/chains is authoritative.
+    stat: `${productStats.agentApiChains} chains`,
   },
   {
     eyebrow: 'Fast command lane',
@@ -428,7 +432,7 @@ export default async function Home() {
               <h2>Let an agent execute. You set the limits.</h2>
               <p>
                 Suwappu exposes the same execution surface as an MCP server, a
-                TypeScript SDK, and a REST API across 15+ agent-ready chains —
+                TypeScript SDK, and a REST API across {productStats.agentApiChains} agent-ready chains —
                 discoverable through llms.txt and an agent manifest, with policy
                 guardrails so autonomous swaps stay inside the rails you define. No
                 signup required: register for a key instantly, or pay per call over
@@ -506,7 +510,7 @@ export default async function Home() {
               <article className="summer-devlayer__card">
                 <b>TypeScript SDK</b>
                 <h3>npm install @suwappu/sdk</h3>
-                <p>Swap, perps, predict, lending — one typed client across 40+ chains.</p>
+                <p>Swap, perps, predict, lending — one typed client across {productStats.platformChains} chains.</p>
                 <div className="summer-code summer-devlayer__snippet">
                   <div className="summer-code__bar">
                     <span /><span /><span />

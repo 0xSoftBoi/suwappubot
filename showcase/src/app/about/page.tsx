@@ -2,22 +2,24 @@ import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
+import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
   title: 'About — Suwappu',
-  description:
-    'Suwappu is cross-chain execution infrastructure for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains, from a bot, a terminal, or one API.',
+  description: `Suwappu is cross-chain execution infrastructure for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
 };
 
 const metrics = [
-  { value: '40+', label: 'Chains' },
-  { value: '9', label: 'Routers raced' },
+  { value: String(stats.platformChains), label: 'Chains' },
+  // Routing providers integrated, not raced-per-swap: they are chain-gated, so a
+  // Solana trade races Jupiter while an EVM trade races the 0x/1inch/OKX cluster.
+  { value: String(stats.routerCount), label: 'Routing providers' },
   { value: '20x', label: 'Perps leverage' },
   { value: '$0.001', label: 'Gasless on Tempo' },
 ];
 
 const principles = [
-  { title: 'Best quote, not the first', body: 'Every swap races nine aggregators. You get the best execution available, not whichever route answered first.' },
+  { title: 'Best quote, not the first', body: `We race every routing provider that supports your route — ${stats.routerCount} integrated in total, from 0x and 1inch to Jupiter on Solana and SunSwap on TRON. You get the best execution available, not whichever route answered first.` },
   { title: 'Your keys, your call', body: 'Bring your own keys for full self-custody, or use a managed wallet with KMS-backed encryption. Either way, you set the guardrails.' },
   { title: 'Built for agents and humans', body: 'The same execution surface powers a Telegram bot, a trading terminal, an SDK, a REST API, and an MCP server. Pick the interface that fits.' },
   { title: 'Honest about status', body: 'We publish what is real and what is on the roadmap — no certifications we have not earned, no traction we cannot back up.' },
@@ -41,7 +43,7 @@ export default function AboutPage() {
           <p className="mkt-hero__lead">
             Liquidity is fragmented across dozens of chains and venues. Suwappu makes it
             feel like one — best-price swaps, HyperLiquid perps, and gasless trades across
-            40+ chains, from a bot, a terminal, or a single API call.
+            {' '}{stats.platformChains} chains, from a bot, a terminal, or a single API call.
           </p>
         </header>
 
