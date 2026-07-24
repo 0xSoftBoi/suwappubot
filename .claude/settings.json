@@ -1,4 +1,17 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(railway deployment list *)",
+      "Bash(railway logs *)",
+      "Bash(railway status)",
+      "Bash(railway status *)",
+      "Bash(railway list)",
+      "Bash(railway list *)",
+      "Bash(railway whoami)",
+      "Bash(git fetch)",
+      "Bash(git fetch *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
