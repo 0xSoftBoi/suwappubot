@@ -1,1 +1,1 @@
-ALTER TABLE "policy_decisions" ADD COLUMN "approval_id" uuid;
+ALTER TABLE "policy_decisions" ADD COLUMN IF NOT EXISTS "approval_id" uuid;

@@ -1,4 +1,4 @@
-CREATE TABLE "approval_requests" (
+CREATE TABLE IF NOT EXISTS "approval_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"agent_id" varchar(64) NOT NULL,
 	"organization_id" uuid,
@@ -58,6 +58,6 @@ CREATE TABLE IF NOT EXISTS "reward_epochs" (
 ALTER TABLE "approval_requests" ADD CONSTRAINT "approval_requests_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_requests" ADD CONSTRAINT "approval_requests_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_requests" ADD CONSTRAINT "approval_requests_decided_by_users_id_fk" FOREIGN KEY ("decided_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "approval_requests_agent_idx" ON "approval_requests" USING btree ("agent_id","status");--> statement-breakpoint
-CREATE INDEX "approval_requests_org_status_idx" ON "approval_requests" USING btree ("organization_id","status","created_at");--> statement-breakpoint
-CREATE INDEX "approval_requests_user_idx" ON "approval_requests" USING btree ("user_id","status");
+CREATE INDEX IF NOT EXISTS "approval_requests_agent_idx" ON "approval_requests" USING btree ("agent_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "approval_requests_org_status_idx" ON "approval_requests" USING btree ("organization_id","status","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "approval_requests_user_idx" ON "approval_requests" USING btree ("user_id","status");

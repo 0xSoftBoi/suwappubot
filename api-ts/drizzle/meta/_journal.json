@@ -64,6 +64,13 @@
       "when": 1784919757612,
       "tag": "0008_nifty_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784920346402,
+      "tag": "0009_silly_black_queen",
+      "breakpoints": true
     }
   ]
 }

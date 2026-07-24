@@ -1146,7 +1146,12 @@ agentRoutes.post('/swap', async (c) => {
 		// Always re-run the policy gate (kill switches / block rules still apply).
 		// A valid, price-checked approval only satisfies a 'require_approval'
 		// verdict — 'block' still 403s even with an approved approval_id.
+		let requiresAllowOverride = false
+		let policyIntentForOverride: PolicyIntent | null = null
 		if (orgId) {
+			const freshGasUsd = isSolana
+				? undefined
+				: parseFloat((freshQuote as SwapQuote).estimatedGasUsd ?? '0') || 0
 			const policyIntent: PolicyIntent = {
 				organizationId: orgId,
 				agentId: agentIdentifier,
@@ -1154,6 +1159,7 @@ agentRoutes.post('/swap', async (c) => {
 				fromToken: freshTerms.fromToken,
 				toToken: freshTerms.toToken,
 				valueUsd: freshTerms.valueUsd,
+				gasUsd: freshGasUsd,
 			}
 			const verdict = await runEffectEither(
 				Effect.gen(function* () {
@@ -1184,27 +1190,13 @@ agentRoutes.post('/swap', async (c) => {
 			if (Either.isRight(verdict) && verdict.right.decision === 'require_approval') {
 				// evaluate() logs its own 'require_approval' row (not counted toward
 				// daily/session/velocity caps by design). Since the human already
-				// approved this exact, price-checked trade, write an explicit 'allow'
-				// row linked to the approval so the cap math isn't silently blind to
-				// large approved trades.
-				await runEffectEither(
-					Effect.gen(function* () {
-						const db = yield* requireDb
-						yield* Effect.tryPromise({
-							try: () =>
-								db.insert(policyDecisions).values({
-									organizationId: orgId,
-									agentId: agentIdentifier,
-									decision: 'allow',
-									reason: 'human-in-the-loop approval override',
-									intent: policyIntent as unknown as Record<string, unknown>,
-									valueUsd: freshTerms.valueUsd,
-									approvalId: approval_id,
-								}),
-							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-						})
-					}),
-				)
+				// approved this exact, price-checked trade, we'll write an explicit
+				// 'allow' row linked to the approval — but only AFTER the transaction
+				// is actually built and the approval is durably consumed, so a failed
+				// build or a lost finalize race can never leave a phantom 'allow' row
+				// burning the org's daily/session cap for a trade that never executed.
+				requiresAllowOverride = true
+				policyIntentForOverride = policyIntent
 			}
 		}
 
@@ -1234,7 +1226,9 @@ agentRoutes.post('/swap', async (c) => {
 		if (Either.isLeft(finalized)) {
 			// Build succeeded but the single-use flip lost a race (e.g. a duplicate
 			// concurrent resubmit consumed it first). Surface as a conflict rather
-			// than silently returning a tx tied to an already-consumed approval.
+			// than silently returning a tx tied to an already-consumed approval, and
+			// deliberately skip the allow-override insert below — the trade this
+			// response describes was never actually finalized under our lock.
 			writeAuditLog({
 				userId: 0,
 				orgId,
@@ -1243,6 +1237,34 @@ agentRoutes.post('/swap', async (c) => {
 				details: { approvalId: approval_id },
 			})
 			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
+		}
+
+		// Only now — with a built transaction AND a durably 'consumed' approval —
+		// record the cap-accounting 'allow' override. A partial unique index on
+		// policy_decisions(approval_id) (migration 0008) makes a second insert for
+		// the same approval a DB-level no-op even if this path is ever re-entered.
+		if (requiresAllowOverride && orgId && policyIntentForOverride) {
+			await runEffectEither(
+				Effect.gen(function* () {
+					const db = yield* requireDb
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.insert(policyDecisions)
+								.values({
+									organizationId: orgId,
+									agentId: agentIdentifier,
+									decision: 'allow',
+									reason: 'human-in-the-loop approval override',
+									intent: policyIntentForOverride as unknown as Record<string, unknown>,
+									valueUsd: freshTerms.valueUsd,
+									approvalId: approval_id,
+								})
+								.onConflictDoNothing(),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+				}),
+			)
 		}
 
 		writeAuditLog({
@@ -1328,12 +1350,36 @@ agentRoutes.post('/swap', async (c) => {
 				})
 
 				if (decision === 'require_approval') {
+					// Solana quotes carry no USD value at this layer (termsFromSolanaQuote
+					// hard-codes valueUsd=0), so an approved Solana trade would silently
+					// bypass daily/session USD caps (an org policy would have to have
+					// matched on chain/token rules alone to get here). Rather than write
+					// a $0 cap row for a trade that may be worth real money, refuse the
+					// approval flow for Solana until it's priced.
+					if (cached.isSolana) {
+						writeAuditLog({
+							userId: 0,
+							orgId: apiKeyCtx.orgId,
+							agentId: agentIdentifier,
+							eventType: 'approval.unsupported_chain',
+							details: { chain: 'solana', reason },
+						})
+						return c.json(
+							{
+								success: false,
+								status: 'block',
+								error:
+									'This trade requires org approval, but Solana approvals are not yet supported (no USD pricing at this layer) — blocking rather than silently bypassing USD caps.',
+								reason: reason ?? null,
+							},
+							403,
+						)
+					}
+
 					// Persist the RE-QUOTABLE economic terms (not quote_id — the 60s
 					// quote cache TTL is far shorter than the approval window, and is
 					// per-process so it wouldn't survive a multi-replica deploy either).
-					const economicTerms = cached.isSolana
-						? termsFromSolanaQuote(quote as JupiterQuote, wallet_address)
-						: termsFromEvmQuote(quote as SwapQuote, wallet_address)
+					const economicTerms = termsFromEvmQuote(quote as SwapQuote, wallet_address)
 
 					const created = await runEffectEither(
 						Effect.gen(function* () {
@@ -3609,7 +3655,7 @@ agentRoutes.get('/approvals/:id', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.getForAgent(id, agent.uuid ?? String(agent.id))
+			return yield* approvals.getForAgent(id, agentIdentifierOf(agent))
 		}),
 	)
 

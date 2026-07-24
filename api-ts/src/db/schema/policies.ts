@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
 	bigserial,
 	boolean,
@@ -8,6 +9,7 @@ import {
 	real,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
@@ -106,6 +108,12 @@ export const policyDecisions = pgTable(
 	(t) => ({
 		orgCreatedIdx: index('policy_decisions_org_created_idx').on(t.organizationId, t.createdAt),
 		agentCreatedIdx: index('policy_decisions_agent_created_idx').on(t.agentId, t.createdAt),
+		// DB-level idempotency for the cap-accounting 'allow' override insert in
+		// agent.ts's approval-resubmit path — at most one decision row per
+		// approval_id (see migration 0008 for the rationale).
+		approvalIdUniqueIdx: uniqueIndex('policy_decisions_approval_id_unique_idx')
+			.on(t.approvalId)
+			.where(sql`${t.approvalId} IS NOT NULL`),
 	}),
 )
 
