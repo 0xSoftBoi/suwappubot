@@ -3026,6 +3026,56 @@ async def get_my_swaps(
     ]
 
 
+@router.get("/users/me/swaps/{swap_id}", response_model=WebAppSwap)
+async def get_my_swap_detail(
+    swap_id: str,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get a single swap by id for the current Telegram-authenticated user.
+
+    Scoped to the requesting user — returns 404 (not 403) for swaps that
+    exist but belong to someone else, so IDs can't be used to probe for
+    other users' swap history.
+    """
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    try:
+        swap_id_int = int(swap_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    swap = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.id == swap_id_int, SwapTransaction.user_id == user.id)
+        .first()
+    )
+    if not swap:
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    return WebAppSwap(
+        id=str(swap.id),
+        fromChain=swap.from_chain,
+        toChain=swap.to_chain,
+        fromToken=swap.from_token,
+        toToken=swap.to_token,
+        fromAmount=swap.from_amount,
+        toAmount=swap.to_amount,
+        fromAmountUsd=swap.from_amount_usd,
+        toAmountUsd=swap.to_amount_usd,
+        status=swap.status,
+        txHash=swap.tx_hash,
+        bridgeTxHash=swap.bridge_tx_hash,
+        destinationTxHash=swap.destination_tx_hash,
+        createdAt=swap.created_at.isoformat() if swap.created_at else "",
+        completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+        errorMessage=swap.error_message,
+    )
+
+
 # --- Wallet Management Endpoints ---
 
 

@@ -36,7 +36,7 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 ### D. Frontend calls with no (or wrong-path) backend
 - [x] D1. Webapp support form called `/webapp/support/tickets` with NO backend in either stack (the June api-ts routes were wiped). Fixed in PR #615: GET/POST `/webapp/support/tickets` added to Python `api/webapp.py` (terminal-JWT auth, support_notifier fan-out picks tickets up via notified_at).
 - [ ] D2. `/webapp/snipe` POST (`api.ts:634`) — no backend in either stack; webapp snipe is dead. MONEY-PATH when built.
-- [ ] D3. `GET /swaps/{id}` (`api.ts:122`) — no detail endpoint in either stack.
+- [x] D3. Added GET /webapp/users/me/swaps/{id} (user-scoped, 404-not-403) + repointed webapp client. `GET /swaps/{id}` (`api.ts:122`) — no detail endpoint in either stack.
 - [ ] D4. Terminal tweet monitor (`terminal/src/components/tweets/TweetMonitorPanel.tsx`) — all `/webapp/tweets/*` calls 404; no backend.
 
 ### E. "Coming soon" stubs where the backend already EXISTS (quick wins)
