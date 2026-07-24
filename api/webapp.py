@@ -3570,3 +3570,65 @@ async def webapp_referral_leaderboard(
             for idx, entry in enumerate(leaderboard)
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Support tickets (webapp Support page; fan-out/notify handled by support_notifier)
+# ---------------------------------------------------------------------------
+
+
+def _ticket_to_webapp(ticket: SupportTicket) -> Dict:
+    return {
+        "id": str(ticket.id),
+        "kind": ticket.kind,
+        "status": ticket.status,
+        "message": ticket.message,
+        "category": ticket.category,
+        "adminReply": ticket.admin_reply,
+        "createdAt": ticket.created_at.isoformat() if ticket.created_at else None,
+    }
+
+
+@router.get("/support/tickets")
+async def webapp_support_tickets(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    user_id = _require_terminal_user(auth_payload)
+    with get_session() as session:
+        tickets = (
+            session.query(SupportTicket)
+            .filter(SupportTicket.user_id == user_id)
+            .order_by(SupportTicket.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        return [_ticket_to_webapp(t) for t in tickets]
+
+
+class WebAppSupportTicketRequest(BaseModel):
+    kind: str = TicketKind.SUPPORT
+    message: str
+
+
+@router.post("/support/tickets")
+async def webapp_create_support_ticket(
+    body: WebAppSupportTicketRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    user_id = _require_terminal_user(auth_payload)
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    kind = body.kind if body.kind in (TicketKind.SUPPORT, TicketKind.BUG) else TicketKind.SUPPORT
+    with get_session() as session:
+        ticket = SupportTicket(
+            user_id=user_id,
+            kind=kind,
+            source="webapp",
+            message=message[:4000],
+            status=TicketStatus.OPEN,
+        )
+        session.add(ticket)
+        session.commit()
+        session.refresh(ticket)
+        return _ticket_to_webapp(ticket)
