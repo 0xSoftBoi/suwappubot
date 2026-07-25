@@ -179,18 +179,29 @@ export class Suwappu {
   }
 
   /**
-   * Execute a previously obtained quote. Accepts either a Quote object
-   * (as returned by getQuote) or a raw quote id string.
+   * Execute a previously obtained quote via the managed-wallet pipeline.
+   * Accepts either a Quote object (as returned by getQuote) or a raw quote
+   * id string. Hits POST /v1/agent/swap/execute, which returns
+   * { swap_id, status, tx_hash, tracking } — NOT the unsigned-transaction
+   * shape returned by POST /v1/agent/swap (that endpoint is for
+   * self-custody callers who sign client-side; it isn't exposed here).
    */
   async swap(quoteOrId: Quote | string): Promise<SwapResult> {
     const quoteId = typeof quoteOrId === "string" ? quoteOrId : quoteOrId.id;
-    const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap", {
+    const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap/execute", {
       json: { quote_id: quoteId },
     });
+    if (data.swap_id === undefined || data.status === undefined) {
+      throw new SuwappuError(
+        200,
+        `Malformed swap response from /v1/agent/swap/execute: ${JSON.stringify(data)}`,
+      );
+    }
     return {
-      txHash: data.txHash ?? data.transaction?.hash ?? "",
-      status: data.status ?? "pending",
-      chain: data.chain ?? data.chain_type ?? "",
+      swapId: data.swap_id,
+      txHash: data.tx_hash ?? null,
+      status: data.status,
+      pollUrl: data.tracking?.poll_url,
     };
   }
 

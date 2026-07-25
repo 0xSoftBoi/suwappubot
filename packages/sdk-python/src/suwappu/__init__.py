@@ -28,6 +28,7 @@ from suwappu.types import (
     Token,
     TokenBalance,
     TokenPrice,
+    TokenRef,
     WalletPolicy,
     WebhookEvent,
     WebhookEventsResult,
@@ -35,7 +36,7 @@ from suwappu.types import (
     WebhookTestResult,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "DEFAULT_BASE_URL",
@@ -50,6 +51,7 @@ __all__ = [
     "TokenPrice",
     "Chain",
     "Token",
+    "TokenRef",
     "PerpMarket",
     "PerpQuote",
     "PerpPosition",

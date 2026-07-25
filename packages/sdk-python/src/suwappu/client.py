@@ -26,6 +26,7 @@ from suwappu.types import (
     Token,
     TokenBalance,
     TokenPrice,
+    TokenRef,
     WalletPolicy,
     WebhookEvent,
     WebhookEventsResult,
@@ -129,29 +130,49 @@ class SuwappuClient:
                 "chain": chain,
             },
         )
-        return Quote(
-            id=data["id"],
-            from_token=data.get("fromToken", ""),
-            to_token=data.get("toToken", ""),
-            from_amount=data.get("fromAmount", ""),
-            to_amount=data.get("toAmount", ""),
-            route=data.get("route", ""),
-            gas=data.get("gas", ""),
-            fee=data.get("fee", ""),
-            chain=data.get("chain", ""),
-        )
+        try:
+            return Quote(
+                quote_id=data["quote_id"],
+                chain_type=data.get("chain_type", ""),
+                from_token=TokenRef(**data["from_token"]),
+                to_token=TokenRef(**data["to_token"]),
+                amount_in=data["amount_in"],
+                amount_out=data["amount_out"],
+                amount_out_min=data.get("amount_out_min", ""),
+                exchange_rate=str(data.get("exchange_rate", "")),
+                price_impact=data.get("price_impact", ""),
+                route=data.get("route", ""),
+                slippage=data.get("slippage", ""),
+                dex=data.get("dex", ""),
+                expires_in_seconds=data.get("expires_in_seconds", 60),
+                chain=data.get("chain"),
+                from_chain=data.get("from_chain"),
+                to_chain=data.get("to_chain"),
+                estimated_gas_usd=data.get("estimated_gas_usd"),
+                bridge_fee_usd=data.get("bridge_fee_usd"),
+                estimated_time_seconds=data.get("estimated_time_seconds"),
+            )
+        except KeyError as e:
+            raise SuwappuError(200, f"Malformed quote response from /v1/agent/quote: missing {e}") from e
 
     async def execute_swap(self, quote_id: str) -> SwapResult:
         data = await self._request(
             "POST",
-            "/v1/agent/swap",
+            "/v1/agent/swap/execute",
             json={"quote_id": quote_id},
         )
-        return SwapResult(
-            tx_hash=data.get("txHash", ""),
-            status=data.get("status", "pending"),
-            chain=data.get("chain", ""),
-        )
+        try:
+            tracking = data.get("tracking") or {}
+            return SwapResult(
+                swap_id=data["swap_id"],
+                status=data["status"],
+                tx_hash=data.get("tx_hash"),
+                poll_url=tracking.get("poll_url"),
+            )
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed swap response from /v1/agent/swap/execute: missing {e}"
+            ) from e
 
     async def get_portfolio(
         self, wallet_address: str, chain: str | None = None
@@ -160,15 +181,25 @@ class SuwappuClient:
         if chain:
             params["chain"] = chain
         data = await self._request("GET", "/v1/agent/portfolio", params=params)
-        return [
-            TokenBalance(
-                token=b.get("token", ""),
-                balance=b.get("balance", ""),
-                usd_value=b.get("usdValue", ""),
-                chain=b.get("chain", ""),
+        if "balances" not in data:
+            raise SuwappuError(
+                200, "Malformed portfolio response from /v1/agent/portfolio: missing 'balances'"
             )
-            for b in data.get("balances", [])
-        ]
+        try:
+            return [
+                TokenBalance(
+                    symbol=b["symbol"],
+                    name=b.get("name", ""),
+                    balance=b["balance"],
+                    usd_value=b["usd_value"],
+                    chain=b["chain"],
+                )
+                for b in data["balances"]
+            ]
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed portfolio balance entry from /v1/agent/portfolio: missing {e}"
+            ) from e
 
     async def get_prices(self, symbols: str, chain: str | None = None) -> list[TokenPrice]:
         params: dict[str, str] = {"symbols": symbols}
@@ -199,15 +230,23 @@ class SuwappuClient:
 
     async def list_tokens(self, chain: str) -> list[Token]:
         data = await self._request("GET", "/v1/agent/tokens", params={"chain": chain})
-        return [
-            Token(
-                symbol=t.get("symbol", ""),
-                address=t.get("address", ""),
-                decimals=t.get("decimals", 0),
-                chain=t.get("chain", ""),
+        if "tokens" not in data:
+            raise SuwappuError(
+                200, "Malformed tokens response from /v1/agent/tokens: missing 'tokens'"
             )
-            for t in data
-        ]
+        try:
+            return [
+                Token(
+                    symbol=t["symbol"],
+                    address=t["address"],
+                    decimals=t.get("decimals", 0),
+                )
+                for t in data["tokens"]
+            ]
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed token entry from /v1/agent/tokens: missing {e}"
+            ) from e
 
     # --- Perps (Hyperliquid) ---
 

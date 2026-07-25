@@ -35,9 +35,12 @@ export interface Quote {
 }
 
 export interface SwapResult {
-  txHash: string;
+  /** Numeric id of the swap_transactions row; poll GET /v1/agent/swap/status/:swapId. */
+  swapId: number;
+  txHash: string | null;
   status: "confirmed" | "pending" | "failed" | "ready" | string;
-  chain: string;
+  /** e.g. `/v1/agent/swap/status/42`. */
+  pollUrl?: string;
 }
 
 export interface TokenBalance {

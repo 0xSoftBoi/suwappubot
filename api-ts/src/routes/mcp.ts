@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
@@ -32,7 +33,19 @@ import type { Agent } from '../db'
 type McpContext = { Variables: { agent: Agent } }
 
 const mcpRoutes = new Hono<McpContext>()
-mcpRoutes.use('*', agentBearerAuth())
+
+// MCP handshake/discovery methods must work without auth (anonymous initialize is
+// part of the spec) — auth is enforced per-method inside the POST handler instead
+// of a blanket `use('*', ...)` gate so unhappy paths stay inside the JSON-RPC envelope.
+const PUBLIC_MCP_METHODS = new Set([
+	'initialize',
+	'tools/list',
+	'resources/list',
+	'resources/read',
+	'prompts/list',
+	'prompts/get',
+	'notifications/initialized',
+])
 
 // ---------------------------------------------------------------
 // Tool definitions (MCP tool schema)
@@ -320,6 +333,32 @@ const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
 	...t,
 	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
 }))
+
+// Registered tool names, including legacy aliases handled in the tools/call switch
+// below. Used to reject unknown tool calls BEFORE any credit is charged.
+const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+
+// predict_market_detail is a legacy alias for predict_market's schema.
+function toolSchemaName(name: string): string {
+	return name === 'predict_market_detail' ? 'predict_market' : name
+}
+
+/**
+ * Minimal presence validation against a tool's declared `required` inputSchema
+ * fields. Runs BEFORE chargeAgentForCall so malformed calls never consume credits.
+ * Returns an error message, or null if valid.
+ */
+function validateToolArgs(name: string, args: Record<string, unknown>): string | null {
+	const tool = TOOLS.find((t) => t.name === toolSchemaName(name))
+	const required = (tool?.inputSchema as { required?: string[] } | undefined)?.required ?? []
+	for (const key of required) {
+		const v = args[key]
+		if (v === undefined || v === null || v === '') {
+			return `Missing required argument: ${key}`
+		}
+	}
+	return null
+}
 
 // ---------------------------------------------------------------
 // JSON-RPC helpers
@@ -1087,8 +1126,6 @@ const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]
 // ---------------------------------------------------------------
 
 mcpRoutes.post('/', async (c) => {
-	const agent = c.get('agent')
-
 	let body: unknown
 	try {
 		body = await c.req.json()
@@ -1101,11 +1138,28 @@ mcpRoutes.post('/', async (c) => {
 		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	// Track
-	await runEffectEither(Effect.gen(function* () {
-		const agentService = yield* AgentService
-		yield* agentService.incrementAgentStats(agent.id, 'request')
-	}))
+	// Only gate non-public methods on auth so anonymous MCP clients can complete the
+	// initialize/tools-list handshake before ever presenting an API key (spec compliance).
+	let agent: Agent | undefined
+	if (!PUBLIC_MCP_METHODS.has(req.method)) {
+		try {
+			await agentBearerAuth()(c, async () => {})
+		} catch (e) {
+			c.header('WWW-Authenticate', 'Bearer realm="suwappu", error="invalid_token"')
+			const message = e instanceof HTTPException ? e.message : 'Authentication required'
+			return c.json(
+				rpcErr(req.id, -32001, `${message}. Register an agent at https://suwappu.bot/agents to get an API key.`, undefined, 'UNAUTHORIZED'),
+				401,
+			)
+		}
+		agent = c.get('agent')
+
+		// Track
+		await runEffectEither(Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.incrementAgentStats(agent!.id, 'request')
+		}))
+	}
 
 	switch (req.method) {
 		case 'initialize':

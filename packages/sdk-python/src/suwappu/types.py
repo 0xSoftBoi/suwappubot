@@ -10,26 +10,54 @@ class SuwappuConfig(BaseModel):
     base_url: str = "https://api.suwappu.bot"
 
 
+class TokenRef(BaseModel):
+    symbol: str
+    address: str
+    decimals: int = 0
+
+
 class Quote(BaseModel):
-    id: str
-    from_token: str
-    to_token: str
-    from_amount: str
-    to_amount: str
-    route: str
-    gas: str
-    fee: str
-    chain: str
+    """Mirrors the response of POST /v1/agent/quote (api-ts agent.ts).
+
+    EVM quotes include from_chain/to_chain/estimated_gas_usd/bridge_fee_usd;
+    Solana quotes include chain/requires_wallet/wallet_type instead. Both
+    shapes share quote_id, from_token/to_token, amount_in/out, route, etc.
+    """
+
+    quote_id: str
+    chain_type: str = ""
+    from_token: TokenRef
+    to_token: TokenRef
+    amount_in: str
+    amount_out: str
+    amount_out_min: str = ""
+    exchange_rate: str = ""
+    price_impact: str = ""
+    route: str = ""
+    slippage: str = ""
+    dex: str = ""
+    expires_in_seconds: int = 60
+    chain: str | None = None
+    from_chain: str | None = None
+    to_chain: str | None = None
+    estimated_gas_usd: str | None = None
+    bridge_fee_usd: str | None = None
+    estimated_time_seconds: float | None = None
+    model_config = {"extra": "allow"}
 
 
 class SwapResult(BaseModel):
-    tx_hash: str
-    status: Literal["confirmed", "pending", "failed"]
-    chain: str
+    """Mirrors the response of POST /v1/agent/swap/execute."""
+
+    swap_id: int
+    status: str
+    tx_hash: str | None = None
+    poll_url: str | None = None
 
 
 class TokenBalance(BaseModel):
-    token: str
+    symbol: str
+    name: str = ""
     balance: str
     usd_value: str
     chain: str
@@ -52,8 +80,7 @@ class Chain(BaseModel):
 class Token(BaseModel):
     symbol: str
     address: str
-    decimals: int
-    chain: str
+    decimals: int = 0
 
 
 # Perps types (Hyperliquid)
