@@ -99,6 +99,23 @@ export default function SummerFooter() {
         </nav>
       </div>
 
+      {/* Legal line — prose only. No compliance badges we do not actually hold. */}
+      <div className="summer-footer__legal">
+        <p>
+          Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
+          Connect your own wallet and you keep your keys; we never take discretionary control of your
+          funds and we do not provide financial, tax, or legal advice. Digital-asset trading carries
+          risk of total loss — see our{' '}
+          <a href="/legal/risk">risk disclosures</a>, <a href="/legal/terms">terms</a>, and{' '}
+          <a href="/legal/privacy">privacy policy</a>.
+        </p>
+        <p>
+          Legal enquiries <a href="mailto:legal@suwappu.bot">legal@suwappu.bot</a> · Security disclosure{' '}
+          <a href="mailto:security@suwappu.bot">security@suwappu.bot</a> · Sales{' '}
+          <a href="/contact">contact form</a>
+        </p>
+      </div>
+
       <div className="summer-footer__bottom">
         <span>&copy; 2026 Suwappu. All rights reserved.</span>
         <span>Non-custodial where you bring your own keys. Crypto trading carries risk.</span>

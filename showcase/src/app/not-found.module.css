@@ -1,0 +1,128 @@
+/* 404 — dark register. Standalone chrome: the light nav/footer would fail
+   contrast on this background, so wayfinding lives in the links below. */
+.page {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 48px 20px;
+  background:
+    radial-gradient(80% 60% at 50% 0%, rgba(229, 141, 43, 0.10), transparent 62%),
+    linear-gradient(180deg, var(--sw-cosmic-1) 0%, var(--sw-cosmic-0) 100%);
+  color: var(--sw-cosmic-ink);
+}
+
+.inner {
+  position: relative;
+  z-index: var(--z-content);
+  width: min(100%, 640px);
+  text-align: center;
+}
+
+.code {
+  margin: 0;
+  color: var(--sw-accent-bright);
+  font-family: var(--font-mono);
+  font-size: clamp(3.4rem, 2rem + 6vw, 6rem);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.title {
+  margin: 18px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+.lead {
+  margin: 12px auto 0;
+  max-width: 46ch;
+  color: var(--sw-cosmic-muted);
+  font-size: var(--type-lead-size);
+  line-height: var(--type-body-lh);
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.primary,
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--sw-r-pill);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.16s var(--sw-ease), box-shadow 0.16s var(--sw-ease),
+    border-color 0.16s var(--sw-ease), color 0.16s var(--sw-ease);
+}
+
+.primary {
+  border: 1px solid var(--sw-accent-deep);
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  color: #17324a;
+}
+
+.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sw-shadow-accent);
+}
+
+.primary:active {
+  transform: translateY(-1px);
+}
+
+.ghost {
+  border: 1px solid var(--sw-hairline-dark);
+  background: transparent;
+  color: var(--sw-cosmic-ink);
+}
+
+.ghost:hover {
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-bright);
+}
+
+.ghost:active {
+  transform: translateY(0);
+}
+
+.meta {
+  margin: 26px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--sw-hairline-dark);
+  color: var(--sw-cosmic-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls);
+  text-transform: uppercase;
+}
+
+/* Focus rings need the dark halo on this register. */
+.page :focus-visible {
+  box-shadow: var(--sw-focus-dark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary:hover,
+  .primary:active,
+  .ghost:hover,
+  .ghost:active {
+    transform: none;
+  }
+}

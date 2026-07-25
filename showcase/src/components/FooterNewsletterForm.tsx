@@ -84,7 +84,13 @@ export default function FooterNewsletterForm() {
           placeholder="you@example.com"
           aria-label="Email address"
         />
-        <button className="summer-footer__newsletter-submit" type="submit" disabled={submitting}>
+        <button
+          className="summer-footer__newsletter-submit"
+          type="submit"
+          disabled={submitting}
+          aria-busy={submitting}
+        >
+          {submitting && <span className="summer-footer__newsletter-spinner" aria-hidden="true" />}
           {submitting ? 'Joining…' : 'Subscribe'}
         </button>
       </div>
