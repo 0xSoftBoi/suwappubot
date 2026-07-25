@@ -185,10 +185,16 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`
 Get key: POST /register (no auth needed)
 
 ## Quick Start
-1. POST /register {"name":"my-agent"} → get api_key
-2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id
-3. POST /swap/execute {"quote_id":"..."} → swap executed
-4. GET /swap/status/{id} → check result
+1. POST /register {"name":"my-agent"} → get api_key + 100 free starter credits
+2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id (1 credit)
+3. POST /swap/execute {"quote_id":"..."} → swap executed (5 credits)
+4. GET /swap/status/{id} — check result
+
+## Credits & billing
+New agents get 100 free credits (1 credit ≈ $0.001 USD) on registration. GET /tokens and
+GET /chains are always free (0 credits). Metered calls 402 with a structured payment
+challenge once your balance runs out — top up via POST /billing/topup {txHash, chain, amount}
+or subscribe via POST /billing/subscribe for unmetered access.
 
 ## Endpoints
 
