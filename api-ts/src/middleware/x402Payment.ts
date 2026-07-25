@@ -334,6 +334,9 @@ export function meteredPayment(endpoint: string) {
 				c.header('X-Metering-Tier', result.tier)
 				c.header('X-Metering-Bypass', 'true')
 			}
+			// Expose the charge outcome so route handlers can decide to refund on a
+			// non-execution failure path (mirrors the MCP tool-dispatch refund guard).
+			c.set('meterCharge', result)
 			await next()
 			return
 		}
@@ -347,12 +350,16 @@ export function meteredPayment(endpoint: string) {
 		if (result.kind === 'settled') {
 			c.header('X-Metering-Cost', String(result.cost))
 			if (result.txHash) c.header('X-Payment-Response', result.txHash)
+			// 'settled' is a facilitator on-chain payment — NEVER refund it here (same
+			// guard as MCP's refundChargedCall call sites, which only fire on 'ok').
+			c.set('meterCharge', result)
 			await next()
 			return
 		}
 
 		c.header('X-Metering-Cost', String(result.cost))
 		c.header('X-Metering-Balance', String(result.balance))
+		c.set('meterCharge', result)
 		await next()
 	}
 }

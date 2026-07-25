@@ -22,6 +22,8 @@ export interface Quote {
   toToken: string;
   fromAmount: string;
   toAmount: string;
+  /** Worst-case amount the caller will receive after slippage — surface this to end users. */
+  amountOutMin: string;
   route: string;
   gas: string;
   fee: string;
@@ -31,6 +33,8 @@ export interface Quote {
   priceImpact: string;
   slippage: string;
   estimatedTimeSeconds: number;
+  /** Seconds until this quote id expires and must be re-fetched before executing. */
+  expiresInSeconds: number;
   dex: string;
 }
 

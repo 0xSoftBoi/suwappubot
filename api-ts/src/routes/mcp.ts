@@ -12,7 +12,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
@@ -484,8 +484,8 @@ const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
 	BetaUSD: 'Beta yield-bearing stablecoin',
 	ThetaUSD: 'Theta yield-bearing stablecoin',
 }
-// TIP-20 tokens on Tempo are 6-decimal USD-denominated stablecoins.
-const TEMPO_TOKEN_DECIMALS = 6
+// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService) — the authoritative source
+// is bot/config/tokens.py, which declares decimals=18 for all Tempo TIP-20 stablecoins.
 
 // Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
 // isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
@@ -501,7 +501,7 @@ function buildTempoTokens() {
 		symbol,
 		name: symbol,
 		address,
-		decimals: TEMPO_TOKEN_DECIMALS,
+		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 18,
 		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
 		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
 		currency: TEMPO_TIP20_CURRENCY,
@@ -638,13 +638,15 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			}
 			const quote = await res.json() as Record<string, unknown>
 			const quoteId = `tempo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-			// No decimals populated: COMMON_TOKENS[4217] carries addresses only, and the
-			// Python quote dict has no decimals field. /swap/execute therefore refuses
-			// these rather than guessing a scale. That is not a regression — this path
-			// previously sent from_amount_human: 0 (quote.fromAmount is undefined on this
-			// dict), which disabled the pre-swap balance guard entirely. To make Tempo
-			// executable, add decimals to the Tempo token registry and pass them here.
-			cacheAgentQuote(quoteId, quote, agent.id, false)
+			// Decimals resolved from TEMPO_TOKEN_DECIMALS (TokenService), sourced from
+			// bot/config/tokens.py — all Tempo TIP-20 stablecoins are 18dp. This restores
+			// the pre-swap balance guard on /swap/execute for Tempo quotes.
+			const fromSymbol = Object.keys(tempoTokens).find((k) => k.toUpperCase() === fromNorm)
+			const toSymbol = Object.keys(tempoTokens).find((k) => k.toUpperCase() === toNorm)
+			cacheAgentQuote(quoteId, quote, agent.id, false, {
+				fromDecimals: (fromSymbol ? TEMPO_TOKEN_DECIMALS[fromSymbol] : undefined) ?? 18,
+				toDecimals: (toSymbol ? TEMPO_TOKEN_DECIMALS[toSymbol] : undefined) ?? 18,
+			})
 			return {
 				content: [{
 					type: 'text',

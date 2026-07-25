@@ -108,6 +108,7 @@ class TestGetQuote:
         assert isinstance(quote, Quote)
         assert quote.quote_id == "lifi_abc123"
         assert quote.amount_out == "2847.320000"
+        assert quote.amount_out_min == "2800.000000"
         assert isinstance(quote.from_token, TokenRef)
         assert quote.from_token.symbol == "ETH"
         assert quote.to_token.address == "0xUSDC"
@@ -143,6 +144,7 @@ class TestGetQuote:
 
         assert quote.chain == "Solana"
         assert quote.chain_type == "solana"
+        assert quote.amount_out_min == "148.000000"
 
     @pytest.mark.asyncio
     async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:

@@ -175,6 +175,7 @@ export class Suwappu {
       toToken: data.to_token?.symbol ?? data.toToken ?? args.to,
       fromAmount: String(data.amount_in ?? data.fromAmount ?? args.amount),
       toAmount: String(data.amount_out ?? data.toAmount ?? "0"),
+      amountOutMin: String(data.amount_out_min ?? data.amountOutMin ?? "0"),
       route: String(data.route ?? ""),
       gas: String(data.estimated_gas_usd ?? data.gas ?? "0"),
       fee: String(data.bridge_fee_usd ?? data.fee ?? "0"),
@@ -183,6 +184,7 @@ export class Suwappu {
       priceImpact: String(data.price_impact ?? "0"),
       slippage: String(data.slippage ?? "0"),
       estimatedTimeSeconds: Number(data.estimated_time_seconds ?? 0),
+      expiresInSeconds: Number(data.expires_in_seconds ?? 0),
       dex: String(data.dex ?? ""),
     };
   }

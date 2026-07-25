@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { resolveSwapExecuteDecimals, stopAgentCleanup } from '../routes/agent'
+import { TEMPO_TOKEN_DECIMALS, COMMON_TOKENS } from '../services'
 
 // Importing agent.ts starts a background cache-cleanup interval; stop it so the
 // test process exits cleanly (same pattern as agentWalletOwnership.test.ts).
@@ -74,5 +75,28 @@ describe('resolveSwapExecuteDecimals (MONEY-PATH: quote_data.from_amount_human)'
 		}
 		const { fromDecimals } = resolveSwapExecuteDecimals(cached)
 		expect(fromDecimals).toBeUndefined()
+	})
+
+	// MONEY-PATH regression: mcp.ts's Tempo branch used to cache a quote with NO
+	// fromDecimals/toDecimals (COMMON_TOKENS[4217] was address-only, and the Python
+	// tempo/quote dict has no decimals field), which made /swap/execute reject every
+	// Tempo swap with 422. TEMPO_TOKEN_DECIMALS (TokenService) now supplies the
+	// authoritative decimals (18, per bot/config/tokens.py) at quote-cache time.
+	it('resolves for a Tempo (pathUSD -> AlphaUSD) quote once TEMPO_TOKEN_DECIMALS is used at cache time', () => {
+		expect(Object.keys(COMMON_TOKENS[4217] || {})).toEqual(
+			expect.arrayContaining(['pathUSD', 'AlphaUSD', 'BetaUSD', 'ThetaUSD']),
+		)
+		const cached = {
+			quote: { amount_out: '999500000000000000000' },
+			isSolana: false,
+			fromDecimals: TEMPO_TOKEN_DECIMALS.pathUSD,
+			toDecimals: TEMPO_TOKEN_DECIMALS.AlphaUSD,
+		}
+		const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
+		expect(fromDecimals).toBe(18)
+		expect(toDecimals).toBe(18)
+		// Would NOT hit the 422 QUOTE_NOT_FOUND branch in /swap/execute, which only
+		// fires when fromDecimals is undefined.
+		expect(fromDecimals).not.toBeUndefined()
 	})
 })

@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
@@ -23,7 +23,7 @@ import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
-import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
+import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
@@ -64,6 +64,10 @@ import {
 type AgentContext = {
 	Variables: {
 		agent: Agent
+		// Set by meteredPayment() middleware — the outcome of the pay-per-call charge
+		// for this request, if metering ran. Used by /swap/execute to refund a charge
+		// on a non-execution failure path (mirrors mcp.ts's refundChargedCall guard).
+		meterCharge?: ChargeResult
 	}
 }
 
@@ -1864,6 +1868,18 @@ agentRoutes.post('/wallets', async (c) => {
 	)
 })
 
+// Refund a pay-per-call charge for POST /v1/agent/swap/execute when the request
+// fails before (or without) actually executing a swap. Mirrors the MCP tool-dispatch
+// refund guard in mcp.ts (refundChargedCall call sites there) — only refund when the
+// charge actually deducted prepaid credits (kind === 'ok'); a facilitator-settled
+// on-chain payment ('settled') is never refunded here, matching that guard.
+async function refundSwapExecuteCharge(c: Context<AgentContext>, agent: Agent, reason: string): Promise<void> {
+	const charge = c.get('meterCharge')
+	if (charge?.kind === 'ok') {
+		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason })
+	}
+}
+
 // POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
 agentRoutes.post('/swap/execute', async (c) => {
 	const agent = c.get('agent')
@@ -1872,11 +1888,13 @@ agentRoutes.post('/swap/execute', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
+		await refundSwapExecuteCharge(c, agent, 'invalid JSON body')
 		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = ExecuteSwapSchema.safeParse(body)
 	if (!parsed.success) {
+		await refundSwapExecuteCharge(c, agent, 'schema validation failed')
 		return c.json(
 			{
 				success: false,
@@ -1897,6 +1915,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const walletAddress = metadata.wallet_address as string | undefined
 
 	if (!internalUserId || !internalWalletId || !walletAddress) {
+		await refundSwapExecuteCharge(c, agent, 'WALLET_NOT_FOUND')
 		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', {
 			hint: 'Create a wallet first using POST /v1/agent/wallets',
 		})
@@ -1907,6 +1926,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// message so cross-agent quote hijacking can't be probed.
 	const cached = getCachedQuote(quote_id)
 	if (!cached || cached.agentId !== agent.id) {
+		await refundSwapExecuteCharge(c, agent, 'QUOTE_NOT_FOUND')
 		return agentError(c, 400, 'QUOTE_NOT_FOUND', 'Quote expired or not found', {
 			hint: 'Request a new quote using POST /v1/agent/quote',
 		})
@@ -1919,6 +1939,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
 
 	if (fromDecimals === undefined) {
+		await refundSwapExecuteCharge(c, agent, 'unresolvable quote decimals')
 		return agentError(
 			c,
 			422,
@@ -2058,6 +2079,11 @@ agentRoutes.post('/swap/execute', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
+		// The internal Python call failed before (or without) executing the swap —
+		// e.g. internal API unreachable/misconfigured, or execute-swap itself rejected
+		// the request. Refund the charge; there is no partial-execution ambiguity here
+		// because a successfully submitted swap returns Right, not Left.
+		await refundSwapExecuteCharge(c, agent, `internal execute-swap call failed: ${result.left.message}`)
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status)
 	}

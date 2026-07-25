@@ -147,6 +147,7 @@ export function quoteTable(q: Quote): string {
   table.push(
     { [theme.label("From")]: `${formatAmount(q.fromAmount)} ${q.fromToken}` },
     { [theme.label("To")]: `${theme.amount(formatAmount(q.toAmount))} ${q.toToken}` },
+    { [theme.label("Min. Received")]: `${formatAmount(q.amountOutMin)} ${q.toToken}` },
     { [theme.label("Rate")]: q.exchangeRate },
     { [theme.label("Price Impact")]: formatPercent(q.priceImpact) },
     { [theme.label("Slippage")]: formatPercent(q.slippage) },
