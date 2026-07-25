@@ -216,7 +216,7 @@ function Header({
               item.symbol === market.symbol
                 ? {
                     borderColor: item.accent,
-                    background: `linear-gradient(180deg, rgba(255,255,255,0.94), ${item.tint})`,
+                    background: `linear-gradient(180deg, rgba(14,16,20,0.94), ${item.tint})`,
                   }
                 : undefined
             }
@@ -289,7 +289,7 @@ function ChartPanel({ market }: { market: Market }) {
       <div
         className="relative h-[288px] overflow-hidden rounded-[8px] border border-terminal-border md:h-full md:min-h-[420px]"
         style={{
-          background: `radial-gradient(circle at 82% 12%, ${market.tint}, transparent 24%), linear-gradient(180deg, rgba(255,255,255,0.88), rgba(240,252,255,0.58))`,
+          background: `radial-gradient(circle at 82% 12%, ${market.tint}, transparent 24%), linear-gradient(180deg, rgba(14,16,20,0.88), rgba(10,12,16,0.58))`,
         }}
       >
         <div className="absolute inset-0 bg-[linear-gradient(rgba(142,182,197,0.34)_1px,transparent_1px),linear-gradient(90deg,rgba(142,182,197,0.3)_1px,transparent_1px)] bg-[size:72px_48px]" />
@@ -300,7 +300,7 @@ function ChartPanel({ market }: { market: Market }) {
               className={joinClasses(
                 "h-7 rounded-[5px] border px-2 font-mono text-[10px]",
                 range === "1H"
-                  ? "border-terminal-border-active bg-white text-terminal-text"
+                  ? "border-terminal-border-active bg-terminal-panel text-terminal-text"
                   : "border-transparent text-terminal-text-muted",
               )}
             >
@@ -388,7 +388,7 @@ function MarketTable({
             borderLeftColor: selected === row.symbol ? row.accent : "transparent",
             background:
               selected === row.symbol
-                ? `linear-gradient(90deg, ${row.tint}, rgba(255,255,255,0.72))`
+                ? `linear-gradient(90deg, ${row.tint}, rgba(14,16,20,0.72))`
                 : undefined,
           }}
         >
@@ -422,7 +422,7 @@ function OrderBook() {
     <Surface className="p-0" motif="stem">
       <div className="flex items-center justify-between border-b border-terminal-border px-2 py-2">
         <h3 className="text-sm font-semibold text-terminal-text">Order book</h3>
-        <span className="rounded-[5px] border border-terminal-border bg-white px-2 py-0.5 font-mono text-[10px] text-terminal-text-muted">
+        <span className="rounded-[5px] border border-terminal-border bg-terminal-panel px-2 py-0.5 font-mono text-[10px] text-terminal-text-muted">
           0.01
         </span>
       </div>
@@ -490,7 +490,7 @@ function SwapTicket({ market }: { market: Market }) {
                 ? item === "Buy"
                   ? "border-[#2f8f5b] bg-[#2f8f5b] text-white"
                   : "border-[#e66d85] bg-[#e66d85] text-white"
-                : "border-terminal-border bg-white text-terminal-text-secondary",
+                : "border-terminal-border bg-terminal-panel text-terminal-text-secondary",
             )}
           >
             {item}
@@ -504,7 +504,7 @@ function SwapTicket({ market }: { market: Market }) {
             className={joinClasses(
               "rounded-[6px] border px-2 py-1.5",
               item === "Swap"
-                ? "border-terminal-border-active bg-white text-terminal-text"
+                ? "border-terminal-border-active bg-terminal-panel text-terminal-text"
                 : "border-transparent text-terminal-text-muted",
             )}
           >
@@ -519,7 +519,7 @@ function SwapTicket({ market }: { market: Market }) {
             <span className="font-mono text-xl font-semibold text-terminal-text">
               {index === 0 ? "0.0" : market.price.replace("$", "")}
             </span>
-            <button className="rounded-[6px] border border-terminal-border bg-white px-3 py-1 text-xs text-terminal-text-secondary">
+            <button className="rounded-[6px] border border-terminal-border bg-terminal-panel px-3 py-1 text-xs text-terminal-text-secondary">
               Select
             </button>
           </div>
@@ -534,7 +534,7 @@ function SwapTicket({ market }: { market: Market }) {
               className={joinClasses(
                 "rounded-[5px] border px-2 py-1 font-mono",
                 item === "0.5%"
-                  ? "border-[#0ea5e9] bg-white text-[#0b789a]"
+                  ? "border-[#0ea5e9] bg-terminal-panel text-[#0b789a]"
                   : "border-terminal-border text-terminal-text-muted",
               )}
             >
@@ -614,10 +614,10 @@ function BottomWorkspace() {
           ))}
         </div>
         <div className="flex gap-2 px-2">
-          <button className="rounded-[6px] border border-terminal-border bg-white px-4 py-1.5 text-xs text-terminal-text">
+          <button className="rounded-[6px] border border-terminal-border bg-terminal-panel px-4 py-1.5 text-xs text-terminal-text">
             Deposit
           </button>
-          <button className="rounded-[6px] border border-terminal-border bg-white px-4 py-1.5 text-xs text-terminal-text">
+          <button className="rounded-[6px] border border-terminal-border bg-terminal-panel px-4 py-1.5 text-xs text-terminal-text">
             Withdraw
           </button>
         </div>
@@ -652,7 +652,7 @@ export function TerminalSiteReplacement() {
   );
 
   return (
-    <TerminalThemeScope mode="summer-breeze">
+    <TerminalThemeScope>
       <div className="terminal-theme-page min-h-screen p-1.5 text-terminal-text md:h-screen md:overflow-hidden md:p-3">
         <div className="pointer-events-none fixed -left-20 top-20 hidden opacity-[0.08] md:block">
           <PersimmonStemMotif size={260} palette="butter" rotation={-18} />

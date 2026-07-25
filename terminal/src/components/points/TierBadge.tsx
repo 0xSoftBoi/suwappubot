@@ -29,7 +29,7 @@ export function TierBadge({ tier, points, compact = false }: TierBadgeProps) {
   if (compact) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold"
         style={{ color, borderColor: color, border: '1px solid' }}
         data-testid="tier-badge"
       >
@@ -51,7 +51,7 @@ export function TierBadge({ tier, points, compact = false }: TierBadgeProps) {
       >
         {icon}
       </div>
-      <span className="text-sm font-bold tracking-wide" style={{ color }}>
+      <span className="text-sm font-semibold tracking-wide" style={{ color }}>
         {tier}
       </span>
       <span className="font-mono text-xs text-terminal-text-secondary">

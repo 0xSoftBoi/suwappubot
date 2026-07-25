@@ -21,7 +21,7 @@ export function QuoteCard({ data, onExecute, onDismiss }: QuoteCardProps) {
             From
           </span>
           <p className="text-terminal-text font-medium">
-            {fromAmount} {fromToken}
+            <span className="font-mono tnum">{fromAmount}</span> {fromToken}
           </p>
         </div>
         <svg
@@ -42,14 +42,14 @@ export function QuoteCard({ data, onExecute, onDismiss }: QuoteCardProps) {
             To
           </span>
           <p className="text-terminal-text font-medium">
-            {toAmount} {toToken}
+            <span className="font-mono tnum">{toAmount}</span> {toToken}
           </p>
         </div>
       </div>
 
       <div className="flex justify-between border-t border-terminal-border pt-2 text-terminal-text-secondary">
         <span>Rate</span>
-        <span>
+        <span className="font-mono tnum">
           1 {fromToken} = {exchangeRate?.toFixed(6) || "—"} {toToken}
         </span>
       </div>
@@ -57,7 +57,7 @@ export function QuoteCard({ data, onExecute, onDismiss }: QuoteCardProps) {
         <div className="flex justify-between text-terminal-text-secondary">
           <span>Price Impact</span>
           <span
-            className={priceImpact > 1 ? "text-impact-high" : "text-impact-low"}
+            className={`font-mono tnum ${priceImpact > 1 ? "text-impact-high" : "text-impact-low"}`}
           >
             {priceImpact.toFixed(2)}%
           </span>
@@ -66,20 +66,22 @@ export function QuoteCard({ data, onExecute, onDismiss }: QuoteCardProps) {
       {gasUsd !== undefined && (
         <div className="flex justify-between text-terminal-text-secondary">
           <span>Est. Gas</span>
-          <span>${gasUsd.toFixed(2)}</span>
+          <span className="font-mono tnum">${gasUsd.toFixed(2)}</span>
         </div>
       )}
 
       <div className="flex gap-2 pt-1">
         <button
           onClick={onExecute}
-          className="terminal-button flex-1 py-1.5 text-xs"
+          disabled={!onExecute}
+          className="terminal-button flex-1 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
         >
           Execute Swap
         </button>
         <button
           onClick={onDismiss}
-          className="terminal-button-secondary flex-1 py-1.5 text-xs"
+          disabled={!onDismiss}
+          className="terminal-button-secondary flex-1 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
         >
           Dismiss
         </button>

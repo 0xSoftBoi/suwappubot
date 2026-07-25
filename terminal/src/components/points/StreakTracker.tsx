@@ -40,7 +40,7 @@ export function StreakTracker({ streak, longestStreak, lastCheckin }: StreakTrac
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <span className="text-xs text-terminal-text-secondary uppercase tracking-wider">Current Streak</span>
-            <span className="font-mono text-2xl font-bold text-sakura-400">
+            <span className="font-mono text-2xl font-semibold text-sakura-400">
               {streak}
               <span className="text-sm text-terminal-text-secondary ml-1">days</span>
             </span>
@@ -48,7 +48,7 @@ export function StreakTracker({ streak, longestStreak, lastCheckin }: StreakTrac
           <div className="w-px h-8 bg-terminal-border" />
           <div className="flex flex-col">
             <span className="text-xs text-terminal-text-secondary uppercase tracking-wider">Longest</span>
-            <span className="font-mono text-2xl font-bold text-terminal-text">
+            <span className="font-mono text-2xl font-semibold text-terminal-text">
               {longestStreak}
               <span className="text-sm text-terminal-text-secondary ml-1">days</span>
             </span>

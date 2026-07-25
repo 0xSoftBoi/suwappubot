@@ -82,15 +82,15 @@ export function PointsDashboard() {
             <div className="grid grid-cols-3 gap-3">
               <div className="terminal-panel p-3 text-center">
                 <div className="text-xs text-terminal-text-secondary uppercase tracking-wider mb-1">Total XP</div>
-                <div className="font-mono text-lg font-bold text-sakura-400">{xp.toLocaleString()}</div>
+                <div className="font-mono text-lg font-semibold text-sakura-400">{xp.toLocaleString()}</div>
               </div>
               <div className="terminal-panel p-3 text-center">
                 <div className="text-xs text-terminal-text-secondary uppercase tracking-wider mb-1">Rank</div>
-                <div className="font-mono text-lg font-bold text-terminal-text">#{profile?.rank ?? '--'}</div>
+                <div className="font-mono text-lg font-semibold text-terminal-text">#{profile?.rank ?? '--'}</div>
               </div>
               <div className="terminal-panel p-3 text-center">
                 <div className="text-xs text-terminal-text-secondary uppercase tracking-wider mb-1">Level</div>
-                <div className="font-mono text-lg font-bold text-terminal-text">{level}</div>
+                <div className="font-mono text-lg font-semibold text-terminal-text">{level}</div>
               </div>
             </div>
           </div>

@@ -32,12 +32,12 @@ export function ChatMessage({
         className={joinClasses(
           "max-w-[85%] px-3 py-2",
           isUser
-            ? "terminal-theme-card border-[#8ccfe3] bg-[linear-gradient(180deg,rgba(237,250,255,0.98)_0%,rgba(222,246,252,0.96)_100%)]"
+            ? "terminal-theme-card border-terminal-border-active bg-sakura-500/10"
             : "terminal-theme-card",
         )}
       >
         {type === "error" ? (
-          <p className="text-sm text-red-400 whitespace-pre-wrap">{content}</p>
+          <p role="alert" className="text-sm text-bear whitespace-pre-wrap">{content}</p>
         ) : (
           <p className="text-sm text-terminal-text whitespace-pre-wrap">
             {content}
