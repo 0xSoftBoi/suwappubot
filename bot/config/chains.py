@@ -617,7 +617,6 @@ CHAIN_NAME_ALIASES: dict[str, str] = {
     "eth": "ethereum",
     "sol": "solana",
     "bnb": "bsc",
-    "bsc": "bsc",
     "avax": "avalanche",
     "matic": "polygon",
     "poly": "polygon",

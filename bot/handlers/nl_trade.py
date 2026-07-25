@@ -49,6 +49,9 @@ FALLBACK_MESSAGE = "Sorry, I couldn't understand that — try /s <amount> <token
 NL_PENDING_INTENT_KEY = "nl_pending_trade_intent"
 NL_PENDING_INTENT_TTL_SECONDS = 5 * 60
 
+# First match wins: "on the eth one on base" binds "the", which fails to resolve
+# and leaves the chain unset rather than guessing — same deliberate tradeoff as
+# _ON_CHAIN_RE in nl_deterministic_parser.py. Unresolved candidates defer to the LLM.
 _BARE_CHAIN_RE = re.compile(r"\b(?:on|en|sur)\s+([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
 # Anchor against ordinal suffixes ("the 2nd one") so a list-selection number
 # isn't misread as a swap amount. Negative lookahead blocks "2nd"/"3rd"/etc
