@@ -2,11 +2,12 @@ import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
+import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
   title: 'Solutions — Suwappu',
   description:
-    'What you can build with the Suwappu Agent API: trading agents, portfolio agents, payment & commerce agents, and embedded wallets — across 15+ chains.',
+    `What you can build with the Suwappu Agent API: trading agents, portfolio agents, payment & commerce agents, and embedded wallets — across ${stats.agentApiChains} chains.`,
 };
 
 const solutions: {
@@ -23,7 +24,7 @@ const solutions: {
     id: 'trading',
     eyebrow: 'For autonomous strategies',
     title: 'Trading agents',
-    body: 'Give a strategy — human-written or fully autonomous — the ability to quote and execute swaps across 15+ chains, inside spend and slippage limits you set. The same two calls whether it runs once a day or once a second.',
+    body: `Give a strategy — human-written or fully autonomous — the ability to quote and execute swaps across ${stats.agentApiChains} chains, inside spend and slippage limits you set. The same two calls whether it runs once a day or once a second.`,
     flow: ['Register agent', 'Set spend policy', 'Request a quote', 'Execute the swap'],
     file: 'trading-agent.ts',
     code: `import { Suwappu } from "@suwappu/sdk";

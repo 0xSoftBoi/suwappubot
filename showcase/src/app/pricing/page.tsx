@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -31,7 +32,7 @@ const tiers: {
     blurb: 'Everything you need to start.',
     cta: 'Start free',
     highlight: false,
-    features: ['Best-price routing across 9 aggregators', 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access', '1× loyalty points — redeem for fee credits'],
+    features: [`Best-price routing across ${stats.routerCount} providers`, 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access', '1× loyalty points — redeem for fee credits'],
   },
   {
     name: 'Pro',
@@ -87,7 +88,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     category: 'Trading',
     rows: [
       { label: 'Swap fee', values: ['1.0%', '0.5%', '0.3%', '0.1%'] },
-      { label: 'Cross-chain routing (9 aggregators)', values: ['✓', '✓', '✓', '✓'] },
+      { label: `Cross-chain routing (${stats.routerCount} providers)`, values: ['✓', '✓', '✓', '✓'] },
       { label: 'Limit orders & DCA', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Copy trading', values: ['—', '✓', '✓', '✓'] },
     ],

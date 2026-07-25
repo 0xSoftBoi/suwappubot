@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
@@ -33,7 +34,7 @@ export default function CareersPage() {
           <p className="summer-kicker">Careers</p>
           <h1>Build the execution layer for on-chain agents.</h1>
           <p className="mkt-hero__lead">
-            We&apos;re building the routing and agent layer for cross-chain DeFi — 40+ chains,
+            We&apos;re building the routing and agent layer for cross-chain DeFi — {stats.platformChains} chains,
             HyperLiquid perps, gasless on Tempo, one API. Small, senior team. High leverage.
           </p>
         </header>

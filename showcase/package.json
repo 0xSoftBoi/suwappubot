@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "brand:generate": "node scripts/generate-persimmon-brand.mjs",
+    "stats:generate": "node scripts/generate-stats.mjs",
+    "stats:check": "node scripts/generate-stats.mjs && git diff --exit-code src/data/stats.generated.json",
     "prebuild": "bun scripts/build-content.ts && bun scripts/gen-llms.mjs",
     "docs:generate": "node scripts/regen-docs.mjs && node scripts/gen-llms.mjs",
     "build": "next build",

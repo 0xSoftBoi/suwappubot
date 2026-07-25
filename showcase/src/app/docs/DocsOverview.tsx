@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import stats from '@/data/stats.generated.json';
 import DocsAccordion from '../../components/docs/DocsAccordion';
 import DocsNav from '../../components/docs/DocsNav';
 import docsData from '../../data/docs.json';
@@ -71,7 +72,7 @@ export default function DocsOverview() {
             <p className="section__body" style={{ marginBottom: '2.5rem' }}>
               The cross-chain DeFi API built for AI agents. Register an agent, get
               best-price quotes, and execute swaps, perps, and gasless trades across
-              40+ chains — through one REST API, a TypeScript SDK, and an MCP server.
+              {stats.platformChains} chains — through one REST API, a TypeScript SDK, and an MCP server.
             </p>
 
             <div className="docs-quicklinks">

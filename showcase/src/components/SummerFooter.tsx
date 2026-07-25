@@ -1,4 +1,5 @@
 import { TELEGRAM_URL } from '@/lib/links';
+import stats from '@/data/stats.generated.json';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 const GITHUB_URL = 'https://github.com/0xSoftBoi/suwappubot';
@@ -67,7 +68,7 @@ export default function SummerFooter() {
             <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.</p>
+          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
           <div className="summer-footer__social">
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
