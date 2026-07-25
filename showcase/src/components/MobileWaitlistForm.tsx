@@ -17,6 +17,7 @@ const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
 export default function MobileWaitlistForm() {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [position, setPosition] = useState<number | null>(null);
 
   useEffect(() => {
     track('mobile_waitlist_view');
@@ -57,8 +58,19 @@ export default function MobileWaitlistForm() {
         track('mobile_waitlist_error');
         return;
       }
+      let nextPosition: number | null = null;
+      try {
+        const body = await res.json();
+        if (typeof body?.position === 'number') nextPosition = body.position;
+      } catch {
+        /* older backend / no JSON body — fall back to generic success copy */
+      }
+      setPosition(nextPosition);
       setStatus('success');
-      track('mobile_waitlist_submitted', { platform: payload.platform });
+      track('mobile_waitlist_submitted', {
+        platform: payload.platform,
+        ...(nextPosition !== null ? { position: nextPosition } : {}),
+      });
     } catch {
       setError('Could not reach the server. Please try again or message us on Telegram.');
       setStatus('error');
@@ -69,14 +81,29 @@ export default function MobileWaitlistForm() {
   if (status === 'success') {
     return (
       <div className={styles.success} role="status" aria-live="polite">
-        <div className={styles.successMark} aria-hidden="true">
-          ✓
-        </div>
-        <h3>You&rsquo;re on the list.</h3>
-        <p>
-          We&rsquo;ll email you the moment the app — and the Suwappu Card by Rain — is
-          ready for your device.
-        </p>
+        {position !== null ? (
+          <>
+            <div className={styles.positionStat}>
+              <strong>#{position.toLocaleString()}</strong>
+              <span>on the list</span>
+            </div>
+            <p>
+              You&rsquo;re on the list. We&rsquo;ll email you the moment the app — and
+              the Suwappu Card by Rain — is ready for your device.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className={styles.successMark} aria-hidden="true">
+              ✓
+            </div>
+            <h3>You&rsquo;re on the list.</h3>
+            <p>
+              We&rsquo;ll email you the moment the app — and the Suwappu Card by Rain —
+              is ready for your device.
+            </p>
+          </>
+        )}
       </div>
     );
   }

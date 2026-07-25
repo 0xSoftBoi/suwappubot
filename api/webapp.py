@@ -212,6 +212,7 @@ class MobileWaitlistRequest(BaseModel):
 class MobileWaitlistResponse(BaseModel):
     ok: bool
     id: Optional[int] = None
+    position: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -1212,12 +1213,30 @@ async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
             session.add(ticket)
             session.commit()
             waitlist_id = ticket.id
+            position = (
+                session.query(SupportTicket)
+                .filter(
+                    SupportTicket.category == "mobile_waitlist",
+                    SupportTicket.id <= waitlist_id,
+                )
+                .count()
+            )
     except Exception:  # noqa: BLE001
         logger.exception("Failed to persist mobile waitlist signup")
         raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
 
-    logger.info("Mobile waitlist signup #%s captured (%s)", waitlist_id, email)
-    return MobileWaitlistResponse(ok=True, id=waitlist_id)
+    logger.info(
+        "Mobile waitlist signup #%s captured (%s), position %s", waitlist_id, email, position
+    )
+
+    try:
+        from bot.services.waitlist_email import send_waitlist_confirmation
+
+        await send_waitlist_confirmation(email, position, name)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
+
+    return MobileWaitlistResponse(ok=True, id=waitlist_id, position=position)
 
 
 @router.get("/billing/stripe/checkout")
