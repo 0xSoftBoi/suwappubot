@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { PriceChart } from '../chart/PriceChart'
@@ -43,6 +43,15 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
 
 type MobileTab = 'chart' | 'swap' | 'more'
 
+// Lets components outside this file (e.g. the onboarding FirstRunChecklist)
+// request a switch of the mobile bottom-nav tab, which is otherwise local
+// state to `MobileLayout`. Mirrors the `openCommandPalette` custom-event
+// pattern already used by CommandPalette.
+const REQUEST_MOBILE_TAB_EVENT = 'suwappu:request-mobile-tab'
+export function requestMobileTab(tab: MobileTab) {
+  window.dispatchEvent(new CustomEvent<MobileTab>(REQUEST_MOBILE_TAB_EVENT, { detail: tab }))
+}
+
 const MOBILE_NAV_TABS: { id: MobileTab; label: string; icon: JSX.Element }[] = [
   {
     id: 'chart',
@@ -76,6 +85,15 @@ const MOBILE_NAV_TABS: { id: MobileTab; label: string; icon: JSX.Element }[] = [
 function MobileLayout() {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chart')
   const { activeTab: bottomTab, setActiveTab: setBottomTab } = useBottomTab()
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<MobileTab>).detail
+      if (detail) setMobileTab(detail)
+    }
+    window.addEventListener(REQUEST_MOBILE_TAB_EVENT, handler)
+    return () => window.removeEventListener(REQUEST_MOBILE_TAB_EVENT, handler)
+  }, [])
 
   return (
     <div className="flex flex-col h-full">

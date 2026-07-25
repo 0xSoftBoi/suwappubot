@@ -59,7 +59,7 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
             {wallet.label || 'Unnamed Wallet'}
           </h3>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-xs font-mono text-terminal-text-muted">
+            <span className="text-xs font-mono tnum text-terminal-text-muted">
               {wallet.address.slice(0, 8)}...{wallet.address.slice(-6)}
             </span>
             <button
@@ -68,7 +68,7 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
               title="Copy address"
             >
               {copied ? (
-                <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-3 h-3 text-bull" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
@@ -81,7 +81,7 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
         </div>
         <button
           onClick={() => onRemove(wallet.address)}
-          className="terminal-button-secondary text-xs px-2 py-1 text-red-400 hover:text-red-300"
+          className="terminal-button-secondary text-xs px-2 py-1 text-bear hover:text-bear"
         >
           Remove
         </button>
@@ -92,23 +92,23 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
         <div className="grid grid-cols-4 gap-2">
           <div className="bg-terminal-bg rounded p-2">
             <div className="text-[10px] text-terminal-text-muted uppercase tracking-wider">7d PnL</div>
-            <div className={`text-sm font-semibold font-mono ${stats.pnl7d >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`text-sm font-semibold font-mono tnum ${stats.pnl7d >= 0 ? 'text-bull' : 'text-bear'}`}>
               {formatPnl(stats.pnl7d)}
             </div>
           </div>
           <div className="bg-terminal-bg rounded p-2">
             <div className="text-[10px] text-terminal-text-muted uppercase tracking-wider">30d PnL</div>
-            <div className={`text-sm font-semibold font-mono ${stats.pnl30d >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`text-sm font-semibold font-mono tnum ${stats.pnl30d >= 0 ? 'text-bull' : 'text-bear'}`}>
               {formatPnl(stats.pnl30d)}
             </div>
           </div>
           <div className="bg-terminal-bg rounded p-2">
             <div className="text-[10px] text-terminal-text-muted uppercase tracking-wider">Win Rate</div>
-            <div className="text-sm font-semibold font-mono">{stats.winRate}%</div>
+            <div className="text-sm font-semibold font-mono tnum">{stats.winRate}%</div>
           </div>
           <div className="bg-terminal-bg rounded p-2">
             <div className="text-[10px] text-terminal-text-muted uppercase tracking-wider">Trades</div>
-            <div className="text-sm font-semibold font-mono">{stats.totalTrades}</div>
+            <div className="text-sm font-semibold font-mono tnum">{stats.totalTrades}</div>
           </div>
         </div>
       )}
@@ -119,7 +119,7 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
           <h4 className="text-xs font-medium text-terminal-text-muted mb-1.5">Top Holdings</h4>
           <div className="flex flex-wrap gap-1.5">
             {stats.topHoldings.map((h, i) => (
-              <span key={i} className="bg-terminal-bg rounded px-2 py-1 text-xs font-mono">
+              <span key={i} className="bg-terminal-bg rounded px-2 py-1 text-xs font-mono tnum">
                 {h.symbol} <span className="text-terminal-text-muted">{formatUsd(h.valueUsd)}</span>
               </span>
             ))}
@@ -137,13 +137,13 @@ export function WalletProfileCard({ wallet, stats, recentTrades, onRemove, onBac
             {recentTrades.slice(0, 10).map(trade => (
               <div key={trade.id} className="flex items-center justify-between text-xs bg-terminal-bg rounded px-2 py-1.5">
                 <div className="flex items-center gap-2">
-                  <span className={`font-semibold ${trade.action === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`font-semibold ${trade.action === 'buy' ? 'text-bull' : 'text-bear'}`}>
                     {trade.action.toUpperCase()}
                   </span>
                   <span className="font-medium">{trade.tokenSymbol}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono">{formatUsd(trade.amount)}</span>
+                  <span className="font-mono tnum">{formatUsd(trade.amount)}</span>
                   <span className="text-terminal-text-muted">{timeAgo(trade.timestamp)}</span>
                 </div>
               </div>

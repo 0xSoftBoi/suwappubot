@@ -32,11 +32,11 @@ export function MarketCard({ market, selected, onSelect }: Props) {
   return (
     <div
       onClick={() => onSelect?.(market)}
-      className={`rounded-lg border p-3 transition-all
+      className={`rounded-terminal-card border p-3 transition-colors
         ${onSelect ? 'cursor-pointer' : ''}
         ${
           selected
-            ? 'border-sakura-500 bg-sakura-500/10 shadow-[0_2px_10px_rgba(14,165,233,0.12)]'
+            ? 'accent-wash border-terminal-border-active'
             : 'border-terminal-border bg-terminal-bg hover:border-terminal-border-active hover:bg-terminal-bg-tertiary/40'
         }`}
     >
@@ -44,25 +44,42 @@ export function MarketCard({ market, selected, onSelect }: Props) {
         <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-terminal-text">
           {market.question}
         </p>
-        <span className="shrink-0 font-mono text-lg font-bold leading-none text-bull tabular-nums">
-          {yesPct}
-          <span className="text-xs text-terminal-text-muted">%</span>
+        {/* Probability is the hero number of a prediction market. */}
+        <span className="flex shrink-0 flex-col items-end leading-none">
+          <span className="font-mono text-2xl font-semibold leading-none tnum text-terminal-text">
+            {yesPct}
+            <span className="text-sm text-terminal-text-muted">%</span>
+          </span>
+          <span className="terminal-theme-caption mt-1 text-[9px] uppercase">Yes</span>
         </span>
       </div>
 
       {/* Yes/No probability split bar */}
-      <div className="mb-2 flex h-1.5 overflow-hidden rounded-full bg-bear/25">
+      <div
+        className="mb-2 flex h-1.5 overflow-hidden rounded-full bg-bear/25"
+        role="progressbar"
+        aria-label="Implied probability of Yes"
+        aria-valuenow={yesPct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
         <div className="h-full bg-bull transition-all" style={{ width: `${yesPct}%` }} />
       </div>
-      <div className="mb-2 flex justify-between font-mono text-[11px]">
-        <span className="text-bull">Yes {yesPct}¢</span>
-        <span className="text-bear">No {noPct}¢</span>
+      <div className="mb-2 flex justify-between font-mono text-[11px] tnum">
+        <span className="text-bull">
+          <span aria-hidden="true">▲</span> Yes {yesPct}¢
+        </span>
+        <span className="text-bear">
+          No {noPct}¢ <span aria-hidden="true">▼</span>
+        </span>
       </div>
 
       <div className="flex items-center justify-between text-[10px] text-terminal-text-muted">
-        <span>Vol {formatVol(market.volume)}</span>
+        <span className="font-mono tnum">Vol {formatVol(market.volume)}</span>
         {ends && (
-          <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-medium">{ends}</span>
+          <span className="hairline rounded-terminal-pill px-1.5 py-0.5 font-mono text-[10px] tnum">
+            {ends}
+          </span>
         )}
       </div>
     </div>

@@ -41,9 +41,9 @@ function formatCountdown(iso: string): string {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; tone: 'neutral' | 'warm' | 'sky' }> = {
+  const map: Record<string, { label: string; tone: 'neutral' | 'warm' | 'accent' }> = {
     claimable: { label: 'Claimable', tone: 'warm' },
-    onchain: { label: 'Claim on-chain', tone: 'sky' },
+    onchain: { label: 'Claim on-chain', tone: 'accent' },
     credited: { label: 'Credited', tone: 'neutral' },
     claimed_onchain: { label: 'Claimed on-chain', tone: 'neutral' },
     carryover: { label: 'Carries over', tone: 'neutral' },
@@ -162,7 +162,7 @@ function OverviewTab() {
           label="On-Chain Claims"
           value={formatUsd(summary.onchainUsd)}
           detail={onchainEntries.length > 0 ? `${onchainEntries.length} published epoch${onchainEntries.length > 1 ? 's' : ''}` : undefined}
-          tone="sky"
+          tone="accent"
         />
         <TerminalMetricCard
           label="Lifetime Earned"

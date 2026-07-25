@@ -205,7 +205,7 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 py-2.5 rounded text-sm font-semibold bg-sakura-600 hover:bg-sakura-700 text-white transition-colors"
+            className="flex-1 py-2.5 rounded text-sm font-semibold bg-sakura-600 hover:bg-sakura-700 text-terminal-on-accent transition-colors"
           >
             Save
           </button>

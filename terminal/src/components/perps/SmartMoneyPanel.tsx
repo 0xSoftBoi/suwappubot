@@ -1,5 +1,6 @@
 import { usePerpsWhales } from '../../hooks/usePerpsWhales'
 import type { WhalePosition } from '../../types/api'
+import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
 function formatUsd(n: number) {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
@@ -41,16 +42,19 @@ export function SmartMoneyPanel({ market }: { market: string }) {
 
   if (isLoading && !data) {
     return (
-      <div className="py-8 text-center text-sm text-terminal-text-muted animate-pulse">
-        Reading whale positions on-chain…
+      <div className="p-3">
+        <TerminalSkeletonRows rows={6} columns={5} label="Reading whale positions on-chain" />
       </div>
     )
   }
   if (!data || data.sampled === 0 || data.positions.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-terminal-text-muted">
-        No whale positions found for {market} in the top accounts right now.
-      </div>
+      <TerminalEmptyState
+        className="h-full"
+        kicker="Smart money"
+        title={`No whale positions in ${market} right now`}
+        description="This desk reconstructs the top HyperLiquid accounts' positioning on-chain. None of them hold this perp at the moment — try a higher-volume market."
+      />
     )
   }
 
@@ -62,17 +66,29 @@ export function SmartMoneyPanel({ market }: { market: string }) {
   return (
     <div className="flex h-full flex-col">
       {/* Positioning headline */}
-      <div className="border-b border-terminal-border px-3 py-2.5">
+      <div className="hairline-b px-3 py-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-terminal-text-muted">
+          <span className="terminal-theme-caption text-[10px] uppercase">
             Smart money · {data.coin} · top {data.sampled} accounts
           </span>
-          <span className={`text-xs font-bold ${toneClass}`}>{r.label}</span>
+          <span className={`text-xs font-semibold ${toneClass}`}>
+            {r.tone !== 'neutral' && (
+              <span aria-hidden="true">{r.tone === 'bull' ? '▲' : '▼'} </span>
+            )}
+            {r.label}
+          </span>
         </div>
-        <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-bear/25">
+        <div
+          className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-bear/25"
+          role="progressbar"
+          aria-label="Share of whale notional that is long"
+          aria-valuenow={longPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
           <div className="h-full bg-bull transition-all" style={{ width: `${longPct}%` }} />
         </div>
-        <div className="mt-1 flex justify-between font-mono text-[11px]">
+        <div className="mt-1 flex justify-between font-mono text-[11px] tnum">
           <span className="text-bull">
             {longPct}% Long · {formatUsd(data.longNotional)} ({data.longCount})
           </span>
@@ -83,15 +99,15 @@ export function SmartMoneyPanel({ market }: { market: string }) {
 
         {/* Squeeze fuel both directions */}
         <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-          <div className="rounded bg-bull-dim/60 px-2 py-1">
+          <div className="up-wash rounded px-2 py-1">
             <div className="text-terminal-text-muted">Squeeze fuel (above)</div>
-            <div className="font-mono font-semibold text-bull">
+            <div className="font-mono font-semibold tnum text-bull">
               {formatUsd(data.shortLiqAboveNotional)} shorts
             </div>
           </div>
-          <div className="rounded bg-bear-dim/60 px-2 py-1">
+          <div className="down-wash rounded px-2 py-1">
             <div className="text-terminal-text-muted">Downside liq (below)</div>
-            <div className="font-mono font-semibold text-bear">
+            <div className="font-mono font-semibold tnum text-bear">
               {formatUsd(data.longLiqBelowNotional)} longs
             </div>
           </div>
@@ -102,43 +118,64 @@ export function SmartMoneyPanel({ market }: { market: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-terminal-panel">
-            <tr className="text-terminal-text-muted border-b border-terminal-border">
-              <th className="py-1.5 px-3 text-left font-medium">Trader</th>
-              <th className="py-1.5 px-2 text-right font-medium">Notional</th>
-              <th className="py-1.5 px-2 text-right font-medium">Lev</th>
-              <th className="py-1.5 px-2 text-right font-medium">Entry</th>
-              <th className="py-1.5 px-3 text-right font-medium">→ Liq</th>
-              <th className="py-1.5 px-3 text-right font-medium">uPnL</th>
+            <tr className="hairline-b text-terminal-text-muted">
+              <th className="terminal-theme-caption px-3 py-1.5 text-left text-[10px] uppercase">
+                Trader
+              </th>
+              <th className="terminal-theme-caption px-2 py-1.5 text-right text-[10px] uppercase">
+                Notional
+              </th>
+              <th className="terminal-theme-caption px-2 py-1.5 text-right text-[10px] uppercase">
+                Lev
+              </th>
+              <th className="terminal-theme-caption px-2 py-1.5 text-right text-[10px] uppercase">
+                Entry
+              </th>
+              <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                → Liq
+              </th>
+              <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                uPnL
+              </th>
             </tr>
           </thead>
           <tbody>
             {data.positions.map((p, i) => {
               const lq = liqRow(p, data.markPrice)
               return (
-                <tr key={`${p.address}-${i}`} className="border-b border-terminal-border/30">
-                  <td className="py-1.5 px-3">
+                <tr key={`${p.address}-${i}`} className="hairline-b">
+                  <td className="px-3 py-1.5">
                     <span className="flex items-center gap-1.5">
-                      <span className={`h-1.5 w-1.5 rounded-full ${p.side === 'long' ? 'bg-bull' : 'bg-bear'}`} />
-                      <span className="font-mono text-[11px] text-terminal-text-secondary">{p.address}</span>
+                      <span
+                        aria-hidden="true"
+                        className={`font-mono text-[10px] ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}
+                      >
+                        {p.side === 'long' ? '▲' : '▼'}
+                      </span>
+                      <span className="font-mono text-[11px] text-terminal-text-secondary">
+                        {p.address}
+                      </span>
                     </span>
                   </td>
-                  <td className="py-1.5 px-2 text-right">
-                    <span className={`font-mono font-semibold ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}>
+                  <td className="px-2 py-1.5 text-right">
+                    <span
+                      className={`font-mono font-semibold tnum ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}
+                    >
                       {formatUsd(p.notional)}
                     </span>
                   </td>
-                  <td className="py-1.5 px-2 text-right">
-                    <span className="rounded bg-terminal-bg-tertiary/70 px-1 py-0.5 font-mono text-[10px] text-terminal-text-secondary">
+                  <td className="px-2 py-1.5 text-right">
+                    <span className="rounded bg-terminal-bg-tertiary/70 px-1 py-0.5 font-mono text-[10px] tnum text-terminal-text-secondary">
                       {p.leverage}×
                     </span>
                   </td>
-                  <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                  <td className="px-2 py-1.5 text-right font-mono tnum text-terminal-text-secondary">
                     ${formatPrice(p.entryPrice)}
                   </td>
-                  <td className="py-1.5 px-3 text-right">
+                  <td className="px-3 py-1.5 text-right">
                     {p.liquidationPrice ? (
                       <span className="flex flex-col items-end gap-0.5">
-                        <span className="font-mono text-[11px] text-terminal-text">
+                        <span className="font-mono text-[11px] tnum text-terminal-text">
                           ${formatPrice(p.liquidationPrice)}
                         </span>
                         {lq && (
@@ -156,9 +193,10 @@ export function SmartMoneyPanel({ market }: { market: string }) {
                     )}
                   </td>
                   <td
-                    className={`py-1.5 px-3 text-right font-mono ${p.unrealizedPnl >= 0 ? 'text-bull' : 'text-bear'}`}
+                    className={`px-3 py-1.5 text-right font-mono tnum ${p.unrealizedPnl >= 0 ? 'text-bull' : 'text-bear'}`}
                   >
-                    {p.unrealizedPnl >= 0 ? '+' : ''}
+                    <span aria-hidden="true">{p.unrealizedPnl >= 0 ? '▲' : '▼'}</span>{' '}
+                    {p.unrealizedPnl >= 0 ? '+' : '−'}
                     {formatUsd(Math.abs(p.unrealizedPnl))}
                   </td>
                 </tr>
@@ -167,7 +205,7 @@ export function SmartMoneyPanel({ market }: { market: string }) {
           </tbody>
         </table>
       </div>
-      <div className="border-t border-terminal-border px-3 py-1 text-[9px] text-terminal-text-muted">
+      <div className="hairline-t px-3 py-1 text-[9px] text-terminal-text-muted">
         Live on-chain positions via HyperLiquid · only possible because HL is on-chain
       </div>
     </div>

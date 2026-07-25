@@ -42,7 +42,7 @@ function statusClasses(status: LimitOrder['status']) {
   if (status === 'executed') return 'text-bull'
   if (status === 'failed' || status === 'expired') return 'text-bear'
   if (status === 'cancelled') return 'text-terminal-text-muted'
-  return 'text-sky-500'
+  return 'text-terminal-accent'
 }
 
 function tokenDecimals(symbol: string) {
@@ -262,7 +262,7 @@ export function LimitOrderPanel() {
           <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
             Market
           </div>
-          <div className="font-mono text-sm text-terminal-text">
+          <div className="tnum font-mono text-sm text-terminal-text">
             {currentPrice ? `$${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 6 })}` : '--'}
           </div>
         </div>
@@ -320,7 +320,9 @@ export function LimitOrderPanel() {
         disabled={!formReady || createOrder.isPending}
         className={joinClasses(
           'w-full rounded py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-          isAuthenticated ? 'bg-sky-500 text-white hover:bg-sky-400' : 'bg-terminal-bg-tertiary text-terminal-text-muted',
+          isAuthenticated
+            ? 'bg-terminal-accent text-terminal-on-accent hover:bg-terminal-accent-bright'
+            : 'bg-terminal-bg-tertiary text-terminal-text-muted',
         )}
       >
         {!isAuthenticated

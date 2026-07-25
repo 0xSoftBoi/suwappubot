@@ -18,7 +18,7 @@ export function PortfolioSummary({ data }: PortfolioSummaryProps) {
         <span className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
           Total Value
         </span>
-        <span className="text-terminal-text font-semibold text-sm">
+        <span className="font-mono tnum text-terminal-text font-semibold text-sm">
           {totalUsdValue.toLocaleString("en-US", {
             style: "currency",
             currency: "USD",
@@ -34,7 +34,7 @@ export function PortfolioSummary({ data }: PortfolioSummaryProps) {
               className="flex justify-between text-terminal-text-secondary"
             >
               <span className="text-terminal-text">{token.symbol}</span>
-              <div className="flex gap-3">
+              <div className="flex gap-3 font-mono tnum">
                 <span>{token.balance}</span>
                 <span className="text-terminal-text-muted w-20 text-right">
                   ${(token.usdValue ?? 0).toFixed(2)}

@@ -9,7 +9,7 @@ interface Props {
 
 const RISK_STYLES: Record<TokenSafetyReport['riskLevel'], { dot: string; text: string; label: string }> = {
   safe: { dot: 'bg-bull', text: 'text-bull', label: 'Looks safe' },
-  caution: { dot: 'bg-[#f59e0b]', text: 'text-[#b45309]', label: 'Trade with caution' },
+  caution: { dot: 'bg-terminal-warn', text: 'text-terminal-warn', label: 'Trade with caution' },
   danger: { dot: 'bg-bear', text: 'text-bear', label: 'High risk' },
   unknown: { dot: 'bg-terminal-text-muted', text: 'text-terminal-text-muted', label: 'Safety unknown' },
 }
@@ -52,7 +52,7 @@ export function TokenSafetyStrip({ chain, address, symbol }: Props) {
         danger
           ? 'border-bear/50 bg-bear-dim/40'
           : data.riskLevel === 'caution'
-            ? 'border-[#f59e0b]/40 bg-[#f59e0b]/8'
+            ? 'border-terminal-warn/40 bg-terminal-warn/10'
             : 'border-terminal-border bg-terminal-bg'
       }`}
     >
@@ -97,7 +97,7 @@ export function TokenSafetyStrip({ chain, address, symbol }: Props) {
             <li
               key={f.label}
               className={`flex items-center gap-1.5 text-[10.5px] ${
-                f.level === 'danger' ? 'text-bear' : 'text-[#b45309]'
+                f.level === 'danger' ? 'text-bear' : 'text-terminal-warn'
               }`}
             >
               <span>{f.level === 'danger' ? '⛔' : '⚠'}</span>

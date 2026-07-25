@@ -9,17 +9,19 @@ import {
   CrosshairMode,
 } from 'lightweight-charts'
 import type { OHLCVCandle } from '../../types/api'
-import { designTokens } from '@suwappu/design-tokens'
+import { TerminalSkeleton } from '../foundation'
 
-const trading = designTokens.colors.trading
-const brand = designTokens.colors.brand
-
-// Pro dark chart surface — high-contrast candles on deep navy, the way every
-// serious trading terminal (Hyperliquid, Coinbase Advanced, Axiom) renders.
-const AXIS_TEXT = '#8aa2b4'
-const GRID = 'rgba(148, 184, 215, 0.07)'
-const BORDER = 'rgba(148, 184, 215, 0.16)'
-const CROSSHAIR = 'rgba(56, 189, 248, 0.5)'
+// Institutional dark register (design brief §2.2/§6) — lightweight-charts
+// draws to <canvas>, so these need to be literal colors, not CSS vars.
+const UP = '#2FBF71'
+const DOWN = '#E5484D'
+const ACCENT = '#E58D2B'
+const NEUTRAL_LINE = '#9BA1AB' // SMA50 — no second accent hue (single-accent rule)
+const AXIS_TEXT = '#9BA1AB'
+const GRID = 'rgba(236, 237, 239, 0.06)'
+const BORDER = 'rgba(236, 237, 239, 0.13)'
+const CROSSHAIR = 'rgba(229, 141, 43, 0.5)'
+const CROSSHAIR_LABEL_BG = '#1B1710'
 
 function computeSMA(candles: OHLCVCandle[], period: number) {
   const result: { time: UTCTimestamp; value: number }[] = []
@@ -125,8 +127,8 @@ export function CandleChartCore({
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: CROSSHAIR, width: 1, style: LineStyle.Solid, labelBackgroundColor: '#0e3a52' },
-        horzLine: { color: CROSSHAIR, width: 1, style: LineStyle.Solid, labelBackgroundColor: '#0e3a52' },
+        vertLine: { color: CROSSHAIR, width: 1, style: LineStyle.Solid, labelBackgroundColor: CROSSHAIR_LABEL_BG },
+        horzLine: { color: CROSSHAIR, width: 1, style: LineStyle.Solid, labelBackgroundColor: CROSSHAIR_LABEL_BG },
       },
       rightPriceScale: { borderColor: BORDER, scaleMargins: { top: 0.12, bottom: 0.26 } },
       timeScale: { borderColor: BORDER, timeVisible: true, secondsVisible: false },
@@ -136,17 +138,17 @@ export function CandleChartCore({
     chartRef.current = chart
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor: trading.bull,
-      downColor: trading.bear,
-      borderUpColor: trading.bull,
-      borderDownColor: trading.bear,
-      wickUpColor: trading.bull,
-      wickDownColor: trading.bear,
+      upColor: UP,
+      downColor: DOWN,
+      borderUpColor: UP,
+      borderDownColor: DOWN,
+      wickUpColor: UP,
+      wickDownColor: DOWN,
     })
     candleSeriesRef.current = candleSeries
 
     const lineSeries = chart.addLineSeries({
-      color: '#38bdf8',
+      color: ACCENT,
       lineWidth: 2,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
@@ -162,7 +164,7 @@ export function CandleChartCore({
     volumeSeriesRef.current = volumeSeries
 
     const sma20 = chart.addLineSeries({
-      color: brand.persimmonCore,
+      color: ACCENT,
       lineWidth: 1,
       crosshairMarkerVisible: false,
       priceLineVisible: false,
@@ -170,8 +172,10 @@ export function CandleChartCore({
     })
     sma20Ref.current = sma20
 
+    // SMA50 stays neutral ink rather than a second accent hue — persimmon is
+    // the terminal's only interactive/informational accent (brief §1/§5).
     const sma50 = chart.addLineSeries({
-      color: '#a78bfa',
+      color: NEUTRAL_LINE,
       lineWidth: 1,
       crosshairMarkerVisible: false,
       priceLineVisible: false,
@@ -243,7 +247,7 @@ export function CandleChartCore({
       candles.map((c) => ({
         time: c.time as UTCTimestamp,
         value: c.volume,
-        color: c.close >= c.open ? 'rgba(34, 197, 94, 0.28)' : 'rgba(239, 68, 68, 0.26)',
+        color: c.close >= c.open ? 'rgba(47, 191, 113, 0.35)' : 'rgba(229, 72, 77, 0.32)',
       }))
     )
 
@@ -258,24 +262,24 @@ export function CandleChartCore({
   const up = (readout?.changePct ?? 0) >= 0
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-[10px] border border-white/5 bg-[radial-gradient(circle_at_80%_-10%,rgba(56,189,248,0.12),transparent_40%),linear-gradient(180deg,#0b1622_0%,#0a121d_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+    <div className="hairline relative h-full w-full overflow-hidden rounded-[10px] bg-terminal-bg">
       {/* Live OHLC + indicator legend */}
       {readout && (
         <div className="pointer-events-none absolute left-2.5 top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[10.5px] leading-none">
-          <span className="flex gap-2 text-slate-300/90">
-            <span>O<span className="ml-1 text-slate-100">{fmt(readout.open)}</span></span>
-            <span>H<span className="ml-1 text-slate-100">{fmt(readout.high)}</span></span>
-            <span>L<span className="ml-1 text-slate-100">{fmt(readout.low)}</span></span>
-            <span>C<span className="ml-1 text-slate-100">{fmt(readout.close)}</span></span>
+          <span className="tnum flex gap-2 text-terminal-text-secondary">
+            <span>O<span className="ml-1 text-terminal-text">{fmt(readout.open)}</span></span>
+            <span>H<span className="ml-1 text-terminal-text">{fmt(readout.high)}</span></span>
+            <span>L<span className="ml-1 text-terminal-text">{fmt(readout.low)}</span></span>
+            <span>C<span className="ml-1 text-terminal-text">{fmt(readout.close)}</span></span>
           </span>
-          <span className={up ? 'text-bull' : 'text-bear'}>
-            {up ? '+' : ''}
+          <span className={`tnum ${up ? 'text-bull' : 'text-bear'}`}>
+            {up ? '▲ +' : '▼ '}
             {readout.changePct.toFixed(2)}%
           </span>
           {showSMA && (
             <span className="flex gap-2">
-              <span className="text-[#e58d2b]">SMA20</span>
-              <span className="text-[#a78bfa]">SMA50</span>
+              <span className="text-terminal-accent">SMA20</span>
+              <span className="text-terminal-text-secondary">SMA50</span>
             </span>
           )}
         </div>
@@ -284,26 +288,36 @@ export function CandleChartCore({
       <div ref={containerRef} className="h-full w-full" />
 
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-slate-400 text-sm animate-pulse">Loading {label ?? 'chart'}…</div>
+        <div className="absolute inset-0 flex flex-col items-end justify-center gap-1 px-6" aria-hidden="true">
+          <div className="flex w-full items-end justify-center gap-1">
+            {Array.from({ length: 20 }).map((_, i) => (
+              <TerminalSkeleton
+                key={i}
+                width={6}
+                height={16 + ((i * 37) % 56)}
+                radius="control"
+              />
+            ))}
+          </div>
+          <span className="sr-only" role="status">Loading {label ?? 'chart'} data…</span>
         </div>
       )}
       {!isLoading && !candles && selectPrompt && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
-            <div className="text-slate-300 text-sm">{selectPrompt.title}</div>
+            <div className="text-sm text-terminal-text-secondary">{selectPrompt.title}</div>
             {selectPrompt.subtitle && (
-              <div className="text-slate-500 text-xs mt-1">{selectPrompt.subtitle}</div>
+              <div className="mt-1 text-xs text-terminal-text-muted">{selectPrompt.subtitle}</div>
             )}
           </div>
         </div>
       )}
       {!isLoading && candles && candles.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="rounded-md border border-white/10 bg-slate-900/80 px-4 py-3 text-center shadow-lg">
-            <div className="text-slate-200 text-sm">{emptyState?.title ?? 'No chart data available.'}</div>
+          <div className="terminal-theme-card hairline-strong px-4 py-3 text-center">
+            <div className="text-sm text-terminal-text">{emptyState?.title ?? 'No chart data available.'}</div>
             {emptyState?.subtitle && (
-              <div className="text-slate-500 text-xs mt-1">{emptyState.subtitle}</div>
+              <div className="mt-1 text-xs text-terminal-text-muted">{emptyState.subtitle}</div>
             )}
           </div>
         </div>

@@ -14,8 +14,8 @@ function formatAge(createdAt: string): { text: string; color: string } {
   else text = `${Math.floor(diffSec / 86400)}d`
 
   let color: string
-  if (diffSec < 60) color = 'bg-green-500/20 text-green-400 border-green-500/30'
-  else if (diffSec < 300) color = 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+  if (diffSec < 60) color = 'bg-terminal-accent/15 text-terminal-accent border-terminal-accent/30'
+  else if (diffSec < 300) color = 'bg-terminal-warn/15 text-terminal-warn border-terminal-warn/30'
   else color = 'bg-terminal-bg-tertiary text-terminal-text-muted border-terminal-border'
 
   return { text, color }
@@ -60,7 +60,7 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
     >
       {/* Age badge */}
       <td className="py-1 px-2">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono border ${age.color}`}>
+        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono tnum border ${age.color}`}>
           {age.text}
         </span>
       </td>
@@ -71,12 +71,12 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
           <div className="flex items-center gap-1">
             <span className="font-medium text-terminal-text text-xs">{token.symbol}</span>
             {token.devPercent > 30 && (
-              <span className="text-[8px] px-1 py-0 rounded bg-red-500/20 text-red-400 border border-red-500/30 font-bold">
+              <span className="text-[8px] px-1 py-0 rounded bg-bear/15 text-bear border border-bear/30 font-semibold">
                 DEV
               </span>
             )}
             {token.isBundled && (
-              <span className="text-[8px] px-1 py-0 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 font-bold">
+              <span className="text-[8px] px-1 py-0 rounded bg-terminal-warn/15 text-terminal-warn border border-terminal-warn/30 font-semibold">
                 BUNDLED
               </span>
             )}
@@ -91,12 +91,12 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
       </td>
 
       {/* Market Cap */}
-      <td className="py-1 px-2 text-right font-mono text-xs text-terminal-text">
+      <td className="py-1 px-2 text-right font-mono tnum text-xs text-terminal-text">
         {formatNum(token.marketCap)}
       </td>
 
       {/* Volume */}
-      <td className="py-1 px-2 text-right font-mono text-xs text-terminal-text-secondary">
+      <td className="py-1 px-2 text-right font-mono tnum text-xs text-terminal-text-secondary">
         {formatNum(token.volume24h)}
       </td>
 
@@ -106,27 +106,27 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
       </td>
 
       {/* 5m Change */}
-      <td className={`py-1 px-2 text-right font-mono text-xs ${change5m.className}`}>
+      <td className={`py-1 px-2 text-right font-mono tnum text-xs ${change5m.className}`}>
         {change5m.text}
       </td>
 
       {/* 1h Change */}
-      <td className={`py-1 px-2 text-right font-mono text-xs ${change1h.className}`}>
+      <td className={`py-1 px-2 text-right font-mono tnum text-xs ${change1h.className}`}>
         {change1h.text}
       </td>
 
       {/* 24h Change */}
-      <td className={`py-1 px-2 text-right font-mono text-xs ${change24h.className}`}>
+      <td className={`py-1 px-2 text-right font-mono tnum text-xs ${change24h.className}`}>
         {change24h.text}
       </td>
 
       {/* Holders — "—" when the feed doesn't supply a holder count */}
-      <td className="py-1 px-2 text-right font-mono text-xs text-terminal-text-secondary">
+      <td className="py-1 px-2 text-right font-mono tnum text-xs text-terminal-text-secondary">
         {token.holders > 0 ? token.holders.toLocaleString() : '—'}
       </td>
 
       {/* 24h transactions (real, from DexScreener) — buys / sells */}
-      <td className="py-1 px-2 text-right font-mono text-[11px]">
+      <td className="py-1 px-2 text-right font-mono tnum text-[11px]">
         <span className="text-bull">{token.buys24h ?? 0}</span>
         <span className="text-terminal-text-muted">/</span>
         <span className="text-bear">{token.sells24h ?? 0}</span>
@@ -147,7 +147,7 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
                 style={{ width: `${token.bondingProgress ?? 0}%` }}
               />
             </div>
-            <span className="text-[9px] font-mono text-sakura-400">
+            <span className="text-[9px] font-mono tnum text-sakura-400">
               {(token.bondingProgress ?? 0).toFixed(0)}%
             </span>
           </div>
