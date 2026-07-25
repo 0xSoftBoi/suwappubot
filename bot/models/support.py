@@ -47,8 +47,11 @@ class TicketKind:
     # Mobile app (iOS/Android + Suwappu Card by Rain) waitlist signup from the
     # marketing site. Rides the same notified_at fan-out as enterprise leads.
     MOBILE_WAITLIST = "mobile_waitlist"
+    # Newsletter/email-list signup from the marketing site. Rides the same
+    # notified_at fan-out as enterprise leads / mobile waitlist.
+    NEWSLETTER = "newsletter"
 
-    ALL = (SUPPORT, BUG, ENTERPRISE_LEAD, MOBILE_WAITLIST)
+    ALL = (SUPPORT, BUG, ENTERPRISE_LEAD, MOBILE_WAITLIST, NEWSLETTER)
 
 
 class SupportTicket(Base):

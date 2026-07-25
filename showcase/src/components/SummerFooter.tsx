@@ -1,4 +1,5 @@
 import { TELEGRAM_URL } from '@/lib/links';
+import FooterNewsletterForm from './FooterNewsletterForm';
 import stats from '@/data/stats.generated.json';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
@@ -74,6 +75,7 @@ export default function SummerFooter() {
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub">GitHub</a>
           </div>
+          <FooterNewsletterForm />
         </div>
 
         <nav className="summer-footer__cols" aria-label="Footer navigation">

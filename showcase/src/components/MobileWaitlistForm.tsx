@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { API_BASE_URL, TELEGRAM_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
+import { getAttribution } from '@/lib/attribution';
 import styles from './MobileWaitlistForm.module.css';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
@@ -37,6 +38,7 @@ export default function MobileWaitlistForm() {
       platform: String(data.get('platform') || 'both'),
       telegram: String(data.get('telegram') || '').trim(),
       website: String(data.get('website') || ''), // honeypot
+      attribution: getAttribution() || undefined,
     };
 
     try {
@@ -67,9 +69,12 @@ export default function MobileWaitlistForm() {
       }
       setPosition(nextPosition);
       setStatus('success');
+      const attribution = payload.attribution;
       track('mobile_waitlist_submitted', {
         platform: payload.platform,
         ...(nextPosition !== null ? { position: nextPosition } : {}),
+        ...(attribution?.utm_source ? { utm_source: attribution.utm_source } : {}),
+        ...(attribution?.utm_campaign ? { utm_campaign: attribution.utm_campaign } : {}),
       });
     } catch {
       setError('Could not reach the server. Please try again or message us on Telegram.');

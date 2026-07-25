@@ -58,15 +58,27 @@ function cleanupExpired() {
 	}
 }
 
+// `cf-connecting-ip` is trivially spoofable by any direct caller UNLESS the
+// request actually transited Cloudflare (or Railway strips/overwrites it,
+// which we cannot assume). Only trust it when the caller also presents a
+// shared secret that only a configured Cloudflare Worker/rule would attach
+// (e.g. a Transform Rule adding `CF-Provenance: <secret>` at the edge). If
+// CF_PROVENANCE_SECRET is unset, cf-connecting-ip is ignored entirely and we
+// fall through to the existing XFF/trusted-proxy-hop logic.
+const CF_PROVENANCE_SECRET = process.env.CF_PROVENANCE_SECRET
+
 /**
  * IP-based sliding window rate limiter for public endpoints.
  * Keyed by client IP from x-forwarded-for header.
  */
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 	return async (c: Context, next: Next) => {
-		// Prefer Cloudflare's header; otherwise resolve the spoof-resistant client IP
-		// (trusted-proxy hops from the right of XFF, then socket IP).
+		// Only honor cf-connecting-ip when Cloudflare provenance is verified via
+		// a shared secret header — otherwise it's just another client-controlled
+		// header and must be ignored (see CF_PROVENANCE_SECRET above).
 		const cfIp = c.req.header('cf-connecting-ip')
+		const cfProvenanceOk =
+			!!CF_PROVENANCE_SECRET && c.req.header('cf-provenance') === CF_PROVENANCE_SECRET
 		const forwarded = c.req.header('x-forwarded-for')
 		let socketIp: string | undefined
 		try {
@@ -75,7 +87,7 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
 			socketIp = undefined
 		}
-		const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+		const ip = (cfProvenanceOk && cfIp?.trim()) || resolveClientIp(forwarded, socketIp)
 		const key = `ip:${ip}`
 		const now = Date.now()
 
