@@ -27,7 +27,7 @@
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--summer-muted, var(--suwappu-summer-muted, #6b6256));
+  color: var(--sw-muted, #4f6f7f);
 }
 
 .input {
@@ -35,33 +35,32 @@
   padding: 0.72rem 0.9rem;
   font: inherit;
   font-size: 0.95rem;
-  color: var(--summer-ink, var(--suwappu-summer-ink, #2c2620));
-  background: var(--suwappu-summer-panel-background, rgba(255, 255, 255, 0.6));
-  border: 1px solid var(--pp-border, rgba(0, 0, 0, 0.12));
-  border-radius: var(--suwappu-summer-radius-control, 12px);
+  color: var(--sw-ink, #17324a);
+  background: var(--sw-panel, rgba(255, 255, 255, 0.85));
+  border: 1px solid var(--sw-hairline-strong, rgba(23, 50, 74, 0.18));
+  border-radius: var(--sw-r-sm, 10px);
   outline: none;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+    border-color 0.15s var(--sw-ease, ease),
+    background 0.15s var(--sw-ease, ease);
 }
 
 .input::placeholder {
-  color: var(--summer-muted, #a39a8c);
-  opacity: 0.7;
+  color: var(--sw-muted, #a39a8c);
+  opacity: 0.6;
 }
 
+/* Pointer focus tints the hairline only. Keyboard focus is left to the global
+   :focus-visible ring (--sw-focus) — no local shadow to clash with it. */
 .input:focus {
-  border-color: var(--summer-accent, var(--suwappu-summer-accent, #e8843c));
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--summer-accent, #e8843c) 22%, transparent);
-  background: var(--suwappu-summer-card-background, #fff);
+  border-color: var(--sw-accent, #e58d2b);
+  background: #fff;
 }
 
 select.input {
   appearance: none;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23a39a8c' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%234f6f7f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.9rem center;
   padding-right: 2.2rem;
@@ -75,25 +74,29 @@ select.input {
   overflow: hidden;
 }
 
+/* Guidance, not alarm: hairline + wash, semantic red reserved for the text. */
 .error {
   margin: 0;
   padding: 0.7rem 0.9rem;
   font-size: 0.9rem;
+  line-height: 1.5;
   color: #9a2c1e;
-  background: rgba(214, 69, 45, 0.08);
-  border: 1px solid rgba(214, 69, 45, 0.25);
-  border-radius: var(--suwappu-summer-radius-control, 12px);
+  background: rgba(214, 69, 45, 0.06);
+  border: 1px solid rgba(214, 69, 45, 0.22);
+  border-radius: var(--sw-r-sm, 10px);
 }
 
 .fineprint {
   margin: 0;
-  font-size: 0.8rem;
-  color: var(--summer-muted, #a39a8c);
+  font-size: var(--type-small-size, 0.8rem);
+  line-height: var(--type-small-lh, 1.55);
+  color: var(--sw-muted, #a39a8c);
 }
 
 .fineprint a {
-  color: inherit;
+  color: var(--sw-accent, #e58d2b);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .success {
@@ -106,12 +109,16 @@ select.input {
 
 .success h3 {
   margin: 0;
-  color: var(--summer-ink, var(--suwappu-summer-ink, #2c2620));
+  color: var(--sw-ink, #17324a);
+  font-size: var(--type-h3-size, 1.25rem);
+  line-height: var(--type-h3-lh, 1.2);
+  letter-spacing: var(--type-h3-ls, -0.015em);
+  font-weight: 600;
 }
 
 .success p {
   margin: 0;
-  color: var(--summer-muted, var(--suwappu-summer-muted, #6b6256));
+  color: var(--sw-muted, #4f6f7f);
   line-height: 1.6;
 }
 
@@ -121,17 +128,18 @@ select.input {
   gap: 0.6rem;
 }
 
+/* Rank numeral: 180deg wash (135deg is banned), persimmon as the only accent. */
 .positionStat strong {
   font-family: var(--font-display);
   font-size: clamp(2.5rem, 6vw, 3.4rem);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   background: linear-gradient(
-    135deg,
-    var(--pp-ink, var(--summer-ink, #2c2620)) 0%,
-    var(--summer-sky-deep, var(--summer-accent, #e8843c)) 120%
+    180deg,
+    var(--sw-ink, #17324a) 0%,
+    var(--sw-accent-deep, #c9731d) 130%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -139,11 +147,12 @@ select.input {
 }
 
 .positionStat span {
-  font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--font-mono);
+  font-size: var(--type-kicker-size, 0.72rem);
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls, 0.14em);
   text-transform: uppercase;
-  color: var(--summer-persimmon, var(--summer-accent, #e8843c));
+  color: var(--sw-accent, #e58d2b);
 }
 
 .successMark {
@@ -155,6 +164,7 @@ select.input {
   font-size: 1.2rem;
   font-weight: 700;
   color: #fff;
-  background: var(--summer-accent, var(--suwappu-summer-accent, #e8843c));
-  border-radius: 999px;
+  background: var(--sw-accent, #e58d2b);
+  border-radius: var(--sw-r-pill, 999px);
+  box-shadow: var(--sw-shadow-accent, none);
 }

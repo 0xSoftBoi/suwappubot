@@ -62,7 +62,7 @@ const BIDS = [
   ['64,148', '0.72'],
 ];
 
-export default function LiveTerminal() {
+export default function LiveTerminal({ className = '' }: { className?: string }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [typing, setTyping] = useState('');
   const [cursor, setCursor] = useState(true);
@@ -141,7 +141,10 @@ export default function LiveTerminal() {
   }, []);
 
   return (
-    <div className="pro-term" aria-label="Live trading terminal">
+    <div
+      className={`pro-term sw-shine sw-card-dark ${className}`.trim()}
+      aria-label="Live trading terminal"
+    >
       <div className="pro-term__bar">
         <span className="pro-term__dot pro-term__dot--r" />
         <span className="pro-term__dot pro-term__dot--y" />
