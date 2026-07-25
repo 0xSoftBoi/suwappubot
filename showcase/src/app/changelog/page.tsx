@@ -115,7 +115,7 @@ export default function ChangelogPage() {
           {entries.map((e, i) => (
             <article
               className={`changelog-entry ${styles.entry} sw-rise`}
-              key={e.date}
+              key={`${e.date}-${e.title}`}
               style={{ '--rise-i': Math.min(i, 5) } as React.CSSProperties}
             >
               <div className="changelog-entry__rail">

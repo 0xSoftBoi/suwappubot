@@ -122,7 +122,7 @@ export default function EnterpriseContactForm() {
             type="text"
             required
             autoComplete="name"
-            placeholder="Jane Doe"
+            placeholder="Priya Raghavan"
           />
         </label>
         <label className={styles.field}>
@@ -133,7 +133,7 @@ export default function EnterpriseContactForm() {
             type="text"
             required
             autoComplete="organization"
-            placeholder="Acme Capital"
+            placeholder="Meridian Digital"
           />
         </label>
       </div>
@@ -147,7 +147,7 @@ export default function EnterpriseContactForm() {
             type="email"
             required
             autoComplete="email"
-            placeholder="jane@acme.xyz"
+            placeholder="priya@meridian.xyz"
           />
         </label>
         <label className={styles.field}>
@@ -157,7 +157,7 @@ export default function EnterpriseContactForm() {
             name="telegram"
             type="text"
             autoComplete="off"
-            placeholder="@janedoe"
+            placeholder="@priyaonchain"
           />
         </label>
       </div>

@@ -267,12 +267,14 @@ export default async function Home() {
             <a href="/docs">Docs</a>
             <a href="#mobile-app">Mobile app</a>
           </nav>
-          <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-            Open Bot
-          </a>
-          <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
-            Open Terminal
-          </a>
+          <div className="summer-nav__actions">
+            <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
+              Open Terminal
+            </a>
+            <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+              Open Bot
+            </a>
+          </div>
         </header>
 
         <div className={`summer-shell ${styles.shell}`}>

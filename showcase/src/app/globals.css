@@ -323,6 +323,14 @@ h2 {
   flex: 0 0 auto;
 }
 
+.summer-nav__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
 .summer-nav nav {
   display: flex;
   align-items: center;
@@ -569,11 +577,11 @@ h2 {
 
 .summer-kicker {
   margin: 0;
-  color: #3c8ca1;
+  color: var(--sw-accent);
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -3056,7 +3064,7 @@ button:focus:not(:focus-visible) {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--suwappu-summer-accent);
+  color: var(--sw-accent);
   margin-bottom: 0.75rem;
 }
 
@@ -5506,8 +5514,8 @@ button:focus:not(:focus-visible) {
 }
 .nav__link { color: #4f6f7f; }
 .nav__link:hover { color: #17324a; }
-.nav__cta { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
-.nav__cta:hover {
+.nav__cta:not(.nav__cta--ghost) { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
+.nav__cta:not(.nav__cta--ghost):hover {
   background: linear-gradient(180deg, #f8b450, #d9821f);
   box-shadow: 0 6px 18px rgba(229, 141, 43, 0.3);
 }
@@ -6342,10 +6350,10 @@ button:focus:not(:focus-visible) {
 .mkt-hero__clerk {
   margin: 14px auto 0;
   max-width: 480px;
-  color: var(--summer-green, #2a7a4f);
+  color: var(--sw-muted);
   font-family: var(--font-mono);
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.02em;
   text-align: center;
 }
