@@ -397,7 +397,10 @@ async function processEvmQuote(
 
 			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 			const quoteId = quote.quoteId
-			cacheAgentQuote(quoteId, quote, agent.id, false)
+			cacheAgentQuote(quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return {
 				quote_id: quoteId,

@@ -593,7 +593,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromInfo.decimals,
+					toDecimals: toInfo.decimals,
+				})
 
 				const outHuman = parseFloat(quote.outAmount) / Math.pow(10, toInfo.decimals)
 				return {
@@ -680,7 +683,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromInfo.decimals,
+				toDecimals: toInfo.decimals,
+			})
 			const outHuman = parseFloat(quote.toAmount) / Math.pow(10, toInfo.decimals)
 
 			return {
@@ -1211,7 +1217,10 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromInfo.decimals,
+					toDecimals: toInfo.decimals,
+				})
 				return { quoteId, quote }
 			})
 		)
@@ -1255,7 +1264,10 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
 			} as QuoteParams).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromInfo.decimals,
+				toDecimals: toInfo.decimals,
+			})
 			return quote
 		})
 	)

@@ -97,6 +97,48 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
 }
 
+/**
+ * Resolve the token decimals used to build `quote_data.from_amount_human` /
+ * `to_amount_human` for POST /v1/agent/swap/execute. These feed the Python
+ * pipeline's pre-swap balance guard (bot/utils/quote_validator.py), so
+ * guessing a hardcoded constant here is what caused the original bug: a
+ * 6-decimal token (USDC/USDT) silently compared against a wrong-scale
+ * balance, letting an insufficient-balance swap through to an on-chain revert
+ * instead of a clean rejection.
+ *
+ * Precedence:
+ *  1. Decimals captured at QUOTE time (cached.fromDecimals/toDecimals) — the
+ *     token registry was in scope then, so this is authoritative.
+ *  2. Decimals carried on the raw provider quote itself. Li.Fi's SwapQuote
+ *     exposes fromToken.decimals/toToken.decimals directly; Jupiter's raw
+ *     quote carries only mint addresses, never decimals, so this is always
+ *     undefined for Solana.
+ *  3. FROM side: no further fallback — undefined means "refuse to execute,
+ *     ask for a fresh quote" (handled by the caller). TO side is
+ *     informational only (never gates the balance check), so falling back to
+ *     the FROM decimals is an acceptable, explicitly-documented approximation
+ *     rather than a silent guess of an unrelated constant.
+ */
+export function resolveSwapExecuteDecimals(cached: {
+	quote: any
+	isSolana?: boolean | undefined
+	fromDecimals?: number | undefined
+	toDecimals?: number | undefined
+}): { fromDecimals: number | undefined; toDecimals: number | undefined } {
+	const quote = cached.quote
+	const rawFromDecimals: number | undefined = cached.isSolana
+		? undefined
+		: (quote?.fromToken?.decimals as number | undefined)
+	const rawToDecimals: number | undefined = cached.isSolana
+		? undefined
+		: (quote?.toToken?.decimals as number | undefined)
+
+	const fromDecimals = cached.fromDecimals ?? rawFromDecimals
+	const toDecimals = cached.toDecimals ?? rawToDecimals ?? fromDecimals
+
+	return { fromDecimals, toDecimals }
+}
+
 // CoinGecko ID mapping for token prices
 const COINGECKO_IDS: Record<string, string> = {
 	eth: 'ethereum',
@@ -696,7 +738,10 @@ agentRoutes.post('/quote', async (c) => {
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
 				// Cache the quote
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				// Calculate human-readable amounts
 				const fromAmountHuman = parseFloat(quote.inAmount) / 10 ** fromTokenInfo.decimals
@@ -826,7 +871,10 @@ agentRoutes.post('/quote', async (c) => {
 			)
 
 			// Cache the quote
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			// Calculate human-readable amounts
 			const fromAmountHuman = parseFloat(quote.fromAmount) / 10 ** fromTokenInfo.decimals
@@ -1290,7 +1338,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 					)
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				return { quoteId, quote }
 			}),
@@ -1375,7 +1426,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 				Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
 			)
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return quote
 		}),
@@ -1525,7 +1579,10 @@ agentRoutes.post('/execute', async (c) => {
 					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				// Cache quote
-				cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+				cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 
@@ -1857,6 +1914,20 @@ agentRoutes.post('/swap/execute', async (c) => {
 
 	const quote = cached.quote
 
+	// Resolve decimals used to build the human-readable amounts that the Python
+	// pipeline's pre-swap balance guard relies on (bot/utils/quote_validator.py).
+	const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
+
+	if (fromDecimals === undefined) {
+		return agentError(
+			c,
+			422,
+			'QUOTE_NOT_FOUND',
+			'Unable to resolve token decimals for this quote; request a fresh quote before executing',
+			{ hint: 'Request a new quote using POST /v1/agent/quote' },
+		)
+	}
+
 	// Build quote_data for the Python endpoint
 	const quoteData: Record<string, unknown> = cached.isSolana
 		? {
@@ -1866,9 +1937,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 				from_token: quote.inputMint,
 				to_token: quote.outputMint,
 				from_amount: quote.inAmount,
-				from_amount_human: parseFloat(quote.inAmount) / 1e9,
+				from_amount_human: parseFloat(quote.inAmount) / 10 ** fromDecimals,
 				to_amount: quote.outAmount,
-				to_amount_human: parseFloat(quote.outAmount) / 1e6,
+				to_amount_human: parseFloat(quote.outAmount) / 10 ** (toDecimals ?? fromDecimals),
 				to_amount_min: quote.otherAmountThreshold,
 				gas_cost_usd: 0,
 				fee_cost_usd: 0,
@@ -1885,9 +1956,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 				from_token: quote.fromToken?.symbol || '',
 				to_token: quote.toToken?.symbol || '',
 				from_amount: quote.fromAmount || '',
-				from_amount_human: parseFloat(quote.fromAmount || '0') / 1e18,
+				from_amount_human: parseFloat(quote.fromAmount || '0') / 10 ** fromDecimals,
 				to_amount: quote.toAmount || '',
-				to_amount_human: parseFloat(quote.toAmount || '0') / 1e18,
+				to_amount_human: parseFloat(quote.toAmount || '0') / 10 ** (toDecimals ?? fromDecimals),
 				to_amount_min: quote.toAmountMin || quote.toAmount || '',
 				gas_cost_usd: parseFloat(quote.estimatedGasUsd || '0'),
 				fee_cost_usd: parseFloat(quote.bridgeFeeUsd || '0'),
