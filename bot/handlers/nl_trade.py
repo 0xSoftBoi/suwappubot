@@ -131,9 +131,7 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     candidate = None
     if chain_m:
         candidate = chain_m.group(1).strip()
-        scan_text = (
-            lowered[: chain_m.start()] + " " + lowered[chain_m.end() :]
-        ).strip()
+        scan_text = (lowered[: chain_m.start()] + " " + lowered[chain_m.end() :]).strip()
         scan_text = re.sub(r"\s+", " ", scan_text)
         if candidate and not merged.chain:
             resolved_chain = resolve_chain_name(candidate)
@@ -184,14 +182,26 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     if not filled_something:
         return None
 
-    if not (merged.token_in and merged.token_out and merged.amount):
-        # Still incomplete — don't guess further, defer to the LLM with the
-        # (still-pending) merged state as context.
-        return None
+    # Note: we deliberately do NOT require token_in/token_out/amount to all
+    # be present here — a merge that only resolves e.g. the chain is still a
+    # valid, real merge (the caller, handle_nl_text, applies its own
+    # completeness gate before deciding whether to execute vs. fall back).
+    # Requiring full completeness here caused legitimate single-field merges
+    # (e.g. "on eth" resolving only the chain) to be silently discarded.
 
-    # Never elevate confidence above the original pending intent's, and cap
-    # at 0.9 — a deterministic merge is not proof the whole intent is right.
-    merged.confidence = min(pending.confidence, 0.9)
+    # Cap at 0.9 — a deterministic merge is not proof the whole intent is
+    # right. But when the merge actually completes all three required swap
+    # fields (token_in/token_out/amount), floor it above the handler's 0.6
+    # execute-vs-defer threshold: `pending.confidence` was deliberately low
+    # *because* those fields were still missing (that's why we asked the
+    # clarifying question in the first place), so once the gap is closed
+    # deterministically that low number is no longer a meaningful signal —
+    # keeping it would make a fully-resolved reply ("2 ETH") silently fall
+    # through to the freeform-text handler instead of executing.
+    if merged.token_in and merged.token_out and merged.amount:
+        merged.confidence = min(max(pending.confidence, 0.75), 0.9)
+    else:
+        merged.confidence = min(pending.confidence, 0.9)
     merged.clarification = None
     return merged
 

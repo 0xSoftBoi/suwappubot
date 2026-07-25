@@ -693,7 +693,7 @@ def test_try_merge_followup_confidence_capped_at_pending():
 
 
 def test_try_merge_followup_ordinal_does_not_set_amount():
-    """"the 2nd one" is a list-selection reply, not a stated swap amount —
+    """ "the 2nd one" is a list-selection reply, not a stated swap amount —
     it must not fill merged.amount with 2.0."""
     pending = TradeIntent(
         action="swap",
