@@ -245,6 +245,11 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				created_at: agent.createdAt,
 			},
 			important: 'SAVE YOUR API KEY! It cannot be retrieved later.',
+			credits: {
+				starting_balance: 100,
+				note: 'You start with 100 free credits (~100 quote calls or 20 swaps) so you can try the API immediately. GET /v1/agent/tokens and GET /v1/agent/chains are always free.',
+				topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount} once your balance runs low',
+			},
 			next_steps: {
 				step_1: 'Save your api_key securely',
 				step_2: 'Use Authorization: Bearer YOUR_API_KEY for all requests',

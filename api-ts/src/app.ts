@@ -3,6 +3,7 @@ import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
+import type { AgentErrorCode } from './lib/agentError'
 import agentCard from '../agent-card.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
@@ -25,6 +26,25 @@ import {
 	swapRoutes,
 	webappRoutes,
 } from './routes'
+
+/**
+ * Best-effort mapping from a thrown HTTPException (status + message) to the
+ * stable 17-code contract (see lib/agentError.ts) for agent-facing surfaces
+ * (/v1/agent/*, /mcp). HTTPExceptions thrown directly by middleware (e.g.
+ * agentBearerAuth) don't carry a structured code, so this is deduced from
+ * status + message text.
+ */
+function httpExceptionCode(status: number, message: string): AgentErrorCode {
+	if (status === 401) {
+		return /api.?key/i.test(message) ? 'INVALID_API_KEY' : 'UNAUTHORIZED'
+	}
+	if (status === 402) return 'PAYMENT_REQUIRED'
+	if (status === 403) return 'INSUFFICIENT_SCOPE'
+	if (status === 429) return 'RATE_LIMITED'
+	if (status === 400) return 'VALIDATION_ERROR'
+	if (status === 404) return 'NOT_FOUND'
+	return 'INTERNAL'
+}
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -68,10 +88,17 @@ export function createApp(config: AppConfig) {
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
-			return c.json(
-				{ error: err.message, requestId, timestamp },
-				err.status,
-			)
+			const isAgentSurface = c.req.path.startsWith('/v1/agent') || c.req.path.startsWith('/mcp')
+			const cause = err.cause as { hint?: string } | undefined
+			const body: Record<string, unknown> = { error: err.message, requestId, timestamp }
+
+			if (isAgentSurface) {
+				body.error_code = httpExceptionCode(err.status, err.message)
+				if (cause?.hint) body.hint = cause.hint
+				else if (err.status === 401) body.hint = 'Register at POST /v1/agent/register to get an API key'
+			}
+
+			return c.json(body, err.status)
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
