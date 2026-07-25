@@ -1916,7 +1916,12 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const requestFingerprint = crypto
 		.createHash('sha256')
 		.update(
-			`${quote_id}|${quoteData.from_chain}|${quoteData.to_chain}|${quoteData.from_token}|${quoteData.to_token}|${quoteData.from_amount}`,
+			// Deliberately EXCLUDES quote_id: a client retrying a timed-out request
+			// typically re-quotes first, so binding to quote_id would mint a new key
+			// and execute a second swap — the exact duplicate this header prevents.
+			// The fingerprint binds the economic terms instead, so reusing a key for a
+			// genuinely different trade executes fresh rather than returning a stale swap.
+			`${quoteData.from_chain}|${quoteData.to_chain}|${quoteData.from_token}|${quoteData.to_token}|${quoteData.from_amount}`,
 		)
 		.digest('hex')
 		.slice(0, 12)
