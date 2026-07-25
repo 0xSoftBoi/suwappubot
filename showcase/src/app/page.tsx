@@ -5,8 +5,10 @@ import SummerFooter from '@/components/SummerFooter';
 import CosmicAtmosphere from '@/components/CosmicAtmosphere';
 import CopyInstall from '@/components/CopyInstall';
 import MarketProof from '@/components/MarketProof';
+import MobileWaitlistForm from '@/components/MobileWaitlistForm';
 import { getTranslations } from 'next-intl/server';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
+import DemoCallCta from '@/components/DemoCallCta';
 import productStats from '@/data/stats.generated.json';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
@@ -189,6 +191,9 @@ async function Hero() {
         <p className="summer-hero__trust">
           Non-custodial&nbsp;·&nbsp;No KYC for basic swaps&nbsp;·&nbsp;MPC key security
         </p>
+        <a className="summer-hero__waitlist-pill" href="#mobile-app">
+          Suwappu is coming to iOS &amp; Android with the Suwappu Card by Rain — join the waitlist
+        </a>
       </div>
       <LiveTerminal />
     </section>
@@ -228,6 +233,7 @@ export default async function Home() {
             <a href="#api">API</a>
             <a href="/pricing">Pricing</a>
             <a href="/docs">Docs</a>
+            <a href="#mobile-app">Mobile app</a>
           </nav>
           <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
             Open Bot
@@ -271,6 +277,30 @@ export default async function Home() {
                   ))}
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* ── MOBILE APP WAITLIST — Suwappu Card by Rain ── */}
+          <section id="mobile-app" className="summer-mobile" aria-label="Mobile app waitlist">
+            <span className="summer-flower summer-flower--sun summer-mobile__flower" aria-hidden="true" />
+            <div className="summer-mobile__copy">
+              <p className="summer-kicker">Coming soon — iOS &amp; Android</p>
+              <h2>Suwappu, in your pocket. With the Suwappu Card by Rain.</h2>
+              <p>
+                The full swap engine and terminal, native on your phone — plus the
+                Suwappu Card by Rain, a crypto-linked card you can spend anywhere.
+                Get on the list and we&rsquo;ll email you the moment your device is
+                supported.
+              </p>
+              <div className="summer-mobile__tags">
+                <span>iOS</span>
+                <span>Android</span>
+                <span>Suwappu Card by Rain</span>
+                <span>Non-custodial</span>
+              </div>
+            </div>
+            <div className="summer-mobile__panel">
+              <MobileWaitlistForm />
             </div>
           </section>
 
@@ -542,14 +572,20 @@ const tx = await client.swap(quote);`}</code>
                   <span>Spend caps</span>
                   <span>Audit logs</span>
                 </div>
+                <DemoCallCta source="homepage_enterprise_card" className="summer-devlayer__ent-link">
+                  Schedule a demo →
+                </DemoCallCta>
               </article>
             </div>
             <div className="summer-devlayer__cta">
-              <a className="summer-button summer-button--primary" href="/agents">
-                Read the docs
-              </a>
+              <DemoCallCta source="homepage_enterprise_section" className="summer-button summer-button--primary">
+                Schedule a demo
+              </DemoCallCta>
               <a className="summer-button summer-button--secondary" href="/contact">
-                Talk to us about Enterprise
+                Or send us a note
+              </a>
+              <a className="summer-devlayer__docs-link" href="/agents">
+                Read the docs
               </a>
             </div>
           </section>

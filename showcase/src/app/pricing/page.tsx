@@ -4,6 +4,7 @@ import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import DemoCallCta from '@/components/DemoCallCta';
 
 export const metadata: Metadata = {
   title: 'Pricing — Suwappu',
@@ -242,13 +243,24 @@ export default function PricingPage() {
                 <b>{t.fee}</b> swap fee
               </p>
               <p className="pricing-card__blurb">{t.blurb}</p>
-              <a
-                className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
-                href={ctaHref}
-                {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
-              >
-                {t.cta}
-              </a>
+              {t.name === 'Enterprise' ? (
+                <>
+                  <DemoCallCta source="pricing_enterprise_card" className="summer-button summer-button--primary pricing-card__cta">
+                    Schedule a demo
+                  </DemoCallCta>
+                  <a className="pricing-card__note-link" href={ctaHref}>
+                    Or send us a note →
+                  </a>
+                </>
+              ) : (
+                <a
+                  className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
+                  href={ctaHref}
+                  {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                >
+                  {t.cta}
+                </a>
+              )}
               <ul className="pricing-card__features">
                 {t.features.map((f) => (
                   <li key={f}>{f}</li>
@@ -266,9 +278,14 @@ export default function PricingPage() {
             accounts, no API keys, no SLA. Suwappu is the only DeFi trading platform purpose-built for
             trading desks, agent fleets, and institutions.
           </p>
-          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
-            Talk to Sales
-          </a>
+          <div className="summer-actions">
+            <DemoCallCta source="pricing_callout" className="summer-button summer-button--primary">
+              Schedule a demo
+            </DemoCallCta>
+            <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+              Or send us a note
+            </a>
+          </div>
         </section>
 
         <section className="pricing-compare" aria-label="Plan comparison">
