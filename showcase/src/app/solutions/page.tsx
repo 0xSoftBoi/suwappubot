@@ -3,6 +3,7 @@ import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
+import styles from './solutions.module.css';
 
 export const metadata: Metadata = {
   title: 'Solutions — Suwappu',
@@ -85,27 +86,81 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
   },
 ];
 
+/** The code surface is the proof artifact — dark register, one per row. */
+function CodeBlock({ file, code }: { file: string; code: string }) {
+  return (
+    <div className={styles.codeShell}>
+      <div className="summer-code sw-card-dark" aria-label={file}>
+        <div className="summer-code__bar">
+          <span />
+          <span />
+          <span />
+          <b>{file}</b>
+        </div>
+        <pre>
+          <code>{code}</code>
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 export default function SolutionsPage() {
+  const [lead, ...rest] = solutions;
+
   return (
     <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Solutions</p>
-          <h1>One API. Every agent job to be done.</h1>
+          <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
           <p className="mkt-hero__lead">
             Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
             to secure itself — the same REST API, MCP server, and A2A protocol cover all four.
           </p>
         </header>
 
-        <div className="solutions-list">
-          {solutions.map((s, i) => (
-            <section className="solution-row" id={s.id} key={s.id}>
-              <div className="solution-row__copy">
-                <p className="summer-kicker">{s.eyebrow}</p>
-                <h2>{s.title}</h2>
-                <p>{s.body}</p>
+        <div className={styles.rows}>
+          {/* Lead row gets the terminal treatment: the trading loop is the
+              reason most readers are here, so its code runs full width
+              instead of squeezing into a side column. */}
+          <section className={`${styles.row} ${styles.rowLead}`} id={lead.id}>
+            <div className={styles.leadHead}>
+              <div className={styles.copy}>
+                <p className="sw-kicker">{lead.eyebrow}</p>
+                <h2 className={styles.title}>{lead.title}</h2>
+                <p className={styles.body}>{lead.body}</p>
+                <a
+                  className={`summer-button summer-button--secondary ${styles.cta}`}
+                  href={lead.cta.href}
+                  {...(lead.cta.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {lead.cta.label}
+                </a>
+              </div>
+              <div className="summer-flow">
+                {lead.flow.map((step, idx) => (
+                  <div key={step}>
+                    <span>0{idx + 1}</span>
+                    <strong>{step}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <CodeBlock file={lead.file} code={lead.code} />
+          </section>
+
+          {rest.map((s, i) => (
+            <section
+              className={`${styles.row} ${styles.rowSplit}${i % 2 ? ` ${styles.codeFirst}` : ''}`}
+              id={s.id}
+              key={s.id}
+            >
+              <div className={styles.copy}>
+                <p className="sw-kicker">{s.eyebrow}</p>
+                <h2 className={styles.title}>{s.title}</h2>
+                <p className={styles.body}>{s.body}</p>
                 <div className="summer-flow">
                   {s.flow.map((step, idx) => (
                     <div key={step}>
@@ -115,27 +170,14 @@ export default function SolutionsPage() {
                   ))}
                 </div>
                 <a
-                  className="summer-button summer-button--secondary"
+                  className={`summer-button summer-button--secondary ${styles.cta}`}
                   href={s.cta.href}
                   {...(s.cta.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  style={{ marginTop: '20px' }}
                 >
                   {s.cta.label}
                 </a>
               </div>
-              <div className={`solution-row__code${i % 2 ? ' solution-row__code--alt' : ''}`}>
-                <div className="summer-code" aria-label={s.file}>
-                  <div className="summer-code__bar">
-                    <span />
-                    <span />
-                    <span />
-                    <b>{s.file}</b>
-                  </div>
-                  <pre>
-                    <code>{s.code}</code>
-                  </pre>
-                </div>
-              </div>
+              <CodeBlock file={s.file} code={s.code} />
             </section>
           ))}
         </div>

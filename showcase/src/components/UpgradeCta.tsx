@@ -14,10 +14,16 @@
  * crawlers and would create throwaway sessions. The href itself is a
  * rel="nofollow" fallback pointing at /pricing (not the endpoint), so a
  * prefetch or JS-disabled click never touches the checkout endpoint.
+ *
+ * Failure is surfaced, never swallowed. The previous fallback re-navigated to
+ * /pricing, which reads to the buyer as "the button is broken" — same page,
+ * no explanation, no next step. Now the component holds its place, says what
+ * happened, and offers a retry plus a human.
  */
 import { useState } from 'react';
-import { upgradeCheckoutUrl } from '@/lib/links';
+import { upgradeCheckoutUrl, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import { track } from '@/lib/analytics';
+import styles from './UpgradeCta.module.css';
 
 interface UpgradeCtaProps {
   tier: 'pro' | 'premium';
@@ -27,11 +33,13 @@ interface UpgradeCtaProps {
 
 export default function UpgradeCta({ tier, className, children }: UpgradeCtaProps) {
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   async function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault();
     if (loading) return;
     setLoading(true);
+    setFailed(false);
     track('upgrade_click', { tier });
 
     try {
@@ -44,21 +52,32 @@ export default function UpgradeCta({ tier, className, children }: UpgradeCtaProp
         return;
       }
     } catch {
-      // fall through to Telegram-safe fallback below
+      // fall through to the visible error state below
     }
     setLoading(false);
-    window.location.assign('/pricing');
+    setFailed(true);
   }
 
   return (
-    <a
-      className={className}
-      href="/pricing"
-      rel="nofollow"
-      aria-busy={loading}
-      onClick={handleClick}
-    >
-      {loading ? 'Redirecting…' : children}
-    </a>
+    <>
+      <a
+        className={className}
+        href="/pricing"
+        rel="nofollow"
+        aria-busy={loading}
+        onClick={handleClick}
+      >
+        <span className={styles.label}>
+          {loading && <span className={styles.spinner} aria-hidden="true" />}
+          {loading ? 'Opening checkout…' : failed ? 'Try again' : children}
+        </span>
+      </a>
+      {failed && (
+        <span className={styles.error} role="alert">
+          Checkout unavailable — try again, or{' '}
+          <a href={ENTERPRISE_CONTACT_PATH}>contact us</a> and we&rsquo;ll set it up for you.
+        </span>
+      )}
+    </>
   );
 }

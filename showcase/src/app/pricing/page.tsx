@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Fragment } from 'react';
 import stats from '@/data/stats.generated.json';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
@@ -7,6 +8,7 @@ import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import UpgradeCta from '@/components/UpgradeCta';
 import FeeCalculator from '@/components/FeeCalculator';
+import styles from './pricing.module.css';
 
 export const metadata: Metadata = {
   title: 'Pricing — Suwappu',
@@ -14,7 +16,7 @@ export const metadata: Metadata = {
     'Simple subscription tiers that lower your swap fee — Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
 };
 
-const tiers: {
+type Tier = {
   name: string;
   price: string;
   cadence: string;
@@ -25,45 +27,65 @@ const tiers: {
   highlight: boolean;
   badge?: string;
   features: string[];
-}[] = [
+};
+
+const tiers: Tier[] = [
   {
     name: 'Free',
     price: '$0',
     cadence: '',
     fee: '1.0%',
-    blurb: 'Everything you need to start.',
+    blurb: `1.0% swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
     cta: 'Start free',
     highlight: false,
-    features: [`Best-price routing across ${stats.routerCount} providers`, 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access', '1× loyalty points — redeem for fee credits'],
+    features: [
+      `Best-price routing across ${stats.routerCount} providers`,
+      'HyperLiquid perps & funding',
+      'Gasless first swaps on Tempo',
+      'Agent API, SDK & MCP access — 30 req/min',
+      '1× loyalty points — redeem for fee credits',
+    ],
   },
   {
     name: 'Pro',
     price: '$9.99',
     cadence: '/mo',
     fee: '0.5%',
-    blurb: 'For serious traders.',
+    blurb: '', // derived from the fee ladder — see ladderBlurb()
     cta: 'Upgrade to Pro',
     highlight: false,
-    features: ['Everything in Free', '0.5% swap fee', 'Priority routing', 'Copy trading & DCA', '1.1× loyalty points on every trade'],
+    features: [
+      'Everything in Free',
+      '0.5% swap fee — half of Free',
+      '500 API requests/min',
+      'Copy trading & DCA',
+      '1.1× loyalty points on every trade',
+    ],
   },
   {
     name: 'Premium',
     price: '$29.99',
     cadence: '/mo',
     fee: '0.3%',
-    blurb: 'For high-volume traders.',
+    blurb: '', // derived from the fee ladder — see ladderBlurb()
     cta: 'Go Premium',
     highlight: true,
-    badge: 'Most popular',
-    features: ['Everything in Pro', '0.3% swap fee', 'Higher rate limits', 'Advanced alerts & analytics', '1.25× loyalty points on every trade'],
+    badge: 'Recommended',
+    features: [
+      'Everything in Pro',
+      '0.3% swap fee — 70% below Free',
+      '500 API requests/min',
+      'Advanced alerts & analytics',
+      '1.25× loyalty points on every trade',
+    ],
   },
   {
     name: 'Enterprise',
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: 'For funds and institutions.',
-    cta: 'Contact Sales',
+    blurb: '0.1% swap fee, org accounts with RBAC, and 1,000 API requests/min.',
+    cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
     badge: 'Industry-First',
@@ -74,7 +96,7 @@ const tiers: {
       'Up to 10 seats per org (configurable)',
       'Programmatic API keys with scoped permissions',
       'Per-org rate limits — 1,000 API calls/min default',
-      '7-chain execution (competitors offer 1–2)',
+      `${stats.platformChains}-chain execution (competitors offer 1–2)`,
       'KMS envelope encryption — institutional-grade custody',
       'Dedicated support + SLA — first in category',
       'Usage dashboard: API calls, rate-limit monitoring',
@@ -83,6 +105,44 @@ const tiers: {
       '1.5× loyalty points on every trade',
     ],
   },
+];
+
+const money = (t: Tier) => Number(t.price.replace(/[^0-9.]/g, ''));
+const feePct = (t: Tier) => Number(t.fee.replace('%', ''));
+
+/**
+ * Monthly volume at which `upper` becomes cheaper than `lower` — the point
+ * where the extra subscription is repaid by the lower swap fee. Derived from
+ * the same fee ladder the cards and the calculator render, so a price change
+ * can never leave a stale number in the copy. Rounded to the nearest $100 so
+ * the sentence reads like a threshold, not a float.
+ */
+function breakEvenVolume(upper: Tier, lower: Tier): number {
+  const feeGap = (feePct(lower) - feePct(upper)) / 100;
+  if (feeGap <= 0) return 0;
+  return Math.round((money(upper) - money(lower)) / feeGap / 100) * 100;
+}
+
+const usdShort = (n: number) => `$${n.toLocaleString('en-US')}`;
+
+/** Blurb for a paid tier, stated against the tier directly below it. */
+function ladderBlurb(upper: Tier, lower: Tier): string {
+  return `${upper.fee} swap fee. Costs less than ${lower.name} once you trade about ${usdShort(
+    breakEvenVolume(upper, lower)
+  )} a month.`;
+}
+
+const selfServe = tiers
+  .filter((t) => t.name !== 'Enterprise')
+  .map((t, i, all) => (i === 0 ? t : { ...t, blurb: ladderBlurb(t, all[i - 1]) }));
+const enterprise = tiers.find((t) => t.name === 'Enterprise') as Tier;
+/** Index into a comparison row's `values` array for the recommended column. */
+const featuredIndex = tiers.findIndex((t) => t.highlight);
+
+const enterpriseStats: { value: string; label: string }[] = [
+  { value: '0.1%', label: 'Swap fee — a tenth of the 1% category standard' },
+  { value: '1,000', label: 'API requests per minute, per org, by default' },
+  { value: '10', label: 'Seats per org with RBAC roles (configurable)' },
 ];
 
 const comparison: { category: string; rows: { label: string; values: string[] }[] }[] = [
@@ -106,7 +166,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     category: 'Agents & API',
     rows: [
       { label: 'REST API, SDK & MCP server', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Rate limits', values: ['Standard', 'Standard', 'Higher', '1,000 req/min+'] },
+      { label: 'Rate limits', values: ['30 req/min', '500 req/min', '500 req/min', '1,000 req/min'] },
       { label: 'Managed wallets & policy guardrails', values: ['✓', '✓', '✓', '✓'] },
     ],
   },
@@ -162,7 +222,7 @@ const faqs = [
   },
   {
     q: 'What does the Enterprise tier include that competitors do not?',
-    a: 'Suwappu Enterprise is the only offering in the DeFi bot space with multi-user org accounts, RBAC roles, scoped programmatic API keys, a per-org usage dashboard, a dedicated SLA, and white-label options. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), 7-chain execution, and KMS envelope encryption for institutional-grade custody.',
+    a: 'Suwappu Enterprise is the only offering in the DeFi bot space with multi-user org accounts, RBAC roles, scoped programmatic API keys, a per-org usage dashboard, a dedicated SLA, and white-label options. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), multi-chain execution, and KMS envelope encryption for institutional-grade custody.',
   },
   {
     q: 'How do referrals work?',
@@ -211,6 +271,32 @@ const agentPaymentModes = [
   },
 ];
 
+/** Comparison cells are either a glyph or a literal value — render accordingly
+ *  so screen readers hear "Included"/"Not included" instead of a bare symbol. */
+function CompareValue({ value }: { value: string }) {
+  if (value === '✓') {
+    return (
+      <>
+        <span className={styles.yes} aria-hidden="true">
+          ✓
+        </span>
+        <span className="sr-only">Included</span>
+      </>
+    );
+  }
+  if (value === '—') {
+    return (
+      <>
+        <span className={styles.no} aria-hidden="true">
+          —
+        </span>
+        <span className="sr-only">Not included</span>
+      </>
+    );
+  }
+  return <span className={styles.val}>{value}</span>;
+}
+
 export default function PricingPage() {
   return (
     <main id="main-content" className="summer-page docs-shell">
@@ -220,50 +306,44 @@ export default function PricingPage() {
           <p className="summer-kicker">Pricing</p>
           <h1>One subscription. A lower fee on every swap.</h1>
           <p className="mkt-hero__lead">
-            No seat counts, no hidden fees. Pick a tier to drop your swap fee — everything
-            else is included on every plan.
+            Every plan carries the same engine — {stats.platformChains} chains, {stats.routerCount}{' '}
+            quote providers, HyperLiquid perps, and the agent API. The tier only changes your swap
+            fee: 1.0% on Free down to 0.1% on Enterprise.
           </p>
-          {/* Clerk-pattern anxiety removal — free to start, no card required. */}
           <p className="mkt-hero__clerk">
-            Free to start. No credit card. Your first trades are on us.
+            Free to start, no card. Month to month — cancel and you keep the tier until the period
+            ends.
           </p>
         </header>
 
-        <section className="pricing-grid" aria-label="Plans">
-          {tiers.map((t) => {
-            const ctaHref = t.href ?? TELEGRAM_URL;
-            const isInternal = ctaHref.startsWith('/');
-            return (
-            <article className={`pricing-card${t.highlight ? ' pricing-card--featured' : ''}`} key={t.name}>
-              {t.badge && <span className="pricing-card__badge">{t.badge}</span>}
-              <h2>{t.name}</h2>
-              <p className="pricing-card__price">
+        <section className={styles.plans} aria-label="Self-serve plans">
+          {selfServe.map((t) => (
+            <article
+              className={`${styles.card}${t.highlight ? ` ${styles.cardFeatured} sw-shine` : ''}`}
+              key={t.name}
+            >
+              {t.badge && <span className={styles.badge}>{t.badge}</span>}
+              <h2 className={styles.name}>{t.name}</h2>
+              <p className={styles.price}>
                 {t.price}
-                <span>{t.cadence}</span>
+                {t.cadence && <span className={styles.cadence}>{t.cadence}</span>}
               </p>
-              <p className="pricing-card__fee">
-                <b>{t.fee}</b> swap fee
+              <p className={styles.fee}>
+                <b className={styles.feeValue}>{t.fee}</b> swap fee
               </p>
-              <p className="pricing-card__blurb">{t.blurb}</p>
-              {t.name === 'Enterprise' ? (
-                <>
-                  <DemoCallCta source="pricing_enterprise_card" className="summer-button summer-button--primary pricing-card__cta">
-                    Schedule a demo
-                  </DemoCallCta>
-                  <a className="pricing-card__note-link" href={ctaHref}>
-                    Or send us a note →
-                  </a>
-                </>
-              ) : t.name === 'Pro' || t.name === 'Premium' ? (
+              <p className={styles.blurb}>{t.blurb}</p>
+              {t.name === 'Pro' || t.name === 'Premium' ? (
                 <>
                   <UpgradeCta
                     tier={t.name === 'Pro' ? 'pro' : 'premium'}
-                    className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
+                    className={`summer-button ${
+                      t.highlight ? 'summer-button--primary' : 'summer-button--secondary'
+                    } pricing-card__cta`}
                   >
                     {t.cta}
                   </UpgradeCta>
                   <a
-                    className="pricing-card__note-link"
+                    className={styles.noteLink}
                     href={TELEGRAM_URL}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -273,76 +353,145 @@ export default function PricingPage() {
                 </>
               ) : (
                 <a
-                  className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
-                  href={ctaHref}
-                  {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                  className="summer-button summer-button--secondary pricing-card__cta"
+                  href={TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
                   {t.cta}
                 </a>
               )}
-              <ul className="pricing-card__features">
+              <ul className={styles.features}>
                 {t.features.map((f) => (
                   <li key={f}>{f}</li>
                 ))}
               </ul>
             </article>
-            );
-          })}
+          ))}
         </section>
 
-        <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise differentiator">
-          <p className="mkt-callout__eyebrow">Industry-First</p>
-          <p className="mkt-callout__body">
-            BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom offer zero enterprise tier — no team
-            accounts, no API keys, no SLA. Suwappu is the only DeFi trading platform purpose-built for
-            trading desks, agent fleets, and institutions.
-          </p>
-          <div className="summer-actions">
-            <DemoCallCta source="pricing_callout" className="summer-button summer-button--primary">
-              Schedule a demo
-            </DemoCallCta>
-            <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
-              Or send us a note
-            </a>
+        {/* Enterprise sits below the ladder, not inside it: a quote-only plan
+            standing next to three published prices makes every price look
+            negotiable, and the buyer is a different person on a different
+            timeline. One CTA — a call. */}
+        <section
+          className={`${styles.enterprise} sw-card-dark sw-grain sw-grain--dark`}
+          aria-labelledby="enterprise-band"
+        >
+          <div className={styles.enterpriseGrid}>
+            <div>
+              <p className="sw-kicker">Enterprise</p>
+              <h2 className={styles.enterpriseTitle} id="enterprise-band">
+                Priced per desk, not per seat.
+              </h2>
+              <p className={styles.enterpriseBody}>
+                BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at all
+                — no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
+                desks, agent fleets, and institutions that need all three.
+              </p>
+              <div className={styles.enterpriseStats}>
+                {enterpriseStats.map((s) => (
+                  <div className={styles.enterpriseStat} key={s.value}>
+                    <span className={styles.enterpriseStatValue}>{s.value}</span>
+                    <span className={styles.enterpriseStatLabel}>{s.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className={styles.enterpriseActions}>
+                <DemoCallCta
+                  source="pricing_enterprise_card"
+                  className="summer-button summer-button--primary"
+                >
+                  Talk to sales
+                </DemoCallCta>
+                <p className={styles.enterpriseNote}>
+                  30 minutes, no deck. Or <a href={ENTERPRISE_CONTACT_PATH}>send us a note</a> —
+                  we reply within one business day.
+                </p>
+              </div>
+            </div>
+            <ul className={styles.enterpriseFeatures}>
+              {enterprise.features.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
           </div>
         </section>
 
         {/* Sits between the plans and the feature matrix: the reader has just seen
-            four prices and is asking "which one is actually right for me?". Answer
+            the prices and is asking "which one is actually right for me?". Answer
             it before sending them into a comparison table. Fees are derived from the
             same `tiers` array the cards render, so the ladder has one source. */}
-        <FeeCalculator
-          tiers={tiers.map((t) => ({
-            name: t.name,
-            monthly: t.price === 'Custom' ? null : Number(t.price.replace(/[^0-9.]/g, '')),
-            feePct: Number(t.fee.replace('%', '')),
-          }))}
-        />
+        <div className={styles.calcWrap}>
+          <FeeCalculator
+            tiers={tiers.map((t) => ({
+              name: t.name,
+              monthly: t.price === 'Custom' ? null : money(t),
+              feePct: feePct(t),
+            }))}
+          />
+        </div>
 
-        <section className="pricing-compare" aria-label="Plan comparison">
-          <h2 className="mkt-h2">Compare plans</h2>
-          <div className="pricing-table">
-            <div className="pricing-table__row pricing-table__row--head">
-              <span>Features</span>
-              <span>Free</span>
-              <span>Pro</span>
-              <span>Premium</span>
-              <span>Enterprise</span>
-            </div>
-            {comparison.map((group) => (
-              <div className="pricing-table__group" key={group.category}>
-                <div className="pricing-table__cat">{group.category}</div>
-                {group.rows.map((row) => (
-                  <div className="pricing-table__row" key={row.label}>
-                    <span>{row.label}</span>
-                    {row.values.map((v, i) => (
-                      <span key={i} className="pricing-table__val">{v}</span>
+        <section className={styles.compare} aria-labelledby="compare-plans">
+          <p className="sw-kicker">Every line, side by side</p>
+          <h2 className={styles.compareTitle} id="compare-plans">
+            Compare plans
+          </h2>
+          <p className={styles.compareLead}>
+            The engine is identical on every tier. What moves is the swap fee, the rate limit, and
+            the org controls.
+          </p>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <caption className="sr-only">
+                Feature comparison across the Free, Pro, Premium, and Enterprise plans.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Feature</th>
+                  {tiers.map((t, i) => (
+                    <th
+                      key={t.name}
+                      scope="col"
+                      className={i === featuredIndex ? styles.colUs : undefined}
+                    >
+                      {t.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((group) => (
+                  <Fragment key={group.category}>
+                    <tr className={styles.catRow}>
+                      <th scope="colgroup" colSpan={tiers.length + 1}>
+                        {group.category}
+                      </th>
+                    </tr>
+                    {group.rows.map((row) => (
+                      <tr key={row.label}>
+                        <th scope="row" className={styles.rowHead}>
+                          {row.label}
+                        </th>
+                        {row.values.map((v, i) => (
+                          <td
+                            key={i}
+                            className={`${styles.cell}${i === featuredIndex ? ` ${styles.cellUs}` : ''}`}
+                          >
+                            <CompareValue value={v} />
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </div>
+                  </Fragment>
                 ))}
-              </div>
-            ))}
+              </tbody>
+            </table>
           </div>
+          <p className={styles.tableNote}>
+            Swap fee is charged on the traded amount. Network gas and third-party liquidity costs
+            are separate on every tier.
+          </p>
         </section>
 
         <section className="compare" id="agent-api" aria-label="Agent API pricing">
