@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
 import { Fragment } from 'react';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
@@ -30,11 +31,11 @@ const GROUPS: {
     category: 'Execution',
     rows: [
       {
-        label: 'Cross-chain spot swaps (40+ chains)',
+        label: `Cross-chain spot swaps (${stats.platformChains} chains)`,
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
-        label: 'Best-price routing across 9 aggregators',
+        label: `Best-price routing across ${stats.routerCount} providers`,
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
