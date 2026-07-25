@@ -21,8 +21,7 @@ import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
-import { ipRateLimit, resolveTrustedClientIp } from '../middleware/ipRateLimit'
-import { getConnInfo } from 'hono/bun'
+import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -215,15 +214,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	const { name, description, callback_url, metadata } = parsed.data
 
 	// Resolve client IP for the starter-credit anti-farm guard (see AgentService).
-	const cfIp = c.req.header('cf-connecting-ip')
-	const forwarded = c.req.header('x-forwarded-for')
-	let socketIp: string | undefined
-	try {
-		socketIp = getConnInfo(c).remote.address
-	} catch {
-		socketIp = undefined
-	}
-	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp, undefined, c.req.header("cf-provenance"))
+	const ip = resolveRequestIp(c)
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -341,15 +332,7 @@ async function handleSpongeCallback(c: any, body: any) {
 		agent_url?: string
 	}
 
-	const cfIp = c.req.header('cf-connecting-ip')
-	const forwarded = c.req.header('x-forwarded-for')
-	let socketIp: string | undefined
-	try {
-		socketIp = getConnInfo(c).remote.address
-	} catch {
-		socketIp = undefined
-	}
-	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp, undefined, c.req.header("cf-provenance"))
+	const ip = resolveRequestIp(c)
 
 	if (event !== 'agent_connect') {
 		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)

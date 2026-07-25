@@ -70,6 +70,28 @@ export function resolveTrustedClientIp(
 	return resolveClientIp(forwarded, socketIp, trustedProxyCount)
 }
 
+/**
+ * Resolve the trusted client IP straight from a Hono Context. Use this rather than
+ * re-deriving the headers at each call site, so the rate limiter and the
+ * starter-credit anti-farm guard can never disagree about who the caller is.
+ */
+export function resolveRequestIp(c: Context): string {
+	let socketIp: string | undefined
+	try {
+		socketIp = getConnInfo(c).remote.address
+	} catch {
+		// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
+		socketIp = undefined
+	}
+	return resolveTrustedClientIp(
+		c.req.header('cf-connecting-ip'),
+		c.req.header('x-forwarded-for'),
+		socketIp,
+		undefined,
+		c.req.header('cf-provenance'),
+	)
+}
+
 const windows = new Map<string, SlidingWindowEntry>()
 let lastGlobalCleanup = Date.now()
 
