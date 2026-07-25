@@ -1231,7 +1231,18 @@ mcpRoutes.post('/', async (c) => {
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
 				if (Either.isRight(cenv)) setX402Headers(c, cenv.right, charge.challenge)
-				c.header('X-Payment-Required', 'true')
+				// Content-negotiate: off-the-shelf x402 middleware (identified by an
+				// X-PAYMENT header on the request, or an Accept header naming the x402
+				// media type) expects the raw challenge at HTTP 402. Other MCP clients
+				// (JSON-RPC only, no x402 awareness) get a 200 + JSON-RPC error envelope
+				// carrying the challenge in `data`, since a raw 402 body breaks JSON-RPC
+				// framing for them.
+				const acceptsX402 =
+					Boolean(c.req.header('X-PAYMENT')) ||
+					(c.req.header('Accept') ?? '').includes('vnd.x402')
+				if (acceptsX402) {
+					return c.json(charge.challenge, 402)
+				}
 				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
 			}
 			if (charge.kind === 'ok') {

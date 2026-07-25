@@ -43,5 +43,8 @@ export default defineConfig({
 		'policies',
 		'policy_decisions',
 		'policy_kill_switches',
+		// api-ts-exclusive anti-farm guard for the starter-credit grant
+		// (payments.ts) — no python owner.
+		'agent_registration_grants',
 	],
 })

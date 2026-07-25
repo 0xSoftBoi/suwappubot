@@ -7,6 +7,7 @@ import type { AgentErrorCode } from './lib/agentError'
 import agentCard from '../agent-card.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
+import { ipRateLimit } from './middleware/ipRateLimit'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -145,6 +146,10 @@ export function createApp(config: AppConfig) {
 	app.route('/a2a', a2aRoutes)
 
 	// MCP endpoint for OpenClaw and other MCP-compatible agents
+	// Generous IP rate limit — public methods (initialize, tools/list, etc.) are
+	// unauthenticated, so this is the only throttle protecting them from abuse.
+	app.use('/mcp', ipRateLimit(60))
+	app.use('/mcp/*', ipRateLimit(60))
 	app.route('/mcp', mcpRoutes)
 
 	// Agent card for A2A discovery (spec-compliant + legacy paths)

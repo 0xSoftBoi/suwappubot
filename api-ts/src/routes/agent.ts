@@ -18,7 +18,8 @@ import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
-import { ipRateLimit } from '../middleware/ipRateLimit'
+import { ipRateLimit, resolveClientIp } from '../middleware/ipRateLimit'
+import { getConnInfo } from 'hono/bun'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -205,6 +206,17 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 
 	const { name, description, callback_url, metadata } = parsed.data
 
+	// Resolve client IP for the starter-credit anti-farm guard (see AgentService).
+	const cfIp = c.req.header('cf-connecting-ip')
+	const forwarded = c.req.header('x-forwarded-for')
+	let socketIp: string | undefined
+	try {
+		socketIp = getConnInfo(c).remote.address
+	} catch {
+		socketIp = undefined
+	}
+	const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
@@ -216,14 +228,15 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				)
 			}
 
-			const { agent, apiKey } = yield* agentService.registerAgent({
+			const { agent, apiKey, grantedCredits } = yield* agentService.registerAgent({
 				name,
 				description,
 				callbackUrl: callback_url,
 				metadata,
+				ip,
 			})
 
-			return { agent, apiKey }
+			return { agent, apiKey, grantedCredits }
 		}),
 	)
 
@@ -232,7 +245,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 		return c.json(body, status)
 	}
 
-	const { agent, apiKey } = result.right
+	const { agent, apiKey, grantedCredits } = result.right
 
 	return c.json(
 		{
@@ -246,8 +259,11 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 			},
 			important: 'SAVE YOUR API KEY! It cannot be retrieved later.',
 			credits: {
-				starting_balance: 100,
-				note: 'You start with 100 free credits (~100 quote calls or 20 swaps) so you can try the API immediately. GET /v1/agent/tokens and GET /v1/agent/chains are always free.',
+				starting_balance: grantedCredits,
+				note:
+					grantedCredits > 0
+						? `You start with ${grantedCredits} free credits (~${grantedCredits} quote calls or ${Math.floor(grantedCredits / 5)} swaps) so you can try the API immediately. GET /v1/agent/tokens and GET /v1/agent/chains are always free.`
+						: 'Starter credits were not granted for this registration (rate-limited). GET /v1/agent/tokens and GET /v1/agent/chains are always free — top up to use metered endpoints.',
 				topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount} once your balance runs low',
 			},
 			next_steps: {
@@ -317,6 +333,16 @@ async function handleSpongeCallback(c: any, body: any) {
 		agent_url?: string
 	}
 
+	const cfIp = c.req.header('cf-connecting-ip')
+	const forwarded = c.req.header('x-forwarded-for')
+	let socketIp: string | undefined
+	try {
+		socketIp = getConnInfo(c).remote.address
+	} catch {
+		socketIp = undefined
+	}
+	const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+
 	if (event !== 'agent_connect') {
 		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)
 	}
@@ -343,6 +369,7 @@ async function handleSpongeCallback(c: any, body: any) {
 				description: `Auto-registered via Sponge Gateway from ${agent_url || 'unknown'}`,
 				callbackUrl: agent_url,
 				metadata: { source: 'sponge', original_name: agent_name, connected_at: new Date().toISOString() },
+				ip,
 			})
 
 			return { agent, apiKey, isNew: true }

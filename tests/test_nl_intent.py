@@ -649,6 +649,68 @@ async def test_handle_nl_text_merges_bare_chain_followup():
     assert "base" in context.args
 
 
+def test_try_merge_followup_on_eth_resolves_alias_not_token():
+    """Opus-review BLOCKER: replying "on eth" to a pending clarification must
+    resolve merged.chain == "ethereum" via the alias map, and must NOT leak
+    the leftover word "eth" into the bare-token-symbol scan as token_out."""
+    pending = TradeIntent(
+        action="swap",
+        token_in="USDC",
+        token_out=None,
+        amount=2,
+        amount_unit="native",
+        chain=None,
+        confidence=0.4,
+        clarification="Which chain?",
+    )
+
+    merged = nl_trade._try_merge_followup(pending, "on eth")
+
+    assert merged is not None
+    assert merged.chain == "ethereum"
+    assert merged.token_out != "ETH"
+
+
+def test_try_merge_followup_confidence_capped_at_pending():
+    """merged.confidence must never be hardcoded to 1.0 — it must be
+    min(pending.confidence, 0.9)."""
+    pending = TradeIntent(
+        action="swap",
+        token_in="USDC",
+        token_out=None,
+        amount=None,
+        amount_unit="native",
+        chain=None,
+        confidence=0.95,
+        clarification="How much and which token?",
+    )
+
+    merged = nl_trade._try_merge_followup(pending, "2 ETH")
+
+    assert merged is not None
+    assert merged.confidence <= 0.9
+    assert merged.confidence == min(pending.confidence, 0.9)
+
+
+def test_try_merge_followup_ordinal_does_not_set_amount():
+    """"the 2nd one" is a list-selection reply, not a stated swap amount —
+    it must not fill merged.amount with 2.0."""
+    pending = TradeIntent(
+        action="swap",
+        token_in="USDC",
+        token_out="ETH",
+        amount=None,
+        amount_unit="native",
+        chain=None,
+        confidence=0.4,
+        clarification="How much?",
+    )
+
+    merged = nl_trade._try_merge_followup(pending, "the 2nd one")
+
+    assert merged is None or merged.amount != 2.0
+
+
 @pytest.mark.asyncio
 async def test_handle_nl_text_expired_pending_intent_is_ignored():
     """A pending intent older than the TTL must not be merged into — it

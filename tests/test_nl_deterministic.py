@@ -145,6 +145,27 @@ def test_deterministic_unresolvable_mid_sentence_chain_defers_to_llm():
     assert parse_deterministic("swap 1 eth for usdc on marscoinchain right now", context={}) is None
 
 
+@pytest.mark.parametrize(
+    "alias,canonical",
+    [
+        ("eth", "ethereum"),
+        ("sol", "solana"),
+        ("bnb", "bsc"),
+        ("avax", "avalanche"),
+        ("matic", "polygon"),
+        ("op", "optimism"),
+        ("arb", "arbitrum"),
+    ],
+)
+def test_deterministic_chain_alias_resolves_to_canonical(alias, canonical):
+    # "eth"/"sol"/"bnb"/"avax"/"matic"/"op"/"arb" aren't exact CHAINS keys —
+    # the alias map must resolve them via the shared chain-name resolver
+    # instead of silently dropping the chain or deferring to the LLM.
+    intent = parse_deterministic(f"swap 1 usdc for weth on {alias}", context={})
+    assert intent is not None
+    assert intent.chain == canonical
+
+
 # --- parse_trade_intent: deterministic-first wiring -------------------------
 
 

@@ -22,7 +22,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.config.settings import settings
-from bot.config.chains import CHAINS, get_chain_by_name
+from bot.config.chains import CHAINS, get_chain_by_name, resolve_chain_name
 from bot.config.tokens import TOKENS, get_token_by_symbol
 from bot.utils.rate_limiter import nl_parse_limiter, enforce_rate_limit_for_update
 from bot.utils.tos_utils import enforce_tos
@@ -50,8 +50,13 @@ NL_PENDING_INTENT_KEY = "nl_pending_trade_intent"
 NL_PENDING_INTENT_TTL_SECONDS = 5 * 60
 
 _BARE_CHAIN_RE = re.compile(r"\b(?:on|en|sur)\s+([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
-_BARE_AMOUNT_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)")
-_BARE_AMOUNT_TOKEN_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z][a-zA-Z0-9_-]*)")
+# Anchor against ordinal suffixes ("the 2nd one") so a list-selection number
+# isn't misread as a swap amount. Negative lookahead blocks "2nd"/"3rd"/etc
+# whether or not there's a space before the suffix.
+_BARE_AMOUNT_RE = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)\b(?!\s*(?:st|nd|rd|th)\b)")
+_BARE_AMOUNT_TOKEN_RE = re.compile(
+    r"\b([0-9]+(?:\.[0-9]+)?)(?!\s*(?:st|nd|rd|th)\b)\s+([a-zA-Z][a-zA-Z0-9_-]*)"
+)
 
 
 def _user_data_dict(context: ContextTypes.DEFAULT_TYPE) -> Optional[Dict[str, Any]]:
@@ -116,14 +121,27 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     lowered = stripped.lower()
     filled_something = False
 
+    # Working copy of `lowered` with any matched "on <chain>" clause stripped
+    # out BEFORE the amount/token scans run below — regardless of whether the
+    # candidate word resolves to a known chain — so a leftover chain word
+    # (e.g. "eth" in "on eth") can never be misread as a bare token-symbol
+    # reply by the loop further down.
+    scan_text = lowered
     chain_m = _BARE_CHAIN_RE.search(lowered)
-    if chain_m and not merged.chain:
+    candidate = None
+    if chain_m:
         candidate = chain_m.group(1).strip()
-        if candidate and get_chain_by_name(candidate):
-            merged.chain = candidate.lower()
-            filled_something = True
+        scan_text = (
+            lowered[: chain_m.start()] + " " + lowered[chain_m.end() :]
+        ).strip()
+        scan_text = re.sub(r"\s+", " ", scan_text)
+        if candidate and not merged.chain:
+            resolved_chain = resolve_chain_name(candidate)
+            if resolved_chain:
+                merged.chain = resolved_chain
+                filled_something = True
 
-    amount_token_m = _BARE_AMOUNT_TOKEN_RE.search(lowered)
+    amount_token_m = _BARE_AMOUNT_TOKEN_RE.search(scan_text)
     if merged.amount is None and amount_token_m:
         merged.amount = float(amount_token_m.group(1))
         merged.amount_unit = "native"
@@ -136,7 +154,7 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
             elif not merged.token_in:
                 merged.token_in = token_raw.upper()
     elif merged.amount is None:
-        amount_m = _BARE_AMOUNT_RE.search(lowered)
+        amount_m = _BARE_AMOUNT_RE.search(scan_text)
         if amount_m:
             merged.amount = float(amount_m.group(1))
             merged.amount_unit = "native"
@@ -145,9 +163,13 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     if not merged.token_out or not merged.token_in:
         # Try every whitespace-separated word as a bare token-symbol reply
         # ("usdc", "the one on base" -> "base" won't resolve as a token and
-        # is skipped, "eth" will).
-        for word in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]*", lowered):
+        # is skipped, "eth" will). `candidate` (the chain word, if any) is
+        # excluded as defense-in-depth even though it's already stripped
+        # from `scan_text` above.
+        for word in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]*", scan_text):
             if word in ("on", "en", "sur", "the", "one"):
+                continue
+            if candidate and word == candidate.lower():
                 continue
             token_info = get_token_by_symbol(word.upper())
             if not token_info:
@@ -167,7 +189,9 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
         # (still-pending) merged state as context.
         return None
 
-    merged.confidence = 1.0
+    # Never elevate confidence above the original pending intent's, and cap
+    # at 0.9 — a deterministic merge is not proof the whole intent is right.
+    merged.confidence = min(pending.confidence, 0.9)
     merged.clarification = None
     return merged
 

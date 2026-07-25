@@ -6,6 +6,7 @@ import {
 	serial,
 	text,
 	timestamp,
+	uniqueIndex,
 	varchar,
 } from 'drizzle-orm/pg-core'
 
@@ -88,6 +89,31 @@ export type AgentCredit = typeof agentCredits.$inferSelect
 export type NewAgentCredit = typeof agentCredits.$inferInsert
 export type AgentCreditTopup = typeof agentCreditTopups.$inferSelect
 export type NewAgentCreditTopup = typeof agentCreditTopups.$inferInsert
+
+/**
+ * Anti-farm guard for the one-time starter-credit grant on POST /v1/agent/register.
+ *
+ * MONEY-PATH: without this, an attacker can script unlimited registrations to mint
+ * free STARTER_CREDITS (AgentService.ts) indefinitely. Keyed by (ip, day) with a
+ * per-row counter — cheap, additive, api-ts-exclusive (no python owner). Registration
+ * itself is never blocked by this table; only the starter-credit grant is gated on
+ * count staying under the daily cap (see AgentService.registerAgent).
+ */
+export const agentRegistrationGrants = pgTable(
+	'agent_registration_grants',
+	{
+		id: serial('id').primaryKey(),
+		ip: varchar('ip', { length: 64 }).notNull(),
+		day: varchar('day', { length: 10 }).notNull(), // UTC YYYY-MM-DD
+		count: integer('count').default(0).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at').defaultNow().notNull(),
+	},
+	(table) => [uniqueIndex('uq_agent_registration_grants_ip_day').on(table.ip, table.day)],
+)
+
+export type AgentRegistrationGrant = typeof agentRegistrationGrants.$inferSelect
+export type NewAgentRegistrationGrant = typeof agentRegistrationGrants.$inferInsert
 
 /**
  * Crypto-native agent subscriptions (USDC → time-bound tier).

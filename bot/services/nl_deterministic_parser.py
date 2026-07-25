@@ -16,7 +16,7 @@ parser. It never guesses.
 import re
 from typing import Any, Dict, Optional
 
-from bot.config.chains import get_chain_by_name
+from bot.config.chains import resolve_chain_name
 from bot.config.tokens import get_token_by_symbol
 from bot.services.nl_intent_service import TradeIntent
 
@@ -122,10 +122,7 @@ def _resolve_token(symbol: str) -> Optional[str]:
 def _resolve_chain(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
-    chain = get_chain_by_name(name.lower())
-    if chain is None:
-        return None
-    return name.lower()
+    return resolve_chain_name(name)
 
 
 def _detect_verb_action(text: str) -> Optional[str]:
