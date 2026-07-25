@@ -27,7 +27,14 @@
   "capabilities": {
     "streaming": false,
     "pushNotifications": true,
-    "stateTransitionHistory": false
+    "stateTransitionHistory": false,
+    "extensions": [
+      {
+        "uri": "https://github.com/google-agentic-commerce/a2a-x402",
+        "description": "x402 pay-per-call support: paid tools/endpoints may return an HTTP 402 payment challenge (x402 protocol, USDC on Base) instead of failing on insufficient prepaid credit balance.",
+        "required": false
+      }
+    ]
   },
   "authentication": {
     "schemes": [

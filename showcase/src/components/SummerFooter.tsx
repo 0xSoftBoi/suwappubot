@@ -1,4 +1,6 @@
 import { TELEGRAM_URL } from '@/lib/links';
+import FooterNewsletterForm from './FooterNewsletterForm';
+import stats from '@/data/stats.generated.json';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 const GITHUB_URL = 'https://github.com/0xSoftBoi/suwappubot';
@@ -19,10 +21,10 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Solutions',
     links: [
-      { label: 'Agentic swaps', href: '/solutions#agents' },
-      { label: 'Cross-chain treasury', href: '/solutions#treasury' },
-      { label: 'HyperLiquid perps', href: '/solutions#perps' },
-      { label: 'Sniping & alerts', href: '/solutions#sniping' },
+      { label: 'Trading agents', href: '/solutions#trading' },
+      { label: 'Portfolio agents', href: '/solutions#portfolio' },
+      { label: 'Payment & commerce agents', href: '/solutions#payments' },
+      { label: 'Embedded wallets', href: '/solutions#wallets' },
       { label: 'Compare', href: '/compare' },
     ],
   },
@@ -44,7 +46,8 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: 'Security', href: '/security' },
       { label: 'Careers', href: '/careers' },
       { label: 'GitHub', href: GITHUB_URL, external: true },
-      { label: 'Contact', href: TELEGRAM_URL, external: true },
+      { label: 'Talk to sales', href: '/contact' },
+      { label: 'Telegram', href: TELEGRAM_URL, external: true },
     ],
   },
   {
@@ -52,7 +55,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: 'Terms of Service', href: '/legal/terms' },
       { label: 'Privacy Policy', href: '/legal/privacy' },
-      { label: 'Risk Disclosures', href: '/legal/terms#risk' },
+      { label: 'Risk Disclosures', href: '/legal/risk' },
     ],
   },
 ];
@@ -66,12 +69,13 @@ export default function SummerFooter() {
             <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.</p>
+          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
           <div className="summer-footer__social">
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub">GitHub</a>
           </div>
+          <FooterNewsletterForm />
         </div>
 
         <nav className="summer-footer__cols" aria-label="Footer navigation">
@@ -93,6 +97,23 @@ export default function SummerFooter() {
             </div>
           ))}
         </nav>
+      </div>
+
+      {/* Legal line — prose only. No compliance badges we do not actually hold. */}
+      <div className="summer-footer__legal">
+        <p>
+          Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
+          Connect your own wallet and you keep your keys; we never take discretionary control of your
+          funds and we do not provide financial, tax, or legal advice. Digital-asset trading carries
+          risk of total loss — see our{' '}
+          <a href="/legal/risk">risk disclosures</a>, <a href="/legal/terms">terms</a>, and{' '}
+          <a href="/legal/privacy">privacy policy</a>.
+        </p>
+        <p>
+          Legal enquiries <a href="mailto:legal@suwappu.bot">legal@suwappu.bot</a> · Security disclosure{' '}
+          <a href="mailto:security@suwappu.bot">security@suwappu.bot</a> · Sales{' '}
+          <a href="/contact">contact form</a>
+        </p>
       </div>
 
       <div className="summer-footer__bottom">

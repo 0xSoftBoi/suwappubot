@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import stats from '@/data/stats.generated.json';
 import { motion, useInView, useReducedMotion } from 'framer-motion';
 import Terminal from './Terminal';
 import TerminalErrorBoundary from './TerminalErrorBoundary';
@@ -11,14 +12,14 @@ import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
    Data
    ================================================================ */
 const TOOLS = [
-  { name: 'get_quote', desc: 'Best-route quotes across 9 aggregators' },
+  { name: 'get_quote', desc: `Best-route quotes across ${stats.routerCount} providers` },
   { name: 'execute_swap', desc: 'Execute a previously obtained quote' },
   { name: 'get_portfolio', desc: 'Aggregated portfolio with USD values' },
   { name: 'get_prices', desc: 'Real-time token prices' },
   { name: 'list_chains', desc: 'Supported chains and metadata' },
   { name: 'list_tokens', desc: 'Searchable token registry per chain' },
   { name: 'get_tempo_tokens', desc: 'TIP-20 token list on Tempo mainnet' },
-  { name: 'browse_mpp_directory', desc: 'Micropayment Protocol service directory' },
+  { name: 'browse_mpp_directory', desc: 'Machine Payments Protocol (MPP) service directory' },
   { name: 'predict_markets', desc: 'Browse Polymarket prediction markets' },
   { name: 'predict_market_detail', desc: 'Live CLOB prices for a market outcome' },
 ];
@@ -122,7 +123,7 @@ const STEPS = [
   {
     num: '2',
     title: 'Quote',
-    desc: 'Best route across 9 routers. MEV-shielded. Gas optimized.',
+    desc: `Best route across ${stats.routerCount} routers. MEV-shielded. Gas optimized.`,
     code: `const quote = await client.getQuote({
   from: 'USDC', to: 'ETH',
   chain: 'base', amount: '1000'

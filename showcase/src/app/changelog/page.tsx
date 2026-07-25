@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
+import styles from './changelog.module.css';
 
 export const metadata: Metadata = {
   title: 'Changelog — Suwappu',
@@ -10,6 +11,28 @@ export const metadata: Metadata = {
 type Entry = { date: string; tag: 'Launch' | 'Feature' | 'Protocol' | 'Platform' | 'Docs'; title: string; points: string[] };
 
 const entries: Entry[] = [
+  {
+    date: '2026-07-02',
+    tag: 'Protocol',
+    title: 'Discovery & protocol hygiene',
+    points: [
+      'MCP server now negotiates `protocolVersion` on `initialize` (`2024-11-05`, `2025-03-26`, `2025-06-18`) instead of assuming one.',
+      'New `/.well-known/ai-catalog.json` (ARD v0.9 draft) for machine discovery, mounted next to the agent card.',
+      'Agent card now declares the `a2a-x402` payment extension in `capabilities.extensions`.',
+      '`POST /v1/agent/swap/simulate` + `simulate_swap` MCP tool — a zero-funds-move dry run with balance, allowance, gas, revert, and slippage checks.',
+    ],
+  },
+  {
+    date: '2026-07-02',
+    tag: 'Feature',
+    title: 'Agent-native landing, CLI & Skills',
+    points: [
+      'New Dune-style `/agents` landing page: capability grid, REST/MCP/A2A/SDK comparison matrix, and an agent-API FAQ.',
+      'Agent-native CLI (`suwappu` command) — every command supports `-o json` with structured `{success, error}` envelopes for scripting.',
+      'Installable Agent Skills package (agentskills.io spec) for one-line onboarding into MCP-compatible agent hosts.',
+      'Agent API pricing (credits, subscriptions, x402) broken out on `/pricing`.',
+    ],
+  },
   {
     date: '2026-06-18',
     tag: 'Docs',
@@ -27,7 +50,7 @@ const entries: Entry[] = [
     points: [
       'New users get their first swaps sponsored via Tempo fee-payer (type 0x76) transactions — about $0.001 on TIP-20 stablecoins.',
       'Graceful fallback to a normal user-paid swap when sponsorship is unavailable.',
-      'Machine Payments Protocol (MPP) endpoints for micropayments on Tempo.',
+      'Suwappu Micropayments (pathUSD) endpoints for pay-per-call on Tempo.',
     ],
   },
   {
@@ -88,9 +111,13 @@ export default function ChangelogPage() {
           </p>
         </header>
 
-        <div className="changelog">
-          {entries.map((e) => (
-            <article className="changelog-entry" key={e.date}>
+        <div className={`changelog ${styles.timeline}`}>
+          {entries.map((e, i) => (
+            <article
+              className={`changelog-entry ${styles.entry} sw-rise`}
+              key={`${e.date}-${e.title}`}
+              style={{ '--rise-i': Math.min(i, 5) } as React.CSSProperties}
+            >
               <div className="changelog-entry__rail">
                 <time>{fmtDate(e.date)}</time>
                 <span className={`changelog-tag changelog-tag--${e.tag.toLowerCase()}`}>{e.tag}</span>
@@ -98,8 +125,8 @@ export default function ChangelogPage() {
               <div className="changelog-entry__body">
                 <h2>{e.title}</h2>
                 <ul>
-                  {e.points.map((p, i) => (
-                    <li key={i}>{withCode(p)}</li>
+                  {e.points.map((p, pi) => (
+                    <li key={pi}>{withCode(p)}</li>
                   ))}
                 </ul>
               </div>

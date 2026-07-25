@@ -38,6 +38,8 @@ export const COST_WEIGHTS: Record<string, number> = {
 	swap: 5,
 	execute: 5,
 	'swap/execute': 5,
+	// Read-only dry run (no signing/broadcast) — priced like /quote, not /swap.
+	'swap/simulate': 1,
 	portfolio: 1,
 	prices: 1,
 	// Read-only discovery endpoints are free — matches MCP's list_tokens/list_chains
@@ -69,6 +71,8 @@ export const MCP_TOOL_COSTS: Record<string, number> = {
 	// Quotes — modest compute + upstream cost
 	get_quote: 1,
 	perps_quote: 1,
+	// Read-only dry run (no signing/broadcast) — priced like get_quote
+	simulate_swap: 1,
 	// Executable transaction preparation — dear
 	execute_swap: 5,
 	// Read-only account/status lookups — priced like get_portfolio/get_prices

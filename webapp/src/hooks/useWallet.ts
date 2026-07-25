@@ -25,7 +25,7 @@ export const chainMeta: Record<number, { icon: string; color: string }> = {
 }
 
 // Get RPC URL for chain
-function getRpcUrl(chainId: number): string {
+export function getRpcUrl(chainId: number): string {
   const alchemyKey = import.meta.env.VITE_ALCHEMY_API_KEY
 
   const rpcUrls: Record<number, string> = {

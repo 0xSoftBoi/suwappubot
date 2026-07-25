@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
-  "name": "bot.suwappu/mcp-server",
+  "name": "bot.suwappu/mcp",
   "description": "Cross-chain DEX for AI agents — swap, quote, portfolio and prices across 14 chains (12 EVM + Solana + TRON) via 10+ providers.",
   "version": "0.2.0",
   "repository": {

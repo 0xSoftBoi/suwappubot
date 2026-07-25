@@ -14,7 +14,15 @@ const SUMMARY =
   'and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.';
 
 const PREAMBLE = `Base URL: https://api.suwappu.bot/v1/agent
-Auth: Bearer token — \`Authorization: Bearer suwappu_sk_...\` (get a key from \`POST /register\`, no auth required).`;
+Auth: Bearer token — \`Authorization: Bearer suwappu_sk_...\` (get a key from \`POST /register\`, no auth required).
+
+SDKs: @suwappu/sdk (TypeScript — swap, perps, predict, lend), suwappu (Python, async), @suwappu/openclaw
+(zero-dep agent client — auto-retry, typed errors, MCP skill manifest).
+MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, 16+ tools — quotes, portfolio, prices, chains,
+tokens, swap execution, prediction markets, perps, lending, Tempo tokens).
+A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
+https://api.suwappu.bot/.well-known/agent.json (alias: /.well-known/agent-card.json).
+OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: https://api.suwappu.bot/v1/agent/postman.`;
 
 const INSTRUCTIONS = `## Instructions for LLM Agents
 
@@ -23,6 +31,7 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
 - Do not hardcode chains or token symbols — call \`GET /chains\` and \`GET /tokens?chain=...\` for the authoritative lists.
 - Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
+- Payment without a key: pay-per-call over HTTP 402 (x402) is available for reads and swaps — see https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
 
 // Sections kept in the curated index vs moved to the droppable "Optional" group.

@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
@@ -409,7 +409,7 @@ class Settings(BaseSettings):
 
     # Solana RPC
     solana_rpc_url: str = Field(
-        default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",
+        default="https://api.mainnet-beta.solana.com,https://solana-rpc.publicnode.com",
         description="Solana mainnet RPC URL(s)",
     )
 
@@ -775,6 +775,23 @@ class Settings(BaseSettings):
         "from whatsapp_phone_number_id (Meta's numeric API id)",
     )
 
+    # Linear (support ticket sync — bot/services/support_notifier.py)
+    linear_api_key: Optional[str] = Field(
+        default=None, description="Linear API key used to create issues from support tickets"
+    )
+    linear_team_id: Optional[str] = Field(
+        default=None, description="Linear team ID (UUID) that support-ticket issues are filed under"
+    )
+
+    # Resend (transactional email — bot/services/waitlist_email.py)
+    resend_api_key: str = Field(
+        default="", description="Resend API key used to send waitlist confirmation emails"
+    )
+    waitlist_email_from: str = Field(
+        default="Suwappu <waitlist@suwappu.bot>",
+        description="From address used for mobile waitlist confirmation emails",
+    )
+
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
     discord_guild_ids: Optional[str] = Field(
@@ -949,6 +966,27 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
+    # SCAFFOLD — blocked on a live Bitrefill merchant account.
+    # Set BITREFILL_API_KEY to enable; leave unset to keep the feature dark.
+    # See bot/services/giftcard_api.py and bot/handlers/giftcard.py.
+    bitrefill_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API key — enables the /gift command. "
+            "Obtain from https://www.bitrefill.com/api/. "
+            "Unset = feature disabled (shows 'coming soon')."
+        ),
+    )
+    bitrefill_api_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API secret — used as the Basic-auth password alongside "
+            "bitrefill_api_key. Some read-only endpoints work with key-only; "
+            "order creation requires both key + secret."
+        ),
+    )
+
     # ── P2P marketplace ──────────────────────────────────────────────────────
     # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
     # on-chain escrow book plus external providers. Each provider is gated on its
@@ -1084,6 +1122,36 @@ class Settings(BaseSettings):
         default=None,
         description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
     )
+
+    # Battle treasury — sentinel user id for the house/treasury CustodialBalance account.
+    # Must be a negative integer to guarantee no collision with real auto-increment user ids.
+    # Override via BATTLE_TREASURY_USER_ID env var (must remain negative).
+    battle_treasury_user_id: int = Field(
+        default=-1,
+        description=(
+            "Sentinel user_id for the battle house/treasury CustodialBalance row. "
+            "Must be negative (never collides with real user rows). "
+            "Prediction battle stakes flow: user -> treasury at open; "
+            "treasury -> user on WIN/VOID at settlement."
+        ),
+    )
+
+    @field_validator("battle_treasury_user_id")
+    @classmethod
+    def _validate_battle_treasury_user_id(cls, v: int) -> int:
+        """Enforce the negative-sentinel invariant documented above.
+
+        A misconfigured non-negative BATTLE_TREASURY_USER_ID could collide with
+        a real auto-increment users.id row, letting battle treasury debits/
+        credits silently corrupt an actual user's CustodialBalance. Fail fast
+        at settings load rather than at first battle open.
+        """
+        if v >= 0:
+            raise ValueError(
+                f"BATTLE_TREASURY_USER_ID must be negative (got {v}). "
+                "A non-negative value can collide with a real users.id row."
+            )
+        return v
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

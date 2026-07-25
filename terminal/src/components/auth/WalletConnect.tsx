@@ -13,6 +13,7 @@ export function WalletConnect() {
     signInWithGoogle,
     isLoading,
     isHardwareWallet,
+    isWalletConnecting,
   } = useAuth()
 
   return (
@@ -32,15 +33,20 @@ export function WalletConnect() {
               </button>
             )
           }
+          // AuthContext auto-fires the SIWE signature the moment the wallet
+          // connects (see the auto sign-in effect there), so this button is
+          // mainly the fallback for a rejected/failed auto-attempt — clicking it
+          // re-runs the same signInWithWallet round-trip.
+          const signing = isLoading || isWalletConnecting
           return (
             <button
               onClick={() => void signInWithWallet()}
-              disabled={isLoading}
+              disabled={signing}
               type="button"
               className="w-full py-3 text-base font-semibold rounded transition-colors
                          bg-sakura-600 hover:bg-sakura-500 text-white disabled:opacity-50"
             >
-              {isLoading
+              {signing
                 ? isHardwareWallet
                   ? 'Confirm on your Ledger…'
                   : 'Check your wallet…'

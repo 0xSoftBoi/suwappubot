@@ -12,6 +12,7 @@
     "forAgents": "适用于智能体",
     "status": "状态",
     "openBot": "打开机器人",
+    "talkToSales": "联系销售",
     "openTerminal": "打开终端",
     "whatsapp": "WhatsApp"
   },
@@ -19,7 +20,7 @@
     "kicker": "唯一能同时做三件事的机器人",
     "h1": "跨链兑换、HyperLiquid 永续合约，以及免 Gas 交易。",
     "h1_accent": "免 Gas",
-    "lead": "其他工具让你二选一——跨链桥、永续合约台或 Gas 钱包。Suwappu 将三者统一：在 40+ 条链上以最优价格路由，永续合约最高 20 倍杠杆，加上赞助 Gas 的兑换。从 Telegram、终端或一行 SDK 调用即可开始交易。",
+    "lead": "其他工具让你二选一——跨链桥、永续合约台或 Gas 钱包。Suwappu 将三者统一：在 41 条链上以最优价格路由，永续合约最高 20 倍杠杆，加上赞助 Gas 的兑换。从 Telegram、终端或一行 SDK 调用即可开始交易。",
     "cta_bot": "打开 Telegram 机器人",
     "cta_terminal": "打开终端",
     "byline_pre": "由",
@@ -30,7 +31,7 @@
   "cta": {
     "kicker": "立即开始",
     "heading": "下一次兑换只需一行代码。",
-    "lead": "打开机器人，或安装 SDK 并连接您的智能体——在 40+ 条链上享受最优价格兑换、永续合约和免 Gas 交易。",
+    "lead": "打开机器人，或安装 SDK 并连接您的智能体——在 41 条链上享受最优价格兑换、永续合约和免 Gas 交易。",
     "open_bot": "打开 Telegram 机器人",
     "whatsapp": "在 WhatsApp 上聊天",
     "docs": "阅读文档"

@@ -210,13 +210,81 @@ export interface LendingMarketDetail extends LendingMarket {
   createdAt: string;
 }
 
+// --- Agent account (register / me / billing / swap status) ---
+// NOTE: `AgentProfile` and `RegisterAgentArgs` are defined once, further
+// down in the "Agent lifecycle" section, and reused by both the top-level
+// convenience methods (register/me) and the richer `agent.*` namespace.
+
+/** @deprecated kept for callers that used the old flat register() shape; prefer `RegisterAgentResult`. */
+export interface RegisterResult {
+  id: string;
+  name: string;
+  /** Returned once at registration time — the API never re-exposes it. */
+  apiKey: string;
+  createdAt: string;
+}
+
+export interface BillingCredits {
+  balance: number;
+  lifetimePurchased: number;
+  lifetimeUsed: number;
+}
+
+export interface BillingSubscribe {
+  endpoint: string;
+  tierPricesUsd: Record<string, number>;
+  periodDays: number;
+  active: { tier: string; expiresAt: string } | null;
+}
+
+export interface BillingTopup {
+  endpoint: string;
+  note: string;
+}
+
+export interface BillingInfo {
+  agentId: string;
+  tier: string;
+  meteringEnabled: boolean;
+  bypassTiers: string[];
+  isMetered: boolean;
+  credits: BillingCredits;
+  creditUsdValue: number;
+  costWeights: Record<string, number>;
+  topup: BillingTopup;
+  subscribe: BillingSubscribe;
+}
+
+export interface SwapStatus {
+  swapId: number;
+  status: string;
+  txHash: string | null;
+  fromChain: string;
+  toChain: string;
+  fromToken: string;
+  toToken: string;
+  fromAmount: string;
+  toAmount: string;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 // --- Ergonomic argument shapes (match the showcase examples) ---
 
 export interface GetQuoteArgs {
   from: string;
   to: string;
-  chain: string;
+  /** Single-chain convenience form. Ignored if fromChain/toChain are set. */
+  chain?: string;
+  /** Source chain for a cross-chain quote. Falls back to `chain`. */
+  fromChain?: string;
+  /** Destination chain for a cross-chain quote. Falls back to `chain`. */
+  toChain?: string;
   amount: string | number;
+  /** Include to get back executable transaction data with the quote. */
+  walletAddress?: string;
+  slippage?: number;
 }
 
 export interface PerpQuoteArgs {

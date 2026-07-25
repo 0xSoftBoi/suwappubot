@@ -50,6 +50,7 @@ curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
 | [Authentication](authentication/README.md) | API keys, bearer tokens, and rate limits |
 | [API Reference](api-reference/README.md) | Complete endpoint documentation |
 | [Protocols](protocols/README.md) | REST, MCP, and A2A integration guides |
+| [Billing](billing/README.md) | x402 pay-per-call payments, credits, and subscription pricing |
 | [Chains Reference](chains-reference/README.md) | Supported networks and token lists |
 | [Guides](guides/README.md) | Cross-chain swaps, managed wallets, trading bots, perps, predictions |
 

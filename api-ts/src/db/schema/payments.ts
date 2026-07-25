@@ -6,6 +6,7 @@ import {
 	serial,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 	varchar,
 } from 'drizzle-orm/pg-core'
@@ -184,3 +185,41 @@ export const recurringSubscriptions = pgTable(
 
 export type RecurringSubscription = typeof recurringSubscriptions.$inferSelect
 export type NewRecurringSubscription = typeof recurringSubscriptions.$inferInsert
+
+/**
+ * SHARED consumed-payments ledger — the single global guard against replaying or
+ * double-redeeming one on-chain payment (SECURITY: x402 payment replay).
+ *
+ * Before the ledger existed, three INDEPENDENT unique(tx_hash) constraints
+ * (agent_credit_topups, agent_subscriptions, x402_payments) each guarded their
+ * OWN table only, so one payment could be redeemed once in EACH table (triple
+ * redeem), and mppAuth/internal 402 swap verification had NO persistence at all
+ * (unlimited replay). Every redemption path now atomically consumes
+ * (chain, tx_hash) here — via INSERT ... ON CONFLICT DO NOTHING inside the same
+ * transaction that credits — BEFORE granting anything. A concurrent double-submit
+ * loses the race (the unique constraint) instead of double-crediting.
+ *
+ * api-ts-EXCLUSIVE (no python/SQLAlchemy owner) → registered in drizzle.config
+ * tablesFilter so drizzle-kit push creates it.
+ */
+export const consumedPayments = pgTable(
+	'consumed_payments',
+	{
+		id: serial('id').primaryKey(),
+		chain: varchar('chain', { length: 32 }).notNull(),
+		txHash: varchar('tx_hash', { length: 128 }).notNull(),
+		// Which redemption path consumed it (agent_topup, agent_subscribe,
+		// webapp_subscribe, mpp_swap) — audit/debug only; not part of the key.
+		purpose: varchar('purpose', { length: 32 }).notNull(),
+		// Informational back-reference to the crediting principal (agentId / userId).
+		consumedBy: varchar('consumed_by', { length: 64 }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => ({
+		// The global idempotency key: one payment (chain + txHash) is consumable ONCE.
+		chainTxUnique: unique('uq_consumed_payments_chain_tx').on(table.chain, table.txHash),
+	}),
+)
+
+export type ConsumedPayment = typeof consumedPayments.$inferSelect
+export type NewConsumedPayment = typeof consumedPayments.$inferInsert

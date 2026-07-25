@@ -34,6 +34,9 @@ export default defineConfig({
 		'agent_credits',
 		'agent_credit_topups',
 		'agent_subscriptions',
+		// SHARED consumed-payments ledger (payments.ts) — global (chain,txHash)
+		// replay/double-redeem guard. api-ts-exclusive (no python owner).
+		'consumed_payments',
 		// api-ts-exclusive copy-trading stats (traderStats.ts) — python computes stats
 		// in-memory (copy_service.get_trader_stats) but defines no trader_stats table.
 		'trader_stats',
@@ -46,5 +49,9 @@ export default defineConfig({
 		// api-ts-exclusive anti-farm guard for the starter-credit grant
 		// (payments.ts) — no python owner.
 		'agent_registration_grants',
+		// api-ts-exclusive anonymous web-checkout tracking (webCheckouts.ts) — no
+		// python owner; records Stripe sessions started by showcase visitors with
+		// no Suwappu account.
+		'web_checkouts',
 	],
 })

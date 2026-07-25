@@ -271,6 +271,10 @@ class RPCManager:
         self._running = False
         self._chainlist_last_fetch: float = 0.0
         self._ssl_ctx: Optional[ssl.SSLContext] = _build_ssl_context()
+        # Throttle the "all circuits open" warning to at most once per chain
+        # per interval — under a full-outage storm this line was emitting
+        # thousands of identical entries per second.
+        self._circuit_open_warned: Dict[str, float] = {}
 
     async def start(self):
         """Initialize endpoints and start background health checker."""
@@ -430,7 +434,10 @@ class RPCManager:
 
         if not available:
             # Emergency: all circuits open — pick one closing soonest
-            logger.warning(f"All RPCs circuit-open for {chain_name}, using earliest recovery")
+            now = time.monotonic()
+            if now - self._circuit_open_warned.get(chain_name, 0.0) >= 30.0:
+                logger.warning(f"All RPCs circuit-open for {chain_name}, using earliest recovery")
+                self._circuit_open_warned[chain_name] = now
             return min(endpoints, key=lambda ep: ep.circuit_open_until)
 
         scores = [ep.health_score for ep in available]

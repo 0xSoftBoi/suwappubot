@@ -68,8 +68,16 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 | `www.suwappu.bot` / `suwappu.bot` | ✅ live (showcase) | bound |
 | `terminal.suwappu.bot` | ✅ live (terminal) | bound; 502 fixed in PR #349 ($PORT) |
 | `app.suwappu.bot` | ✅ live (→ terminal) | bound; old Mini App source is gone so `app` mirrors terminal |
-| `devapi.suwappu.bot` | ⛔ dev env has **no public domains** (python-api/api-ts dev not exposed) | generate dev auto-domains, then add a `DEVAPI` origin + `devapi` hostname branch and bind the Custom Domain |
+| `devapi.suwappu.bot` | 🔶 dev python-api exposed at `python-api-dev-456d.up.railway.app`; Worker branch + route added — **needs `wrangler deploy` to bind the Custom Domain** | run `bunx wrangler login && bunx wrangler deploy` |
 
-All five active hostnames (`api`, `www`, apex, `terminal`, `app`) are **live** and serving
-through the Worker with valid edge TLS. Only `devapi` remains — it needs its dev backend
-deployed first, then the same wire-up (origin + hostname branch + Custom Domain).
+Five hostnames (`api`, `www`, apex, `terminal`, `app`) are **live** and serving through the
+Worker with valid edge TLS. `devapi` is code-complete but **not yet resolving**: the dev
+python-api now has a public Railway domain and the Worker routes the hostname, but the
+Cloudflare Custom Domain (and therefore its DNS record) is only created when someone runs
+`wrangler deploy` — that step needs interactive `wrangler login` and cannot be automated
+from an agent session.
+
+**Dev routing differs from prod.** `api.suwappu.bot` path-splits between python-api and
+api-ts. The dev environment has **no api-ts service**, so `devapi.suwappu.bot` sends *every*
+path to dev python-api. The hostname check sits before the path-routing fallthrough
+deliberately — without it, any non-python path on devapi would reach **production** api-ts.

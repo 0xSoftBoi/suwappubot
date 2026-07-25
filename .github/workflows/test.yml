@@ -89,6 +89,18 @@ jobs:
         run: bun run test
         continue-on-error: true   # advisory until coverage is built up
 
+      # Published product numbers (chain counts, router count) are derived from
+      # bot/ and api-ts/ by showcase/scripts/generate-stats.mjs. They cannot be
+      # regenerated at deploy time — showcase/Dockerfile builds from a context
+      # scoped to showcase/, so those sources are absent in the container (that
+      # broke the Railway build once). This is therefore the only place drift is
+      # caught: it regenerates and fails if the committed JSON or the i18n
+      # message catalogs disagree with the code that actually ships.
+      # NOT continue-on-error — publishing a wrong number is a real defect.
+      - name: Showcase stats drift check
+        working-directory: showcase
+        run: bun run stats:check
+
   # ---------------------------------------------------------------------------
   # Security — dependency scanning
   # ---------------------------------------------------------------------------

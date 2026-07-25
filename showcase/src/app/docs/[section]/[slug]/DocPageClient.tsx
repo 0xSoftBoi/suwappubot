@@ -5,6 +5,7 @@ import DocsBreadcrumb from '../../../../components/docs/DocsBreadcrumb';
 import DocsReader from '../../../../components/docs/DocsReader';
 import DocsToc from '../../../../components/docs/DocsToc';
 import docsData from '../../../../data/docs.json';
+import styles from './DocPage.module.css';
 
 type TocItem = { level: number; text: string; id: string };
 
@@ -20,8 +21,8 @@ export default function DocPageClient({ section, page, html, toc }: Props) {
   return (
     <div className="summer-page docs-shell">
       <div className="docs-page docs-page--reader">
-        <aside className="docs-page__sidebar">
-          <DocsNav sections={sections} currentSection={section.id} />
+        <aside className={`docs-page__sidebar ${styles.sidebar}`}>
+          <DocsNav sections={sections} currentSection={section.id} currentSlug={page.slug} />
         </aside>
 
         <main className="docs-page__main">

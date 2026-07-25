@@ -21,7 +21,7 @@
   "dependencies": {
     "@effect/schema": "^0.75.5",
     "@turnkey/api-key-stamper": "^0.6.1",
-    "@turnkey/sdk-server": "^5.0.1",
+    "@turnkey/sdk-server": "^6.1.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@x402/core": "^2.16.0",
     "drizzle-orm": "^0.45.1",
@@ -34,7 +34,7 @@
     "pino": "^10.3.1",
     "postgres": "^3.4.5",
     "stripe": "^22.2.0",
-    "viem": "2.53.1",
+    "viem": "2.54.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

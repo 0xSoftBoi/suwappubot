@@ -11,6 +11,7 @@ import type {
   AgentTopupArgs,
   BillingCheckoutResult,
   BillingCryptoArgs,
+  BillingInfo,
   BillingStatus,
   Chain,
   CreatePolicyArgs,
@@ -33,9 +34,11 @@ import type {
   Quote,
   RegisterAgentArgs,
   RegisterAgentResult,
+  RegisterResult,
   RotateKeysResult,
   SuwappuConfig,
   SwapResult,
+  SwapStatus,
   Token,
   TokenBalance,
   TokenPrice,
@@ -150,6 +153,8 @@ export class Suwappu {
   /**
    * Get a swap quote. Object-arg form matching the showcase:
    *   client.getQuote({ from: 'USDC', to: 'ETH', chain: 'base', amount: '1000' })
+   * For a cross-chain quote pass fromChain/toChain instead of (or in addition
+   * to) chain — they map directly to the API's from_chain/to_chain fields.
    */
   async getQuote(args: GetQuoteArgs): Promise<Quote> {
     const data = await this._request<Record<string, any>>("POST", "/v1/agent/quote", {
@@ -158,6 +163,10 @@ export class Suwappu {
         to_token: args.to,
         amount: String(args.amount),
         chain: args.chain,
+        from_chain: args.fromChain,
+        to_chain: args.toChain,
+        wallet_address: args.walletAddress,
+        slippage: args.slippage,
       },
     });
     return {
@@ -169,7 +178,7 @@ export class Suwappu {
       route: String(data.route ?? ""),
       gas: String(data.estimated_gas_usd ?? data.gas ?? "0"),
       fee: String(data.bridge_fee_usd ?? data.fee ?? "0"),
-      chain: String(data.from_chain ?? data.chain ?? args.chain),
+      chain: String(data.from_chain ?? data.chain ?? args.fromChain ?? args.chain ?? ""),
       exchangeRate: String(data.exchange_rate ?? "0"),
       priceImpact: String(data.price_impact ?? "0"),
       slippage: String(data.slippage ?? "0"),
@@ -184,10 +193,15 @@ export class Suwappu {
    * id string. Hits POST /v1/agent/swap/execute, which returns
    * { swap_id, status, tx_hash, tracking } — NOT the unsigned-transaction
    * shape returned by POST /v1/agent/swap (that endpoint is for
-   * self-custody callers who sign client-side; it isn't exposed here).
+   * self-custody callers who sign client-side; use `prepareSwap()` for that).
+   *
+   * `walletAddress` is accepted for backwards compatibility with older
+   * callers but is not sent to /v1/agent/swap/execute (the managed pipeline
+   * resolves the wallet server-side).
    */
-  async swap(quoteOrId: Quote | string): Promise<SwapResult> {
+  async swap(quoteOrId: Quote | string, walletAddress?: string): Promise<SwapResult> {
     const quoteId = typeof quoteOrId === "string" ? quoteOrId : quoteOrId.id;
+    void walletAddress;
     const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap/execute", {
       json: { quote_id: quoteId },
     });
@@ -206,8 +220,103 @@ export class Suwappu {
   }
 
   /** Alias for swap(), mirroring the Python client's execute_swap. */
-  executeSwap(quoteId: string): Promise<SwapResult> {
-    return this.swap(quoteId);
+  executeSwap(quoteId: string, walletAddress?: string): Promise<SwapResult> {
+    return this.swap(quoteId, walletAddress);
+  }
+
+  /**
+   * Build an unsigned swap transaction from a previously obtained quote id.
+   * Mirrors POST /v1/agent/swap exactly and returns the raw API payload
+   * (status, swap summary, unsigned transaction, human instructions) instead
+   * of the slimmed-down SwapResult shape — this is what the CLI's `swap`
+   * command prints. Suwappu is non-custodial: this never signs or broadcasts;
+   * the caller signs the returned transaction with their own wallet.
+   */
+  async prepareSwap(args: { quoteId: string; walletAddress: string }): Promise<Record<string, unknown>> {
+    return this._request<Record<string, unknown>>("POST", "/v1/agent/swap", {
+      json: { quote_id: args.quoteId, wallet_address: args.walletAddress },
+    });
+  }
+
+  /** GET /v1/agent/swap/status/:swapId */
+  async getSwapStatus(swapId: string | number): Promise<SwapStatus> {
+    const data = await this._request<Record<string, any>>(
+      "GET",
+      `/v1/agent/swap/status/${swapId}`,
+    );
+    return {
+      swapId: Number(data.swap_id),
+      status: String(data.status ?? ""),
+      txHash: data.tx_hash ?? null,
+      fromChain: String(data.from_chain ?? ""),
+      toChain: String(data.to_chain ?? ""),
+      fromToken: String(data.from_token ?? ""),
+      toToken: String(data.to_token ?? ""),
+      fromAmount: String(data.from_amount ?? ""),
+      toAmount: String(data.to_amount ?? ""),
+      errorMessage: data.error_message ?? null,
+      createdAt: String(data.created_at ?? ""),
+      completedAt: data.completed_at ?? null,
+    };
+  }
+
+  // --- Agent account ---
+
+  /**
+   * Self-serve register a new agent. POST /v1/agent/register (public, no
+   * auth required). The returned apiKey is shown exactly once — the API
+   * never re-exposes it.
+   */
+  async register(args: RegisterAgentArgs): Promise<RegisterResult> {
+    const data = await this._request<Record<string, any>>("POST", "/v1/agent/register", {
+      json: {
+        name: args.name,
+        description: args.description,
+        callback_url: args.callbackUrl,
+      },
+    });
+    const agent = data.agent ?? {};
+    return {
+      id: String(agent.id ?? ""),
+      name: String(agent.name ?? args.name),
+      apiKey: String(agent.api_key ?? ""),
+      createdAt: String(agent.created_at ?? ""),
+    };
+  }
+
+  /** GET /v1/agent/me. Alias for `agent.getMe()`. */
+  async me(): Promise<AgentProfile> {
+    const data = await this._request<{ agent: Record<string, any> }>("GET", "/v1/agent/me");
+    return toAgentProfile(data.agent ?? {});
+  }
+
+  /** GET /v1/agent/billing — credit balance, tier, metering + topup/subscribe info. */
+  async getBilling(): Promise<BillingInfo> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/agent/billing");
+    return {
+      agentId: String(data.agent_id ?? ""),
+      tier: String(data.tier ?? "free"),
+      meteringEnabled: Boolean(data.metering_enabled),
+      bypassTiers: data.bypass_tiers ?? [],
+      isMetered: Boolean(data.is_metered),
+      credits: {
+        balance: Number(data.credits?.balance ?? 0),
+        lifetimePurchased: Number(data.credits?.lifetime_purchased ?? 0),
+        lifetimeUsed: Number(data.credits?.lifetime_used ?? 0),
+      },
+      creditUsdValue: Number(data.credit_usd_value ?? 0),
+      costWeights: data.cost_weights ?? {},
+      topup: {
+        endpoint: String(data.topup?.endpoint ?? "POST /v1/agent/billing/topup"),
+        note: String(data.topup?.note ?? ""),
+      },
+      subscribe: {
+        endpoint: String(data.subscribe?.endpoint ?? "POST /v1/agent/billing/subscribe"),
+        tierPricesUsd: data.subscribe?.tier_prices_usd ?? {},
+        periodDays: Number(data.subscribe?.period_days ?? 0),
+        active: data.subscribe?.active ?? null,
+      },
+    };
   }
 
   async getPortfolio(walletAddress: string, chain?: string): Promise<TokenBalance[]> {
@@ -240,9 +349,9 @@ export class Suwappu {
     return data.chains ?? [];
   }
 
-  async listTokens(chain: string): Promise<Token[]> {
+  async listTokens(chain: string, search?: string): Promise<Token[]> {
     const data = await this._request<{ tokens?: Token[] } | Token[]>("GET", "/v1/agent/tokens", {
-      params: { chain },
+      params: { chain, search },
     });
     if (Array.isArray(data)) return data;
     return data.tokens ?? [];

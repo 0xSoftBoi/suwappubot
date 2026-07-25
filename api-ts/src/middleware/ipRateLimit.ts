@@ -41,57 +41,33 @@ export function resolveClientIp(
 	return socketIp?.trim() || 'unknown'
 }
 
-// Shared secret the Cloudflare Worker / edge injects as the `x-edge-trust` header.
-// When set, IP headers (cf-connecting-ip, x-forwarded-for) are only trusted on
-// requests carrying the matching secret; direct-to-origin requests (raw Railway
-// URL, bypassing the edge) resolve to the socket IP only, so forged headers can't
-// farm starter credits or dodge IP rate limits. When unset, we fall back to the
-// agreement heuristic below — which an attacker who forges BOTH headers
-// consistently can beat, so configure EDGE_TRUST_SECRET in production.
-const EDGE_TRUST_SECRET = process.env.EDGE_TRUST_SECRET?.trim() || ''
-let warnedNoEdgeSecret = false
+// `cf-connecting-ip` is trivially spoofable by any direct caller UNLESS the request
+// actually transited Cloudflare. Only trust it when the caller also presents a shared
+// secret that only a configured Cloudflare Worker/Transform Rule attaches at the edge
+// (`cf-provenance: <secret>`). If CF_PROVENANCE_SECRET is unset, cf-connecting-ip is
+// ignored entirely and we fall through to the XFF/trusted-proxy-hop logic — a
+// direct-to-origin request (raw Railway URL) then cannot forge an identity to farm
+// starter credits or dodge per-IP limits.
+const CF_PROVENANCE_SECRET = process.env.CF_PROVENANCE_SECRET?.trim() || ''
 
 /**
- * Resolve the client IP in the most spoof-resistant way available:
- * - EDGE_TRUST_SECRET set + matching `x-edge-trust` header: trust cf-connecting-ip
- *   (then XFF) — the request provably came through our edge.
- * - EDGE_TRUST_SECRET set + missing/wrong secret: direct-to-origin — ignore ALL
- *   IP headers and use the socket IP.
- * - EDGE_TRUST_SECRET unset: legacy heuristic — accept cf-connecting-ip only when
- *   it agrees with the XFF trusted-proxy hop, else the XFF-derived IP. NOTE: this
- *   does not stop an attacker who forges both headers consistently.
+ * Resolve the client IP, honoring `cf-connecting-ip` only on requests with verified
+ * Cloudflare provenance; otherwise falling back to the spoof-resistant XFF
+ * trusted-proxy hop (then socket IP). Shared by the rate limiter and by the
+ * starter-credit anti-farm guard so the two can never disagree.
  */
 export function resolveTrustedClientIp(
 	cfIp: string | undefined,
 	forwarded: string | undefined,
 	socketIp: string | undefined,
 	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
-	edgeTrustHeader?: string,
+	provenanceHeader?: string,
 ): string {
+	const provenanceOk =
+		!!CF_PROVENANCE_SECRET && provenanceHeader?.trim() === CF_PROVENANCE_SECRET
 	const trimmedCf = cfIp?.trim()
-
-	if (EDGE_TRUST_SECRET) {
-		const viaEdge = edgeTrustHeader?.trim() === EDGE_TRUST_SECRET
-		if (viaEdge) {
-			return trimmedCf || resolveClientIp(forwarded, socketIp, trustedProxyCount)
-		}
-		if (trimmedCf || forwarded) {
-			console.warn(
-				'[ipTrust] direct-to-origin request with IP headers but no valid x-edge-trust; using socket IP',
-			)
-		}
-		return socketIp?.trim() || 'unknown'
-	}
-
-	if (!warnedNoEdgeSecret) {
-		warnedNoEdgeSecret = true
-		console.warn(
-			'[ipTrust] EDGE_TRUST_SECRET not configured — IP anti-spoofing is heuristic-only; forged consistent headers can bypass per-IP limits',
-		)
-	}
-	const xffIp = resolveClientIp(forwarded, socketIp, trustedProxyCount)
-	if (trimmedCf && trimmedCf === xffIp) return trimmedCf
-	return xffIp
+	if (provenanceOk && trimmedCf) return trimmedCf
+	return resolveClientIp(forwarded, socketIp, trustedProxyCount)
 }
 
 const windows = new Map<string, SlidingWindowEntry>()
@@ -117,8 +93,6 @@ function cleanupExpired() {
  */
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 	return async (c: Context, next: Next) => {
-		// Prefer Cloudflare's header; otherwise resolve the spoof-resistant client IP
-		// (trusted-proxy hops from the right of XFF, then socket IP).
 		const cfIp = c.req.header('cf-connecting-ip')
 		const forwarded = c.req.header('x-forwarded-for')
 		let socketIp: string | undefined
@@ -133,7 +107,7 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			forwarded,
 			socketIp,
 			undefined,
-			c.req.header('x-edge-trust'),
+			c.req.header('cf-provenance'),
 		)
 		const key = `ip:${ip}`
 		const now = Date.now()

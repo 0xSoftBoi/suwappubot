@@ -2,7 +2,18 @@
 
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Text,
+    Enum as SQLEnum,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from database.db import Base
@@ -81,6 +92,37 @@ class X402Payment(Base):
     user = relationship("User", backref="x402_payments")
 
 
+
+
+class ConsumedPayment(Base):
+    """SHARED global (chain, tx_hash) consumed-payments ledger.
+
+    SECURITY (payment replay / cross-surface double-redeem): this is the SAME
+    Postgres table the api-ts service writes to via Drizzle (migration
+    ``drizzle/0006_*.sql`` + ``api-ts/src/lib/paymentConsumption.ts``). The
+    database is shared between the python bot and api-ts (see
+    ``database/db.py`` — "This database is SHARED with the python-api"), so
+    consuming ``(chain, tx_hash)`` HERE means a given on-chain payment is
+    redeemable exactly ONCE across BOTH the Telegram-bot subscription/credit
+    path (``X402Service.verify_payment``) AND the api-ts agent/webapp/MPP paths.
+
+    Column shape MUST stay byte-compatible with the Drizzle migration:
+    ``chain varchar(32)``, ``tx_hash varchar(128)``, ``purpose varchar(32)``,
+    ``consumed_by varchar(64)`` nullable, ``UNIQUE(chain, tx_hash)``. api-ts
+    owns creation in prod; ``create_all`` here only creates it when missing
+    (e.g. sqlite tests / bot-first boot) with the identical shape.
+    """
+
+    __tablename__ = "consumed_payments"
+
+    id = Column(Integer, primary_key=True)
+    chain = Column(String(32), nullable=False)
+    tx_hash = Column(String(128), nullable=False)
+    purpose = Column(String(32), nullable=False)
+    consumed_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("chain", "tx_hash", name="uq_consumed_payments_chain_tx"),)
 
 
 class MPPSessionRecord(Base):

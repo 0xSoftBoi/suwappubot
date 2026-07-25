@@ -10,9 +10,26 @@ export const TELEGRAM_URL = 'https://t.me/suwappu_bot';
 // Linear) via the support_notifier — speed-to-lead is the #1 conversion lever.
 export const ENTERPRISE_CONTACT_PATH = '/contact';
 
+// Enterprise "Schedule a demo" call — Saphira-style gate: deep/institutional
+// features are marketing copy + a call CTA, not self-serve. 30-min Calendly.
+export const DEMO_CALL_URL = 'https://calendly.com/tsoma4770/suwappu-demo';
+
 // Base URL for the public API the contact form submits to.
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://api.suwappu.bot';
+
+// Base URL for the api-ts service (billing checkout, agent/A2A routes).
+// Distinct from API_BASE_URL, which is the legacy Python monolith.
+export const API_TS_BASE_URL =
+  process.env.NEXT_PUBLIC_API_TS_URL || 'https://api-ts-production.up.railway.app';
+
+// Web checkout CTA — public, unauthenticated Stripe checkout session for a
+// showcase visitor with no Suwappu account yet (see api-ts billing.ts
+// GET /billing/stripe/checkout-web, mounted at app.route('/billing', ...)).
+// Stripe collects the email.
+export function upgradeCheckoutUrl(tier: 'pro' | 'premium'): string {
+  return `${API_TS_BASE_URL}/billing/stripe/checkout-web?tier=${tier}`;
+}
 
 // WhatsApp CTA stays hidden until a real, bot-connected business number exists.
 // To go live: set WHATSAPP_URL to the real wa.me/<number> and flip WHATSAPP_ENABLED to true.

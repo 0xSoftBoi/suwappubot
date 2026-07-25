@@ -485,6 +485,40 @@ function AuthInner({ children }: { children: ReactNode }) {
     })()
   }, [isConnected, connectedAddress, runWalletSiwe])
 
+  // Addresses we've already attempted (or the user rejected) auto sign-in for,
+  // so a re-render / reconnect never re-fires the SIWE prompt on its own.
+  const autoSignInAttempted = useRef<Set<string>>(new Set())
+
+  // One-click sign-in: RainbowKit's connect step and the SIWE signature used to
+  // be two separate clicks (connect, then a second "Sign in as …" click). Fire
+  // the signature request automatically the moment a wallet connects, so the
+  // user only has to approve two wallet prompts (connect + sign), not click
+  // twice in our UI. Skips when already authenticated, when nothing is
+  // connected, when auth isn't available, and — critically — when this address
+  // already had an auto-attempt (success or rejection): a rejected signature
+  // falls back to the manual "Sign in" button in WalletConnect instead of
+  // re-spamming the wallet with repeat prompts.
+  useEffect(() => {
+    if (!isWalletAuthAvailable) return
+    if (isAuthenticated) return
+    if (!isConnected || !connectedAddress) return
+    if (pendingWalletSignIn.current) return // already handled by the explicit-connect flow above
+    const address = connectedAddress
+    if (autoSignInAttempted.current.has(address)) return
+    autoSignInAttempted.current.add(address)
+    setIsWalletConnecting(true)
+    void (async () => {
+      await runWalletSiwe(address)
+      setIsWalletConnecting(false)
+    })()
+  }, [isWalletAuthAvailable, isAuthenticated, isConnected, connectedAddress, runWalletSiwe])
+
+  // Sign-out (or disconnect) should let a future reconnect of the same address
+  // auto-attempt again rather than staying permanently skipped.
+  useEffect(() => {
+    if (!isConnected) autoSignInAttempted.current.clear()
+  }, [isConnected])
+
   // Connect Phantom and authenticate via Sign-In-With-Solana (ed25519). Same
   // keyless model as the EVM path: the backend recovers nothing — it verifies the
   // signature against the provided pubkey and mints the session JWT.

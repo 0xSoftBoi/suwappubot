@@ -125,6 +125,8 @@ cd mobile && bun install && bun run ios
 
 ## Deployment
 
+**Deploy target is Railway, NOT AWS ECS.** Production sites are live on Railway. Before diagnosing any deploy/health failure, first state which environment you're inspecting (prod URL, Railway service, or local dev) and confirm the deploy target. Do NOT propose fixes until that's confirmed — a live-production symptom is not a local-dev bug. (The `infra/` AWS CDK dir is legacy/unused for app deploys.)
+
 **Environments**:
 - **Production**: `main` branch → Railway (see `docs/deployment/railway.md`)
 - **Development**: `dev` branch → Railway dev project
@@ -210,10 +212,28 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 ## Custom Skills
 
 - `/ship` — Branch → commit → PR → wait for CI green → merge → verify the bot boots
-- `/deploy` — Deploy services to AWS ECS
+- `/deploy` — Deploy services to Railway (`prod|dev` × `python-api|python-worker|terminal|api-ts|showcase|all`)
+- `/audit` — Attacker-minded security audit of scoped files; streams compact findings incrementally
 - `/worktree` — Manage git worktrees for parallel development
 - `/migrations` — Database migration tutorial
 - `/new-handler` — Add a new Telegram bot command handler
 - `/new-route` — Add a new TypeScript API endpoint
 - `/new-page` — Add a new webapp page/feature
 - `/new-test` — Write tests for a feature
+
+## Security Audits
+
+- **Stream findings incrementally — never a single giant end-of-session JSON dump.** As you *confirm* each finding, append it to `findings.json` (or emit it) immediately. Spend/output limits repeatedly killed audits that batched everything for the end, losing the whole deliverable.
+- Keep each finding compact: `severity`, `file:line`, exploit path, fix. Distinguish real bugs from false positives explicitly.
+- End with a candid coverage QA note: what you scanned, what you skipped or refused, and why.
+- Scope to specific candidate files up front rather than "audit everything."
+
+## CI / Testing
+
+- **Do NOT cancel a CI run or long command assuming it hung.** GitHub Actions runner contention is common and slow suites are expected. The Bash tool caps ~2 min — that is a tool timeout, not a hung job. Wait and re-check `gh run watch` / poll status before concluding failure.
+- Give slow test suites generous timeouts; an 18-test run taking minutes is normal, not a hang.
+
+## Working Style / Scope
+
+- **Reason from the actual recently-committed code, not from design/tokenomics docs or the Anchor program.** Docs drift; the working code is ground truth. When in doubt, `git log`/read the current source.
+- **Preserve the original product vision.** Do NOT let engineering constraints silently shrink scope. If a constraint forces a smaller design, surface it explicitly and ask — don't quietly ship the reduced version.

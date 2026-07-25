@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import stats from '@/data/stats.generated.json';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 /**
@@ -21,7 +22,7 @@ interface Line {
 const FLOWS: Line[][] = [
   [
     { type: 'cmd', text: '/s 1 ETH USDC --best-route' },
-    { type: 'out', text: 'racing 9 routers…' },
+    { type: 'out', text: `racing ${stats.routerCount} routers…` },
     { type: 'out', text: '1 ETH → 3,483.28 USDC · Uniswap V3' },
     { type: 'ok', text: 'filled · 0x3f8a…c291' },
   ],
@@ -61,7 +62,7 @@ const BIDS = [
   ['64,148', '0.72'],
 ];
 
-export default function LiveTerminal() {
+export default function LiveTerminal({ className = '' }: { className?: string }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [typing, setTyping] = useState('');
   const [cursor, setCursor] = useState(true);
@@ -140,7 +141,10 @@ export default function LiveTerminal() {
   }, []);
 
   return (
-    <div className="pro-term" aria-label="Live trading terminal">
+    <div
+      className={`pro-term sw-shine sw-card-dark ${className}`.trim()}
+      aria-label="Live trading terminal"
+    >
       <div className="pro-term__bar">
         <span className="pro-term__dot pro-term__dot--r" />
         <span className="pro-term__dot pro-term__dot--y" />
@@ -154,7 +158,7 @@ export default function LiveTerminal() {
       <div className="pro-term__grid">
         {/* Command stream */}
         <div className="pro-term__log" role="log" aria-live="off">
-          <div className="pro-term__intro">suwappu — best-route execution · 40+ chains</div>
+          <div className="pro-term__intro">suwappu — best-route execution · {stats.platformChains} chains</div>
           <AnimatePresence initial={false}>
             {lines.map((line, i) => (
               <motion.div
@@ -230,7 +234,7 @@ export default function LiveTerminal() {
       <div className="pro-term__status" aria-hidden="true">
         <span>route <b>best of 9</b></span>
         <span>gas <b>~$0.12</b></span>
-        <span>chains <b>40+</b></span>
+        <span>chains <b>{stats.platformChains}</b></span>
         <span>mev <b>shielded</b></span>
       </div>
     </div>

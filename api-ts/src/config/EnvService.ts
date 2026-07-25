@@ -38,6 +38,11 @@ export const EnvSchema = Schema.Struct({
 			'https://app.suwappu.bot,https://terminal.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
+	// Showcase site base URL — used for web checkout success/cancel redirects
+	SHOWCASE_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://suwappu.bot',
+	}),
+
 	// Internal Python API
 	INTERNAL_API_KEY: Schema.optional(Schema.String),
 	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {
@@ -115,6 +120,12 @@ export const EnvSchema = Schema.Struct({
 	SMART_ACCOUNT_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	// ERC-4337 bundler JSON-RPC endpoint (e.g. Pimlico). Required to send UserOps.
 	BUNDLER_RPC_URL: Schema.optional(Schema.String),
+
+	// On-chain fee-cashback rewards (audited SuwappuRewardsDistributor on Base).
+	// Both optional — without them the rewards API still serves balances/proofs,
+	// it just can't read live isClaimed() state from the chain.
+	REWARDS_DISTRIBUTOR_ADDRESS: Schema.optional(Schema.String),
+	REWARDS_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

@@ -12,7 +12,15 @@ export default function TermsPage() {
     <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
-        <article className="legal-page">
+        <nav className="doc-breadcrumb">
+          <a href="/">Home</a>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Legal</span>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Terms of Service</span>
+        </nav>
+        <article className="legal-page sw-measure">
+        <div className="legal-page__card">
           <p className="summer-kicker">Legal</p>
           <h1>Terms of Service</h1>
           <p className="legal-page__updated">Last updated: June 18, 2026</p>
@@ -36,7 +44,7 @@ export default function TermsPage() {
           <p>You agree not to use the Service to break the law, launder funds, evade sanctions, manipulate markets, infringe others’ rights, or interfere with the Service’s operation or security. We may suspend or terminate access for conduct that violates these Terms or applicable law.</p>
 
           <h2 id="risk">7. Risk disclosures</h2>
-          <p>Digital assets are volatile and trading carries substantial risk, including total loss. Cross-chain swaps, perpetual futures, and leveraged positions can result in rapid and complete loss of funds, including liquidation. Smart contracts, bridges, and third-party venues may contain bugs or be exploited. Prices, quotes, and routes are estimates and may change before or during execution. Nothing in the Service is a recommendation to buy, sell, or hold any asset. <strong>Only trade what you can afford to lose.</strong></p>
+          <p>Digital assets are volatile and trading carries substantial risk, including total loss. <strong>Only trade what you can afford to lose.</strong> See our full <a href="/legal/risk">Risk Disclosure</a> for a detailed breakdown of volatility, smart contract, bridge, custody, slippage/MEV, and regulatory risk.</p>
 
           <h2>8. No financial advice</h2>
           <p>The Service and any content within it are provided for informational purposes only and do not constitute financial, investment, legal, or tax advice. You are solely responsible for your trading decisions.</p>
@@ -49,6 +57,7 @@ export default function TermsPage() {
 
           <h2>11. Contact</h2>
           <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
+        </div>
         </article>
       </div>
       <SummerFooter />

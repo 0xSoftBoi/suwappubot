@@ -19,6 +19,8 @@ import { WatchlistPanel } from '../watchlist/WatchlistPanel'
 import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
+import { RewardsPanel } from '../rewards/RewardsPanel'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -36,6 +38,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'defi', label: 'DeFi Center' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
+  { id: 'rewards', label: 'Cashback' },
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
@@ -81,7 +84,9 @@ function MobileLayout() {
       <div className="flex-1 overflow-hidden">
         {mobileTab === 'chart' && (
           <div className="h-full terminal-panel">
-            <PriceChart />
+            <ErrorBoundary label="Chart">
+              <PriceChart />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -108,9 +113,17 @@ function MobileLayout() {
 
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
-              {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'portfolio' && (
+                <ErrorBoundary label="Portfolio">
+                  <PortfolioPanel />
+                </ErrorBoundary>
+              )}
               {bottomTab === 'signals' && <SignalsFeed />}
-              {bottomTab === 'discovery' && <DiscoveryPanel />}
+              {bottomTab === 'discovery' && (
+                <ErrorBoundary label="Discovery">
+                  <DiscoveryPanel />
+                </ErrorBoundary>
+              )}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
               {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
@@ -124,6 +137,7 @@ function MobileLayout() {
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
               {bottomTab === 'referrals' && <ReferralsPanel />}
+              {bottomTab === 'rewards' && <RewardsPanel />}
             </div>
           </div>
         )}
@@ -160,7 +174,9 @@ function DesktopLayout() {
     return (
       <div className="h-full relative">
         <div className="h-full terminal-panel">
-          <PriceChart />
+          <ErrorBoundary label="Chart">
+            <PriceChart />
+          </ErrorBoundary>
         </div>
         <button
           onClick={toggleChartFullscreen}
@@ -187,7 +203,9 @@ function DesktopLayout() {
           {/* Chart area */}
           <Allotment.Pane preferredSize={sizes.chart} minSize={300}>
             <div className="h-full terminal-panel">
-              <PriceChart />
+              <ErrorBoundary label="Chart">
+                <PriceChart />
+              </ErrorBoundary>
             </div>
           </Allotment.Pane>
 
@@ -196,10 +214,14 @@ function DesktopLayout() {
             <div className="h-full terminal-panel flex flex-col">
               <Allotment vertical>
                 <Allotment.Pane preferredSize="60%">
-                  <OrderBookPanel />
+                  <ErrorBoundary label="Order Book">
+                    <OrderBookPanel />
+                  </ErrorBoundary>
                 </Allotment.Pane>
                 <Allotment.Pane preferredSize="40%">
-                  <RecentTradesPanel />
+                  <ErrorBoundary label="Recent Trades">
+                    <RecentTradesPanel />
+                  </ErrorBoundary>
                 </Allotment.Pane>
               </Allotment>
             </div>
@@ -232,9 +254,17 @@ function DesktopLayout() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {bottomTab === 'portfolio' && <PortfolioPanel />}
+            {bottomTab === 'portfolio' && (
+              <ErrorBoundary label="Portfolio">
+                <PortfolioPanel />
+              </ErrorBoundary>
+            )}
               {bottomTab === 'signals' && <SignalsFeed />}
-            {bottomTab === 'discovery' && <DiscoveryPanel />}
+            {bottomTab === 'discovery' && (
+              <ErrorBoundary label="Discovery">
+                <DiscoveryPanel />
+              </ErrorBoundary>
+            )}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
             {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
@@ -248,6 +278,7 @@ function DesktopLayout() {
             )}
             {bottomTab === 'copilot' && <CopilotPanel />}
             {bottomTab === 'referrals' && <ReferralsPanel />}
+            {bottomTab === 'rewards' && <RewardsPanel />}
           </div>
         </div>
       </Allotment.Pane>
@@ -266,14 +297,18 @@ export function TradingLayout() {
   if (tradingMode === 'perps') {
     return (
       <div className="h-full">
-        <PerpsWorkspace />
+        <ErrorBoundary label="Perps">
+          <PerpsWorkspace />
+        </ErrorBoundary>
       </div>
     )
   }
   if (tradingMode === 'predict') {
     return (
       <div className="h-full">
-        <PredictWorkspace />
+        <ErrorBoundary label="Predict">
+          <PredictWorkspace />
+        </ErrorBoundary>
       </div>
     )
   }

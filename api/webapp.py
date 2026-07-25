@@ -25,7 +25,7 @@ import jwt
 import httpx
 
 from bot.config.chains import CHAINS, ChainType
-from bot.config.tokens import TOKENS
+from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_decimals
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
@@ -186,11 +186,52 @@ class EnterpriseLeadRequest(BaseModel):
     use_case: Optional[str] = None
     telegram: Optional[str] = None
     website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
 
 
 class EnterpriseLeadResponse(BaseModel):
     ok: bool
     id: Optional[int] = None
+    error: Optional[str] = None
+
+
+class MobileWaitlistRequest(BaseModel):
+    """Inbound mobile-app (iOS/Android + Suwappu Card by Rain) waitlist signup
+    from the marketing site.
+
+    Public (no auth). Kept minimal to maximize conversion. ``website`` is a
+    hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    email: str
+    name: Optional[str] = None
+    platform: Optional[str] = None  # "ios" | "android" | "both"
+    telegram: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
+
+
+class MobileWaitlistResponse(BaseModel):
+    ok: bool
+    id: Optional[int] = None
+    position: Optional[int] = None
+    error: Optional[str] = None
+
+
+class NewsletterSignupRequest(BaseModel):
+    """Inbound newsletter/email-list signup from the marketing site.
+
+    Public (no auth). Kept minimal to maximize conversion. ``website`` is a
+    hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    email: str
+    website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
+
+
+class NewsletterSignupResponse(BaseModel):
+    ok: bool
     error: Optional[str] = None
 
 
@@ -249,6 +290,7 @@ class WebAppPortfolioToken(BaseModel):
     balance: str
     usdValue: float
     logoUrl: Optional[str] = None
+    decimals: Optional[int] = None
 
 
 class WebAppPortfolio(BaseModel):
@@ -1101,6 +1143,8 @@ async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
         "telegram": telegram,
         "use_case": use_case,
     }
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
 
     try:
         with get_session() as session:
@@ -1124,6 +1168,150 @@ async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
 
     logger.info("Enterprise lead #%s captured from %s (%s)", lead_id, company[:80], email)
     return EnterpriseLeadResponse(ok=True, id=lead_id)
+
+
+@router.post("/mobile-waitlist", response_model=MobileWaitlistResponse)
+async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
+    """Capture a mobile-app (iOS/Android + Suwappu Card by Rain) waitlist signup
+    from the marketing site.
+
+    Public, no auth. Persists the signup as a ``SupportTicket`` of kind
+    ``mobile_waitlist`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval. Returns
+    ``{ok: true, id}`` on success.
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return MobileWaitlistResponse(ok=True)
+
+    email = (payload.email or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid email.")
+
+    def _clip(v: Optional[str], n: int) -> Optional[str]:
+        v = (v or "").strip()
+        return v[:n] if v else None
+
+    name = _clip(payload.name, 200)
+    platform = _clip(payload.platform, 20)
+    if platform and platform.lower() not in ("ios", "android", "both"):
+        platform = None
+    telegram = _clip(payload.telegram, 120)
+
+    # Human-readable body for the Telegram/Linear alert.
+    lines = [f"Email: {email}"]
+    if name:
+        lines.append(f"Name: {name}")
+    if platform:
+        lines.append(f"Platform: {platform}")
+    if telegram:
+        lines.append(f"Telegram: {telegram}")
+    message = "\n".join(lines)
+
+    context = {
+        "email": email,
+        "name": name,
+        "platform": platform,
+        "telegram": telegram,
+    }
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.MOBILE_WAITLIST,
+                source="website",
+                category="mobile_waitlist",
+                priority="normal",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            waitlist_id = ticket.id
+            position = (
+                session.query(SupportTicket)
+                .filter(
+                    SupportTicket.category == "mobile_waitlist",
+                    SupportTicket.id <= waitlist_id,
+                )
+                .count()
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist mobile waitlist signup")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info(
+        "Mobile waitlist signup #%s captured (%s), position %s", waitlist_id, email, position
+    )
+
+    try:
+        from bot.services.waitlist_email import send_waitlist_confirmation
+
+        await send_waitlist_confirmation(email, position, name)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
+
+    return MobileWaitlistResponse(ok=True, id=waitlist_id, position=position)
+
+
+@router.post("/newsletter", response_model=NewsletterSignupResponse)
+async def submit_newsletter_signup(payload: NewsletterSignupRequest):
+    """Capture a newsletter/email-list signup from the marketing site.
+
+    Public, no auth. Persists the signup as a ``SupportTicket`` of kind
+    ``newsletter`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval. Returns
+    ``{ok: true}`` on success (no id/position needed for this surface).
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return NewsletterSignupResponse(ok=True)
+
+    email = (payload.email or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid email.")
+
+    message = f"Email: {email}"
+
+    context = {"email": email}
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.NEWSLETTER,
+                source="website",
+                category="newsletter",
+                priority="low",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            ticket_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist newsletter signup")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Newsletter signup #%s captured (%s)", ticket_id, email)
+    return NewsletterSignupResponse(ok=True)
 
 
 @router.get("/billing/stripe/checkout")
@@ -2436,22 +2624,74 @@ async def get_my_portfolio(
     tokens = []
     total_usd = 0.0
 
+    # Native-coin sentinel expected by the webapp's isNativeToken() allowlist.
+    # Empty string is treated as "native" client-side and is used consistently
+    # for every chain's native asset (ETH/BNB/POL/SOL/...).
+    NATIVE_ADDRESS_SENTINEL = ""
+    # Explicit placeholder for ERC-20-like tokens whose contract address we do
+    # NOT have in bot/config/tokens.py for a given chain. This is intentionally
+    # NOT a valid address (and NOT the native sentinel) so the webapp's
+    # isAddress()-based send gate stays disabled for it.
+    UNKNOWN_ADDRESS_PLACEHOLDER = "0x..."
+    # Addresses/markers in bot/config/tokens.py that actually mean "this is the
+    # chain's native asset", not a real ERC-20 contract. Some TOKENS entries
+    # (e.g. BTC on citrea, which is really native cBTC) resolve to one of
+    # these for a given chain. The webapp's isNativeToken() allowlist accepts
+    # the zero address as native too, so shipping it verbatim would both
+    # mislabel the row AND double-count the same underlying native balance
+    # (once from the chain's native_token key, once from this TOKENS entry).
+    NATIVE_ADDRESS_MARKERS = {
+        NATIVE_TOKEN_ADDRESS.lower(),  # 0x000...000
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "native",
+    }
+
     for wallet in wallets:
         try:
             balances = await wallet_service.get_all_balances(wallet)
             for chain_name, chain_tokens in balances.items():
+                chain_config = CHAINS.get(chain_name)
                 for symbol, balance in chain_tokens.items():
                     if balance > 0:
                         # Simple USD estimation (would use price service in production)
                         usd_value = balance  # Placeholder
+
+                        is_native = bool(chain_config and symbol == chain_config.native_token)
+                        if is_native:
+                            address = NATIVE_ADDRESS_SENTINEL
+                            decimals = chain_config.native_decimals if chain_config else None
+                        else:
+                            token_config = TOKENS.get(symbol.upper())
+                            token_address = (
+                                token_config.addresses.get(chain_name) if token_config else None
+                            )
+                            if token_address and token_address.lower() in NATIVE_ADDRESS_MARKERS:
+                                # This TOKENS entry is actually the chain's native
+                                # asset under a different symbol (e.g. BTC ==
+                                # native cBTC on citrea). The chain's real
+                                # native_token balance is already emitted above
+                                # (or will be, from its own dict key) — emitting
+                                # this row too would double-count the same
+                                # underlying balance, so skip it entirely.
+                                continue
+                            elif token_address:
+                                address = token_address
+                                decimals = get_token_decimals(symbol, chain_name)
+                            else:
+                                # No known contract address for this token on this
+                                # chain — keep the send gate disabled client-side.
+                                address = UNKNOWN_ADDRESS_PLACEHOLDER
+                                decimals = None
+
                         tokens.append(
                             WebAppPortfolioToken(
                                 symbol=symbol,
                                 name=symbol,
-                                address="0x...",
+                                address=address,
                                 chain=chain_name,
                                 balance=str(balance),
                                 usdValue=usd_value,
+                                decimals=decimals,
                             )
                         )
                         total_usd += usd_value
@@ -3249,6 +3489,243 @@ async def webapp_points_leaderboard(request: Request, limit: int = Query(default
     from api.routes.mobile import get_leaderboard
 
     return await get_leaderboard(request, limit)
+
+
+# ---------------------------------------------------------------------------
+# Battle endpoints
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header, validated via validate_telegram_init_data.
+# User is resolved from init_data's telegram id — never from the request body.
+# Money-path safety lives in battle_service (already reviewed); these endpoints
+# only delegate and translate ValueError -> HTTP 400.
+# ---------------------------------------------------------------------------
+
+
+class WebAppBattleConfig(BaseModel):
+    markets: List[str]
+    multiplier: float
+    backings: List[str]
+    durations_minutes: List[int]
+    max_open: int
+
+
+class WebAppBattleEntry(BaseModel):
+    id: int
+    market: str
+    direction: str
+    stake_usd: float
+    backing: str
+    status: str
+    outcome: Optional[str] = None
+    pnl_usd: Optional[float] = None
+    expiry_at: str
+    created_at: str
+
+
+class WebAppBattleOpenRequest(BaseModel):
+    market: str
+    direction: str  # "up" | "down"
+    stake_usd: float
+    backing: str  # "perps" | "prediction"
+    duration_minutes: int
+
+
+def _battle_response(battle) -> WebAppBattleEntry:
+    """Serialize a Battle ORM row to the webapp response shape."""
+    return WebAppBattleEntry(
+        id=battle.id,
+        market=battle.market,
+        direction=battle.direction,
+        stake_usd=float(battle.stake_usd),
+        backing=battle.backing,
+        status=battle.status,
+        outcome=battle.outcome,
+        pnl_usd=float(battle.pnl_usd) if battle.pnl_usd is not None else None,
+        expiry_at=battle.expiry_at.isoformat() if battle.expiry_at else "",
+        created_at=battle.created_at.isoformat() if battle.created_at else "",
+    )
+
+
+@router.get("/battle/config", response_model=WebAppBattleConfig)
+async def get_battle_config():
+    """Return static battle configuration for the Mini App UI.
+
+    Public (no auth) — the frontend needs this to render selectors before
+    the user authenticates.
+    """
+    from bot.services.battle_service import (
+        BATTLE_MARKETS,
+        BATTLE_MAX_OPEN,
+        BATTLE_DURATIONS,
+        PREDICTION_WIN_MULTIPLIER,
+    )
+
+    return WebAppBattleConfig(
+        markets=[m.replace("-USD", "") for m in BATTLE_MARKETS],
+        multiplier=float(PREDICTION_WIN_MULTIPLIER),
+        backings=["perps", "prediction"],
+        durations_minutes=sorted(set(BATTLE_DURATIONS.values())),
+        max_open=BATTLE_MAX_OPEN,
+    )
+
+
+@router.get("/battle/list", response_model=List[WebAppBattleEntry])
+async def get_battle_list(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user's open and recently settled battles."""
+    from bot.services.battle_service import battle_service
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        return []
+
+    battles = battle_service.get_user_battles(user.id, limit=50)
+    return [_battle_response(b) for b in battles]
+
+
+@router.post("/battle/open", response_model=WebAppBattleEntry)
+async def open_battle(
+    body: WebAppBattleOpenRequest,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Open a new directional battle for the authenticated user.
+
+    MONEY-PATH: user_id is resolved exclusively from the validated init_data
+    (via get_telegram_user -> tg_user.id -> DB lookup). The request body
+    MUST NOT and does not supply user_id. All balance safety checks and
+    per-user caps are enforced inside battle_service.open_battle().
+    """
+    from bot.services.battle_service import battle_service, BATTLE_MARKETS
+
+    # Resolve DB user from the Telegram identity in the init_data token.
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Normalise market: accept both "BTC" and "BTC-USD" from the client.
+    market = body.market.strip().upper()
+    if not market.endswith("-USD"):
+        market = f"{market}-USD"
+    if market not in BATTLE_MARKETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported market. Choose from: {', '.join(m.replace('-USD', '') for m in BATTLE_MARKETS)}",
+        )
+
+    try:
+        battle = await battle_service.open_battle(
+            user_id=user.id,
+            market=market,
+            direction=body.direction.strip().lower(),
+            stake_usd=Decimal(str(body.stake_usd)),
+            backing=body.backing.strip().lower(),
+            duration_minutes=body.duration_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("battle/open failed for tg_user=%s: %s", tg_user.id, exc)
+        raise HTTPException(status_code=502, detail="Battle could not be opened. Please try again.")
+
+    return _battle_response(battle)
+
+
+# ---------------------------------------------------------------------------
+# Stocks (xStocks) endpoint
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header validated by get_telegram_user.
+# Geo-gate: xstocks_region_allowed() is the single authoritative check.
+# Stock mints are NEVER returned to a geo-blocked user.
+# Market-hours logic is replicated from bot/handlers/stocks.py (same rule,
+# kept in one place there; imported here to stay DRY).
+# ---------------------------------------------------------------------------
+
+
+class WebAppStockEntry(BaseModel):
+    ticker: str
+    name: str
+    mint: str
+    confidence: str
+
+
+class WebAppStocksResponse(BaseModel):
+    allowed: bool
+    region_status: str  # "ok" | "blocked" | "unknown" | "error"
+    blocked_message: Optional[str] = None
+    stocks: List[WebAppStockEntry]
+    market_open: bool
+    off_hours_warning: Optional[str] = None
+
+
+@router.get("/stocks", response_model=WebAppStocksResponse)
+async def get_stocks(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+):
+    """Return xStocks listing with geo-gate and market-hours status.
+
+    The ``stocks`` list is only populated when the user is in an allowed region.
+    Geo-blocked users receive allowed=false and an empty stocks list — mints
+    are never transmitted to prohibited regions.
+    """
+    from bot.config.xstocks import (
+        get_all_xstocks,
+        xstocks_region_allowed,
+        XSTOCKS_BLOCKED_REGION_NAMES,
+    )
+    from bot.handlers.stocks import _is_market_hours, _market_hours_warning
+
+    allowed, region_status = xstocks_region_allowed(tg_user.id)
+
+    if not allowed:
+        if region_status == "blocked":
+            blocked_message = (
+                f"xStocks are not available in your region. Trading of tokenized equities "
+                f"is restricted in {XSTOCKS_BLOCKED_REGION_NAMES} due to regulatory "
+                f"requirements from the token issuer (Backed Finance)."
+            )
+        elif region_status == "unknown":
+            blocked_message = (
+                f"xStocks require region verification. Tokenized equity trading is only "
+                f"available in jurisdictions outside {XSTOCKS_BLOCKED_REGION_NAMES}. "
+                f"Contact support to complete region verification."
+            )
+        else:
+            blocked_message = "xStocks are temporarily unavailable. Please try again later."
+
+        return WebAppStocksResponse(
+            allowed=False,
+            region_status=region_status,
+            blocked_message=blocked_message,
+            stocks=[],
+            market_open=False,
+            off_hours_warning=None,
+        )
+
+    market_open = _is_market_hours()
+    warning_text = _market_hours_warning()
+    off_hours_warning = warning_text.strip() if warning_text.strip() else None
+
+    stocks = [
+        WebAppStockEntry(
+            ticker=entry["ticker"],
+            name=entry["name"],
+            mint=entry["solana_mint"],
+            confidence=entry["confidence"],
+        )
+        for entry in get_all_xstocks()
+    ]
+
+    return WebAppStocksResponse(
+        allowed=True,
+        region_status=region_status,
+        blocked_message=None,
+        stocks=stocks,
+        market_open=market_open,
+        off_hours_warning=off_hours_warning,
+    )
 
 
 # ---------------------------------------------------------------------------
