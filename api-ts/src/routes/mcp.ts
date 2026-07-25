@@ -1340,6 +1340,15 @@ mcpRoutes.post('/', async (c) => {
 						result = await handleListWalletPolicies(args || {}, callAgent)
 						break
 					default:
+						// Unreachable while TOOL_NAMES gates above, but if a tool is added to
+						// TOOLS without a case here, don't keep its charge.
+						if (charge.kind === 'ok') {
+							await refundChargedCall({
+								agentId: callAgent.id,
+								cost: charge.cost,
+								reason: `no handler for tool ${name}`,
+							})
+						}
 						return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
 				}
 			} catch (e) {

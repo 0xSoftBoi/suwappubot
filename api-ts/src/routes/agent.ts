@@ -215,7 +215,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	} catch {
 		socketIp = undefined
 	}
-	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
+	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp, undefined, c.req.header("x-edge-trust"))
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -341,7 +341,7 @@ async function handleSpongeCallback(c: any, body: any) {
 	} catch {
 		socketIp = undefined
 	}
-	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
+	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp, undefined, c.req.header("x-edge-trust"))
 
 	if (event !== 'agent_connect') {
 		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)
@@ -1632,9 +1632,25 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// collide on each other's keys) over the derived quote_id key. This lets a
 	// caller safely retry a request that timed out client-side without risking a
 	// duplicate on-chain swap, even if it regenerates a fresh quote_id on retry.
+	// The key embeds a fingerprint of the request (quote_id + route + amounts) so
+	// reusing the same key with a DIFFERENT quote can never return a stale swap's
+	// result as if it were this request's success — a mismatched reuse executes as
+	// a new swap instead of silently misreporting.
 	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
+	if (clientIdempotencyKey && !/^[A-Za-z0-9_.:-]{1,64}$/.test(clientIdempotencyKey)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid Idempotency-Key', {
+			hint: 'Use 1-64 characters from A-Za-z0-9_.:-',
+		})
+	}
+	const requestFingerprint = crypto
+		.createHash('sha256')
+		.update(
+			`${quote_id}|${quoteData.from_chain}|${quoteData.to_chain}|${quoteData.from_token}|${quoteData.to_token}|${quoteData.from_amount}`,
+		)
+		.digest('hex')
+		.slice(0, 12)
 	const idempotencyKey = clientIdempotencyKey
-		? `agent_${agent.id}_${clientIdempotencyKey}`
+		? `agent_${agent.id}_${clientIdempotencyKey}_${requestFingerprint}`
 		: `agent_${agent.id}_${quote_id}`
 
 	// Call internal Python endpoint

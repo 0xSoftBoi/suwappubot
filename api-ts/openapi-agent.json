@@ -612,7 +612,11 @@
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+            },
             "description": "Client-supplied idempotency key, scoped per-agent server-side. When present, takes precedence over the key derived from quote_id."
           }
         ],

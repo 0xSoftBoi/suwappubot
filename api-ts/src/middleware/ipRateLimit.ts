@@ -41,25 +41,55 @@ export function resolveClientIp(
 	return socketIp?.trim() || 'unknown'
 }
 
+// Shared secret the Cloudflare Worker / edge injects as the `x-edge-trust` header.
+// When set, IP headers (cf-connecting-ip, x-forwarded-for) are only trusted on
+// requests carrying the matching secret; direct-to-origin requests (raw Railway
+// URL, bypassing the edge) resolve to the socket IP only, so forged headers can't
+// farm starter credits or dodge IP rate limits. When unset, we fall back to the
+// agreement heuristic below — which an attacker who forges BOTH headers
+// consistently can beat, so configure EDGE_TRUST_SECRET in production.
+const EDGE_TRUST_SECRET = process.env.EDGE_TRUST_SECRET?.trim() || ''
+let warnedNoEdgeSecret = false
+
 /**
- * Resolve the client IP trusting `cf-connecting-ip` only when it AGREES with the
- * XFF-derived trusted-proxy-hop address. A request that bypasses Cloudflare and
- * hits the origin directly (e.g. the raw Railway URL) can set an arbitrary
- * `cf-connecting-ip` header — if we trusted it unconditionally, that lets an
- * attacker farm unlimited starter credits (routes/agent.ts registration) or dodge
- * IP rate limits by rotating the header value on every request. Using XFF (via
- * TRUSTED_PROXY_COUNT hops from the right) as ground truth and only accepting
- * cf-connecting-ip as a tiebreaker when it matches closes that gap without
- * requiring a separate shared-secret header from Cloudflare.
+ * Resolve the client IP in the most spoof-resistant way available:
+ * - EDGE_TRUST_SECRET set + matching `x-edge-trust` header: trust cf-connecting-ip
+ *   (then XFF) — the request provably came through our edge.
+ * - EDGE_TRUST_SECRET set + missing/wrong secret: direct-to-origin — ignore ALL
+ *   IP headers and use the socket IP.
+ * - EDGE_TRUST_SECRET unset: legacy heuristic — accept cf-connecting-ip only when
+ *   it agrees with the XFF trusted-proxy hop, else the XFF-derived IP. NOTE: this
+ *   does not stop an attacker who forges both headers consistently.
  */
 export function resolveTrustedClientIp(
 	cfIp: string | undefined,
 	forwarded: string | undefined,
 	socketIp: string | undefined,
 	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
+	edgeTrustHeader?: string,
 ): string {
-	const xffIp = resolveClientIp(forwarded, socketIp, trustedProxyCount)
 	const trimmedCf = cfIp?.trim()
+
+	if (EDGE_TRUST_SECRET) {
+		const viaEdge = edgeTrustHeader?.trim() === EDGE_TRUST_SECRET
+		if (viaEdge) {
+			return trimmedCf || resolveClientIp(forwarded, socketIp, trustedProxyCount)
+		}
+		if (trimmedCf || forwarded) {
+			console.warn(
+				'[ipTrust] direct-to-origin request with IP headers but no valid x-edge-trust; using socket IP',
+			)
+		}
+		return socketIp?.trim() || 'unknown'
+	}
+
+	if (!warnedNoEdgeSecret) {
+		warnedNoEdgeSecret = true
+		console.warn(
+			'[ipTrust] EDGE_TRUST_SECRET not configured — IP anti-spoofing is heuristic-only; forged consistent headers can bypass per-IP limits',
+		)
+	}
+	const xffIp = resolveClientIp(forwarded, socketIp, trustedProxyCount)
 	if (trimmedCf && trimmedCf === xffIp) return trimmedCf
 	return xffIp
 }
@@ -98,7 +128,13 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
 			socketIp = undefined
 		}
-		const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
+		const ip = resolveTrustedClientIp(
+			cfIp,
+			forwarded,
+			socketIp,
+			undefined,
+			c.req.header('x-edge-trust'),
+		)
 		const key = `ip:${ip}`
 		const now = Date.now()
 
