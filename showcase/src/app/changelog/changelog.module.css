@@ -1,0 +1,39 @@
+/* Changelog — Linear-style timeline: a continuous vertical hairline runs
+   down the date column connecting every entry, with a small persimmon dot
+   marking each one, instead of a horizontal rule stacked between entries. */
+.timeline {
+  position: relative;
+  margin-top: 1rem;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 192px;
+  width: 1px;
+  background: var(--sw-hairline-strong);
+}
+
+.entry:global(.changelog-entry) {
+  position: relative;
+  border-top: none;
+}
+.entry::before {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 188px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--sw-accent);
+  box-shadow: 0 0 0 3px var(--sw-canvas);
+}
+
+@media (max-width: 720px) {
+  .timeline::before,
+  .entry::before {
+    display: none;
+  }
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import styles from './StatusBoard.module.css';
 
 type Service = { id: string; label: string; url: string; ok: boolean; status: number; ms: number };
 type StatusData = { checkedAt: string; allUp: boolean; services: Service[] };
@@ -54,15 +55,15 @@ export default function StatusBoard() {
         </button>
       </div>
 
-      <div className="status-list">
+      <div className={`status-list ${styles.list}`}>
         {(data?.services ?? []).map((s) => (
-          <div key={s.id} className="status-row">
+          <div key={s.id} className={`status-row ${styles.row}`}>
             <span className={`status-dot ${s.ok ? 'is-up' : 'is-down'}`} aria-hidden="true" />
             <div className="status-row__main">
               <strong>{s.label}</strong>
               <span className="status-row__url">{s.url}</span>
             </div>
-            <span className="status-row__meta">
+            <span className="status-row__meta sw-nums">
               {s.ok ? `${s.status} · ${s.ms}ms` : s.status ? `HTTP ${s.status}` : 'unreachable'}
             </span>
           </div>

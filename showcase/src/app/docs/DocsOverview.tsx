@@ -5,6 +5,7 @@ import stats from '@/data/stats.generated.json';
 import DocsAccordion from '../../components/docs/DocsAccordion';
 import DocsNav from '../../components/docs/DocsNav';
 import docsData from '../../data/docs.json';
+import styles from './DocsOverview.module.css';
 
 const quicklinks = [
   {
@@ -57,7 +58,7 @@ export default function DocsOverview() {
   return (
     <div className="summer-page docs-shell">
       <div className="docs-page">
-        <aside className="docs-page__sidebar">
+        <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} />
         </aside>
 

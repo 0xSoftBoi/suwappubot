@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import styles from './agents.module.css';
 
 // Tab definitions for "add your key" — same shape as the old /agents tab
 // widget, kept for the visual pattern (agents-tabs / agents-panel / agents-code).
@@ -82,16 +83,18 @@ export default function AgentQuickstart() {
         aria-labelledby={`agents-tab-${tab.id}`}
         className="agents-panel"
       >
-        <div className="summer-code agents-code">
-          <div className="summer-code__bar">
-            <span />
-            <span />
-            <span />
-            <b>{tab.file}</b>
+        <div className={`${styles.codeDark} sw-card-dark`}>
+          <div className="summer-code agents-code">
+            <div className="summer-code__bar">
+              <span />
+              <span />
+              <span />
+              <b>{tab.file}</b>
+            </div>
+            <pre>
+              <code>{tab.code}</code>
+            </pre>
           </div>
-          <pre>
-            <code>{tab.code}</code>
-          </pre>
         </div>
         {tab.caption && <p className="agents-caption">{tab.caption}</p>}
       </div>

@@ -1,0 +1,24 @@
+/* FaqAccordion — visual-only pass. Trades the boxed-card-per-question
+   layout for hairline-bounded rows (Midday pattern): a rule between items,
+   no border box, no drop shadow. Open state gets a quiet accent wash
+   instead of a shadow lift. Focus-visible on the header buttons comes free
+   from the global `:focus-visible` rule in globals.css — verified, no
+   override needed here. */
+.wrap:global(.faq-accordion) {
+  gap: 0;
+}
+.wrap :global(.faq-accordion__item) {
+  border: none;
+  border-radius: 0;
+  border-top: 1px solid var(--sw-hairline);
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.18s ease;
+}
+.wrap :global(.faq-accordion__item:first-child) {
+  border-top: none;
+}
+.wrap :global(.faq-accordion__item--open) {
+  background: var(--sw-accent-wash);
+  box-shadow: none;
+}

@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import styles from './DocsReader.module.css';
 
 type Props = {
   html: string;
@@ -71,7 +72,7 @@ export default function DocsReader({ html, title }: Props) {
   return (
     <motion.div
       ref={readerRef}
-      className="doc-reader"
+      className={`doc-reader ${styles.reader}`}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
