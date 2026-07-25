@@ -6,6 +6,7 @@ import FaqAccordion from '@/components/FaqAccordion';
 import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import UpgradeCta from '@/components/UpgradeCta';
+import FeeCalculator from '@/components/FeeCalculator';
 
 export const metadata: Metadata = {
   title: 'Pricing — Suwappu',
@@ -305,6 +306,18 @@ export default function PricingPage() {
             </a>
           </div>
         </section>
+
+        {/* Sits between the plans and the feature matrix: the reader has just seen
+            four prices and is asking "which one is actually right for me?". Answer
+            it before sending them into a comparison table. Fees are derived from the
+            same `tiers` array the cards render, so the ladder has one source. */}
+        <FeeCalculator
+          tiers={tiers.map((t) => ({
+            name: t.name,
+            monthly: t.price === 'Custom' ? null : Number(t.price.replace(/[^0-9.]/g, '')),
+            feePct: Number(t.fee.replace('%', '')),
+          }))}
+        />
 
         <section className="pricing-compare" aria-label="Plan comparison">
           <h2 className="mkt-h2">Compare plans</h2>
