@@ -2381,8 +2381,38 @@ html {
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   margin-top: 20px;
+}
+
+/* Enterprise gate — inline demo-call affordance inside the card, and a
+   quieter text link for the docs fallback in the CTA row. Saphira-style:
+   the button is the demo call, everything else is a plain link. */
+.summer-devlayer__ent-link {
+  margin-top: 14px;
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--suwappu-summer-accent, var(--summer-accent));
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  padding-bottom: 1px;
+}
+.summer-devlayer__ent-link:hover {
+  opacity: 0.82;
+}
+
+.summer-devlayer__docs-link {
+  color: var(--summer-muted);
+  font-size: 0.88rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 8px 4px;
+}
+.summer-devlayer__docs-link:hover {
+  color: var(--summer-ink);
 }
 
 /* ── /agents quickstart page ── */
@@ -4677,6 +4707,19 @@ button:focus:not(:focus-visible) {
 }
 .pricing-card__features li { position: relative; padding-left: 20px; color: #345069; font-size: 0.86rem; line-height: 1.45; }
 .pricing-card__features li::before { content: "✓"; position: absolute; left: 0; color: var(--summer-green); font-weight: 800; }
+
+.pricing-card__note-link {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+  color: var(--summer-muted);
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pricing-card__note-link:hover {
+  color: var(--summer-ink);
+}
 
 /* Enterprise competitive callout */
 .mkt-callout--enterprise {

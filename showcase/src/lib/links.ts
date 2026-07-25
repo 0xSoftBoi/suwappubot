@@ -10,6 +10,10 @@ export const TELEGRAM_URL = 'https://t.me/suwappu_bot';
 // Linear) via the support_notifier — speed-to-lead is the #1 conversion lever.
 export const ENTERPRISE_CONTACT_PATH = '/contact';
 
+// Enterprise "Schedule a demo" call — Saphira-style gate: deep/institutional
+// features are marketing copy + a call CTA, not self-serve. 30-min Calendly.
+export const DEMO_CALL_URL = 'https://calendly.com/tsoma4770/suwappu-demo';
+
 // Base URL for the public API the contact form submits to.
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://api.suwappu.bot';

@@ -8,6 +8,7 @@ import MarketProof from '@/components/MarketProof';
 import MobileWaitlistForm from '@/components/MobileWaitlistForm';
 import { getTranslations } from 'next-intl/server';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
+import DemoCallCta from '@/components/DemoCallCta';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
 export const revalidate = 60;
@@ -567,14 +568,20 @@ const tx = await client.swap(quote);`}</code>
                   <span>Spend caps</span>
                   <span>Audit logs</span>
                 </div>
+                <DemoCallCta source="homepage_enterprise_card" className="summer-devlayer__ent-link">
+                  Schedule a demo →
+                </DemoCallCta>
               </article>
             </div>
             <div className="summer-devlayer__cta">
-              <a className="summer-button summer-button--primary" href="/agents">
-                Read the docs
-              </a>
+              <DemoCallCta source="homepage_enterprise_section" className="summer-button summer-button--primary">
+                Schedule a demo
+              </DemoCallCta>
               <a className="summer-button summer-button--secondary" href="/contact">
-                Talk to us about Enterprise
+                Or send us a note
+              </a>
+              <a className="summer-devlayer__docs-link" href="/agents">
+                Read the docs
               </a>
             </div>
           </section>
