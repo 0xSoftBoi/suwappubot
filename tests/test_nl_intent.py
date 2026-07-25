@@ -649,6 +649,57 @@ async def test_handle_nl_text_merges_bare_chain_followup():
     assert "base" in context.args
 
 
+@pytest.mark.asyncio
+async def test_handle_nl_text_partial_merge_keeps_pending_state():
+    """Reviewer regression: answering "on eth" while the target token is still
+    missing is a PARTIAL merge — it must keep (updated) pending state and pass
+    the merged intent to the LLM, not clear the state and dead-end."""
+    update = _make_update("on eth")
+    context = _make_stateful_context()
+    context.user_data[nl_trade.NL_PENDING_INTENT_KEY] = {
+        "intent": {
+            "action": "swap",
+            "token_in": "USDC",
+            "token_out": None,
+            "amount": 2,
+            "amount_unit": "native",
+            "chain": None,
+            "confidence": 0.4,
+            "clarification": "Which token do you want to receive?",
+        },
+        "ts": nl_trade.time.time(),
+    }
+
+    followup = TradeIntent(
+        action="swap",
+        token_in="USDC",
+        token_out=None,
+        amount=2,
+        chain="ethereum",
+        confidence=0.4,
+        clarification="Which token do you want to receive?",
+    )
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock(return_value=followup)
+        ) as mock_parse,
+        patch("bot.handlers.nl_trade.quickswap_command", new=AsyncMock()) as mock_quickswap,
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    # The LLM parse ran with the merged (chain=ethereum) pending intent as context.
+    mock_parse.assert_awaited_once()
+    passed_ctx = mock_parse.await_args.kwargs.get("context") or mock_parse.await_args.args[1]
+    assert passed_ctx["pending_intent"]["chain"] == "ethereum"
+    # No swap fired, and the pending state survived for the next reply.
+    mock_quickswap.assert_not_awaited()
+    assert nl_trade.NL_PENDING_INTENT_KEY in context.user_data
+
+
 def test_try_merge_followup_on_eth_resolves_alias_not_token():
     """Opus-review BLOCKER: replying "on eth" to a pending clarification must
     resolve merged.chain == "ethereum" via the alias map, and must NOT leak

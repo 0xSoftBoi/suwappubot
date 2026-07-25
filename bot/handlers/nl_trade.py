@@ -331,11 +331,15 @@ async def handle_nl_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         intent: Optional[TradeIntent] = None
         if pending_intent is not None:
             merged = _try_merge_followup(pending_intent, text)
-            if merged is not None:
+            if merged is not None and merged.token_in and merged.token_out and merged.amount:
                 _clear_pending_intent(context)
                 intent = merged
             else:
-                nl_context["pending_intent"] = dataclasses.asdict(pending_intent)
+                # Partial or failed merge: keep (updated) progress pending and
+                # let the LLM see the merged state so the next reply can finish it.
+                progress = merged if merged is not None else pending_intent
+                _save_pending_intent(context, progress)
+                nl_context["pending_intent"] = dataclasses.asdict(progress)
 
         if intent is None:
             intent = await parse_trade_intent(text, context=nl_context, user_id=user_id)
