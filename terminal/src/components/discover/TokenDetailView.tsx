@@ -6,6 +6,7 @@ import { QuickBuyButton } from './QuickBuyButton'
 interface TokenDetailViewProps {
   token: PulseToken
   onBack: () => void
+  onBuy?: (amount: number, tokenAddress: string) => void
 }
 
 function formatNum(value: number): string {
@@ -16,7 +17,7 @@ function formatNum(value: number): string {
   return `$${value.toFixed(6)}`
 }
 
-export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
+export function TokenDetailView({ token, onBack, onBuy }: TokenDetailViewProps) {
   const [copied, setCopied] = useState(false)
   const otherPercent = Math.max(0, 100 - token.topHolderPercent - token.devPercent)
 
@@ -153,6 +154,7 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
           <QuickBuyButton
             tokenSymbol={token.symbol}
             tokenAddress={token.address}
+            onBuy={onBuy}
             glowOnHover
           />
         </div>

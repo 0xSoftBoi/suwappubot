@@ -125,7 +125,7 @@ export function DiscoveryPanel() {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {selectedToken ? (
-          <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} />
+          <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} onBuy={handleQuickBuy} />
         ) : activeTab === 'pulse' ? (
           <PulseTab onSelectToken={handleSelectToken} onBuy={handleQuickBuy} />
         ) : isLoading ? (

@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useWallet, chains as walletChains, chainMeta } from '../hooks/useWallet'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
+import a11yToast from '../lib/a11yToast'
 
 // Chain options for the selector - aligned with useWallet
 const chains = [
@@ -349,7 +350,7 @@ function SendView({
       // Will use _fromAddress as the sender, toAddress as recipient
       // For now, show a coming soon message
       console.log('Send from:', _fromAddress, 'to:', toAddress, 'amount:', amount, selectedToken?.symbol)
-      alert('Send functionality coming soon! This will use Turnkey to sign and broadcast the transaction.')
+      a11yToast.info('Send is coming soon. This will use Turnkey to sign and send the transaction.')
     } catch (err: any) {
       setError(err.message || 'Failed to send transaction')
     } finally {
