@@ -1,6 +1,12 @@
-CREATE TYPE "public"."web_checkout_status" AS ENUM('pending', 'active', 'linked', 'canceled');--> statement-breakpoint
-CREATE TYPE "public"."web_checkout_tier" AS ENUM('pro', 'premium');--> statement-breakpoint
-CREATE TABLE "reward_entries" (
+DO $$ BEGIN
+	CREATE TYPE "public"."web_checkout_status" AS ENUM('pending', 'active', 'linked', 'canceled');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+	CREATE TYPE "public"."web_checkout_tier" AS ENUM('pro', 'premium');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "reward_entries" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"epoch_id" integer NOT NULL,
 	"user_id" integer NOT NULL,
@@ -18,7 +24,7 @@ CREATE TABLE "reward_entries" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "reward_epochs" (
+CREATE TABLE IF NOT EXISTS "reward_epochs" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"epoch_index" integer NOT NULL,
 	"starts_at" timestamp NOT NULL,
@@ -35,7 +41,7 @@ CREATE TABLE "reward_epochs" (
 	CONSTRAINT "reward_epochs_epoch_index_unique" UNIQUE("epoch_index")
 );
 --> statement-breakpoint
-CREATE TABLE "web_checkouts" (
+CREATE TABLE IF NOT EXISTS "web_checkouts" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"stripe_session_id" varchar(255) NOT NULL,
 	"stripe_customer_id" varchar(255),
@@ -48,5 +54,8 @@ CREATE TABLE "web_checkouts" (
 	CONSTRAINT "web_checkouts_stripe_session_id_unique" UNIQUE("stripe_session_id")
 );
 --> statement-breakpoint
-ALTER TABLE "web_checkouts" ADD CONSTRAINT "web_checkouts_linked_user_id_users_id_fk" FOREIGN KEY ("linked_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "web_checkouts_customer_email_idx" ON "web_checkouts" USING btree ("customer_email");
+DO $$ BEGIN
+	ALTER TABLE "web_checkouts" ADD CONSTRAINT "web_checkouts_linked_user_id_users_id_fk" FOREIGN KEY ("linked_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "web_checkouts_customer_email_idx" ON "web_checkouts" USING btree ("customer_email");
