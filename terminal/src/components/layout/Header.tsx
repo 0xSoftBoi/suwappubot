@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { ChainSelector } from './ChainSelector'
 import { ModeSwitch } from './ModeSwitch'
@@ -8,7 +9,61 @@ import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useCoinbaseFeed } from '../../hooks/useCoinbaseFeed'
+import { usePoints } from '../../hooks/usePoints'
+import { cexSymbol, coinbaseProductId } from '../../lib/marketSupport'
 import { PersimmonMark } from '../brand/PersimmonLogo'
+
+// Compact "connected" indicator for the live market-data feed backing the
+// current pair. Reflects the real Coinbase WS state (connecting/live/error) —
+// no fabricated uptime numbers. Pairs without a public Coinbase market show a
+// neutral dot rather than pretending to be live.
+function ConnectionDot() {
+  const { selectedPair, selectedChain } = usePair()
+  const symbol = cexSymbol(selectedPair.base?.address, selectedChain, selectedPair.base?.symbol)
+  const productId = coinbaseProductId(symbol)
+  const feed = useCoinbaseFeed(productId)
+
+  const { color, label, pulse } = useMemo(() => {
+    if (!productId || !feed) {
+      return { color: 'bg-terminal-text-muted', label: 'No live market feed for this pair', pulse: false }
+    }
+    if (feed.status === 'live') return { color: 'bg-terminal-up', label: 'Live market data', pulse: true }
+    if (feed.status === 'error') return { color: 'bg-terminal-down', label: 'Market data disconnected', pulse: false }
+    return { color: 'bg-terminal-warn', label: 'Connecting to market data…', pulse: false }
+  }, [feed, productId])
+
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${color} ${pulse ? 'pulse-live' : ''}`}
+    />
+  )
+}
+
+// Compact season/points chip — read-only usePoints, hidden when signed out.
+// Static "S1" reflects the current (first) points season; the count is real
+// XP from the backend, never invented.
+function SeasonPointsChip() {
+  const { isAuthenticated } = useAuth()
+  const { data: profile } = usePoints()
+  if (!isAuthenticated) return null
+
+  return (
+    <Link
+      to="/points"
+      className="terminal-theme-control hidden h-8 items-center gap-1.5 rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:text-terminal-accent sm:flex"
+      title="View your season points"
+    >
+      <span className="terminal-theme-caption text-[10px] uppercase text-terminal-accent">S1</span>
+      <span className="tnum font-mono text-terminal-text">
+        {profile ? profile.xp.toLocaleString() : '—'} pts
+      </span>
+    </Link>
+  )
+}
 
 export function Header() {
   const { selectedChain, setSelectedChain } = usePair()
@@ -127,10 +182,10 @@ export function Header() {
   )
 
   const brandLockup = (
-    <div className="terminal-theme-panel flex h-10 items-center gap-2 rounded-[8px] px-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-[7px] border border-white/70 bg-white/78 shadow-[0_4px_12px_rgba(229,141,43,0.16)]">
+    <div className="terminal-theme-panel flex h-9 items-center gap-2 rounded-[8px] px-2.5">
+      <div className="flex h-6 w-6 items-center justify-center rounded-[7px] border border-terminal-hairline-strong bg-terminal-bg-secondary">
         <PersimmonMark
-          size={24}
+          size={20}
           palette="sunrise"
           variant="slice"
           shell="coin"
@@ -140,26 +195,28 @@ export function Header() {
         />
       </div>
       <div className="flex items-baseline gap-1.5 leading-none">
-        <span className="font-display text-[19px] font-bold tracking-normal text-[#169fe0]">
+        <span className="font-display text-[16px] font-semibold tracking-normal text-terminal-text">
           SUWAPPU
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-normal text-[#6b8ca0]">
+        <span className="terminal-theme-caption font-mono text-[10px] uppercase text-terminal-text-muted">
           Terminal
         </span>
       </div>
+      <ConnectionDot />
     </div>
   )
 
   if (isMobile) {
     return (
-      <header className="terminal-theme-panel relative flex h-12 shrink-0 items-center justify-between rounded-[10px] px-2.5">
+      <header className="terminal-theme-panel hairline-b relative flex h-11 shrink-0 items-center justify-between rounded-[10px] px-2.5">
         <div className="flex items-center gap-2">
           {brandLockup}
 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="terminal-theme-control rounded-[7px] p-1 text-[#31576d]"
+            className="terminal-theme-control rounded-[7px] p-1 text-terminal-text-secondary"
             title="Select chain & pair"
+            aria-label="Select chain and pair"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {menuOpen ? (
@@ -173,13 +230,14 @@ export function Header() {
 
         <div className="flex items-center gap-1.5">
           <ModeSwitch />
+          <SeasonPointsChip />
           {walletButton}
           {googleButton}
           {authButton}
         </div>
 
         {menuOpen && (
-          <div className="terminal-theme-panel absolute left-0 right-0 top-[calc(100%+6px)] z-50 flex flex-col gap-3 rounded-[10px] p-3">
+          <div className="terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-50 flex flex-col gap-3 p-3">
             <button
               onClick={() => {
                 setMenuOpen(false)
@@ -191,7 +249,7 @@ export function Header() {
               Search markets & tokens
             </button>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-terminal-text-muted w-12 shrink-0">Chain</span>
+              <span className="terminal-theme-caption text-[10px] uppercase w-12 shrink-0">Chain</span>
               <ChainSelector selected={selectedChain} onSelect={(chain) => { setSelectedChain(chain); }} />
             </div>
           </div>
@@ -201,11 +259,11 @@ export function Header() {
   }
 
   return (
-    <header className="terminal-theme-panel flex h-12 shrink-0 items-center justify-between rounded-[10px] px-3">
+    <header className="terminal-theme-panel hairline-b flex h-11 shrink-0 items-center justify-between rounded-[10px] px-3">
       <div className="flex items-center gap-4">
         {brandLockup}
 
-        <div className="h-7 w-px bg-white/80 shadow-[1px_0_0_rgba(100,150,170,0.16)]" />
+        <div className="h-6 w-px bg-terminal-hairline-strong" />
 
         <ModeSwitch />
 
@@ -228,6 +286,7 @@ export function Header() {
         >
           API Keys
         </a>
+        <SeasonPointsChip />
         {walletButton}
         {googleButton}
         {authButton}
