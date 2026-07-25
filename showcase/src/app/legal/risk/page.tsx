@@ -20,7 +20,7 @@ export default function RiskDisclosurePage() {
           <span className="doc-breadcrumb__sep">/</span>
           <span>Risk Disclosure</span>
         </nav>
-        <article className="legal-page">
+        <article className="legal-page sw-measure">
         <div className="legal-page__card">
           <p className="summer-kicker">Legal</p>
           <h1>Risk Disclosure</h1>

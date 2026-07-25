@@ -1,0 +1,76 @@
+/* Bold-callout stat strip: no boxed cards, just numerals separated by
+   hairlines (Talos pattern). */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--sw-gap);
+  border-top: 1px solid var(--sw-hairline);
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 1.75rem 1.5rem;
+  border-left: 1px solid var(--sw-hairline);
+}
+
+.stat:first-child {
+  border-left: none;
+}
+
+.statValue {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 1.5rem + 1.8vw, 2.6rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--sw-ink);
+}
+
+.statLabel {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+}
+
+@media (max-width: 720px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat:nth-child(2n + 1) {
+    border-left: none;
+  }
+  .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--sw-hairline);
+  }
+}
+
+/* Principles + surfaces: hairline-bounded rows instead of the old boxed
+   grid — label column left, prose right. */
+.row {
+  grid-template-columns: minmax(160px, 240px) 1fr;
+  align-items: start;
+}
+
+.row h3 {
+  margin: 0;
+  color: var(--sw-ink);
+}
+
+.row p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--sw-muted);
+  line-height: 1.65;
+}
+
+@media (max-width: 720px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

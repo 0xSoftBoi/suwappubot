@@ -1,0 +1,6 @@
+/* Docs overview — hairline sidebar rail replacing the warm --summer-line
+   boundary, so the doc shell reads as the same quiet hairline system as
+   the rest of the institutional pages. */
+.sidebar:global(.docs-page__sidebar) {
+  border-right: 1px solid var(--sw-hairline);
+}

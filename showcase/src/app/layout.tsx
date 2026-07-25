@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Space_Grotesk, DM_Sans, Fira_Code } from 'next/font/google';
+import { Geist, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -8,20 +8,17 @@ import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
 
-const spaceGrotesk = Space_Grotesk({
+// Two families, one voice: Geist carries display + UI + body, JetBrains Mono
+// is rationed to numerals, kickers, and code. Geist is loaded ONCE — globals.css
+// aliases --font-display to --font-sans so both var() names resolve to the same
+// instance (no second font download).
+const geist = Geist({
   subsets: ['latin'],
-  variable: '--font-display',
-  display: 'swap',
-});
-
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
   variable: '--font-sans',
   display: 'swap',
 });
 
-const firaCode = Fira_Code({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   weight: ['400', '500'],
   variable: '--font-mono',
@@ -107,7 +104,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${spaceGrotesk.variable} ${dmSans.variable} ${firaCode.variable}`}>
+    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />

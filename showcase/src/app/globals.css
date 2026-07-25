@@ -3,12 +3,117 @@
 @tailwind utilities;
 
 /* ================================================================
+   INSTITUTIONAL TOKENS
+   The single accent/hairline/shadow system for the whole site.
+   summer-token-vars.css is GENERATED — never edit it; these tokens
+   layer on top of it and extend (never replace) the --pp-* premium
+   polish layer further down this file.
+   ================================================================ */
+:root {
+  /* Geist is loaded once in layout.tsx as --font-sans; display is an alias so
+     the existing var(--font-display) references need no edits. */
+  --font-display: var(--font-sans);
+
+  /* Accent — persimmon is the ONLY interactive accent */
+  --sw-accent: #E58D2B;
+  --sw-accent-bright: #F6A93C;
+  --sw-accent-deep: #C9731D;
+  --sw-accent-wash: rgba(229, 141, 43, 0.08);
+  --sw-accent-glow: rgba(229, 141, 43, 0.40);
+
+  /* Light register (content pages) */
+  --sw-canvas: #FFFEFB;
+  --sw-ink: #17324A;
+  --sw-muted: #4F6F7F;
+  --sw-panel: rgba(255, 255, 255, 0.85);
+
+  /* Dark register (cosmic homepage sections, terminal frames, 404) */
+  --sw-cosmic-0: #060A14;
+  --sw-cosmic-1: #0B1220;
+  --sw-cosmic-2: #121B2E;
+  --sw-cosmic-ink: #E8EEF6;
+  --sw-cosmic-muted: #93A5BC;
+
+  /* Hairlines */
+  --sw-hairline: rgba(23, 50, 74, 0.10);
+  --sw-hairline-strong: rgba(23, 50, 74, 0.18);
+  --sw-hairline-dark: rgba(160, 190, 220, 0.14);
+
+  /* Tinted shadows (never pure black) */
+  --sw-shadow-sm: 0 1px 2px rgba(16, 42, 62, 0.06), 0 4px 12px -6px rgba(16, 42, 62, 0.10);
+  --sw-shadow-md: 0 2px 4px rgba(16, 42, 62, 0.07), 0 12px 28px -12px rgba(16, 42, 62, 0.16);
+  --sw-shadow-accent: 0 14px 30px -12px var(--sw-accent-glow);
+  --sw-glow-inset: inset 0 -20px 80px -20px rgba(246, 169, 60, 0.07); /* dark cards only */
+
+  /* Radii */
+  --sw-r-xs: 6px;
+  --sw-r-sm: 10px;
+  --sw-r-md: 14px;
+  --sw-r-lg: 20px;
+  --sw-r-pill: 999px;
+
+  /* Rhythm (4px base grid) */
+  --sw-section: clamp(64px, 8vw, 112px);
+  --sw-gap: clamp(16px, 2vw, 28px);
+
+  /* Z-scale — every magic z-index in this file maps to one of these */
+  --z-bg: 0;
+  --z-content: 1;
+  --z-sticky: 20;
+  --z-drawer: 100;
+  --z-modal: 110;
+  --z-skip: 200;
+
+  /* Focus — 2px canvas halo + 2px persimmon ring */
+  --sw-focus: 0 0 0 2px var(--sw-canvas), 0 0 0 4px var(--sw-accent);
+  --sw-focus-dark: 0 0 0 2px var(--sw-cosmic-0), 0 0 0 4px var(--sw-accent-bright);
+
+  /* Motion — shared curve with the polish layer's --pp-ease */
+  --sw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sw-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Type scale — tracking tightens as size grows */
+  --type-display-1-size: clamp(2.7rem, 1.5rem + 4.4vw, 4.8rem);
+  --type-display-1-lh: 1;
+  --type-display-1-ls: -0.038em;
+  --type-display-2-size: clamp(2rem, 1.2rem + 2.5vw, 3rem);
+  --type-display-2-lh: 1.06;
+  --type-display-2-ls: -0.028em;
+  --type-h3-size: clamp(1.25rem, 1.05rem + 0.7vw, 1.5rem);
+  --type-h3-lh: 1.2;
+  --type-h3-ls: -0.015em;
+  --type-body-size: 1rem;
+  --type-body-lh: 1.6;
+  --type-lead-size: 1.125rem;
+  --type-small-size: 0.875rem;
+  --type-small-lh: 1.55;
+  --type-kicker-size: 0.72rem;
+  --type-kicker-ls: 0.14em;
+  --type-measure: 62ch;
+  --type-measure-read: 68ch;
+}
+
+/* ================================================================
    Base
    ================================================================ */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scroll-behavior: smooth;
+}
+
+/* Balanced headings / pretty lead measure — no ragged single-word lines. */
+h1,
+h2 {
+  text-wrap: balance;
+}
+
+.sw-lead,
+.summer-hero__lead,
+.mkt-hero__lead,
+.section__body,
+.hero__subtitle {
+  text-wrap: pretty;
 }
 
 /* ================================================================
@@ -38,7 +143,7 @@ html {
 .summer-bg {
   pointer-events: none;
   position: fixed;
-  z-index: 0;
+  z-index: var(--z-bg);
   opacity: 0.08;
 }
 
@@ -121,7 +226,7 @@ html {
 .summer-flower-field {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: var(--z-bg);
 }
 
 .summer-flower-field--hero .summer-flower:nth-child(1) {
@@ -166,7 +271,7 @@ html {
   position: absolute;
   right: 42px;
   top: 74px;
-  z-index: 0;
+  z-index: var(--z-bg);
   width: 86px;
   height: 86px;
   opacity: 0.94;
@@ -179,7 +284,7 @@ html {
 
 .summer-shell {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   width: min(100%, 1280px);
   margin: 0 auto;
   padding: 14px 20px 40px;
@@ -188,7 +293,7 @@ html {
 .summer-nav {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
@@ -216,6 +321,14 @@ html {
   width: 38px;
   height: 38px;
   flex: 0 0 auto;
+}
+
+.summer-nav__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .summer-nav nav {
@@ -368,7 +481,7 @@ html {
   border: 1px solid var(--summer-line);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.3)),
-    linear-gradient(135deg, rgba(244, 201, 99, 0.16), rgba(216, 243, 239, 0.5));
+    linear-gradient(180deg, rgba(244, 201, 99, 0.16), rgba(216, 243, 239, 0.5));
 }
 
 .summer-pledge__mark {
@@ -435,7 +548,7 @@ html {
     radial-gradient(circle at 86% 24%, rgba(255, 214, 182, 0.5), transparent 11rem),
     radial-gradient(circle at 10% 88%, rgba(244, 203, 215, 0.42), transparent 12rem),
     linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.26)),
-    linear-gradient(135deg, rgba(153, 214, 228, 0.7), rgba(255, 247, 231, 0.62) 58%, rgba(246, 253, 252, 0.94));
+    linear-gradient(180deg, rgba(153, 214, 228, 0.7), rgba(255, 247, 231, 0.62) 58%, rgba(246, 253, 252, 0.94));
   box-shadow: 0 20px 54px rgba(33, 88, 110, 0.1), 0 10px 28px rgba(176, 126, 64, 0.12);
 }
 
@@ -458,17 +571,17 @@ html {
 
 .summer-hero__copy {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   max-width: 620px;
 }
 
 .summer-kicker {
   margin: 0;
-  color: #3c8ca1;
+  color: var(--sw-accent);
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -670,7 +783,7 @@ html {
 
 .summer-terminal {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--summer-line);
@@ -686,7 +799,7 @@ html {
   position: absolute;
   right: 10px;
   bottom: 8px;
-  z-index: 0;
+  z-index: var(--z-bg);
   width: 82px;
   opacity: 0.36;
   transform: rotate(-20deg);
@@ -824,7 +937,7 @@ html {
   position: absolute;
   left: 18px;
   top: 30px;
-  z-index: 1;
+  z-index: var(--z-content);
   width: 72px;
   height: 72px;
   filter: drop-shadow(0 12px 16px rgba(118, 86, 38, 0.16));
@@ -834,7 +947,7 @@ html {
   position: absolute;
   right: 16px;
   bottom: 18px;
-  z-index: 1;
+  z-index: var(--z-content);
   width: 54px;
   opacity: 0.66;
   transform: rotate(16deg);
@@ -1000,7 +1113,7 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.22)),
-    linear-gradient(135deg, rgba(244, 201, 99, 0.2), rgba(216, 243, 239, 0.66));
+    linear-gradient(180deg, rgba(244, 201, 99, 0.2), rgba(216, 243, 239, 0.66));
 }
 
 .summer-sdk__flower {
@@ -1197,7 +1310,7 @@ html {
 
 .summer-terminal__log {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1241,7 +1354,7 @@ html {
 
 .summer-terminal__status {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
@@ -1305,7 +1418,7 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.22)),
-    linear-gradient(135deg, rgba(153, 214, 228, 0.4), rgba(216, 243, 239, 0.66));
+    linear-gradient(180deg, rgba(153, 214, 228, 0.4), rgba(216, 243, 239, 0.66));
 }
 
 .summer-hub__flower {
@@ -1319,7 +1432,7 @@ html {
 
 .summer-hub__head {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: end;
@@ -1343,7 +1456,7 @@ html {
 
 .summer-hub__grid {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -1395,7 +1508,7 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2)),
-    linear-gradient(135deg, rgba(244, 201, 99, 0.26), rgba(247, 213, 223, 0.5));
+    linear-gradient(180deg, rgba(244, 201, 99, 0.26), rgba(247, 213, 223, 0.5));
 }
 
 .summer-tempo__flower {
@@ -1409,7 +1522,7 @@ html {
 
 .summer-tempo__copy {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
 }
 
 .summer-tempo__copy h2 {
@@ -1447,7 +1560,7 @@ html {
 
 .summer-tempo__rail {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   gap: 6px;
 }
@@ -1500,7 +1613,7 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2)),
-    linear-gradient(135deg, rgba(99, 179, 237, 0.22), rgba(247, 213, 223, 0.42));
+    linear-gradient(180deg, rgba(99, 179, 237, 0.22), rgba(247, 213, 223, 0.42));
 }
 
 .summer-mobile__flower {
@@ -1514,7 +1627,7 @@ html {
 
 .summer-mobile__copy {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
 }
 
 .summer-mobile__copy h2 {
@@ -1552,7 +1665,7 @@ html {
 
 .summer-mobile__panel {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   padding: 22px;
   border: 1px solid rgba(207, 227, 234, 0.9);
   border-radius: 14px;
@@ -1573,7 +1686,7 @@ html {
 /* ── Dark "pro terminal" embed ── */
 .pro-term {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   min-width: 0;
   overflow: hidden;
   border-radius: 12px;
@@ -1809,7 +1922,7 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.18)),
-    linear-gradient(135deg, rgba(94, 234, 212, 0.22), rgba(56, 189, 248, 0.18));
+    linear-gradient(180deg, rgba(94, 234, 212, 0.22), rgba(56, 189, 248, 0.18));
 }
 .summer-agents__flower {
   position: absolute;
@@ -1821,7 +1934,7 @@ html {
 }
 .summer-agents__head {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   max-width: 660px;
 }
 .summer-agents__head h2 {
@@ -1838,7 +1951,7 @@ html {
 }
 .summer-agents__grid {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -2270,12 +2383,12 @@ html {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2)),
-    linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(216, 243, 239, 0.56));
+    linear-gradient(180deg, rgba(56, 189, 248, 0.16), rgba(216, 243, 239, 0.56));
 }
 
 .summer-devlayer__head {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   max-width: 680px;
   margin-bottom: 22px;
 }
@@ -2296,7 +2409,7 @@ html {
 
 .summer-devlayer__grid {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -2378,7 +2491,7 @@ html {
 
 .summer-devlayer__cta {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2460,7 +2573,7 @@ html {
 
 .agents-shell {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   width: min(100%, 1100px);
   margin: 0 auto;
   padding: 0 20px 60px;
@@ -2638,9 +2751,9 @@ body {
   position: absolute;
   top: -100%;
   left: 1rem;
-  z-index: 200;
-  background: var(--suwappu-summer-accent);
-  color: white;
+  z-index: var(--z-skip);
+  background: var(--sw-accent);
+  color: #17324a;
   padding: 0.75rem 1.5rem;
   border-radius: 0 0 8px 8px;
   font-weight: 600;
@@ -2653,11 +2766,20 @@ body {
   top: 0;
 }
 
-/* Focus-visible outlines */
+/* Focus-visible: one persimmon ring everywhere (links, buttons, inputs, nav).
+   box-shadow instead of outline so the ring hugs rounded corners; the
+   forced-colors fallback below keeps it visible when shadows are dropped. */
 :focus-visible {
-  outline: 2px solid var(--suwappu-summer-accent);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline: none;
+  box-shadow: var(--sw-focus);
+  border-radius: var(--sw-r-xs);
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 a:focus:not(:focus-visible),
@@ -2666,8 +2788,8 @@ button:focus:not(:focus-visible) {
 }
 
 ::selection {
-  background: var(--suwappu-summer-accent);
-  color: white;
+  background: var(--sw-accent);
+  color: #17324a;
 }
 
 /* ================================================================
@@ -2678,24 +2800,30 @@ button:focus:not(:focus-visible) {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 100;
+  /* .nav owns a stacking context — its children (backdrop / drawer /
+     hamburger) layer against each other, not against the page. */
+  z-index: var(--z-drawer);
   padding: 1rem 2rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  transition: background 0.3s, box-shadow 0.3s;
+  border-bottom: 1px solid transparent;
+  transition: background 0.24s var(--sw-ease), border-color 0.24s var(--sw-ease),
+    backdrop-filter 0.24s var(--sw-ease);
 }
 
+/* Applied after 8px of scroll — glass blur plus a single hairline, no shadow. */
 .nav--scrolled {
-  background: rgba(250, 248, 244, 0.9);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 1px 0 #e5e0d8;
+  background: rgba(255, 248, 237, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom-color: var(--sw-hairline);
 }
 
 .nav__logo {
   font-family: var(--font-display);
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
   color: #1a1a1a;
   text-decoration: none;
   letter-spacing: -0.03em;
@@ -2703,36 +2831,82 @@ button:focus:not(:focus-visible) {
 
 .nav__links {
   display: flex;
-  gap: 2rem;
+  gap: 1.75rem;
   align-items: center;
 }
 
 .nav__link {
+  position: relative;
+  padding: 4px 0;
   font-size: 0.875rem;
   font-weight: 500;
   color: #6b6560;
   text-decoration: none;
-  transition: color 0.2s;
+  transition: color 0.16s var(--sw-ease);
 }
 
 .nav__link:hover {
   color: #1a1a1a;
 }
 
+/* Active route / scroll-spied section: 2px persimmon underline, never a pill. */
+.nav__link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--sw-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.2s var(--sw-ease);
+}
+
+.nav__link--active {
+  color: #1a1a1a;
+}
+
+.nav__link--active::after {
+  transform: scaleX(1);
+}
+
 .nav__cta {
   font-size: 0.875rem;
   font-weight: 600;
-  color: white;
-  background: var(--suwappu-summer-accent);
+  color: #17324a;
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  border: 1px solid var(--sw-accent-deep);
   padding: 0.5rem 1.25rem;
-  border-radius: 50px;
+  border-radius: var(--sw-r-pill);
   text-decoration: none;
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: transform 0.16s var(--sw-ease), box-shadow 0.16s var(--sw-ease),
+    background 0.16s var(--sw-ease);
 }
 
 .nav__cta:hover {
-  background: #ec4899;
-  box-shadow: 0 4px 16px rgba(244, 114, 182, 0.3);
+  transform: translateY(-2px);
+  box-shadow: var(--sw-shadow-accent);
+}
+
+.nav__cta:active {
+  transform: translateY(-1px);
+  box-shadow: var(--sw-shadow-sm);
+}
+
+/* Ghost secondary — "Talk to sales" lives here and on enterprise surfaces only. */
+.nav__cta--ghost {
+  color: #17324a;
+  background: transparent;
+  border: 1px solid var(--sw-hairline-strong);
+  box-shadow: none;
+}
+
+.nav__cta--ghost:hover {
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-deep);
+  box-shadow: none;
 }
 
 .nav__cta--whatsapp {
@@ -2754,7 +2928,7 @@ button:focus:not(:focus-visible) {
   border: none;
   cursor: pointer;
   padding: 8px;
-  z-index: 110;
+  z-index: var(--z-modal);
 }
 
 .nav__hamburger-line {
@@ -2778,12 +2952,12 @@ button:focus:not(:focus-visible) {
   transform: translateY(-7px) rotate(-45deg);
 }
 
-/* Backdrop */
+/* Backdrop — z-values below are local to .nav's stacking context. */
 .nav__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 99;
+  background: rgba(6, 10, 20, 0.45);
+  z-index: var(--z-bg);
 }
 
 /* Mobile drawer */
@@ -2792,16 +2966,18 @@ button:focus:not(:focus-visible) {
   top: 0;
   right: 0;
   width: 280px;
-  height: 100vh;
-  background: #faf8f4;
-  z-index: 105;
+  /* dvh, not vh — vh leaves a gap under mobile browser chrome. */
+  height: 100dvh;
+  background: var(--suwappu-summer-canvas-warm);
+  z-index: var(--z-content);
   padding: 5rem 2rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  overflow-y: auto;
   transform: translateX(100%);
-  transition: transform 0.3s ease;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s var(--sw-ease);
+  box-shadow: -4px 0 24px rgba(16, 42, 62, 0.12);
 }
 
 .nav__drawer--open {
@@ -2814,12 +2990,18 @@ button:focus:not(:focus-visible) {
   color: #1a1a1a;
   text-decoration: none;
   padding: 0.75rem 0;
-  border-bottom: 1px solid #e5e0d8;
-  transition: color 0.2s;
+  border-bottom: 1px solid var(--sw-hairline);
+  transition: color 0.16s var(--sw-ease);
 }
 
 .nav__drawer-link:hover {
-  color: var(--suwappu-summer-accent);
+  color: var(--sw-accent-deep);
+}
+
+.nav__drawer-link--active {
+  color: #1a1a1a;
+  box-shadow: inset 2px 0 0 var(--sw-accent);
+  padding-left: 10px;
 }
 
 .nav__drawer-cta {
@@ -2828,16 +3010,34 @@ button:focus:not(:focus-visible) {
   font-size: 1rem;
   font-weight: 600;
   color: #17324a;
-  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  border: 1px solid var(--sw-accent-deep);
   padding: 0.875rem 1.25rem;
-  border-radius: 50px;
+  border-radius: var(--sw-r-pill);
   text-decoration: none;
   margin-top: 1rem;
-  transition: background 0.2s;
+  transition: background 0.16s var(--sw-ease), transform 0.16s var(--sw-ease);
 }
 
 .nav__drawer-cta:hover {
-  background: linear-gradient(180deg, #f8b450, #d9821f);
+  background: linear-gradient(180deg, #f8b450, var(--sw-accent-deep));
+}
+
+.nav__drawer-cta:active {
+  transform: translateY(-1px);
+}
+
+.nav__drawer-cta--ghost {
+  color: #17324a;
+  background: transparent;
+  border-color: var(--sw-hairline-strong);
+  margin-top: 0.6rem;
+}
+
+.nav__drawer-cta--ghost:hover {
+  background: transparent;
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-deep);
 }
 
 .nav__drawer-cta--whatsapp {
@@ -2864,7 +3064,7 @@ button:focus:not(:focus-visible) {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--suwappu-summer-accent);
+  color: var(--sw-accent);
   margin-bottom: 0.75rem;
 }
 
@@ -4151,7 +4351,7 @@ button:focus:not(:focus-visible) {
   color: var(--suwappu-summer-accent);
   background: rgba(14, 165, 233, 0.06);
 }
-.docs-shell .docs-nav__back:hover { color: var(--suwappu-summer-accent); }
+.docs-shell .docs-nav__back:hover { color: var(--sw-accent); }
 
 /* Reader: code blocks + prose on Summer Breeze */
 .docs-shell .doc-reader h1,
@@ -4159,7 +4359,7 @@ button:focus:not(:focus-visible) {
 .docs-shell .doc-reader h3 { color: var(--summer-ink); }
 .docs-shell .doc-reader p,
 .docs-shell .doc-reader li { color: #345069; }
-.docs-shell .doc-reader a { color: var(--suwappu-summer-accent); }
+.docs-shell .doc-reader a { color: var(--sw-accent); }
 .docs-shell .doc-reader code {
   background: rgba(14, 165, 233, 0.1);
   border-color: var(--summer-line);
@@ -4210,7 +4410,7 @@ button:focus:not(:focus-visible) {
 .docs-shell .doc-reader h1:hover .doc-anchor,
 .docs-shell .doc-reader h2:hover .doc-anchor,
 .docs-shell .doc-reader h3:hover .doc-anchor { opacity: 1; }
-.docs-shell .doc-anchor:hover { color: var(--suwappu-summer-accent); }
+.docs-shell .doc-anchor:hover { color: var(--sw-accent); }
 .docs-shell .doc-method {
   display: inline-block;
   margin-right: 9px;
@@ -4322,8 +4522,8 @@ button:focus:not(:focus-visible) {
   font-size: 0.8rem;
   cursor: pointer;
 }
-.docs-search__trigger:hover { border-color: var(--suwappu-summer-accent); }
-.docs-search__trigger-icon { color: var(--suwappu-summer-accent); font-size: 1rem; line-height: 1; }
+.docs-search__trigger:hover { border-color: var(--sw-accent); }
+.docs-search__trigger-icon { color: var(--sw-accent); font-size: 1rem; line-height: 1; }
 .docs-search__kbd {
   margin-left: auto;
   padding: 1px 6px;
@@ -4337,7 +4537,7 @@ button:focus:not(:focus-visible) {
 .docs-search__overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--z-modal);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -4461,7 +4661,7 @@ button:focus:not(:focus-visible) {
   text-decoration: none;
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
-.status-surface:hover { border-color: var(--suwappu-summer-accent); transform: translateY(-2px); }
+.status-surface:hover { border-color: var(--sw-accent); transform: translateY(-2px); }
 .status-surface h3 { margin: 0 0 6px; color: var(--summer-ink); font-size: 1rem; }
 .status-surface p { margin: 0; color: var(--summer-muted); font-size: 0.85rem; line-height: 1.5; }
 @media (max-width: 860px) { .status-surfaces__grid { grid-template-columns: 1fr; } }
@@ -4485,7 +4685,7 @@ button:focus:not(:focus-visible) {
   padding: 2.5rem;
   text-align: center;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(153, 214, 228, 0.4), rgba(255, 247, 231, 0.5));
+  background: linear-gradient(180deg, rgba(153, 214, 228, 0.4), rgba(255, 247, 231, 0.5));
 }
 .mkt-cta h2 { margin: 0 0 1.25rem; color: var(--summer-ink); font-size: 1.9rem; }
 .mkt-cta .summer-actions { justify-content: center; }
@@ -4544,7 +4744,7 @@ button:focus:not(:focus-visible) {
 .compare-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-content);
   padding: 14px 16px;
   vertical-align: bottom;
   background: rgba(244, 251, 253, 0.96);
@@ -4676,18 +4876,21 @@ button:focus:not(:focus-visible) {
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
 }
-.pricing-card--featured { border-color: var(--suwappu-summer-accent); box-shadow: 0 18px 36px rgba(14, 118, 158, 0.18); }
+.pricing-card--featured { border-color: var(--sw-accent); box-shadow: var(--sw-shadow-md); }
+/* Recommended badge: persimmon on neutral ink — never the sky/blue accent. */
 .pricing-card__badge {
   position: absolute;
   top: -11px;
   left: 22px;
   padding: 3px 10px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  color: #fff;
+  border-radius: var(--sw-r-pill);
+  border: 1px solid var(--sw-accent-deep);
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  color: #17324a;
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  font-weight: 800;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .pricing-card h2 { margin: 0; color: var(--summer-ink); font-size: 1.3rem; }
@@ -4729,9 +4932,12 @@ button:focus:not(:focus-visible) {
   gap: 14px;
   margin-top: 2.5rem;
   padding: 24px 28px;
-  border: 1px solid var(--suwappu-summer-accent);
+  border: 1px solid var(--sw-accent);
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(14, 118, 158, 0.07) 0%, rgba(255, 255, 255, 0.72) 100%);
+  /* Wash, not a surface fill — radial keeps the accent off the hard edges. */
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--sw-accent-wash), transparent 62%),
+    rgba(255, 255, 255, 0.72);
 }
 /* Neutral/teal variant of the callout band — dev-setup callouts (e.g. MCP
    client config) rather than a sales CTA. Shares the enterprise band's
@@ -4745,7 +4951,9 @@ button:focus:not(:focus-visible) {
   padding: 24px 28px;
   border: 1px solid var(--summer-green);
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(47, 143, 91, 0.08) 0%, rgba(255, 255, 255, 0.72) 100%);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(47, 143, 91, 0.10), transparent 62%),
+    rgba(255, 255, 255, 0.72);
 }
 .mkt-callout--info .mkt-callout__eyebrow { background: var(--summer-green); }
 .mkt-callout--info .mkt-callout__body code {
@@ -4941,7 +5149,7 @@ button:focus:not(:focus-visible) {
   margin-top: 2.5rem;
   padding: 26px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(94, 234, 212, 0.18), rgba(56, 189, 248, 0.14));
+  background: linear-gradient(180deg, rgba(94, 234, 212, 0.18), rgba(56, 189, 248, 0.14));
 }
 .security-disclose h2 { margin: 8px 0 0; }
 .security-disclose p { margin: 12px 0 0; color: #345069; line-height: 1.6; }
@@ -4972,9 +5180,9 @@ button:focus:not(:focus-visible) {
   margin: 0;
   padding: 18px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(153, 214, 228, 0.32), rgba(216, 243, 239, 0.6));
+  background: linear-gradient(180deg, rgba(153, 214, 228, 0.32), rgba(216, 243, 239, 0.6));
 }
-.solution-row__points--alt { background: linear-gradient(135deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
+.solution-row__points--alt { background: linear-gradient(180deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
 .solution-row__points li { position: relative; padding-left: 22px; color: var(--summer-ink); font-size: 0.9rem; line-height: 1.45; }
 .solution-row__points li::before { content: "→"; position: absolute; left: 0; color: var(--summer-persimmon); font-weight: 800; }
 /* Solution row code hint — right column, wraps .summer-code in the alternating
@@ -4982,9 +5190,9 @@ button:focus:not(:focus-visible) {
 .solution-row__code {
   padding: 10px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(153, 214, 228, 0.32), rgba(216, 243, 239, 0.6));
+  background: linear-gradient(180deg, rgba(153, 214, 228, 0.32), rgba(216, 243, 239, 0.6));
 }
-.solution-row__code--alt { background: linear-gradient(135deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
+.solution-row__code--alt { background: linear-gradient(180deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
 .solution-row__code .summer-code { margin: 0; }
 
 /* About */
@@ -5003,7 +5211,7 @@ button:focus:not(:focus-visible) {
   padding: 2.5rem;
   text-align: center;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(94, 234, 212, 0.2), rgba(56, 189, 248, 0.16));
+  background: linear-gradient(180deg, rgba(94, 234, 212, 0.2), rgba(56, 189, 248, 0.16));
   scroll-margin-top: 6rem;
 }
 .about-careers h2 { max-width: 620px; margin: 8px auto 0; }
@@ -5028,7 +5236,7 @@ button:focus:not(:focus-visible) {
 /* Footer */
 .summer-footer {
   margin-top: 2.5rem;
-  border-top: 1px solid var(--summer-line);
+  border-top: 1px solid var(--sw-hairline);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(237, 248, 250, 0.7));
 }
 .summer-footer__inner {
@@ -5044,8 +5252,9 @@ button:focus:not(:focus-visible) {
 .summer-footer__logo span { color: var(--summer-ink); font-family: var(--font-display); font-weight: 700; font-size: 1.2rem; }
 .summer-footer__brand p { max-width: 300px; margin: 14px 0 0; color: var(--summer-muted); font-size: 0.88rem; line-height: 1.6; }
 .summer-footer__social { display: flex; gap: 14px; margin-top: 16px; }
-.summer-footer__social a { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; text-decoration: none; }
-.summer-footer__social a:hover { color: var(--suwappu-summer-accent); }
+.summer-footer__social a { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; text-decoration: none; transition: color 0.16s var(--sw-ease); }
+/* One hover colour for every footer link — persimmon, no exceptions. */
+.summer-footer__social a:hover { color: var(--sw-accent-deep); }
 .summer-footer__cols { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; }
 .summer-footer__col h3 {
   margin: 0 0 12px;
@@ -5057,8 +5266,24 @@ button:focus:not(:focus-visible) {
   letter-spacing: 0.04em;
 }
 .summer-footer__col ul { display: grid; gap: 9px; list-style: none; margin: 0; padding: 0; }
-.summer-footer__col a { color: var(--summer-muted); font-size: 0.86rem; text-decoration: none; }
-.summer-footer__col a:hover { color: var(--summer-ink); }
+.summer-footer__col a { color: var(--summer-muted); font-size: 0.86rem; text-decoration: none; transition: color 0.16s var(--sw-ease); }
+.summer-footer__col a:hover { color: var(--sw-accent-deep); }
+
+/* Legal / regulatory line — prose only, no compliance badges we don't hold. */
+.summer-footer__legal {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 24px 0;
+  border-top: 1px solid var(--sw-hairline);
+  color: var(--summer-muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+.summer-footer__legal p { margin: 0; max-width: 88ch; }
+.summer-footer__legal p + p { margin-top: 6px; }
+.summer-footer__legal a { color: var(--summer-muted); text-decoration: underline; text-underline-offset: 2px; }
+.summer-footer__legal a:hover { color: var(--sw-accent-deep); }
+
 .summer-footer__bottom {
   display: flex;
   flex-wrap: wrap;
@@ -5067,7 +5292,7 @@ button:focus:not(:focus-visible) {
   max-width: 1180px;
   margin: 0 auto;
   padding: 16px 24px;
-  border-top: 1px solid var(--summer-line);
+  border-top: 1px solid var(--sw-hairline);
   color: var(--summer-muted);
   font-size: 0.78rem;
 }
@@ -5094,24 +5319,45 @@ button:focus:not(:focus-visible) {
   color: var(--summer-ink);
   font-size: 0.84rem;
 }
-.summer-footer__newsletter-input:focus {
-  outline: 2px solid var(--suwappu-summer-accent);
-  outline-offset: 1px;
+.summer-footer__newsletter-input:focus-visible {
+  outline: none;
+  box-shadow: var(--sw-focus);
 }
 .summer-footer__newsletter-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 9px 14px;
-  border: none;
+  border: 1px solid var(--sw-accent-deep);
   border-radius: 8px;
-  background: var(--suwappu-summer-accent);
-  color: #fff;
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  color: #17324a;
   font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 0.16s var(--sw-ease), box-shadow 0.16s var(--sw-ease);
 }
-.summer-footer__newsletter-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.summer-footer__newsletter-submit:hover:not(:disabled) { transform: translateY(-2px); box-shadow: var(--sw-shadow-accent); }
+.summer-footer__newsletter-submit:active:not(:disabled) { transform: translateY(-1px); box-shadow: var(--sw-shadow-sm); }
+.summer-footer__newsletter-submit:disabled { opacity: 0.72; cursor: progress; }
+
+/* Submit spinner — visible loading state while the POST is in flight. */
+.summer-footer__newsletter-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(23, 50, 74, 0.28);
+  border-top-color: #17324a;
+  animation: sw-spin 0.7s linear infinite;
+}
+@keyframes sw-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .summer-footer__newsletter-spinner { animation: none; border-top-color: rgba(23, 50, 74, 0.28); }
+}
+
 .summer-footer__newsletter-status { margin: 8px 0 0; font-size: 0.78rem; }
-.summer-footer__newsletter-status--success { color: var(--suwappu-summer-accent); }
+.summer-footer__newsletter-status--success { color: var(--sw-accent-deep); }
 .summer-footer__newsletter-status--error { color: #DC5B4A; }
 .summer-footer__newsletter-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 
@@ -5143,7 +5389,7 @@ button:focus:not(:focus-visible) {
 }
 .summer-verify span { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; text-transform: uppercase; }
 .summer-verify a { color: #0b789a; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; text-decoration: none; }
-.summer-verify a:hover { color: var(--suwappu-summer-accent); text-decoration: underline; }
+.summer-verify a:hover { color: var(--sw-accent); text-decoration: underline; }
 
 /* Research feed + posts */
 .research-featured {
@@ -5152,10 +5398,10 @@ button:focus:not(:focus-visible) {
   padding: 26px;
   border: 1px solid var(--summer-line);
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(153, 214, 228, 0.34), rgba(216, 243, 239, 0.6));
+  background: linear-gradient(180deg, rgba(153, 214, 228, 0.34), rgba(216, 243, 239, 0.6));
   text-decoration: none;
 }
-.research-featured:hover { border-color: var(--suwappu-summer-accent); }
+.research-featured:hover { border-color: var(--sw-accent); }
 .research-featured__meta, .research-row__meta, .research-post__meta {
   display: flex;
   align-items: center;
@@ -5166,7 +5412,7 @@ button:focus:not(:focus-visible) {
 }
 .research-featured h2 { margin: 12px 0 0; color: var(--summer-ink); font-size: 1.7rem; line-height: 1.1; }
 .research-featured p { max-width: 680px; margin: 10px 0 0; color: #345069; line-height: 1.6; }
-.research-featured__more { display: inline-block; margin-top: 14px; color: var(--suwappu-summer-accent); font-weight: 700; }
+.research-featured__more { display: inline-block; margin-top: 14px; color: var(--sw-accent); font-weight: 700; }
 .research-tag {
   padding: 3px 9px;
   border-radius: 999px;
@@ -5190,7 +5436,7 @@ button:focus:not(:focus-visible) {
   background: rgba(255, 255, 255, 0.78);
   text-decoration: none;
 }
-.research-row:hover { border-color: var(--suwappu-summer-accent); }
+.research-row:hover { border-color: var(--sw-accent); }
 .research-row__meta { flex-direction: column; align-items: flex-start; gap: 8px; }
 .research-row__body h3 { margin: 0; color: var(--summer-ink); font-size: 1.1rem; }
 .research-row__body p { margin: 6px 0 0; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.5; }
@@ -5200,7 +5446,7 @@ button:focus:not(:focus-visible) {
 .research-post { max-width: 820px; }
 .research-post__head { margin: 1rem 0 1.5rem; }
 .research-post__head h1 { margin: 12px 0 0; color: var(--summer-ink); font-family: var(--font-display); font-size: 2.4rem; line-height: 1.12; }
-.research-post__back { display: inline-block; margin-top: 2rem; color: var(--suwappu-summer-accent); font-weight: 700; text-decoration: none; }
+.research-post__back { display: inline-block; margin-top: 2rem; color: var(--sw-accent); font-weight: 700; text-decoration: none; }
 
 /* Changelog (marketing) */
 .changelog { margin-top: 1rem; }
@@ -5234,7 +5480,7 @@ button:focus:not(:focus-visible) {
   background: rgba(255, 255, 255, 0.82);
   text-decoration: none;
 }
-.careers-role:hover { border-color: var(--suwappu-summer-accent); }
+.careers-role:hover { border-color: var(--sw-accent); }
 .careers-role > div { display: flex; flex-direction: column; gap: 3px; }
 .careers-role__team { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.66rem; text-transform: uppercase; }
 .careers-role strong { color: var(--summer-ink); font-size: 1.05rem; }
@@ -5245,7 +5491,7 @@ button:focus:not(:focus-visible) {
   padding: 24px;
   text-align: center;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(244, 201, 99, 0.22), rgba(247, 213, 223, 0.5));
+  background: linear-gradient(180deg, rgba(244, 201, 99, 0.22), rgba(247, 213, 223, 0.5));
 }
 .careers-escape h3 { margin: 0; color: var(--summer-ink); font-size: 1.3rem; }
 .careers-escape p { max-width: 540px; margin: 10px auto 16px; color: #345069; line-height: 1.6; }
@@ -5268,8 +5514,8 @@ button:focus:not(:focus-visible) {
 }
 .nav__link { color: #4f6f7f; }
 .nav__link:hover { color: #17324a; }
-.nav__cta { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
-.nav__cta:hover {
+.nav__cta:not(.nav__cta--ghost) { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
+.nav__cta:not(.nav__cta--ghost):hover {
   background: linear-gradient(180deg, #f8b450, #d9821f);
   box-shadow: 0 6px 18px rgba(229, 141, 43, 0.3);
 }
@@ -5326,7 +5572,7 @@ button:focus:not(:focus-visible) {
   pointer-events: none;
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: var(--z-bg);
   overflow: hidden;
 }
 
@@ -5826,7 +6072,7 @@ button:focus:not(:focus-visible) {
 .summer-page--cosmic .summer-stat strong {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, var(--pp-ink) 0%, var(--summer-sky-deep) 120%);
+  background: linear-gradient(180deg, var(--pp-ink) 0%, var(--summer-sky-deep) 120%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -6001,7 +6247,9 @@ button:focus:not(:focus-visible) {
   max-width: fit-content;
   border: 1px solid var(--summer-line, rgba(0, 0, 0, 0.12));
   border-radius: 999px;
-  background: linear-gradient(135deg, rgba(99, 179, 237, 0.16), rgba(247, 213, 223, 0.28));
+  background:
+    radial-gradient(140% 180% at 0% 50%, var(--sw-accent-wash), transparent 70%),
+    rgba(255, 255, 255, 0.72);
   color: var(--summer-ink);
   font-size: 0.82rem;
   font-weight: 600;
@@ -6102,10 +6350,10 @@ button:focus:not(:focus-visible) {
 .mkt-hero__clerk {
   margin: 14px auto 0;
   max-width: 480px;
-  color: var(--summer-green, #2a7a4f);
+  color: var(--sw-muted);
   font-family: var(--font-mono);
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.02em;
   text-align: center;
 }
@@ -6301,12 +6549,13 @@ button:focus:not(:focus-visible) {
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--suwappu-summer-accent) 0%, var(--suwappu-summer-accent-deep, #0e769e) 100%);
-  color: #fff;
+  background: linear-gradient(180deg, var(--sw-accent-bright) 0%, var(--sw-accent) 100%);
+  border: 1px solid var(--sw-accent-deep);
+  color: #17324a;
   font-family: var(--font-mono);
   font-size: 0.92rem;
-  font-weight: 800;
-  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.28);
+  font-weight: 700;
+  box-shadow: var(--sw-shadow-accent);
 }
 
 .agent-payments__note {
@@ -6380,4 +6629,213 @@ button:focus:not(:focus-visible) {
   color: var(--summer-muted);
   font-size: 0.94rem;
   line-height: 1.65;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SITE-WIDE UTILITIES  (institutional layer — owned by the shared chrome)
+   Composable classes any page/module can apply. Loaded last so a utility
+   wins a specificity tie against a page rule. Every animation here is
+   gated by prefers-reduced-motion: no-preference.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Type utilities ── */
+.sw-display-1 {
+  font-family: var(--font-display);
+  font-size: var(--type-display-1-size);
+  line-height: var(--type-display-1-lh);
+  letter-spacing: var(--type-display-1-ls);
+  font-weight: 600;
+  text-wrap: balance;
+}
+.sw-display-2 {
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+  text-wrap: balance;
+}
+.sw-h3 {
+  font-family: var(--font-display);
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-lh);
+  letter-spacing: var(--type-h3-ls);
+  font-weight: 600;
+}
+.sw-lead {
+  font-size: var(--type-lead-size);
+  line-height: var(--type-body-lh);
+  max-width: var(--type-measure);
+  color: var(--sw-muted);
+}
+.sw-small {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-lh);
+}
+/* Reading measure for long-form prose (docs, legal, research). */
+.sw-measure { max-width: var(--type-measure-read); }
+
+/* Kicker: mono, rationed. Keeps the polish-layer's "— LABEL" rule device. */
+.sw-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--sw-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-kicker-size);
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls);
+  text-transform: uppercase;
+}
+.sw-kicker::before {
+  content: '';
+  width: 20px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+/* ── Tabular numerals: every numeral surface site-wide, so digits never jitter ── */
+.sw-nums,
+.summer-stat strong,
+.summer-table__row,
+.pricing-card__price,
+.pricing-card__fee,
+.pricing-table__row,
+.pricing-table__val,
+.compare-matrix__row,
+.fee-calc,
+.status-page,
+.mkt-stat,
+.about-stat,
+time,
+code,
+kbd,
+samp,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Hairline architecture: rules and rows instead of boxed cards ── */
+.sw-rule { border-top: 1px solid var(--sw-hairline); }
+.sw-rule--strong { border-top: 1px solid var(--sw-hairline-strong); }
+.sw-rule--dark { border-top: 1px solid var(--sw-hairline-dark); }
+.sw-section { padding-block: var(--sw-section); }
+/* Parent utility: hairline between every child row, none above the first. */
+.sw-rows > * + * { border-top: 1px solid var(--sw-hairline); }
+.sw-rows--dark > * + * { border-top-color: var(--sw-hairline-dark); }
+.sw-row {
+  display: grid;
+  gap: var(--sw-gap);
+  padding-block: var(--sw-gap);
+}
+
+/* ── Shine border (mask-composite, zero JS). 1px persimmon ring that drifts.
+   Under reduced motion the same ring renders as a static gradient. ── */
+.sw-shine { position: relative; isolation: isolate; }
+.sw-shine::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-bg);
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    radial-gradient(60% 130% at 50% 0%, var(--sw-accent-bright) 0%, var(--sw-accent-glow) 32%, transparent 62%);
+  background-size: 300% 300%;
+  background-position: 0% 50%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+@keyframes sw-shine-drift {
+  to { background-position: 300% 50%; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sw-shine::before { animation: sw-shine-drift 12s linear infinite; }
+}
+
+/* ── Dark-register card: inset glow + dark hairline. No outer glow, no neon. ── */
+.sw-card-dark {
+  border: 1px solid var(--sw-hairline-dark);
+  border-radius: var(--sw-r-md);
+  background: linear-gradient(180deg, var(--sw-cosmic-1) 0%, var(--sw-cosmic-0) 100%);
+  box-shadow: var(--sw-glow-inset);
+  color: var(--sw-cosmic-ink);
+  /* Focus rings inside a dark card need the dark halo. */
+  --sw-focus: var(--sw-focus-dark);
+}
+.sw-card-dark :is(h1, h2, h3, h4) { color: var(--sw-cosmic-ink); }
+.sw-card-dark :is(p, li, td, th) { color: var(--sw-cosmic-muted); }
+.sw-card-dark :is(code, pre) { color: var(--sw-cosmic-ink); }
+.sw-card-dark a:not(.summer-button) { color: var(--sw-accent-bright); }
+
+/* ── Grain: the cosmic film-grain tile promoted to a utility. Consumers must
+   not already own ::after on the same element. ── */
+.sw-grain { position: relative; }
+.sw-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-bg);
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.sw-grain--dark::after { opacity: 0.06; }
+
+/* ── Scroll-driven staggered reveal. Chromium-only progressive enhancement;
+   everywhere else the content is simply static. Note: view() timelines ignore
+   a time-based animation-delay, so --rise-i also shifts the entry range. ── */
+@keyframes sw-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .sw-rise {
+      animation: sw-rise linear both;
+      animation-timeline: view();
+      animation-range: entry calc(var(--rise-i, 0) * 3%) cover 18%;
+      animation-delay: calc(var(--rise-i, 0) * 60ms);
+    }
+  }
+}
+
+/* ── Press compression: every button/CTA answers the click. ── */
+button:not(:disabled):active,
+a.summer-button:active,
+.summer-button:active,
+.mkt-cta__btn:active,
+.pricing-card__cta:active {
+  transform: translateY(0);
+  box-shadow: var(--sw-shadow-sm);
+  transition-duration: 90ms;
+}
+.summer-button--primary:active,
+.nav__cta:not(.nav__cta--ghost):active {
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active,
+  a.summer-button:active,
+  .summer-button:active,
+  .summer-button--primary:active,
+  .nav__cta:active,
+  .nav__cta:hover,
+  .nav__drawer-cta:active,
+  .summer-footer__newsletter-submit:hover:not(:disabled),
+  .summer-footer__newsletter-submit:active:not(:disabled) {
+    transform: none;
+  }
+  .sw-rise { animation: none; }
+  .nav__link::after { transition: none; }
 }

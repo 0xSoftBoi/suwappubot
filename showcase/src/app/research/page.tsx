@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { publishedPosts, plannedPosts } from '@/content/research';
+import styles from './research.module.css';
 
 export const metadata: Metadata = {
   title: 'Research — Suwappu',
@@ -30,35 +31,39 @@ export default function ResearchPage() {
           </p>
         </header>
 
-        {featured && (
-          <a className="research-featured" href={`/research/${featured.slug}`}>
-            <div className="research-featured__meta">
-              <span className="research-tag">{featured.category}</span>
-              <time>{fmtDate(featured.date)}</time>
-              {featured.readMins && <span>{featured.readMins} min read</span>}
-            </div>
-            <h2>{featured.title}</h2>
-            <p>{featured.excerpt}</p>
-            <span className="research-featured__more">Read →</span>
-          </a>
-        )}
+        <div className={`sw-rows ${styles.list}`}>
+          {featured && (
+            <article className={`sw-row ${styles.row} ${styles['row--featured']}`}>
+              <div className={styles.meta}>
+                <span className="research-tag">{featured.category}</span>
+                <time className={styles.date}>{fmtDate(featured.date)}</time>
+                {featured.readMins && <span className={styles.readMins}>{featured.readMins} min read</span>}
+              </div>
+              <div>
+                <h2 className={styles.title}>
+                  <a href={`/research/${featured.slug}`}>{featured.title}</a>
+                </h2>
+                <p className={styles.dek}>{featured.excerpt}</p>
+                <span className={styles.more} aria-hidden="true">Read →</span>
+              </div>
+            </article>
+          )}
 
-        <ul className="research-feed">
           {rest.map((p) => (
-            <li key={p.slug}>
-              <a href={`/research/${p.slug}`} className="research-row">
-                <div className="research-row__meta">
-                  <span className="research-tag">{p.category}</span>
-                  <time>{fmtDate(p.date)}</time>
-                </div>
-                <div className="research-row__body">
-                  <h3>{p.title}</h3>
-                  <p>{p.excerpt}</p>
-                </div>
-              </a>
-            </li>
+            <article key={p.slug} className={`sw-row ${styles.row}`}>
+              <div className={styles.meta}>
+                <span className="research-tag">{p.category}</span>
+                <time className={styles.date}>{fmtDate(p.date)}</time>
+              </div>
+              <div>
+                <h3 className={styles.title}>
+                  <a href={`/research/${p.slug}`}>{p.title}</a>
+                </h3>
+                <p className={styles.dek}>{p.excerpt}</p>
+              </div>
+            </article>
           ))}
-        </ul>
+        </div>
 
         {plannedPosts.length > 0 && (
           <section className="research-upcoming" aria-label="Upcoming">

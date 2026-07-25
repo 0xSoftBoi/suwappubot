@@ -6,6 +6,7 @@ import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import stats from '@/data/stats.generated.json';
+import styles from './agents.module.css';
 
 export const metadata: Metadata = {
   title: 'Agents — Suwappu API, MCP & A2A for AI agents',
@@ -140,11 +141,11 @@ export default function AgentsPage() {
         </header>
 
         {/* ── b. CAPABILITIES ── */}
-        <section className="agents-caps" aria-label="Capabilities">
+        <section className={`agents-caps ${styles.capsPrimary}`} aria-label="Capabilities">
           <h2 className="mkt-h2">Everything your agent needs to transact onchain.</h2>
           <div className="agents-caps__grid">
             {CAPABILITIES.map((cap) => (
-              <article className="agents-cap" key={cap.title}>
+              <article className={`agents-cap ${styles.capCard}`} key={cap.title}>
                 <h3>{cap.title}</h3>
                 <p>{cap.body}</p>
               </article>
@@ -158,30 +159,32 @@ export default function AgentsPage() {
           <h2 className="mkt-h2">Three calls from zero to a settled swap.</h2>
 
           <div className="agents-connect">
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">1</div>
               <h2>Register an agent — no signup</h2>
               <p>
                 POST your agent&apos;s name and get an API key back in the same response. No
                 email, no approval queue, no human in the loop.
               </p>
-              <div className="summer-code" aria-label="register.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>register.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/register \\
+              <div className={`${styles.codeDark} sw-card-dark`}>
+                <div className="summer-code" aria-label="register.sh">
+                  <div className="summer-code__bar">
+                    <span />
+                    <span />
+                    <span />
+                    <b>register.sh</b>
+                  </div>
+                  <pre>
+                    <code>{`curl -X POST https://api.suwappu.bot/v1/agent/register \\
   -H "Content-Type: application/json" \\
   -d '{"name": "my-agent"}'
 # { "success": true, "api_key": "suwappu_sk_..." }`}</code>
-                </pre>
+                  </pre>
+                </div>
               </div>
             </article>
 
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">2</div>
               <h2>Add your key to MCP or an SDK</h2>
               <p>
@@ -191,22 +194,23 @@ export default function AgentsPage() {
               <AgentQuickstart />
             </article>
 
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">3</div>
               <h2>Get a quote, then swap</h2>
               <p>
                 Every swap is two calls: a quote, then an execute against your managed
                 wallet — or request an unsigned transaction to sign yourself.
               </p>
-              <div className="summer-code" aria-label="quote-and-swap.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>quote-and-swap.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
+              <div className={`${styles.codeDark} sw-card-dark`}>
+                <div className="summer-code" aria-label="quote-and-swap.sh">
+                  <div className="summer-code__bar">
+                    <span />
+                    <span />
+                    <span />
+                    <b>quote-and-swap.sh</b>
+                  </div>
+                  <pre>
+                    <code>{`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"from_token":"USDC","to_token":"ETH","chain":"base","amount":"100"}'
@@ -216,7 +220,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"quote_id": "q_abc123"}'`}</code>
-                </pre>
+                  </pre>
+                </div>
               </div>
             </article>
           </div>
@@ -296,7 +301,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
           <h2 className="mkt-h2">Pay however your agent transacts.</h2>
           <div className="agents-caps__grid">
             {PAYMENT_MODES.map((p) => (
-              <article className="agents-cap" key={p.title}>
+              <article className={`agents-cap ${styles.capCard}`} key={p.title}>
                 <h3>{p.title}</h3>
                 <p>{p.body}</p>
               </article>

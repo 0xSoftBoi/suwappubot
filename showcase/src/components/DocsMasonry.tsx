@@ -3,6 +3,7 @@
 import { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
 import docsData from '../data/docs.json';
+import styles from './DocsMasonry.module.css';
 
 const SECTION_ICONS: Record<string, string> = {
   'quick-start': 'QS',
@@ -52,7 +53,7 @@ export default function DocsMasonry() {
           <motion.a
             key={section.id}
             href={`/docs#${section.id}`}
-            className="docs-masonry__card"
+            className={`docs-masonry__card ${styles.card}`}
             variants={staggerItem}
             whileHover={{ y: -4, borderColor: 'var(--suwappu-summer-accent)' }}
           >

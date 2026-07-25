@@ -1,0 +1,4 @@
+/* Doc reader page — same hairline sidebar rail as the overview shell. */
+.sidebar:global(.docs-page__sidebar) {
+  border-right: 1px solid var(--sw-hairline);
+}

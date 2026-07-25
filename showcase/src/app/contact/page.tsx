@@ -52,7 +52,9 @@ export default function ContactPage() {
 
         <section className={styles.layout} aria-label="Contact">
           <div className={styles.pitch}>
-            <h2 className="mkt-h2">Built for desks that need control.</h2>
+            <h2 className="mkt-h2">
+              {stats.platformChains} chains, self-custody or managed keys, one agent API.
+            </h2>
             <p>
               Prefer to send us a note first? Fill out the form and our team will follow up fast —
               or book the call above and skip straight to a conversation.

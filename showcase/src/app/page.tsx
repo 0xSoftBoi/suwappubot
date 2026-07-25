@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Image from 'next/image';
 import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
@@ -6,10 +7,12 @@ import CosmicAtmosphere from '@/components/CosmicAtmosphere';
 import CopyInstall from '@/components/CopyInstall';
 import MarketProof from '@/components/MarketProof';
 import MobileWaitlistForm from '@/components/MobileWaitlistForm';
+import StatsStrip from '@/components/StatsStrip';
 import { getTranslations } from 'next-intl/server';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import productStats from '@/data/stats.generated.json';
+import styles from './home.module.css';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
 export const revalidate = 60;
@@ -26,31 +29,32 @@ const stats = [
   { value: 'Non-custodial', label: 'Always your keys' },
 ];
 
-// Cross-chain engine — outcome framing, not feature names.
+// Cross-chain engine — noun-phrase titles, numbers carried in the body copy.
+// Cells 1 and 4 are the wide bento cells and render in the dark register.
 const engineFeatures = [
   {
     mark: 'fruit',
-    title: 'Always the best price',
+    title: 'Best-price routing',
     description:
       `Every provider that supports your route races to quote it — ${productStats.routerCount} integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Across, Wormhole, and Jupiter. You get the winner, automatically.`,
   },
   {
     mark: 'sun',
-    title: 'No slippage surprises',
+    title: 'Pre-trade simulation',
     description:
-      `Pre-trade simulation flags bad fills before you confirm. Every route is priced across ${productStats.platformChains} chains before a single transaction is signed.`,
+      `Bad fills are flagged before you confirm. Every route is priced across ${productStats.platformChains} chains before a single transaction is signed.`,
   },
   {
     mark: 'soft',
-    title: 'Your keys, always',
+    title: 'MPC key security',
     description:
       'MPC architecture with KMS envelope encryption. No custody, no counterparty risk. Bring your own keys via the agent API for full self-custody.',
   },
   {
     mark: 'mist',
-    title: 'Trade from anywhere',
+    title: 'One execution layer',
     description:
-      'Telegram bot, web terminal, REST API, or MCP tool. One execution layer behind every interface — same price, same speed, same security.',
+      'Telegram bot, web terminal, REST API, and MCP server all call the same router — identical pricing, settlement, and guardrails behind every surface.',
   },
 ];
 
@@ -158,6 +162,8 @@ async function Hero() {
   const t = await getTranslations('hero');
   return (
     <section className="summer-hero">
+      {/* Grain rides a dedicated overlay: .summer-hero already owns ::after. */}
+      <div className={`sw-grain ${styles.heroGrain}`} aria-hidden="true" />
       <div className="summer-flower-field summer-flower-field--hero" aria-hidden="true">
         <span className="summer-flower summer-flower--soft" />
         <span className="summer-flower summer-flower--sun" />
@@ -176,8 +182,8 @@ async function Hero() {
       />
       <div className="summer-hero__copy">
         <p className="summer-kicker">{t('kicker')}</p>
-        <h1 className="summer-hero__h1">
-          {t('h1')}<br />
+        <h1 className={`summer-hero__h1 sw-display-1 ${styles.heroTitle}`}>
+          {t('h1')}{' '}
           <span className="summer-hero__accent">{t('h1_accent')}</span>
         </h1>
         <p className="summer-hero__lead">{t('lead')}</p>
@@ -200,11 +206,30 @@ async function Hero() {
           Non-custodial&nbsp;·&nbsp;No KYC for basic swaps&nbsp;·&nbsp;MPC key security
         </p>
         <a className="summer-hero__waitlist-pill" href="#mobile-app">
-          Suwappu is coming to iOS &amp; Android with the Suwappu Card by Rain — join the waitlist
+          iOS and Android, with the Suwappu Card by Rain — join the waitlist
         </a>
       </div>
-      <LiveTerminal />
+      <LiveTerminal className={styles.termFrame} />
     </section>
+  );
+}
+
+/**
+ * Streamed placeholder for MarketProof. Deliberately carries no `id="bot"` —
+ * the anchor belongs to the real section so nav scroll-spy never binds to a
+ * node that is about to be replaced.
+ */
+function MarketProofSkeleton() {
+  return (
+    <div className={styles.proofSkeleton} aria-hidden="true">
+      <div className={`${styles.proofSkeletonKicker} ${styles.shimmer}`} />
+      <div className={`${styles.proofSkeletonHead} ${styles.shimmer}`} />
+      <div className={styles.proofSkeletonRows}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div className={`${styles.proofSkeletonRow} ${styles.shimmer}`} key={i} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -242,30 +267,28 @@ export default async function Home() {
             <a href="/docs">Docs</a>
             <a href="#mobile-app">Mobile app</a>
           </nav>
-          <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-            Open Bot
-          </a>
-          <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
-            Open Terminal
-          </a>
+          <div className="summer-nav__actions">
+            <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
+              Open Terminal
+            </a>
+            <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+              Open Bot
+            </a>
+          </div>
         </header>
 
-        <div className="summer-shell">
+        <div className={`summer-shell ${styles.shell}`}>
           <Hero />
 
-          {/* ── STATS STRIP — outcomes, not features ── */}
-          <section className="summer-stats" aria-label="At a glance">
-            {stats.map((s) => (
-              <div className="summer-stat" key={s.label}>
-                <strong>{s.value}</strong>
-                <span>{s.label}</span>
-              </div>
-            ))}
-          </section>
+          {/* ── STATS STRIP — count-up numerals, final values server-rendered ── */}
+          <StatsStrip stats={stats} />
 
           {/* ── ROUTES ACROSS — clean integration strip ── */}
           <section className="summer-trust" aria-label="Routes across">
-            <p className="summer-trust__label">Routes across every major chain &amp; aggregator</p>
+            <p className="summer-trust__label">
+              Routes across {productStats.platformChains} chains and{' '}
+              {productStats.routerCount} liquidity networks
+            </p>
             <div className="summer-trust__rows">
               <div className="summer-trust__group">
                 <span>Chains</span>
@@ -273,7 +296,8 @@ export default async function Home() {
                   {trustChains.map((c) => (
                     <b key={c}>{c}</b>
                   ))}
-                  <b>+30 more</b>
+                  {/* Derived, never hardcoded: stats.generated.json owns the total. */}
+                  <b>+{productStats.platformChains - trustChains.length} more</b>
                 </div>
               </div>
               <div className="summer-trust__group">
@@ -315,30 +339,44 @@ export default async function Home() {
           <section id="engine" className="summer-features" aria-label="Cross-chain engine">
             <div className="summer-features__head">
               <p className="summer-kicker">The engine</p>
-              <h2>One router for every chain.</h2>
+              <h2>One router across {productStats.platformChains} chains.</h2>
             </div>
             <div className="summer-features__grid">
-              {engineFeatures.map((feature) => (
-                <article className="summer-feature" key={feature.title}>
-                  <span
-                    className={
-                      feature.mark === 'fruit'
-                        ? 'summer-feature__mark summer-feature__mark--fruit'
-                        : `summer-feature__mark summer-flower summer-flower--${feature.mark}`
-                    }
-                    aria-hidden="true"
-                  />
-                  <h3>{feature.title}</h3>
-                  <p>{feature.description}</p>
-                </article>
-              ))}
+              {engineFeatures.map((feature, index) => {
+                // Cells 1 and 4 are the wide bento cells — dark register.
+                const wide = index === 0 || index === 3;
+                return (
+                  <article
+                    className={`summer-feature sw-rise${
+                      wide ? ` sw-card-dark ${styles.bentoLarge}` : ''
+                    }`}
+                    key={feature.title}
+                    style={{ '--rise-i': index } as React.CSSProperties}
+                  >
+                    <span
+                      className={
+                        feature.mark === 'fruit'
+                          ? 'summer-feature__mark summer-feature__mark--fruit'
+                          : `summer-feature__mark summer-flower summer-flower--${feature.mark}`
+                      }
+                      aria-hidden="true"
+                    />
+                    <h3>{feature.title}</h3>
+                    <p>{feature.description}</p>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
           {/* ── PRODUCT MODULES ── */}
           <section id="terminal" className="summer-modules" aria-label="Product modules">
             {modules.map((module, index) => (
-              <article className="summer-module" key={module.title}>
+              <article
+                className="summer-module sw-rise"
+                key={module.title}
+                style={{ '--rise-i': index } as React.CSSProperties}
+              >
                 <i
                   className={
                     index === 0
@@ -371,8 +409,12 @@ export default async function Home() {
               </p>
             </div>
             <div className="summer-hub__grid">
-              {hyperliquid.map((card) => (
-                <article className="summer-hub__card" key={card.cmd}>
+              {hyperliquid.map((card, index) => (
+                <article
+                  className="summer-hub__card sw-rise"
+                  key={card.cmd}
+                  style={{ '--rise-i': index } as React.CSSProperties}
+                >
                   <code className="summer-hub__cmd">{card.cmd}</code>
                   <h3>{card.title}</h3>
                   <p>{card.body}</p>
@@ -422,12 +464,12 @@ export default async function Home() {
             <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
               <p className="summer-kicker">Agent API &amp; SDK</p>
-              <h2>Build trading agents in minutes.</h2>
+              <h2>Two calls from quote to settlement.</h2>
               <p>
-                The same execution surface the terminal uses, exposed as an SDK, MCP
-                server, and REST API. Used by AI agents, trading desks, and automated
-                strategies. Swaps, perps, prediction markets, and lending from a
-                handful of calls.
+                The same execution surface the terminal runs on, exposed as a
+                TypeScript SDK, an MCP server, and a REST API — swaps, perps,
+                prediction markets, and lending across {productStats.agentApiChains}{' '}
+                agent-ready chains.
               </p>
               <div className="summer-flow">
                 {['Register an agent', 'Request a quote', 'Execute the route', 'Open a perp'].map((step, index) => (
@@ -478,8 +520,12 @@ export default async function Home() {
               </p>
             </div>
             <div className="summer-agents__grid">
-              {agentCards.map((card) => (
-                <article className="summer-agents__card" key={card.tag}>
+              {agentCards.map((card, index) => (
+                <article
+                  className="summer-agents__card sw-rise"
+                  key={card.tag}
+                  style={{ '--rise-i': index } as React.CSSProperties}
+                >
                   <b>{card.tag}</b>
                   <h3>{card.title}</h3>
                   <p>{card.body}</p>
@@ -511,15 +557,21 @@ export default async function Home() {
           <section id="build" className="summer-devlayer" aria-label="Build with Suwappu">
             <div className="summer-devlayer__head">
               <p className="summer-kicker">For builders</p>
-              <h2>Your AI agent&apos;s trading layer.</h2>
+              {/* The polish layer does not scale this head — display-2 applies here. */}
+              <h2 className={`sw-display-2 ${styles.h2Scale}`}>
+                Your AI agent&apos;s trading layer.
+              </h2>
               <p>
-                The only cross-chain swap execution stack with native MCP, TypeScript + Python SDKs,
-                and enterprise org API keys — built for agents, not just humans.
+                Native MCP, TypeScript and Python SDKs, and org-scoped API keys with
+                per-key spend caps — built for agents, not just humans.
               </p>
             </div>
             <div className="summer-devlayer__grid">
               {/* MCP card */}
-              <article className="summer-devlayer__card">
+              <article
+                className="summer-devlayer__card sw-rise"
+                style={{ '--rise-i': 0 } as React.CSSProperties}
+              >
                 <b>MCP server</b>
                 <h3>Connect in 30 seconds</h3>
                 <p>Drop into Claude Desktop, Cursor, Windsurf, or any MCP host — no extra infra.</p>
@@ -544,7 +596,10 @@ export default async function Home() {
               </article>
 
               {/* SDK card */}
-              <article className="summer-devlayer__card">
+              <article
+                className="summer-devlayer__card sw-rise"
+                style={{ '--rise-i': 1 } as React.CSSProperties}
+              >
                 <b>TypeScript SDK</b>
                 <h3>npm install @suwappu/sdk</h3>
                 <p>Swap, perps, predict, lending — one typed client across {productStats.platformChains} chains.</p>
@@ -565,7 +620,10 @@ const tx = await client.swap(quote);`}</code>
               </article>
 
               {/* Enterprise card */}
-              <article className="summer-devlayer__card summer-devlayer__card--enterprise">
+              <article
+                className="summer-devlayer__card summer-devlayer__card--enterprise sw-rise"
+                style={{ '--rise-i': 2 } as React.CSSProperties}
+              >
                 <b>Enterprise API</b>
                 <h3>Org keys, RBAC, metering</h3>
                 <p>
@@ -597,8 +655,12 @@ const tx = await client.swap(quote);`}</code>
             </div>
           </section>
 
-          {/* ── MARKET PROOF (live) ── */}
-          <MarketProof />
+          {/* ── MARKET PROOF (live) ──
+              Suspense lets the rest of the page stream while the 60s-ISR price
+              fetch resolves; MarketProof keeps its own 3s abort + fallback. */}
+          <Suspense fallback={<MarketProofSkeleton />}>
+            <MarketProof />
+          </Suspense>
 
           {/* ── REFERRAL ── */}
           <section className="summer-referral" aria-label="Referral program">
