@@ -6,9 +6,9 @@ interface Props {
 }
 
 const statusColors: Record<string, string> = {
-  active: "bg-[#22c55e]",
-  inactive: "bg-gray-500",
-  triggered: "bg-orange-500",
+  active: "bg-bull",
+  inactive: "bg-terminal-text-muted",
+  triggered: "bg-terminal-warn",
 };
 
 export function AlertCard({ alert, onDelete }: Props) {
@@ -28,7 +28,7 @@ export function AlertCard({ alert, onDelete }: Props) {
   return (
     <div className="terminal-theme-card flex items-center gap-3 p-[var(--terminal-space-card)] transition-colors hover:border-terminal-border-active">
       <div
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[alert.status] || "bg-gray-500"}`}
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[alert.status] || "bg-terminal-text-muted"}`}
       />
 
       <div className="flex-1 min-w-0">
@@ -43,14 +43,14 @@ export function AlertCard({ alert, onDelete }: Props) {
         <div className="flex items-center gap-3 mt-0.5">
           <span className="text-xs text-terminal-text-secondary">
             Target:{" "}
-            <span className="font-mono text-terminal-text">
+            <span className="tnum font-mono text-terminal-text">
               ${alert.targetValue.toLocaleString()}
             </span>
           </span>
           {alert.currentPrice !== undefined && (
             <span className="text-xs text-terminal-text-muted">
               Now:{" "}
-              <span className="font-mono">
+              <span className="tnum font-mono">
                 ${alert.currentPrice.toLocaleString()}
               </span>
             </span>

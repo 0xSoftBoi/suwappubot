@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { SwapQuote, SwapToken } from "../../types/api";
 import {
   TerminalButton,
@@ -132,7 +132,7 @@ function ExecutionModeTabs({
             "px-3 py-1 text-left transition-colors [border-radius:var(--terminal-radius-card)]",
             mode === option.id
               ? "terminal-theme-control terminal-theme-control-active text-terminal-text"
-              : "text-terminal-text-secondary hover:bg-white/70 hover:text-terminal-text",
+              : "text-terminal-text-secondary hover:bg-terminal-bg-tertiary/70 hover:text-terminal-text",
           )}
         >
           <div className="text-[12px] font-medium leading-[1.05]">
@@ -175,7 +175,7 @@ function AssetLeg({
             value={amount}
             onChange={(event) => onAmountChange?.(event.target.value)}
             readOnly={readOnly}
-            className="mt-1 w-full bg-transparent font-mono text-[16px] leading-none text-terminal-text outline-none placeholder:text-terminal-text-muted sm:text-[18px]"
+            className="tnum mt-1 w-full bg-transparent font-mono text-[16px] leading-none text-terminal-text outline-none placeholder:text-terminal-text-muted sm:text-[18px]"
             placeholder="0.0"
           />
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-terminal-text-secondary">
@@ -263,7 +263,7 @@ function TicketMeta({
             <input
               value={limitPrice}
               onChange={(event) => onLimitPriceChange(event.target.value)}
-              className="mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
+              className="tnum mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
               placeholder="0.00"
             />
           </div>
@@ -307,7 +307,7 @@ function TicketMeta({
             <input
               value={totalBudget}
               onChange={(event) => onTotalBudgetChange(event.target.value)}
-              className="mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
+              className="tnum mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
               placeholder="1000"
             />
           </div>
@@ -318,7 +318,7 @@ function TicketMeta({
             <input
               value={orderCount}
               onChange={(event) => onOrderCountChange(event.target.value)}
-              className="mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
+              className="tnum mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
               placeholder="7"
             />
           </div>
@@ -395,7 +395,7 @@ function TicketMeta({
             <input
               value={tpPrice}
               onChange={(event) => onTpPriceChange(event.target.value)}
-              className="mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
+              className="tnum mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
               placeholder="0.00"
             />
           </div>
@@ -406,7 +406,7 @@ function TicketMeta({
             <input
               value={slPrice}
               onChange={(event) => onSlPriceChange(event.target.value)}
-              className="mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
+              className="tnum mt-1.5 w-full bg-transparent font-mono text-[16px] text-terminal-text outline-none"
               placeholder="0.00"
             />
           </div>
@@ -739,7 +739,27 @@ export function TerminalExecutionTicket({
           <TerminalButton variant="secondary" onClick={onSecondaryAction}>
             Save draft
           </TerminalButton>
-          <TerminalButton onClick={onPrimaryAction}>
+          {/* Money-surface CTA: buy = up-fill, sell = down-fill, dark ink
+              (AA-safe on both). Overrides the shared TerminalButton's accent
+              fill via the same CSS custom properties it already reads from —
+              no edit to the foundation component itself. */}
+          <TerminalButton
+            onClick={onPrimaryAction}
+            style={
+              {
+                "--terminal-button-background": buyMode
+                  ? "rgb(var(--terminal-c-up))"
+                  : "rgb(var(--terminal-c-down))",
+                "--terminal-button-background-hover": buyMode
+                  ? "rgb(var(--terminal-c-up))"
+                  : "rgb(var(--terminal-c-down))",
+                "--terminal-button-background-active": buyMode
+                  ? "rgb(var(--terminal-c-up))"
+                  : "rgb(var(--terminal-c-down))",
+                "--terminal-button-foreground": "#0A0B0F",
+              } as CSSProperties
+            }
+          >
             {primaryLabel({
               mode,
               side,
