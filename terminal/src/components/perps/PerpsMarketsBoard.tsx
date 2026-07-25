@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import type { HLMarket, PerpsMarketContext } from '../../types/api'
 import { usePerpsFunding, formatFundingPct } from '../../hooks/usePerpsFunding'
 import { usePerpsContext } from '../../hooks/usePerpsContext'
+import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
 interface Props {
   selectedMarket: string
@@ -11,15 +12,17 @@ interface Props {
 }
 
 // Funding cell uses the shared funding hook so the rate matches the order ticket.
+// Coloured by sign and always paired with a ▲/▼ glyph (never colour-only).
 function FundingCell({ market }: { market: HLMarket }) {
   const funding = usePerpsFunding(market)
   const positive = funding.hourlyRate >= 0
   return (
     <span
-      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${
-        positive ? 'bg-bull-dim text-bull' : 'bg-bear-dim text-bear'
+      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] tnum ${
+        positive ? 'up-wash text-bull' : 'down-wash text-bear'
       }`}
     >
+      <span aria-hidden="true">{positive ? '▲' : '▼'}</span>{' '}
       {formatFundingPct(funding.hourlyRate)}
     </span>
   )
@@ -76,34 +79,55 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-terminal-border px-3 py-2">
+      <div className="hairline-b flex items-center justify-between gap-2 px-3 py-2">
         <h3 className="text-sm font-semibold text-terminal-text">Markets</h3>
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search…"
+          aria-label="Search markets"
           className="terminal-input h-7 w-28 text-xs"
         />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="py-8 text-center text-sm text-terminal-text-muted animate-pulse">
-            Loading markets…
+          <div className="p-3">
+            <TerminalSkeletonRows rows={8} columns={4} label="Loading markets" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="py-8 text-center text-sm text-terminal-text-muted">No markets</div>
+          <TerminalEmptyState
+            kicker="Markets"
+            title={search ? `No perp matches “${search}”` : 'No markets available'}
+            description={
+              search
+                ? 'Try the bare symbol — HyperLiquid lists perps as ETH-USD, SOL-USD and so on.'
+                : 'HyperLiquid returned no markets. This is usually transient — the board refreshes every 20 seconds.'
+            }
+          />
         ) : (
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-terminal-panel">
-              <tr className="text-terminal-text-muted border-b border-terminal-border">
-                <th className="text-left py-1.5 px-3 font-medium">Market</th>
-                <th className="text-right py-1.5 px-3 font-medium">Mark</th>
-                <th className="text-right py-1.5 px-3 font-medium">24h</th>
-                <th className="text-right py-1.5 px-3 font-medium">OI</th>
-                <th className="text-right py-1.5 px-3 font-medium">Funding/1h</th>
-                <th className="text-right py-1.5 px-3 font-medium">Max Lev</th>
+              <tr className="hairline-b text-terminal-text-muted">
+                <th className="terminal-theme-caption px-3 py-1.5 text-left text-[10px] uppercase">
+                  Market
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Mark
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  24h
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  OI
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Funding/1h
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Max lev
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -115,29 +139,33 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
                   <tr
                     key={m.name}
                     onClick={() => onSelectMarket(m.name)}
-                    className={`group cursor-pointer border-b border-terminal-border/40 transition-colors
-                      ${active ? 'bg-sakura-500/10' : 'hover:bg-terminal-bg-tertiary/50'}`}
+                    aria-selected={active}
+                    className={`group hairline-b cursor-pointer ${
+                      active ? 'accent-wash' : 'terminal-row'
+                    }`}
                   >
-                    <td className="py-2 px-3">
+                    <td className="px-3 py-2">
                       <span className="flex items-center gap-2">
                         <span
                           className={`h-3.5 w-0.5 rounded-full transition-colors ${
-                            active ? 'bg-sakura-500' : 'bg-transparent group-hover:bg-terminal-border-active'
+                            active
+                              ? 'bg-terminal-accent'
+                              : 'bg-transparent group-hover:bg-terminal-border-active'
                           }`}
                         />
                         <span
-                          className={`font-semibold ${active ? 'text-sakura-600' : 'text-terminal-text'}`}
+                          className={`font-semibold ${active ? 'text-terminal-accent' : 'text-terminal-text'}`}
                         >
                           {m.name.replace('-USD', '')}
                         </span>
                         <span className="text-[10px] text-terminal-text-muted">USD</span>
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text">
+                    <td className="px-3 py-2 text-right font-mono tnum text-terminal-text">
                       ${formatMark(ctx?.markPrice ?? m.markPrice)}
                     </td>
                     <td
-                      className={`py-2 px-3 text-right font-mono tabular-nums ${
+                      className={`px-3 py-2 text-right font-mono tnum ${
                         chg == null
                           ? 'text-terminal-text-muted'
                           : chg >= 0
@@ -145,16 +173,23 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
                             : 'text-bear'
                       }`}
                     >
-                      {chg == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                      {chg == null ? (
+                        '—'
+                      ) : (
+                        <>
+                          <span aria-hidden="true">{chg >= 0 ? '▲' : '▼'}</span>{' '}
+                          {`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                        </>
+                      )}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text-secondary">
+                    <td className="px-3 py-2 text-right font-mono tnum text-terminal-text-secondary">
                       {ctx ? formatUsd(ctx.oiNotional) : '—'}
                     </td>
-                    <td className="py-2 px-3 text-right">
+                    <td className="px-3 py-2 text-right">
                       <FundingCell market={m} />
                     </td>
-                    <td className="py-2 px-3 text-right">
-                      <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] text-terminal-text-secondary">
+                    <td className="px-3 py-2 text-right">
+                      <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] tnum text-terminal-text-secondary">
                         {m.maxLeverage}×
                       </span>
                     </td>

@@ -27,12 +27,17 @@ function formatUsd(n: number) {
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'bull' | 'bear' }) {
   return (
     <span className="flex flex-col items-end leading-tight">
-      <span className="text-[9px] uppercase tracking-wide text-terminal-text-muted">{label}</span>
+      <span className="terminal-theme-caption text-[9px] uppercase">{label}</span>
       <span
-        className={`tabular-nums ${
-          tone === 'bull' ? 'text-bull' : tone === 'bear' ? 'text-bear' : 'text-terminal-text-secondary'
+        className={`tnum ${
+          tone === 'bull'
+            ? 'text-bull'
+            : tone === 'bear'
+              ? 'text-bear'
+              : 'text-terminal-text-secondary'
         }`}
       >
+        {tone ? <span aria-hidden="true">{tone === 'bull' ? '▲' : '▼'} </span> : null}
         {value}
       </span>
     </span>
@@ -59,30 +64,33 @@ export function PerpsChart({ market }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-terminal-border px-3 py-2">
+      <div className="hairline-b flex items-center justify-between gap-3 px-3 py-2">
         <div className="flex items-baseline gap-2.5">
-          <span className="text-sm font-bold tracking-tight text-terminal-text">{market}</span>
-          <span className="rounded bg-sakura-500/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sakura-600">
+          <span className="text-sm font-semibold tracking-tight text-terminal-text">{market}</span>
+          <span className="accent-wash terminal-theme-caption rounded px-1.5 py-0.5 text-[10px] uppercase text-terminal-accent">
             Perp
           </span>
           {last != null && (
-            <span className="font-mono text-lg font-bold leading-none text-terminal-text tabular-nums">
+            <span
+              key={last}
+              className="font-mono text-lg font-semibold leading-none tnum text-terminal-text"
+            >
               ${formatPrice(last)}
             </span>
           )}
           {changePct != null && (
             <span
-              className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${
-                up ? 'bg-bull-dim text-bull' : 'bg-bear-dim text-bear'
+              className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tnum ${
+                up ? 'up-wash text-bull' : 'down-wash text-bear'
               }`}
             >
-              {up ? '+' : ''}
+              <span aria-hidden="true">{up ? '▲' : '▼'}</span> {up ? '+' : ''}
               {changePct.toFixed(2)}%
             </span>
           )}
         </div>
         {ctx && (
-          <div className="hidden items-center gap-3.5 font-mono text-[11px] sm:flex">
+          <div className="hidden items-center gap-3.5 font-mono text-[11px] tnum sm:flex">
             <Stat label="Open Interest" value={formatUsd(ctx.oiNotional)} />
             <Stat label="24h Vol" value={formatUsd(ctx.dayVolume)} />
             <Stat

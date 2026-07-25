@@ -61,7 +61,7 @@ export function PredictWorkspace() {
       </Allotment.Pane>
       <Allotment.Pane preferredSize="36%" minSize={120}>
         <div className="h-full terminal-panel flex flex-col">
-          <div className="border-b border-terminal-border px-3 py-2 shrink-0">
+          <div className="hairline-b shrink-0 px-3 py-2">
             <h3 className="text-sm font-semibold text-terminal-text">Positions</h3>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
