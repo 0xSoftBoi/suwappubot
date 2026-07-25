@@ -3,6 +3,8 @@ import stats from '@/data/stats.generated.json';
 import { Space_Grotesk, DM_Sans, Fira_Code } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
+import Analytics from '@/components/Analytics';
+import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
 
@@ -68,14 +70,7 @@ export const metadata: Metadata = {
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
     locale: 'en_US',
-    images: [
-      {
-        url: '/social-card.svg',
-        width: 1200,
-        height: 630,
-        alt: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
-      },
-    ],
+    // og:image is auto-wired by Next from opengraph-image.tsx (file convention).
   },
   twitter: {
     card: 'summary_large_image',
@@ -84,7 +79,7 @@ export const metadata: Metadata = {
     title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
     description:
       `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades — one SDK, three lines of code.`,
-    images: ['/social-card.svg'],
+    // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
   alternates: {
     canonical: 'https://suwappu.bot',
@@ -120,6 +115,8 @@ export default async function RootLayout({
       </head>
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
+        <Analytics />
+        <AttributionCapture />
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
         </NextIntlClientProvider>

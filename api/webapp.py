@@ -186,6 +186,7 @@ class EnterpriseLeadRequest(BaseModel):
     use_case: Optional[str] = None
     telegram: Optional[str] = None
     website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
 
 
 class EnterpriseLeadResponse(BaseModel):
@@ -207,12 +208,30 @@ class MobileWaitlistRequest(BaseModel):
     platform: Optional[str] = None  # "ios" | "android" | "both"
     telegram: Optional[str] = None
     website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
 
 
 class MobileWaitlistResponse(BaseModel):
     ok: bool
     id: Optional[int] = None
     position: Optional[int] = None
+    error: Optional[str] = None
+
+
+class NewsletterSignupRequest(BaseModel):
+    """Inbound newsletter/email-list signup from the marketing site.
+
+    Public (no auth). Kept minimal to maximize conversion. ``website`` is a
+    hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    email: str
+    website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None  # optional marketing attribution pass-through
+
+
+class NewsletterSignupResponse(BaseModel):
+    ok: bool
     error: Optional[str] = None
 
 
@@ -1123,6 +1142,8 @@ async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
         "telegram": telegram,
         "use_case": use_case,
     }
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
 
     try:
         with get_session() as session:
@@ -1196,6 +1217,8 @@ async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
         "platform": platform,
         "telegram": telegram,
     }
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
 
     try:
         with get_session() as session:
@@ -1237,6 +1260,57 @@ async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
         logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
 
     return MobileWaitlistResponse(ok=True, id=waitlist_id, position=position)
+
+
+@router.post("/newsletter", response_model=NewsletterSignupResponse)
+async def submit_newsletter_signup(payload: NewsletterSignupRequest):
+    """Capture a newsletter/email-list signup from the marketing site.
+
+    Public, no auth. Persists the signup as a ``SupportTicket`` of kind
+    ``newsletter`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval. Returns
+    ``{ok: true}`` on success (no id/position needed for this surface).
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return NewsletterSignupResponse(ok=True)
+
+    email = (payload.email or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid email.")
+
+    message = f"Email: {email}"
+
+    context = {"email": email}
+    if isinstance(payload.attribution, dict):
+        context["attribution"] = payload.attribution
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.NEWSLETTER,
+                source="website",
+                category="newsletter",
+                priority="low",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            ticket_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist newsletter signup")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Newsletter signup #%s captured (%s)", ticket_id, email)
+    return NewsletterSignupResponse(ok=True)
 
 
 @router.get("/billing/stripe/checkout")

@@ -38,6 +38,11 @@ export const EnvSchema = Schema.Struct({
 			'https://app.suwappu.bot,https://terminal.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
+	// Showcase site base URL — used for web checkout success/cancel redirects
+	SHOWCASE_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://suwappu.bot',
+	}),
+
 	// Internal Python API
 	INTERNAL_API_KEY: Schema.optional(Schema.String),
 	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {

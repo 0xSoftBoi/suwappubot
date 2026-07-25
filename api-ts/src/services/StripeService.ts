@@ -13,6 +13,16 @@ export class StripeService extends Context.Tag('StripeService')<
 			cancelUrl: string
 		}) => Effect.Effect<string, Error>
 
+		// Anonymous web-visitor variant — no pre-existing Suwappu user. Stripe
+		// itself collects the email at checkout; we stamp source=web so the
+		// webhook can tell this apart from the account-bound flow above and
+		// record a pending (unlinked) checkout instead of a subscriptions row.
+		createWebCheckoutSession: (params: {
+			tier: 'pro' | 'premium'
+			successUrl: string
+			cancelUrl: string
+		}) => Effect.Effect<{ url: string; sessionId: string }, Error>
+
 		constructWebhookEvent: (
 			payload: string,
 			signature: string,
@@ -34,6 +44,8 @@ export const StripeServiceLive = Layer.effect(
 		if (!env.STRIPE_SECRET_KEY) {
 			return StripeService.of({
 				createCheckoutSession: () =>
+					Effect.fail(new Error('Stripe not configured')),
+				createWebCheckoutSession: () =>
 					Effect.fail(new Error('Stripe not configured')),
 				constructWebhookEvent: () =>
 					Effect.fail(new Error('Stripe not configured')),
@@ -80,6 +92,39 @@ export const StripeServiceLive = Layer.effect(
 						})
 						if (!session.url) throw new Error('Stripe did not return a checkout URL')
 						return session.url
+					},
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+
+			createWebCheckoutSession: ({ tier, successUrl, cancelUrl }) =>
+				Effect.tryPromise({
+					try: async () => {
+						const priceId =
+							tier === 'pro' ? env.STRIPE_PRO_PRICE_ID : env.STRIPE_PREMIUM_PRICE_ID
+						if (!priceId)
+							throw new Error(`No price ID configured for tier: ${tier}`)
+
+						const session = await stripe.checkout.sessions.create({
+							mode: 'subscription',
+							payment_method_types: ['card'],
+							// No pre-filled email — Stripe's hosted page collects it from
+							// the anonymous web visitor.
+							line_items: [{ price: priceId, quantity: 1 }],
+							metadata: {
+								tier,
+								source: 'web',
+							},
+							subscription_data: {
+								metadata: {
+									tier,
+									source: 'web',
+								},
+							},
+							success_url: successUrl,
+							cancel_url: cancelUrl,
+						})
+						if (!session.url) throw new Error('Stripe did not return a checkout URL')
+						return { url: session.url, sessionId: session.id }
 					},
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				}),
