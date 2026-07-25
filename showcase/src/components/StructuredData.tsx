@@ -1,3 +1,4 @@
+import stats from '@/data/stats.generated.json';
 export default function StructuredData() {
   const schemas = [
     // Main application
@@ -6,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        'Cross-chain DeFi SDK for AI agents — swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across 40+ blockchains.',
+        `Cross-chain DeFi SDK for AI agents — swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -14,7 +15,7 @@ export default function StructuredData() {
       keywords:
         'cross-chain swap, DEX aggregator, DeFi SDK, AI agent tooling, MCP server, perpetual futures, prediction markets, lending',
       featureList: [
-        'Cross-chain token swaps across 40+ blockchains',
+        `Cross-chain token swaps across ${stats.platformChains} blockchains`,
         'Perpetual futures trading via HyperLiquid',
         'Gasless fee-sponsored swaps on Tempo',
         'Prediction markets via Polymarket',
@@ -62,7 +63,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu supports 40+ chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across 9 aggregators.',
+            text: `Suwappu supports ${stats.platformChains} chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across ${stats.routerCount} providers.`,
           },
         },
         {
