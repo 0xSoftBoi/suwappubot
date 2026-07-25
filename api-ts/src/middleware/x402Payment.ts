@@ -40,8 +40,10 @@ export const COST_WEIGHTS: Record<string, number> = {
 	'swap/execute': 5,
 	portfolio: 1,
 	prices: 1,
-	tokens: 1,
-	chains: 1,
+	// Read-only discovery endpoints are free — matches MCP's list_tokens/list_chains
+	// (both 0 in MCP_TOOL_COSTS below) so a fresh 0-credit agent can still browse.
+	tokens: 0,
+	chains: 0,
 }
 
 /**
@@ -146,6 +148,9 @@ export function buildX402Challenge(
 			},
 		],
 		error: opts.error ?? 'insufficient_credits',
+		// Stable 17-code contract (see lib/agentError.ts) — keep `error` for
+		// back-compat with existing SDK/agent consumers reading the old field.
+		error_code: 'INSUFFICIENT_CREDITS' as const,
 		cost_credits: opts.cost,
 		credit_usd_value: CREDIT_USD_VALUE,
 		topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount}',

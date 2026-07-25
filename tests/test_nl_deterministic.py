@@ -120,6 +120,31 @@ def test_deterministic_unknown_chain_returns_none():
     assert parse_deterministic("swap 50 usdc for eth on marscoinchain", context={}) is None
 
 
+def test_deterministic_chain_mid_sentence_not_dropped():
+    # Regression: the chain-clause regex used to be end-anchored, so trailing
+    # filler after the chain clause ("right now") meant no match at all —
+    # the chain was silently dropped and confidence stayed 1.0. It must now
+    # be found anywhere in the message.
+    intent = parse_deterministic("swap 1 eth for usdc on base right now", context={})
+    assert intent is not None
+    assert intent.chain == "base"
+    assert intent.token_in == "ETH"
+    assert intent.token_out == "USDC"
+    assert intent.confidence == 1.0
+
+
+def test_deterministic_chain_mid_sentence_with_trailing_filler():
+    intent = parse_deterministic("swap 1 eth for usdc on arbitrum please", context={})
+    assert intent is not None
+    assert intent.chain == "arbitrum"
+
+
+def test_deterministic_unresolvable_mid_sentence_chain_defers_to_llm():
+    # "on" followed by a word that isn't a real chain must still defer to
+    # the LLM rather than silently emitting chain=None at confidence=1.0.
+    assert parse_deterministic("swap 1 eth for usdc on marscoinchain right now", context={}) is None
+
+
 # --- parse_trade_intent: deterministic-first wiring -------------------------
 
 

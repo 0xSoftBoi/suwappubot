@@ -1204,12 +1204,25 @@ mcpRoutes.post('/', async (c) => {
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
 			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name', undefined, 'VALIDATION_ERROR'), 200)
+			// tools/call is not in PUBLIC_MCP_METHODS, so agent is always set here.
+			const callAgent = agent as Agent
+
+			// Validate the tool exists and its required args are present BEFORE any
+			// metering — nonexistent tools or malformed args must never consume credits.
+			if (!TOOL_NAMES.has(name)) {
+				return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+			}
+			const argsError = validateToolArgs(name, args || {})
+			if (argsError) {
+				return c.json(rpcErr(req.id, -32602, argsError, undefined, 'VALIDATION_ERROR'), 200)
+			}
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
-			// subscription tiers). On insufficient balance, return an HTTP 402
-			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			// subscription tiers). On insufficient balance, return a JSON-RPC error
+			// envelope carrying the x402 challenge so x402-aware MCP clients can settle
+			// and retry (raw HTTP 402 bodies break JSON-RPC framing for other clients).
 			const charge = await chargeAgentForCall({
-				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },
+				agent: { id: callAgent.id, rateLimitTier: callAgent.rateLimitTier },
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
@@ -1218,7 +1231,8 @@ mcpRoutes.post('/', async (c) => {
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
 				if (Either.isRight(cenv)) setX402Headers(c, cenv.right, charge.challenge)
-				return c.json(charge.challenge, 402)
+				c.header('X-Payment-Required', 'true')
+				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
 			}
 			if (charge.kind === 'ok') {
 				c.header('X-Metering-Cost', String(charge.cost))
@@ -1232,7 +1246,7 @@ mcpRoutes.post('/', async (c) => {
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
 			switch (name) {
 				case 'get_quote':
-					result = await handleGetQuote(args || {}, agent)
+					result = await handleGetQuote(args || {}, callAgent)
 					break
 				case 'get_portfolio':
 					result = await handleGetPortfolio(args || {})
@@ -1247,7 +1261,7 @@ mcpRoutes.post('/', async (c) => {
 					result = handleListTokens(args || {})
 					break
 				case 'execute_swap':
-					result = await handleExecuteSwap(args || {}, agent)
+					result = await handleExecuteSwap(args || {}, callAgent)
 					break
 				case 'get_tempo_tokens':
 					result = handleGetTempoTokens(args || {})
@@ -1279,10 +1293,10 @@ mcpRoutes.post('/', async (c) => {
 					result = await handleLendMarket(args || {})
 					break
 				case 'get_swap_status':
-					result = await handleGetSwapStatus(args || {}, agent)
+					result = await handleGetSwapStatus(args || {}, callAgent)
 					break
 				case 'get_swap_history':
-					result = await handleGetSwapHistory(args || {}, agent)
+					result = await handleGetSwapHistory(args || {}, callAgent)
 					break
 				case 'predict_book':
 					result = await handlePredictBook(args || {})
@@ -1294,7 +1308,7 @@ mcpRoutes.post('/', async (c) => {
 					result = await handlePredictTrades(args || {})
 					break
 				case 'list_wallet_policies':
-					result = await handleListWalletPolicies(args || {}, agent)
+					result = await handleListWalletPolicies(args || {}, callAgent)
 					break
 				default:
 					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)

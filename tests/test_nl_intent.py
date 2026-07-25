@@ -64,6 +64,16 @@ def _make_context():
     return context
 
 
+def _make_stateful_context():
+    """A context with a real dict for user_data, needed to exercise the
+    pending-clarification persistence path (nl_trade._user_data_dict only
+    engages persistence when user_data is an actual dict)."""
+    context = MagicMock()
+    context.args = None
+    context.user_data = {}
+    return context
+
+
 # --- parse_trade_intent (LLM parsing layer) --------------------------------
 
 
@@ -506,3 +516,212 @@ async def test_handle_nl_text_balance_intent_calls_balance_command():
         await nl_trade.handle_nl_text(update, context)
 
     mock_balance.assert_awaited_once_with(update, context)
+
+
+# --- LLM daily-cap: distinct user-facing message -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_llm_cap_exceeded_gives_distinct_message_pointing_at_slash_s():
+    """A capped-out user must see a message pointing at /s, not the generic
+    'I couldn't understand that' parse-failure message — rephrasing won't
+    help when the real problem is the daily budget."""
+    with (
+        patch.object(nl_intent_service.settings, "NL_LLM_FALLBACK_GLOBAL_DAILY", 0),
+        patch.object(nl_intent_service.settings, "NL_LLM_FALLBACK_PER_USER_DAILY", 0),
+    ):
+        intent = await parse_trade_intent("please swap some of my crypto around", user_id=7)
+
+    assert intent.clarification is not None
+    assert "/s" in intent.clarification
+    assert intent.clarification != nl_intent_service.FALLBACK_CLARIFICATION
+    assert intent.clarification == nl_intent_service.CAPPED_CLARIFICATION
+
+
+# --- Stateful clarification follow-up (pending-intent persistence) ---------
+
+
+@pytest.mark.asyncio
+async def test_handle_nl_text_persists_pending_intent_on_clarification():
+    """A swap intent that comes back with a clarification question must be
+    persisted so the next message can be merged instead of re-parsed from
+    scratch."""
+    update = _make_update("swap some usdc")
+    context = _make_stateful_context()
+
+    intent = TradeIntent(
+        action="swap",
+        token_in="USDC",
+        token_out=None,
+        amount=None,
+        amount_unit="native",
+        chain=None,
+        confidence=0.2,
+        clarification="Which token would you like to receive, and how much?",
+    )
+
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch("bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock(return_value=intent)),
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    entry = context.user_data.get(nl_trade.NL_PENDING_INTENT_KEY)
+    assert entry is not None
+    assert entry["intent"]["token_in"] == "USDC"
+
+
+@pytest.mark.asyncio
+async def test_handle_nl_text_merges_bare_followup_without_llm_call():
+    """The classic dead-loop case: user gets asked "how much / which token?",
+    replies with a bare "2 ETH" — that reply must be merged deterministically
+    into the pending intent and routed straight to quickswap, WITHOUT calling
+    the paid LLM parser again."""
+    update = _make_update("2 ETH")
+    context = _make_stateful_context()
+    context.user_data[nl_trade.NL_PENDING_INTENT_KEY] = {
+        "intent": {
+            "action": "swap",
+            "token_in": "USDC",
+            "token_out": None,
+            "amount": None,
+            "amount_unit": "native",
+            "chain": None,
+            "confidence": 0.2,
+            "clarification": "How much and which token would you like to receive?",
+        },
+        "ts": nl_trade.time.time(),
+    }
+
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch("bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock()) as mock_parse,
+        patch("bot.handlers.nl_trade.quickswap_command", new=AsyncMock()) as mock_quickswap,
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    mock_parse.assert_not_awaited()
+    mock_quickswap.assert_awaited_once_with(update, context)
+    assert context.args[0] == "2.0"
+    assert context.args[1] == "USDC"
+    assert context.args[-1] == "ETH"
+    # Pending intent must be cleared once it's resolved into a swap.
+    assert nl_trade.NL_PENDING_INTENT_KEY not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_handle_nl_text_merges_bare_chain_followup():
+    """ "the one on base" style follow-up must fill a missing chain field."""
+    update = _make_update("the one on base")
+    context = _make_stateful_context()
+    context.user_data[nl_trade.NL_PENDING_INTENT_KEY] = {
+        "intent": {
+            "action": "swap",
+            "token_in": "USDC",
+            "token_out": "ETH",
+            "amount": 2,
+            "amount_unit": "native",
+            "chain": None,
+            "confidence": 0.4,
+            "clarification": "Which chain?",
+        },
+        "ts": nl_trade.time.time(),
+    }
+
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch("bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock()) as mock_parse,
+        patch("bot.handlers.nl_trade.quickswap_command", new=AsyncMock()) as mock_quickswap,
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    mock_parse.assert_not_awaited()
+    mock_quickswap.assert_awaited_once_with(update, context)
+    assert "base" in context.args
+
+
+@pytest.mark.asyncio
+async def test_handle_nl_text_expired_pending_intent_is_ignored():
+    """A pending intent older than the TTL must not be merged into — it
+    should be dropped and the message re-parsed as fresh input."""
+    update = _make_update("2 ETH")
+    context = _make_stateful_context()
+    context.user_data[nl_trade.NL_PENDING_INTENT_KEY] = {
+        "intent": {
+            "action": "swap",
+            "token_in": "USDC",
+            "token_out": None,
+            "amount": None,
+            "amount_unit": "native",
+            "chain": None,
+            "confidence": 0.2,
+            "clarification": "How much?",
+        },
+        "ts": nl_trade.time.time() - nl_trade.NL_PENDING_INTENT_TTL_SECONDS - 1,
+    }
+
+    fresh_intent = TradeIntent(action="unknown", confidence=0.1, clarification=None)
+
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock(return_value=fresh_intent)
+        ) as mock_parse,
+        patch("bot.handlers.nl_trade.on_freeform_text", new=AsyncMock()) as mock_freeform,
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    mock_parse.assert_awaited_once()
+    mock_freeform.assert_awaited_once()
+    assert nl_trade.NL_PENDING_INTENT_KEY not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_handle_nl_text_unresolvable_followup_passes_pending_context_to_llm():
+    """If the deterministic merge can't cleanly resolve the reply, the LLM
+    path must still be invoked, with the pending intent handed in as
+    context (so the model can merge instead of starting over)."""
+    update = _make_update("hmm not sure")
+    context = _make_stateful_context()
+    context.user_data[nl_trade.NL_PENDING_INTENT_KEY] = {
+        "intent": {
+            "action": "swap",
+            "token_in": "USDC",
+            "token_out": None,
+            "amount": None,
+            "amount_unit": "native",
+            "chain": None,
+            "confidence": 0.2,
+            "clarification": "Which token and how much?",
+        },
+        "ts": nl_trade.time.time(),
+    }
+
+    fresh_intent = TradeIntent(action="unknown", confidence=0.1, clarification="still unclear")
+
+    with (
+        patch.object(nl_trade.settings, "NL_TRADING_ENABLED", True),
+        patch(
+            "bot.handlers.nl_trade.enforce_rate_limit_for_update", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "bot.handlers.nl_trade.parse_trade_intent", new=AsyncMock(return_value=fresh_intent)
+        ) as mock_parse,
+    ):
+        await nl_trade.handle_nl_text(update, context)
+
+    mock_parse.assert_awaited_once()
+    _, kwargs = mock_parse.call_args
+    assert kwargs["context"]["pending_intent"]["token_in"] == "USDC"

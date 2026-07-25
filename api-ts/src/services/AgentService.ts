@@ -1,9 +1,27 @@
 import crypto from 'crypto'
 import { eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { type Agent, agents, type DrizzleService, requireDb, requireRow, webhookEvents } from '../db'
+import {
+	type Agent,
+	agentCredits,
+	agents,
+	type DrizzleService,
+	requireDb,
+	requireRow,
+	webhookEvents,
+} from '../db'
 import { DatabaseError } from '../errors'
 import { auditLog } from './audit'
+
+/**
+ * One-time starter credit grant for newly registered agents. Lets a fresh
+ * agent complete its first documented call (POST /v1/agent/quote, etc.)
+ * without hitting a 402 before it has ever topped up. 100 credits ≈ $0.10
+ * at CREDIT_USD_VALUE = $0.001/credit (see middleware/x402Payment.ts) — enough
+ * for the onboarding quick-start flow, not a meaningful giveaway.
+ * MONEY-PATH: grants free credits; tune STARTER_CREDITS if abused.
+ */
+const STARTER_CREDITS = 100
 
 export interface RegisterAgentParams {
 	name: string
@@ -130,6 +148,17 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				eventType: 'agent.key_issued',
 				details: { agentId: agent.id, name: agent.name },
 			})
+
+			// Grant starter credits so the agent's first metered call (quote/swap)
+			// doesn't immediately 402. Best-effort: never fails registration.
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(agentCredits)
+						.values({ agentId: agent.id, balance: STARTER_CREDITS })
+						.onConflictDoNothing(),
+				catch: (e) => new DatabaseError({ message: `Failed to grant starter credits: ${e}`, cause: e }),
+			}).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
 
 			return { agent, apiKey }
 		}),

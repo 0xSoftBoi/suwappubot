@@ -51,9 +51,7 @@ NL_PENDING_INTENT_TTL_SECONDS = 5 * 60
 
 _BARE_CHAIN_RE = re.compile(r"\b(?:on|en|sur)\s+([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
 _BARE_AMOUNT_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)")
-_BARE_AMOUNT_TOKEN_RE = re.compile(
-    r"([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z][a-zA-Z0-9_-]*)"
-)
+_BARE_AMOUNT_TOKEN_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z][a-zA-Z0-9_-]*)")
 
 
 def _user_data_dict(context: ContextTypes.DEFAULT_TYPE) -> Optional[Dict[str, Any]]:
@@ -172,6 +170,7 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     merged.confidence = 1.0
     merged.clarification = None
     return merged
+
 
 # --- Cheap local pre-filter (no I/O, computed once at import time) ---------
 #

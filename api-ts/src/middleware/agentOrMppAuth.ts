@@ -17,11 +17,10 @@ export function agentOrMppAuth() {
 
 		// If bearer token is present, use bearer auth (don't fall through to MPP)
 		if (authHeader?.startsWith('Bearer ')) {
-			await bearerMiddleware(c, next)
-			return
+			return await bearerMiddleware(c, next)
 		}
 
 		// No bearer token — try MPP payment auth
-		await mppMiddleware(c, next)
+		return await mppMiddleware(c, next)
 	}
 }

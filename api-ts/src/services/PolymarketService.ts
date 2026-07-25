@@ -205,7 +205,54 @@ function mapGammaMarket(m: GammaMarketRaw): PredictionMarket {
 
 // ---------- Gamma API ----------
 
+// Gamma's public-search endpoint does full-text search across markets/events (unlike
+// /markets?tag=, which only matches an exact category tag). Falls back to a
+// client-side substring filter over question/category if public-search errors or is
+// unavailable, so a search query never silently degrades into unfiltered results.
+async function searchMarketsImpl(query: string, limit: number): Promise<PredictionMarket[]> {
+	try {
+		const params = new URLSearchParams({
+			q: query,
+			limit_per_type: String(limit),
+			events_status: 'active',
+		})
+		const res = await fetch(`${GAMMA_API}/public-search?${params}`, { signal: AbortSignal.timeout(15_000) })
+		if (res.ok) {
+			const data = (await res.json()) as { markets?: GammaMarketRaw[] }
+			const markets = (data.markets ?? []).map(mapGammaMarket).slice(0, limit)
+			// public-search succeeded — trust its (possibly empty) result rather than
+			// falling through to unfiltered results.
+			return markets
+		}
+	} catch {
+		// fall through to client-side filter below
+	}
+
+	// Fallback: fetch a broader active-market page and filter client-side on
+	// question/category. A search query must never return unfiltered results —
+	// if nothing matches, return an empty list.
+	const params = new URLSearchParams({
+		limit: String(Math.max(limit * 5, 100)),
+		active: 'true',
+		closed: 'false',
+		order: 'volume',
+		ascending: 'false',
+	})
+	const res = await fetch(`${GAMMA_API}/markets?${params}`, { signal: AbortSignal.timeout(15_000) })
+	if (!res.ok) throw new Error(`Polymarket API error ${res.status}`)
+	const data = (await res.json()) as GammaMarketRaw[]
+	const needle = query.toLowerCase()
+	return data
+		.filter((m) => m.question?.toLowerCase().includes(needle) || m.category?.toLowerCase().includes(needle))
+		.map(mapGammaMarket)
+		.slice(0, limit)
+}
+
 async function getMarketsImpl(query?: string, limit = 20): Promise<PredictionMarket[]> {
+	if (query) {
+		return searchMarketsImpl(query, limit)
+	}
+
 	const params = new URLSearchParams({
 		limit: String(limit),
 		active: 'true',
@@ -213,7 +260,6 @@ async function getMarketsImpl(query?: string, limit = 20): Promise<PredictionMar
 		order: 'volume',
 		ascending: 'false',
 	})
-	if (query) params.set('tag', query)
 
 	const res = await fetch(`${GAMMA_API}/markets?${params}`, { signal: AbortSignal.timeout(15_000) })
 	if (!res.ok) throw new Error(`Polymarket API error ${res.status}`)
