@@ -12,6 +12,7 @@ import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '..
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
+import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
@@ -186,7 +187,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = RegisterAgentSchema.safeParse(body)
@@ -195,6 +196,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -268,13 +270,13 @@ agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 	// (or env is unavailable) reject — never accept an unverified callback, which
 	// could forge-register agents, trigger actions, or inject metadata.
 	if (Either.isLeft(envResult) || !envResult.right.SPONGE_WEBHOOK_SECRET) {
-		return c.json({ error: 'Sponge webhook is not configured' }, 503)
+		return agentError(c, 503, 'UPSTREAM_ERROR', 'Sponge webhook is not configured')
 	}
 	const webhookSecret = envResult.right.SPONGE_WEBHOOK_SECRET
 
 	const signature = c.req.header('X-Sponge-Signature')
 	if (!signature) {
-		return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Missing X-Sponge-Signature header')
 	}
 
 	const rawBody = await c.req.text()
@@ -285,19 +287,19 @@ agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 
 	// Reject a malformed signature (non-hex or wrong length) before constant-time compare.
 	if (!/^[0-9a-fA-F]+$/.test(signature) || signature.length !== expected.length) {
-		return c.json({ error: 'Invalid signature' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Invalid signature')
 	}
 	const sigBuf = Buffer.from(signature, 'hex')
 	const expBuf = Buffer.from(expected, 'hex')
 	if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-		return c.json({ error: 'Invalid signature' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Invalid signature')
 	}
 
 	let body: any
 	try {
 		body = JSON.parse(rawBody)
 	} catch {
-		return c.json({ error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	return handleSpongeCallback(c, body)
@@ -311,11 +313,11 @@ async function handleSpongeCallback(c: any, body: any) {
 	}
 
 	if (event !== 'agent_connect') {
-		return c.json({ error: `Unsupported event: ${event}` }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)
 	}
 
 	if (!agent_name) {
-		return c.json({ error: 'agent_name is required' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'agent_name is required')
 	}
 
 	// Auto-register the connecting agent
@@ -505,7 +507,7 @@ agentRoutes.patch('/me', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = UpdateAgentSchema.safeParse(body)
@@ -514,6 +516,7 @@ agentRoutes.patch('/me', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -566,7 +569,7 @@ agentRoutes.post('/quote', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = QuoteRequestSchema.safeParse(body)
@@ -575,6 +578,7 @@ agentRoutes.post('/quote', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 				examples: {
 					evm: { from_token: 'ETH', to_token: 'USDC', amount: '0.5', chain: 'base' },
@@ -601,7 +605,11 @@ agentRoutes.post('/quote', async (c) => {
 	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
 	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
 		return c.json(
-			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			{
+				success: false,
+				error: 'Starknet transactions are handled by the bot backend',
+				error_code: 'CHAIN_UNSUPPORTED',
+			},
 			400,
 		)
 	}
@@ -861,7 +869,7 @@ agentRoutes.post('/swap', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = SwapRequestSchema.safeParse(body)
@@ -870,6 +878,7 @@ agentRoutes.post('/swap', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -898,6 +907,7 @@ agentRoutes.post('/swap', async (c) => {
 				{
 					success: false,
 					error: 'Quote expired or not found',
+					error_code: 'QUOTE_NOT_FOUND',
 					hint: 'Request a new quote using POST /v1/agent/quote',
 				},
 				400,
@@ -961,6 +971,7 @@ agentRoutes.post('/swap', async (c) => {
 							decision === 'require_approval'
 								? 'Transaction requires approval under org policy'
 								: 'Transaction blocked by org policy',
+						error_code: 'POLICY_VIOLATION',
 						reason: reason ?? null,
 					},
 					status,
@@ -1004,6 +1015,7 @@ agentRoutes.post('/swap', async (c) => {
 					{
 						success: false,
 						error: 'Failed to get Solana transaction',
+						error_code: 'UPSTREAM_ERROR',
 						details: result.left.message,
 					},
 					400,
@@ -1044,7 +1056,7 @@ agentRoutes.post('/swap', async (c) => {
 		// that address (their managed wallet) — block constructing a fund-moving tx
 		// from an arbitrary/victim address (C16).
 		if (!checkEvmWalletOwnership(agent, wallet_address)) {
-			return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+			return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 		}
 
 		// EVM swap - return unsigned transaction
@@ -1090,18 +1102,13 @@ agentRoutes.post('/swap', async (c) => {
 	}
 
 	// No quote_id - need to get a fresh quote first
-	return c.json(
-		{
-			success: false,
-			error: 'quote_id required',
-			hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
-			example: {
-				step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
-				step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}',
-			},
+	return agentError(c, 400, 'VALIDATION_ERROR', 'quote_id required', {
+		hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
+		example: {
+			step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
+			step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}',
 		},
-		400,
-	)
+	})
 })
 
 // POST /v1/agent/execute - Natural language command execution
@@ -1112,7 +1119,7 @@ agentRoutes.post('/execute', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = ExecuteCommandSchema.safeParse(body)
@@ -1121,6 +1128,7 @@ agentRoutes.post('/execute', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 				hint: 'Example: {"command": "swap 0.5 ETH to USDC on Base", "wallet_address": "0x..."}',
 			},
@@ -1134,7 +1142,7 @@ agentRoutes.post('/execute', async (c) => {
 	// otherwise a natural-language command could carry a victim's address as the swap
 	// sender (C17).
 	if (wallet_address && !checkEvmWalletOwnership(agent, wallet_address)) {
-		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
 	// Track request
@@ -1156,7 +1164,7 @@ agentRoutes.post('/execute', async (c) => {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 
 		if (!amount || !fromToken || !toToken) {
-			return c.json({ error: 'Invalid swap command format' }, 400)
+			return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid swap command format')
 		}
 
 		// Get a quote
@@ -1275,7 +1283,7 @@ agentRoutes.post('/execute', async (c) => {
 	if (quoteMatch) {
 		const [, amount, fromToken, toToken, chain] = quoteMatch
 		if (!amount || !fromToken || !toToken) {
-			return c.json({ error: 'Invalid quote command format' }, 400)
+			return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid quote command format')
 		}
 		// Redirect to quote endpoint logic (same as swap but different message)
 		return c.json({
@@ -1333,20 +1341,15 @@ agentRoutes.get('/portfolio', async (c) => {
 	const walletAddress = c.req.query('wallet_address')
 
 	if (!walletAddress) {
-		return c.json(
-			{
-				success: false,
-				error: 'Missing required query parameter: wallet_address',
-				hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
-			},
-			400,
-		)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Missing required query parameter: wallet_address', {
+			hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
+		})
 	}
 
 	// Only allow an agent to read its own managed wallet's balances — otherwise the
 	// endpoint discloses live balances for any address and enables wallet enumeration (H9).
 	if (!checkEvmWalletOwnership(agent, walletAddress)) {
-		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
 	const chain = c.req.query('chain')
@@ -1509,7 +1512,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = ExecuteSwapSchema.safeParse(body)
@@ -1518,6 +1521,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -1533,14 +1537,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const walletAddress = metadata.wallet_address as string | undefined
 
 	if (!internalUserId || !internalWalletId || !walletAddress) {
-		return c.json(
-			{
-				success: false,
-				error: 'No managed wallet found',
-				hint: 'Create a wallet first using POST /v1/agent/wallets',
-			},
-			400,
-		)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', {
+			hint: 'Create a wallet first using POST /v1/agent/wallets',
+		})
 	}
 
 	// Look up cached quote (getCachedQuote returns null once the TTL has elapsed).
@@ -1548,14 +1547,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// message so cross-agent quote hijacking can't be probed.
 	const cached = getCachedQuote(quote_id)
 	if (!cached || cached.agentId !== agent.id) {
-		return c.json(
-			{
-				success: false,
-				error: 'Quote expired or not found',
-				hint: 'Request a new quote using POST /v1/agent/quote',
-			},
-			400,
-		)
+		return agentError(c, 400, 'QUOTE_NOT_FOUND', 'Quote expired or not found', {
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		})
 	}
 
 	const quote = cached.quote
@@ -1688,7 +1682,7 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 	const swapId = parseInt(c.req.param('swapId'), 10)
 
 	if (isNaN(swapId)) {
-		return c.json({ success: false, error: 'Invalid swap ID' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid swap ID')
 	}
 
 	const result = await runEffectEither(
@@ -1818,6 +1812,7 @@ agentRoutes.get('/prices', async (c) => {
 			{
 				success: false,
 				error: 'Missing required query parameter: symbols',
+				error_code: 'VALIDATION_ERROR',
 				hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
 				supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
 			},
@@ -1834,6 +1829,7 @@ agentRoutes.get('/prices', async (c) => {
 			{
 				success: false,
 				error: 'Provide 1-20 comma-separated symbols',
+				error_code: 'VALIDATION_ERROR',
 			},
 			400,
 		)
@@ -1898,6 +1894,7 @@ agentRoutes.get('/tokens', async (c) => {
 				{
 					success: false,
 					error: `Unknown chain: ${chainParam}`,
+					error_code: 'CHAIN_UNSUPPORTED',
 					supported: [...new Set(Object.values(CHAINS).map((c) => c.key)), 'solana'],
 				},
 				400,
@@ -1997,13 +1994,13 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	const body = await c.req.json()
 	const parsed = CreatePolicySchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({ error: 'Invalid request', details: formatZodErrors(parsed.error) }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
 	}
 
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const { type, params } = parsed.data
@@ -2036,7 +2033,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		return agentError(c, 500, 'INTERNAL', result.left.message)
 	}
 
 	return c.json({ success: true, policy: result.right })
@@ -2048,7 +2045,7 @@ agentRoutes.get('/wallet/policies', async (c) => {
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const result = await runEffectEither(
@@ -2059,7 +2056,7 @@ agentRoutes.get('/wallet/policies', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		return agentError(c, 500, 'INTERNAL', result.left.message)
 	}
 
 	return c.json({ success: true, policies: result.right })
@@ -2072,7 +2069,7 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const result = await runEffectEither(
@@ -2117,6 +2114,7 @@ agentRoutes.get('/webhooks', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -2195,14 +2193,9 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const agent = c.get('agent')
 
 	if (!agent.callbackUrl) {
-		return c.json(
-			{
-				success: false,
-				error: 'No callback_url configured',
-				hint: 'Set callback_url via PATCH /v1/agent/me first',
-			},
-			400,
-		)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'No callback_url configured', {
+			hint: 'Set callback_url via PATCH /v1/agent/me first',
+		})
 	}
 
 	// Extract raw API key from Authorization header for signing
@@ -2429,20 +2422,23 @@ agentRoutes.post('/billing/topup', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = TopupSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
 
 	const { txHash, chain, amount } = parsed.data
 	if (!Number.isFinite(amount) || amount <= 0) {
-		return c.json({ success: false, error: 'amount must be a positive number (USDC)' }, 400)
+		return c.json(
+			{ success: false, error: 'amount must be a positive number (USDC)', error_code: 'VALIDATION_ERROR' },
+			400,
+		)
 	}
 
 	const result = await runEffectEither(
@@ -2605,13 +2601,13 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = SubscribeSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
@@ -2619,11 +2615,15 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 	const { txHash, chain, amount, tier } = parsed.data
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
-		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, error_code: 'VALIDATION_ERROR', purchasable: PURCHASABLE_TIERS }, 400)
 	}
 	if (amount + 1e-9 < price) {
 		return c.json(
-			{ success: false, error: `Insufficient payment: ${tier} costs $${price}/30d, paid $${amount}` },
+			{
+				success: false,
+				error: `Insufficient payment: ${tier} costs $${price}/30d, paid $${amount}`,
+				error_code: 'INSUFFICIENT_CREDITS',
+			},
 			400,
 		)
 	}
@@ -2797,19 +2797,19 @@ agentRoutes.post('/billing/recurring', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 	const parsed = RecurringSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
 	const { tier, signature, permission: pin } = parsed.data
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
-		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, error_code: 'VALIDATION_ERROR', purchasable: PURCHASABLE_TIERS }, 400)
 	}
 
 	const result = await runEffectEither(

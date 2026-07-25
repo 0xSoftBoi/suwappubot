@@ -227,3 +227,108 @@ export interface PredictListArgs {
   query?: string;
   limit?: number;
 }
+
+// --- Agent lifecycle ---
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description?: string | null;
+  callbackUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+  rateLimitTier?: string;
+  stats?: { totalRequests: number; totalSwaps: number };
+  createdAt?: string;
+  lastActiveAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface RegisterAgentArgs {
+  name: string;
+  description?: string;
+  callbackUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RegisterAgentResult {
+  agent: AgentProfile & { apiKey: string };
+  message: string;
+  important: string;
+}
+
+export interface UpdateAgentArgs {
+  description?: string;
+  callbackUrl?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RotateKeysResult {
+  apiKey: string;
+  message: string;
+}
+
+// --- Wallet policies ---
+
+export interface CreatePolicyArgs {
+  type: "spending_limit" | "whitelist";
+  params: {
+    maxAmountWei?: string;
+    timeWindowSeconds?: number;
+    allowedAddresses?: string[];
+  };
+}
+
+export type WalletPolicy = Record<string, unknown>;
+
+// --- Webhooks ---
+
+export interface WebhookEvent {
+  id: string | number;
+  eventType: string;
+  status: string;
+  attempts: number;
+  lastError?: string | null;
+  responseStatus?: number | null;
+  callbackUrl: string;
+  createdAt: string;
+  deliveredAt?: string | null;
+}
+
+export interface WebhookEventsResult {
+  events: WebhookEvent[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+}
+
+export interface WebhookTestResult {
+  success: boolean;
+  callbackUrl: string;
+  statusCode?: number;
+  responseTimeMs: number;
+  error?: string;
+}
+
+// --- Billing ---
+
+export interface BillingCheckoutResult {
+  url: string;
+}
+
+export interface BillingCryptoArgs {
+  txHash: string;
+  chain?: string;
+  amount: number;
+  tier: "pro" | "premium" | "enterprise";
+}
+
+export interface BillingStatus {
+  tier: string;
+  feeRatePercent: number;
+  expiresAt: string | null;
+  active: boolean;
+}
+
+export interface AgentTopupArgs {
+  txHash: string;
+  chain?: string;
+  amount: number | string;
+}

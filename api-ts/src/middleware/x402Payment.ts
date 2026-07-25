@@ -69,6 +69,14 @@ export const MCP_TOOL_COSTS: Record<string, number> = {
 	perps_quote: 1,
 	// Executable transaction preparation — dear
 	execute_swap: 5,
+	// Read-only account/status lookups — priced like get_portfolio/get_prices
+	get_swap_status: 1,
+	get_swap_history: 1,
+	list_wallet_policies: 1,
+	// Prediction market order book / price / trades — same tier as predict_markets
+	predict_book: 1,
+	predict_price: 1,
+	predict_trades: 1,
 }
 
 /**

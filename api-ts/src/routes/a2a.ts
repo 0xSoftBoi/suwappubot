@@ -4,6 +4,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ValidationError } from '../errors'
+import type { AgentErrorCode } from '../lib/agentError'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { cacheAgentQuote } from '../lib/quoteCache'
 import { agentBearerAuth } from '../middleware'
@@ -136,11 +137,21 @@ function jsonRpcOk(id: string | number, result: unknown) {
 	return { jsonrpc: '2.0' as const, id, result }
 }
 
-function jsonRpcError(id: string | number | null, code: number, message: string, data?: unknown) {
+function jsonRpcError(
+	id: string | number | null,
+	code: number,
+	message: string,
+	data?: unknown,
+	errorCode?: AgentErrorCode,
+) {
+	const mergedData =
+		errorCode !== undefined
+			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: errorCode }
+			: data
 	return {
 		jsonrpc: '2.0' as const,
 		id,
-		error: { code, message, ...(data !== undefined && { data }) },
+		error: { code, message, ...(mergedData !== undefined && { data: mergedData }) },
 	}
 }
 
@@ -523,12 +534,12 @@ a2aRoutes.post('/', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json(jsonRpcError(null, PARSE_ERROR, 'Parse error: invalid JSON'), 200)
+		return c.json(jsonRpcError(null, PARSE_ERROR, 'Parse error: invalid JSON', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	const req = body as JsonRpcRequest
 	if (!req || req.jsonrpc !== '2.0' || !req.method || req.id === undefined || req.id === null) {
-		return c.json(jsonRpcError(req?.id ?? null, INVALID_REQUEST, 'Invalid JSON-RPC request'), 200)
+		return c.json(jsonRpcError(req?.id ?? null, INVALID_REQUEST, 'Invalid JSON-RPC request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	// Track request
@@ -547,7 +558,7 @@ a2aRoutes.post('/', async (c) => {
 		case 'tasks/cancel':
 			return handleTasksCancel(c, req, agent)
 		default:
-			return c.json(jsonRpcError(req.id, METHOD_NOT_FOUND, `Unknown method: ${req.method}`), 200)
+			return c.json(jsonRpcError(req.id, METHOD_NOT_FOUND, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
 	}
 })
 
@@ -638,14 +649,14 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 async function handleTasksGet(c: any, req: JsonRpcRequest, agent: Agent) {
 	const params = req.params as { taskId?: string } | undefined
 	if (!params?.taskId) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
+		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	// Scope task lookup to the owning agent: treat another agent's task as not-found so
 	// existence (and contents) can't leak across agents via guessed/leaked task IDs.
 	const task = tasks.get(params.taskId)
 	if (!isTaskOwnedByAgent(task, agent.id)) {
-		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
+		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`, undefined, 'NOT_FOUND'), 200)
 	}
 
 	return c.json(jsonRpcOk(req.id, { task }), 200)
@@ -654,12 +665,12 @@ async function handleTasksGet(c: any, req: JsonRpcRequest, agent: Agent) {
 async function handleTasksCancel(c: any, req: JsonRpcRequest, agent: Agent) {
 	const params = req.params as { taskId?: string } | undefined
 	if (!params?.taskId) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
+		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	const task = tasks.get(params.taskId)
 	if (!isTaskOwnedByAgent(task, agent.id)) {
-		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
+		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`, undefined, 'NOT_FOUND'), 200)
 	}
 
 	if (task.status.state === 'completed' || task.status.state === 'failed') {

@@ -129,3 +129,98 @@ class LendingMarketDetail(LendingMarket):
     oracle: str
     irm: str
     created_at: str
+
+
+# Agent account management types
+AgentErrorCode = Literal[
+    "UNAUTHORIZED",
+    "INVALID_API_KEY",
+    "INSUFFICIENT_SCOPE",
+    "RATE_LIMITED",
+    "PAYMENT_REQUIRED",
+    "INSUFFICIENT_CREDITS",
+    "VALIDATION_ERROR",
+    "QUOTE_EXPIRED",
+    "QUOTE_NOT_FOUND",
+    "WALLET_NOT_FOUND",
+    "POLICY_VIOLATION",
+    "CHAIN_UNSUPPORTED",
+    "TOKEN_UNKNOWN",
+    "MARKET_NOT_FOUND",
+    "UPSTREAM_ERROR",
+    "NOT_FOUND",
+    "INTERNAL",
+]
+
+
+class AgentProfile(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    callback_url: str | None = None
+    metadata: dict | None = None
+    active: bool = True
+    created_at: str | None = None
+
+
+class RegisterAgentResult(BaseModel):
+    agent: AgentProfile
+    api_key: str
+    message: str | None = None
+    important: str | None = None
+
+
+class RotateKeysResult(BaseModel):
+    api_key: str
+    message: str | None = None
+
+
+class WalletPolicy(BaseModel):
+    id: str
+    type: str | None = None
+    created_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class WebhookEvent(BaseModel):
+    id: str
+    event_type: str
+    status: str
+    attempts: int
+    last_error: str | None = None
+    response_status: int | None = None
+    callback_url: str
+    created_at: str
+    delivered_at: str | None = None
+
+
+class WebhookPagination(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class WebhookEventsResult(BaseModel):
+    events: list[WebhookEvent]
+    pagination: WebhookPagination
+
+
+class WebhookTestResult(BaseModel):
+    success: bool
+    callback_url: str | None = None
+    status_code: int | None = None
+    response_time_ms: float | None = None
+    error: str | None = None
+
+
+class BillingStatus(BaseModel):
+    model_config = {"extra": "allow"}
+
+
+class BillingCheckoutResult(BaseModel):
+    url: str
+
+
+class BillingCryptoResult(BaseModel):
+    model_config = {"extra": "allow"}

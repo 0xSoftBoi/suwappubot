@@ -9,8 +9,9 @@
  */
 
 import { Hono } from 'hono'
+import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
@@ -19,11 +20,13 @@ import { PerpsQuoteSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
+import { type AgentErrorCode } from '../lib/agentError'
 import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import openApiSpec from '../../openapi-agent.json'
+import { requireDb, swapTransactions } from '../db'
 import type { Agent } from '../db'
 
 type McpContext = { Variables: { agent: Agent } }
@@ -199,6 +202,73 @@ const TOOLS = [
 			required: ['market_id'],
 		},
 	},
+	{
+		name: 'get_swap_status',
+		description: 'Get the status of a previously executed swap (pending, completed, failed) with tx hash and amounts.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				swap_id: { type: 'string', description: 'Swap ID returned by execute_swap or POST /v1/agent/swap/execute' },
+			},
+			required: ['swap_id'],
+		},
+	},
+	{
+		name: 'get_swap_history',
+		description: 'List paginated swap history for the authenticated agent, optionally filtered by status.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				status: { type: 'string', description: 'Filter by swap status (e.g. "pending", "completed", "failed"). Optional.' },
+				limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+				offset: { type: 'number', description: 'Pagination offset (default 0)' },
+			},
+		},
+	},
+	{
+		name: 'predict_book',
+		description: 'Get the live CLOB order book for every outcome of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'predict_price',
+		description: 'Get live CLOB midpoint prices for every outcome of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'predict_trades',
+		description: 'Get recent trades across all outcomes of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				limit: { type: 'number', description: 'Max trades to return (default 20)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'list_wallet_policies',
+		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				wallet_address: { type: 'string', description: 'Wallet address (optional — defaults to the authenticated agent\'s managed wallet).' },
+			},
+		},
+	},
 ]
 
 // ---------------------------------------------------------------
@@ -238,6 +308,12 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	get_swap_status: { title: 'Get Swap Status', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	get_swap_history: { title: 'Get Swap History', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	predict_book: { title: 'Prediction Market Order Book', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 }
 
 const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
@@ -253,8 +329,18 @@ function rpcOk(id: string | number | null, result: unknown) {
 	return { jsonrpc: '2.0' as const, id, result }
 }
 
-function rpcErr(id: string | number | null, code: number, message: string, data?: unknown) {
-	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(data !== undefined && { data }) } }
+function rpcErr(
+	id: string | number | null,
+	code: number,
+	message: string,
+	data?: unknown,
+	agentErrorCode?: AgentErrorCode,
+) {
+	const errData =
+		agentErrorCode !== undefined
+			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: agentErrorCode }
+			: data
+	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(errData !== undefined && { data: errData }) } }
 }
 
 // ---------------------------------------------------------------
@@ -715,6 +801,194 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 	}) }] }
 }
 
+// Mirrors GET /v1/agent/swap/status/:swapId (src/routes/agent.ts)
+async function handleGetSwapStatus(args: Record<string, unknown>, agent: Agent) {
+	const swapId = parseInt(String(args.swap_id ?? ''), 10)
+	if (isNaN(swapId)) return { isError: true, content: [{ type: 'text', text: 'swap_id is required and must be numeric' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(eq(swapTransactions.id, swapId), eq(swapTransactions.agentId, agent.id)))
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			const s = rows[0]
+			if (!s) return yield* Effect.fail(new ValidationError({ message: 'Swap not found' }))
+			return {
+				swap_id: s.id, status: s.status, tx_hash: s.txHash,
+				from_chain: s.fromChain, to_chain: s.toChain,
+				from_token: s.fromToken, to_token: s.toToken,
+				from_amount: s.fromAmount, to_amount: s.toAmount,
+				error_message: s.errorMessage, created_at: s.createdAt, completed_at: s.completedAt,
+			}
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/swaps (src/routes/agent.ts)
+async function handleGetSwapHistory(args: Record<string, unknown>, agent: Agent) {
+	const statusFilter = args.status as string | undefined
+	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+	const offset = Math.max((args.offset as number) || 0, 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(swapTransactions.agentId, agent.id)]
+			if (statusFilter) conditions.push(eq(swapTransactions.status, statusFilter))
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(...conditions))
+						.orderBy(desc(swapTransactions.createdAt))
+						.limit(limit)
+						.offset(offset),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			return {
+				swaps: rows.map((s) => ({
+					swap_id: s.id, status: s.status, tx_hash: s.txHash,
+					from_chain: s.fromChain, to_chain: s.toChain,
+					from_token: s.fromToken, to_token: s.toToken,
+					from_amount: s.fromAmount, to_amount: s.toAmount,
+					created_at: s.createdAt, completed_at: s.completedAt,
+				})),
+			}
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/wallet/policies (src/routes/agent.ts)
+async function handleListWalletPolicies(args: Record<string, unknown>, agent: Agent) {
+	void args // wallet_address is accepted for parity but the agent's managed wallet is always used (matches REST route behavior)
+	const metadata = (agent.metadata || {}) as Record<string, unknown>
+	const subOrgId = metadata.wallet_sub_org_id as string | undefined
+	if (!subOrgId) return { isError: true, content: [{ type: 'text', text: 'No managed wallet found for this agent.' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+			return yield* turnkeyService.listPolicies(subOrgId)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ policies: result.right }) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/book (src/routes/predict.ts)
+async function handlePredictBook(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, outcomes: [] }
+			}
+
+			const books = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getOrderbook(t.tokenId), (book) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						...book,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId, question: market.question, outcomes: books }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/price (src/routes/predict.ts)
+async function handlePredictPrice(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, prices: [] }
+			}
+
+			const prices = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getMidpoint(t.tokenId), (midData) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						mid: midData.mid,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId, question: market.question, prices }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/trades (src/routes/predict.ts)
+async function handlePredictTrades(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, trades: [] }
+			}
+
+			const allTrades = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getTrades(t.tokenId, limit), (trades) =>
+						trades.map((tr) => ({ ...tr, outcome: t.outcome, tokenId: t.tokenId }))
+					)
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			const merged = allTrades
+				.flat()
+				.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1))
+				.slice(0, limit)
+
+			return { marketId, question: market.question, trades: merged }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
 // ---------------------------------------------------------------
 // Resources (MCP resources/list + resources/read)
 //
@@ -819,12 +1093,12 @@ mcpRoutes.post('/', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json(rpcErr(null, -32700, 'Parse error'), 200)
+		return c.json(rpcErr(null, -32700, 'Parse error', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	const req = body as { jsonrpc: string; id: string | number | null; method: string; params?: any }
 	if (!req || req.jsonrpc !== '2.0' || !req.method) {
-		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request'), 200)
+		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	// Track
@@ -849,9 +1123,9 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'resources/read': {
 			const uri = (req.params || {}).uri as string | undefined
-			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri'), 200)
+			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri', undefined, 'VALIDATION_ERROR'), 200)
 			const res = readResource(uri)
-			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`), 200)
+			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`, undefined, 'NOT_FOUND'), 200)
 			return c.json(rpcOk(req.id, res), 200)
 		}
 
@@ -862,11 +1136,11 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'prompts/get': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, string> }
-			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing prompt name'), 200)
+			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing prompt name', undefined, 'VALIDATION_ERROR'), 200)
 			const prompt = PROMPTS.find((p) => p.name === name)
-			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`), 200)
+			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`, undefined, 'NOT_FOUND'), 200)
 			const missing = prompt.arguments.filter((a) => a.required && !(args || {})[a.name]).map((a) => a.name)
-			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`), 200)
+			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`, undefined, 'VALIDATION_ERROR'), 200)
 			return c.json(rpcOk(req.id, {
 				description: prompt.description,
 				messages: [{ role: 'user', content: { type: 'text', text: prompt.build(args || {}) } }],
@@ -875,7 +1149,7 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
-			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name'), 200)
+			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name', undefined, 'VALIDATION_ERROR'), 200)
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return an HTTP 402
@@ -950,8 +1224,26 @@ mcpRoutes.post('/', async (c) => {
 				case 'lend_market':
 					result = await handleLendMarket(args || {})
 					break
+				case 'get_swap_status':
+					result = await handleGetSwapStatus(args || {}, agent)
+					break
+				case 'get_swap_history':
+					result = await handleGetSwapHistory(args || {}, agent)
+					break
+				case 'predict_book':
+					result = await handlePredictBook(args || {})
+					break
+				case 'predict_price':
+					result = await handlePredictPrice(args || {})
+					break
+				case 'predict_trades':
+					result = await handlePredictTrades(args || {})
+					break
+				case 'list_wallet_policies':
+					result = await handleListWalletPolicies(args || {}, agent)
+					break
 				default:
-					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`), 200)
+					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
 			}
 
 			return c.json(rpcOk(req.id, result), 200)
@@ -962,7 +1254,7 @@ mcpRoutes.post('/', async (c) => {
 			return c.body(null, 204)
 
 		default:
-			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`), 200)
+			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
 	}
 })
 

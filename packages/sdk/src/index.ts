@@ -11,7 +11,7 @@
  * ```
  */
 
-export { Suwappu, SuwappuError, createClient, DEFAULT_BASE_URL } from "./client.js";
+export { Suwappu, SuwappuError, SuwappuApiError, createClient, DEFAULT_BASE_URL } from "./client.js";
 
 export type {
   SuwappuConfig,
@@ -42,4 +42,18 @@ export type {
   GetQuoteArgs,
   PerpQuoteArgs,
   PredictListArgs,
+  AgentProfile,
+  RegisterAgentArgs,
+  RegisterAgentResult,
+  UpdateAgentArgs,
+  RotateKeysResult,
+  CreatePolicyArgs,
+  WalletPolicy,
+  WebhookEvent,
+  WebhookEventsResult,
+  WebhookTestResult,
+  BillingCheckoutResult,
+  BillingCryptoArgs,
+  BillingStatus,
+  AgentTopupArgs,
 } from "./types.js";
