@@ -124,6 +124,31 @@ const stats = {
   },
 }
 
+// i18n messages are plain JSON and cannot import this data, so their counts are
+// written by hand and silently rotted once already ("40+ chains and 9 liquidity
+// networks" survived three rounds of fixes because it lives in en.json, not a page).
+// Assert they agree with source; `bun run stats:check` turns this into a failure.
+const localeDir = resolve(HERE, '../messages')
+const stale = []
+for (const loc of ['en.json', 'es.json', 'fr.json', 'zh.json']) {
+  let text
+  try {
+    text = readFileSync(resolve(localeDir, loc), 'utf8')
+  } catch {
+    continue // locale is optional
+  }
+  for (const [, n] of text.matchAll(/(\d+)\+?\s*(?:chains?|chaînes?|条链)/gi)) {
+    if (Number(n) !== platformChains.length) stale.push(`${loc}: "${n} chains" ≠ ${platformChains.length}`)
+  }
+  for (const [, n] of text.matchAll(/(\d+)\+?\s*(?:liquidity networks|aggregators|routers)/gi)) {
+    if (Number(n) !== routers.length) stale.push(`${loc}: "${n} providers" ≠ ${routers.length}`)
+  }
+}
+if (stale.length) {
+  console.error('generate-stats: locale strings disagree with source:\n  ' + stale.join('\n  '))
+  process.exitCode = 1
+}
+
 mkdirSync(dirname(OUT), { recursive: true })
 writeFileSync(OUT, JSON.stringify(stats, null, 2) + '\n')
 console.log(
