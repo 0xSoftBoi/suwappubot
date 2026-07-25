@@ -24,8 +24,9 @@ const preview: Preview = {
       },
     },
     backgrounds: {
-      default: "summer-breeze",
+      default: "institutional",
       values: [
+        { name: "institutional", value: "#08090C" },
         { name: "summer-breeze", value: "#FFFEFB" },
         { name: "studio", value: "#FFFEFB" },
         { name: "butter", value: "#FFF8EE" },
@@ -101,6 +102,7 @@ const preview: Preview = {
         icon: "paintbrush",
         dynamicTitle: true,
         items: [
+          { value: "institutional", title: "Institutional" },
           { value: "summer-breeze", title: "Summer Breeze" },
           { value: "precision", title: "Precision" },
           { value: "desk", title: "Desk" },
@@ -110,7 +112,7 @@ const preview: Preview = {
     },
   },
   initialGlobals: {
-    terminalTheme: "summer-breeze",
+    terminalTheme: "institutional",
   },
 };
 

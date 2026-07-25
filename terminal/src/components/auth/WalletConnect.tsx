@@ -61,7 +61,8 @@ export function WalletConnect() {
         disabled={isLoading}
         type="button"
         className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
-                   bg-[#ab9ff2] hover:bg-[#9a8ce8] text-black disabled:opacity-50"
+                   bg-transparent hover:bg-terminal-bg-tertiary text-terminal-text
+                   border hairline-strong disabled:opacity-50"
       >
         {isPhantomAvailable ? 'Connect Phantom (Solana)' : 'Get Phantom for Solana'}
       </button>
