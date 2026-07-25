@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
 import SummerFooter from '@/components/SummerFooter';
@@ -164,7 +165,15 @@ async function Hero() {
         <span className="summer-petal summer-petal--sky" />
         <span className="summer-petal summer-petal--blush" />
       </div>
-      <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
+      <Image
+        className="summer-hero__fruit"
+        src="/logo.svg"
+        alt=""
+        aria-hidden="true"
+        width={86}
+        height={86}
+        priority
+      />
       <div className="summer-hero__copy">
         <p className="summer-kicker">{t('kicker')}</p>
         <h1 className="summer-hero__h1">
@@ -210,7 +219,7 @@ export default async function Home() {
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />
         <div className="summer-bg summer-bg--bloom" aria-hidden="true" />
         <div className="summer-mobile-rail" aria-hidden="true">
-          <img src="/logo.svg" alt="" aria-hidden="true" />
+          <Image src="/logo.svg" alt="" aria-hidden="true" width={34} height={34} />
           <span className="summer-flower summer-flower--soft" />
           <b>すわっぷ</b>
           <span className="summer-rail-loop summer-rail-loop--top" />
