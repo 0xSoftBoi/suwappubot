@@ -143,8 +143,15 @@ cd mobile && bun install && bun run ios
 - GitHub Actions auto-deploys on push to `main`/`dev` (currently broken — billing)
 
 ```bash
-curl https://api.suwappu.bot/health       # Check production
-curl https://devapi.suwappu.bot/health     # Check development
+python3 scripts/status.py                  # ALL services: deploy state + health + logs + CI
+python3 scripts/status.py --env dev
+
+# Single-endpoint checks. NOTE: api.suwappu.bot serves the **api-ts** service,
+# NOT python-api (it returns {"service":"suwappu-api-ts"}). The Python bot has no
+# custom domain in prod — use its railway.app host for the deep readiness payload.
+curl https://api.suwappu.bot/health                              # api-ts (prod)
+curl https://python-api-production-8526.up.railway.app/health    # python bot (prod)
+curl https://devapi.suwappu.bot/health                           # api-ts (dev)
 ```
 
 ## API & Bot Reference
@@ -167,7 +174,7 @@ bash scripts/verify.sh agent  # Run only agent card/registry checks
 
 ## Standing rules (hard-won — follow these)
 
-1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify: `curl https://api.suwappu.bot/health` → 200 **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. The `/ship` skill does this.
+1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify with `python3 scripts/status.py` (checks the Railway control plane, deep health, and scans logs for import errors in one shot) **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. Do NOT use `curl https://api.suwappu.bot/health` for this — that domain serves api-ts, not the bot. The `/ship` skill does this.
 2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
 3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
 4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. (Escape hatch: `/model opus` for a genuinely hard-architecture session.)

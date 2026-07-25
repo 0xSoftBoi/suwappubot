@@ -28,7 +28,12 @@ jobs:
             "terminal|https://terminal-production-7906.up.railway.app/"
             "showcase|https://showcase-production-6f89.up.railway.app/robots.txt"
             "bridge|https://suwappu-bridge-production.up.railway.app/"
+            "webapp|https://webapp-production-897e.up.railway.app/"
           )
+          # NOTE: this list only covers services with a public URL. Services
+          # without one (python-worker, suwappu-relayer) can crash-loop without
+          # any probe noticing — `python3 scripts/status.py` reads the Railway
+          # control plane and is the tool that catches those.
 
           failures=""
           for pair in "${endpoints[@]}"; do
