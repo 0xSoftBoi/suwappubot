@@ -25,7 +25,7 @@ import jwt
 import httpx
 
 from bot.config.chains import CHAINS, ChainType
-from bot.config.tokens import TOKENS
+from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_decimals
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
@@ -290,6 +290,7 @@ class WebAppPortfolioToken(BaseModel):
     balance: str
     usdValue: float
     logoUrl: Optional[str] = None
+    decimals: Optional[int] = None
 
 
 class WebAppPortfolio(BaseModel):
@@ -2623,22 +2624,74 @@ async def get_my_portfolio(
     tokens = []
     total_usd = 0.0
 
+    # Native-coin sentinel expected by the webapp's isNativeToken() allowlist.
+    # Empty string is treated as "native" client-side and is used consistently
+    # for every chain's native asset (ETH/BNB/POL/SOL/...).
+    NATIVE_ADDRESS_SENTINEL = ""
+    # Explicit placeholder for ERC-20-like tokens whose contract address we do
+    # NOT have in bot/config/tokens.py for a given chain. This is intentionally
+    # NOT a valid address (and NOT the native sentinel) so the webapp's
+    # isAddress()-based send gate stays disabled for it.
+    UNKNOWN_ADDRESS_PLACEHOLDER = "0x..."
+    # Addresses/markers in bot/config/tokens.py that actually mean "this is the
+    # chain's native asset", not a real ERC-20 contract. Some TOKENS entries
+    # (e.g. BTC on citrea, which is really native cBTC) resolve to one of
+    # these for a given chain. The webapp's isNativeToken() allowlist accepts
+    # the zero address as native too, so shipping it verbatim would both
+    # mislabel the row AND double-count the same underlying native balance
+    # (once from the chain's native_token key, once from this TOKENS entry).
+    NATIVE_ADDRESS_MARKERS = {
+        NATIVE_TOKEN_ADDRESS.lower(),  # 0x000...000
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "native",
+    }
+
     for wallet in wallets:
         try:
             balances = await wallet_service.get_all_balances(wallet)
             for chain_name, chain_tokens in balances.items():
+                chain_config = CHAINS.get(chain_name)
                 for symbol, balance in chain_tokens.items():
                     if balance > 0:
                         # Simple USD estimation (would use price service in production)
                         usd_value = balance  # Placeholder
+
+                        is_native = bool(chain_config and symbol == chain_config.native_token)
+                        if is_native:
+                            address = NATIVE_ADDRESS_SENTINEL
+                            decimals = chain_config.native_decimals if chain_config else None
+                        else:
+                            token_config = TOKENS.get(symbol.upper())
+                            token_address = (
+                                token_config.addresses.get(chain_name) if token_config else None
+                            )
+                            if token_address and token_address.lower() in NATIVE_ADDRESS_MARKERS:
+                                # This TOKENS entry is actually the chain's native
+                                # asset under a different symbol (e.g. BTC ==
+                                # native cBTC on citrea). The chain's real
+                                # native_token balance is already emitted above
+                                # (or will be, from its own dict key) — emitting
+                                # this row too would double-count the same
+                                # underlying balance, so skip it entirely.
+                                continue
+                            elif token_address:
+                                address = token_address
+                                decimals = get_token_decimals(symbol, chain_name)
+                            else:
+                                # No known contract address for this token on this
+                                # chain — keep the send gate disabled client-side.
+                                address = UNKNOWN_ADDRESS_PLACEHOLDER
+                                decimals = None
+
                         tokens.append(
                             WebAppPortfolioToken(
                                 symbol=symbol,
                                 name=symbol,
-                                address="0x...",
+                                address=address,
                                 chain=chain_name,
                                 balance=str(balance),
                                 usdValue=usd_value,
+                                decimals=decimals,
                             )
                         )
                         total_usd += usd_value
