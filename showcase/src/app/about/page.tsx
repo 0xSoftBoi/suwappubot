@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
+import StatCountUp from './StatCountUp';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
+import styles from './about.module.css';
 
 export const metadata: Metadata = {
   title: 'About — Suwappu',
@@ -47,21 +49,21 @@ export default function AboutPage() {
           </p>
         </header>
 
-        <section className="summer-stats about-stats" aria-label="By the numbers">
+        <section className={styles.stats} aria-label="By the numbers">
           {metrics.map((m) => (
-            <div className="summer-stat" key={m.label}>
-              <strong>{m.value}</strong>
-              <span>{m.label}</span>
+            <div className={styles.stat} key={m.label}>
+              <StatCountUp value={m.value} className={`about-stat ${styles.statValue}`} />
+              <span className={styles.statLabel}>{m.label}</span>
             </div>
           ))}
         </section>
 
         <section className="about-block" aria-label="What we believe">
           <h2 className="mkt-h2">What we believe</h2>
-          <div className="about-principles">
+          <div className="sw-rows">
             {principles.map((p) => (
-              <article className="about-principle" key={p.title}>
-                <h3>{p.title}</h3>
+              <article className={`sw-row ${styles.row}`} key={p.title}>
+                <h3 className="sw-h3">{p.title}</h3>
                 <p>{p.body}</p>
               </article>
             ))}
@@ -70,10 +72,10 @@ export default function AboutPage() {
 
         <section className="about-block" aria-label="Where Suwappu runs">
           <h2 className="mkt-h2">One engine, everywhere you work</h2>
-          <div className="about-surfaces">
+          <div className="sw-rows">
             {surfaces.map((s) => (
-              <article className="about-surface" key={s.name}>
-                <h3>{s.name}</h3>
+              <article className={`sw-row ${styles.row}`} key={s.name}>
+                <h3 className="sw-h3">{s.name}</h3>
                 <p>{s.desc}</p>
               </article>
             ))}

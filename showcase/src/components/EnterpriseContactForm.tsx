@@ -81,11 +81,20 @@ export default function EnterpriseContactForm() {
     return (
       <div className={styles.success} role="status" aria-live="polite">
         <div className={styles.successMark} aria-hidden="true">
-          ✓
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              className={styles.successMarkPath}
+              d="M4.5 12.5L10 18L19.5 6.5"
+              stroke="#fff"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
         <h2>Thanks — we&rsquo;ve got it.</h2>
         <p>
-          Your request is in front of our team now. We aim to reply within a few hours, often much
+          Your request is in front of our team now. We reply within one business day, often much
           faster. Want to talk sooner?
         </p>
         <a

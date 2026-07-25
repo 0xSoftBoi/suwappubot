@@ -1,0 +1,110 @@
+/* Practices as a hairline grid — no boxed/shadowed cards, just rules. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--sw-gap);
+  border-top: 1px solid var(--sw-hairline);
+  border-left: 1px solid var(--sw-hairline);
+}
+
+.cell {
+  padding: 1.75rem;
+  border-right: 1px solid var(--sw-hairline);
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+/* Odd item out (7 practices in a 2-up grid) spans the row instead of
+   leaving a dangling half-bordered cell. */
+.cell:last-child:nth-child(2n + 1) {
+  grid-column: 1 / -1;
+}
+
+.cell h2 {
+  margin: 0 0 8px;
+  color: var(--sw-ink);
+  font-size: 1.1rem;
+}
+
+.cell p {
+  margin: 0;
+  color: var(--sw-muted);
+  font-size: 0.94rem;
+  line-height: 1.65;
+}
+
+.cell code {
+  padding: 1px 5px;
+  border-radius: var(--sw-r-xs);
+  background: var(--sw-accent-wash);
+  color: var(--sw-accent-deep);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .cell:last-child:nth-child(2n + 1) {
+    grid-column: auto;
+  }
+}
+
+/* Responsible-disclosure block, elevated: a persimmon wash + left rule
+   rather than another boxed card — this is the one place on the page that
+   should read as "act on this." */
+.disclose {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 2rem;
+  margin-top: var(--sw-section);
+  padding: 2rem 2.25rem;
+  border-left: 3px solid var(--sw-accent);
+  border-radius: 0 var(--sw-r-md) var(--sw-r-md) 0;
+  background: linear-gradient(90deg, var(--sw-accent-wash), transparent 70%);
+}
+
+.disclose h2 {
+  margin: 8px 0 0;
+}
+
+.disclose p {
+  margin: 12px 0 0;
+  color: var(--sw-muted);
+  line-height: 1.65;
+}
+
+.disclose code {
+  padding: 1px 5px;
+  border-radius: var(--sw-r-xs);
+  background: var(--sw-accent-wash);
+  color: var(--sw-accent-deep);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+.honesty h3 {
+  margin: 0 0 10px;
+  color: var(--sw-ink);
+  font-size: 1rem;
+}
+
+.honesty ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--sw-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.honesty b {
+  color: var(--sw-ink);
+}
+
+@media (max-width: 720px) {
+  .disclose {
+    grid-template-columns: 1fr;
+  }
+}

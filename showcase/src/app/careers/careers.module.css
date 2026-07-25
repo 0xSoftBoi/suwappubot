@@ -1,0 +1,14 @@
+/* Ghost variant for the speculative-application CTA: same sizing as
+   .summer-button, but hairline-bounded and transparent instead of the
+   persimmon fill — this is a low-commitment ask, not the primary action. */
+.ghost {
+  border: 1px solid var(--sw-hairline-strong);
+  background: transparent;
+  color: var(--sw-ink);
+  box-shadow: none;
+}
+
+.ghost:hover {
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-deep);
+}
