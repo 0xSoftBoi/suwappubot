@@ -66,12 +66,12 @@ export function WalletInspector() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Paste a Solana wallet address…"
             aria-label="Solana wallet address"
-            className="terminal-input flex-1 font-mono text-xs"
+            className="terminal-input flex-1 font-mono tnum text-xs"
           />
           <button
             type="submit"
             disabled={!SOL_ADDRESS.test(input.trim())}
-            className="rounded bg-sakura-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-sakura-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-sakura-600 px-3 py-1.5 text-xs font-semibold text-terminal-on-accent transition-colors hover:bg-sakura-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Inspect
           </button>
@@ -101,17 +101,17 @@ export function WalletInspector() {
               <div className="text-[10px] uppercase tracking-wide text-terminal-text-muted">
                 Net worth (priced assets)
               </div>
-              <div className="font-mono text-xl text-terminal-text">{fmtUsd(p.totalUsd)}</div>
+              <div className="font-mono tnum text-xl text-terminal-text">{fmtUsd(p.totalUsd)}</div>
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-terminal-text-secondary">
                 <span>
-                  SOL <span className="font-mono text-terminal-text">{fmtAmount(p.nativeSol)}</span>{' '}
+                  SOL <span className="font-mono tnum text-terminal-text">{fmtAmount(p.nativeSol)}</span>{' '}
                   <span className="text-terminal-text-muted">({fmtUsd(p.nativeUsd)})</span>
                 </span>
                 <span>
-                  Tokens <span className="font-mono text-terminal-text">{p.tokens.length}</span>
+                  Tokens <span className="font-mono tnum text-terminal-text">{p.tokens.length}</span>
                 </span>
                 <span>
-                  Assets <span className="font-mono text-terminal-text">{p.assetCount}</span>
+                  Assets <span className="font-mono tnum text-terminal-text">{p.assetCount}</span>
                 </span>
               </div>
             </div>
@@ -129,10 +129,10 @@ export function WalletInspector() {
                     {p.tokens.slice(0, 12).map((t) => (
                       <tr key={t.mint} className="border-b border-terminal-border/40">
                         <td className="py-1 pr-2 font-medium text-terminal-text">{t.symbol}</td>
-                        <td className="py-1 px-2 text-right font-mono text-terminal-text-secondary">
+                        <td className="py-1 px-2 text-right font-mono tnum text-terminal-text-secondary">
                           {fmtAmount(t.amount)}
                         </td>
-                        <td className="py-1 pl-2 text-right font-mono text-terminal-text">
+                        <td className="py-1 pl-2 text-right font-mono tnum text-terminal-text">
                           {t.usd != null ? fmtUsd(t.usd) : '—'}
                         </td>
                       </tr>
@@ -166,7 +166,7 @@ export function WalletInspector() {
                           {tx.description || tx.source || '—'}
                         </span>
                       </div>
-                      <span className="shrink-0 font-mono text-[10px] text-terminal-text-muted">
+                      <span className="shrink-0 font-mono tnum text-[10px] text-terminal-text-muted">
                         {fmtAge(tx.timestamp)}
                       </span>
                     </li>

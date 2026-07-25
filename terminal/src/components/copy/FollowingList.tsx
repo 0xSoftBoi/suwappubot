@@ -57,11 +57,11 @@ export function FollowingList() {
             className="flex items-center gap-3 px-3 py-3 hover:bg-terminal-bg-tertiary/50 transition-colors"
           >
             {/* Avatar + Address */}
-            <div className="w-7 h-7 rounded-full bg-terminal-bg-tertiary border border-terminal-border flex items-center justify-center text-[10px] font-mono text-terminal-text-secondary shrink-0">
+            <div className="w-7 h-7 rounded-full bg-terminal-bg-tertiary border border-terminal-border flex items-center justify-center text-[10px] font-mono tnum text-terminal-text-secondary shrink-0">
               {(trader.name || trader.address).slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-mono text-terminal-text truncate">
+              <div className="text-xs font-mono tnum text-terminal-text truncate">
                 {trader.name || truncateAddress(trader.address)}
               </div>
               <div className="text-[10px] text-terminal-text-muted">
@@ -71,11 +71,11 @@ export function FollowingList() {
 
             {/* PnL */}
             <div className="text-right shrink-0">
-              <div className={`text-xs font-mono ${trader.dailyPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
+              <div className={`text-xs font-mono tnum ${trader.dailyPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
                 {formatPnl(trader.dailyPnl)}
                 <span className="text-terminal-text-muted ml-1">today</span>
               </div>
-              <div className={`text-[10px] font-mono ${trader.totalPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
+              <div className={`text-[10px] font-mono tnum ${trader.totalPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
                 {formatPnl(trader.totalPnl)}
                 <span className="text-terminal-text-muted ml-1">total</span>
               </div>

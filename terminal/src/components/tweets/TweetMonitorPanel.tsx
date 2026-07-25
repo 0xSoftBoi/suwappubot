@@ -2,6 +2,7 @@ import { useTweetMonitor, type SentimentFilter } from '../../hooks/useTweetMonit
 import { AddAccountModal } from './AddAccountModal'
 import { TweetCard } from './TweetCard'
 import { useState } from 'react'
+import { TerminalEmptyState } from '../foundation'
 
 // NOTE: /webapp/tweets/* endpoints do not exist in api-ts. The account-persistence
 // and tweet-feed calls all 404. This panel is gated as coming soon until the backend
@@ -52,10 +53,11 @@ export function TweetMonitorPanel() {
       </div>
 
       {COMING_SOON ? (
-        <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-3 text-sm text-terminal-text-muted">
-          <span className="font-semibold text-terminal-text">Coming soon</span> — Tweet monitoring is not yet available.
-          The backend endpoint is under development.
-        </div>
+        <TerminalEmptyState
+          kicker="In development"
+          title="Tweet monitor — ships with the vNEXT backend"
+          description="Track crypto Twitter accounts and see a live sentiment feed with $TOKEN mentions linked straight to your chart. The account list you build here will carry over once the feed goes live."
+        />
       ) : (
         <>
           <div className="text-xs text-terminal-text-muted">

@@ -56,15 +56,15 @@ function timeAgo(timestamp: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function qualityTone(stats?: WalletStats): "neutral" | "warm" | "sky" {
+function qualityTone(stats?: WalletStats): "neutral" | "up" | "down" {
   if (!stats) return "neutral";
-  if (stats.pnl7d >= 0 && stats.winRate >= 60) return "sky";
-  if (stats.pnl7d < 0) return "warm";
+  if (stats.pnl7d >= 0 && stats.winRate >= 60) return "up";
+  if (stats.pnl7d < 0) return "down";
   return "neutral";
 }
 
-function activityTone(activity: WalletActivity): "warm" | "sky" {
-  return activity.action === "buy" ? "sky" : "warm";
+function activityTone(activity: WalletActivity): "up" | "down" {
+  return activity.action === "buy" ? "up" : "down";
 }
 
 export type TerminalWalletOperatorMode = "focused" | "market";
@@ -185,7 +185,7 @@ export function TerminalWalletOperatorSurface({
                   className={joinClasses(
                     "terminal-theme-card px-[var(--terminal-space-card)] py-[var(--terminal-space-card)] text-left transition-all duration-150",
                     active
-                      ? "border-terminal-border-active bg-white [box-shadow:var(--terminal-shadow-raised)]"
+                      ? "border-terminal-border-active accent-wash [box-shadow:var(--terminal-shadow-raised)]"
                       : "hover:border-terminal-border-active hover:[box-shadow:var(--terminal-shadow-raised)]",
                   )}
                 >
@@ -194,7 +194,7 @@ export function TerminalWalletOperatorSurface({
                       <div className="truncate text-[13px] font-semibold text-terminal-text">
                         {wallet.label || truncateAddress(wallet.address)}
                       </div>
-                      <div className="mt-0.5 font-mono text-[10px] text-terminal-text-muted">
+                      <div className="mt-0.5 font-mono tnum text-[10px] text-terminal-text-muted">
                         {truncateAddress(wallet.address)}
                       </div>
                     </div>
@@ -208,7 +208,7 @@ export function TerminalWalletOperatorSurface({
                       </div>
                       <div
                         className={joinClasses(
-                          "mt-1 font-mono font-semibold",
+                          "mt-1 font-mono tnum font-semibold",
                           stats && stats.pnl7d >= 0 ? "text-bull" : "text-bear",
                         )}
                       >
@@ -219,7 +219,7 @@ export function TerminalWalletOperatorSurface({
                       <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                         Win
                       </div>
-                      <div className="mt-1 font-mono font-semibold text-terminal-text">
+                      <div className="mt-1 font-mono tnum font-semibold text-terminal-text">
                         {stats ? `${stats.winRate}%` : "--"}
                       </div>
                     </div>
@@ -227,7 +227,7 @@ export function TerminalWalletOperatorSurface({
                       <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                         Trades
                       </div>
-                      <div className="mt-1 font-mono font-semibold text-terminal-text">
+                      <div className="mt-1 font-mono tnum font-semibold text-terminal-text">
                         {stats ? stats.totalTrades : "--"}
                       </div>
                     </div>
@@ -261,7 +261,7 @@ export function TerminalWalletOperatorSurface({
                 </span>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-terminal-text-secondary">
-                <span className="font-mono">
+                <span className="font-mono tnum">
                   {truncateAddress(selectedWallet.address)}
                 </span>
                 <span className="h-1 w-1 rounded-full bg-terminal-border-active" />
@@ -319,7 +319,7 @@ export function TerminalWalletOperatorSurface({
               label="Trades"
               value={selectedStats ? `${selectedStats.totalTrades}` : "--"}
               detail="tracked executions"
-              tone="sky"
+              tone="neutral"
             />
           </div>
 
@@ -439,7 +439,7 @@ export function TerminalWalletOperatorSurface({
                   <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
                     Notional
                   </div>
-                  <div className="mt-1 font-mono text-sm font-semibold text-terminal-text">
+                  <div className="mt-1 font-mono tnum text-sm font-semibold text-terminal-text">
                     {formatUsd(activity.amount)}
                   </div>
                 </div>
@@ -448,7 +448,7 @@ export function TerminalWalletOperatorSurface({
                   <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
                     Price
                   </div>
-                  <div className="mt-1 font-mono text-sm font-semibold text-terminal-text">
+                  <div className="mt-1 font-mono tnum text-sm font-semibold text-terminal-text">
                     $
                     {activity.priceUsd.toFixed(activity.priceUsd >= 10 ? 2 : 3)}
                   </div>

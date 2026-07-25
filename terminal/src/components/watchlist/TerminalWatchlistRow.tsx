@@ -34,8 +34,8 @@ export function TerminalWatchlistRow({
     <div
       className={`group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2.5 border px-2.5 py-2 transition-colors [border-radius:var(--terminal-radius-inset)] ${
         selected
-          ? "border-terminal-border-active bg-white [box-shadow:var(--terminal-shadow-raised)]"
-          : "border-terminal-border bg-terminal-bg-secondary hover:bg-white"
+          ? "border-terminal-border-active accent-wash [box-shadow:var(--terminal-shadow-raised)]"
+          : "border-terminal-border bg-terminal-bg-secondary hover:bg-terminal-bg-tertiary"
       }`}
       onClick={() => onOpen?.(token)}
     >
@@ -57,7 +57,10 @@ export function TerminalWatchlistRow({
 
       <div className="text-right">
         <div className="text-[10px] text-terminal-text-muted">Price</div>
-        <div className="mt-0.5 font-mono text-[13px] text-terminal-text">
+        <div
+          key={price ?? "none"}
+          className={`mt-0.5 rounded font-mono tnum text-[13px] text-terminal-text ${price !== null ? (positive ? "flash-up" : "flash-down") : ""}`}
+        >
           {loading ? (
             <span className="inline-block h-3 w-14 rounded bg-terminal-bg-tertiary animate-shimmer" />
           ) : price !== null ? (
@@ -80,8 +83,9 @@ export function TerminalWatchlistRow({
           event.stopPropagation();
           onRemove?.(token);
         }}
-        className="border border-transparent px-1.5 py-1.5 text-terminal-text-muted opacity-0 transition-all hover:border-terminal-border hover:bg-white hover:text-bear group-hover:opacity-100 [border-radius:var(--terminal-radius-card)]"
+        className="border border-transparent px-1.5 py-1.5 text-terminal-text-muted opacity-0 transition-all hover:border-terminal-border hover:bg-terminal-bg-tertiary hover:text-bear group-hover:opacity-100 [border-radius:var(--terminal-radius-card)]"
         title="Remove token"
+        aria-label={`Remove ${token.symbol} from watchlist`}
       >
         <svg
           className="h-4 w-4"

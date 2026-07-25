@@ -1,30 +1,32 @@
 import { useState, useRef, useEffect } from "react";
 import type { TokenSecurity } from "../../types/api";
 
+// Neutral dark chips by default; green is reserved for a genuinely "safe"
+// verdict (semantic, not decorative), amber for caution, red for danger.
 const RISK_CONFIG = {
   safe: {
     label: "Safe",
-    dotClass: "bg-[#2d8a73]",
-    borderClass: "border-[#a8d1c0]",
-    textClass: "text-[#1d6b57]",
-    bgClass: "bg-[#e6f4f0]",
-    scoreBg: "bg-[#d4ebe3]",
+    dotClass: "bg-bull",
+    borderClass: "border-bull/30",
+    textClass: "text-bull",
+    bgClass: "bg-bull/10",
+    scoreBg: "bg-bull/20",
   },
   caution: {
     label: "Caution",
-    dotClass: "bg-[#d38d3c]",
-    borderClass: "border-[#efc98a]",
-    textClass: "text-[#9c6220]",
-    bgClass: "bg-[#fff2da]",
-    scoreBg: "bg-[#fde6ba]",
+    dotClass: "bg-terminal-warn",
+    borderClass: "border-terminal-warn/30",
+    textClass: "text-terminal-warn",
+    bgClass: "bg-terminal-warn/10",
+    scoreBg: "bg-terminal-warn/20",
   },
   danger: {
     label: "Danger",
-    dotClass: "bg-[#d85a47]",
-    borderClass: "border-[#f0b3a9]",
-    textClass: "text-[#b44232]",
-    bgClass: "bg-[#ffe8e4]",
-    scoreBg: "bg-[#ffd3cb]",
+    dotClass: "bg-bear",
+    borderClass: "border-bear/30",
+    textClass: "text-bear",
+    bgClass: "bg-bear/10",
+    scoreBg: "bg-bear/20",
   },
 } as const;
 
@@ -103,14 +105,14 @@ export function SecurityBadge({
       <button
         onClick={() => setExpanded(!expanded)}
         className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] border transition-all cursor-pointer ${config.borderClass} ${config.bgClass} ${config.textClass} hover:brightness-125 ${
-          isDanger
-            ? "animate-pulse-slow shadow-[0_0_6px_rgba(239,68,68,0.3)]"
-            : ""
+          isDanger ? "animate-pulse-slow" : ""
         }`}
+        aria-label={`Trust score ${score} of 100 — ${config.label}`}
+        aria-expanded={expanded}
       >
         {/* Trust score number */}
         <span
-          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${config.scoreBg}`}
+          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-semibold ${config.scoreBg}`}
         >
           {score}
         </span>
@@ -135,16 +137,16 @@ export function SecurityBadge({
       {/* Expanded tooltip */}
       {expanded && (
         <div
-          className={`absolute z-50 top-full mt-1 right-0 min-w-[200px] rounded-lg border shadow-xl ${
+          className={`terminal-theme-overlay absolute z-50 top-full mt-1 right-0 min-w-[200px] rounded-lg border ${
             isDanger
-              ? "bg-red-950/95 border-red-500/40"
+              ? "bg-bear-dim border-bear/40"
               : "bg-terminal-bg-secondary border-terminal-border"
           }`}
         >
           {/* Header */}
           <div
             className={`flex items-center justify-between px-3 py-2 border-b ${
-              isDanger ? "border-red-500/30" : "border-terminal-border"
+              isDanger ? "border-bear/30" : "border-terminal-border"
             }`}
           >
             <span className={`text-xs font-semibold ${config.textClass}`}>
@@ -164,10 +166,10 @@ export function SecurityBadge({
               <div
                 className={`h-full rounded-full transition-all ${
                   score >= 70
-                    ? "bg-[#2d8a73]"
+                    ? "bg-bull"
                     : score >= 40
-                      ? "bg-[#d38d3c]"
-                      : "bg-[#d85a47]"
+                      ? "bg-terminal-warn"
+                      : "bg-bear"
                 }`}
                 style={{ width: `${score}%` }}
               />
@@ -209,7 +211,7 @@ export function SecurityBadge({
 
           {/* Danger warning */}
           {isDanger && (
-            <div className="mx-3 mb-2 px-2 py-1.5 rounded bg-red-500/15 border border-red-500/30 text-[10px] text-red-400 font-medium">
+            <div className="mx-3 mb-2 px-2 py-1.5 rounded bg-bear/15 border border-bear/30 text-[10px] text-bear font-medium">
               Warning: This token has multiple risk flags. Trade with extreme
               caution.
             </div>
