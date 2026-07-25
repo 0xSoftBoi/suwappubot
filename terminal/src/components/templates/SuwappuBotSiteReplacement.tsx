@@ -268,7 +268,7 @@ function TerminalPreview() {
               <div className="text-xs text-bull">+6.94%</div>
             </div>
           </div>
-          <div className="relative mt-3 h-40 overflow-hidden rounded-[8px] border border-terminal-border bg-[linear-gradient(180deg,rgba(14,16,20,0.86),rgba(237,248,251,0.72))]">
+          <div className="relative mt-3 h-40 overflow-hidden rounded-[8px] border border-terminal-border bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(237,248,251,0.72))]">
             <div className="absolute inset-0 bg-[linear-gradient(rgba(142,182,197,0.25)_1px,transparent_1px),linear-gradient(90deg,rgba(142,182,197,0.24)_1px,transparent_1px)] bg-[size:52px_36px]" />
             <div className="absolute bottom-4 left-3 right-3 top-8 flex items-end gap-1.5">
               {candles.map((height, index) => (
@@ -483,7 +483,7 @@ function MobileBreezeSite() {
             gridTemplateColumns: "52px minmax(0, 1fr)",
           }}
         >
-          <div className="relative m-2 mr-0 min-h-[594px] overflow-hidden rounded-[10px] border border-terminal-hairline-strong bg-terminal-panel/74 shadow-[0_16px_34px_rgba(88,142,162,0.12)]">
+          <div className="relative m-2 mr-0 min-h-[594px] overflow-hidden rounded-[10px] border border-white/75 bg-white/74 shadow-[0_16px_34px_rgba(88,142,162,0.12)]">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-[#9bd6df]/70 to-transparent" />
             <div className="absolute left-1/2 top-[142px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#8ed3de]/45 bg-[#e9fbfb]/50" />
             <div className="absolute left-1/2 top-[248px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#f0c95a]/35 bg-[#fff2cf]/42" />
@@ -520,10 +520,10 @@ function MobileBreezeSite() {
 
           <div className="relative grid min-w-0 gap-2 p-2">
             <div
-              className="relative overflow-hidden rounded-[12px] border border-terminal-hairline-strong p-3"
+              className="relative overflow-hidden rounded-[12px] border border-white/75 p-3"
               style={{
                 background:
-                  "radial-gradient(circle at 82% 18%, rgba(255,214,182,0.52), transparent 15%), radial-gradient(circle at 15% 4%, rgba(14,16,20,0.62), transparent 20%), radial-gradient(circle at 8% 86%, rgba(244,203,215,0.48), transparent 18%), linear-gradient(180deg, rgba(153,214,228,0.98) 0%, rgba(144,208,223,0.96) 30%, rgba(209,242,239,0.86) 66%, rgba(246,253,252,0.95) 100%)",
+                  "radial-gradient(circle at 82% 18%, rgba(255,214,182,0.52), transparent 15%), radial-gradient(circle at 15% 4%, rgba(255,255,255,0.62), transparent 20%), radial-gradient(circle at 8% 86%, rgba(244,203,215,0.48), transparent 18%), linear-gradient(180deg, rgba(153,214,228,0.98) 0%, rgba(144,208,223,0.96) 30%, rgba(209,242,239,0.86) 66%, rgba(246,253,252,0.95) 100%)",
                 boxShadow: "0 14px 32px rgba(33,88,110,0.12)",
               }}
             >
@@ -534,7 +534,7 @@ function MobileBreezeSite() {
                 <SakuraBloomMotif size={42} tone="soft" rotation={18} />
               </div>
               <div className="flex items-start justify-between gap-2">
-                <div className="rounded-[999px] border border-terminal-hairline-strong bg-terminal-panel/32 px-3 py-1 text-[9px] uppercase tracking-[0.22em] text-[#4f8ca0]">
+                <div className="rounded-[999px] border border-white/75 bg-white/32 px-3 py-1 text-[9px] uppercase tracking-[0.22em] text-[#4f8ca0]">
                   summer breeze
                 </div>
                 <PersimmonMark
@@ -552,7 +552,7 @@ function MobileBreezeSite() {
                 style={{
                   fontSize: "48px",
                   lineHeight: 0.9,
-                  textShadow: "0 2px 0 rgba(14,16,20,0.5)",
+                  textShadow: "0 2px 0 rgba(255,255,255,0.5)",
                 }}
               >
                 Suwappu
@@ -570,7 +570,7 @@ function MobileBreezeSite() {
                 </a>
                 <a
                   href={DOCS_URL}
-                  className="rounded-[8px] border border-terminal-hairline-strong bg-terminal-panel/54 px-3 py-2 text-center text-xs font-semibold text-[#17324a]"
+                  className="rounded-[8px] border border-white/75 bg-white/54 px-3 py-2 text-center text-xs font-semibold text-[#17324a]"
                 >
                   Docs/API
                 </a>
@@ -578,10 +578,10 @@ function MobileBreezeSite() {
             </div>
 
             <div
-              className="relative overflow-hidden rounded-[10px] border border-terminal-hairline-strong bg-terminal-panel/92"
+              className="relative overflow-hidden rounded-[10px] border border-white/75 bg-white/92"
               style={{
                 boxShadow:
-                  "0 2px 0 rgba(14,16,20,0.9) inset, 0 -18px 42px rgba(132,204,216,0.16) inset, 0 22px 42px rgba(33,88,110,0.2)",
+                  "0 2px 0 rgba(255,255,255,0.9) inset, 0 -18px 42px rgba(132,204,216,0.16) inset, 0 22px 42px rgba(33,88,110,0.2)",
               }}
             >
               <div className="pointer-events-none absolute -right-9 -top-10 z-0 opacity-[0.08]">
@@ -595,12 +595,12 @@ function MobileBreezeSite() {
               </div>
               <div className="pointer-events-none absolute -bottom-5 left-8 z-0 h-7 w-40 rounded-[999px] bg-[#17324a]/10 blur-[14px]" />
               <div
-                className="relative z-10 flex items-center justify-between border-b border-terminal-hairline-strong px-2 py-1.5"
+                className="relative z-10 flex items-center justify-between border-b border-white/75 px-2 py-1.5"
                 style={{
                   background:
-                    "linear-gradient(180deg, rgba(14,16,20,0.96), rgba(238,248,250,0.8))",
+                    "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(238,248,250,0.8))",
                   boxShadow:
-                    "0 1px 0 rgba(14,16,20,0.9) inset, 0 10px 22px rgba(33,88,110,0.08)",
+                    "0 1px 0 rgba(255,255,255,0.9) inset, 0 10px 22px rgba(33,88,110,0.08)",
                 }}
               >
                 <div className="flex items-center gap-1">
@@ -655,12 +655,12 @@ function MobileBreezeSite() {
                   style={{
                     height: 118,
                     background:
-                      "linear-gradient(145deg, rgba(14,16,20,0.95), rgba(224,247,249,0.84) 58%, rgba(255,247,231,0.72))",
+                      "linear-gradient(145deg, rgba(255,255,255,0.95), rgba(224,247,249,0.84) 58%, rgba(255,247,231,0.72))",
                     boxShadow:
-                      "0 1px 0 rgba(14,16,20,0.95) inset, 0 -18px 30px rgba(48,154,173,0.13) inset, 0 14px 26px rgba(33,88,110,0.16)",
+                      "0 1px 0 rgba(255,255,255,0.95) inset, 0 -18px 30px rgba(48,154,173,0.13) inset, 0 14px 26px rgba(33,88,110,0.16)",
                   }}
                 >
-                  <div className="absolute left-3 top-3 h-10 w-28 rounded-full bg-terminal-panel/54 blur-[16px]" />
+                  <div className="absolute left-3 top-3 h-10 w-28 rounded-full bg-white/54 blur-[16px]" />
                   <div className="absolute -right-7 -top-9 opacity-[0.09]">
                     <PersimmonMark
                       size={82}
@@ -696,7 +696,7 @@ function MobileBreezeSite() {
                                 : "linear-gradient(180deg, #43a66d, #237b4d)",
                             borderRadius: "5px 5px 1px 1px",
                             boxShadow:
-                              "0 1px 0 rgba(14,16,20,0.44) inset, 0 7px 10px rgba(20,79,48,0.18)",
+                              "0 1px 0 rgba(255,255,255,0.44) inset, 0 7px 10px rgba(20,79,48,0.18)",
                             height: `${height}%`,
                             flex: 1,
                           }}
@@ -710,7 +710,7 @@ function MobileBreezeSite() {
                       background:
                         "linear-gradient(180deg, #27bdf0, #0b8bc7)",
                       boxShadow:
-                        "0 1px 0 rgba(14,16,20,0.42) inset, 0 7px 14px rgba(14,118,158,0.3)",
+                        "0 1px 0 rgba(255,255,255,0.42) inset, 0 7px 14px rgba(14,118,158,0.3)",
                     }}
                   >
                     $3,483.28
@@ -724,12 +724,12 @@ function MobileBreezeSite() {
                   ].map(([label, value]) => (
                     <div
                       key={label}
-                      className="rounded-[6px] border border-terminal-hairline-strong px-1.5 py-1"
+                      className="rounded-[6px] border border-white/75 px-1.5 py-1"
                       style={{
                         background:
-                          "linear-gradient(180deg, rgba(14,16,20,0.92), rgba(238,248,250,0.78))",
+                          "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(238,248,250,0.78))",
                         boxShadow:
-                          "0 1px 0 rgba(14,16,20,0.95) inset, 0 8px 15px rgba(33,88,110,0.09)",
+                          "0 1px 0 rgba(255,255,255,0.95) inset, 0 8px 15px rgba(33,88,110,0.09)",
                       }}
                     >
                       <div className="font-mono text-[8px] uppercase text-terminal-text-muted">
@@ -748,7 +748,7 @@ function MobileBreezeSite() {
               {["Chart", "Table", "Swap"].map((item) => (
                 <div
                   key={item}
-                  className="rounded-[7px] border border-terminal-hairline-strong bg-terminal-panel/48 px-1.5 py-1.5 text-center font-mono text-[10px] text-[#345069]"
+                  className="rounded-[7px] border border-white/75 bg-white/48 px-1.5 py-1.5 text-center font-mono text-[10px] text-[#345069]"
                 >
                   {item}
                 </div>

@@ -347,6 +347,11 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
                 <span className="font-mono text-[10px] tnum text-terminal-text-muted">
                   {liqDistancePct.toFixed(1)}% from {isLimit ? 'limit' : 'mark'}
                 </span>
+                {/* The tooltip is invisible on touch — the core caveat must be
+                    visible text, since cross is the default margin mode. */}
+                <span className="text-[10px] text-terminal-text-muted">
+                  isolated est. · excl. fees
+                </span>
               </span>
               <span className="font-mono text-lg font-semibold leading-none tnum text-bear">
                 <span aria-hidden="true">{side === 'long' ? '▼' : '▲'}</span> $

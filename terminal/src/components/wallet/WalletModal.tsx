@@ -293,10 +293,12 @@ function DepositView({
   evmAddress,
   solanaAddress,
   balances,
+  loaded,
 }: {
   evmAddress: string | null
   solanaAddress: string | null
   balances: WalletBalance[]
+  loaded: boolean
 }) {
   const [chain, setChain] = useState('ethereum')
   const [qr, setQr] = useState<
@@ -325,32 +327,42 @@ function DepositView({
     }
   }, [address, qrAttempt])
 
-  // Honest, presentation-only "credited" signal: baseline this chain's total
-  // balance the moment it's selected, then watch the already-polling wallet
-  // summary (useWalletSummary refetches every 15s) for an increase. This is
-  // real data (a genuine balance delta), not a per-transaction status — we
-  // have no tx hash or mempool visibility for inbound deposits, so we never
-  // claim "Submitted"/"Confirming" happened, only that a net credit landed.
-  const chainBalanceTotal = useMemo(
-    () => balances.filter((b) => b.chain === chain).reduce((sum, b) => sum + b.amount, 0),
-    [balances, chain]
-  )
-  const baselineRef = useRef<number | null>(null)
-  const [credited, setCredited] = useState(false)
+  // Honest, presentation-only balance-increase signal, per (chain, token).
+  // Two hard rules learned in review: (1) never baseline before the wallet
+  // summary has actually loaded — a cold cache starts at [] and the first
+  // real fetch would read as a "credit"; (2) never sum different tokens into
+  // one number — 100 USDC swapped to 5M PEPE is not a 4,999,900 deposit.
+  // We also only claim what we can see: a balance increase, not that *the*
+  // deposit landed (an unrelated fill on the same chain can move balances).
+  const chainTokenAmounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const b of balances) if (b.chain === chain) m.set(b.token, b.amount)
+    return m
+  }, [balances, chain])
+  const baselineRef = useRef<Map<string, number> | null>(null)
+  const [creditedToken, setCreditedToken] = useState<string | null>(null)
+  const credited = creditedToken !== null
 
   useEffect(() => {
-    baselineRef.current = chainBalanceTotal
-    setCredited(false)
-    // Only reset on chain switch — re-baselining on every balance tick would
-    // never let a real increase register.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Chain switch: drop the baseline; it re-arms from loaded data below.
+    baselineRef.current = null
+    setCreditedToken(null)
   }, [chain])
 
   useEffect(() => {
-    if (baselineRef.current !== null && chainBalanceTotal > baselineRef.current) {
-      setCredited(true)
+    if (!loaded) return
+    if (baselineRef.current === null) {
+      baselineRef.current = new Map(chainTokenAmounts)
+      return
     }
-  }, [chainBalanceTotal])
+    for (const [token, amount] of chainTokenAmounts) {
+      const prev = baselineRef.current.get(token) ?? 0
+      if (amount > prev) {
+        setCreditedToken(token)
+        return
+      }
+    }
+  }, [loaded, chainTokenAmounts])
 
   return (
     <div className="space-y-3">
@@ -409,7 +421,7 @@ function DepositView({
 
           {credited && (
             <div className="flex items-center gap-2 rounded-lg border border-bull/30 bg-bull-dim px-3 py-2 text-[12px] font-medium text-bull">
-              <span aria-hidden>✓</span> New deposit credited to your balance
+              <span aria-hidden>✓</span> Balance increased — {creditedToken} is up on this chain
             </div>
           )}
 
@@ -423,7 +435,7 @@ function DepositView({
               <TimelineStep
                 index={3}
                 label="Credited"
-                note={credited ? 'Detected just now' : 'Appears in your balance automatically'}
+                note={credited ? 'Balance increase detected just now' : 'Appears in your balance automatically'}
                 state={credited ? 'done' : 'pending'}
               />
             </div>
@@ -442,6 +454,20 @@ function DepositView({
 // → review → execute. Two-step confirm guards against fat-finger sends; the
 // final step also requires a press-and-hold (or its a11y fallback) before
 // the submit handler ever fires.
+// Instruction copy must match the control the user actually gets: under
+// prefers-reduced-motion HoldToConfirmButton renders a two-step tap confirm,
+// where holding does nothing.
+function HoldHint() {
+  const reducedMotion = usePrefersReducedMotion()
+  return (
+    <p className="text-center text-[11px] text-terminal-text-muted">
+      {reducedMotion
+        ? 'Tap to arm, then tap again to confirm.'
+        : 'Press and hold to confirm (or hold Enter). Release early to cancel.'}
+    </p>
+  )
+}
+
 function WithdrawView({
   balances,
   enabled,
@@ -579,9 +605,7 @@ function WithdrawView({
             />
           </div>
         </div>
-        <p className="text-center text-[11px] text-terminal-text-muted">
-          Press and hold to confirm (or hold Enter). Release early to cancel.
-        </p>
+        <HoldHint />
       </div>
     )
   }
@@ -788,6 +812,7 @@ export function WalletModal({
               evmAddress={summary?.evmDepositAddress ?? null}
               solanaAddress={summary?.solanaDepositAddress ?? null}
               balances={balances}
+              loaded={summary !== undefined}
             />
           ) : (
             <WithdrawView balances={balances} enabled={summary?.withdrawEnabled !== false} />

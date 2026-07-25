@@ -53,7 +53,13 @@ function PnlStat({ pnl, isLoading }: { pnl: RealizedPnl | null; isLoading: boole
     return <TerminalSkeleton width={64} height={18} className="mx-auto" label="Loading PnL" />
   }
   if (!pnl || pnl.tradeCount === 0) {
-    return <span className="text-xs text-terminal-text-muted">Tracking starts with your first trade</span>
+    // Honest scope note: only engine-executed swaps carry USD pricing today,
+    // so external-wallet (MetaMask/Phantom) swaps never appear here.
+    return (
+      <span className="text-xs text-terminal-text-muted">
+        No priced trades yet — PnL covers swaps executed through the Suwappu engine
+      </span>
+    )
   }
   const isUp = pnl.usd > 0
   const isDown = pnl.usd < 0
@@ -142,8 +148,10 @@ export function PnLSummary() {
           )}
         </div>
         <div className="terminal-panel p-3 text-center">
+          {/* useSwaps caps at the 25 most-recent swaps — calling this window
+              "all-time" would publish a wrong number for any active trader. */}
           <div className="terminal-theme-caption mb-1 text-[10px] uppercase text-terminal-text-muted">
-            All-Time PnL
+            Recent PnL{allTime.tradeCount > 0 ? ` · last ${allTime.tradeCount} trades` : ''}
           </div>
           {swapsError ? (
             <button

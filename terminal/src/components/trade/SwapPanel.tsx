@@ -24,8 +24,10 @@ import { TerminalSkeletonText, TerminalStatusPill } from '../foundation'
 type OrderTab = 'swap' | 'limit' | 'dca'
 
 // Real Suwappu fee ladder (matches the published showcase /pricing page):
-// Free tier pays 1.00%, Pro pays 0.50%. One constant, no second fee source
-// of truth — the savings line below derives from these two numbers only.
+// Published plan rates (matches showcase pricing). The terminal has no tier
+// awareness and quote.fromAmountUsd historically holds token amounts, not USD
+// (see bot/models/security.py) — so the pitch line below states the plan
+// ladder without asserting this user's rate or fabricating a $ figure.
 const STANDARD_FEE_RATE = 0.01
 const PRO_FEE_RATE = 0.005
 const PRICING_URL = 'https://suwappu.bot/pricing'
@@ -122,14 +124,23 @@ export function SwapPanel() {
   const swapErrorCopy = (err: unknown, fallback = 'Swap failed') => {
     const raw = errMessage(err, fallback)
     const lower = raw.toLowerCase()
+    // Gas-specific first: EVM's "insufficient funds for gas * price + value"
+    // means the NATIVE token is short, not the sell token — a different remedy.
+    if (lower.includes('insufficient') && lower.includes('gas')) {
+      return raw.includes('You need at least')
+        ? raw
+        : 'Not enough of the native gas token to cover this transaction — top it up and retry.'
+    }
     if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('funds'))) {
       return 'Insufficient balance for this swap — lower the amount or add funds to your wallet.'
     }
     if (lower.includes('slippage') || lower.includes('min received') || lower.includes('minimum received')) {
       return 'Slippage exceeded — the price moved past your tolerance. Retry with slippage raised a notch.'
     }
-    if (lower.includes('reject') || lower.includes('denied') || lower.includes('cancel')) {
-      return "Swap cancelled in your wallet — nothing was sent. Retry when you're ready."
+    // Only wallet-rejection phrasing — never claim on-chain state from a
+    // string match ("cancelled" from a router can mean a broadcast tx).
+    if (lower.includes('user reject') || lower.includes('user denied') || lower.includes('user cancel') || lower.includes('rejected in wallet')) {
+      return "Request declined in your wallet. Retry when you're ready."
     }
     if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('rpc') || lower.includes('network error')) {
       return 'Network timed out reaching the chain — check your connection and retry.'
@@ -429,10 +440,10 @@ export function SwapPanel() {
             ? `Est. network fee: ~$${quote.gasUsd.toFixed(2)}`
             : 'Enter amount for fee estimate'}
         </div>
-        {quote && quote.fromAmountUsd > 0 && (
+        {quote && (
           <div className="mt-1 text-[11px] text-terminal-text-secondary">
-            Fee {(STANDARD_FEE_RATE * 100).toFixed(2)}% · Pro pays {(PRO_FEE_RATE * 100).toFixed(2)}% — save ~$
-            {(quote.fromAmountUsd * (STANDARD_FEE_RATE - PRO_FEE_RATE)).toFixed(2)} on this trade ·{' '}
+            Swap fee by plan: Free {(STANDARD_FEE_RATE * 100).toFixed(2)}% · Pro{' '}
+            {(PRO_FEE_RATE * 100).toFixed(2)}% ·{' '}
             <a
               href={PRICING_URL}
               target="_blank"

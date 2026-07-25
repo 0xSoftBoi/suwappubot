@@ -129,7 +129,14 @@ export function PnlShareCard({
   pnlAllTimePercent,
 }: PnlShareCardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [timeframe, setTimeframe] = useState<Timeframe>(pnlAllTimeUsd !== null ? 'all' : '24h')
+  const [timeframe, setTimeframe] = useState<Timeframe>('24h')
+
+  // Pick the best-populated tab each time the modal opens — the initial
+  // useState runs while data is still loading, so it can't decide this.
+  useEffect(() => {
+    if (isOpen) setTimeframe(pnl24hUsd !== null ? '24h' : pnlAllTimeUsd !== null ? 'all' : '24h')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   const activeUsd = timeframe === '24h' ? pnl24hUsd : pnlAllTimeUsd
@@ -146,7 +153,7 @@ export function PnlShareCard({
     const canvas = canvasRef.current
     const render = () =>
       drawCard(canvas, {
-        timeframeLabel: timeframe === '24h' ? '24H' : 'ALL-TIME',
+        timeframeLabel: timeframe === '24h' ? '24H' : 'RECENT TRADES',
         pnlUsd: activeUsd ?? 0,
         pnlPercent: activePercent,
         totalValueUsd,
@@ -250,7 +257,7 @@ export function PnlShareCard({
             disabled={pnlAllTimeUsd === null}
             className={`terminal-tab text-xs ${timeframe === 'all' ? 'terminal-tab-active' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            All-Time
+            Recent
           </button>
         </div>
 

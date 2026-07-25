@@ -216,7 +216,7 @@ function Header({
               item.symbol === market.symbol
                 ? {
                     borderColor: item.accent,
-                    background: `linear-gradient(180deg, rgba(14,16,20,0.94), ${item.tint})`,
+                    background: `linear-gradient(180deg, rgba(14,16,20,0.94), rgba(14,16,20,0.62)), linear-gradient(0deg, ${item.tint}, ${item.tint})`,
                   }
                 : undefined
             }
@@ -488,8 +488,8 @@ function SwapTicket({ market }: { market: Market }) {
               "min-h-9 rounded-[6px] border text-sm font-semibold",
               side === item
                 ? item === "Buy"
-                  ? "border-[#2f8f5b] bg-[#2f8f5b] text-white"
-                  : "border-[#e66d85] bg-[#e66d85] text-white"
+                  ? "border-bull bg-bull text-terminal-on-accent"
+                  : "border-bear bg-bear text-terminal-on-accent"
                 : "border-terminal-border bg-terminal-panel text-terminal-text-secondary",
             )}
           >
@@ -534,7 +534,7 @@ function SwapTicket({ market }: { market: Market }) {
               className={joinClasses(
                 "rounded-[5px] border px-2 py-1 font-mono",
                 item === "0.5%"
-                  ? "border-[#0ea5e9] bg-terminal-panel text-[#0b789a]"
+                  ? "border-terminal-border-active bg-terminal-panel text-terminal-accent"
                   : "border-terminal-border text-terminal-text-muted",
               )}
             >
@@ -605,7 +605,7 @@ function BottomWorkspace() {
               className={joinClasses(
                 "shrink-0 border-b-2 px-3 py-2 text-sm",
                 tab === item
-                  ? "border-[#0ea5e9] text-terminal-text"
+                  ? "border-terminal-accent text-terminal-text"
                   : "border-transparent text-terminal-text-muted",
               )}
             >

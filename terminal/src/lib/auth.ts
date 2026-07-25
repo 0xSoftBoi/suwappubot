@@ -41,7 +41,7 @@ export function clearAuthToken(): void {
     localStorage.removeItem(AUTH_METHOD_KEY)
   } catch (e) {
     console.error('Failed to clear auth token:', e)
-    toast.error('Session could not be saved — you may need to sign in again')
+    toast.error('Sign-out may not have completed — refresh the page to be sure')
   }
 }
 
