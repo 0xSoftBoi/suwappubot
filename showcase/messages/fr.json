@@ -19,7 +19,7 @@
     "kicker": "Le seul bot qui fait les trois",
     "h1": "Swaps multi-chaînes, perps HyperLiquid et trades sans frais de gas.",
     "h1_accent": "sans frais de gas",
-    "lead": "Les autres outils vous obligent à choisir — un bridge, un bureau de perps ou un wallet de gas. Suwappu unifie les trois : routage au meilleur prix sur 40+ chaînes, perps jusqu'à 20x et swaps avec gas sponsorisé. Tradez depuis Telegram, le terminal ou un seul appel SDK.",
+    "lead": "Les autres outils vous obligent à choisir — un bridge, un bureau de perps ou un wallet de gas. Suwappu unifie les trois : routage au meilleur prix sur 41 chaînes, perps jusqu'à 20x et swaps avec gas sponsorisé. Tradez depuis Telegram, le terminal ou un seul appel SDK.",
     "cta_bot": "Ouvrir le Bot Telegram",
     "cta_terminal": "Ouvrir le Terminal",
     "byline_pre": "Créé par l'auteur de",
@@ -30,7 +30,7 @@
   "cta": {
     "kicker": "Commencez maintenant",
     "heading": "Votre prochain swap n'est qu'à une ligne.",
-    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent — swaps au meilleur prix, perps et trades sans frais de gas sur 40+ chaînes.",
+    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent — swaps au meilleur prix, perps et trades sans frais de gas sur 41 chaînes.",
     "open_bot": "Ouvrir le Bot Telegram",
     "whatsapp": "Discuter sur WhatsApp",
     "docs": "Lire la documentation"
