@@ -17,6 +17,7 @@ import {
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
+	MCP_TOOLS,
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
@@ -178,6 +179,10 @@ export function createApp(config: AppConfig) {
 
 	// llms.txt — machine-readable API summary for LLM/agent discovery
 	app.get('/llms.txt', (c) => {
+		// Generated from mcp.ts's TOOLS constant (the single source of truth for the
+		// MCP surface) so this line can't silently drift out of sync when a new tool
+		// is added — a hand-written list here previously went stale.
+		const mcpToolNames = MCP_TOOLS.map((t) => t.name).join(', ')
 		return c.text(`# Suwappu API
 
 > Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.
@@ -247,7 +252,7 @@ or subscribe via POST /billing/subscribe for unmetered access.
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
-- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market; resources + prompts supported)
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: ${mcpToolNames}; resources + prompts supported)
 - A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi

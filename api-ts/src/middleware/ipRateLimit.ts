@@ -41,6 +41,29 @@ export function resolveClientIp(
 	return socketIp?.trim() || 'unknown'
 }
 
+/**
+ * Resolve the client IP trusting `cf-connecting-ip` only when it AGREES with the
+ * XFF-derived trusted-proxy-hop address. A request that bypasses Cloudflare and
+ * hits the origin directly (e.g. the raw Railway URL) can set an arbitrary
+ * `cf-connecting-ip` header — if we trusted it unconditionally, that lets an
+ * attacker farm unlimited starter credits (routes/agent.ts registration) or dodge
+ * IP rate limits by rotating the header value on every request. Using XFF (via
+ * TRUSTED_PROXY_COUNT hops from the right) as ground truth and only accepting
+ * cf-connecting-ip as a tiebreaker when it matches closes that gap without
+ * requiring a separate shared-secret header from Cloudflare.
+ */
+export function resolveTrustedClientIp(
+	cfIp: string | undefined,
+	forwarded: string | undefined,
+	socketIp: string | undefined,
+	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
+): string {
+	const xffIp = resolveClientIp(forwarded, socketIp, trustedProxyCount)
+	const trimmedCf = cfIp?.trim()
+	if (trimmedCf && trimmedCf === xffIp) return trimmedCf
+	return xffIp
+}
+
 const windows = new Map<string, SlidingWindowEntry>()
 let lastGlobalCleanup = Date.now()
 
@@ -75,7 +98,7 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
 			socketIp = undefined
 		}
-		const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+		const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
 		const key = `ip:${ip}`
 		const now = Date.now()
 

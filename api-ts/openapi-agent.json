@@ -606,7 +606,16 @@
       "post": {
         "summary": "Execute managed swap via server-side signing",
         "operationId": "executeSwap",
-        "description": "Execute a swap from a cached `quote_id` using the agent's managed (Turnkey) wallet. The agent must have created a wallet via POST /wallets first. Authenticated and rate-limited by tier; may be metered (x402).",
+        "description": "Execute a swap from a cached `quote_id` using the agent's managed (Turnkey) wallet. The agent must have created a wallet via POST /wallets first. Authenticated and rate-limited by tier; may be metered (x402). Optionally pass an `Idempotency-Key` header (scoped internally to `agent_{agent_id}_{key}`) so a client-side retry after a timeout is deduped against the same underlying swap instead of re-deriving a key from `quote_id` alone.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Client-supplied idempotency key, scoped per-agent server-side. When present, takes precedence over the key derived from quote_id."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {

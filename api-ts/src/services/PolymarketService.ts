@@ -198,7 +198,7 @@ function mapGammaMarket(m: GammaMarketRaw): PredictionMarket {
 		volume: parseFloat(m.volume || '0'),
 		liquidity: parseFloat(m.liquidity || '0'),
 		endDate: m.endDate || '',
-		active: m.active,
+		active: m.active ?? true,
 		category: m.category || '',
 	}
 }
@@ -218,8 +218,21 @@ async function searchMarketsImpl(query: string, limit: number): Promise<Predicti
 		})
 		const res = await fetch(`${GAMMA_API}/public-search?${params}`, { signal: AbortSignal.timeout(15_000) })
 		if (res.ok) {
-			const data = (await res.json()) as { markets?: GammaMarketRaw[] }
-			const markets = (data.markets ?? []).map(mapGammaMarket).slice(0, limit)
+			const data = (await res.json()) as {
+				markets?: GammaMarketRaw[]
+				events?: Array<{ markets?: GammaMarketRaw[] }>
+			}
+			// public-search returns markets nested under events[].markets, not a flat
+			// data.markets array — flatten + dedupe by id, keeping any top-level
+			// data.markets too in case the API shape varies by query.
+			const seen = new Set<string>()
+			const flattened: GammaMarketRaw[] = []
+			for (const m of [...(data.markets ?? []), ...(data.events ?? []).flatMap((e) => e.markets ?? [])]) {
+				if (!m || !m.id || seen.has(m.id)) continue
+				seen.add(m.id)
+				flattened.push(m)
+			}
+			const markets = flattened.map(mapGammaMarket).slice(0, limit)
 			// public-search succeeded — trust its (possibly empty) result rather than
 			// falling through to unfiltered results.
 			return markets

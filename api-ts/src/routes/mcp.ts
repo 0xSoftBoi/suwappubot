@@ -22,7 +22,7 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
+import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
@@ -117,6 +117,7 @@ const TOOLS = [
 			properties: {
 				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
 				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
+				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
 			},
 			required: ['quote_id', 'wallet_address'],
 		},
@@ -803,7 +804,15 @@ async function handleLendMarket(args: Record<string, unknown>) {
 }
 
 async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
-	const { quote_id, wallet_address } = args as { quote_id: string; wallet_address: string }
+	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
+	// tool only returns an unsigned transaction for client-side signing (no backend
+	// execute call to dedupe here) — it is echoed back so callers can carry it through
+	// to whichever submission path they use.
+	const { quote_id, wallet_address, idempotency_key } = args as {
+		quote_id: string
+		wallet_address: string
+		idempotency_key?: string
+	}
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
 	// hijacking) — same generic message so existence can't be probed. Webapp quotes
@@ -825,6 +834,7 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 		return { content: [{ type: 'text', text: JSON.stringify({
 			status: 'ready', chain: 'solana',
 			transaction: { type: 'solana', serialized_transaction: result.right.swapTransaction, last_valid_block_height: result.right.lastValidBlockHeight },
+			...(idempotency_key ? { idempotency_key } : {}),
 			instructions: 'Deserialize base64 transaction, sign with Solana wallet, submit to RPC',
 		}) }] }
 	}
@@ -836,6 +846,7 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 			value: quote.transactionRequest.value, data: quote.transactionRequest.data,
 			chain_id: quote.transactionRequest.chainId, gas_limit: quote.transactionRequest.gasLimit,
 		},
+		...(idempotency_key ? { idempotency_key } : {}),
 		instructions: 'Sign transaction with wallet and submit to chain RPC',
 	}) }] }
 }
@@ -1255,74 +1266,102 @@ mcpRoutes.post('/', async (c) => {
 			}
 
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
-			switch (name) {
-				case 'get_quote':
-					result = await handleGetQuote(args || {}, callAgent)
-					break
-				case 'get_portfolio':
-					result = await handleGetPortfolio(args || {})
-					break
-				case 'get_prices':
-					result = await handleGetPrices(args || {})
-					break
-				case 'list_chains':
-					result = handleListChains()
-					break
-				case 'list_tokens':
-					result = handleListTokens(args || {})
-					break
-				case 'execute_swap':
-					result = await handleExecuteSwap(args || {}, callAgent)
-					break
-				case 'get_tempo_tokens':
-					result = handleGetTempoTokens(args || {})
-					break
-				case 'browse_mpp_directory':
-					result = await handleBrowseMppDirectory(args || {})
-					break
-				case 'predict_markets':
-					result = await handlePredictMarkets(args || {})
-					break
-				case 'predict_market':
-				// predict_market_detail: legacy alias kept for older clients
-				case 'predict_market_detail':
-					result = await handlePredictMarketDetail(args || {})
-					break
-				case 'perps_markets':
-					result = await handlePerpsMarkets()
-					break
-				case 'perps_quote':
-					result = await handlePerpsQuote(args || {})
-					break
-				case 'perps_positions':
-					result = await handlePerpsPositions(args || {})
-					break
-				case 'lend_markets':
-					result = await handleLendMarkets(args || {})
-					break
-				case 'lend_market':
-					result = await handleLendMarket(args || {})
-					break
-				case 'get_swap_status':
-					result = await handleGetSwapStatus(args || {}, callAgent)
-					break
-				case 'get_swap_history':
-					result = await handleGetSwapHistory(args || {}, callAgent)
-					break
-				case 'predict_book':
-					result = await handlePredictBook(args || {})
-					break
-				case 'predict_price':
-					result = await handlePredictPrice(args || {})
-					break
-				case 'predict_trades':
-					result = await handlePredictTrades(args || {})
-					break
-				case 'list_wallet_policies':
-					result = await handleListWalletPolicies(args || {}, callAgent)
-					break
-				default:
-					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+			// Wrap tool execution: a handler throw must not 500 with credits already
+			// deducted, and a result with isError:true must not silently consume
+			// credits either — refund in both cases. Only refund when the charge
+			// actually deducted prepaid credits (kind === 'ok'); 'skip' (free/bypass/
+			// disabled) never charged anything, and 'settled' (on-chain x402 payment)
+			// isn't a refundable credit balance.
+			try {
+				switch (name) {
+					case 'get_quote':
+						result = await handleGetQuote(args || {}, callAgent)
+						break
+					case 'get_portfolio':
+						result = await handleGetPortfolio(args || {})
+						break
+					case 'get_prices':
+						result = await handleGetPrices(args || {})
+						break
+					case 'list_chains':
+						result = handleListChains()
+						break
+					case 'list_tokens':
+						result = handleListTokens(args || {})
+						break
+					case 'execute_swap':
+						result = await handleExecuteSwap(args || {}, callAgent)
+						break
+					case 'get_tempo_tokens':
+						result = handleGetTempoTokens(args || {})
+						break
+					case 'browse_mpp_directory':
+						result = await handleBrowseMppDirectory(args || {})
+						break
+					case 'predict_markets':
+						result = await handlePredictMarkets(args || {})
+						break
+					case 'predict_market':
+					// predict_market_detail: legacy alias kept for older clients
+					case 'predict_market_detail':
+						result = await handlePredictMarketDetail(args || {})
+						break
+					case 'perps_markets':
+						result = await handlePerpsMarkets()
+						break
+					case 'perps_quote':
+						result = await handlePerpsQuote(args || {})
+						break
+					case 'perps_positions':
+						result = await handlePerpsPositions(args || {})
+						break
+					case 'lend_markets':
+						result = await handleLendMarkets(args || {})
+						break
+					case 'lend_market':
+						result = await handleLendMarket(args || {})
+						break
+					case 'get_swap_status':
+						result = await handleGetSwapStatus(args || {}, callAgent)
+						break
+					case 'get_swap_history':
+						result = await handleGetSwapHistory(args || {}, callAgent)
+						break
+					case 'predict_book':
+						result = await handlePredictBook(args || {})
+						break
+					case 'predict_price':
+						result = await handlePredictPrice(args || {})
+						break
+					case 'predict_trades':
+						result = await handlePredictTrades(args || {})
+						break
+					case 'list_wallet_policies':
+						result = await handleListWalletPolicies(args || {}, callAgent)
+						break
+					default:
+						return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+				}
+			} catch (e) {
+				if (charge.kind === 'ok') {
+					await refundChargedCall({
+						agentId: callAgent.id,
+						cost: charge.cost,
+						reason: `tool ${name} threw: ${e instanceof Error ? e.message : String(e)}`,
+					})
+				}
+				return c.json(
+					rpcErr(req.id, -32000, `Tool execution failed: ${e instanceof Error ? e.message : String(e)}`, undefined, 'UPSTREAM_ERROR'),
+					200,
+				)
+			}
+
+			if (result.isError && charge.kind === 'ok') {
+				await refundChargedCall({
+					agentId: callAgent.id,
+					cost: charge.cost,
+					reason: `tool ${name} returned isError`,
+				})
 			}
 
 			return c.json(rpcOk(req.id, result), 200)
@@ -1338,5 +1377,7 @@ mcpRoutes.post('/', async (c) => {
 })
 
 export { mcpRoutes }
-// Exported for unit testing the static MCP surface (tools/resources/prompts).
-export { TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
+// Exported for unit testing the static MCP surface (tools/resources/prompts), and
+// for llms.txt (app.ts) to generate its MCP tool list from the single source of
+// truth instead of a hand-written list that can drift out of sync.
+export { TOOLS, TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }

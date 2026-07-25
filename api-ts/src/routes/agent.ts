@@ -18,7 +18,7 @@ import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
-import { ipRateLimit, resolveClientIp } from '../middleware/ipRateLimit'
+import { ipRateLimit, resolveTrustedClientIp } from '../middleware/ipRateLimit'
 import { getConnInfo } from 'hono/bun'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
@@ -215,7 +215,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	} catch {
 		socketIp = undefined
 	}
-	const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -341,7 +341,7 @@ async function handleSpongeCallback(c: any, body: any) {
 	} catch {
 		socketIp = undefined
 	}
-	const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
+	const ip = resolveTrustedClientIp(cfIp, forwarded, socketIp)
 
 	if (event !== 'agent_connect') {
 		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)
@@ -1628,7 +1628,14 @@ agentRoutes.post('/swap/execute', async (c) => {
 				raw_quote: quote,
 			}
 
-	const idempotencyKey = `agent_${agent.id}_${quote_id}`
+	// Prefer a client-supplied Idempotency-Key (scoped per agent so agents can't
+	// collide on each other's keys) over the derived quote_id key. This lets a
+	// caller safely retry a request that timed out client-side without risking a
+	// duplicate on-chain swap, even if it regenerates a fresh quote_id on retry.
+	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
+	const idempotencyKey = clientIdempotencyKey
+		? `agent_${agent.id}_${clientIdempotencyKey}`
+		: `agent_${agent.id}_${quote_id}`
 
 	// Call internal Python endpoint
 	const result = await runEffectEither(
