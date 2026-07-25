@@ -1,0 +1,58 @@
+# OpenSSF Scorecard — continuous supply-chain posture scanning
+# (workspace PLAN.md Track B, item B3-core).
+#
+# Runs the OpenSSF Scorecard checks (branch protection, pinned
+# dependencies, token permissions, dangerous workflow patterns, etc.)
+# and uploads the result as SARIF to the repo Security tab (Code
+# scanning alerts). Results are NOT published to the public OpenSSF
+# Scorecard API (`publish_results: false`), so no badge is wired up —
+# an empty/unpublished badge renders broken, so we deliberately omit it.
+#
+# Mirrors the pattern already shipped on the 5 flagship satellite repos.
+# This repo's Actions billing is active, so this runs for real on first
+# push (unlike the satellite copies, which were committed dormant
+# pending billing).
+#
+# All `uses:` refs are pinned to a full 40-char commit SHA; the trailing
+# comment records the human-readable version.
+
+name: scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 07:00 UTC.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+# Least-privilege: read the repo + write SARIF to the Security tab.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # upload SARIF to the Security tab
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Keep results private to the Security tab; do not publish to
+          # the public OpenSSF API (no badge — see header note).
+          publish_results: false
+
+      - name: Upload SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357  # v3.36.2
+        with:
+          sarif_file: results.sarif

@@ -330,6 +330,47 @@ CI/CD: Push to `main`/`dev` → Docker build → Trivy scan → ECR push → DB 
 
 Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECURITY.md).
 
+### Supply chain
+
+We practice continuous open-source dependency scanning and ship a
+checked-in Software Bill of Materials (SBOM).
+
+- **Checked-in SBOM.** A [CycloneDX](https://cyclonedx.org/) SBOM lives
+  at [`sbom/suwappubot.cdx.json`](./sbom/suwappubot.cdx.json) —
+  every dependency across every ecosystem in this monorepo (Python,
+  npm, bun), deduplicated. Generated with
+  [Syft](https://github.com/anchore/syft), which auto-detects every
+  package manifest/lockfile in the tree; nothing is hand-authored.
+
+  Regenerate the SBOM:
+
+  ```sh
+  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+  syft . -o cyclonedx-json=sbom/suwappubot.cdx.json
+  ```
+
+- **CI workflows (SHA-pinned).** Two additive workflows live under
+  `.github/workflows/`:
+  - [`sbom.yml`](./.github/workflows/sbom.yml) — on each published
+    Release, regenerates the CycloneDX SBOM with Syft and attaches it
+    as a Release asset.
+  - [`scorecard.yml`](./.github/workflows/scorecard.yml) — weekly +
+    on push to `main`, runs [OpenSSF Scorecard](https://securityscorecards.dev/)
+    and uploads SARIF to the repo Security tab.
+
+  Both workflows pin every action to a full commit SHA (a stricter
+  convention than this repo's other workflows, deliberately — a
+  supply-chain-security workflow pinning its own dependencies loosely
+  would undercut the point). This repo's Actions billing is active, so
+  both run for real starting with the first push/release after merge —
+  not dormant pending billing, unlike the initial rollout on other
+  Suwappu satellite repos.
+
+  Not audited, not SOC 2 — this is dependency-inventory tooling
+  (what's in the tree and how it's fetched), not a security
+  certification. See [SECURITY.md](./SECURITY.md) for the actual
+  security posture and vulnerability-reporting process.
+
 ---
 
 ## Documentation
