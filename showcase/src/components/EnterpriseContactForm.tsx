@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { API_BASE_URL, TELEGRAM_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
+import { getAttribution } from '@/lib/attribution';
 import styles from './EnterpriseContactForm.module.css';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
@@ -40,6 +41,7 @@ export default function EnterpriseContactForm() {
       use_case: String(data.get('use_case') || '').trim(),
       telegram: String(data.get('telegram') || '').trim(),
       website: String(data.get('website') || ''), // honeypot
+      attribution: getAttribution() || undefined,
     };
 
     try {
@@ -62,7 +64,12 @@ export default function EnterpriseContactForm() {
         return;
       }
       setStatus('success');
-      track('enterprise_lead_submitted', { company: payload.company || 'unknown' });
+      const attribution = payload.attribution;
+      track('enterprise_lead_submitted', {
+        company: payload.company || 'unknown',
+        ...(attribution?.utm_source ? { utm_source: attribution.utm_source } : {}),
+        ...(attribution?.utm_campaign ? { utm_campaign: attribution.utm_campaign } : {}),
+      });
     } catch {
       setError('Could not reach the server. Please try again or message us on Telegram.');
       setStatus('error');

@@ -1,4 +1,3 @@
-import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
 import SummerFooter from '@/components/SummerFooter';
@@ -206,7 +205,6 @@ export default async function Home() {
   return (
     <>
       <StructuredData />
-      <Analytics />
       <main id="main-content" className="summer-page summer-page--cosmic">
         <CosmicAtmosphere />
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />

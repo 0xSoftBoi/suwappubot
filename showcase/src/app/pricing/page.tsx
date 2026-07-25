@@ -5,6 +5,7 @@ import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
+import UpgradeCta from '@/components/UpgradeCta';
 
 export const metadata: Metadata = {
   title: 'Pricing — Suwappu',
@@ -250,6 +251,23 @@ export default function PricingPage() {
                   </DemoCallCta>
                   <a className="pricing-card__note-link" href={ctaHref}>
                     Or send us a note →
+                  </a>
+                </>
+              ) : t.name === 'Pro' || t.name === 'Premium' ? (
+                <>
+                  <UpgradeCta
+                    tier={t.name === 'Pro' ? 'pro' : 'premium'}
+                    className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
+                  >
+                    {t.cta}
+                  </UpgradeCta>
+                  <a
+                    className="pricing-card__note-link"
+                    href={TELEGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Or upgrade in Telegram →
                   </a>
                 </>
               ) : (
