@@ -783,6 +783,15 @@ class Settings(BaseSettings):
         default=None, description="Linear team ID (UUID) that support-ticket issues are filed under"
     )
 
+    # Resend (transactional email — bot/services/waitlist_email.py)
+    resend_api_key: str = Field(
+        default="", description="Resend API key used to send waitlist confirmation emails"
+    )
+    waitlist_email_from: str = Field(
+        default="Suwappu <waitlist@suwappu.bot>",
+        description="From address used for mobile waitlist confirmation emails",
+    )
+
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
     discord_guild_ids: Optional[str] = Field(

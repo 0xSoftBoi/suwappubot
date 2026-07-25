@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import EnterpriseContactForm from '@/components/EnterpriseContactForm';
+import DemoCallCta from '@/components/DemoCallCta';
 import styles from './contact.module.css';
 import stats from '@/data/stats.generated.json';
 
@@ -34,12 +35,27 @@ export default function ContactPage() {
           </p>
         </header>
 
+        {/* Saphira-style gate — the fastest path is a 30-min call, not the form. */}
+        <section className={styles.demoCard} aria-label="Schedule a demo">
+          <div>
+            <p className={styles.demoEyebrow}>Fastest path</p>
+            <h2 className="mkt-h2">Book a 30-min demo.</h2>
+            <p className={styles.demoBody}>
+              Skip the form — grab time with our team directly and we&rsquo;ll walk through rate
+              limits, custody model, and integration for your desk or agent fleet live.
+            </p>
+          </div>
+          <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
+            Schedule a demo
+          </DemoCallCta>
+        </section>
+
         <section className={styles.layout} aria-label="Contact">
           <div className={styles.pitch}>
             <h2 className="mkt-h2">Built for desks that need control.</h2>
             <p>
-              One conversation to scope rate limits, custody model, fees, and the integration path
-              for your desk or agent fleet.
+              Prefer to send us a note first? Fill out the form and our team will follow up fast —
+              or book the call above and skip straight to a conversation.
             </p>
             <p className={styles.trustLabel}>Security &amp; trust</p>
             <ul className={styles.trustList}>

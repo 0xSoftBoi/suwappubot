@@ -4,6 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import DemoCallCta from '@/components/DemoCallCta';
 import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
@@ -321,9 +322,14 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             multi-user org accounts with RBAC, scoped programmatic API keys, higher per-org rate
             limits, and a dedicated support SLA.
           </p>
-          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
-            Talk to Sales
-          </a>
+          <div className="summer-actions">
+            <DemoCallCta source="agents_page_callout" className="summer-button summer-button--primary">
+              Schedule a demo
+            </DemoCallCta>
+            <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+              Or send us a note
+            </a>
+          </div>
         </section>
       </div>
       <SummerFooter />
