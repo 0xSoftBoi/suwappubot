@@ -14,7 +14,7 @@ function formatPrice(value: number): string {
 
 export function MarketInfoBar() {
   const { selectedPair } = usePair()
-  const { price, change24h, volume24h, marketCap, fundingRate, isLoading } = useMarketData()
+  const { price, change24h, volume24h, isLoading } = useMarketData()
 
   const baseSymbol = selectedPair.base?.symbol ?? '---'
   const quoteSymbol = selectedPair.quote?.symbol ?? '---'
@@ -42,14 +42,6 @@ export function MarketInfoBar() {
 
           <span className="text-terminal-text-muted whitespace-nowrap">
             Vol {volume24h != null ? formatCompact(volume24h) : '---'}
-          </span>
-
-          <span className="text-terminal-text-muted whitespace-nowrap">
-            MCap {marketCap != null ? formatCompact(marketCap) : '---'}
-          </span>
-
-          <span className="text-terminal-text-muted whitespace-nowrap">
-            Funding {fundingRate != null ? `${fundingRate.toFixed(2)}%` : '---'}
           </span>
         </>
       )}
