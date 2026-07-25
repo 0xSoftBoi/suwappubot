@@ -638,6 +638,12 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			}
 			const quote = await res.json() as Record<string, unknown>
 			const quoteId = `tempo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+			// No decimals populated: COMMON_TOKENS[4217] carries addresses only, and the
+			// Python quote dict has no decimals field. /swap/execute therefore refuses
+			// these rather than guessing a scale. That is not a regression — this path
+			// previously sent from_amount_human: 0 (quote.fromAmount is undefined on this
+			// dict), which disabled the pre-swap balance guard entirely. To make Tempo
+			// executable, add decimals to the Tempo token registry and pass them here.
 			cacheAgentQuote(quoteId, quote, agent.id, false)
 			return {
 				content: [{

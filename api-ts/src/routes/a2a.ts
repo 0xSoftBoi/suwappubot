@@ -491,7 +491,12 @@ async function processSolanaQuote(
 			const route = quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> ')
 
 			const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-			cacheAgentQuote(quoteId, quote, agent.id, true)
+			// Jupiter's raw quote carries no decimals, so execute-time can only get
+			// them from here — without this the quote is permanently un-executable.
+			cacheAgentQuote(quoteId, quote, agent.id, true, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return {
 				quote_id: quoteId,
