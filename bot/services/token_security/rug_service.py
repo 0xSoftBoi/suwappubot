@@ -2,8 +2,9 @@
 
 import logging
 import asyncio
+import functools
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import websockets
 
 from bot.config.settings import settings
@@ -178,6 +179,28 @@ def _ui_amount(entry: Optional[Dict[str, Any]]) -> float:
         return 0.0
 
 
+# B2: log-once memoizer for the "holder lookup is a known non-functional gap"
+# warning (loud, but not spammed on every detected rug event). A no-arg
+# function wrapped in functools.lru_cache(maxsize=1) runs its body on the
+# first call and caches the (None) result — every later call is a cache hit
+# that short-circuits without re-running it, giving once-per-process
+# semantics without a bespoke class-level flag.
+@functools.lru_cache(maxsize=1)
+def _log_b2_gap_once() -> None:
+    logger.warning(
+        "Rug Protection holder lookup (KNOWN GAP, B2): "
+        "SwapTransaction.to_token stores a token SYMBOL (String(20), "
+        "populated from quote.to_token), never a mint address, so "
+        "matching it against a real Solana mint (43-44 chars) cannot "
+        "succeed in production. There is no mint/contract-address "
+        "column on SwapTransaction to match against instead (adding "
+        "one is a schema migration, out of scope here). This means "
+        "panic-sell holder lookup is currently a NO-OP against real "
+        "trading data until a mint column is added -- see "
+        "bot/services/token_security/rug_service.py::_get_users_holding_token."
+    )
+
+
 class RugService:
     """Monitors Raydium AMM logs for verified rug events and frontruns with
     opt-in Panic Sells.
@@ -187,11 +210,6 @@ class RugService:
     unattended off a public log/mempool signal — it must stay behind an
     explicit, deliberate opt-in.
     """
-
-    # B2: class-level flag so the "holder lookup is a known non-functional
-    # gap" warning below fires once per process (loud, but not spammed on
-    # every detected rug event).
-    _b2_holder_lookup_warning_logged = False
 
     def __init__(self):
         self._running = False
@@ -333,24 +351,12 @@ class RugService:
         invented ad hoc mid-fix). NET EFFECT: this holder lookup is currently
         a NO-OP against real trading data — `_handle_potential_rug` can
         detect a fully-verified rug and then find zero holders to protect,
-        even with `rug_auto_sell_enabled=True` and users opted in. See the
-        one-time `logger.warning` below; this is intentionally loud rather
-        than silently left to rot as a comment nobody reads.
+        even with `rug_auto_sell_enabled=True` and users opted in. See
+        `_log_b2_gap_once` (module-level, log-once) below; this is
+        intentionally loud rather than silently left to rot as a comment
+        nobody reads.
         """
-        if not RugService._b2_holder_lookup_warning_logged:
-            RugService._b2_holder_lookup_warning_logged = True
-            logger.warning(
-                "Rug Protection holder lookup (KNOWN GAP, B2): "
-                "SwapTransaction.to_token stores a token SYMBOL (String(20), "
-                "populated from quote.to_token), never a mint address, so "
-                "matching it against a real Solana mint (43-44 chars) cannot "
-                "succeed in production. There is no mint/contract-address "
-                "column on SwapTransaction to match against instead (adding "
-                "one is a schema migration, out of scope here). This means "
-                "panic-sell holder lookup is currently a NO-OP against real "
-                "trading data until a mint column is added -- see "
-                "bot/services/token_security/rug_service.py::_get_users_holding_token."
-            )
+        _log_b2_gap_once()
 
         with get_session() as session:
             rows = (
@@ -367,13 +373,23 @@ class RugService:
             )
             user_ids = [row[0] for row in rows]
 
+        # B3: get_default_wallet() is a synchronous DB call; running N of
+        # these sequentially (one `await run_in_db(...)` at a time) in this
+        # async coroutine means total latency scales with the holder count,
+        # even though each lookup is independent. Rug response is
+        # latency-sensitive by design, so dispatch every lookup to the
+        # run_in_db thread pool concurrently instead (same helper used
+        # throughout swap_engine.py etc.) and filter once they've all
+        # resolved.
+        wallets = await asyncio.gather(
+            *(
+                run_in_db(self._wallet_service.get_default_wallet, user_id, "solana")
+                for user_id in user_ids
+            )
+        )
+
         holders: List[tuple] = []
-        for user_id in user_ids:
-            # B3: get_default_wallet() is a synchronous DB call; running N of
-            # these directly in this async coroutine blocks the event loop
-            # once per holder (N+1). Dispatch each to the run_in_db thread
-            # pool instead (same helper used throughout swap_engine.py etc.).
-            wallet = await run_in_db(self._wallet_service.get_default_wallet, user_id, "solana")
+        for user_id, wallet in zip(user_ids, wallets):
             if not wallet or not wallet.is_active or wallet.chain_type != "solana":
                 continue
             holders.append((user_id, wallet.id))
@@ -387,7 +403,12 @@ class RugService:
             logger.info(f"Executing PANIC SELL for user {user_id} on {token_mint}")
 
             # 1. Get full balance
-            wallet = self._wallet_service.get_wallet_by_id(wallet_id)
+            # B3 (sibling of the _get_users_holding_token fix above):
+            # get_wallet_by_id() is a synchronous DB call executed per-user
+            # inside the asyncio.gather in _handle_potential_rug — dispatch
+            # it to the run_in_db thread pool instead of blocking the event
+            # loop directly.
+            wallet = await run_in_db(self._wallet_service.get_wallet_by_id, wallet_id)
             if not wallet or wallet.chain_type != "solana" or not wallet.is_active:
                 logger.warning(
                     f"Panic Sell skipped for user {user_id}: wallet {wallet_id} is not "
@@ -509,6 +530,14 @@ class RugService:
         or below-threshold withdrawal returns None. NEVER returns a fake,
         hardcoded, or tx-wide-inferred mint — callers must treat None as "do
         nothing".
+
+        Structured as three sequential stages, each its own helper:
+          1. `_verify_raydium_execution` — executed-instruction verification.
+          2. `_scan_touched_account_magnitudes` — per-account magnitude scan.
+          3. `_check_paired_vault_usd_floor` — USD-floor check.
+        This is a pure structural split (orchestration only); every guard,
+        log line, and early-return below is unchanged from the previous
+        single-function form.
         """
         try:
             session = await get_http_session()
@@ -516,139 +545,215 @@ class RugService:
             if not tx_data:
                 return None
 
-            meta = tx_data.get("meta") or {}
-            if meta.get("err") is not None:
-                # The liquidity-removal tx itself failed on-chain — nothing happened.
+            verified = self._verify_raydium_execution(tx_data, signature)
+            if verified is None:
+                return None
+            meta, account_keys, touched_accounts = verified
+
+            scanned = await self._scan_touched_account_magnitudes(
+                meta, account_keys, touched_accounts, signature
+            )
+            if scanned is None:
+                return None
+            candidate_mint, paired_vault_notional_usd, sol_price_lookup_failed = scanned
+
+            if not self._check_paired_vault_usd_floor(
+                paired_vault_notional_usd, sol_price_lookup_failed, signature
+            ):
                 return None
 
-            # --- C1 step 1: confirm RAYDIUM_AMM is the programId of an
-            # EXECUTED instruction, not just an account the tx mentions.
-            # logsSubscribe({"mentions": [RAYDIUM_AMM]}) matches any tx that
-            # merely references the account — e.g. a bare, unused account key
-            # plus an unrelated Memo log containing "withdraw" — which is
-            # forgeable for a few thousand lamports.
-            raydium_ixs = _iter_program_instructions(tx_data, RAYDIUM_AMM)
-            if not raydium_ixs:
-                logger.warning(
-                    f"Rug detection: {RAYDIUM_AMM} was not an executed instruction "
-                    f"program in tx {signature} (mentioned only); skipping"
-                )
-                return None
-
-            message = (tx_data.get("transaction") or {}).get("message") or {}
-            account_keys = _resolve_account_keys(message, meta)
-
-            # --- C1 step 2: scope mint derivation to accounts the EXECUTED
-            # Raydium instruction(s) actually touched (this pool's own
-            # vaults/authority/etc.) rather than the tx-wide union of
-            # pre/postTokenBalances. This is what stops an attacker padding
-            # the transaction with an unrelated 1-unit self-transfer of the
-            # victim mint elsewhere in the same tx.
-            touched_accounts = set()
-            for ix in raydium_ixs:
-                touched_accounts.update(_instruction_accounts(ix, account_keys))
-
-            if not touched_accounts:
-                logger.warning(
-                    f"Rug detection: could not resolve accounts touched by the "
-                    f"Raydium instruction in tx {signature}; skipping"
-                )
-                return None
-
-            pre_by_index = {e.get("accountIndex"): e for e in meta.get("preTokenBalances") or []}
-            post_by_index = {e.get("accountIndex"): e for e in meta.get("postTokenBalances") or []}
-
-            # --- C1 step 3: magnitude guard. Only a mint whose balance on one
-            # of the Raydium instruction's own accounts DROPPED by more than
-            # RUG_WITHDRAWAL_MIN_FRACTION counts as a real liquidity removal —
-            # a dust withdrawal (or a decoy tx) never qualifies.
-            #
-            # B1: while we're at it, capture the drained PRE-balance of any
-            # WSOL/stablecoin side that ALSO qualifies here (same magnitude
-            # guard) as `paired_vault_notional_usd` — this is the pool's
-            # paired-side dollar size, used below as an absolute floor on the
-            # whole withdrawal. We can't price the victim mint itself, but
-            # every qualifying rug tx has exactly one non-WSOL/non-stable
-            # candidate left after this loop, which means the OTHER drained
-            # side must have been WSOL or a stablecoin (see the module-level
-            # comment on WSOL_MINT/STABLE_MINTS) — i.e. this is always
-            # available for a real 2-sided AMM withdrawal.
-            candidates: Dict[str, float] = {}
-            paired_vault_notional_usd: Optional[float] = None
-            sol_price_lookup_failed = False
-            for idx in set(pre_by_index) | set(post_by_index):
-                if idx is None or idx >= len(account_keys):
-                    continue
-                if account_keys[idx] not in touched_accounts:
-                    continue
-
-                pre_entry = pre_by_index.get(idx)
-                post_entry = post_by_index.get(idx)
-                mint = (pre_entry or post_entry or {}).get("mint")
-                if not mint:
-                    continue
-
-                pre_amount = _ui_amount(pre_entry)
-                post_amount = _ui_amount(post_entry)
-
-                if pre_amount <= 0 or post_amount >= pre_amount:
-                    continue  # nothing to withdraw, or not a decrease here
-
-                removed_fraction = (pre_amount - post_amount) / pre_amount
-                if removed_fraction <= RUG_WITHDRAWAL_MIN_FRACTION:
-                    continue  # dust withdrawal — doesn't qualify
-
-                if mint in STABLE_MINTS:
-                    # ~1:1 USD peg — the drained pre-balance IS the dollar size.
-                    paired_vault_notional_usd = pre_amount
-                    continue
-
-                if mint == WSOL_MINT:
-                    sol_price = await self._get_sol_price_usd()
-                    if sol_price is not None:
-                        paired_vault_notional_usd = pre_amount * sol_price
-                    else:
-                        sol_price_lookup_failed = True
-                    continue
-
-                candidates[mint] = removed_fraction
-
-            if len(candidates) != 1:
-                logger.warning(
-                    f"Rug detection: found {len(candidates)} qualifying candidate "
-                    f"token mints (expected 1) for tx {signature}; skipping"
-                )
-                return None
-
-            # --- B1 hardening: absolute USD floor -------------------------
-            # RUG_WITHDRAWAL_MIN_FRACTION is purely relative (a $5 pool
-            # drained 100% satisfies it identically to a $5M pool drained
-            # 100%). Require the paired WSOL/stablecoin vault to have
-            # actually held real money before treating this as a rug worth
-            # force-selling a user's entire balance over.
-            if paired_vault_notional_usd is None:
-                logger.warning(
-                    f"Rug detection: could not establish a USD notional for the "
-                    f"paired WSOL/stablecoin vault in tx {signature} "
-                    f"(sol_price_lookup_failed={sol_price_lookup_failed}); skipping "
-                    f"rather than arm a panic-sell on an unpriced pool"
-                )
-                return None
-
-            if paired_vault_notional_usd < RUG_MIN_DRAINED_NOTIONAL_USD:
-                logger.warning(
-                    f"Rug detection: paired vault pre-balance (~${paired_vault_notional_usd:,.2f}) "
-                    f"in tx {signature} is below the ${RUG_MIN_DRAINED_NOTIONAL_USD:,.0f} "
-                    f"absolute floor — likely a cheaply-seeded decoy pool, not a real "
-                    f"liquidity rug; skipping"
-                )
-                return None
-
-            return next(iter(candidates))
+            return candidate_mint
 
         except Exception as e:
             logger.warning(f"Rug detection: failed to extract token mint for tx {signature}: {e}")
             return None
+
+    def _verify_raydium_execution(
+        self, tx_data: Dict[str, Any], signature: str
+    ) -> Optional[Tuple[Dict[str, Any], List[str], set]]:
+        """Stage 1 of _extract_token_mint_from_tx: executed-instruction
+        verification.
+
+        Confirms the tx didn't fail on-chain, that RAYDIUM_AMM is the
+        programId of an EXECUTED instruction (not just an account the tx
+        mentions), and resolves the accounts that instruction touched.
+
+        --- C1 step 1: confirm RAYDIUM_AMM is the programId of an
+        EXECUTED instruction, not just an account the tx mentions.
+        logsSubscribe({"mentions": [RAYDIUM_AMM]}) matches any tx that
+        merely references the account — e.g. a bare, unused account key
+        plus an unrelated Memo log containing "withdraw" — which is
+        forgeable for a few thousand lamports.
+
+        Returns (meta, account_keys, touched_accounts), or None if
+        verification fails (logged internally — see each guard below).
+        """
+        meta = tx_data.get("meta") or {}
+        if meta.get("err") is not None:
+            # The liquidity-removal tx itself failed on-chain — nothing happened.
+            return None
+
+        raydium_ixs = _iter_program_instructions(tx_data, RAYDIUM_AMM)
+        if not raydium_ixs:
+            logger.warning(
+                f"Rug detection: {RAYDIUM_AMM} was not an executed instruction "
+                f"program in tx {signature} (mentioned only); skipping"
+            )
+            return None
+
+        message = (tx_data.get("transaction") or {}).get("message") or {}
+        account_keys = _resolve_account_keys(message, meta)
+
+        # --- C1 step 2: scope mint derivation to accounts the EXECUTED
+        # Raydium instruction(s) actually touched (this pool's own
+        # vaults/authority/etc.) rather than the tx-wide union of
+        # pre/postTokenBalances. This is what stops an attacker padding
+        # the transaction with an unrelated 1-unit self-transfer of the
+        # victim mint elsewhere in the same tx.
+        touched_accounts = set()
+        for ix in raydium_ixs:
+            touched_accounts.update(_instruction_accounts(ix, account_keys))
+
+        if not touched_accounts:
+            logger.warning(
+                f"Rug detection: could not resolve accounts touched by the "
+                f"Raydium instruction in tx {signature}; skipping"
+            )
+            return None
+
+        return meta, account_keys, touched_accounts
+
+    async def _scan_touched_account_magnitudes(
+        self,
+        meta: Dict[str, Any],
+        account_keys: List[str],
+        touched_accounts: set,
+        signature: str,
+    ) -> Optional[Tuple[str, Optional[float], bool]]:
+        """Stage 2 of _extract_token_mint_from_tx: per-account magnitude scan.
+
+        --- C1 step 3: magnitude guard. Only a mint whose balance on one
+        of the Raydium instruction's own accounts DROPPED by more than
+        RUG_WITHDRAWAL_MIN_FRACTION counts as a real liquidity removal —
+        a dust withdrawal (or a decoy tx) never qualifies.
+
+        B1: while we're at it, capture the drained PRE-balance of any
+        WSOL/stablecoin side that ALSO qualifies here (same magnitude
+        guard) as `paired_vault_notional_usd` — this is the pool's
+        paired-side dollar size, used by `_check_paired_vault_usd_floor` as
+        an absolute floor on the whole withdrawal. We can't price the
+        victim mint itself, but every qualifying rug tx has exactly one
+        non-WSOL/non-stable candidate left after this loop, which means the
+        OTHER drained side must have been WSOL or a stablecoin (see the
+        module-level comment on WSOL_MINT/STABLE_MINTS) — i.e. this is
+        always available for a real 2-sided AMM withdrawal.
+
+        The SOL/USD price lookup is awaited at most once here — even if
+        multiple touched accounts carry WSOL — by only remembering the
+        latest qualifying WSOL pre-balance during the scan and pricing it
+        once after the loop, instead of re-awaiting `_get_sol_price_usd()`
+        on every matching account.
+
+        Returns (candidate_mint, paired_vault_notional_usd,
+        sol_price_lookup_failed), or None if zero or more than one
+        candidate mint qualifies (logged internally).
+        """
+        pre_by_index = {e.get("accountIndex"): e for e in meta.get("preTokenBalances") or []}
+        post_by_index = {e.get("accountIndex"): e for e in meta.get("postTokenBalances") or []}
+
+        candidates: Dict[str, float] = {}
+        paired_vault_notional_usd: Optional[float] = None
+        sol_price_lookup_failed = False
+        wsol_pre_amount: Optional[float] = None
+        for idx in set(pre_by_index) | set(post_by_index):
+            if idx is None or idx >= len(account_keys):
+                continue
+            if account_keys[idx] not in touched_accounts:
+                continue
+
+            pre_entry = pre_by_index.get(idx)
+            post_entry = post_by_index.get(idx)
+            mint = (pre_entry or post_entry or {}).get("mint")
+            if not mint:
+                continue
+
+            pre_amount = _ui_amount(pre_entry)
+            post_amount = _ui_amount(post_entry)
+
+            if pre_amount <= 0 or post_amount >= pre_amount:
+                continue  # nothing to withdraw, or not a decrease here
+
+            removed_fraction = (pre_amount - post_amount) / pre_amount
+            if removed_fraction <= RUG_WITHDRAWAL_MIN_FRACTION:
+                continue  # dust withdrawal — doesn't qualify
+
+            if mint in STABLE_MINTS:
+                # ~1:1 USD peg — the drained pre-balance IS the dollar size.
+                paired_vault_notional_usd = pre_amount
+                continue
+
+            if mint == WSOL_MINT:
+                # Remember the pre-balance only; priced once, below, after
+                # the loop so a tx with multiple qualifying WSOL accounts
+                # doesn't re-await the price lookup for each one.
+                wsol_pre_amount = pre_amount
+                continue
+
+            candidates[mint] = removed_fraction
+
+        if wsol_pre_amount is not None:
+            sol_price = await self._get_sol_price_usd()
+            if sol_price is not None:
+                paired_vault_notional_usd = wsol_pre_amount * sol_price
+            else:
+                sol_price_lookup_failed = True
+
+        if len(candidates) != 1:
+            logger.warning(
+                f"Rug detection: found {len(candidates)} qualifying candidate "
+                f"token mints (expected 1) for tx {signature}; skipping"
+            )
+            return None
+
+        return next(iter(candidates)), paired_vault_notional_usd, sol_price_lookup_failed
+
+    def _check_paired_vault_usd_floor(
+        self,
+        paired_vault_notional_usd: Optional[float],
+        sol_price_lookup_failed: bool,
+        signature: str,
+    ) -> bool:
+        """Stage 3 of _extract_token_mint_from_tx: USD-floor check.
+
+        --- B1 hardening: absolute USD floor -------------------------
+        RUG_WITHDRAWAL_MIN_FRACTION is purely relative (a $5 pool
+        drained 100% satisfies it identically to a $5M pool drained
+        100%). Require the paired WSOL/stablecoin vault to have
+        actually held real money before treating this as a rug worth
+        force-selling a user's entire balance over.
+
+        Returns True if the floor check passes, False otherwise (logged
+        internally).
+        """
+        if paired_vault_notional_usd is None:
+            logger.warning(
+                f"Rug detection: could not establish a USD notional for the "
+                f"paired WSOL/stablecoin vault in tx {signature} "
+                f"(sol_price_lookup_failed={sol_price_lookup_failed}); skipping "
+                f"rather than arm a panic-sell on an unpriced pool"
+            )
+            return False
+
+        if paired_vault_notional_usd < RUG_MIN_DRAINED_NOTIONAL_USD:
+            logger.warning(
+                f"Rug detection: paired vault pre-balance (~${paired_vault_notional_usd:,.2f}) "
+                f"in tx {signature} is below the ${RUG_MIN_DRAINED_NOTIONAL_USD:,.0f} "
+                f"absolute floor — likely a cheaply-seeded decoy pool, not a real "
+                f"liquidity rug; skipping"
+            )
+            return False
+
+        return True
 
     async def _get_sol_price_usd(self) -> Optional[float]:
         """SOL/USD price for converting a drained WSOL vault's pre-balance

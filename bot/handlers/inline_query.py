@@ -40,6 +40,7 @@ ALSO be enabled for the bot via BotFather (/setinline) — see the final
 delivery notes.
 """
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -57,7 +58,7 @@ from bot.services.price_service import TOKEN_TO_COINGECKO, price_service
 from bot.services.referral_service import referral_service
 from bot.utils.formatters import escape_markdown, format_usd
 from bot.utils.validators import detect_address_chain
-from database.db import get_session
+from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -84,23 +85,33 @@ def _short_addr(address: str) -> str:
     return f"{address[:6]}...{address[-4:]}"
 
 
-def _get_referral_trade_url(context: ContextTypes.DEFAULT_TYPE, telegram_user_id: int) -> str:
+async def _get_referral_trade_url(context: ContextTypes.DEFAULT_TYPE, telegram_user_id: int) -> str:
     """Build the 'Trade on Suwappu' deep link for the querying user.
 
     Falls back to a plain (code-less) link on any lookup failure or if the
     user has no bot record yet — see module docstring for why we never
-    create one here.
+    create one here. The DB lookup runs via ``run_in_db`` (a dedicated thread
+    pool) since Telegram fires this on every keystroke and this bot runs a
+    single-instance polling loop — a blocking call here would stall every
+    other user.
     """
     bot_username = context.bot.username
     fallback = f"https://t.me/{bot_username}?start=inline"
-    try:
+
+    def _lookup_code() -> Optional[str]:
         with get_session() as session:
             db_user = session.query(User).filter(User.telegram_id == telegram_user_id).first()
             if not db_user:
-                return fallback
+                return None
             user_id = db_user.id
         code = referral_service.get_or_create_code(user_id)
-        return f"https://t.me/{bot_username}?start={code.code}"
+        return code.code
+
+    try:
+        code = await run_in_db(_lookup_code)
+        if code is None:
+            return fallback
+        return f"https://t.me/{bot_username}?start={code}"
     except Exception as e:
         logger.error(f"inline_query: referral code lookup failed: {e}")
         return fallback
@@ -110,6 +121,25 @@ def _trade_keyboard(trade_url: Optional[str], label: str) -> Optional[InlineKeyb
     if not trade_url:
         return None
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=trade_url)]])
+
+
+def _make_article(
+    result_id: str,
+    title: str,
+    description: str,
+    text: str,
+    trade_url: Optional[str],
+    button_label: str,
+) -> InlineQueryResultArticle:
+    """Shared constructor — every article variant differs only in these
+    strings (id/title/description/text/button label)."""
+    return InlineQueryResultArticle(
+        id=result_id,
+        title=title,
+        description=description,
+        input_message_content=InputTextMessageContent(text, parse_mode="Markdown"),
+        reply_markup=_trade_keyboard(trade_url, button_label),
+    )
 
 
 def _build_price_article(
@@ -127,19 +157,18 @@ def _build_price_article(
         change_bits = f" {arrow} {change_24h:+.2f}% (24h)"
 
     title = f"{symbol}  {price_str}{change_bits}"
-    description = "Send a live price card with your Suwappu trade link"
-
     text = (
         f"*{escape_markdown(symbol)}*  {escape_markdown(price_str)}{escape_markdown(change_bits)}\n\n"
         "_via Suwappu — non-custodial cross-chain swaps_"
     )
 
-    return InlineQueryResultArticle(
-        id=f"price_{symbol}",
+    return _make_article(
+        result_id=f"price_{symbol}",
         title=title,
-        description=description,
-        input_message_content=InputTextMessageContent(text, parse_mode="Markdown"),
-        reply_markup=_trade_keyboard(trade_url, "💱 Trade on Suwappu"),
+        description="Send a live price card with your Suwappu trade link",
+        text=text,
+        trade_url=trade_url,
+        button_label="💱 Trade on Suwappu",
     )
 
 
@@ -151,7 +180,6 @@ def _build_address_article(
     chain_label = _CHAIN_LABELS.get(chain_family, "on-chain")
     short = _short_addr(address)
 
-    description = f"{chain_label} address detected — open Suwappu for price & security check"
     text = (
         f"📄 *Contract address* ({escape_markdown(chain_label)})\n"
         f"`{escape_markdown(address)}`\n\n"
@@ -159,12 +187,13 @@ def _build_address_article(
         "check before trading._"
     )
 
-    return InlineQueryResultArticle(
-        id=f"addr_{short}",
+    return _make_article(
+        result_id=f"addr_{short}",
         title=f"{chain_label} address: {short}",
-        description=description,
-        input_message_content=InputTextMessageContent(text, parse_mode="Markdown"),
-        reply_markup=_trade_keyboard(trade_url, "🔎 Open in Suwappu"),
+        description=f"{chain_label} address detected — open Suwappu for price & security check",
+        text=text,
+        trade_url=trade_url,
+        button_label="🔎 Open in Suwappu",
     )
 
 
@@ -190,7 +219,12 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         text = (query.query or "").strip()
         from_user = query.from_user
-        trade_url = _get_referral_trade_url(context, from_user.id) if from_user else None
+
+        async def _resolve_trade_url() -> Optional[str]:
+            # Lazily resolved — only the branches that actually build a
+            # price/address article need it, and this is a DB round-trip we
+            # don't want to pay on the (very common) no-results path.
+            return await _get_referral_trade_url(context, from_user.id) if from_user else None
 
         results: list[InlineQueryResultArticle] = []
 
@@ -199,6 +233,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             # list. Single batched price_service.get_prices() call — no
             # per-symbol 24h-change fetch here to keep this fast on a cold
             # cache (see DEFAULT_SYMBOLS docstring above).
+            trade_url = await _resolve_trade_url()
             prices = await price_service.get_prices(DEFAULT_SYMBOLS)
             for symbol in DEFAULT_SYMBOLS:
                 results.append(_build_price_article(symbol, prices.get(symbol), None, trade_url))
@@ -206,15 +241,22 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             is_address, chain_family = detect_address_chain(text)
 
             if is_address:
+                trade_url = await _resolve_trade_url()
                 results.append(_build_address_article(text, chain_family, trade_url))
             else:
                 symbol = text.upper()
                 if symbol in TOKEN_TO_COINGECKO:
-                    price = await price_service.get_price(symbol)
-                    change = await price_service.get_token_change_24h(symbol)
+                    # Cold-cache case fires two independent CoinGecko
+                    # round-trips — run them concurrently rather than
+                    # sequentially.
+                    price, change = await asyncio.gather(
+                        price_service.get_price(symbol),
+                        price_service.get_token_change_24h(symbol),
+                    )
                     if price is None and change is None:
                         results.append(_no_results_article())
                     else:
+                        trade_url = await _resolve_trade_url()
                         results.append(_build_price_article(symbol, price, change, trade_url))
                 else:
                     results.append(_no_results_article())

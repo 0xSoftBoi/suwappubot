@@ -32,6 +32,7 @@ from bot.models.custodial import (
     TransactionStatus,
 )
 from database.db import get_session
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
@@ -833,19 +834,23 @@ class HotWalletService:
         token_balances = {}
 
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                # SOL balance
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [wallet.address],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    result = await resp.json()
-                    if "result" in result:
-                        lamports = result["result"]["value"]
-                        native_balance = Decimal(str(lamports)) / Decimal(10**9)
+            session = await get_http_session()
+            # SOL balance
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [wallet.address],
+            }
+            async with session.post(
+                rpc_manager.get_rpc_url("solana"),
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                result = await resp.json()
+                if "result" in result:
+                    lamports = result["result"]["value"]
+                    native_balance = Decimal(str(lamports)) / Decimal(10**9)
         except Exception as e:
             logger.error(f"Error fetching Solana balance: {e}")
 

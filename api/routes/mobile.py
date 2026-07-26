@@ -8,6 +8,7 @@ copy trading, and sniping.  Delegates to existing service singletons.
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple, Dict
 
@@ -59,8 +60,33 @@ router = APIRouter(prefix="/v1/mobile", tags=["mobile"])
 # (points_service.py / mobile.py / test files only, no `database/db.py`).
 _REDEEM_IDEM_TTL_SECONDS = 300
 _redeem_idem_registry_lock = threading.Lock()
-_redeem_idem_locks: Dict[tuple, threading.Lock] = {}
-_redeem_idem_results: Dict[tuple, Tuple[float, int, dict]] = {}
+
+
+@dataclass
+class _IdemEntry:
+    """One idempotency cache slot: the lock guarding a (user_id, key) request
+    plus its cached result, once known.
+
+    This replaces what used to be TWO parallel dicts (`_redeem_idem_locks` +
+    `_redeem_idem_results`) keyed by the same tuple, which needed three
+    separate functions to keep in sync — and a NEW-7 comment on this module
+    previously documented a real bug caused by exactly that drift (a lock
+    surviving forever after its matching result was pruned via the lazy
+    lookup path, because the bulk sweep only ever walked the results dict).
+    With one dict, lookup/store/prune are each a single dict operation and
+    the two halves can never disagree with each other again.
+
+    `timestamp`/`status_code`/`body` are None while the request this entry
+    guards is still in flight (lock claimed, result not yet known).
+    """
+
+    lock: threading.Lock
+    timestamp: Optional[float] = None
+    status_code: Optional[int] = None
+    body: Optional[dict] = None
+
+
+_redeem_idem_entries: Dict[tuple, _IdemEntry] = {}
 
 
 def _redeem_idempotency_cache_key(request: Request, user_id: int, reward_id: int) -> tuple:
@@ -89,64 +115,62 @@ def _redeem_idempotency_cache_key(request: Request, user_id: int, reward_id: int
 
 
 def _redeem_idem_get_lock(cache_key: tuple) -> threading.Lock:
+    """Get (or create) the lock guarding a cache key, claiming an in-flight
+    entry for it if none exists yet."""
     with _redeem_idem_registry_lock:
-        lock = _redeem_idem_locks.get(cache_key)
-        if lock is None:
-            lock = threading.Lock()
-            _redeem_idem_locks[cache_key] = lock
-        return lock
+        entry = _redeem_idem_entries.get(cache_key)
+        if entry is None:
+            entry = _IdemEntry(lock=threading.Lock())
+            _redeem_idem_entries[cache_key] = entry
+        return entry.lock
 
 
 def _redeem_idem_prune(cache_key: tuple) -> None:
-    """Remove both the cached result and its lock for a key.
+    """Remove a key's entry (lock + cached result together) in one operation.
 
-    NEW-7 fix: safe to call even though the caller may still hold a *local*
-    reference to this lock object (via `with lock:`) — we're only removing it
-    from the registry dict, not mutating/acquiring anything, so a future
-    request for this key (post-TTL) just gets a fresh Lock object instead of
-    finding this one forever."""
+    Safe to call even though the caller may still hold a *local* reference to
+    this entry's lock object (via `with lock:`) — we're only removing it from
+    the registry dict, not mutating/acquiring anything, so a future request
+    for this key (post-TTL) just gets a fresh `_IdemEntry` instead of finding
+    a stale one."""
     with _redeem_idem_registry_lock:
-        _redeem_idem_results.pop(cache_key, None)
-        _redeem_idem_locks.pop(cache_key, None)
+        _redeem_idem_entries.pop(cache_key, None)
 
 
 def _redeem_idem_lookup(cache_key: tuple) -> Optional[Tuple[int, dict]]:
-    entry = _redeem_idem_results.get(cache_key)
-    if not entry:
+    entry = _redeem_idem_entries.get(cache_key)
+    if not entry or entry.timestamp is None:
         return None
-    ts, status_code, body = entry
-    if time.time() - ts > _REDEEM_IDEM_TTL_SECONDS:
-        # NEW-7 fix: prune the lock alongside its expired result. Previously
-        # only `_redeem_idem_results` was popped here, so `_redeem_idem_locks`
-        # grew unbounded for any key whose result expired via this lazy-lookup
-        # path (the bulk cleanup in `_redeem_idem_store` below only walks
-        # `_redeem_idem_results`, so it can never find — and can never prune —
-        # a lock whose result already vanished here).
+    if time.time() - entry.timestamp > _REDEEM_IDEM_TTL_SECONDS:
         _redeem_idem_prune(cache_key)
         return None
-    return status_code, body
+    return entry.status_code, entry.body
 
 
 def _redeem_idem_store(cache_key: tuple, status_code: int, body: dict) -> None:
     now = time.time()
-    _redeem_idem_results[cache_key] = (now, status_code, body)
-    # Bound unbounded growth for a long-lived worker process. Sweeps both the
-    # results cache AND any orphaned locks (NEW-7: a lock with no matching
-    # result at all — e.g. already popped via the lazy-lookup path above —
-    # is dead weight forever otherwise).
-    if len(_redeem_idem_results) > 1000 or len(_redeem_idem_locks) > 1000:
+    entry = _redeem_idem_entries.get(cache_key)
+    if entry is None:
+        entry = _IdemEntry(lock=threading.Lock())
+        _redeem_idem_entries[cache_key] = entry
+    entry.timestamp = now
+    entry.status_code = status_code
+    entry.body = body
+    # Bound unbounded growth for a long-lived worker process. Only entries
+    # with a KNOWN (non-expired) result are eligible for removal — an
+    # in-flight entry (timestamp still None, lock actively held by a
+    # concurrent request) is left alone regardless of how large the dict
+    # gets, since we have no way to know its age and removing it could hand
+    # a fresh Lock object to a genuinely-concurrent duplicate request.
+    if len(_redeem_idem_entries) > 1000:
         with _redeem_idem_registry_lock:
             expired = [
                 k
-                for k, (ts, _, _) in _redeem_idem_results.items()
-                if now - ts > _REDEEM_IDEM_TTL_SECONDS
+                for k, e in _redeem_idem_entries.items()
+                if e.timestamp is not None and now - e.timestamp > _REDEEM_IDEM_TTL_SECONDS
             ]
             for k in expired:
-                _redeem_idem_results.pop(k, None)
-                _redeem_idem_locks.pop(k, None)
-            orphaned = [k for k in _redeem_idem_locks if k not in _redeem_idem_results]
-            for k in orphaned:
-                _redeem_idem_locks.pop(k, None)
+                _redeem_idem_entries.pop(k, None)
 
 
 # ── helpers ──────────────────────────────────────────────────────────

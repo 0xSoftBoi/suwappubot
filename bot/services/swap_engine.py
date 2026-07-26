@@ -439,11 +439,11 @@ class SwapEngine:
         try:
             url = rpc_manager.get_rpc_url("solana")
             payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                async with session.post(
-                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    data = await resp.json()
+            session = await get_http_session()
+            async with session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
             return int(data["result"]["value"]["decimals"])
         except Exception as e:
             logger.debug(f"solana mint decimals read failed for {mint}: {e}")

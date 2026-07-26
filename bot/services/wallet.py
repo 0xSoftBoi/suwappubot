@@ -161,6 +161,15 @@ class WalletService:
         their own per-request timeout; call sites needing a different bound
         (e.g. _evm_rpc_call's configurable `timeout` param) still override it
         via the request-level `timeout=` kwarg on session.get/post.
+
+        Deliberately separate from bot.utils.http_client.get_session(): that
+        module owns one process-wide ClientSession or would violate the
+        "never close the global session" rule. This service instead owns a
+        single connector per WalletService instance and hands out a fresh,
+        connector_owner=False ClientSession per call (see _get_connector),
+        so `async with self._http_session() as session:` is safe to close on
+        every call without tearing down the shared connector/DNS cache. This
+        is intentional isolation, not accidental duplication of http_client.
         """
         return aiohttp.ClientSession(
             connector=self._get_connector(),

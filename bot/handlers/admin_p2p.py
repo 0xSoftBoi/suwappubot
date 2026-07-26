@@ -17,11 +17,20 @@ from web3 import Web3
 
 from bot.config.settings import settings
 from bot.services.p2p_service import P2PError, p2p_service
-from bot.utils.formatters import escape_markdown
+from bot.services.error_guidance import user_facing_error
 
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 logger = logging.getLogger(__name__)
+
+
+def _type_suffix(exc: BaseException, safe: tuple) -> str:
+    """Admin-only diagnostic hint: the exception TYPE name (never the raw
+    message) appended when ``exc`` is NOT one of the curated "safe to show"
+    types — lets an operator triage a genuine failure without exposing
+    internals to end users (this module is admin-gated, see ``is_admin``)."""
+    return "" if isinstance(exc, safe) else f" ({type(exc).__name__})"
+
 
 # Admin user IDs from settings, fail-closed if not configured (mirrors admin_fees).
 ADMIN_IDS = (
@@ -68,8 +77,11 @@ async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         trade_id = int(args[0])
         buyer_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
-        logger.warning("p2prelease input rejected: %s", e)
-        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
+        logger.error("p2prelease input rejected: %s", e, exc_info=True)
+        await update.message.reply_text(
+            user_facing_error(e, safe_exceptions=(P2PError,), escape_for_markdown=True),
+            parse_mode="Markdown",
+        )
         return
 
     await update.message.reply_text(f"⏳ Releasing escrow for trade {trade_id}…")
@@ -82,7 +94,13 @@ async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.exception("p2prelease failed for trade %s", trade_id)
         await update.message.reply_text(
-            f"❌ Release failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+            user_facing_error(
+                e,
+                prefix=f"❌ Release failed{_type_suffix(e, (P2PError,))}: ",
+                safe_exceptions=(P2PError,),
+                escape_for_markdown=True,
+            ),
+            parse_mode="Markdown",
         )
 
 
@@ -107,8 +125,11 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         trade_id = int(args[0])
         seller_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
-        logger.warning("p2prefund input rejected: %s", e)
-        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
+        logger.error("p2prefund input rejected: %s", e, exc_info=True)
+        await update.message.reply_text(
+            user_facing_error(e, safe_exceptions=(P2PError,), escape_for_markdown=True),
+            parse_mode="Markdown",
+        )
         return
 
     await update.message.reply_text(f"⏳ Refunding escrow for trade {trade_id}…")
@@ -122,7 +143,13 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.exception("p2prefund failed for trade %s", trade_id)
         await update.message.reply_text(
-            f"❌ Refund failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+            user_facing_error(
+                e,
+                prefix=f"❌ Refund failed{_type_suffix(e, (P2PError,))}: ",
+                safe_exceptions=(P2PError,),
+                escape_for_markdown=True,
+            ),
+            parse_mode="Markdown",
         )
 
 
@@ -138,7 +165,13 @@ async def p2p_disputes_command(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         logger.exception("p2pdisputes failed")
         await update.message.reply_text(
-            f"❌ Could not load disputes: {escape_markdown(str(e))}", parse_mode="Markdown"
+            user_facing_error(
+                e,
+                prefix=f"❌ Could not load disputes{_type_suffix(e, (P2PError,))}: ",
+                safe_exceptions=(P2PError,),
+                escape_for_markdown=True,
+            ),
+            parse_mode="Markdown",
         )
         return
 
@@ -193,7 +226,13 @@ async def p2p_resolve_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.exception("p2presolve failed for trade %s", trade_id)
         await update.message.reply_text(
-            f"❌ Resolve failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+            user_facing_error(
+                e,
+                prefix=f"❌ Resolve failed{_type_suffix(e, (P2PError,))}: ",
+                safe_exceptions=(P2PError,),
+                escape_for_markdown=True,
+            ),
+            parse_mode="Markdown",
         )
 
 
@@ -223,8 +262,11 @@ async def p2p_dispute_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"our team will review and decide. You'll be notified of the outcome."
         )
     except Exception as e:
-        logger.info("p2pdispute rejected for trade %s: %s", trade_id, e)
-        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
+        logger.error("p2pdispute rejected for trade %s: %s", trade_id, e, exc_info=True)
+        await update.message.reply_text(
+            user_facing_error(e, safe_exceptions=(P2PError,), escape_for_markdown=True),
+            parse_mode="Markdown",
+        )
 
 
 # Create handlers

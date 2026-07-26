@@ -37,6 +37,57 @@ logger = logging.getLogger(__name__)
 class PointsService:
     """Service for managing user points, XP, and rewards."""
 
+    def _get_locked_points_account(
+        self, session: Session, user_id: int, create: bool = False
+    ) -> Optional[UserPoints]:
+        """Fetch a user's UserPoints row with ``SELECT ... FOR UPDATE`` held
+        for the rest of the caller's transaction.
+
+        MONEY-PATH LOCK RATIONALE: every method in this file that reads a
+        balance field (current_points / total_points_earned / xp /
+        total_swaps / total_volume_usd / daily_streak / longest_streak /
+        last_checkin / last_swap_date) and then writes it back MUST hold this
+        lock for the lifetime of its ``with get_session()`` block. Without
+        it, two concurrent calls for the same user — e.g. spend_points racing
+        award_points, or two redeem taps racing each other — can both read
+        the same pre-write balance, both pass their own check, and one
+        silently clobbers the other's update once its UPDATE lands (a lost
+        update / double-spend). ``.with_for_update()`` is a no-op on SQLite
+        (the engine already serializes writes via its single-writer file
+        lock) and a real row lock on Postgres in prod. This exact bug class
+        (H6, NEW-8, and the award_points BLOCKER) was previously reintroduced
+        because each method hand-rolled its own lock query and a new
+        read-modify-write site could be added without anyone remembering to
+        add the lock — see tests/test_points_concurrency.py for the full
+        history. Centralizing the query here makes forgetting harder.
+
+        Args:
+            session: the caller's active session. The lock is scoped to this
+                session's transaction — never pass a different/new session.
+            user_id: the user whose UserPoints row to lock.
+            create: when True and no row exists yet, create + flush a fresh
+                ``UserPoints(user_id=user_id)`` (still inside the caller's
+                transaction) and return it. When False (default), returns
+                None if no row exists — use this for callers that treat "no
+                account yet" as a distinct outcome (e.g. spend_points's "No
+                points account found").
+
+        Returns:
+            The locked UserPoints row, a newly created one (create=True), or
+            None (create=False, no existing row).
+        """
+        account = (
+            session.query(UserPoints)
+            .filter(UserPoints.user_id == user_id)
+            .with_for_update()
+            .first()
+        )
+        if not account and create:
+            account = UserPoints(user_id=user_id)
+            session.add(account)
+            session.flush()
+        return account
+
     def get_or_create_points_account(self, user_id: int) -> UserPoints:
         """Get or create a points account for a user."""
         with get_session() as session:
@@ -105,27 +156,15 @@ class PointsService:
 
         with get_session() as session:
             # BLOCKER fix: this was a plain (unlocked) SELECT, so a concurrent
-            # spend_points/redeem_* call (which DOES hold `.with_for_update()`)
-            # could read the still-committed pre-spend balance here, compute its
-            # new total off that stale value, and then overwrite the spend's
-            # debit once its own UPDATE finally lands — a lost update that hands
-            # the user back the points they just spent (see spend_points's H6
-            # comment for the full row-lock rationale; this is the same lock,
-            # applied on the earn side so the two paths can never race each
-            # other). `.with_for_update()` is a no-op on SQLite (single-writer
-            # file lock already serializes writes there) and a real row lock on
-            # Postgres in prod.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # spend_points/redeem_* call (which DOES hold the lock) could read
+            # the still-committed pre-spend balance here, compute its new
+            # total off that stale value, and then overwrite the spend's
+            # debit once its own UPDATE finally lands — a lost update that
+            # hands the user back the points they just spent. See
+            # `_get_locked_points_account`'s docstring for the full rationale
+            # (this is the same lock, applied on the earn side so the two
+            # paths can never race each other).
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             # Update points
             account.total_points_earned += points
@@ -199,19 +238,10 @@ class PointsService:
         with get_session() as session:
             # Audit fix (same class as the award_points blocker): this method
             # reads-then-writes UserPoints.total_swaps/total_volume_usd/
-            # last_swap_date. Lock it too so two concurrent swaps for the same
-            # user (e.g. Telegram + mobile racing) can't lose one's stat update.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # last_swap_date. Lock it too (see `_get_locked_points_account`)
+            # so two concurrent swaps for the same user (e.g. Telegram +
+            # mobile racing) can't lose one's stat update.
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             # Check if first swap of the day
             today = datetime.now(timezone.utc).date()
@@ -257,20 +287,11 @@ class PointsService:
             # (now reachable — the previous bug awaited a sync method and 400'd
             # every call) could both read `last_checkin` before either commits,
             # both pass the date-equality guard, and both award + bump the
-            # streak (double award + inflated streak). The row lock makes the
-            # second call block until the first commits, then re-read the
-            # now-updated `last_checkin` and correctly no-op.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # streak (double award + inflated streak). The row lock (see
+            # `_get_locked_points_account`) makes the second call block until
+            # the first commits, then re-read the now-updated `last_checkin`
+            # and correctly no-op.
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             today = datetime.now(timezone.utc).date()
             yesterday = today - timedelta(days=1)
@@ -353,16 +374,10 @@ class PointsService:
             # H6 fix: lock the row for the lifetime of this transaction so two
             # concurrent spend_points calls for the same user CANNOT both read
             # the same current_points and both pass the balance check (double
-            # spend). SQLite silently ignores FOR UPDATE (single-writer file
-            # lock already serializes writes there); Postgres in prod honors
-            # it — same no-guard pattern already used by community_service /
+            # spend). See `_get_locked_points_account` for the full rationale
+            # — same no-guard pattern already used by community_service /
             # battle_service / airdrop_campaign_service.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
+            account = self._get_locked_points_account(session, user_id, create=False)
 
             if not account:
                 return False, "No points account found"
@@ -567,13 +582,9 @@ class PointsService:
                 if target_tier is None or target_tier == SubscriptionTier.FREE:
                     return False, "Unknown subscription tier.", None
 
-                # H6 fix: FOR UPDATE — see spend_points for the full rationale.
-                account = (
-                    session.query(UserPoints)
-                    .filter(UserPoints.user_id == user_id)
-                    .with_for_update()
-                    .first()
-                )
+                # H6 fix: FOR UPDATE — see `_get_locked_points_account` for the
+                # full rationale.
+                account = self._get_locked_points_account(session, user_id, create=False)
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -700,13 +711,9 @@ class PointsService:
                 reward_name = reward.name
                 reward_value = reward.reward_value
 
-                # H6 fix: FOR UPDATE — see spend_points for the full rationale.
-                account = (
-                    session.query(UserPoints)
-                    .filter(UserPoints.user_id == user_id)
-                    .with_for_update()
-                    .first()
-                )
+                # H6 fix: FOR UPDATE — see `_get_locked_points_account` for the
+                # full rationale.
+                account = self._get_locked_points_account(session, user_id, create=False)
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -888,13 +895,9 @@ class PointsService:
         with get_session() as session:
             # Audit fix: this method reads-then-writes total_points_earned/
             # current_points/xp when a milestone is achieved — same balance
-            # fields the spend paths lock. Lock it too.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
+            # fields the spend paths lock. Lock it too (see
+            # `_get_locked_points_account`).
+            account = self._get_locked_points_account(session, user_id, create=False)
 
             if not account:
                 return achieved
