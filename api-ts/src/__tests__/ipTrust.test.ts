@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test'
-import path from 'path'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { resolveTrustedClientIp } from '../middleware/ipRateLimit'
 
 /**
  * Regression coverage for resolveTrustedClientIp's cf-connecting-ip anti-spoofing
@@ -12,130 +12,90 @@ import path from 'path'
  * anti-farm cap (AgentService.registerAgent) and the IP rate limiter from an
  * attacker simply setting cf-connecting-ip to a fresh value on every request.
  *
- * IMPORTANT: resolveTrustedClientIp reads CF_PROVENANCE_SECRET from process.env
- * into a MODULE-SCOPE constant computed once at first import. Whichever test file
- * in the suite imports ipRateLimit.ts FIRST freezes that constant for the rest of
- * the bun test process — verified empirically: an in-process version of this test
- * (mutating process.env.CF_PROVENANCE_SECRET around a dynamic `await import()`)
- * passed in isolation but failed when the full suite ran, because another test
- * file had already imported the module with the secret unset. Every scenario here
- * therefore runs resolveTrustedClientIp in a brand-new `bun -e` child process with
- * an explicit env, so the module is loaded fresh every time and results cannot
- * depend on suite ordering.
+ * These run in-process: resolveTrustedClientIp reads CF_PROVENANCE_SECRET lazily
+ * per call, so mutating process.env here is safe and order-independent. An earlier
+ * module-scope constant forced these cases into spawned child processes, which made
+ * the suite flaky under CPU contention.
  */
 
-const IP_RATE_LIMIT_PATH = path.join(__dirname, '..', 'middleware', 'ipRateLimit.ts')
+const SECRET = 'test-cf-provenance-secret'
+const FORGED_CF = '203.0.113.99'
+const XFF_TRUSTED_HOP = '198.51.100.9'
+const SOCKET = '192.0.2.1'
 
-/** Runs resolveTrustedClientIp in a brand-new bun process with the given env. */
-function resolveInChildProcess(args: {
-	cfIp?: string
-	forwarded?: string
-	provenanceHeader?: string
-	cfProvenanceSecret?: string
-}): string {
-	const script = `
-		import { resolveTrustedClientIp } from ${JSON.stringify(IP_RATE_LIMIT_PATH)};
-		const result = resolveTrustedClientIp(
-			${JSON.stringify(args.cfIp)},
-			${JSON.stringify(args.forwarded)},
-			undefined,
-			1,
-			${JSON.stringify(args.provenanceHeader)},
-		);
-		console.log(result);
-	`
-	const env: Record<string, string> = {}
-	for (const [k, v] of Object.entries(process.env)) {
-		if (v !== undefined) env[k] = v
-	}
-	if (args.cfProvenanceSecret === undefined) {
-		delete env.CF_PROVENANCE_SECRET
-	} else {
-		env.CF_PROVENANCE_SECRET = args.cfProvenanceSecret
-	}
+const originalSecret = process.env.CF_PROVENANCE_SECRET
 
-	const result = Bun.spawnSync(['bun', '-e', script], { env })
-	if (result.exitCode !== 0) {
-		throw new Error(`child process failed: ${result.stderr.toString()}`)
-	}
-	return result.stdout.toString().trim()
+function setSecret(value: string | undefined) {
+	if (value === undefined) delete process.env.CF_PROVENANCE_SECRET
+	else process.env.CF_PROVENANCE_SECRET = value
 }
 
+afterEach(() => setSecret(originalSecret))
+
 describe('resolveTrustedClientIp (cf-connecting-ip anti-spoofing gate)', () => {
-	const SECRET = 'test-cf-provenance-secret'
-
-	it('ignores cf-connecting-ip with no provenance header, even though a secret is configured', () => {
-		const result = resolveInChildProcess({
-			cfIp: '203.0.113.99', // attacker-forged cf-connecting-ip
-			forwarded: '198.51.100.9', // proxy-appended real client via XFF
-			provenanceHeader: undefined, // no cf-provenance header presented
-			cfProvenanceSecret: SECRET,
+	describe('with CF_PROVENANCE_SECRET configured', () => {
+		it('ignores cf-connecting-ip when no provenance header is presented', () => {
+			setSecret(SECRET)
+			const result = resolveTrustedClientIp(FORGED_CF, XFF_TRUSTED_HOP, SOCKET, 1, undefined)
+			expect(result).not.toBe(FORGED_CF)
+			expect(result).toBe(XFF_TRUSTED_HOP)
 		})
 
-		expect(result).not.toBe('203.0.113.99')
-		expect(result).toBe('198.51.100.9')
+		it('ignores cf-connecting-ip when the provenance header is present but wrong', () => {
+			setSecret(SECRET)
+			const result = resolveTrustedClientIp(
+				FORGED_CF,
+				XFF_TRUSTED_HOP,
+				SOCKET,
+				1,
+				'not-the-real-secret',
+			)
+			expect(result).not.toBe(FORGED_CF)
+			expect(result).toBe(XFF_TRUSTED_HOP)
+		})
+
+		it('honors cf-connecting-ip only when the provenance header matches the secret', () => {
+			setSecret(SECRET)
+			expect(resolveTrustedClientIp('1.2.3.4', XFF_TRUSTED_HOP, SOCKET, 1, SECRET)).toBe('1.2.3.4')
+		})
+
+		it('falls back to XFF when cf-connecting-ip is absent despite valid provenance', () => {
+			setSecret(SECRET)
+			expect(resolveTrustedClientIp(undefined, XFF_TRUSTED_HOP, SOCKET, 1, SECRET)).toBe(
+				XFF_TRUSTED_HOP,
+			)
+		})
+
+		it('falls back to the socket IP when neither cf-connecting-ip nor XFF is present', () => {
+			setSecret(SECRET)
+			expect(resolveTrustedClientIp(undefined, undefined, SOCKET, 1, SECRET)).toBe(SOCKET)
+		})
 	})
 
-	it('ignores cf-connecting-ip when the provenance header is present but wrong', () => {
-		const result = resolveInChildProcess({
-			cfIp: '203.0.113.99',
-			forwarded: '198.51.100.9',
-			provenanceHeader: 'not-the-real-secret',
-			cfProvenanceSecret: SECRET,
+	describe('with CF_PROVENANCE_SECRET unset (deployment default)', () => {
+		it('ignores cf-connecting-ip regardless of any provenance header', () => {
+			setSecret(undefined)
+			const result = resolveTrustedClientIp(FORGED_CF, XFF_TRUSTED_HOP, SOCKET, 1, SECRET)
+			expect(result).not.toBe(FORGED_CF)
+			expect(result).toBe(XFF_TRUSTED_HOP)
 		})
 
-		expect(result).not.toBe('203.0.113.99')
-		expect(result).toBe('198.51.100.9')
+		it('treats an empty-string secret as unconfigured, not as a matchable value', () => {
+			setSecret('')
+			const result = resolveTrustedClientIp(FORGED_CF, XFF_TRUSTED_HOP, SOCKET, 1, '')
+			expect(result).not.toBe(FORGED_CF)
+			expect(result).toBe(XFF_TRUSTED_HOP)
+		})
 	})
 
-	it('honors cf-connecting-ip only when the provenance header matches the configured secret', () => {
-		const result = resolveInChildProcess({
-			cfIp: '203.0.113.99', // now legitimately from the trusted Cloudflare edge
-			forwarded: '198.51.100.9', // an XFF value that must be ignored in favor of the cf ip
-			provenanceHeader: SECRET,
-			cfProvenanceSecret: SECRET,
-		})
-
-		expect(result).toBe('203.0.113.99')
-	})
-
-	it('falls back to XFF/socket when cf-connecting-ip is absent even with valid provenance', () => {
-		const result = resolveInChildProcess({
-			cfIp: undefined,
-			forwarded: '198.51.100.9',
-			provenanceHeader: SECRET,
-			cfProvenanceSecret: SECRET,
-		})
-
-		expect(result).toBe('198.51.100.9')
-	})
-})
-
-describe('resolveTrustedClientIp with CF_PROVENANCE_SECRET unset (deployment default)', () => {
-	it('ignores cf-connecting-ip entirely, even with a matching-looking provenance header, when no secret is configured', () => {
-		const result = resolveInChildProcess({
-			cfIp: '203.0.113.99',
-			forwarded: '198.51.100.9',
-			provenanceHeader: 'anything',
-			cfProvenanceSecret: undefined,
-		})
-
-		expect(result).toBe('198.51.100.9')
-	})
-
-	it('still ignores cf-connecting-ip when the provenance header happens to equal a value that WOULD be a valid secret elsewhere', () => {
-		// Proves the gate checks "is a secret configured at all", not just
-		// "does the header look secret-shaped" — if the falsy-secret check were
-		// buggy (e.g. comparing against '' instead of requiring CF_PROVENANCE_SECRET
-		// to be truthy), this specific header value could slip through.
-		const result = resolveInChildProcess({
-			cfIp: '203.0.113.99',
-			forwarded: '198.51.100.9',
-			provenanceHeader: 'test-cf-provenance-secret',
-			cfProvenanceSecret: undefined,
-		})
-
-		expect(result).not.toBe('203.0.113.99')
-		expect(result).toBe('198.51.100.9')
+	it('cannot be farmed by rotating a forged cf-connecting-ip on every request', () => {
+		// The starter-credit cap is keyed on the resolved IP; if a forged header won,
+		// every request would land in a fresh bucket and the 3/IP/day cap would be moot.
+		setSecret(undefined)
+		const resolved = ['1.1.1.1', '2.2.2.2', '3.3.3.3'].map((forged) =>
+			resolveTrustedClientIp(forged, XFF_TRUSTED_HOP, SOCKET, 1, undefined),
+		)
+		expect(new Set(resolved).size).toBe(1)
+		expect(resolved[0]).toBe(XFF_TRUSTED_HOP)
 	})
 })

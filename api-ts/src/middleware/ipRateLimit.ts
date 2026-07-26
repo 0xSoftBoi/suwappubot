@@ -48,7 +48,13 @@ export function resolveClientIp(
 // ignored entirely and we fall through to the XFF/trusted-proxy-hop logic — a
 // direct-to-origin request (raw Railway URL) then cannot forge an identity to farm
 // starter credits or dodge per-IP limits.
-const CF_PROVENANCE_SECRET = process.env.CF_PROVENANCE_SECRET?.trim() || ''
+// Read lazily rather than captured at module scope: a module-scope constant is
+// frozen by whichever importer loads this file first, which makes the gate
+// untestable in-process and would silently ignore the secret if the env is
+// populated after import.
+function cfProvenanceSecret(): string {
+	return process.env.CF_PROVENANCE_SECRET?.trim() || ''
+}
 
 /**
  * Resolve the client IP, honoring `cf-connecting-ip` only on requests with verified
@@ -63,8 +69,8 @@ export function resolveTrustedClientIp(
 	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
 	provenanceHeader?: string,
 ): string {
-	const provenanceOk =
-		!!CF_PROVENANCE_SECRET && provenanceHeader?.trim() === CF_PROVENANCE_SECRET
+	const secret = cfProvenanceSecret()
+	const provenanceOk = !!secret && provenanceHeader?.trim() === secret
 	const trimmedCf = cfIp?.trim()
 	if (provenanceOk && trimmedCf) return trimmedCf
 	return resolveClientIp(forwarded, socketIp, trustedProxyCount)
