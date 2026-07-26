@@ -1,15 +1,47 @@
 import crypto from 'crypto'
 import { eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { type Agent, agents, type DrizzleService, requireDb, requireRow, webhookEvents } from '../db'
+import {
+	type Agent,
+	agentCreditTopups,
+	agentCredits,
+	agentRegistrationGrants,
+	agents,
+	type DrizzleService,
+	requireDb,
+	requireRow,
+	webhookEvents,
+} from '../db'
 import { DatabaseError } from '../errors'
+import { logger } from '../lib/logger'
 import { auditLog } from './audit'
+
+/**
+ * One-time starter credit grant for newly registered agents. Lets a fresh
+ * agent complete its first documented call (POST /v1/agent/quote, etc.)
+ * without hitting a 402 before it has ever topped up. 100 credits ≈ $0.10
+ * at CREDIT_USD_VALUE = $0.001/credit (see middleware/x402Payment.ts) — enough
+ * for the onboarding quick-start flow, not a meaningful giveaway.
+ * MONEY-PATH: grants free credits; tune STARTER_CREDITS if abused.
+ */
+const STARTER_CREDITS = 100
+
+/**
+ * Anti-farm cap: at most this many starter-credit grants per source IP per
+ * UTC day (see agent_registration_grants in db/schema/payments.ts). Registering
+ * beyond the cap still succeeds (agent + API key are created) — only the free
+ * credit grant is withheld, so the guard can't be used to lock out legitimate
+ * multi-agent operators.
+ */
+const MAX_STARTER_GRANTS_PER_IP_PER_DAY = 3
 
 export interface RegisterAgentParams {
 	name: string
 	description?: string | undefined
 	callbackUrl?: string | undefined
 	metadata?: Record<string, unknown> | undefined
+	/** Client IP, used only to rate-limit the starter-credit grant (anti-farm). */
+	ip?: string | undefined
 }
 
 export interface UpdateAgentParams {
@@ -21,7 +53,11 @@ export interface UpdateAgentParams {
 export interface AgentServiceInterface {
 	readonly registerAgent: (
 		params: RegisterAgentParams,
-	) => Effect.Effect<{ agent: Agent; apiKey: string }, DatabaseError, DrizzleService>
+	) => Effect.Effect<
+		{ agent: Agent; apiKey: string; grantedCredits: number },
+		DatabaseError,
+		DrizzleService
+	>
 
 	readonly getAgentByApiKey: (
 		apiKey: string,
@@ -131,7 +167,91 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				details: { agentId: agent.id, name: agent.name },
 			})
 
-			return { agent, apiKey }
+			// Anti-farm guard: count starter-credit grants per source IP per UTC day
+			// before minting free credits. Registration itself always succeeds — this
+			// only gates the free grant, never blocks agent/key creation. Best-effort:
+			// a failure here means "don't grant" (fail closed on the free money),
+			// never "fail registration".
+			const ip = params.ip?.trim() || 'unknown'
+			const day = new Date().toISOString().slice(0, 10)
+
+			const grantCount = yield* Effect.tryPromise({
+				try: async () => {
+					const rows = await db
+						.insert(agentRegistrationGrants)
+						.values({ ip, day, count: 1 })
+						.onConflictDoUpdate({
+							target: [agentRegistrationGrants.ip, agentRegistrationGrants.day],
+							set: {
+								count: sql`${agentRegistrationGrants.count} + 1`,
+								updatedAt: new Date(),
+							},
+						})
+						.returning()
+					return rows[0]?.count ?? Number.POSITIVE_INFINITY
+				},
+				catch: (e) => new DatabaseError({ message: `Failed to check registration grant guard: ${e}`, cause: e }),
+			}).pipe(
+				Effect.catchAll((e) => {
+					logger.warn(
+						{ err: e, agentId: agent.id, ip },
+						'Registration grant guard failed; withholding starter credits',
+					)
+					// Fail closed: treat as over-cap so no credits are granted.
+					return Effect.succeed(Number.POSITIVE_INFINITY)
+				}),
+			)
+
+			const eligible = grantCount <= MAX_STARTER_GRANTS_PER_IP_PER_DAY
+
+			// Grant starter credits so the agent's first metered call (quote/swap)
+			// doesn't immediately 402 — but only if the IP is within its daily cap.
+			// Best-effort on the DB writes: never fails registration, but on any
+			// failure the actual granted amount reported back is 0 (never assumed).
+			let grantedCredits = 0
+			if (eligible) {
+				const granted = yield* Effect.tryPromise({
+					try: () =>
+						db.transaction(async (tx) => {
+							const inserted = await tx
+								.insert(agentCredits)
+								.values({
+									agentId: agent.id,
+									balance: STARTER_CREDITS,
+									lifetimePurchased: STARTER_CREDITS,
+								})
+								.onConflictDoNothing()
+								.returning()
+							// onConflictDoNothing returns [] if a row already existed for this
+							// agent (shouldn't happen for a brand-new agent, but be honest).
+							if (inserted.length === 0) return 0
+
+							await tx.insert(agentCreditTopups).values({
+								agentId: agent.id,
+								txHash: `starter_grant:${agent.id}`,
+								chain: 'starter_grant',
+								amountUsd: 0,
+								creditsAdded: STARTER_CREDITS,
+							})
+
+							return STARTER_CREDITS
+						}),
+					catch: (e) => new DatabaseError({ message: `Failed to grant starter credits: ${e}`, cause: e }),
+				}).pipe(
+					Effect.catchAll((e) => {
+						logger.warn({ err: e, agentId: agent.id, ip }, 'Failed to grant starter credits')
+						return Effect.succeed(0)
+					}),
+				)
+				grantedCredits = granted
+			} else {
+				logger.warn(
+					{ agentId: agent.id, ip, grantCount },
+					'Starter credit grant withheld: IP over daily registration cap',
+				)
+			}
+
+			return { agent, apiKey, grantedCredits }
 		}),
 
 	getAgentByApiKey: (apiKey: string) =>

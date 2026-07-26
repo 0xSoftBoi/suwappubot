@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from suwappu.client import (
     DEFAULT_BASE_URL,
+    SuwappuApiError,
     SuwappuClient,
     SuwappuError,
     create_client,
 )
 from suwappu.types import (
+    AgentErrorCode,
+    AgentProfile,
     Chain,
     LendingMarket,
     LendingMarketDetail,
@@ -18,20 +21,29 @@ from suwappu.types import (
     PredictionMarket,
     PredictionMarketDetail,
     Quote,
+    RegisterAgentResult,
+    RotateKeysResult,
     SuwappuConfig,
     SwapResult,
     Token,
     TokenBalance,
     TokenPrice,
+    TokenRef,
+    WalletPolicy,
+    WebhookEvent,
+    WebhookEventsResult,
+    WebhookPagination,
+    WebhookTestResult,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.2"
 
 __all__ = [
     "DEFAULT_BASE_URL",
     "create_client",
     "SuwappuClient",
     "SuwappuError",
+    "SuwappuApiError",
     "SuwappuConfig",
     "Quote",
     "SwapResult",
@@ -39,6 +51,7 @@ __all__ = [
     "TokenPrice",
     "Chain",
     "Token",
+    "TokenRef",
     "PerpMarket",
     "PerpQuote",
     "PerpPosition",
@@ -46,4 +59,13 @@ __all__ = [
     "PredictionMarketDetail",
     "LendingMarket",
     "LendingMarketDetail",
+    "AgentErrorCode",
+    "AgentProfile",
+    "RegisterAgentResult",
+    "RotateKeysResult",
+    "WalletPolicy",
+    "WebhookEvent",
+    "WebhookEventsResult",
+    "WebhookPagination",
+    "WebhookTestResult",
 ]

@@ -46,6 +46,9 @@ export default defineConfig({
 		'policies',
 		'policy_decisions',
 		'policy_kill_switches',
+		// api-ts-exclusive anti-farm guard for the starter-credit grant
+		// (payments.ts) — no python owner.
+		'agent_registration_grants',
 		// api-ts-exclusive anonymous web-checkout tracking (webCheckouts.ts) — no
 		// python owner; records Stripe sessions started by showcase visitors with
 		// no Suwappu account.

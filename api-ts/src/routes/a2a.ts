@@ -2,8 +2,10 @@ import crypto from 'crypto'
 import { isStarknet } from '../config/chains'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import type { Agent } from '../db'
 import { ValidationError } from '../errors'
+import type { AgentErrorCode } from '../lib/agentError'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { cacheAgentQuote } from '../lib/quoteCache'
 import { agentBearerAuth } from '../middleware'
@@ -26,17 +28,26 @@ type TaskState = 'submitted' | 'working' | 'completed' | 'failed' | 'canceled'
 
 interface TextPart {
 	type: 'text'
+	// A2A spec 0.3 renamed `type` to `kind`. We emit both on outgoing parts (see
+	// withKind()) so pre-0.3 and 0.3 clients both parse correctly.
+	kind?: 'text'
 	text: string
 	mimeType?: string
 }
 
 interface DataPart {
 	type: 'data'
+	kind?: 'data'
 	data: Record<string, unknown>
 	mimeType?: string
 }
 
 type Part = TextPart | DataPart
+
+/** Stamp `kind` alongside `type` on outgoing parts (A2A 0.3 compatibility). */
+function withKind(parts: Part[]): Part[] {
+	return parts.map((p): Part => (p.type === 'text' ? { ...p, kind: 'text' } : { ...p, kind: 'data' }))
+}
 
 interface A2AMessage {
 	id: string
@@ -136,11 +147,21 @@ function jsonRpcOk(id: string | number, result: unknown) {
 	return { jsonrpc: '2.0' as const, id, result }
 }
 
-function jsonRpcError(id: string | number | null, code: number, message: string, data?: unknown) {
+function jsonRpcError(
+	id: string | number | null,
+	code: number,
+	message: string,
+	data?: unknown,
+	errorCode?: AgentErrorCode,
+) {
+	const mergedData =
+		errorCode !== undefined
+			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: errorCode }
+			: data
 	return {
 		jsonrpc: '2.0' as const,
 		id,
-		error: { code, message, ...(data !== undefined && { data }) },
+		error: { code, message, ...(mergedData !== undefined && { data: mergedData }) },
 	}
 }
 
@@ -156,7 +177,7 @@ const UNSUPPORTED_OPERATION = -32002
 
 function parseUserMessage(parts: Part[]): string {
 	return parts
-		.filter((p): p is TextPart => p.type === 'text')
+		.filter((p): p is TextPart => ((p as { kind?: string }).kind ?? p.type) === 'text')
 		.map((p) => p.text)
 		.join(' ')
 		.trim()
@@ -376,7 +397,10 @@ async function processEvmQuote(
 
 			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 			const quoteId = quote.quoteId
-			cacheAgentQuote(quoteId, quote, agent.id, false)
+			cacheAgentQuote(quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return {
 				quote_id: quoteId,
@@ -467,7 +491,12 @@ async function processSolanaQuote(
 			const route = quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> ')
 
 			const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-			cacheAgentQuote(quoteId, quote, agent.id, true)
+			// Jupiter's raw quote carries no decimals, so execute-time can only get
+			// them from here — without this the quote is permanently un-executable.
+			cacheAgentQuote(quoteId, quote, agent.id, true, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return {
 				quote_id: quoteId,
@@ -514,22 +543,33 @@ type AgentContext = {
 
 const a2aRoutes = new Hono<AgentContext>()
 
-a2aRoutes.use('*', agentBearerAuth())
-
+// /a2a is a pure JSON-RPC endpoint — auth failures must stay inside the JSON-RPC
+// envelope (not a raw HTTPException body), so auth is run manually inside the
+// handler rather than as a blanket `use('*', ...)` gate.
 a2aRoutes.post('/', async (c) => {
-	const agent = c.get('agent')
-
 	let body: unknown
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json(jsonRpcError(null, PARSE_ERROR, 'Parse error: invalid JSON'), 200)
+		return c.json(jsonRpcError(null, PARSE_ERROR, 'Parse error: invalid JSON', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	const req = body as JsonRpcRequest
 	if (!req || req.jsonrpc !== '2.0' || !req.method || req.id === undefined || req.id === null) {
-		return c.json(jsonRpcError(req?.id ?? null, INVALID_REQUEST, 'Invalid JSON-RPC request'), 200)
+		return c.json(jsonRpcError(req?.id ?? null, INVALID_REQUEST, 'Invalid JSON-RPC request', undefined, 'VALIDATION_ERROR'), 200)
 	}
+
+	try {
+		await agentBearerAuth()(c, async () => {})
+	} catch (e) {
+		c.header('WWW-Authenticate', 'Bearer realm="suwappu", error="invalid_token"')
+		const message = e instanceof HTTPException ? e.message : 'Authentication required'
+		return c.json(
+			jsonRpcError(req.id, -32001, `${message}. Register an agent at https://suwappu.bot/agents to get an API key.`, undefined, 'UNAUTHORIZED'),
+			401,
+		)
+	}
+	const agent = c.get('agent')
 
 	// Track request
 	await runEffectEither(
@@ -547,7 +587,7 @@ a2aRoutes.post('/', async (c) => {
 		case 'tasks/cancel':
 			return handleTasksCancel(c, req, agent)
 		default:
-			return c.json(jsonRpcError(req.id, METHOD_NOT_FOUND, `Unknown method: ${req.method}`), 200)
+			return c.json(jsonRpcError(req.id, METHOD_NOT_FOUND, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
 	}
 })
 
@@ -609,16 +649,18 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	try {
 		const result = await processMessage(userText, agent)
 
+		const outgoingParts = withKind(result.parts)
+
 		task.artifacts.push({
 			id: crypto.randomUUID(),
-			parts: result.parts,
+			parts: outgoingParts,
 			...(result.metadata !== undefined && { metadata: result.metadata }),
 		})
 
 		task.messages.push({
 			id: crypto.randomUUID(),
 			role: 'agent',
-			parts: result.parts,
+			parts: outgoingParts,
 		})
 
 		task.status = { state: 'completed', timestamp: isoNow() }
@@ -636,30 +678,33 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 }
 
 async function handleTasksGet(c: any, req: JsonRpcRequest, agent: Agent) {
-	const params = req.params as { taskId?: string } | undefined
-	if (!params?.taskId) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
+	// Spec 0.3 clients send `id`; earlier drafts sent `taskId`. Accept either.
+	const params = req.params as { id?: string; taskId?: string } | undefined
+	const taskId = params?.id ?? params?.taskId
+	if (!taskId) {
+		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.id is required', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	// Scope task lookup to the owning agent: treat another agent's task as not-found so
 	// existence (and contents) can't leak across agents via guessed/leaked task IDs.
-	const task = tasks.get(params.taskId)
+	const task = tasks.get(taskId)
 	if (!isTaskOwnedByAgent(task, agent.id)) {
-		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
+		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${taskId}`, undefined, 'NOT_FOUND'), 200)
 	}
 
 	return c.json(jsonRpcOk(req.id, { task }), 200)
 }
 
 async function handleTasksCancel(c: any, req: JsonRpcRequest, agent: Agent) {
-	const params = req.params as { taskId?: string } | undefined
-	if (!params?.taskId) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
+	const params = req.params as { id?: string; taskId?: string } | undefined
+	const taskId = params?.id ?? params?.taskId
+	if (!taskId) {
+		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.id is required', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	const task = tasks.get(params.taskId)
+	const task = tasks.get(taskId)
 	if (!isTaskOwnedByAgent(task, agent.id)) {
-		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
+		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${taskId}`, undefined, 'NOT_FOUND'), 200)
 	}
 
 	if (task.status.state === 'completed' || task.status.state === 'failed') {

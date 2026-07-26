@@ -42,8 +42,10 @@ export const COST_WEIGHTS: Record<string, number> = {
 	'swap/simulate': 1,
 	portfolio: 1,
 	prices: 1,
-	tokens: 1,
-	chains: 1,
+	// Read-only discovery endpoints are free — matches MCP's list_tokens/list_chains
+	// (both 0 in MCP_TOOL_COSTS below) so a fresh 0-credit agent can still browse.
+	tokens: 0,
+	chains: 0,
 }
 
 /**
@@ -73,6 +75,14 @@ export const MCP_TOOL_COSTS: Record<string, number> = {
 	simulate_swap: 1,
 	// Executable transaction preparation — dear
 	execute_swap: 5,
+	// Read-only account/status lookups — priced like get_portfolio/get_prices
+	get_swap_status: 1,
+	get_swap_history: 1,
+	list_wallet_policies: 1,
+	// Prediction market order book / price / trades — same tier as predict_markets
+	predict_book: 1,
+	predict_price: 1,
+	predict_trades: 1,
 }
 
 /**
@@ -142,6 +152,9 @@ export function buildX402Challenge(
 			},
 		],
 		error: opts.error ?? 'insufficient_credits',
+		// Stable 17-code contract (see lib/agentError.ts) — keep `error` for
+		// back-compat with existing SDK/agent consumers reading the old field.
+		error_code: 'INSUFFICIENT_CREDITS' as const,
 		cost_credits: opts.cost,
 		credit_usd_value: CREDIT_USD_VALUE,
 		topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount}',
@@ -248,6 +261,58 @@ export async function chargeAgentForCall(params: {
 }
 
 /**
+ * Atomically credit back `cost` credits to an agent's balance after a charged
+ * call turned out to fail (handler threw, or returned isError:true). Mirrors
+ * deductCredits but in reverse; never throws — logs and fails open so a refund
+ * bug can never itself take the API down (worst case: the agent is out `cost`
+ * credits for a call that didn't succeed, which is the pre-existing behavior
+ * this refund path is fixing).
+ */
+function creditBack(agentId: number, cost: number) {
+	return Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.update(agentCredits)
+					.set({
+						balance: sql`${agentCredits.balance} + ${cost}`,
+						lifetimeUsed: sql`GREATEST(${agentCredits.lifetimeUsed} - ${cost}, 0)`,
+						updatedAt: new Date(),
+					})
+					.where(sql`${agentCredits.agentId} = ${agentId}`)
+					.returning({ balance: agentCredits.balance }),
+			catch: (e) => new Error(`Database error during credit refund: ${e}`),
+		})
+		return rows.length > 0 ? (rows[0]?.balance ?? null) : null
+	})
+}
+
+/**
+ * Refund credits charged via chargeAgentForCall for a tool/endpoint call that
+ * subsequently failed (threw, or returned isError:true). Only meaningful when
+ * the charge actually deducted prepaid credits (`charge.kind === 'ok'`) — 'skip'
+ * (free/bypass/disabled) and 'settled'/'insufficient' (on-chain or unpaid) never
+ * reach here from call sites, but the guard is kept defensive. Never throws.
+ */
+export async function refundChargedCall(params: {
+	agentId: number
+	cost: number
+	reason: string
+}): Promise<void> {
+	const { agentId, cost, reason } = params
+	if (cost <= 0) return
+	const result = await runEffectEither(creditBack(agentId, cost))
+	if (Either.isLeft(result)) {
+		// eslint-disable-next-line no-console
+		console.error(`[x402Payment] refund FAILED for agent ${agentId} (${cost} credits, reason: ${reason}):`, result.left)
+		return
+	}
+	// eslint-disable-next-line no-console
+	console.warn(`[x402Payment] refunded ${cost} credits to agent ${agentId} (reason: ${reason}); new balance=${result.right}`)
+}
+
+/**
  * meteredPayment(endpoint) — Hono middleware factory for pay-per-call metering
  * on the REST agent surface. Must run AFTER auth + rateLimit.
  */
@@ -269,6 +334,9 @@ export function meteredPayment(endpoint: string) {
 				c.header('X-Metering-Tier', result.tier)
 				c.header('X-Metering-Bypass', 'true')
 			}
+			// Expose the charge outcome so route handlers can decide to refund on a
+			// non-execution failure path (mirrors the MCP tool-dispatch refund guard).
+			c.set('meterCharge', result)
 			await next()
 			return
 		}
@@ -282,12 +350,16 @@ export function meteredPayment(endpoint: string) {
 		if (result.kind === 'settled') {
 			c.header('X-Metering-Cost', String(result.cost))
 			if (result.txHash) c.header('X-Payment-Response', result.txHash)
+			// 'settled' is a facilitator on-chain payment — NEVER refund it here (same
+			// guard as MCP's refundChargedCall call sites, which only fire on 'ok').
+			c.set('meterCharge', result)
 			await next()
 			return
 		}
 
 		c.header('X-Metering-Cost', String(result.cost))
 		c.header('X-Metering-Balance', String(result.balance))
+		c.set('meterCharge', result)
 		await next()
 	}
 }

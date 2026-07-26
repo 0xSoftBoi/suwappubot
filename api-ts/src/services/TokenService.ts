@@ -261,6 +261,19 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	},
 }
 
+// Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
+// into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
+// Authoritative source: bot/config/tokens.py TOKENS["PATHUSD"|"ALPHAUSD"|"BETAUSD"|"THETAUSD"]
+// all declare decimals=18 (get_token_decimals() has no Tempo-specific override, unlike the
+// GOAT/Citrea per-chain pins), and bot/services/swap_engine.py's _get_tempo_dex_quote() scales
+// raw amounts using that same 18. There is no on-chain "6dp USDC-style" override for Tempo.
+export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
+	pathUSD: 18,
+	AlphaUSD: 18,
+	BetaUSD: 18,
+	ThetaUSD: 18,
+}
+
 // In-memory cache for Li.Fi token resolution results
 const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
 const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
