@@ -22,6 +22,7 @@ from bot.services.copy_service import copy_service, MAX_FOLLOWS, format_wallet_p
 from bot.models.subscription import SubscriptionTier
 from bot.utils.tos_utils import enforce_tos
 from bot.utils.gating import require_tier
+from bot.utils.cache import AsyncCache
 
 logger = logging.getLogger(__name__)
 
@@ -764,10 +765,41 @@ async def mystats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== Copy Trade Notification Handlers ==============
 
 
+# Arm-then-fire confirmation gate for the "📋 Copy Trade" button rendered on a
+# push notification (bot/handlers/swap.py's _notify_followers). A single
+# unconfirmed tap on that notification could spend real money with no amount,
+# sizing, or slippage shown — and mis-taps on push notifications are exactly
+# why this gate exists. A full preview card would need a fresh get_quote()
+# round trip before showing anything, adding real external-API latency to
+# every tap of a time-sensitive copy-trade notification, so this uses
+# arm-then-fire instead: the first tap only relabels the button and starts a
+# short SERVER-SIDE expiry window — not just a label, since Telegram will
+# happily redeliver a stale tap. Only a second tap inside that window
+# executes. Because the callback_data stays "copy_execute_<id>" on both taps
+# (only the label changes), no new callback pattern needs registering.
+_COPY_ARM_TTL_SECONDS = 6
+# How long a consumed arm is remembered, so later taps in a rapid mash are
+# recognised as "already submitted" instead of re-arming a second execution.
+_COPY_CONSUMED_TTL = 300
+_copy_arm_cache = AsyncCache(default_ttl=_COPY_ARM_TTL_SECONDS)
+
+
+def _copy_arm_key(user_id: int, copy_trade_id: int) -> str:
+    return f"{user_id}:{copy_trade_id}"
+
+
 @require_tier(SubscriptionTier.PRO)
 @enforce_tos
 async def copy_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Execute a copy trade from notification. PRO+ feature (copy trading)."""
+    """Copy-trade push notification button — arm-then-fire confirmation gate.
+
+    First tap: arms a short-lived, server-side confirmation window and
+    relabels the button in place. Second tap within the TTL: consumes the
+    arm state and executes. A tap arriving after the window closes (or a
+    stray extra tap after execution already consumed the arm) is treated as
+    a fresh first tap — it re-arms rather than executing, so a
+    delayed/duplicate delivery can never silently spend money.
+    """
     query = update.callback_query
 
     try:
@@ -781,7 +813,57 @@ async def copy_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Please /start first!", show_alert=True)
         return
 
+    arm_key = _copy_arm_key(user_id, copy_trade_id)
+    armed = await _copy_arm_cache.get(arm_key)
+
+    if armed == "consumed":
+        await query.answer("Already submitted — check your trade history.", show_alert=True)
+        return
+
+    if not armed:
+        # First tap (or a stale tap after the window already closed) — arm
+        # the confirm window and relabel the button. No quote fetch, no
+        # execution.
+        await _copy_arm_cache.set(arm_key, True, ttl=_COPY_ARM_TTL_SECONDS)
+        await query.answer(
+            f"Tap again within {_COPY_ARM_TTL_SECONDS}s to confirm.", show_alert=False
+        )
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                f"⚠️ Tap again to confirm · {_COPY_ARM_TTL_SECONDS}s",
+                                callback_data=f"copy_execute_{copy_trade_id}",
+                            ),
+                            InlineKeyboardButton(
+                                "⏭️ Skip", callback_data=f"copy_skip_{copy_trade_id}"
+                            ),
+                        ]
+                    ]
+                )
+            )
+        except Exception as e:
+            logger.debug(f"copy_now_callback: relabel failed (non-fatal): {e}")
+        return
+
+    # Second tap inside the TTL — consume the arm state, then execute.
+    #
+    # A tombstone rather than a plain delete: with a bare delete, taps 3 and 4
+    # of a rapid mash would look like a fresh first tap, re-arm, and fire a
+    # SECOND execute_copy. Marking the id as consumed makes every later tap
+    # inert for the tombstone's lifetime.
+    await _copy_arm_cache.set(arm_key, "consumed", ttl=_COPY_CONSUMED_TTL)
     await query.answer("Copying trade...", show_alert=False)
+
+    # Strip the buttons before the (multi-second) execution so the "⚠️ Tap
+    # again to confirm" label can't keep inviting taps while the copy is in
+    # flight. Best-effort: never block the trade on a failed edit.
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception as e:
+        logger.debug(f"copy_now_callback: could not clear markup (non-fatal): {e}")
 
     success, message, swap_id = await copy_service.execute_copy(user_id, copy_trade_id)
 

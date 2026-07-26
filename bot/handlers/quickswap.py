@@ -17,6 +17,7 @@ from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 from bot.services.error_guidance import classify_swap_failure
+from bot.utils.feedback import typing, react
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     allowed = await enforce_rate_limit_for_update(update, swap_limiter)
     if not allowed:
         return
+
+    # This is the actual /s entry point in production (registered before
+    # bot/handlers/swap.py's ConversationHandler in the same handler group in
+    # bot/main.py, so it wins). React on receipt so the user gets instant
+    # feedback the command was seen, even before args are parsed.
+    await react(update, "👀")
 
     if not args or len(args) < 3:
         await update.message.reply_text(
@@ -179,14 +186,15 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         # Get quote
-        quote = await swap_engine.get_quote(
-            from_chain=from_chain,
-            from_token=from_token,
-            to_chain=to_chain,
-            to_token=to_token,
-            amount=amount,
-            from_address=wallet_info["address"],
-        )
+        async with typing(update):
+            quote = await swap_engine.get_quote(
+                from_chain=from_chain,
+                from_token=from_token,
+                to_chain=to_chain,
+                to_token=to_token,
+                amount=amount,
+                from_address=wallet_info["address"],
+            )
 
         if not quote:
             await loading_msg.edit_text("❌ No route found for this swap.")
@@ -308,6 +316,9 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
                     ]
                 ),
             )
+
+        if swap_tx and swap_tx.tx_hash:
+            await react(update, "🎉")
     except Exception as e:
         logger.error(f"Error in quickswap_confirm: {e}", exc_info=True)
         await query.edit_message_text("❌ An unexpected error occurred. Please try again.")

@@ -57,6 +57,7 @@ from bot.models.user import User
 from bot.services.price_service import TOKEN_TO_COINGECKO, price_service
 from bot.services.referral_service import referral_service
 from bot.utils.formatters import escape_markdown, format_usd
+from bot.utils.templates import copy_button
 from bot.utils.validators import detect_address_chain
 from database.db import get_session, run_in_db
 
@@ -187,13 +188,24 @@ def _build_address_article(
         "check before trading._"
     )
 
-    return _make_article(
-        result_id=f"addr_{short}",
+    # One-tap clipboard copy for the raw address, alongside (not replacing)
+    # the "Open in Suwappu" deep link — contract addresses are exactly the
+    # kind of value people paste into a DEX/explorer right after seeing this
+    # card, and a backtick code span requires an aim-tap-and-drag on mobile.
+    rows = []
+    copy_btn = copy_button("📋 Copy Address", address)
+    if copy_btn:
+        rows.append([copy_btn])
+    if trade_url:
+        rows.append([InlineKeyboardButton("🔎 Open in Suwappu", url=trade_url)])
+    reply_markup = InlineKeyboardMarkup(rows) if rows else None
+
+    return InlineQueryResultArticle(
+        id=f"addr_{short}",
         title=f"{chain_label} address: {short}",
         description=f"{chain_label} address detected — open Suwappu for price & security check",
-        text=text,
-        trade_url=trade_url,
-        button_label="🔎 Open in Suwappu",
+        input_message_content=InputTextMessageContent(text, parse_mode="Markdown"),
+        reply_markup=reply_markup,
     )
 
 

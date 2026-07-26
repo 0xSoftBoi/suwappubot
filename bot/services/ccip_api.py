@@ -1,5 +1,6 @@
 """Chainlink CCIP (Cross-Chain Interoperability Protocol) client for cross-chain transfers."""
 
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
@@ -83,6 +84,7 @@ CCIP_FEE_TOKENS = {
 @dataclass
 class CCIPQuote:
     """Quote for a CCIP cross-chain transfer."""
+
     from_chain: str
     to_chain: str
     from_token: str
@@ -104,6 +106,7 @@ class CCIPQuote:
 @dataclass
 class CCIPTransferData:
     """Transaction data for executing a CCIP transfer."""
+
     router_address: str
     destination_chain_selector: str
     receiver: str
@@ -117,109 +120,127 @@ class CCIPTransferData:
 
 class CCIPError(Exception):
     """Error from CCIP operations."""
+
     pass
 
 
 class ChainlinkCCIPAPI:
     """Client for Chainlink CCIP cross-chain transfers."""
-    
+
     # Router ABI for getting fees and building transfers
     ROUTER_ABI = [
         {
             "inputs": [
                 {"name": "destinationChainSelector", "type": "uint64"},
-                {"components": [
-                    {"name": "receiver", "type": "bytes"},
-                    {"name": "data", "type": "bytes"},
-                    {"name": "tokenAmounts", "type": "tuple[]", "components": [
-                        {"name": "token", "type": "address"},
-                        {"name": "amount", "type": "uint256"}
-                    ]},
-                    {"name": "feeToken", "type": "address"},
-                    {"name": "extraArgs", "type": "bytes"}
-                ], "name": "message", "type": "tuple"}
+                {
+                    "components": [
+                        {"name": "receiver", "type": "bytes"},
+                        {"name": "data", "type": "bytes"},
+                        {
+                            "name": "tokenAmounts",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "token", "type": "address"},
+                                {"name": "amount", "type": "uint256"},
+                            ],
+                        },
+                        {"name": "feeToken", "type": "address"},
+                        {"name": "extraArgs", "type": "bytes"},
+                    ],
+                    "name": "message",
+                    "type": "tuple",
+                },
             ],
             "name": "getFee",
             "outputs": [{"name": "fee", "type": "uint256"}],
             "stateMutability": "view",
-            "type": "function"
+            "type": "function",
         },
         {
             "inputs": [
                 {"name": "destinationChainSelector", "type": "uint64"},
-                {"components": [
-                    {"name": "receiver", "type": "bytes"},
-                    {"name": "data", "type": "bytes"},
-                    {"name": "tokenAmounts", "type": "tuple[]", "components": [
-                        {"name": "token", "type": "address"},
-                        {"name": "amount", "type": "uint256"}
-                    ]},
-                    {"name": "feeToken", "type": "address"},
-                    {"name": "extraArgs", "type": "bytes"}
-                ], "name": "message", "type": "tuple"}
+                {
+                    "components": [
+                        {"name": "receiver", "type": "bytes"},
+                        {"name": "data", "type": "bytes"},
+                        {
+                            "name": "tokenAmounts",
+                            "type": "tuple[]",
+                            "components": [
+                                {"name": "token", "type": "address"},
+                                {"name": "amount", "type": "uint256"},
+                            ],
+                        },
+                        {"name": "feeToken", "type": "address"},
+                        {"name": "extraArgs", "type": "bytes"},
+                    ],
+                    "name": "message",
+                    "type": "tuple",
+                },
             ],
             "name": "ccipSend",
             "outputs": [{"name": "messageId", "type": "bytes32"}],
             "stateMutability": "payable",
-            "type": "function"
+            "type": "function",
         },
         {
             "inputs": [{"name": "chainSelector", "type": "uint64"}],
             "name": "isChainSupported",
             "outputs": [{"name": "", "type": "bool"}],
             "stateMutability": "view",
-            "type": "function"
-        }
+            "type": "function",
+        },
     ]
-    
+
     # ERC20 ABI for approvals
     ERC20_ABI = [
         {
             "inputs": [
                 {"name": "spender", "type": "address"},
-                {"name": "amount", "type": "uint256"}
+                {"name": "amount", "type": "uint256"},
             ],
             "name": "approve",
             "outputs": [{"name": "", "type": "bool"}],
             "stateMutability": "nonpayable",
-            "type": "function"
+            "type": "function",
         },
         {
             "inputs": [
                 {"name": "owner", "type": "address"},
-                {"name": "spender", "type": "address"}
+                {"name": "spender", "type": "address"},
             ],
             "name": "allowance",
             "outputs": [{"name": "", "type": "uint256"}],
             "stateMutability": "view",
-            "type": "function"
-        }
+            "type": "function",
+        },
     ]
-    
+
     def _get_web3(self, chain: str) -> Web3:
         """Get Web3 instance for chain via RPCManager."""
         from bot.services.rpc_manager import rpc_manager
+
         return rpc_manager.get_web3(chain)
-    
+
     def is_supported_route(self, from_chain: str, to_chain: str, token: str) -> bool:
         """Check if a route is supported by CCIP."""
         # Check chains
         if from_chain not in CCIP_ROUTERS or to_chain not in CCIP_ROUTERS:
             return False
-        
+
         if from_chain not in CCIP_CHAIN_SELECTORS or to_chain not in CCIP_CHAIN_SELECTORS:
             return False
-        
+
         # Check token
         if token not in CCIP_SUPPORTED_TOKENS:
             return False
-        
+
         token_addresses = CCIP_SUPPORTED_TOKENS[token]
         if from_chain not in token_addresses or to_chain not in token_addresses:
             return False
-        
+
         return True
-    
+
     def get_supported_tokens(self, from_chain: str, to_chain: str) -> list:
         """Get list of tokens supported for a route."""
         supported = []
@@ -227,7 +248,7 @@ class ChainlinkCCIPAPI:
             if from_chain in addresses and to_chain in addresses:
                 supported.append(token)
         return supported
-    
+
     @track_time("ccip_quote")
     async def get_quote(
         self,
@@ -241,7 +262,7 @@ class ChainlinkCCIPAPI:
     ) -> CCIPQuote:
         """
         Get a quote for a CCIP cross-chain transfer.
-        
+
         Args:
             from_chain: Source chain name
             to_chain: Destination chain name
@@ -250,73 +271,68 @@ class ChainlinkCCIPAPI:
             from_address: Sender address
             to_address: Receiver address (defaults to from_address)
             fee_token: "LINK" or "NATIVE" for fee payment
-            
+
         Returns:
             CCIPQuote with fee and transfer details
         """
         await api_limiter.wait_and_acquire("rpc")
-        
+
         if not self.is_supported_route(from_chain, to_chain, token):
-            raise CCIPError(
-                f"Route not supported: {token} from {from_chain} to {to_chain}"
-            )
-        
+            raise CCIPError(f"Route not supported: {token} from {from_chain} to {to_chain}")
+
         to_address = to_address or from_address
-        
+
         # Get chain configs
         router_address = CCIP_ROUTERS[from_chain]
         dest_selector = CCIP_CHAIN_SELECTORS[to_chain]
         token_address = CCIP_SUPPORTED_TOKENS[token][from_chain]
-        
+
         # Get token decimals
         decimals = get_token_decimals(token, from_chain) or 18
-        amount_raw = int(amount * (10 ** decimals))
-        
+        amount_raw = int(amount * (10**decimals))
+
         # Get Web3 instance
         w3 = self._get_web3(from_chain)
-        
+
         # Build router contract
         router = w3.eth.contract(
-            address=Web3.to_checksum_address(router_address),
-            abi=self.ROUTER_ABI
+            address=Web3.to_checksum_address(router_address), abi=self.ROUTER_ABI
         )
-        
+
         # Determine fee token address
         if fee_token == "LINK" and "LINK" in CCIP_SUPPORTED_TOKENS:
-            fee_token_address = CCIP_SUPPORTED_TOKENS["LINK"].get(from_chain, "0x0000000000000000000000000000000000000000")
+            fee_token_address = CCIP_SUPPORTED_TOKENS["LINK"].get(
+                from_chain, "0x0000000000000000000000000000000000000000"
+            )
         else:
             fee_token_address = "0x0000000000000000000000000000000000000000"  # Native
             fee_token = "NATIVE"
-        
+
         # Build message struct for fee estimation
         message = {
-            "receiver": Web3.to_bytes(hexstr=to_address).rjust(32, b'\x00'),
+            "receiver": Web3.to_bytes(hexstr=to_address).rjust(32, b"\x00"),
             "data": b"",
-            "tokenAmounts": [(
-                Web3.to_checksum_address(token_address),
-                amount_raw
-            )],
+            "tokenAmounts": [(Web3.to_checksum_address(token_address), amount_raw)],
             "feeToken": Web3.to_checksum_address(fee_token_address),
-            "extraArgs": b""
+            "extraArgs": b"",
         }
-        
+
         try:
-            # Get fee estimate
-            fee = router.functions.getFee(
-                int(dest_selector),
-                message
-            ).call()
-            
+            # Get fee estimate (blocking RPC call — run off the event loop)
+            fee = await asyncio.to_thread(
+                lambda: router.functions.getFee(int(dest_selector), message).call()
+            )
+
             # Convert fee to human readable
             if fee_token == "LINK":
                 fee_decimals = 18
-                fee_human = fee / (10 ** fee_decimals)
+                fee_human = fee / (10**fee_decimals)
                 # Estimate USD (LINK ~$15)
                 fee_usd = fee_human * 15
             else:
                 chain_config = get_chain_by_name(from_chain)
                 fee_decimals = 18
-                fee_human = fee / (10 ** fee_decimals)
+                fee_human = fee / (10**fee_decimals)
                 # Estimate USD based on chain
                 native_prices = {
                     "ethereum": 2000,
@@ -328,14 +344,14 @@ class ChainlinkCCIPAPI:
                     "avalanche": 35,
                 }
                 fee_usd = fee_human * native_prices.get(from_chain, 1000)
-            
+
             # CCIP transfers are 1:1 for same token
             to_amount_human = amount
             to_amount_raw = amount_raw
-            
+
             # Estimated time (CCIP typically takes 5-20 minutes)
             estimated_time = 900  # 15 minutes average
-            
+
             return CCIPQuote(
                 from_chain=from_chain,
                 to_chain=to_chain,
@@ -360,13 +376,13 @@ class ChainlinkCCIPAPI:
                         "feeToken": fee_token_address,
                     },
                     "fee": str(fee),
-                }
+                },
             )
-            
+
         except Exception as e:
             logger.error(f"CCIP quote error: {e}")
             raise CCIPError(f"Failed to get CCIP quote: {str(e)}")
-    
+
     async def build_transfer_tx(
         self,
         quote: CCIPQuote,
@@ -375,56 +391,50 @@ class ChainlinkCCIPAPI:
     ) -> CCIPTransferData:
         """
         Build transaction data for CCIP transfer.
-        
+
         Args:
             quote: CCIPQuote from get_quote
             from_address: Sender address
             to_address: Receiver address
-            
+
         Returns:
             CCIPTransferData with transaction details
         """
         to_address = to_address or from_address
-        
+
         w3 = self._get_web3(quote.from_chain)
-        
+
         router = w3.eth.contract(
-            address=Web3.to_checksum_address(quote.router_address),
-            abi=self.ROUTER_ABI
+            address=Web3.to_checksum_address(quote.router_address), abi=self.ROUTER_ABI
         )
-        
+
         # Get token address
         token_address = CCIP_SUPPORTED_TOKENS[quote.from_token][quote.from_chain]
-        
+
         # Fee token address
         if quote.fee_token == "LINK":
             fee_token_address = CCIP_SUPPORTED_TOKENS["LINK"].get(
-                quote.from_chain,
-                "0x0000000000000000000000000000000000000000"
+                quote.from_chain, "0x0000000000000000000000000000000000000000"
             )
             value = 0
         else:
             fee_token_address = "0x0000000000000000000000000000000000000000"
             value = int(quote.fee_amount)
-        
+
         # Build message
         message = (
-            Web3.to_bytes(hexstr=to_address).rjust(32, b'\x00'),  # receiver
+            Web3.to_bytes(hexstr=to_address).rjust(32, b"\x00"),  # receiver
             b"",  # data
-            [(
-                Web3.to_checksum_address(token_address),
-                int(quote.from_amount)
-            )],  # tokenAmounts
+            [(Web3.to_checksum_address(token_address), int(quote.from_amount))],  # tokenAmounts
             Web3.to_checksum_address(fee_token_address),  # feeToken
-            b""  # extraArgs
+            b"",  # extraArgs
         )
-        
+
         # Encode ccipSend call
         tx_data = router.encode_abi(
-            "ccipSend",
-            args=[int(quote.destination_chain_selector), message]
+            "ccipSend", args=[int(quote.destination_chain_selector), message]
         )
-        
+
         return CCIPTransferData(
             router_address=quote.router_address,
             destination_chain_selector=quote.destination_chain_selector,
@@ -436,7 +446,7 @@ class ChainlinkCCIPAPI:
             value=str(value),
             gas_limit=500000,  # CCIP transfers need more gas
         )
-    
+
     async def get_approval_tx(
         self,
         chain: str,
@@ -446,50 +456,46 @@ class ChainlinkCCIPAPI:
     ) -> Optional[Dict]:
         """
         Get approval transaction if needed.
-        
+
         Returns transaction dict or None if already approved.
         """
         if token not in CCIP_SUPPORTED_TOKENS:
             return None
-        
+
         token_address = CCIP_SUPPORTED_TOKENS[token].get(chain)
         router_address = CCIP_ROUTERS.get(chain)
-        
+
         if not token_address or not router_address:
             return None
-        
+
         w3 = self._get_web3(chain)
-        
+
         token_contract = w3.eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=self.ERC20_ABI
+            address=Web3.to_checksum_address(token_address), abi=self.ERC20_ABI
         )
-        
-        # Check current allowance
-        allowance = token_contract.functions.allowance(
-            Web3.to_checksum_address(owner),
-            Web3.to_checksum_address(router_address)
-        ).call()
-        
+
+        # Check current allowance (blocking RPC call — run off the event loop)
+        allowance = await asyncio.to_thread(
+            lambda: token_contract.functions.allowance(
+                Web3.to_checksum_address(owner), Web3.to_checksum_address(router_address)
+            ).call()
+        )
+
         if allowance >= amount:
             return None  # Already approved
-        
+
         # Build approval tx
         approve_data = token_contract.encode_abi(
-            "approve",
-            args=[
-                Web3.to_checksum_address(router_address),
-                2**256 - 1  # Max approval
-            ]
+            "approve", args=[Web3.to_checksum_address(router_address), 2**256 - 1]  # Max approval
         )
-        
+
         return {
             "to": token_address,
             "data": approve_data,
             "value": "0",
             "gas": 60000,
         }
-    
+
     async def get_transfer_status(
         self,
         message_id: str,
@@ -497,7 +503,7 @@ class ChainlinkCCIPAPI:
     ) -> Dict[str, Any]:
         """
         Get status of a CCIP transfer.
-        
+
         Note: This requires indexing CCIP events or using a service
         like Chainlink's CCIP Explorer API.
         """
@@ -512,4 +518,3 @@ class ChainlinkCCIPAPI:
 
 # Global instance
 ccip_api = ChainlinkCCIPAPI()
-

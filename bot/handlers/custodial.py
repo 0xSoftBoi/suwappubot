@@ -26,6 +26,7 @@ from bot.config.tokens import TOKENS, get_token_address
 from bot.utils.formatters import format_amount, format_usd
 from bot.utils.validators import validate_amount
 from bot.utils.qr_code import generate_wallet_qr
+from bot.utils.templates import copy_button
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
@@ -128,13 +129,25 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lines.append("• Faster transaction execution")
     lines.append("• No need to manage gas tokens")
 
+    copy_row = []
+    if evm_wallet:
+        btn = copy_button("📋 Copy EVM Address", evm_wallet.address)
+        if btn:
+            copy_row.append(btn)
+    if sol_wallet:
+        btn = copy_button("📋 Copy SOL Address", sol_wallet.address)
+        if btn:
+            copy_row.append(btn)
+
     keyboard = [
         [
             InlineKeyboardButton("📥 Deposit", callback_data="custodial_deposit"),
             InlineKeyboardButton("📤 Withdraw", callback_data="custodial_withdraw"),
         ],
-        [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
+    if copy_row:
+        keyboard.append(copy_row)
+    keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
 
     await update.message.reply_text(
         "\n".join(lines),
@@ -193,13 +206,25 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lines.append(f"\n*SOL*:")
         lines.append(f"`{sol_wallet.address}`")
 
+    copy_row = []
+    if evm_wallet:
+        btn = copy_button("📋 Copy EVM Address", evm_wallet.address)
+        if btn:
+            copy_row.append(btn)
+    if sol_wallet:
+        btn = copy_button("📋 Copy SOL Address", sol_wallet.address)
+        if btn:
+            copy_row.append(btn)
+
     keyboard = [
         [
             InlineKeyboardButton("📥 Deposit", callback_data="custodial_deposit"),
             InlineKeyboardButton("📤 Withdraw", callback_data="custodial_withdraw"),
         ],
-        [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
+    if copy_row:
+        keyboard.append(copy_row)
+    keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
 
     text = "\n".join(lines)
 
@@ -308,14 +333,17 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         qr_bytes = generate_wallet_qr(wallet.address, chain=chain)
     except Exception:
         # Fallback: just show address without QR
+        fallback_rows = []
+        copy_btn = copy_button("📋 Copy Address", wallet.address)
+        if copy_btn:
+            fallback_rows.append([copy_btn])
+        fallback_rows.append([InlineKeyboardButton("« Back", callback_data="custodial_deposit")])
         await query.edit_message_text(
             f"{emoji} *{display_name} Deposit*\n\n"
             f"Address:\n`{wallet.address}`\n\n"
             f"⚠️ Only send tokens on the {display_name} network\\!",
             parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="custodial_deposit")]]
-            ),
+            reply_markup=InlineKeyboardMarkup(fallback_rows),
         )
         return
 
@@ -333,10 +361,16 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"• Allow 1\\-5 min for confirmation"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("« Back to Networks", callback_data="custodial_deposit")],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
-    ]
+    keyboard = []
+    copy_btn = copy_button("📋 Copy Address", wallet.address)
+    if copy_btn:
+        keyboard.append([copy_btn])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("« Back to Networks", callback_data="custodial_deposit")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ]
+    )
 
     await context.bot.send_photo(
         chat_id=query.message.chat_id,

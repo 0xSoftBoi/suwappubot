@@ -43,6 +43,8 @@ from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.cache import quote_cache
+from bot.utils.feedback import typing, react
+from bot.utils.progress import SwapProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,19 @@ TWOFA_VALID_SECONDS = 300
 
 swap_engine = SwapEngine()
 wallet_service = WalletService()
+
+
+async def _safe_edit(edit_fn, *args, **kwargs) -> None:
+    """Best-effort message edit.
+
+    A failed edit (rate limit, "message is not modified", a transient network
+    blip) must never abort the swap or crash the handler — the swap
+    completing matters infinitely more than a status line landing.
+    """
+    try:
+        await edit_fn(*args, **kwargs)
+    except Exception as e:
+        logger.debug(f"Swap status edit failed (best-effort): {e}")
 
 
 def _guidance_keyboard(guidance: ErrorGuidance) -> InlineKeyboardMarkup:
@@ -115,8 +130,11 @@ async def _render_swap_failure(edit, exc_or_message, context: ContextTypes.DEFAU
         )
     except Exception:
         # If Markdown/edit fails, fall back to a plain-text version so the user
-        # still gets the diagnosis rather than a silent failure.
-        await edit(
+        # still gets the diagnosis rather than a silent failure. Best-effort —
+        # if even the fallback edit fails, swallow it rather than crash the
+        # handler; the original error is already logged by the caller.
+        await _safe_edit(
+            edit,
             f"{guidance.title}\n\n{guidance.explanation}\n\nNext: {guidance.next_action}",
             reply_markup=_guidance_keyboard(guidance),
         )
@@ -181,7 +199,16 @@ def _schedule_quote_prewarm(
 
 @enforce_tos
 async def swap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /swap command."""
+    """Handle /swap command.
+
+    Note: in production `/s` is actually routed to quickswap_command
+    (bot/handlers/quickswap.py) — its CommandHandler is registered earlier in
+    the same handler group in bot/main.py, so this entry point never fires
+    for a real /s message today. The reaction is added here anyway so this
+    handler is correct in isolation (e.g. if registration order ever
+    changes, or this is invoked as a fallback/other command in the future).
+    """
+    await react(update, "👀")
     return await start_swap(update, context, is_callback=False)
 
 
@@ -279,19 +306,19 @@ async def start_swap(
     # Fetch balances to determine which chains have funds
     chains_with_balance: set[str] = set()
     try:
-        import asyncio
+        async with typing(update):
 
-        async def _check_wallet(address, chain_type):
-            bals = await wallet_service.get_balances_by_address(address, chain_type)
-            return set(bals.keys())
+            async def _check_wallet(address, chain_type):
+                bals = await wallet_service.get_balances_by_address(address, chain_type)
+                return set(bals.keys())
 
-        results = await asyncio.gather(
-            *[_check_wallet(addr, ct) for addr, ct in wallet_infos],
-            return_exceptions=True,
-        )
-        for r in results:
-            if isinstance(r, set):
-                chains_with_balance.update(r)
+            results = await asyncio.gather(
+                *[_check_wallet(addr, ct) for addr, ct in wallet_infos],
+                return_exceptions=True,
+            )
+            for r in results:
+                if isinstance(r, set):
+                    chains_with_balance.update(r)
     except Exception:
         pass
 
@@ -449,13 +476,14 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_balances: dict[str, float] = {}
 
     try:
-        default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
-        if default_wallet:
-            all_balances = await wallet_service.get_balances_by_address(
-                default_wallet.address, chain_type
-            )
-            for chain_bals in all_balances.values():
-                user_balances.update(chain_bals)
+        async with typing(update):
+            default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+            if default_wallet:
+                all_balances = await wallet_service.get_balances_by_address(
+                    default_wallet.address, chain_type
+                )
+                for chain_bals in all_balances.values():
+                    user_balances.update(chain_bals)
     except Exception:
         pass  # Show all tokens without balance info on failure
 
@@ -611,13 +639,14 @@ async def select_to_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chain_type = chain.chain_type.value
     dest_balances: dict[str, float] = {}
     try:
-        default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
-        if default_wallet:
-            all_balances = await wallet_service.get_balances_by_address(
-                default_wallet.address, chain_type
-            )
-            for chain_bals in all_balances.values():
-                dest_balances.update(chain_bals)
+        async with typing(update):
+            default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+            if default_wallet:
+                all_balances = await wallet_service.get_balances_by_address(
+                    default_wallet.address, chain_type
+                )
+                for chain_bals in all_balances.values():
+                    dest_balances.update(chain_bals)
     except Exception:
         pass
 
@@ -733,7 +762,8 @@ async def swap_pct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
 
     # Fetch balance
-    balances = await wallet_service.get_balances_by_address(default_wallet.address, chain_type)
+    async with typing(update):
+        balances = await wallet_service.get_balances_by_address(default_wallet.address, chain_type)
     token_balance = 0.0
     for chain_balances in balances.values():
         if from_token in chain_balances:
@@ -998,15 +1028,16 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         if quote is not None:
             logger.debug(f"Using pre-warmed quote for user {user_id} key={prewarm_key}")
         else:
-            quote = await swap_engine.get_quote(
-                from_chain=swap_data["from_chain"],
-                to_chain=swap_data["to_chain"],
-                from_token=swap_data["from_token"],
-                to_token=swap_data["to_token"],
-                amount=swap_data["amount"],
-                from_address=wallet_address,
-                platform_fee_bps=platform_fee_bps,
-            )
+            async with typing(update):
+                quote = await swap_engine.get_quote(
+                    from_chain=swap_data["from_chain"],
+                    to_chain=swap_data["to_chain"],
+                    from_token=swap_data["from_token"],
+                    to_token=swap_data["to_token"],
+                    amount=swap_data["amount"],
+                    from_address=wallet_address,
+                    platform_fee_bps=platform_fee_bps,
+                )
 
         context.user_data["swap"]["quote"] = quote
         context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
@@ -1222,39 +1253,40 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         wallet_map = {w.id: w for w in wallets}
 
-        for wid in selected_wallet_ids:
-            wallet = wallet_map.get(wid)
-            if not wallet:
-                continue
+        async with typing(update):
+            for wid in selected_wallet_ids:
+                wallet = wallet_map.get(wid)
+                if not wallet:
+                    continue
 
-            try:
-                await quote_validator.validate_balance(
-                    wallet_id=wid,
-                    quote=quote,
-                    wallet_service=wallet_service,
-                )
-            except SwapError as e:
-                await query.edit_message_text(
-                    f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
-                            [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
-                        ]
-                    ),
-                )
-                return ConversationHandler.END
+                try:
+                    await quote_validator.validate_balance(
+                        wallet_id=wid,
+                        quote=quote,
+                        wallet_service=wallet_service,
+                    )
+                except SwapError as e:
+                    await query.edit_message_text(
+                        f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
+                        reply_markup=InlineKeyboardMarkup(
+                            [
+                                [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
+                                [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+                            ]
+                        ),
+                    )
+                    return ConversationHandler.END
 
-            # Gas check is a warning, not a blocker — providers like Li.Fi
-            # and Stargate can handle gas in cross-chain routes
-            try:
-                await quote_validator.validate_gas(
-                    wallet_address=wallet.address,
-                    quote=quote,
-                    wallet_service=wallet_service,
-                )
-            except SwapError:
-                pass  # Let the provider attempt the swap
+                # Gas check is a warning, not a blocker — providers like Li.Fi
+                # and Stargate can handle gas in cross-chain routes
+                try:
+                    await quote_validator.validate_gas(
+                        wallet_address=wallet.address,
+                        quote=quote,
+                        wallet_service=wallet_service,
+                    )
+                except SwapError:
+                    pass  # Let the provider attempt the swap
 
     # Spending-limit pre-check on the TOTAL outflow across selected wallets.
     # The engine re-checks per wallet at execution; this gives the user a
@@ -1298,7 +1330,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             return ENTER_2FA_CODE
 
-    return await _run_confirmed_swap(query.edit_message_text, context)
+    return await _run_confirmed_swap(update, query.message, context)
 
 
 async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1342,56 +1374,74 @@ async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return CONFIRM_SWAP
 
     status_msg = await update.message.reply_text("⏳ Executing multi-swap...")
-    return await _run_confirmed_swap(status_msg.edit_text, context)
+    return await _run_confirmed_swap(update, status_msg, context)
 
 
-async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _run_confirmed_swap(update: Update, message, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Execute the confirmed multi-swap.
 
-    ``edit`` updates the status message — ``query.edit_message_text`` when the
-    user confirmed via button, or ``Message.edit_text`` when they arrived via
-    the 2FA code path.
+    ``message`` is the single Telegram message this swap's execution UI lives
+    on — the callback-query's message (button-confirmed swaps) or the message
+    created for the 2FA-code reply. It is edited in place through every
+    stage via SwapProgressTracker rather than replaced, so the execution
+    phase is one message, not a scrolling log. ``edit`` (``message.edit_text``)
+    is kept for the few ad hoc status lines that aren't part of the tracked
+    stage sequence (e.g. the Solana Deep State Simulation notice); every call
+    through it is wrapped in ``_safe_edit`` so a failed edit never aborts the
+    swap.
     """
+    edit = message.edit_text
     swap_data = context.user_data.get("swap")
     quote: SwapQuote = swap_data.get("quote")
     user_id = context.user_data.get("user_id")
+    is_cross_chain = quote.from_chain != quote.to_chain
 
-    # Show safety simulation message for Solana Pro users
-    status_text = "⏳ Executing multi-swap..."
+    # Show safety simulation message for Solana Pro users (ad hoc — not part
+    # of the tracked stage sequence below).
     if quote.from_chain == "solana" and quote.to_chain == "solana":
         tier = await x402_service.get_tier(user_id)
         if tier in [SubscriptionTier.PRO, SubscriptionTier.PREMIUM]:
-            status_text = (
-                "🛡️ *Running Deep State Simulation...*\n_Verifying tokens are tradeable and safe._"
-            )
-
-    await edit(status_text, parse_mode="Markdown")
-
-    try:
-        attempt_id = swap_data.get("attempt_id") or "no_attempt"
-        selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
-
-        # Progress update: building transactions
-        if len(selected_wallet_ids) > 1:
-            await edit(
-                f"⏳ Building transactions for {len(selected_wallet_ids)} wallets...",
+            await _safe_edit(
+                edit,
+                "🛡️ *Running Deep State Simulation...*\n_Verifying tokens are tradeable and safe._",
                 parse_mode="Markdown",
             )
 
+    # One progress bar, edited in place through the remaining stages.
+    # "Validating quote" and "Checking balance" already ran above this call
+    # (quote_validator.validate_quote_freshness / validate_balance in
+    # confirm_swap), so the tracker starts past those two rather than
+    # re-claiming they happen here.
+    selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
+    tracker = SwapProgressTracker(message, is_cross_chain=is_cross_chain)
+    tracker.current_step = 2
+    if len(selected_wallet_ids) > 1:
+        tracker.title = f"Executing Swap ({len(selected_wallet_ids)} wallets)"
+
+    try:
+        attempt_id = swap_data.get("attempt_id") or "no_attempt"
+
+        # "Preparing transaction" in progress.
+        await tracker.update()
+
         # Prepare list of (quote, wallet_id) for execute_multi_swap
         # For simplicity, we use the same quote for all (might need individual ones for strict gas checks)
-        quotes_with_wallets = []
-        for wid in selected_wallet_ids:
-            quotes_with_wallets.append((quote, wid))
+        quotes_with_wallets = [(quote, wid) for wid in selected_wallet_ids]
+
+        # "Signing transaction" -> "Broadcasting to network" in progress.
+        # Signing and broadcasting both happen inside execute_multi_swap —
+        # the engine doesn't expose a sub-stage callback — so these two
+        # advance back-to-back right before the blocking call; the throttle
+        # in ProgressTracker.update() naturally collapses them into whichever
+        # one lands, and the final complete() below always renders regardless.
+        await tracker.next_step()
+        await tracker.next_step()
 
         swap_results = await swap_engine.execute_multi_swap(
             quotes_with_wallets=quotes_with_wallets,
             user_id=user_id,
             attempt_id=attempt_id,
         )
-
-        # Progress update: processing results
-        await edit("⏳ Processing results...", parse_mode="Markdown")
 
         # Process results
         num_success = 0
@@ -1490,7 +1540,13 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
 
-        await edit(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        # Final edit: replaces the progress bar entirely with the receipt +
+        # terminal keyboard. complete() bypasses the throttle so this always
+        # lands even if a stage edit just fired.
+        await tracker.complete(success_message=text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        if num_success > 0:
+            await react(update, "🎉")
 
     except SwapError as e:
         logger.error(

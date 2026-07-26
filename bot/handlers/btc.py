@@ -40,6 +40,7 @@ from bot.services.btc_bridge import (
     btc_bridge,
 )
 from bot.services.wallet import WalletService
+from bot.utils.templates import copy_button
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -486,10 +487,20 @@ async def btc_dep_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"{dest['label']} wallet automatically (1-3 min).\n\n"
         f"Swap ID: `{result['swap_id']}`"
     )
-    keyboard = [
-        [InlineKeyboardButton("📋 My BTC swaps", callback_data="btc_swaps")],
-        [InlineKeyboardButton("« Back", callback_data="btc_menu")],
-    ]
+    keyboard = []
+    # BOLT11 invoices are often too long for Telegram's 256-char copy_text
+    # limit once routing hints are encoded — copy_button() returns None in
+    # that case and we simply skip the row rather than ship a button that
+    # would raise (or silently copy a truncated, unpayable invoice).
+    invoice_copy_btn = copy_button("📋 Copy Invoice", invoice)
+    if invoice_copy_btn:
+        keyboard.append([invoice_copy_btn])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("📋 My BTC swaps", callback_data="btc_swaps")],
+            [InlineKeyboardButton("« Back", callback_data="btc_menu")],
+        ]
+    )
     await progress.edit_text(
         text,
         parse_mode="Markdown",

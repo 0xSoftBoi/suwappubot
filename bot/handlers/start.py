@@ -28,6 +28,12 @@ def _build_main_keyboard() -> InlineKeyboardMarkup:
     """
     keyboard = [
         [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
+        # Deposit routes into the existing wallet QR flow (wallet_menu lists
+        # wallets with a QR button each; registered in bot/main.py as
+        # CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$")).
+        # A brand-new user has no funds yet, so this must be reachable from the
+        # very first menu they see — not just buried behind Swap, which fails.
+        [InlineKeyboardButton("📥 Deposit", callback_data="wallet_menu")],
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
             InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),

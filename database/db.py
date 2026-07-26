@@ -543,6 +543,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
+    _add_user_bot_blocked_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
@@ -651,6 +652,10 @@ def _ensure_schema(db_engine) -> None:
 
     # --- On-chain fee-cashback rewards (weekly Merkle epochs) ---
     _create_onchain_rewards_tables(db_engine, inspector, is_sqlite)
+
+    # --- perp_positions: TP/SL notification-dedup timestamps ---
+    if "perp_positions" in tables:
+        _add_perps_notify_columns(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -887,6 +892,22 @@ def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Added users.region")
     except Exception as e:
         logger.warning(f"Failed to add users.region: {e}")
+
+
+def _add_user_bot_blocked_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.bot_blocked_at so background senders can skip blocked chats."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "bot_blocked_at" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN bot_blocked_at TIMESTAMP"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.bot_blocked_at")
+    except Exception as e:
+        logger.warning(f"Failed to add users.bot_blocked_at: {e}")
 
 
 def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1725,6 +1746,26 @@ def _add_prediction_redeem_columns(db_engine, inspector, is_sqlite: bool) -> Non
                     f"ALTER TABLE prediction_positions ADD COLUMN IF NOT EXISTS "
                     f"{col_name} {col_type} DEFAULT {default}"
                 )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_perps_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add TP/SL notification-dedup timestamps to perp_positions, idempotently.
+
+    Without these, the perps monitor's TP/SL trigger check re-fired the Telegram
+    DM on every 10s poll once mark price crossed the trigger price (unbounded
+    DMs until the user closed the position or blocked the bot). NULL means "not
+    yet notified"; the monitor sets it once the alert fires and clears it when
+    the position closes so a future position can alert again.
+    """
+    cols = {c["name"] for c in inspector.get_columns("perp_positions")}
+    for col_name in ("tp_notified_at", "sl_notified_at"):
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE perp_positions ADD COLUMN {col_name} TIMESTAMP"
+            else:
+                ddl = f"ALTER TABLE perp_positions ADD COLUMN IF NOT EXISTS {col_name} TIMESTAMP"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 

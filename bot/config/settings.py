@@ -26,10 +26,13 @@ class Settings(BaseSettings):
         default=None, description="Secret token for webhook verification"
     )
     bot_concurrent_updates: int = Field(
-        default=0,
+        default=256,
         description=(
-            "Max concurrent Telegram updates (per-user serialized). "
-            "0 = sequential processing (PTB default). Recommended: 256."
+            "Max concurrent Telegram updates (per-user serialized via "
+            "PerUserSerializingProcessor: different users run in parallel, one "
+            "user's updates stay strictly ordered). 0 = sequential processing "
+            "(PTB's default), which makes every user wait behind the slowest "
+            "in-flight handler — a single 3-8s quote fan-out stalls the whole bot."
         ),
     )
 

@@ -72,7 +72,7 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
-from bot.main import add_handlers
+from bot.main import add_handlers, ALLOWED_UPDATES
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
 from contextlib import asynccontextmanager, contextmanager
@@ -183,19 +183,24 @@ async def lifespan(app: FastAPI):
         persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
         persistence = PicklePersistence(filepath=persistence_path)
         _bot_builder = (
-            Application.builder().token(settings.telegram_bot_token).persistence(persistence)
+            Application.builder()
+            .token(settings.telegram_bot_token)
+            .persistence(persistence)
+            # Transport tuning applies unconditionally — see bot/main.py for the
+            # rationale. Previously these sat inside the concurrency branch, so
+            # the default config ran with no rate limiter and no 429 handling.
+            .rate_limiter(AIORateLimiter(max_retries=3))
+            .connection_pool_size(512)
+            .pool_timeout(10.0)
+            .read_timeout(15.0)
+            .write_timeout(15.0)
+            .media_write_timeout(60.0)
         )
         if settings.bot_concurrent_updates > 0:
             from bot.utils.update_processor import PerUserSerializingProcessor
 
-            _bot_builder = (
-                _bot_builder.concurrent_updates(
-                    PerUserSerializingProcessor(
-                        max_concurrent_updates=settings.bot_concurrent_updates
-                    )
-                )
-                .connection_pool_size(512)
-                .rate_limiter(AIORateLimiter(max_retries=3))
+            _bot_builder = _bot_builder.concurrent_updates(
+                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
             )
         bot_app = _bot_builder.build()
         add_handlers(bot_app)
@@ -226,9 +231,12 @@ async def lifespan(app: FastAPI):
                     await bot_app.bot.set_webhook(
                         url=settings.webhook_url,
                         secret_token=webhook_secret,
-                        allowed_updates=Update.ALL_TYPES,
+                        allowed_updates=ALLOWED_UPDATES,
                         drop_pending_updates=True,
-                        max_connections=40,
+                        # Telegram allows up to 100 concurrent webhook
+                        # deliveries; 40 was capping ingress parallelism at
+                        # under half of what the API grants for free.
+                        max_connections=100,
                     )
                     using_webhook = True
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
@@ -265,7 +273,7 @@ async def lifespan(app: FastAPI):
                         # drop_pending_updates=True helps avoid conflicts during redeploys
                         polling_task = asyncio.create_task(
                             bot_app.updater.start_polling(
-                                allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
+                                allowed_updates=ALLOWED_UPDATES, drop_pending_updates=True
                             )
                         )
             else:

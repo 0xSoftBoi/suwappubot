@@ -16,6 +16,7 @@ from bot.utils.validators import validate_private_key
 from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from bot.utils.telegram_safe import safe_md
+from bot.utils.templates import copy_button
 from bot.services.error_guidance import user_facing_error
 from bot.i18n import get_text, get_user_lang
 from database.db import get_session
@@ -407,14 +408,17 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         qr_bytes = generate_wallet_qr(address, chain=chain)
     except Exception:
         # Fallback without QR
+        fallback_rows = []
+        copy_btn = copy_button("📋 Copy Address", address)
+        if copy_btn:
+            fallback_rows.append([copy_btn])
+        fallback_rows.append([InlineKeyboardButton("« Back", callback_data="wallet_menu")])
         await query.edit_message_text(
             f"{chain_emoji} *{safe_md(wallet_name)}*\n\n"
             f"Address:\n`{address}`\n\n"
             f"Tap address to copy.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="wallet_menu")]]
-            ),
+            reply_markup=InlineKeyboardMarkup(fallback_rows),
         )
         return
 
@@ -430,10 +434,16 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"• Tap address above to copy"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("👛 Back to Wallets", callback_data="wallet_menu")],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
-    ]
+    keyboard = []
+    copy_btn = copy_button("📋 Copy Address", address)
+    if copy_btn:
+        keyboard.append([copy_btn])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("👛 Back to Wallets", callback_data="wallet_menu")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ]
+    )
 
     await context.bot.send_photo(
         chat_id=query.message.chat_id,

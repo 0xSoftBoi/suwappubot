@@ -26,24 +26,24 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     # ------------------------------------------------------------------
     "welcome": {
         "en": (
-            "🌸 *suwappu* — fast cross-chain swaps with a native C\\+\\+ core\\!\n\n"
+            "🌸 *suwappu* — fast cross-chain swaps with a native C++ core!\n\n"
             "🔄 *Welcome to Suwappu Bot*\n\n"
-            "Cross-chain swaps made simple\\."
+            "Cross-chain swaps made simple."
         ),
         "es": (
-            "🌸 *suwappu* — intercambios rápidos entre cadenas con un núcleo C\\+\\+ nativo\\!\n\n"
+            "🌸 *suwappu* — intercambios rápidos entre cadenas con un núcleo C++ nativo!\n\n"
             "🔄 *Bienvenido a Suwappu Bot*\n\n"
-            "Intercambios entre cadenas simplificados\\."
+            "Intercambios entre cadenas simplificados."
         ),
         "fr": (
-            "🌸 *suwappu* — échanges cross-chain rapides avec un cœur C\\+\\+ natif\\!\n\n"
+            "🌸 *suwappu* — échanges cross-chain rapides avec un cœur C++ natif!\n\n"
             "🔄 *Bienvenue sur Suwappu Bot*\n\n"
-            "Les échanges cross-chain simplifiés\\."
+            "Les échanges cross-chain simplifiés."
         ),
         "zh": (
-            "🌸 *suwappu* — 原生 C\\+\\+ 核心驱动的快速跨链交换\\!\n\n"
+            "🌸 *suwappu* — 原生 C++ 核心驱动的快速跨链交换!\n\n"
             "🔄 *欢迎使用 Suwappu Bot*\n\n"
-            "跨链交换，简单快捷\\."
+            "跨链交换，简单快捷."
         ),
     },
     # ------------------------------------------------------------------
