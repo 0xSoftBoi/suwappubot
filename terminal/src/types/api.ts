@@ -1073,3 +1073,108 @@ export interface RewardsClaimPayload {
   claimDeadline: string | null
   alreadyClaimed: boolean | null // null = chain not configured/reachable
 }
+
+// === Execution quality (per-user adverse-selection self-test) ===
+//
+// The flagship depth feature: markouts on your own perp fills (did the
+// market move against you right after you traded?), swap implementation
+// shortfall vs the quote you saw, and fee drag — all in plain language.
+// Every numeric field here can legitimately be unavailable (too-recent fill,
+// missing candle, no quote snapshot) — render those as an em-dash, never 0.
+
+export interface ExecutionMarkoutBps {
+  m1: number | null
+  m5: number | null
+  m30: number | null
+}
+
+export interface ExecutionFill {
+  time: string
+  coin: string
+  side: 'buy' | 'sell'
+  px: number
+  sz: number
+  feeUsd: number
+  closedPnlUsd: number
+  markoutBps: ExecutionMarkoutBps
+}
+
+export interface ExecutionPerpsAggregates {
+  fillCount: number
+  avgMarkoutBps: ExecutionMarkoutBps
+  totalFeesUsd: number
+  winRate: number | null
+  read: string
+}
+
+// null when the user has no HyperLiquid address linked yet.
+export interface ExecutionPerpsQuality {
+  address: string
+  fills: ExecutionFill[]
+  aggregates: ExecutionPerpsAggregates
+}
+
+export interface ExecutionSwapRow {
+  time: string
+  route: string
+  pair: string
+  shortfallBps: number | null
+  feesUsd: number
+  // Set (e.g. "quote snapshot unavailable") whenever shortfallBps is null —
+  // the reason, not a fabricated number.
+  note: string | null
+}
+
+export interface ExecutionSwapRouteAgg {
+  route: string
+  count: number
+  avgShortfallBps: number | null
+}
+
+export interface ExecutionSpotAggregates {
+  count: number
+  avgShortfallBps: number | null
+  totalFeesUsd: number
+  byRoute: ExecutionSwapRouteAgg[]
+  read: string
+}
+
+// null when the user has no swap history yet.
+export interface ExecutionSpotQuality {
+  swaps: ExecutionSwapRow[]
+  aggregates: ExecutionSpotAggregates
+}
+
+export interface ExecutionQuality {
+  perps: ExecutionPerpsQuality | null
+  spot: ExecutionSpotQuality | null
+  updatedAt: string
+}
+
+// === Perps capital-at-risk guard (order ticket) ===
+
+export type PerpsRiskLevel = 'ok' | 'warn' | 'alert'
+
+// Server-computed loss-to-liquidation estimate for the in-progress order
+// ticket state — the ticket never reimplements HyperLiquid's margin math.
+// liqPxEst/liqDistancePct are null when a level can't be estimated (e.g. an
+// existing position on the same coin makes a fresh-position formula invalid).
+export interface PerpsRiskEstimate {
+  coin: string
+  side: 'long' | 'short'
+  markPx: number
+  notionalUsd: number
+  marginUsd: number
+  maxLeverage: number
+  liqPxEst: number | null
+  liqDistancePct: number | null
+  worstCaseLossUsd: number
+  crossNote: string | null
+  perpsEquityUsd: number | null
+  totalEquityUsd: number | null
+  pctOfPerpsEquity: number | null
+  pctOfTotalEquity: number | null
+  level: PerpsRiskLevel
+  note: string
+  updatedAt: string
+}

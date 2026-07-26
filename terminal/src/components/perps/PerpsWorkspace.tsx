@@ -12,6 +12,7 @@ import { PerpsOpenOrders } from './OpenOrdersTable'
 import { OrderFlowPanel } from './OrderFlowPanel'
 import { SmartMoneyPanel } from './SmartMoneyPanel'
 import { OptionsPanel } from './OptionsPanel'
+import { ExecutionQualityPanel } from './ExecutionQualityPanel'
 
 // The HyperLiquid perps desk. Markets board (left) + order ticket (right) share a
 // single selected market; live positions span the bottom. Desktop uses resizable
@@ -20,9 +21,9 @@ export function PerpsWorkspace() {
   const isMobile = useIsMobile()
   const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
 
-  const [bottomTab, setBottomTab] = useState<'positions' | 'orders' | 'flow' | 'whales' | 'options'>(
-    'positions'
-  )
+  const [bottomTab, setBottomTab] = useState<
+    'positions' | 'orders' | 'flow' | 'whales' | 'options' | 'execution'
+  >('positions')
 
   const { data: markets } = useQuery({
     queryKey: ['perps-markets'],
@@ -38,6 +39,7 @@ export function PerpsWorkspace() {
     { id: 'flow', label: 'Order Flow' },
     { id: 'whales', label: 'Smart Money' },
     { id: 'options', label: 'Options' },
+    { id: 'execution', label: 'Execution' },
   ] as const
   const bottomTabBar = (
     <div role="tablist" aria-label="Perps activity" className="hairline-b flex shrink-0">
@@ -67,8 +69,10 @@ export function PerpsWorkspace() {
       <OrderFlowPanel market={selectedMarket} />
     ) : bottomTab === 'whales' ? (
       <SmartMoneyPanel market={selectedMarket} />
-    ) : (
+    ) : bottomTab === 'options' ? (
       <OptionsPanel market={selectedMarket} />
+    ) : (
+      <ExecutionQualityPanel />
     )
 
   if (isMobile) {

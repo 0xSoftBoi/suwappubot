@@ -266,6 +266,109 @@ const CATALYSTS = [
   },
 ]
 
+// ISO timestamp `hoursAgo` hours before "now" — reused by execution-quality
+// fixtures so fills/swaps read as a believable recent history.
+function isoHoursAgo(hoursAgo: number): string {
+  return new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+}
+
+// Execution quality — the flagship depth feature. Mixes negative and
+// positive 5m markouts (real desks aren't adversely selected on every fill)
+// and one fill with a null 30m horizon (too recent for that candle yet).
+// Spot swaps include two rows with a null shortfall + honest note, matching
+// the "quote snapshot unavailable" degradation path.
+const EXECUTION_QUALITY = {
+  perps: {
+    address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+    fills: [
+      { time: isoHoursAgo(1), coin: 'ETH', side: 'buy', px: 3712.5, sz: 1.2, feeUsd: 1.42, closedPnlUsd: 12.1, markoutBps: { m1: -3.2, m5: -8.1, m30: 4.0 } },
+      { time: isoHoursAgo(4), coin: 'ETH', side: 'sell', px: 3298.1, sz: 0.8, feeUsd: 0.95, closedPnlUsd: -4.6, markoutBps: { m1: 1.1, m5: 3.4, m30: null } },
+      { time: isoHoursAgo(9), coin: 'SOL', side: 'buy', px: 184.2, sz: 15, feeUsd: 0.62, closedPnlUsd: 22.8, markoutBps: { m1: -1.0, m5: -2.5, m30: -6.1 } },
+      { time: isoHoursAgo(26), coin: 'BTC', side: 'sell', px: 67310.0, sz: 0.05, feeUsd: 1.1, closedPnlUsd: 8.3, markoutBps: { m1: 2.4, m5: 6.7, m30: 11.2 } },
+      { time: isoHoursAgo(48), coin: 'HYPE', side: 'buy', px: 28.9, sz: 40, feeUsd: 0.4, closedPnlUsd: -3.1, markoutBps: { m1: -0.8, m5: -5.9, m30: -9.8 } },
+      { time: isoHoursAgo(70), coin: 'ETH', side: 'sell', px: 3350.0, sz: 2.0, feeUsd: 2.1, closedPnlUsd: 44.5, markoutBps: { m1: 0.6, m5: -1.2, m30: 2.8 } },
+    ],
+    aggregates: {
+      fillCount: 124,
+      avgMarkoutBps: { m1: -1.4, m5: -4.4, m30: -1.0 },
+      totalFeesUsd: 214.5,
+      winRate: 0.54,
+      read: "Your fills are followed by adverse moves (−4.4 bps avg at 5m) — you're paying for immediacy; consider resting limits or smaller clips.",
+    },
+  },
+  spot: {
+    swaps: [
+      { time: isoHoursAgo(3), route: 'lifi', pair: 'SOL→WIF', shortfallBps: -42.0, feesUsd: 1.1, note: null },
+      { time: isoHoursAgo(20), route: 'jupiter', pair: 'USDC→SOL', shortfallBps: -8.5, feesUsd: 0.3, note: null },
+      { time: isoHoursAgo(30), route: 'lifi', pair: 'ETH→USDC', shortfallBps: null, feesUsd: 2.4, note: 'quote snapshot unavailable' },
+      { time: isoHoursAgo(52), route: '1inch', pair: 'WBTC→ETH', shortfallBps: null, feesUsd: 3.9, note: 'quote snapshot unavailable' },
+      { time: isoHoursAgo(75), route: 'jupiter', pair: 'WIF→USDC', shortfallBps: -14.2, feesUsd: 0.5, note: null },
+    ],
+    aggregates: {
+      count: 18,
+      avgShortfallBps: -18.0,
+      totalFeesUsd: 40.2,
+      byRoute: [
+        { route: 'lifi', count: 12, avgShortfallBps: -22.0 },
+        { route: 'jupiter', count: 4, avgShortfallBps: -6.1 },
+        { route: '1inch', count: 2, avgShortfallBps: -10.4 },
+      ],
+      read: 'Your swaps land ~18 bps below quote on average — mostly routing through LI.FI on volatile pairs, where the extra hop gives the market time to move before you fill.',
+    },
+  },
+  updatedAt: new Date().toISOString(),
+}
+
+// Capital-at-risk estimate for the perps order ticket. Mirrors the fresh-
+// isolated-position liquidation formula PerpsPanel already uses for its own
+// display-only "Est. liq" so the two numbers agree in the mock. Pinned to
+// level "warn" per the fixture spec — a real backend would derive level from
+// pctOfPerpsEquity thresholds the frontend never hardcodes; it only trusts
+// the server's `level`.
+function perpsRiskFixture(
+  coin: string,
+  side: 'long' | 'short',
+  size: number,
+  leverage: number,
+  marginMode: string,
+): Response {
+  const m = PERPS_MARKETS.find((x) => x.asset === coin) ?? PERPS_MARKETS[1]
+  const markPx = m.markPrice
+  const maxLeverage = m.maxLeverage
+  const lev = Math.max(leverage, 1)
+  const notionalUsd = size * markPx
+  const marginUsd = notionalUsd / lev
+  const mmf = 1 / (2 * maxLeverage)
+  const liqPxEst =
+    side === 'long' ? (markPx * (1 - 1 / lev)) / (1 - mmf) : (markPx * (1 + 1 / lev)) / (1 + mmf)
+  const liqDistancePct = ((liqPxEst - markPx) / markPx) * 100
+  const worstCaseLossUsd = marginUsd
+  const perpsEquityUsd = 1810
+  const pctOfPerpsEquity = Math.round((worstCaseLossUsd / perpsEquityUsd) * 1000) / 10
+  return json({
+    coin,
+    side,
+    markPx,
+    notionalUsd: Math.round(notionalUsd * 100) / 100,
+    marginUsd: Math.round(marginUsd * 100) / 100,
+    maxLeverage,
+    liqPxEst: Math.round(liqPxEst * 100) / 100,
+    liqDistancePct: Math.round(liqDistancePct * 10) / 10,
+    worstCaseLossUsd: Math.round(worstCaseLossUsd * 100) / 100,
+    crossNote:
+      marginMode === 'cross'
+        ? "Cross margin — a loss here can draw on your other positions' margin too."
+        : null,
+    perpsEquityUsd,
+    totalEquityUsd: null,
+    pctOfPerpsEquity,
+    pctOfTotalEquity: null,
+    level: 'warn',
+    note: `Liquidation on this position would cost ~$${Math.round(worstCaseLossUsd)} — ${pctOfPerpsEquity}% of your perps equity. Serious desks size so one loss can't end the account (fractional-Kelly: risk a few % per idea).`,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -445,6 +548,15 @@ function route(path: string, search: URLSearchParams): Response | null {
   if (path.endsWith('/terminal/perps/positions')) return json({ positions: PERPS_POSITIONS })
   if (path.endsWith('/terminal/perps/orders')) return json({ orders: PERPS_ORDERS })
   if (path.endsWith('/terminal/predict/positions')) return json({ positions: PREDICT_POSITIONS })
+  if (path.endsWith('/terminal/execution/quality')) return json(EXECUTION_QUALITY)
+  if (path.endsWith('/terminal/perps/risk')) {
+    const coin = (search.get('coin') || 'ETH').split('-')[0].toUpperCase()
+    const side = search.get('side') === 'short' ? 'short' : 'long'
+    const size = parseFloat(search.get('size') || '0') || 0
+    const leverage = parseFloat(search.get('leverage') || '1') || 1
+    const marginMode = search.get('marginMode') || 'isolated'
+    return perpsRiskFixture(coin, side, size, leverage, marginMode)
+  }
   if (path.endsWith('/terminal/perps/candles')) {
     const coin = (search.get('coin') || 'ETH').toUpperCase()
     const m = PERPS_MARKETS.find((x) => x.name === coin || x.asset === coin.split('-')[0])

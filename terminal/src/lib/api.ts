@@ -72,7 +72,10 @@ import type {
   TrackedTwitterAccount,
   TweetData,
   WalletActivity,
+  ExecutionQuality,
+  PerpsRiskEstimate,
 } from '../types/api'
+import type { MarginMode } from '../types/perps'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -569,6 +572,32 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ positionId }),
     })
+  },
+
+  // Execution quality — per-user markouts on perp fills (adverse-selection
+  // self-test), swap implementation shortfall vs quote, and fee drag.
+  getExecutionQuality() {
+    return request<ExecutionQuality>('/terminal/execution/quality')
+  },
+
+  // Capital-at-risk estimate for the live order ticket state — dollar loss
+  // to liquidation and its share of the account. Server-computed so the
+  // ticket doesn't reimplement HyperLiquid's margin math client-side.
+  getPerpsRisk(params: {
+    coin: string
+    side: 'long' | 'short'
+    size: number
+    leverage: number
+    marginMode: MarginMode
+  }) {
+    const qs = new URLSearchParams({
+      coin: params.coin,
+      side: params.side,
+      size: String(params.size),
+      leverage: String(params.leverage),
+      marginMode: params.marginMode,
+    })
+    return request<PerpsRiskEstimate>(`/terminal/perps/risk?${qs}`)
   },
 
   // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)
