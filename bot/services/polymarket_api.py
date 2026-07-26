@@ -323,7 +323,35 @@ class PolymarketClient:
     # ============ CLOB API (Authenticated Trading via Official SDK) ============
 
     def _get_clob_client(self, private_key: str):
-        """Create an authenticated ClobClient using the official Polymarket SDK."""
+        """Create an authenticated ClobClient using the py-clob-client SDK.
+
+        ⚠️ STALE SDK — ORDER PLACEMENT IS LIKELY BROKEN IN PRODUCTION.
+
+        Verified 2026-07-26:
+          * `py-clob-client==0.34.6` is the NEWEST release on PyPI (uploaded
+            2026-02-19) and its `config.py` hardcodes the pre-migration
+            contracts: exchange 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E with
+            USDC.e collateral (0x2791Bca1…), and neg-risk exchange
+            0xC5d563A3….
+          * Polymarket migrated to CLOB V2 on 2026-04-28 — pUSD collateral, a new
+            order struct and EIP-712 domain v2, exchange
+            0xE111180000d2663C0091e4f400237545B87B996B (neg-risk
+            0xe2222d279d744050d28e00520010520000310F59) — with NO V1 backward
+            compatibility.
+        ⇒ Every order this client signs is bound to a deprecated exchange, so the
+        CLOB should reject it. This has NOT been live-confirmed (placing a real
+        order needs a funded wallet and Polymarket geo-blocks us), but the
+        contract addresses are first-party verified.
+
+        Fixing it is a deliberate money-path decision, NOT a version bump:
+          (a) migrate to Polymarket's new unified SDK `polymarket-client`
+              (github.com/Polymarket/py-sdk) — official, but 0.1.0 only shipped
+              2026-07-22 and 0.2.0 on 2026-07-24, so it is days old; or
+          (b) hand-roll V2 signing in Python, mirroring the already-verified
+              signer in api-ts/src/lib/polymarket-eip712.ts.
+        Read-only paths (Gamma/CLOB market data, prices, books, the
+        predict_monitor) are UNAFFECTED — this note is only about signing orders.
+        """
         from py_clob_client.client import ClobClient
         from py_clob_client.clob_types import ApiCreds
 
@@ -345,7 +373,19 @@ class PolymarketClient:
         amount: float,
         price: float,
     ) -> OrderResult:
-        """Place an order using the official py-clob-client SDK."""
+        """Place an order using the py-clob-client SDK.
+
+        See the warning on :meth:`_get_clob_client`: the pinned SDK signs against
+        the exchange Polymarket deprecated in the 2026-04-28 CLOB V2 migration, so
+        these orders are expected to be rejected until the SDK is migrated.
+        """
+        # Log loudly so a rejection here is diagnosed as "stale SDK" rather than
+        # chased as a credentials/balance problem.
+        logger.warning(
+            "Polymarket place_order via py-clob-client 0.34.6 — this SDK targets the "
+            "pre-2026-04-28 exchange (USDC.e collateral); orders are expected to be "
+            "rejected by CLOB V2. Migrate to polymarket-client or a V2 signer."
+        )
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY, SELL
