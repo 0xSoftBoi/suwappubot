@@ -1,6 +1,7 @@
 import { usePerpsWhales } from '../../hooks/usePerpsWhales'
 import type { WhalePosition } from '../../types/api'
 import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
+import { PositioningStrip } from './PositioningStrip'
 
 function formatUsd(n: number) {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
@@ -42,19 +43,25 @@ export function SmartMoneyPanel({ market }: { market: string }) {
 
   if (isLoading && !data) {
     return (
-      <div className="p-3">
-        <TerminalSkeletonRows rows={6} columns={5} label="Reading whale positions on-chain" />
+      <div className="flex h-full flex-col">
+        <PositioningStrip market={market} />
+        <div className="p-3">
+          <TerminalSkeletonRows rows={6} columns={5} label="Reading whale positions on-chain" />
+        </div>
       </div>
     )
   }
   if (!data || data.sampled === 0 || data.positions.length === 0) {
     return (
-      <TerminalEmptyState
-        className="h-full"
-        kicker="Smart money"
-        title={`No whale positions in ${market} right now`}
-        description="This desk reconstructs the top HyperLiquid accounts' positioning on-chain. None of them hold this perp at the moment — try a higher-volume market."
-      />
+      <div className="flex h-full flex-col">
+        <PositioningStrip market={market} />
+        <TerminalEmptyState
+          className="h-full"
+          kicker="Smart money"
+          title={`No whale positions in ${market} right now`}
+          description="This desk reconstructs the top HyperLiquid accounts' positioning on-chain. None of them hold this perp at the moment — try a higher-volume market."
+        />
+      </div>
     )
   }
 
@@ -65,7 +72,8 @@ export function SmartMoneyPanel({ market }: { market: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Positioning headline */}
+      <PositioningStrip market={market} />
+      {/* Whale positioning headline */}
       <div className="hairline-b px-3 py-2.5">
         <div className="flex items-center justify-between">
           <span className="terminal-theme-caption text-[10px] uppercase">

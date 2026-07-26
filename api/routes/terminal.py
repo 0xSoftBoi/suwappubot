@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -613,6 +613,494 @@ def _to_int(value) -> Optional[int]:
         return None
 
 
+# --- Options context: Deribit BTC/ETH chain summary (OI, IV surface, max pain) ---
+# Deribit is the dominant options venue; both endpoints are public, no auth.
+# `open_interest` on Deribit's book-summary is denominated in the BASE currency
+# (BTC/ETH contracts), not USD — verified against live data (BTC total OI
+# ~436.6k BTC * ~$64.5k spot = ~$28.2B notional, in line with Deribit's real
+# BTC options OI). USD notional throughout this section = open_interest * spot.
+
+DERIBIT_BASE_URL = "https://www.deribit.com/api/v2/public"
+OKX_BASE_URL = "https://www.okx.com/api/v5"
+OPTIONS_CURRENCIES = {"BTC", "ETH"}
+OPTIONS_CONTEXT_TTL = 300  # seconds
+_options_context_cache: dict = {}  # currency -> {"at": datetime, "data": dict}
+
+# Deribit instrument name, e.g. "BTC-26SEP26-100000-C" -> (expiry-code, strike, C/P).
+_INSTRUMENT_RE = re.compile(r"^[A-Z]+-(\d{1,2}[A-Z]{3}\d{2})-(\d+(?:\.\d+)?)-([CP])$")
+
+
+def _parse_deribit_expiry(code: str) -> Optional[datetime]:
+    """Deribit expiry code like '26SEP26' -> UTC-midnight datetime, or None if
+    malformed (caller skips the instrument rather than raising)."""
+    try:
+        return datetime.strptime(code, "%d%b%y").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _build_options_context(currency: str, book_raw, dvol_raw, now: datetime) -> dict:
+    """Parse one Deribit book-summary sweep + one DVOL-candle fetch into the
+    options/context payload. Inputs may be exception objects (from
+    ``asyncio.gather(..., return_exceptions=True)``) or malformed shapes — every
+    derived field degrades to null on partial failure; this must never raise."""
+    spot: Optional[float] = None
+    instruments: list[dict] = []
+    if isinstance(book_raw, dict):
+        for row in book_raw.get("result") or []:
+            if not isinstance(row, dict):
+                continue
+            m = _INSTRUMENT_RE.match(row.get("instrument_name") or "")
+            if not m:
+                continue
+            expiry_code, strike_s, opt_type = m.groups()
+            expiry_dt = _parse_deribit_expiry(expiry_code)
+            if not expiry_dt:
+                continue
+            underlying = _to_float(row.get("underlying_price"))
+            if underlying and spot is None:
+                spot = underlying
+            instruments.append(
+                {
+                    "expiry": expiry_dt,
+                    "strike": float(strike_s),
+                    "type": opt_type,
+                    "oi": _to_float(row.get("open_interest"), 0.0) or 0.0,
+                    "iv": _to_float(row.get("mark_iv")),
+                }
+            )
+
+    put_call_ratio = total_oi_usd = atm_iv = skew10pct = None
+    max_pain = None
+    top_strikes: list[dict] = []
+    expiries_out: list[dict] = []
+
+    if instruments and spot:
+        total_oi_usd = round(sum(i["oi"] for i in instruments) * spot, 2) or None
+
+        call_oi = sum(i["oi"] for i in instruments if i["type"] == "C")
+        put_oi = sum(i["oi"] for i in instruments if i["type"] == "P")
+        put_call_ratio = round(put_oi / call_oi, 3) if call_oi else None
+
+        by_expiry: dict[datetime, list[dict]] = {}
+        for i in instruments:
+            by_expiry.setdefault(i["expiry"], []).append(i)
+        eligible = sorted(e for e in by_expiry if (e - now).total_seconds() >= 2 * 86400)
+
+        if eligible:
+            near_expiry = eligible[0]
+            near_chain = by_expiry[near_expiry]
+            strikes = sorted({i["strike"] for i in near_chain})
+            if strikes:
+                atm_strike = min(strikes, key=lambda k: abs(k - spot))
+                ivs = [
+                    i["iv"] for i in near_chain if i["strike"] == atm_strike and i["iv"] is not None
+                ]
+                if ivs:
+                    atm_iv = round(sum(ivs) / len(ivs), 2)
+
+                # 10%-OTM skew PROXY (not true 25-delta): nearest strikes to
+                # 0.9x spot (put side) / 1.1x spot (call side) on this expiry.
+                put_strike = min(strikes, key=lambda k: abs(k - spot * 0.9))
+                call_strike = min(strikes, key=lambda k: abs(k - spot * 1.1))
+                put_ivs = [
+                    i["iv"]
+                    for i in near_chain
+                    if i["strike"] == put_strike and i["type"] == "P" and i["iv"] is not None
+                ]
+                call_ivs = [
+                    i["iv"]
+                    for i in near_chain
+                    if i["strike"] == call_strike and i["type"] == "C" and i["iv"] is not None
+                ]
+                if put_ivs and call_ivs:
+                    skew10pct = round(
+                        sum(put_ivs) / len(put_ivs) - sum(call_ivs) / len(call_ivs), 2
+                    )
+
+            strike_oi: dict[float, dict[str, float]] = {}
+            for i in near_chain:
+                strike_oi.setdefault(i["strike"], {"C": 0.0, "P": 0.0})[i["type"]] += i["oi"]
+            if strike_oi:
+
+                def _pain(settle: float, book=strike_oi) -> float:
+                    return sum(
+                        b["C"] * max(0.0, settle - k) + b["P"] * max(0.0, k - settle)
+                        for k, b in book.items()
+                    )
+
+                best_strike = min(strike_oi, key=_pain)
+                near_oi_usd = sum(b["C"] + b["P"] for b in strike_oi.values()) * spot
+                max_pain = {
+                    "expiry": near_expiry.strftime("%Y-%m-%d"),
+                    "strike": best_strike,
+                    "oiUsd": round(near_oi_usd, 2),
+                }
+
+            for e in eligible[:3]:
+                oi_usd = sum(i["oi"] for i in by_expiry[e]) * spot
+                expiries_out.append(
+                    {
+                        "date": e.strftime("%Y-%m-%d"),
+                        "oiUsd": round(oi_usd, 2),
+                        "daysOut": round((e - now).total_seconds() / 86400, 1),
+                    }
+                )
+
+        strike_totals: dict[float, dict[str, float]] = {}
+        for i in instruments:
+            strike_totals.setdefault(i["strike"], {"C": 0.0, "P": 0.0})[i["type"]] += i["oi"]
+        for strike, b in sorted(
+            strike_totals.items(), key=lambda kv: kv[1]["C"] + kv[1]["P"], reverse=True
+        )[:4]:
+            top_strikes.append(
+                {
+                    "strike": strike,
+                    "oiUsd": round((b["C"] + b["P"]) * spot, 2),
+                    "callOiUsd": round(b["C"] * spot, 2),
+                    "putOiUsd": round(b["P"] * spot, 2),
+                }
+            )
+
+    dvol = {"value": None, "change24h": None}
+    if isinstance(dvol_raw, dict):
+        candles = ((dvol_raw.get("result") or {}).get("data")) or []
+        # Candles are [timestamp_ms, open, high, low, close], oldest first.
+        if candles:
+            latest = candles[-1]
+            value = _to_float(latest[4]) if len(latest) > 4 else None
+            target_ts = latest[0] - 24 * 3600 * 1000
+            reference = min(candles, key=lambda c: abs(c[0] - target_ts))
+            ref_value = _to_float(reference[4]) if len(reference) > 4 else None
+            dvol = {
+                "value": round(value, 2) if value is not None else None,
+                "change24h": (
+                    round(value - ref_value, 2)
+                    if value is not None and ref_value is not None
+                    else None
+                ),
+            }
+
+    return {
+        "currency": currency,
+        "spot": spot,
+        "dvol": dvol,
+        "putCallOiRatio": put_call_ratio,
+        "totalOiUsd": total_oi_usd,
+        "atmIv": atm_iv,
+        "skew10pct": skew10pct,
+        "maxPain": max_pain,
+        "topStrikes": top_strikes,
+        "expiries": expiries_out,
+        "updatedAt": now.isoformat(),
+    }
+
+
+async def _fetch_options_context(currency: str) -> dict:
+    """Cached (5 min) Deribit options-chain summary for `currency`. One
+    book-summary sweep (800+ instruments) + one DVOL fetch, gathered."""
+    cached = _options_context_cache.get(currency)
+    now = datetime.now(timezone.utc)
+    if cached and (now - cached["at"]).total_seconds() < OPTIONS_CONTEXT_TTL:
+        return cached["data"]
+
+    end_ms = int(now.timestamp() * 1000)
+    start_ms = end_ms - 26 * 3600 * 1000
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        book_raw, dvol_raw = await asyncio.gather(
+            _get_json(
+                client,
+                f"{DERIBIT_BASE_URL}/get_book_summary_by_currency",
+                {"currency": currency, "kind": "option"},
+            ),
+            _get_json(
+                client,
+                f"{DERIBIT_BASE_URL}/get_volatility_index_data",
+                {
+                    "currency": currency,
+                    "start_timestamp": start_ms,
+                    "end_timestamp": end_ms,
+                    "resolution": 3600,
+                },
+            ),
+            return_exceptions=True,
+        )
+
+    data = _build_options_context(currency, book_raw, dvol_raw, now)
+    _options_context_cache[currency] = {"at": now, "data": data}
+    return data
+
+
+def _peek_options_context(currency: str) -> Optional[dict]:
+    """Warm-cache-only read (never fetches) — used by /signals so the hot path
+    never pays for a cold Deribit sweep."""
+    cached = _options_context_cache.get(currency)
+    if not cached:
+        return None
+    if (datetime.now(timezone.utc) - cached["at"]).total_seconds() > OPTIONS_CONTEXT_TTL:
+        return None
+    return cached["data"]
+
+
+@router.get("/options/context")
+async def get_terminal_options_context(currency: str = Query(default="BTC")):
+    """Deribit options-chain snapshot for BTC/ETH: total OI, put/call OI ratio,
+    ATM IV, a 10%-OTM skew proxy (not true 25-delta), max pain, top strikes by
+    OI, next 3 expiries, and DVOL (+24h change). Public, no auth, cached 5 min
+    per currency. Any component that fails degrades to null, never a 500."""
+    ccy = currency.upper().strip()
+    if ccy not in OPTIONS_CURRENCIES:
+        raise HTTPException(status_code=400, detail="currency must be BTC or ETH")
+    return await _fetch_options_context(ccy)
+
+
+# --- Perps positioning: OKX long/short + taker flow vs HyperLiquid funding ---
+
+_COIN_SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,15}$")
+POSITIONING_TTL = 60  # seconds
+_positioning_cache: dict = {}  # coin -> {"at": datetime, "data": dict}
+
+
+def _okx_rows(raw) -> list:
+    """OKX wraps every rubik/public payload as {code, data, msg}; code "0" is
+    success. Anything else (error, timeout, exception object) -> empty list."""
+    if isinstance(raw, dict) and raw.get("code") == "0":
+        return raw.get("data") or []
+    return []
+
+
+def _build_positioning(
+    coin: str, ls_raw, taker_raw, funding_raw, oi_raw, hl_raw, now: datetime
+) -> dict:
+    long_short = {"value": None, "change24h": None}
+    ls_rows = _okx_rows(ls_raw)
+    if ls_rows:
+        # Rows are latest-first, hourly buckets; ~24 rows back ~= 24h ago.
+        latest = _to_float(ls_rows[0][1]) if len(ls_rows[0]) > 1 else None
+        prior_row = ls_rows[min(24, len(ls_rows) - 1)]
+        prior = _to_float(prior_row[1]) if len(prior_row) > 1 else None
+        long_short = {
+            "value": latest,
+            "change24h": (
+                round(latest - prior, 3) if latest is not None and prior is not None else None
+            ),
+        }
+
+    taker_flow = {"buySellRatio": None, "buyVolUsd": None, "sellVolUsd": None, "windowHours": 4}
+    taker_rows = _okx_rows(taker_raw)
+    if taker_rows:
+        # Columns are [ts, sellVol, buyVol] per OKX docs — latest-first hourly.
+        window = [r for r in taker_rows[:4] if len(r) > 2]
+        if window:
+            sell_vol = sum(_to_float(r[1], 0.0) or 0.0 for r in window)
+            buy_vol = sum(_to_float(r[2], 0.0) or 0.0 for r in window)
+            taker_flow = {
+                "buySellRatio": round(buy_vol / sell_vol, 3) if sell_vol else None,
+                "buyVolUsd": round(buy_vol, 2),
+                "sellVolUsd": round(sell_vol, 2),
+                "windowHours": len(window),
+            }
+
+    okx = {"fundingRate8h": None, "nextFundingTime": None, "oiUsd": None}
+    f_rows = _okx_rows(funding_raw)
+    if f_rows:
+        okx["fundingRate8h"] = _to_float(f_rows[0].get("fundingRate"))
+        okx["nextFundingTime"] = _to_int(f_rows[0].get("nextFundingTime"))
+    oi_rows = _okx_rows(oi_raw)
+    if oi_rows:
+        okx["oiUsd"] = _to_float(oi_rows[0].get("oiUsd"))
+
+    hl = {"fundingHourly": None, "funding8h": None}
+    if isinstance(hl_raw, list) and len(hl_raw) >= 2:
+        universe = (hl_raw[0] or {}).get("universe") or []
+        ctxs = hl_raw[1] or []
+        for u, c in zip(universe, ctxs):
+            if isinstance(u, dict) and isinstance(c, dict) and u.get("name") == coin:
+                hourly = _to_float(c.get("funding"))
+                if hourly is not None:
+                    hl = {"fundingHourly": hourly, "funding8h": round(hourly * 8, 6)}
+                break
+
+    spread_bps = read = None
+    if okx["fundingRate8h"] is not None and hl["funding8h"] is not None:
+        spread_bps = round((hl["funding8h"] - okx["fundingRate8h"]) * 10000, 2)
+        if abs(spread_bps) >= 2:
+            cheaper = "HL" if spread_bps < 0 else "OKX"
+            richer = "OKX" if cheaper == "HL" else "HL"
+            read = f"Longs pay less on {cheaper} than {richer} — {cheaper} is the cheaper long"
+
+    return {
+        "coin": coin,
+        "longShort": long_short,
+        "takerFlow": taker_flow,
+        "okx": okx,
+        "hl": hl,
+        "fundingSpreadBps8h": spread_bps,
+        "read": read,
+        "updatedAt": now.isoformat(),
+    }
+
+
+async def _fetch_positioning(coin: str) -> dict:
+    """Cached (60s) cross-venue positioning snapshot for `coin`. OKX's
+    long/short-ratio and taker-volume rubik endpoints only cover majors — an
+    error/empty OKX response degrades those fields to null, never a 500."""
+    cached = _positioning_cache.get(coin)
+    now = datetime.now(timezone.utc)
+    if cached and (now - cached["at"]).total_seconds() < POSITIONING_TTL:
+        return cached["data"]
+
+    inst_id = f"{coin}-USDT-SWAP"
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        ls_raw, taker_raw, funding_raw, oi_raw, hl_raw = await asyncio.gather(
+            _get_json(
+                client,
+                f"{OKX_BASE_URL}/rubik/stat/contracts/long-short-account-ratio",
+                {"ccy": coin, "period": "1H"},
+            ),
+            _get_json(
+                client,
+                f"{OKX_BASE_URL}/rubik/stat/taker-volume",
+                {"ccy": coin, "instType": "CONTRACTS", "period": "1H"},
+            ),
+            _get_json(client, f"{OKX_BASE_URL}/public/funding-rate", {"instId": inst_id}),
+            _get_json(
+                client,
+                f"{OKX_BASE_URL}/public/open-interest",
+                {"instType": "SWAP", "instId": inst_id},
+            ),
+            _hl_post(client, {"type": "metaAndAssetCtxs"}),
+            return_exceptions=True,
+        )
+
+    data = _build_positioning(coin, ls_raw, taker_raw, funding_raw, oi_raw, hl_raw, now)
+    _positioning_cache[coin] = {"at": now, "data": data}
+    return data
+
+
+def _peek_positioning_cache(max_age: float = POSITIONING_TTL) -> list[tuple[str, dict]]:
+    """Warm-cache-only snapshot of every coin currently cached — used by
+    /signals for the funding-arb card; never triggers a fetch."""
+    now = datetime.now(timezone.utc)
+    return [
+        (coin, entry["data"])
+        for coin, entry in _positioning_cache.items()
+        if (now - entry["at"]).total_seconds() <= max_age
+    ]
+
+
+@router.get("/perps/positioning")
+async def get_terminal_perps_positioning(coin: str = Query(default="BTC")):
+    """Cross-venue perp positioning for `coin`: OKX long/short account ratio
+    (+24h change), taker buy/sell flow (4h window), OKX funding + OI, and
+    HyperLiquid funding for a cross-venue funding-spread read. Public, no auth,
+    cached 60s. Coins with no OKX USDT-SWAP market degrade to the HL-only
+    fields (never a 500)."""
+    normalized = coin.upper().strip()
+    if not _COIN_SYMBOL_RE.match(normalized):
+        raise HTTPException(status_code=400, detail="invalid coin symbol")
+    return await _fetch_positioning(normalized)
+
+
+# --- Forward catalysts: macro calendar + big Deribit options expiries ---
+
+# NOTE: these 2026 dates are a placeholder calendar pending independent
+# verification (flagged by the requester) — the structure (FOMC 18:00 UTC
+# announcement, CPI 13:30 UTC release, "source" provenance per item) is the
+# load-bearing part; literal dates may be corrected in a follow-up.
+# Dates verified against the Federal Reserve's published 2026 meeting calendar
+# and the BLS CPI release schedule (primary sources, checked 2026-07-25). Times
+# are UTC and DST-aware: 14:00 ET = 18:00 UTC under EDT / 19:00 UTC under EST,
+# 08:30 ET = 12:30 / 13:30 UTC; US DST ends 2026-11-01. The Jan-2027 CPI date is
+# deliberately absent — BLS hasn't published its 2027 schedule yet.
+_FOMC_DETAIL = "Federal Reserve interest rate decision."
+_FOMC_SEP_DETAIL = "Federal Reserve rate decision + Summary of Economic Projections."
+_CPI_DETAIL = "BLS US Consumer Price Index release."
+_FED_SOURCE = "Federal Reserve schedule"
+_BLS_SOURCE = "BLS schedule"
+
+
+def _macro(date: str, time_utc: str, kind: str, detail: str, source: str) -> dict:
+    return {"date": date, "timeUtc": time_utc, "kind": kind, "detail": detail, "source": source}
+
+
+MACRO_CALENDAR_2026 = [
+    _macro("2026-01-28", "19:00", "fomc", _FOMC_DETAIL, _FED_SOURCE),
+    _macro("2026-03-18", "18:00", "fomc", _FOMC_SEP_DETAIL, _FED_SOURCE),
+    _macro("2026-04-29", "18:00", "fomc", _FOMC_DETAIL, _FED_SOURCE),
+    _macro("2026-06-17", "18:00", "fomc", _FOMC_SEP_DETAIL, _FED_SOURCE),
+    _macro("2026-07-29", "18:00", "fomc", _FOMC_DETAIL, _FED_SOURCE),
+    _macro("2026-09-16", "18:00", "fomc", _FOMC_SEP_DETAIL, _FED_SOURCE),
+    _macro("2026-10-28", "18:00", "fomc", _FOMC_DETAIL, _FED_SOURCE),
+    _macro("2026-12-09", "19:00", "fomc", _FOMC_SEP_DETAIL, _FED_SOURCE),
+    _macro("2026-07-14", "12:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+    _macro("2026-08-12", "12:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+    _macro("2026-09-11", "12:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+    _macro("2026-10-14", "12:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+    _macro("2026-11-10", "13:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+    _macro("2026-12-10", "13:30", "cpi", _CPI_DETAIL, _BLS_SOURCE),
+]
+
+CATALYST_HORIZON_DAYS = 45
+CATALYST_MAX_ITEMS = 10
+CATALYST_EXPIRY_MIN_OI_USD = 500_000_000
+
+
+@router.get("/catalysts")
+async def get_terminal_catalysts():
+    """Forward market catalysts within a 45-day horizon: FOMC decisions, US CPI
+    prints, and the next 2 big (>= $500M OI) BTC options expiries. Macro dates
+    are a static calendar; options expiries reuse the /options/context cache
+    for BTC (falls back to one live fetch if cold — never a per-request cold
+    fetch beyond that). Public, no auth."""
+    now = datetime.now(timezone.utc)
+    horizon_date = (now + timedelta(days=CATALYST_HORIZON_DAYS)).date()
+
+    items: list[dict] = []
+    for entry in MACRO_CALENDAR_2026:
+        event_date = datetime.strptime(entry["date"], "%Y-%m-%d").date()
+        if now.date() <= event_date <= horizon_date:
+            items.append(
+                {
+                    "date": entry["date"],
+                    "timeUtc": entry["timeUtc"],
+                    "kind": entry["kind"],
+                    "title": "FOMC decision" if entry["kind"] == "fomc" else "US CPI release",
+                    "detail": entry["detail"],
+                    "source": entry["source"],
+                }
+            )
+
+    try:
+        options = await _fetch_options_context("BTC")
+    except Exception:
+        options = None
+    if options:
+        max_pain = options.get("maxPain") or {}
+        big_expiries = [
+            e
+            for e in (options.get("expiries") or [])
+            if (e.get("oiUsd") or 0) >= CATALYST_EXPIRY_MIN_OI_USD
+        ]
+        for e in big_expiries[:2]:
+            detail = f"{_fmt_usd(e['oiUsd'])} open interest across BTC options expiring this date."
+            if max_pain.get("expiry") == e["date"] and max_pain.get("strike") is not None:
+                detail += f" Max pain (this expiry) ≈ ${max_pain['strike']:,.0f}."
+            items.append(
+                {
+                    "date": e["date"],
+                    "timeUtc": None,
+                    "kind": "options-expiry",
+                    "title": f"BTC options expiry — {_fmt_usd(e['oiUsd'])} notional",
+                    "detail": detail,
+                    "source": "Deribit",
+                }
+            )
+
+    items.sort(key=lambda i: (i["date"], i["timeUtc"] or "99:99"))
+    return items[:CATALYST_MAX_ITEMS]
+
+
 # --- Cross-market Signals scanner: "what matters right now" across HL perps ---
 
 # Ignore illiquid markets so signals come from real, tradeable size.
@@ -641,9 +1129,19 @@ async def get_terminal_signals():
     Fear & Greed regime. One scan, plain-language cards, ranked by urgency."""
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            meta_ctx, fng_raw = await asyncio.gather(
+            meta_ctx, fng_raw, ls_btc_raw, ls_eth_raw = await asyncio.gather(
                 _hl_post(client, {"type": "metaAndAssetCtxs"}),
                 _get_json(client, FNG_URL),
+                _get_json(
+                    client,
+                    f"{OKX_BASE_URL}/rubik/stat/contracts/long-short-account-ratio",
+                    {"ccy": "BTC", "period": "1H"},
+                ),
+                _get_json(
+                    client,
+                    f"{OKX_BASE_URL}/rubik/stat/contracts/long-short-account-ratio",
+                    {"ccy": "ETH", "period": "1H"},
+                ),
                 return_exceptions=True,
             )
     except Exception:
@@ -793,6 +1291,115 @@ async def get_terminal_signals():
                     )
                 )
 
+    # Positioning: OKX long/short account-ratio extremes (retail crowding).
+    try:
+        for coin, raw in (("BTC", ls_btc_raw), ("ETH", ls_eth_raw)):
+            rows = _okx_rows(raw)
+            if not rows or len(rows[0]) < 2:
+                continue
+            value = _to_float(rows[0][1])
+            if value is None:
+                continue
+            if value >= 2.2:
+                signals.append(
+                    _signal(
+                        "positioning",
+                        "warn",
+                        "🧭",
+                        f"{coin} retail crowded long (L/S {value:.2f})",
+                        "Long/short account ratio is stretched long — mean-reversion risk.",
+                        f"{coin}-USD",
+                    )
+                )
+            elif value <= 0.7:
+                signals.append(
+                    _signal(
+                        "positioning",
+                        "warn",
+                        "🧭",
+                        f"{coin} retail crowded short (L/S {value:.2f})",
+                        "Long/short account ratio is stretched short — squeeze risk.",
+                        f"{coin}-USD",
+                    )
+                )
+    except Exception:
+        pass
+
+    # Funding arb: cross-venue spread, warm cache only — no extra fetches here.
+    try:
+        for coin, pdata in _peek_positioning_cache():
+            spread = pdata.get("fundingSpreadBps8h")
+            if spread is None or abs(spread) < 3:
+                continue
+            venue = "HL" if spread < 0 else "OKX"
+            signals.append(
+                _signal(
+                    "funding-arb",
+                    "info",
+                    "♻️",
+                    f"{coin} funding {abs(spread):.1f}bps/8h cheaper on {venue}",
+                    "Cross-venue funding spread — a delta-neutral funding-arb setup.",
+                    f"{coin}-USD",
+                )
+            )
+    except Exception:
+        pass
+
+    # Vol: warm BTC options cache only — never a cold Deribit fetch on this
+    # hot path (skip the card entirely if the cache is stale/missing).
+    try:
+        options = _peek_options_context("BTC")
+        dvol_value = (options or {}).get("dvol", {}).get("value") if options else None
+        if dvol_value is not None:
+            if dvol_value <= 35:
+                signals.append(
+                    _signal(
+                        "vol",
+                        "info",
+                        "🌊",
+                        f"BTC vol is cheap (DVOL {dvol_value:.0f}) — breakouts underpriced",
+                        "Implied vol is low relative to typical range — options are cheap.",
+                        "BTC-USD",
+                    )
+                )
+            elif dvol_value >= 70:
+                signals.append(
+                    _signal(
+                        "vol",
+                        "info",
+                        "🌊",
+                        f"BTC vol is expensive (DVOL {dvol_value:.0f}) — premium selling rich",
+                        "Implied vol is elevated — options premium is rich to sell.",
+                        "BTC-USD",
+                    )
+                )
+    except Exception:
+        pass
+
+    # Event: next macro catalyst inside 48h (FOMC / CPI).
+    try:
+        now_utc = datetime.now(timezone.utc)
+        for entry in sorted(MACRO_CALENDAR_2026, key=lambda e: e["date"]):
+            hour, minute = (int(x) for x in entry["timeUtc"].split(":"))
+            event_dt = datetime.strptime(entry["date"], "%Y-%m-%d").replace(
+                hour=hour, minute=minute, tzinfo=timezone.utc
+            )
+            delta_hours = (event_dt - now_utc).total_seconds() / 3600
+            if 0 <= delta_hours <= 48:
+                label = "FOMC decision" if entry["kind"] == "fomc" else "CPI print"
+                signals.append(
+                    _signal(
+                        "event",
+                        "warn",
+                        "📅",
+                        f"{label} in {round(delta_hours)}h",
+                        entry["detail"],
+                    )
+                )
+                break
+    except Exception:
+        pass
+
     # Rank: alert > warn > info, de-duplicated by id.
     order = {"alert": 0, "warn": 1, "info": 2}
     seen, ranked = set(), []
@@ -801,7 +1408,7 @@ async def get_terminal_signals():
             continue
         seen.add(s["id"])
         ranked.append(s)
-    return ranked[:14]
+    return ranked[:18]
 
 
 def _fmt_usd(n: float) -> str:

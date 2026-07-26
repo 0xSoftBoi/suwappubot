@@ -301,6 +301,96 @@ export interface WhaleSnapshot {
   positions: WhalePosition[] // biggest, by notional
 }
 
+// === Options intel (Deribit, public) ===
+
+export interface OptionsMaxPain {
+  expiry: string // "2026-07-31"
+  strike: number
+  oiUsd: number
+}
+
+export interface OptionsStrikeRow {
+  strike: number
+  oiUsd: number
+  callOiUsd: number
+  putOiUsd: number
+}
+
+export interface OptionsExpiryRow {
+  date: string
+  oiUsd: number
+  daysOut: number
+}
+
+// Deribit options intel for BTC/ETH — DVOL, skew, max pain, OI walls. Any
+// field may be null (graceful degradation when Deribit is slow/unreachable);
+// panels must render an em-dash, never a fabricated 0.
+export interface OptionsContext {
+  currency: 'BTC' | 'ETH'
+  spot: number | null
+  dvol: { value: number; change24h: number } | null
+  putCallOiRatio: number | null
+  totalOiUsd: number | null
+  atmIv: number | null
+  skew10pct: number | null // 10%-OTM put IV minus call IV, vol points
+  maxPain: OptionsMaxPain | null
+  topStrikes: OptionsStrikeRow[]
+  expiries: OptionsExpiryRow[]
+  updatedAt: string
+}
+
+// === Perps positioning (OKX retail + taker flow + OKX/HL funding spread) ===
+
+export interface PerpsPositioningDelta {
+  value: number
+  change24h: number
+}
+
+export interface PerpsTakerFlow {
+  buySellRatio: number
+  buyVolUsd: number
+  sellVolUsd: number
+  windowHours: number
+}
+
+export interface PerpsPositioningOkx {
+  fundingRate8h: number
+  nextFundingTime: string
+  oiUsd: number
+}
+
+export interface PerpsPositioningHl {
+  fundingHourly: number
+  funding8h: number
+}
+
+// Cross-venue positioning read for a perp. `okx`/`longShort`/`takerFlow` may
+// be null — OKX doesn't publish retail positioning for every market HL
+// lists — while `hl` funding stays available for any HL market.
+export interface PerpsPositioning {
+  coin: string
+  longShort: PerpsPositioningDelta | null
+  takerFlow: PerpsTakerFlow | null
+  okx: PerpsPositioningOkx | null
+  hl: PerpsPositioningHl | null
+  fundingSpreadBps8h: number | null
+  read: string | null
+  updatedAt: string
+}
+
+// === Catalysts (macro calendar) ===
+
+export type CatalystKind = 'fomc' | 'cpi' | 'options-expiry'
+
+export interface Catalyst {
+  date: string // "2026-07-29"
+  timeUtc: string | null // "18:00"
+  kind: CatalystKind
+  title: string
+  detail: string | null
+  source: string
+}
+
 // One custodial balance row (per chain + token).
 export interface WalletBalance {
   chain: string
@@ -333,10 +423,22 @@ export interface MarketRegime {
   stablecoinMcap: number | null // USD — "dry powder"
 }
 
+// Card categories the Signals feed renders. Cards are schema-driven — any
+// value here (present or future) renders through the same card shape.
+export type MarketSignalCategory =
+  | 'regime'
+  | 'mover'
+  | 'funding'
+  | 'squeeze'
+  | 'positioning'
+  | 'funding-arb'
+  | 'vol'
+  | 'event'
+
 // A single plain-language card in the cross-market Signals feed.
 export interface MarketSignal {
   id: string
-  category: 'regime' | 'mover' | 'funding' | 'squeeze'
+  category: MarketSignalCategory
   severity: 'alert' | 'warn' | 'info'
   emoji: string
   title: string

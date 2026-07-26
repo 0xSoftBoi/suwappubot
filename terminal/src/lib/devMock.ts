@@ -131,6 +131,141 @@ const PORTFOLIO = {
   ],
 }
 
+// Deribit options intel (BTC/ETH). Realistic magnitudes: BTC OI dwarfs ETH,
+// funding-scale numbers only, no fabricated precision.
+const OPTIONS_CONTEXT: Record<'BTC' | 'ETH', unknown> = {
+  BTC: {
+    currency: 'BTC',
+    spot: 118250.5,
+    dvol: { value: 48.2, change24h: -1.3 },
+    putCallOiRatio: 0.62,
+    totalOiUsd: 21_500_000_000,
+    atmIv: 46.8,
+    skew10pct: 3.2,
+    maxPain: { expiry: '2026-07-31', strike: 115000, oiUsd: 2_100_000_000 },
+    topStrikes: [
+      { strike: 120000, oiUsd: 1_800_000_000, callOiUsd: 1_500_000_000, putOiUsd: 300_000_000 },
+      { strike: 130000, oiUsd: 1_420_000_000, callOiUsd: 1_260_000_000, putOiUsd: 160_000_000 },
+      { strike: 110000, oiUsd: 1_180_000_000, callOiUsd: 320_000_000, putOiUsd: 860_000_000 },
+      { strike: 100000, oiUsd: 960_000_000, callOiUsd: 140_000_000, putOiUsd: 820_000_000 },
+    ],
+    expiries: [
+      { date: '2026-07-31', oiUsd: 2_100_000_000, daysOut: 6 },
+      { date: '2026-08-29', oiUsd: 4_650_000_000, daysOut: 35 },
+      { date: '2026-09-26', oiUsd: 3_120_000_000, daysOut: 63 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  ETH: {
+    currency: 'ETH',
+    spot: 3284.7,
+    dvol: { value: 61.4, change24h: 2.1 },
+    putCallOiRatio: 0.81,
+    totalOiUsd: 6_800_000_000,
+    atmIv: 58.2,
+    skew10pct: 4.6,
+    maxPain: { expiry: '2026-07-31', strike: 3200, oiUsd: 540_000_000 },
+    topStrikes: [
+      { strike: 3500, oiUsd: 410_000_000, callOiUsd: 340_000_000, putOiUsd: 70_000_000 },
+      { strike: 3000, oiUsd: 380_000_000, callOiUsd: 90_000_000, putOiUsd: 290_000_000 },
+      { strike: 4000, oiUsd: 260_000_000, callOiUsd: 232_000_000, putOiUsd: 28_000_000 },
+      { strike: 2800, oiUsd: 210_000_000, callOiUsd: 40_000_000, putOiUsd: 170_000_000 },
+    ],
+    expiries: [
+      { date: '2026-07-31', oiUsd: 540_000_000, daysOut: 6 },
+      { date: '2026-08-29', oiUsd: 1_180_000_000, daysOut: 35 },
+      { date: '2026-09-26', oiUsd: 890_000_000, daysOut: 63 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+}
+
+// Next OKX 8h funding boundary (00:00/08:00/16:00 UTC) for a realistic
+// nextFundingTime.
+function nextFundingBoundary(): string {
+  const now = new Date()
+  const hours = now.getUTCHours()
+  const nextBoundary = Math.ceil((hours + 0.01) / 8) * 8
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), nextBoundary % 24, 0, 0))
+  if (nextBoundary >= 24) d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString()
+}
+
+// OKX publishes retail positioning + taker flow only for its major markets;
+// everything else falls back to HL-only funding (honest degradation, not 0).
+const OKX_MAJORS = new Set(['BTC', 'ETH', 'SOL', 'DOGE'])
+
+function positioningFor(coin: string) {
+  const hlMarket = PERPS_MARKETS.find((m) => m.asset === coin)
+  const hlFundingHourly = hlMarket?.fundingRate ?? 0.00001
+  const hl = { fundingHourly: hlFundingHourly, funding8h: hlFundingHourly * 8 }
+
+  if (!OKX_MAJORS.has(coin)) {
+    return {
+      coin,
+      longShort: null,
+      takerFlow: null,
+      okx: null,
+      hl,
+      fundingSpreadBps8h: null,
+      read: null,
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  const rng = makeRng(coin.length * 31 + 7)
+  const okxFunding8h = (rng() - 0.5) * 0.0006
+  const spreadBps8h = Math.round((hl.funding8h - okxFunding8h) * 10_000 * 100) / 100
+  const cheaperVenue = spreadBps8h <= 0 ? 'HL' : 'OKX'
+  return {
+    coin,
+    longShort: { value: 1.35, change24h: 0.12 },
+    takerFlow: { buySellRatio: 0.97, buyVolUsd: 412_000_000, sellVolUsd: 425_000_000, windowHours: 4 },
+    okx: { fundingRate8h: okxFunding8h, nextFundingTime: nextFundingBoundary(), oiUsd: 4_200_000_000 },
+    hl,
+    fundingSpreadBps8h: spreadBps8h,
+    read: `Longs pay less on ${cheaperVenue} than ${cheaperVenue === 'HL' ? 'OKX' : 'HL'} — ${cheaperVenue} is the cheaper long`,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+// Macro calendar — FOMC/CPI/options-expiry. Dates sit around the fixed "now"
+// used elsewhere in these fixtures so the Catalysts rail has near-term rows.
+const CATALYSTS = [
+  {
+    date: '2026-07-29',
+    timeUtc: '18:00',
+    kind: 'fomc',
+    title: 'FOMC rate decision',
+    detail: 'Federal Reserve interest rate decision + press conference.',
+    source: 'Federal Reserve schedule',
+  },
+  {
+    date: '2026-07-31',
+    timeUtc: '08:00',
+    kind: 'options-expiry',
+    title: 'BTC options expiry — $2.1B notional',
+    detail: 'Max pain 115,000',
+    source: 'Deribit',
+  },
+  {
+    date: '2026-08-12',
+    timeUtc: '12:30',
+    kind: 'cpi',
+    title: 'US CPI (July)',
+    detail: 'Headline + core inflation print.',
+    source: 'BLS schedule',
+  },
+  {
+    date: '2026-08-29',
+    timeUtc: '08:00',
+    kind: 'options-expiry',
+    title: 'BTC monthly options expiry — $4.65B notional',
+    detail: null,
+    source: 'Deribit',
+  },
+]
+
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -237,6 +372,15 @@ function route(path: string, search: URLSearchParams): Response | null {
       sources: chain === 'solana' ? ['rugcheck'] : ['goplus', 'honeypot.is'],
     })
   }
+  if (path.endsWith('/terminal/options/context')) {
+    const currency = (search.get('currency') || 'BTC').toUpperCase()
+    return json(OPTIONS_CONTEXT[currency as 'BTC' | 'ETH'] ?? OPTIONS_CONTEXT.BTC)
+  }
+  if (path.endsWith('/terminal/perps/positioning')) {
+    const coin = (search.get('coin') || 'BTC').split('-')[0].toUpperCase()
+    return json(positioningFor(coin))
+  }
+  if (path.endsWith('/terminal/catalysts')) return json(CATALYSTS)
   if (path.endsWith('/terminal/market/regime'))
     return json({
       fearGreed: { value: 17, label: 'Extreme Fear' },
@@ -290,6 +434,10 @@ function route(path: string, search: URLSearchParams): Response | null {
       { id: 'funding:TRUMP-USD', category: 'funding', severity: 'warn', emoji: '🧲', title: 'TRUMP funding -0.0053%/h', detail: 'Shorts are paying — crowded short, fuel for a squeeze.', market: 'TRUMP-USD' },
       { id: 'mover:DYDX-USD', category: 'mover', severity: 'info', emoji: '🚀', title: 'DYDX +8.8% (24h)', detail: 'Leading the board · $42M open interest.', market: 'DYDX-USD' },
       { id: 'mover:WLD-USD', category: 'mover', severity: 'info', emoji: '🔻', title: 'WLD -15.6% (24h)', detail: 'Worst performer · $88M open interest.', market: 'WLD-USD' },
+      { id: 'positioning:BTC-USD', category: 'positioning', severity: 'info', emoji: '🐂', title: 'BTC retail L/S ratio 1.35', detail: 'OKX retail is 35% net long — crowded but not extreme.', market: 'BTC-USD' },
+      { id: 'funding-arb:BTC-USD', category: 'funding-arb', severity: 'info', emoji: '⚖️', title: 'BTC funding spread: HL cheaper by 4bps/8h', detail: 'Longs pay less on HyperLiquid than OKX right now.', market: 'BTC-USD' },
+      { id: 'vol:BTC', category: 'vol', severity: 'warn', emoji: '📉', title: 'BTC DVOL down 1.3% (24h)', detail: '10Δ skew +3.2 — puts still bid into month-end expiry.', market: 'BTC-USD' },
+      { id: 'event:fomc', category: 'event', severity: 'alert', emoji: '🏛️', title: 'FOMC rate decision in 4 days', detail: 'Jul 29, 18:00 UTC — positioning risk into the print.', market: '' },
     ])
   if (path.endsWith('/v1/agent/predict/markets')) return json({ markets: PREDICT_MARKETS })
   if (path.endsWith('/terminal/perps/account'))

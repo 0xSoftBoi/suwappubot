@@ -29,6 +29,9 @@ import type {
   WalletWithdrawResult,
   MarketRegime,
   MarketSignal,
+  OptionsContext,
+  PerpsPositioning,
+  Catalyst,
   PulseToken,
   HLPosition,
   PredictionMarket,
@@ -365,14 +368,33 @@ export const api = {
     return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
   },
 
+  // Options intel (Deribit, public) — DVOL, skew, max pain, OI walls. Covers
+  // BTC and ETH, Deribit's listed markets.
+  getOptionsContext(currency: 'BTC' | 'ETH') {
+    return request<OptionsContext>(`/terminal/options/context?currency=${currency}`)
+  },
+
+  // Cross-venue positioning (public) — OKX retail long/short + taker flow
+  // (major coins only) plus the OKX-vs-HL funding spread.
+  getPerpsPositioning(coin: string) {
+    const params = new URLSearchParams({ coin })
+    return request<PerpsPositioning>(`/terminal/perps/positioning?${params}`)
+  },
+
   // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
   getMarketRegime() {
     return request<MarketRegime>('/terminal/market/regime')
   },
 
-  // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
+  // Cross-market Signals feed — movers, funding extremes, squeezes, regime,
+  // positioning, funding-arb, vol, and macro-event cards.
   getSignals() {
     return request<MarketSignal[]>('/terminal/signals')
+  },
+
+  // Macro calendar — FOMC/CPI/options-expiry dates (public).
+  getCatalysts() {
+    return request<Catalyst[]>('/terminal/catalysts')
   },
 
   // Final Stretch (pre-migration/pre-graduation) Pulse discovery stage —
