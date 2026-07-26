@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -2787,3 +2789,543 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
         tx_id=claimed_tx_id, tx_hash=tx_hash, from_address=hot_wallet.address
     )
     return {"ok": True, "txHash": tx_hash, "status": "submitted"}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Execution-quality analytics + pre-trade risk guard.
+#
+# MONEY-ADJACENT BUT READ-ONLY: neither route below places an order, cancels
+# anything, or writes to the DB. They only read HyperLiquid's public fill /
+# candle / clearinghouse data and our own completed-swap history, then
+# compute. The perps track answers the Jane Street adverse-selection
+# question — "did price move against me after my fill?" (markout) — and the
+# spot track measures implementation shortfall (quoted vs actually received)
+# where our own data actually supports it (see `_spot_expected_out`).
+# ──────────────────────────────────────────────────────────────────────
+
+EXECUTION_QUALITY_TTL = 120  # seconds
+# Keyed by the resolved DB user_id (the same id `_terminal_user` returns and
+# every other authenticated route in this file uses) — NEVER by the raw JWT,
+# request, or HL address. This is deliberate: even if a user relinks a new
+# HL address mid-TTL, the cache key doesn't change, so a stale entry can only
+# ever serve that same user's own prior snapshot back to them — it can never
+# resolve to a different account and leak another user's fills.
+_execution_quality_cache: dict[int, dict] = {}  # user_id -> {"at": datetime, "data": dict}
+
+HL_MARKOUT_HORIZONS = (1, 5, 30)  # minutes
+HL_MARKOUT_MAX_COINS = 8  # cap coins scanned for candles, per the mission brief
+HL_MARKOUT_FILL_COUNT = 60
+
+
+def _hl_side(raw_side) -> str:
+    """HyperLiquid userFills side: 'B' = buy, 'A' = sell, per HL's API docs;
+    the mapping was cross-checked against the human-readable ``dir`` field
+    ("Sell" fills carry side "A") on live fills during development."""
+    return "buy" if str(raw_side).upper().startswith("B") else "sell"
+
+
+async def _hl_user_fills(client: httpx.AsyncClient, address: str, limit: int) -> list[dict]:
+    """Most recent `limit` fills, newest first (HL's native order)."""
+    try:
+        raw = await _hl_post(client, {"type": "userFills", "user": address})
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    return raw[:limit]
+
+
+async def _hl_markout_candles(
+    client: httpx.AsyncClient, fills: list[dict]
+) -> dict[str, dict[int, float]]:
+    """One candleSnapshot per coin (not per fill), spanning that coin's fills'
+    time range plus the largest markout horizon, indexed by exact 1m-bucket
+    start (ms epoch) -> close price. Capped at the most-traded coins in the
+    window so a chatty account can't fan out into dozens of requests."""
+    counts = Counter(f.get("coin") for f in fills if f.get("coin"))
+    coins = [c for c, _ in counts.most_common(HL_MARKOUT_MAX_COINS)]
+    if not coins:
+        return {}
+
+    max_horizon_ms = max(HL_MARKOUT_HORIZONS) * 60_000
+    times_by_coin: dict[str, list[int]] = {c: [] for c in coins}
+    for f in fills:
+        coin = f.get("coin")
+        if coin in times_by_coin:
+            try:
+                times_by_coin[coin].append(int(f.get("time") or 0))
+            except (TypeError, ValueError):
+                continue
+
+    async def fetch_one(coin: str):
+        times = times_by_coin[coin]
+        if not times:
+            return coin, {}
+        start_ms = min(times) - 60_000
+        end_ms = max(times) + max_horizon_ms + 60_000
+        try:
+            raw = await _hl_post(
+                client,
+                {
+                    "type": "candleSnapshot",
+                    "req": {
+                        "coin": coin,
+                        "interval": "1m",
+                        "startTime": start_ms,
+                        "endTime": end_ms,
+                    },
+                },
+            )
+        except Exception:
+            return coin, {}
+        index: dict[int, float] = {}
+        if isinstance(raw, list):
+            for c in raw:
+                if isinstance(c, dict) and c.get("t") is not None:
+                    try:
+                        index[int(c["t"])] = float(c["c"])
+                    except (TypeError, ValueError):
+                        continue
+        return coin, index
+
+    results = await asyncio.gather(*(fetch_one(c) for c in coins), return_exceptions=True)
+    out: dict[str, dict[int, float]] = {}
+    for r in results:
+        if isinstance(r, Exception):
+            continue
+        coin, index = r
+        out[coin] = index
+    return out
+
+
+def _markout_bps(side: str, px: float, ref: Optional[float]) -> Optional[float]:
+    """Positive = price moved in the trader's favor after the fill; negative
+    = adverse selection (the classic Jane Street markout test)."""
+    if ref is None or not px:
+        return None
+    sign = 1.0 if side == "buy" else -1.0
+    return round(sign * (ref - px) / px * 10000, 2)
+
+
+async def _compute_perps_execution_quality(address: str) -> dict:
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        fills_raw = await _hl_user_fills(client, address, HL_MARKOUT_FILL_COUNT)
+        candle_index = await _hl_markout_candles(client, fills_raw)
+
+    fills_out = []
+    m_sums: dict[int, list[float]] = {h: [] for h in HL_MARKOUT_HORIZONS}
+    total_fees = 0.0
+    sum_closed_pnl = 0.0
+    closing_wins = 0
+    closing_total = 0
+
+    for f in fills_raw:
+        coin = f.get("coin") or ""
+        side = _hl_side(f.get("side"))
+        px = _hl_float(f.get("px"))
+        sz = _hl_float(f.get("sz"))
+        fee = _hl_float(f.get("fee"))
+        closed_pnl = _hl_float(f.get("closedPnl"))
+        try:
+            t_ms = int(f.get("time") or 0)
+        except (TypeError, ValueError):
+            t_ms = 0
+
+        index = candle_index.get(coin) or {}
+        minute_start = (t_ms // 60_000) * 60_000
+        markouts = {}
+        for h in HL_MARKOUT_HORIZONS:
+            ref = index.get(minute_start + h * 60_000)
+            bps = _markout_bps(side, px, ref)
+            markouts[f"m{h}"] = bps
+            if bps is not None:
+                m_sums[h].append(bps)
+
+        total_fees += fee
+        sum_closed_pnl += closed_pnl
+        if abs(closed_pnl) > 0:
+            closing_total += 1
+            if closed_pnl > 0:
+                closing_wins += 1
+
+        fills_out.append(
+            {
+                "time": (
+                    datetime.fromtimestamp(t_ms / 1000, tz=timezone.utc).isoformat()
+                    if t_ms
+                    else None
+                ),
+                "coin": coin,
+                "side": side,
+                "px": px,
+                "sz": sz,
+                "feeUsd": round(fee, 4),
+                "closedPnlUsd": round(closed_pnl, 4),
+                "markoutBps": markouts,
+            }
+        )
+
+    avg_markout = {f"m{h}": (round(sum(v) / len(v), 2) if v else None) for h, v in m_sums.items()}
+    win_rate = round(closing_wins / closing_total, 4) if closing_total else None
+
+    avg_m5 = avg_markout["m5"]
+    if avg_m5 is None:
+        read = "Not enough fill history yet to measure execution quality."
+    elif avg_m5 <= -8:
+        read = (
+            f"Your fills are followed by adverse moves ({avg_m5:+.1f} bps avg at 5m) — "
+            "you're paying for immediacy; consider resting limits or smaller clips."
+        )
+    elif avg_m5 < 3:
+        read = (
+            f"Your entries show little post-fill drift ({avg_m5:+.1f} bps avg at 5m) — "
+            "timing isn't costing or earning you much here."
+        )
+    else:
+        read = (
+            f"Your entries lead the move at 5m on average ({avg_m5:+.1f} bps) — "
+            "timing is an edge here."
+        )
+    if total_fees > 0 and abs(sum_closed_pnl) > 0 and total_fees > 0.25 * abs(sum_closed_pnl):
+        read += (
+            f" Fees ({_fmt_usd(total_fees)}) are eating a large share of realized PnL "
+            f"({_fmt_usd(sum_closed_pnl)})."
+        )
+
+    return {
+        "address": address,
+        "fills": fills_out,
+        "aggregates": {
+            "fillCount": len(fills_out),
+            "avgMarkoutBps": avg_markout,
+            "totalFeesUsd": round(total_fees, 2),
+            "winRate": win_rate,
+            "read": read,
+        },
+    }
+
+
+def _spot_expected_out(route_data_raw: Optional[str]) -> Optional[float]:
+    """Best-effort quoted expected-out (raw token units) from a swap's stored
+    ``route_data`` JSON. Returns None — never a guess — when the field is
+    empty, unparseable, or doesn't carry a recognized quote shape. LiFi:
+    ``{"estimate": {"toAmount": "..."}}``. Jupiter: ``{"outAmount": "..."}``.
+    """
+    if not route_data_raw:
+        return None
+    try:
+        data = json.loads(route_data_raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    estimate = data.get("estimate")
+    if isinstance(estimate, dict) and estimate.get("toAmount") is not None:
+        return _to_float(estimate.get("toAmount"))
+    if data.get("outAmount") is not None:
+        return _to_float(data.get("outAmount"))
+    return None
+
+
+def _compute_spot_execution_quality(rows: list[dict]) -> dict:
+    swaps_out = []
+    shortfalls: list[float] = []
+    total_fees = 0.0
+    by_route_shortfalls: dict[str, list[float]] = {}
+    by_route_counts: dict[str, int] = {}
+
+    for r in rows:
+        expected = _spot_expected_out(r.get("route_data"))
+        actual = _to_float(r.get("to_amount"))
+        shortfall_bps = None
+        note = None
+        if expected is not None and actual is not None and expected > 0:
+            shortfall_bps = round((actual - expected) / expected * 10000, 2)
+        else:
+            note = "quote snapshot unavailable"
+
+        gas = r.get("gas_fee")
+        bridge = r.get("bridge_fee")
+        fees_usd = None
+        if gas is not None or bridge is not None:
+            fees_usd = (gas or 0.0) + (bridge or 0.0)
+            total_fees += fees_usd
+
+        route = r.get("route_provider") or "unknown"
+        by_route_counts[route] = by_route_counts.get(route, 0) + 1
+        if shortfall_bps is not None:
+            shortfalls.append(shortfall_bps)
+            by_route_shortfalls.setdefault(route, []).append(shortfall_bps)
+
+        ts = r.get("completed_at") or r.get("created_at")
+        swaps_out.append(
+            {
+                "time": ts.replace(tzinfo=timezone.utc).isoformat() if ts else None,
+                "route": route,
+                "pair": f"{r.get('from_token')}→{r.get('to_token')}",
+                "shortfallBps": shortfall_bps,
+                "feesUsd": round(fees_usd, 4) if fees_usd is not None else None,
+                "note": note,
+            }
+        )
+
+    by_route_out = [
+        {
+            "route": route,
+            "count": by_route_counts[route],
+            "avgShortfallBps": (
+                round(sum(vals) / len(vals), 2)
+                if (vals := by_route_shortfalls.get(route))
+                else None
+            ),
+        }
+        for route in by_route_counts
+    ]
+    by_route_out.sort(key=lambda x: x["count"], reverse=True)
+
+    avg_shortfall = round(sum(shortfalls) / len(shortfalls), 2) if shortfalls else None
+    if avg_shortfall is None:
+        read = (
+            "Most of your swaps predate quote snapshots — shortfall vs quote is "
+            "available on new swaps only."
+        )
+    else:
+        priced = [r for r in by_route_out if r["avgShortfallBps"] is not None]
+        best = min(priced, key=lambda r: r["avgShortfallBps"]) if priced else by_route_out[0]
+        read = (
+            f"Route {best['route']} delivered on average {best['avgShortfallBps']:+.1f} bps "
+            f"vs quote across {best['count']} swaps."
+        )
+
+    return {
+        "swaps": swaps_out,
+        "aggregates": {
+            "count": len(swaps_out),
+            "avgShortfallBps": avg_shortfall,
+            "totalFeesUsd": round(total_fees, 2),
+            "byRoute": by_route_out,
+            "read": read,
+        },
+    }
+
+
+@router.get("/execution/quality")
+async def terminal_execution_quality(request: Request):
+    """Per-user execution-quality analytics: adverse-selection markout on
+    HyperLiquid fills (perps) and implementation shortfall vs quote on
+    completed swaps (spot). Auth required — 401 if signed out, same as the
+    sibling perps routes. Cached 120s per user."""
+    payload = _terminal_user(request)
+    uid = int(payload["user_id"])
+
+    now = datetime.now(timezone.utc)
+    cached = _execution_quality_cache.get(uid)
+    if cached and (now - cached["at"]).total_seconds() < EXECUTION_QUALITY_TTL:
+        return cached["data"]
+
+    from bot.services.perps_service import perps_service
+    from bot.services.execution_quality_service import get_recent_completed_swaps
+    from database.db import run_in_db
+
+    acct = perps_service.get_account(uid)
+    swaps_awaitable = run_in_db(get_recent_completed_swaps, uid, 30)
+
+    if acct and acct.hl_address:
+        perps_result, rows = await asyncio.gather(
+            _compute_perps_execution_quality(acct.hl_address),
+            swaps_awaitable,
+            return_exceptions=True,
+        )
+        if isinstance(perps_result, Exception):
+            logger.warning(
+                "execution quality perps fetch failed for user %s: %s", uid, perps_result
+            )
+            perps_result = None
+    else:
+        perps_result = None
+        rows = await swaps_awaitable
+
+    if isinstance(rows, Exception):
+        logger.warning("execution quality swap history fetch failed for user %s: %s", uid, rows)
+        rows = []
+
+    spot_result = _compute_spot_execution_quality(rows) if rows else None
+
+    data = {
+        "perps": perps_result,
+        "spot": spot_result,
+        "updatedAt": now.isoformat(),
+    }
+    # Bounded insert: this cache is keyed per-user (unbounded key space, unlike
+    # the currency/coin caches above), so evict before it can grow into a leak.
+    if len(_execution_quality_cache) >= 500:
+        expired = [
+            k
+            for k, v in _execution_quality_cache.items()
+            if (now - v["at"]).total_seconds() > EXECUTION_QUALITY_TTL
+        ]
+        for k in expired:
+            _execution_quality_cache.pop(k, None)
+        while len(_execution_quality_cache) >= 500:
+            oldest = min(_execution_quality_cache, key=lambda k: _execution_quality_cache[k]["at"])
+            _execution_quality_cache.pop(oldest, None)
+    _execution_quality_cache[uid] = {"at": now, "data": data}
+    return data
+
+
+RISK_LEVEL_WARN_PCT = 10.0
+RISK_LEVEL_ALERT_PCT = 25.0
+
+
+@router.get("/perps/risk")
+async def terminal_perps_risk(
+    request: Request,
+    coin: str = Query(...),
+    size: float = Query(...),
+    leverage: int = Query(...),
+    marginMode: str = Query(default="isolated"),
+    side: str = Query(default="long"),
+):
+    """Deterministic pre-trade sizing guard for a HyperLiquid perp — NOT a
+    prediction. Estimates the liquidation price and the dollar cost of
+    getting there, and sizes that against the user's perps equity so "how
+    much of my account is this one idea" is visible before the order goes
+    out. Auth required."""
+    uid = int(_terminal_user(request)["user_id"])
+
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    side_l = side.lower().strip()
+    margin_mode = marginMode.lower().strip()
+    if side_l not in ("long", "short"):
+        raise HTTPException(status_code=400, detail="side must be 'long' or 'short'.")
+    if margin_mode not in ("isolated", "cross"):
+        raise HTTPException(status_code=400, detail="marginMode must be 'isolated' or 'cross'.")
+    if size <= 0:
+        raise HTTPException(status_code=400, detail="size must be greater than zero.")
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            meta_ctx = await _hl_post(client, {"type": "metaAndAssetCtxs"})
+    except Exception:
+        raise HTTPException(
+            status_code=502, detail="Couldn't reach HyperLiquid to price this position."
+        )
+
+    universe = (meta_ctx[0] or {}).get("universe") or [] if isinstance(meta_ctx, list) else []
+    ctxs = meta_ctx[1] or [] if isinstance(meta_ctx, list) and len(meta_ctx) > 1 else []
+    mark_px = 0.0
+    max_leverage = 0
+    found = False
+    for u, c in zip(universe, ctxs):
+        if u.get("name") == asset:
+            mark_px = _hl_float(c.get("markPx"))
+            max_leverage = int(u.get("maxLeverage") or 0)
+            found = True
+            break
+    if not found or mark_px <= 0:
+        raise HTTPException(status_code=400, detail=f"Unknown or unpriced coin '{asset}'.")
+    if not (1 <= leverage <= max_leverage):
+        raise HTTPException(
+            status_code=400,
+            detail=f"leverage must be between 1 and {max_leverage} for {asset}.",
+        )
+
+    notional_usd = size * mark_px
+    margin_usd = notional_usd / leverage
+
+    # Exact closed form for a fresh isolated position under HL's maintenance
+    # margin (half the initial margin at max leverage, proportional to notional
+    # at the liquidation price): equity(p) = margin + side*(p - entry)*sz hits
+    # mmf*p*sz at p = entry*(1 ∓ 1/L)/(1 ∓ mmf). MUST match the client-side
+    # estimate in terminal PerpsPanel.tsx — the order ticket shows both, and two
+    # disagreeing liq numbers on one ticket is worse than none. Still an
+    # ESTIMATE: HL's post-open liquidationPx on the position is authoritative.
+    mm_fraction = 1 / (2 * max_leverage)
+    if side_l == "long":
+        liq_px_est = mark_px * (1 - 1 / leverage) / (1 - mm_fraction)
+    else:
+        liq_px_est = mark_px * (1 + 1 / leverage) / (1 + mm_fraction)
+    liq_distance_pct = round(abs(mark_px - liq_px_est) / mark_px * 100, 2)
+
+    worst_case_loss_usd = margin_usd
+    cross_note = (
+        "Cross margin draws from your whole perps balance, not just this position's "
+        "margin — a bad move here can eat other positions too."
+        if margin_mode == "cross"
+        else None
+    )
+
+    perps_equity_usd = None
+    from bot.services.perps_service import perps_service
+
+    acct = perps_service.get_account(uid)
+    if acct and acct.hl_address:
+        try:
+            state = await perps_service._client.get_account_state(acct.hl_address)
+            if state:
+                perps_equity_usd = _to_float(
+                    (state.get("margin_summary") or {}).get("accountValue")
+                )
+        except Exception as e:
+            logger.warning("terminal perps risk equity fetch failed for user %s: %s", uid, e)
+
+    # Total (perps + spot) equity would need the full multi-chain, per-token
+    # portfolio valuation (bot/services/pnl.py get_portfolio_value) — that
+    # does one on-chain balance fetch and one price lookup PER wallet/chain/
+    # token, serially. Fine for a dashboard page, too slow for a pre-trade
+    # sizing check the user expects to be instant, so we deliberately don't
+    # call it here and report null rather than block the route on it.
+    total_equity_usd = None
+
+    pct_of_perps_equity = (
+        round(worst_case_loss_usd / perps_equity_usd * 100, 2) if perps_equity_usd else None
+    )
+    pct_of_total_equity = None  # total_equity_usd is always null; see note above.
+
+    if pct_of_perps_equity is not None:
+        pct_for_level = pct_of_perps_equity
+    else:
+        # Equity unknown (no HL link, or the live fetch failed) — fall back to
+        # a leverage-only heuristic so the guard still says *something*,
+        # clearly flagged as such in `note`.
+        pct_for_level = None
+
+    if pct_for_level is not None:
+        if pct_for_level < RISK_LEVEL_WARN_PCT:
+            level = "ok"
+        elif pct_for_level < RISK_LEVEL_ALERT_PCT:
+            level = "warn"
+        else:
+            level = "alert"
+        note = (
+            f"Liquidation on this position would cost ~{_fmt_usd(worst_case_loss_usd)} — "
+            f"{pct_for_level:.0f}% of your perps equity. Serious desks size so one loss "
+            "can't end the account (fractional-Kelly: risk a few % per idea)."
+        )
+    else:
+        level = "ok" if leverage <= 5 else ("warn" if leverage <= 15 else "alert")
+        note = (
+            f"Liquidation on this position would cost ~{_fmt_usd(worst_case_loss_usd)}. "
+            "Connect HyperLiquid so this can be sized against your real account equity — "
+            f"for now this is a leverage-only estimate ({leverage}x)."
+        )
+
+    return {
+        "coin": asset,
+        "side": side_l,
+        "markPx": mark_px,
+        "notionalUsd": round(notional_usd, 2),
+        "marginUsd": round(margin_usd, 2),
+        "maxLeverage": max_leverage,
+        "liqPxEst": round(liq_px_est, 6),
+        "liqDistancePct": liq_distance_pct,
+        "worstCaseLossUsd": round(worst_case_loss_usd, 2),
+        "crossNote": cross_note,
+        "perpsEquityUsd": perps_equity_usd,
+        "totalEquityUsd": total_equity_usd,
+        "pctOfPerpsEquity": pct_of_perps_equity,
+        "pctOfTotalEquity": pct_of_total_equity,
+        "level": level,
+        "note": note,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }

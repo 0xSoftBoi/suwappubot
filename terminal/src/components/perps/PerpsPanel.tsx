@@ -6,6 +6,7 @@ import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/
 import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
 import { usePerpsAccount, useExecutePerps } from '../../hooks/useTerminalPerps'
 import { ConnectHyperliquid } from './ConnectHyperliquid'
+import { CapitalAtRiskStrip } from './CapitalAtRiskStrip'
 import { usePersistentState } from '../../lib/persist'
 import type { MarginMode } from '../../types/perps'
 
@@ -294,6 +295,18 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
           <span>{market?.maxLeverage || 20}×</span>
         </div>
       </div>
+
+      {/* Capital-at-risk guard — server-computed dollar loss to liquidation
+          and its share of the account, sourced from the same size/leverage/
+          side/margin-mode ticket state above. Silent on error/no-size so it
+          never blocks trading. */}
+      <CapitalAtRiskStrip
+        coin={market?.asset ?? ''}
+        side={side}
+        size={sizeNum}
+        leverage={leverage}
+        marginMode={marginMode}
+      />
 
       {/* Take profit / stop loss — market orders only (a limit entry has no
           position yet to attach reduce-only triggers to). Both optional. */}
