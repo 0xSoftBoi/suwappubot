@@ -2001,6 +2001,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// a new swap instead of silently misreporting.
 	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
 	if (clientIdempotencyKey && !/^[A-Za-z0-9_.:-]{1,64}$/.test(clientIdempotencyKey)) {
+		await refundSwapExecuteCharge(c, agent, 'invalid Idempotency-Key')
 		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid Idempotency-Key', {
 			hint: 'Use 1-64 characters from A-Za-z0-9_.:-',
 		})
@@ -2020,6 +2021,10 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const idempotencyKey = clientIdempotencyKey
 		? `agent_${agent.id}_${clientIdempotencyKey}_${requestFingerprint}`
 		: `agent_${agent.id}_${quote_id}`
+
+	// Set when a failure leaves the swap's on-chain outcome UNKNOWN (the request may
+	// have been received and broadcast). Such failures must NOT be refunded.
+	let internalOutcomeUnknown = false
 
 	// Call internal Python endpoint
 	const result = await runEffectEither(
@@ -2055,6 +2060,10 @@ agentRoutes.post('/swap/execute', async (c) => {
 					})
 
 					if (!res.ok) {
+						// A 5xx can arrive after the Python side already broadcast the tx
+						// (e.g. it failed while recording the swap), so the outcome is unknown.
+						// A 4xx is an explicit pre-submit rejection.
+						if (res.status >= 500) internalOutcomeUnknown = true
 						const errBody = (await res.json().catch(() => ({ detail: 'Unknown error' }))) as {
 							detail?: string
 						}
@@ -2063,7 +2072,21 @@ agentRoutes.post('/swap/execute', async (c) => {
 
 					return (await res.json()) as { swap_id: number; tx_hash: string | null; status: string }
 				},
-				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
+				catch: (e) => {
+					// execute-swap is synchronous through broadcast on the Python side and
+					// can wait ~120s on an ERC-20 approval receipt, while this fetch aborts
+					// at 30s. A timeout/abort/network error therefore does NOT mean the swap
+					// didn't execute — refunding here would hand credits back for trades that
+					// landed on-chain, which an agent could trigger deliberately.
+					if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+						internalOutcomeUnknown = true
+					} else if (e instanceof TypeError) {
+						// fetch() throws TypeError for connection-level failures, which may
+						// occur after the request was received and acted upon.
+						internalOutcomeUnknown = true
+					}
+					return new ValidationError({ message: e instanceof Error ? e.message : String(e) })
+				},
 			})
 
 			return swapResponse
@@ -2079,11 +2102,21 @@ agentRoutes.post('/swap/execute', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		// The internal Python call failed before (or without) executing the swap —
-		// e.g. internal API unreachable/misconfigured, or execute-swap itself rejected
-		// the request. Refund the charge; there is no partial-execution ambiguity here
-		// because a successfully submitted swap returns Right, not Left.
-		await refundSwapExecuteCharge(c, agent, `internal execute-swap call failed: ${result.left.message}`)
+		// Refund ONLY when the swap provably did not execute (misconfiguration, or an
+		// explicit 4xx rejection from execute-swap). On a timeout/abort/network error or
+		// a 5xx the tx may already be on-chain, so we keep the charge and log for
+		// reconciliation — the idempotency key identifies the swap.
+		if (internalOutcomeUnknown) {
+			console.warn(
+				`[swap/execute] outcome unknown for agent=${agent.id} idempotency_key=${idempotencyKey}: ${result.left.message} — charge retained, needs reconciliation`,
+			)
+		} else {
+			await refundSwapExecuteCharge(
+				c,
+				agent,
+				`internal execute-swap call failed pre-submit: ${result.left.message}`,
+			)
+		}
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status)
 	}

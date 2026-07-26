@@ -77,12 +77,15 @@ describe('resolveSwapExecuteDecimals (MONEY-PATH: quote_data.from_amount_human)'
 		expect(fromDecimals).toBeUndefined()
 	})
 
-	// MONEY-PATH regression: mcp.ts's Tempo branch used to cache a quote with NO
-	// fromDecimals/toDecimals (COMMON_TOKENS[4217] was address-only, and the Python
-	// tempo/quote dict has no decimals field), which made /swap/execute reject every
-	// Tempo swap with 422. TEMPO_TOKEN_DECIMALS (TokenService) now supplies the
-	// authoritative decimals (18, per bot/config/tokens.py) at quote-cache time.
-	it('resolves for a Tempo (pathUSD -> AlphaUSD) quote once TEMPO_TOKEN_DECIMALS is used at cache time', () => {
+	// TEMPO_TOKEN_DECIMALS (TokenService) carries the authoritative 18dp from
+	// bot/config/tokens.py, correcting a stale hardcoded 6 that made the tempo token
+	// list wrong. NOTE: mcp.ts deliberately does NOT pass these at quote-cache time,
+	// so Tempo quotes still 422 at /swap/execute — /internal/tempo/quote does not
+	// exist on the Python side, and /swap/execute has no provider:'tempo' quote_data
+	// branch, so "executable" Tempo quotes would ship malformed Li.Fi-shaped data
+	// with the balance guard disabled. This asserts the decimals VALUE is right and
+	// would resolve, not that the Tempo path is currently executable.
+	it('supplies the authoritative 18dp for Tempo tokens (pathUSD -> AlphaUSD) when provided at cache time', () => {
 		expect(Object.keys(COMMON_TOKENS[4217] || {})).toEqual(
 			expect.arrayContaining(['pathUSD', 'AlphaUSD', 'BetaUSD', 'ThetaUSD']),
 		)
@@ -95,8 +98,9 @@ describe('resolveSwapExecuteDecimals (MONEY-PATH: quote_data.from_amount_human)'
 		const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
 		expect(fromDecimals).toBe(18)
 		expect(toDecimals).toBe(18)
-		// Would NOT hit the 422 QUOTE_NOT_FOUND branch in /swap/execute, which only
-		// fires when fromDecimals is undefined.
+		// Resolvable, so IF the Tempo cache site ever populates these (see note above,
+		// blocked on the Python endpoint + a tempo quote_data branch), it would clear
+		// the 422 gate, which only fires when fromDecimals is undefined.
 		expect(fromDecimals).not.toBeUndefined()
 	})
 })

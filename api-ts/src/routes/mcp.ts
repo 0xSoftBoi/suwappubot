@@ -638,15 +638,16 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			}
 			const quote = await res.json() as Record<string, unknown>
 			const quoteId = `tempo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-			// Decimals resolved from TEMPO_TOKEN_DECIMALS (TokenService), sourced from
-			// bot/config/tokens.py — all Tempo TIP-20 stablecoins are 18dp. This restores
-			// the pre-swap balance guard on /swap/execute for Tempo quotes.
-			const fromSymbol = Object.keys(tempoTokens).find((k) => k.toUpperCase() === fromNorm)
-			const toSymbol = Object.keys(tempoTokens).find((k) => k.toUpperCase() === toNorm)
-			cacheAgentQuote(quoteId, quote, agent.id, false, {
-				fromDecimals: (fromSymbol ? TEMPO_TOKEN_DECIMALS[fromSymbol] : undefined) ?? 18,
-				toDecimals: (toSymbol ? TEMPO_TOKEN_DECIMALS[toSymbol] : undefined) ?? 18,
-			})
+			// Deliberately cached WITHOUT decimals so /swap/execute refuses these with a
+			// 422. Supplying decimals would make the quote "executable", but that path
+			// builds Li.Fi-shaped quote_data from this Tempo dict (no fromChain/fromToken/
+			// fromAmount), producing from_amount_human: 0 — which disables the pre-swap
+			// balance guard and ships an ethereum-labelled request to swap_engine. The
+			// refusal is the safe behavior. To make Tempo executable, the Python
+			// /internal/tempo/quote endpoint must exist (it currently does NOT) and
+			// /swap/execute needs a provider: 'tempo' quote_data branch; only then
+			// populate decimals here from TEMPO_TOKEN_DECIMALS.
+			cacheAgentQuote(quoteId, quote, agent.id, false)
 			return {
 				content: [{
 					type: 'text',
