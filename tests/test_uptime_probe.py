@@ -101,7 +101,16 @@ def test_endpoints_file_covers_every_public_service():
     prod = uptime_probe.load_endpoints("prod")
     names = {ep["name"] for ep in prod}
 
-    assert {"python-api", "api-ts", "terminal", "showcase", "webapp", "bridge"} <= names
+    # Names must match the Railway service names so scripts/status.py can join
+    # these onto the services it discovers from the control plane.
+    assert {
+        "python-api",
+        "api-ts",
+        "terminal",
+        "showcase",
+        "webapp",
+        "suwappu-bridge",
+    } <= names
     for ep in prod:
         assert ep["url"].startswith("https://"), f"{ep['name']} must be probed over TLS"
 

@@ -63,35 +63,36 @@ _MAX_DEPTH = 24
 # into a message — e.g. `raise ValueError(f"bad key {pk}")` produces a plain
 # string under the key "value". These patterns catch the high-confidence shapes
 # we actually handle. Ordered most-specific first.
+# Credentialed RPC/API endpoints put the key in the URL PATH, under a perfectly
+# innocent key name like "url". Sentry's httplib integration records every
+# outbound request as a breadcrumb, so an RPC error would otherwise ship our
+# paid Alchemy/Helius/Infura keys. Handled separately from the patterns below
+# because it rewrites (keeping scheme+host) rather than replacing outright.
+# Mirrors CREDENTIALED_URL in api-ts/src/lib/sentryRedact.ts.
+_CREDENTIALED_URL = re.compile(
+    r"(https?://[A-Za-z0-9.-]*\.?"
+    r"(?:alchemy\.com|helius[-.]?(?:rpc|xyz)?\.[a-z]+|infura\.io|"
+    r"quicknode\.(?:pro|com)|blastapi\.io|ankr\.com|chainstack\.com)"
+    r"[^\s\"']*)",
+    re.IGNORECASE,
+)
+
+# Redacted outright. Keep in sync with SECRET_VALUE_PATTERNS in
+# api-ts/src/lib/sentryRedact.ts.
 _SECRET_VALUE_PATTERNS = (
-    # Credentialed RPC/API endpoints put the key in the URL PATH, under a
-    # perfectly innocent key name like "url". Sentry's httplib integration
-    # records every outbound request as a breadcrumb, so an RPC error would
-    # otherwise ship our paid Alchemy/Helius/Infura keys. Keep scheme+host,
-    # drop everything after it.
-    (
-        re.compile(
-            r"(https?://[A-Za-z0-9.-]*\.?"
-            r"(?:alchemy\.com|helius[-.]?(?:rpc|xyz)?\.[a-z]+|infura\.io|"
-            r"quicknode\.(?:pro|com)|blastapi\.io|ankr\.com|chainstack\.com)"
-            r"[^\s\"']*)",
-            re.IGNORECASE,
-        ),
-        True,  # needs host-preserving rewrite
-    ),
     # Telegram bot token: <digits>:<35 base64url chars>
-    (re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"), False),
+    re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),
     # JWT / JWS compact serialization
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"), False),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"),
     # AWS access key id
-    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), False),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     # Long hex runs — EVM keys (64), ed25519 keypair hex (128), and anything
     # else key-length. Deliberately NOT anchored at exactly 64: a \b-anchored
     # 64-char pattern cannot match inside a longer hex run, so 128-hex secrets
     # slipped through entirely.
-    (re.compile(r"\b(?:0x)?[a-fA-F0-9]{40,}\b"), False),
+    re.compile(r"\b(?:0x)?[a-fA-F0-9]{40,}\b"),
     # Solana base58 secret keys (~87-88 chars). Base58 excludes 0/O/I/l.
-    (re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{80,90}\b"), False),
+    re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{80,90}\b"),
 )
 
 # Guard against pathological inputs (e.g. a multi-MB HTML error body captured
@@ -128,8 +129,9 @@ def _scrub_text(text: str) -> str:
     if len(text) > _MAX_SCRUB_TEXT:
         # Too big to scan safely; we cannot prove it is clean, so drop it.
         return REDACTED
-    for pattern, is_url in _SECRET_VALUE_PATTERNS:
-        text = pattern.sub(_redact_url, text) if is_url else pattern.sub(REDACTED, text)
+    text = _CREDENTIALED_URL.sub(_redact_url, text)
+    for pattern in _SECRET_VALUE_PATTERNS:
+        text = pattern.sub(REDACTED, text)
     return text
 
 

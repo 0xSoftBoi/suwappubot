@@ -7,6 +7,10 @@
     "was deployed as its own service. Add a service here and every probe picks",
     "it up.",
     "",
+    "`name` must match the Railway SERVICE name, so scripts/status.py can join",
+    "these probe targets onto the control-plane services it discovers and reuse",
+    "the URL from here instead of keeping a second per-service map.",
+    "",
     "Services with no public URL (python-worker, suwappu-relayer) cannot be",
     "probed over HTTP at all — they are covered by the Railway deploy webhook",
     "and by `python3 scripts/status.py`, which reads the control plane."
@@ -31,7 +35,7 @@
       "url": "https://showcase-production-6f89.up.railway.app/robots.txt"
     },
     {
-      "name": "bridge",
+      "name": "suwappu-bridge",
       "url": "https://suwappu-bridge-production.up.railway.app/"
     },
     {

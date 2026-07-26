@@ -43,6 +43,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -120,6 +121,15 @@ def check(ep: dict, rechecks: int = DEGRADED_RECHECKS) -> dict:
 
 
 def send_telegram(text: str) -> bool:
+    """Post an alert to Telegram directly.
+
+    Deliberately does NOT reuse bot/services/support_notifier.post_admin_update:
+    that needs a live bot instance and pulls in the bot's whole dependency tree,
+    while this script must run on a bare cron runner with nothing installed —
+    and, critically, must still alert when python-api itself is down. Routing it
+    through the app would reintroduce the single point of failure the probe
+    exists to avoid.
+    """
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.environ.get("TELEGRAM_ALERT_CHAT_ID", "").strip()
     if not token or not chat:
@@ -187,7 +197,15 @@ def main() -> int:
     args = ap.parse_args()
 
     endpoints = load_endpoints(args.env)
-    results = [check(ep, rechecks=max(0, args.rechecks)) for ep in endpoints]
+
+    # Probe concurrently. Serially, a degraded endpoint costs up to
+    # rechecks × DEGRADED_RECHECK_DELAY (~2 min) plus retry backoff, so a
+    # correlated incident across several services — exactly what this exists to
+    # catch — could push one run past the 10-minute cron interval and overlap
+    # the next. In parallel the run costs roughly the slowest single endpoint.
+    rechecks = max(0, args.rechecks)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda ep: check(ep, rechecks=rechecks), endpoints))
 
     failed = [r for r in results if not r["ok"]]
     degraded = [r for r in results if r["ok"] and r["degraded"]]

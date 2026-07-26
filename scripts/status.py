@@ -26,6 +26,7 @@ Only needs python3 (stdlib), the `railway` CLI, and optionally `gh`.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -37,6 +38,9 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Services that are infrastructure, not our code — reported but never alerted on
 # for "no deployment", since Railway manages their lifecycle.
@@ -247,8 +251,29 @@ def probe(url: str, timeout: int = 15, attempts: int = 3) -> tuple[int, str]:
     return status, body
 
 
+@functools.lru_cache(maxsize=4)
+def _probe_urls(env: str) -> dict[str, str]:
+    """Probe URLs from monitoring/endpoints.json, keyed by service name.
+
+    That file is the single source of truth the unattended probes read. Keeping
+    a second per-service URL map here is what let `webapp` go unmonitored in the
+    first place, so prefer it and fall back to the maps below only for services
+    it does not list.
+    """
+    try:
+        data = json.loads((REPO_ROOT / "monitoring" / "endpoints.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {ep["name"]: ep["url"] for ep in data.get(env, []) if ep.get("name") and ep.get("url")}
+
+
 def health_url(svc: dict, env: str) -> str | None:
     name = svc["name"]
+
+    shared = _probe_urls(env).get(name)
+    if shared:
+        return shared
+
     base = CUSTOM_DOMAIN.get(env, {}).get(name)
     if not base:
         if not svc["hosts"]:
@@ -375,37 +400,21 @@ def ci_status(limit: int = 5) -> list[str]:
 # ── main ──────────────────────────────────────────────────────────────────
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Suwappu unified deploy/health status")
-    ap.add_argument("--env", default="prod", choices=["prod", "dev"])
-    ap.add_argument("--quick", action="store_true", help="skip the log error scan")
-    ap.add_argument("--json", action="store_true", dest="as_json")
-    ap.add_argument("--logs", metavar="SERVICE", help="dump recent logs for a service")
-    ap.add_argument("--lines", type=int, default=200)
-    args = ap.parse_args()
+def gather(env: str, quick: bool, lines: int) -> tuple[list[dict], str | None]:
+    """Collect the full picture: control plane, then HTTP health, then logs.
 
-    if args.logs:
-        code, out = run(
-            ["railway", "logs", "-s", args.logs, "--lines", str(args.lines)], timeout=90
-        )
-        print(out)
-        return 0 if code == 0 else 2
-
-    services, err = railway_services(args.env)
+    Returns (services, error). Each service dict carries its control-plane
+    state plus whatever the probe and log scan added. Rendering is separate so
+    output formats can be added without touching the gathering logic.
+    """
+    services, err = railway_services(env)
     if err:
-        # Control plane unavailable is itself important — do not silently pass.
-        if args.as_json:
-            print(json.dumps({"ok": False, "error": err}, indent=2))
-        else:
-            print(color(f"✗ Railway control plane unavailable: {err}", RED))
-            print(color("  Fix the CLI auth/link — HTTP probes alone cannot see", DIM))
-            print(color("  crash-looping workers or failed deploys.", DIM))
-        return 2
+        return [], err
 
     # Judge each service, then probe the ones with a reachable URL in parallel.
     for s in services:
         s["verdict"], s["reason"] = judge_service(s)
-        s["url"] = health_url(s, args.env)
+        s["url"] = health_url(s, env)
 
     # Don't probe services that were never deployed here — a 404 on a service
     # that dev simply doesn't provision is noise, not an outage.
@@ -432,43 +441,57 @@ def main() -> int:
                 s["verdict"] = "warn"
                 s["reason"] = f"{len(s['subsystems'])} subsystem(s) degraded"
 
-    # Only scan logs where something already looks wrong — keeps the fast path fast.
-    if not args.quick:
+    # Only scan logs where something already looks wrong — keeps the fast path
+    # fast. Concurrently, because each scan shells out to `railway logs` with a
+    # 90s timeout: four suspects serially is a ~6 minute worst case for what is
+    # an interactive command.
+    if not quick:
         suspects = [s for s in services if s["verdict"] != "ok" and s["name"] not in INFRA_SERVICES]
-        for s in suspects[:4]:
-            hits, log_err = scan_logs(s["name"], args.lines)
+        suspects = suspects[:4]
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            scans = list(ex.map(lambda s: scan_logs(s["name"], lines), suspects))
+        for s, (hits, log_err) in zip(suspects, scans):
             s["errors"] = hits[-8:]
             s["errors_total"] = len(hits)
             if log_err:
                 s["log_error"] = log_err
 
-    down = [s for s in services if s["verdict"] == "down"]
-    warn = [s for s in services if s["verdict"] == "warn"]
-    absent = [s for s in services if s["verdict"] == "absent"]
-    exit_code = 1 if (down or warn) else 0
+    return services, None
 
-    if args.as_json:
-        print(
-            json.dumps(
-                {
-                    "ok": not down and not warn,
-                    "env": args.env,
-                    "checked_at": datetime.now(timezone.utc).isoformat(),
-                    "down": [s["name"] for s in down],
-                    "warn": [s["name"] for s in warn],
-                    "absent": [s["name"] for s in absent],
-                    "services": services,
-                },
-                indent=2,
-                default=str,
-            )
+
+def _by_verdict(services: list[dict], verdict: str) -> list[dict]:
+    return [s for s in services if s["verdict"] == verdict]
+
+
+def exit_code_for(services: list[dict]) -> int:
+    """0 = all good, 1 = anything down or degraded. `absent` never fails."""
+    return 1 if (_by_verdict(services, "down") or _by_verdict(services, "warn")) else 0
+
+
+def render_json(services: list[dict], env: str) -> None:
+    down = _by_verdict(services, "down")
+    warn = _by_verdict(services, "warn")
+    print(
+        json.dumps(
+            {
+                "ok": not down and not warn,
+                "env": env,
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "down": [s["name"] for s in down],
+                "warn": [s["name"] for s in warn],
+                "absent": [s["name"] for s in _by_verdict(services, "absent")],
+                "services": services,
+            },
+            indent=2,
+            default=str,
         )
-        return exit_code
+    )
 
-    # ── human output ──
+
+def render_human(services: list[dict], env: str, lines: int) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     print(color("═" * 72, DIM))
-    print(color(f" SUWAPPU STATUS  ({args.env})  {stamp}", BOLD))
+    print(color(f" SUWAPPU STATUS  ({env})  {stamp}", BOLD))
     print(color("═" * 72, DIM))
 
     print(color("\n▸ Railway services (control plane)", CYAN))
@@ -480,7 +503,7 @@ def main() -> int:
     }
     for s in services:
         if s["verdict"] == "absent":
-            print(color(f"  · {s['name']:<18} not deployed in {args.env}", DIM))
+            print(color(f"  · {s['name']:<18} not deployed in {env}", DIM))
             continue
         inst = ",".join(s["instances"]) or "-"
         line = (
@@ -497,6 +520,7 @@ def main() -> int:
         for s in services
         if not s["url"] and s["name"] not in INFRA_SERVICES and s["verdict"] != "absent"
     ]
+    probes = [s for s in services if s.get("http_status") is not None]
     for s in probes:
         code_ = s.get("http_status", 0)
         ok = 200 <= code_ < 300
@@ -520,7 +544,7 @@ def main() -> int:
                 continue
             n = s.get("errors_total", 0)
             if not n:
-                print(color(f"  ✓ {s['name']}: no errors in last {args.lines} lines", GREEN))
+                print(color(f"  ✓ {s['name']}: no errors in last {lines} lines", GREEN))
                 continue
             print(color(f"  ✗ {s['name']}: {n} error line(s)", RED))
             for ln in s.get("errors", []):
@@ -532,6 +556,8 @@ def main() -> int:
         for row in ci:
             print(f"  {row}")
 
+    down = _by_verdict(services, "down")
+    warn = _by_verdict(services, "warn")
     print()
     if down:
         print(color(f"✗ DOWN: {', '.join(s['name'] for s in down)}", RED + BOLD))
@@ -539,7 +565,40 @@ def main() -> int:
         print(color(f"! DEGRADED: {', '.join(s['name'] for s in warn)}", YELLOW + BOLD))
     if not down and not warn:
         print(color("✓ All services healthy.", GREEN + BOLD))
-    return exit_code
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Suwappu unified deploy/health status")
+    ap.add_argument("--env", default="prod", choices=["prod", "dev"])
+    ap.add_argument("--quick", action="store_true", help="skip the log error scan")
+    ap.add_argument("--json", action="store_true", dest="as_json")
+    ap.add_argument("--logs", metavar="SERVICE", help="dump recent logs for a service")
+    ap.add_argument("--lines", type=int, default=200)
+    args = ap.parse_args()
+
+    if args.logs:
+        code, out = run(
+            ["railway", "logs", "-s", args.logs, "--lines", str(args.lines)], timeout=90
+        )
+        print(out)
+        return 0 if code == 0 else 2
+
+    services, err = gather(args.env, args.quick, args.lines)
+    if err:
+        # Control plane unavailable is itself important — do not silently pass.
+        if args.as_json:
+            print(json.dumps({"ok": False, "error": err}, indent=2))
+        else:
+            print(color(f"✗ Railway control plane unavailable: {err}", RED))
+            print(color("  Fix the CLI auth/link — HTTP probes alone cannot see", DIM))
+            print(color("  crash-looping workers or failed deploys.", DIM))
+        return 2
+
+    if args.as_json:
+        render_json(services, args.env)
+    else:
+        render_human(services, args.env, args.lines)
+    return exit_code_for(services)
 
 
 if __name__ == "__main__":

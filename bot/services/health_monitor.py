@@ -143,18 +143,24 @@ class HealthMonitor:
         max_age = settings.monitor_heartbeat_max_age_minutes
 
         for source in sources:
-            await self._check_source_staleness(redis_cache, source, now, max_age, past_boot_grace)
-            await self._check_source_failing(redis_cache, source, now, max_age)
+            # One read per source per tick — both checks below work off the
+            # same heartbeat record, so fetching it twice was pure round-trip.
+            try:
+                data = await redis_cache.get(f"monitor:heartbeat:{source}")
+            except Exception as e:
+                logger.debug(f"Dead-man's switch: failed to read heartbeat for {source}: {e}")
+                continue
 
-    async def _check_source_staleness(self, redis_cache, source, now, max_age, past_boot_grace):
+            await self._check_source_staleness(
+                redis_cache, source, data, now, max_age, past_boot_grace
+            )
+            await self._check_source_failing(redis_cache, source, data, now, max_age)
+
+    async def _check_source_staleness(
+        self, redis_cache, source, data, now, max_age, past_boot_grace
+    ):
         """Staleness (or never-reported) check for a single expected source."""
         stale_marker = f"monitor:deadman:stale-alerted:{source}"
-
-        try:
-            data = await redis_cache.get(f"monitor:heartbeat:{source}")
-        except Exception as e:
-            logger.debug(f"Dead-man's switch: failed to read heartbeat for {source}: {e}")
-            return
 
         ts: Optional[datetime] = None
         if isinstance(data, dict):
@@ -173,7 +179,7 @@ class HealthMonitor:
             # probe yet, so absence-of-data on startup isn't a real signal.
             if not past_boot_grace:
                 return
-            await self._send_stale_alert(
+            await self._alert_once(
                 redis_cache,
                 source,
                 stale_marker,
@@ -190,7 +196,7 @@ class HealthMonitor:
         if age_minutes > max_age:
             if not past_boot_grace:
                 return
-            await self._send_stale_alert(
+            await self._alert_once(
                 redis_cache,
                 source,
                 stale_marker,
@@ -201,34 +207,28 @@ class HealthMonitor:
                 ),
             )
         else:
-            # Healthy — if we'd previously alerted for this source, send recovery.
-            try:
-                already_alerted = await redis_cache.get(stale_marker)
-            except Exception:
-                already_alerted = None
+            await self._clear_alert(
+                redis_cache,
+                source,
+                stale_marker,
+                recovery_text=(
+                    f"✅ Uptime probe `{source}` has recovered — heartbeats are reporting again."
+                ),
+            )
 
-            if already_alerted:
-                try:
-                    await redis_cache.delete(stale_marker)
-                except Exception as e:
-                    logger.debug(f"Dead-man's switch: failed to clear marker for {source}: {e}")
+    async def _alert_once(self, redis_cache, source, marker, text, log_msg):
+        """Notify admins about `source`, at most once per cooldown window.
 
-                text = f"✅ Uptime probe `{source}` has recovered — heartbeats are reporting again."
-                try:
-                    from bot.services.support_notifier import post_admin_update
-
-                    await post_admin_update(self._bot, text)
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"Dead-man's switch: failed to send recovery alert: {e}")
-
-    async def _send_stale_alert(self, redis_cache, source, marker, text, log_msg):
+        The cooldown marker lives in Redis rather than in-process (unlike the
+        `_send_alert` path's `_recent_alerts` dict) because dead-man's-switch
+        state has to survive restarts and be shared across replicas — a
+        crash-looping process would otherwise re-alert on every boot.
+        """
         try:
-            already_alerted = await redis_cache.get(marker)
+            if await redis_cache.get(marker):
+                return  # cooldown active — already alerted recently for this source
         except Exception:
-            already_alerted = None
-
-        if already_alerted:
-            return  # cooldown active — already alerted recently for this source
+            pass  # can't read the marker; better to alert twice than stay silent
 
         try:
             await redis_cache.set(
@@ -240,14 +240,35 @@ class HealthMonitor:
             logger.debug(f"Dead-man's switch: failed to write cooldown marker for {source}: {e}")
 
         logger.warning(log_msg)
+        await self._notify_admins(f"send alert for {source}", text)
+
+    async def _clear_alert(self, redis_cache, source, marker, recovery_text=None):
+        """Clear a cooldown marker on recovery, optionally announcing it.
+
+        `recovery_text=None` clears silently — used where the recovery is
+        implied by the condition simply no longer being reported.
+        """
+        try:
+            if not await redis_cache.get(marker):
+                return  # never alerted, so there is nothing to recover from
+            await redis_cache.delete(marker)
+        except Exception as e:
+            logger.debug(f"Dead-man's switch: failed to clear marker for {source}: {e}")
+            return
+
+        if recovery_text:
+            await self._notify_admins(f"send recovery alert for {source}", recovery_text)
+
+    async def _notify_admins(self, what: str, text: str) -> None:
+        """Best-effort admin notification — must never crash the monitor loop."""
         try:
             from bot.services.support_notifier import post_admin_update
 
             await post_admin_update(self._bot, text)
-        except Exception as e:  # noqa: BLE001 — alert failure must not crash the loop
-            logger.error(f"Dead-man's switch: failed to send alert for {source}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Dead-man's switch: failed to {what}: {e}")
 
-    async def _check_source_failing(self, redis_cache, source, now, max_age):
+    async def _check_source_failing(self, redis_cache, source, data, now, max_age):
         """Sustained-failure ("ok": false) check for a single expected source.
 
         The heartbeat endpoint stores a `fail_since` timestamp (set when a
@@ -258,24 +279,17 @@ class HealthMonitor:
         """
         failing_marker = f"monitor:deadman:failing-alerted:{source}"
 
-        try:
-            data = await redis_cache.get(f"monitor:heartbeat:{source}")
-        except Exception as e:
-            logger.debug(f"Dead-man's switch: failed to read heartbeat for {source}: {e}")
-            return
-
         if not isinstance(data, dict):
             return
 
         fail_since_raw = data.get("fail_since")
         if not fail_since_raw:
             # Not currently failing (or failure tracking unavailable) — clear
-            # any previous failing-alert cooldown so recovery is clean.
-            try:
-                if await redis_cache.get(failing_marker):
-                    await redis_cache.delete(failing_marker)
-            except Exception:
-                pass
+            # any previous failing-alert cooldown so recovery is clean. No
+            # recovery message: the staleness check already announces when a
+            # source comes back, and two "recovered" pings for one event is
+            # noise.
+            await self._clear_alert(redis_cache, source, failing_marker)
             return
 
         try:
@@ -289,39 +303,19 @@ class HealthMonitor:
         if failing_minutes <= max_age:
             return
 
-        try:
-            already_alerted = await redis_cache.get(failing_marker)
-        except Exception:
-            already_alerted = None
-
-        if already_alerted:
-            return  # cooldown active
-
-        try:
-            await redis_cache.set(
-                failing_marker,
-                {"alerted_at": now.isoformat()},
-                ttl_seconds=self._deadman_alert_cooldown_hours * 3600,
-            )
-        except Exception as e:
-            logger.debug(f"Dead-man's switch: failed to write failing marker for {source}: {e}")
-
-        text = (
-            f"⚠️ Uptime probe `{source}` has been reporting failures for "
-            f"{failing_minutes:.0f} minutes."
-        )
-        logger.warning(
-            "Dead-man's switch: %s reporting sustained failure for %.0f min (threshold %d)",
+        await self._alert_once(
+            redis_cache,
             source,
-            failing_minutes,
-            max_age,
+            failing_marker,
+            text=(
+                f"⚠️ Uptime probe `{source}` has been reporting failures for "
+                f"{failing_minutes:.0f} minutes."
+            ),
+            log_msg=(
+                f"Dead-man's switch: {source} reporting sustained failure for "
+                f"{failing_minutes:.0f} min (threshold {max_age})"
+            ),
         )
-        try:
-            from bot.services.support_notifier import post_admin_update
-
-            await post_admin_update(self._bot, text)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Dead-man's switch: failed to send failing alert for {source}: {e}")
 
     async def _check_swap_health(self):
         """Check swap failure rate."""
