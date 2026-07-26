@@ -11,6 +11,7 @@ try:
 except ImportError:
     pass
 
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -88,6 +89,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
+
+    # 0. Error tracking (no-op unless SENTRY_DSN is set; never raises)
+    from bot.services.sentry_service import init_sentry
+
+    init_sentry()
 
     # 1. Initialize DB, Cache & Config
     preload_config()
@@ -2458,6 +2464,71 @@ async def railway_webhook(request: Request):
         logger.error("Failed to fan out Railway webhook alert: %s", e)
 
     return {"status": "alerted", "deploy_status": status}
+
+
+_MONITOR_SOURCE_RE = re.compile(r"[^a-zA-Z0-9_-]")
+_MONITOR_SOURCE_MAX_LEN = 40
+
+
+@app.post("/internal/monitor-heartbeat", include_in_schema=False)
+async def monitor_heartbeat(request: Request):
+    """Receive uptime-probe heartbeats and record them so the dead-man's switch
+    (bot/services/health_monitor.py) can notice when probing itself goes quiet.
+
+    Auth is a shared secret passed as ``?token=`` (same convention as
+    ``/internal/railway-webhook`` — external cron schedulers can't send custom
+    auth headers). Fails CLOSED: if the secret isn't configured, every request
+    is rejected so an unconfigured deploy can never be pinged by anyone.
+    """
+    import hmac
+
+    expected = settings.monitor_heartbeat_secret
+    provided = request.query_params.get("token") or ""
+    # Compare bytes, not str: hmac.compare_digest raises TypeError on non-ASCII
+    # strings, so `?token=é` turned an auth failure into an unauthenticated 500
+    # (a free error-quota generator, and one that echoes the URL into Sentry).
+    if not expected or not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+        logger.warning("Monitor heartbeat hit with missing/invalid token")
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    raw_source = request.query_params.get("source") or "unknown"
+    source = _MONITOR_SOURCE_RE.sub("", raw_source)[:_MONITOR_SOURCE_MAX_LEN] or "unknown"
+    # Allow-list: only the sources the dead-man's switch actually tracks may
+    # write a heartbeat key. This bounds the set of `monitor:heartbeat:*`
+    # Redis keys a token holder can mint and keeps the checker's per-source
+    # scan (bot/services/health_monitor.py) from being unbounded.
+    if source not in settings.monitor_expected_sources_list():
+        source = "unknown"
+    ok = request.query_params.get("ok", "1") != "0"
+
+    try:
+        from bot.utils.redis_cache import redis_cache
+
+        key = f"monitor:heartbeat:{source}"
+        fail_since = None
+        if not ok:
+            try:
+                existing = await redis_cache.get(key)
+            except Exception:
+                existing = None
+            if isinstance(existing, dict) and existing.get("fail_since"):
+                fail_since = existing["fail_since"]
+            else:
+                fail_since = datetime.now(timezone.utc).isoformat()
+
+        await redis_cache.set(
+            key,
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "ok": ok,
+                "fail_since": fail_since,
+            },
+            ttl_seconds=24 * 60 * 60,
+        )
+    except Exception as e:  # noqa: BLE001 — never let a bad heartbeat write 500 the endpoint
+        logger.error("Failed to record monitor heartbeat from %s: %s", source, e)
+
+    return {"status": "ok"}
 
 
 @app.get("/", include_in_schema=False)

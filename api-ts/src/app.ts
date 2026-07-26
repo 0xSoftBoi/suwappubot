@@ -3,6 +3,7 @@ import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
+import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
@@ -70,6 +71,12 @@ export function createApp(config: AppConfig) {
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
+			// Only report unexpected 5xx HTTPExceptions to Sentry. Expected 4xx
+			// (validation, auth failures, 402 billing challenges) are normal
+			// traffic, not incidents — capturing them would flood the quota.
+			if (err.status >= 500) {
+				captureServerError(err, { path: c.req.path, method: c.req.method, requestId, status: err.status })
+			}
 			return c.json(
 				{ error: err.message, requestId, timestamp },
 				err.status,
@@ -77,6 +84,7 @@ export function createApp(config: AppConfig) {
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
+		captureServerError(err, { path: c.req.path, method: c.req.method, requestId })
 		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 

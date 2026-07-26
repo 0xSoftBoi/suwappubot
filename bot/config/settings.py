@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
+import os
 import random
 
 
@@ -1152,6 +1153,56 @@ class Settings(BaseSettings):
                 "A non-negative value can collide with a real users.id row."
             )
         return v
+
+    # Sentry error tracking (optional — no-op unless SENTRY_DSN is set)
+    sentry_dsn: Optional[str] = Field(
+        default=None,
+        description=(
+            "Sentry DSN for error tracking. If unset, Sentry is never initialized "
+            "(no-op, zero overhead) — safe for local dev, tests, and CI."
+        ),
+    )
+    sentry_environment: str = Field(
+        default_factory=lambda: os.environ.get("RAILWAY_ENVIRONMENT_NAME", "development"),
+        description=(
+            "Sentry environment tag (e.g. 'production', 'development'). "
+            "Defaults from RAILWAY_ENVIRONMENT_NAME when running on Railway."
+        ),
+    )
+    sentry_release: Optional[str] = Field(
+        default=None,
+        description="Sentry release identifier (e.g. git commit SHA). Optional.",
+    )
+
+    # Dead-man's switch — uptime probe heartbeats (env: MONITOR_HEARTBEAT_SECRET / _MAX_AGE_MINUTES)
+    monitor_heartbeat_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Shared secret for POST /internal/monitor-heartbeat (?token=). "
+            "If unset, the endpoint fails closed and rejects all requests."
+        ),
+    )
+    monitor_heartbeat_max_age_minutes: int = Field(
+        default=45,
+        description=(
+            "Alert admins if no monitor heartbeat has been seen in this many minutes. "
+            "Must stay well above the ~10-minute probe interval to avoid flapping."
+        ),
+    )
+    monitor_expected_sources: str = Field(
+        default="github-actions,railway-cron",
+        description=(
+            "Comma-separated list of uptime-probe source names the dead-man's switch "
+            "tracks individually, and the allow-list POST /internal/monitor-heartbeat "
+            "coerces unrecognized `source` values into 'unknown' against. Keeps one "
+            "healthy scheduler from masking another's failure, and bounds the set of "
+            "Redis keys a token holder can mint."
+        ),
+    )
+
+    def monitor_expected_sources_list(self) -> List[str]:
+        """Parse `monitor_expected_sources` into a clean list of source names."""
+        return [s.strip() for s in (self.monitor_expected_sources or "").split(",") if s.strip()]
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

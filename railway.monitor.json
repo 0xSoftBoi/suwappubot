@@ -1,0 +1,34 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "_comment": [
+    "Uptime probe as a Railway CRON service — the second, independent scheduler.",
+    "",
+    "Why: our only uptime monitoring used to run on GitHub Actions, which stops",
+    "silently when Actions billing fails (observed 2026-07-25). Running the same",
+    "probe from Railway means one provider's billing cannot blind us completely.",
+    "",
+    "A cron service runs the start command on schedule and exits — it is NOT a",
+    "long-running server, so it has no healthcheckPath and must not restart on",
+    "exit. A non-zero exit (endpoints down) is the expected failure signal and",
+    "must not trigger a restart loop, hence restartPolicyType NEVER.",
+    "",
+    "This service intentionally reuses api/Dockerfile.railway so it needs no new",
+    "build config; it only runs a stdlib-only script.",
+    "",
+    "Required variables on this service: TELEGRAM_BOT_TOKEN,",
+    "TELEGRAM_ALERT_CHAT_ID, MONITOR_HEARTBEAT_URL, MONITOR_HEARTBEAT_TOKEN.",
+    "PROBE_SOURCE is set below so the dead-man's switch can tell the two",
+    "schedulers apart."
+  ],
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "api/Dockerfile.railway",
+    "watchPatterns": ["scripts/uptime_probe.py", "scripts/status.py", "monitoring/**"]
+  },
+  "deploy": {
+    "startCommand": "PROBE_SOURCE=railway-cron python3 scripts/uptime_probe.py --env prod",
+    "cronSchedule": "*/10 * * * *",
+    "restartPolicyType": "NEVER",
+    "numReplicas": 1
+  }
+}

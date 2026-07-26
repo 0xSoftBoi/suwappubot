@@ -41,7 +41,7 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure for swapping token
 - **Mobile** (`mobile/`): Expo iOS app
 - **Showcase** (`showcase/`): Next.js homepage
 
-Deploys to Railway. See `docs/deployment/`.
+Deploys to Railway. See `docs/deployment/` — and `docs/deployment/monitoring.md` for how we find out something is broken (which layer catches what, and what each one is blind to).
 
 ## Commands
 
