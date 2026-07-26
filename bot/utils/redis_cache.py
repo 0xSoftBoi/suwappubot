@@ -29,7 +29,6 @@ class RedisCache:
     async def connect(self) -> bool:
         """Connect to Redis if REDIS_URL is set, otherwise use in-memory."""
         import os
-
         redis_url = os.environ.get("REDIS_URL")
         if not redis_url:
             logger.info("REDIS_URL not set — using in-memory cache")
@@ -37,7 +36,6 @@ class RedisCache:
 
         try:
             import redis.asyncio as aioredis
-
             self._redis = aioredis.from_url(
                 redis_url,
                 decode_responses=True,
@@ -47,10 +45,7 @@ class RedisCache:
             )
             await self._redis.ping()
             self._connected = True
-            logger.info(
-                "Connected to Redis at %s",
-                redis_url.split("@")[-1] if "@" in redis_url else redis_url,
-            )
+            logger.info("Connected to Redis at %s", redis_url.split("@")[-1] if "@" in redis_url else redis_url)
             return True
         except Exception as e:
             logger.warning(f"Redis connection failed, falling back to in-memory: {e}")
@@ -130,7 +125,7 @@ class RedisCache:
         # Hard cap: evict oldest entries if over limit
         if len(self._memory_cache) > self.MAX_MEMORY_KEYS:
             sorted_keys = sorted(self._memory_ttl, key=self._memory_ttl.get)
-            for k in sorted_keys[: len(self._memory_cache) - self.MAX_MEMORY_KEYS]:
+            for k in sorted_keys[:len(self._memory_cache) - self.MAX_MEMORY_KEYS]:
                 self._memory_cache.pop(k, None)
                 self._memory_ttl.pop(k, None)
 
@@ -225,23 +220,6 @@ class RedisCache:
 
         return count
 
-    async def keys(self, pattern: str) -> list:
-        """List keys matching pattern (Redis SCAN, or memory fallback)."""
-        if self._redis and self._connected:
-            try:
-                found = []
-                async for key in self._redis.scan_iter(match=pattern, count=100):
-                    found.append(key)
-                return found
-            except Exception as e:
-                logger.debug(f"Redis SCAN failed for {pattern}: {e}")
-                # Fall through to memory
-
-        now = time.time()
-        return [
-            k for k, ttl in self._memory_ttl.items() if fnmatch.fnmatch(k, pattern) and ttl >= now
-        ]
-
     async def get_or_set(
         self,
         key: str,
@@ -285,10 +263,8 @@ redis_cache = RedisCache()
 
 # === Convenience decorators ===
 
-
 def cached(ttl_seconds: int = 300, key_prefix: str = ""):
     """Decorator to cache async function results."""
-
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -313,5 +289,4 @@ def cached(ttl_seconds: int = 300, key_prefix: str = ""):
             return result
 
         return wrapper
-
     return decorator

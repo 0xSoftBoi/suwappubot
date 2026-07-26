@@ -178,9 +178,23 @@ Optional tuning (sensible defaults, only set to override):
 (`github-actions,railway-cron` — **must match the `PROBE_SOURCE` each scheduler
 sends**, or its heartbeats are coerced to `unknown` and that source looks dead).
 
-The `monitor` Railway service must be created from `railway.monitor.json` as a
-**cron service** (`*/10 * * * *`, restart policy NEVER — a non-zero exit means
-"endpoints are down", which must not trigger a restart loop).
+### The `monitor` Railway cron service
+
+Create it from `railway.monitor.json`. That file is intentionally comment-free
+(Railway parses it against its own schema, and no other `railway.*.json` here
+carries extra keys), so the rationale lives here instead:
+
+- **`cronSchedule: */10 * * * *`** — a cron service runs the start command on
+  schedule and exits. It is not a long-running server, so it has no
+  `healthcheckPath`.
+- **`restartPolicyType: NEVER`** — a non-zero exit means "endpoints are down",
+  which is the expected failure signal. Restarting on it would produce a restart
+  loop that probes continuously and spams alerts.
+- **Reuses `api/Dockerfile.railway`** so it needs no new build config; the probe
+  itself is stdlib-only.
+- **`PROBE_SOURCE=railway-cron`** is set in the start command so the dead-man's
+  switch can tell the two schedulers apart. It must match an entry in
+  `MONITOR_EXPECTED_SOURCES`.
 
 ## Known gaps
 
