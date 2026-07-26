@@ -516,23 +516,110 @@ class PerpsService:
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
     ):
-        """Modify take profit / stop loss for a position."""
+        """Modify take profit / stop loss for a position.
+
+        Replaces the resting TP/SL orders on HyperLiquid, then persists the new
+        prices. Only the legs actually passed in are touched.
+
+        Previously this wrote `position.tp_price` / `position.sl_price` to the DB
+        and NEVER called the exchange — so "edit stop loss" was a silent no-op:
+        the UI showed a protective stop that did not exist on HL. This is reached
+        from both Telegram (`bot/handlers/perps.py`) and WhatsApp.
+
+        Ordering is deliberate: cancel the old order first, then place the
+        replacement, then commit the price. If placement fails we raise and leave
+        the stored price untouched, so the DB never claims protection the
+        exchange does not have. NOTE the unavoidable window between cancel and
+        place — for a brief moment the position is unprotected. That is inherent
+        to cancel/replace without HL's atomic `positionTpsl` grouping (see the
+        TODO below); it is still strictly better than the previous behaviour,
+        where the order never existed at all.
+        """
         with get_session() as session:
             position = (
                 session.query(PerpPosition)
                 .filter_by(id=position_id, user_id=user_id, status="open")
                 .first()
             )
-
             if not position:
                 raise ValueError("Position not found")
 
-            if tp_price is not None:
-                position.tp_price = Decimal(str(tp_price))
-            if sl_price is not None:
-                position.sl_price = Decimal(str(sl_price))
+            market = position.market
+            side = position.side
+            size = float(position.size)
+
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not found")
+
+        requested = [
+            ("take_profit", tp_price),
+            ("stop_loss", sl_price),
+        ]
+
+        for order_type, new_price in requested:
+            if new_price is None:
+                continue
+
+            # Cancel any resting order of this type for the position, so an edit
+            # replaces the protection instead of stacking a second trigger.
+            with get_session() as session:
+                stale = (
+                    session.query(PerpOrder)
+                    .filter(
+                        PerpOrder.position_id == position_id,
+                        PerpOrder.user_id == user_id,
+                        PerpOrder.order_type == order_type,
+                        PerpOrder.status == "pending",
+                        PerpOrder.hl_order_id.isnot(None),
+                    )
+                    .all()
+                )
+                stale_ids = [(o.id, o.hl_order_id) for o in stale]
+
+            for db_id, hl_order_id in stale_ids:
+                try:
+                    cancelled = await self.cancel_order(user_id, market, hl_order_id)
+                except Exception as e:  # noqa: BLE001 — never block the replacement
+                    cancelled = False
+                    logger.warning(
+                        f"Could not cancel stale {order_type} {hl_order_id} "
+                        f"for position {position_id}: {e}"
+                    )
+                if cancelled:
+                    with get_session() as session:
+                        row = session.query(PerpOrder).filter_by(id=db_id).first()
+                        if row:
+                            row.status = "cancelled"
+
+            placed = await self._place_tp_sl(
+                user_id, account, market, side, size, order_type, float(new_price), position_id
+            )
+            if not placed:
+                # Do NOT persist a price the exchange never accepted.
+                raise ValueError(
+                    f"Could not place the new {order_type.replace('_', ' ')} on HyperLiquid. "
+                    "Your previous order may have been cancelled — check your open orders."
+                )
+
+            with get_session() as session:
+                pos = session.query(PerpPosition).filter_by(id=position_id).first()
+                if pos:
+                    if order_type == "take_profit":
+                        pos.tp_price = Decimal(str(new_price))
+                    else:
+                        pos.sl_price = Decimal(str(new_price))
 
         logger.info(f"Updated TP/SL for position {position_id}: TP={tp_price}, SL={sl_price}")
+
+    # TODO(hl-brackets): entry/TP/SL are still three independent orders —
+    # hyperliquid_client.place_order hardcodes grouping="na". HL supports
+    # grouping="normalTpsl" (entry + its TP/SL as one atomic set) and
+    # "positionTpsl" (attach to the position itself), where filling or cancelling
+    # one leg cancels its siblings. Until that lands, a filled TP leaves the SL
+    # resting as a naked reduce-only order, and close_position does not cancel
+    # siblings either. Tracked separately — it needs a place_order refactor
+    # (multi-order `orders` array + positional statuses[] parsing).
 
     def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
         """Get user's positions."""
@@ -605,8 +692,17 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
-    ):
-        """Place a take profit or stop loss order."""
+    ) -> bool:
+        """Place a take profit or stop loss order.
+
+        `side` is the POSITION side ("long"/"short"); place_order inverts it for
+        the reduce-only exit (is_buy = long ^ reduce_only), so callers pass the
+        position side, not the exit side.
+
+        Returns True only if the exchange accepted the order. open_position
+        ignores the result (best-effort, as before); modify_tp_sl relies on it so
+        it never persists a price the exchange never received.
+        """
         try:
             api_key, api_secret = self._decrypt_credentials(account)
             result = await self._client.place_order(
@@ -636,8 +732,12 @@ class PerpsService:
                         hl_order_id=result.order_id,
                     )
                     session.add(order)
+                return True
+            logger.error(f"Exchange rejected {order_type} order for position {position_id}")
+            return False
         except Exception as e:
             logger.error(f"Failed to place {order_type} order: {e}")
+            return False
 
     async def ensure_referrer(self, account: HyperLiquidAccount) -> None:
         """Best-effort: attach Suwappu's referral code to the user once.
