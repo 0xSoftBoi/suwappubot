@@ -303,7 +303,15 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 				builder: builderCode,
 			}
 
-			const typedData = buildOrderTypedData(orderData)
+			// Neg-risk (multi-outcome) markets are matched by a DIFFERENT exchange
+			// contract, so the EIP-712 domain's verifyingContract must match or the
+			// CLOB recovers the signature against the wrong contract and rejects the
+			// order. Resolve it from the CLOB (same source Polymarket's own SDK uses)
+			// rather than assuming binary. This lookup fails closed: if it errors we
+			// abort instead of silently signing against the standard exchange.
+			const negRisk = yield* pm.getNegRisk(orderParams.tokenId)
+
+			const typedData = buildOrderTypedData(orderData, { negRisk })
 			const orderHash = hashEip712Order(typedData)
 
 			// Sign via Turnkey (pre-hashed, use NO_OP)

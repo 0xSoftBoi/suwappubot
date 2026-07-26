@@ -139,6 +139,8 @@ export class PolymarketService extends Context.Tag('PolymarketService')<
 		getMarket: (id: string) => Effect.Effect<PredictionMarketDetail, Error>
 		getOrderbook: (tokenId: string) => Effect.Effect<Orderbook, Error>
 		getMidpoint: (tokenId: string) => Effect.Effect<{ mid: string }, Error>
+		/** True when the token's market is neg-risk — selects the exchange to sign against. */
+		getNegRisk: (tokenId: string) => Effect.Effect<boolean, Error>
 		getTrades: (tokenId: string, limit?: number) => Effect.Effect<Trade[], Error>
 		getEvents: (query?: string, limit?: number) => Effect.Effect<PredictionEvent[], Error>
 		createApiCredentials: (walletAddress: string, nonce: string, signature: string) => Effect.Effect<ClobApiCredentials, Error>
@@ -366,6 +368,30 @@ async function getMidpointImpl(tokenId: string): Promise<{ mid: string }> {
 	return { mid: data.mid || '0' }
 }
 
+/**
+ * Whether a token's market is a neg-risk (multi-outcome) market.
+ *
+ * Public, unauthenticated CLOB endpoint — the same one Polymarket's own
+ * py-clob-client uses to pick the exchange contract before signing. This MUST be
+ * consulted before building an order's EIP-712 payload: neg-risk markets are
+ * matched by a different exchange, and signing against the wrong one gets the
+ * order rejected.
+ *
+ * Fails CLOSED (throws) rather than defaulting to false — silently assuming
+ * "not neg-risk" is exactly the bug this lookup exists to prevent.
+ */
+async function getNegRiskImpl(tokenId: string): Promise<boolean> {
+	const res = await fetch(`${CLOB_API}/neg-risk?token_id=${tokenId}`, {
+		signal: AbortSignal.timeout(10_000),
+	})
+	if (!res.ok) throw new Error(`CLOB neg-risk error ${res.status}`)
+	const data = (await res.json()) as { neg_risk?: boolean }
+	if (typeof data.neg_risk !== 'boolean') {
+		throw new Error('CLOB neg-risk response missing neg_risk flag')
+	}
+	return data.neg_risk
+}
+
 async function getTradesImpl(tokenId: string, limit = 20): Promise<Trade[]> {
 	const res = await fetch(`${CLOB_API}/trades?token_id=${tokenId}&limit=${limit}`, {
 		signal: AbortSignal.timeout(10_000),
@@ -568,6 +594,8 @@ export const PolymarketServiceLive = Layer.succeed(PolymarketService, {
 		Effect.tryPromise({ try: () => getOrderbookImpl(tokenId), catch: (e) => e as Error }),
 	getMidpoint: (tokenId) =>
 		Effect.tryPromise({ try: () => getMidpointImpl(tokenId), catch: (e) => e as Error }),
+	getNegRisk: (tokenId) =>
+		Effect.tryPromise({ try: () => getNegRiskImpl(tokenId), catch: (e) => e as Error }),
 	getTrades: (tokenId, limit?) =>
 		Effect.tryPromise({ try: () => getTradesImpl(tokenId, limit), catch: (e) => e as Error }),
 	getEvents: (query?, limit?) =>
