@@ -101,6 +101,23 @@ RESET_REQUIRED_TOKENS = {
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
 }
 
+# Static USD estimate for the energy/bandwidth a TRON swap burns.
+#
+# TRON does not price execution in a gas-token unit we can read off the quote the
+# way EVM chains do — cost depends on the caller's staked energy, the free daily
+# bandwidth allowance, and the current energy price, so a quote-time figure is
+# necessarily an estimate. Both TRON quote paths (SunSwap and OKX DEX) previously
+# hardcoded 6.0 separately, which is how the two copies could drift apart.
+#
+# SCOPE — this value is DISPLAY-ONLY. Route selection ranks quotes purely by
+# `to_amount_human` (see _rank/sort in get_quotes), so changing it cannot change
+# which route wins or how much a user is charged; it only affects the cost shown
+# alongside a quote. Treat it as a UI estimate, not settlement math.
+#
+# TODO(tron-phase-2): replace with a real estimate once the energy service lands
+# (account energy balance + live energy price, or a rental quote).
+TRON_SWAP_GAS_COST_USD = 6.0
+
 
 @dataclass
 class SwapQuote:
@@ -1397,9 +1414,17 @@ class SwapEngine:
             to_amount=quote.amount_out,
             to_amount_human=to_amount_human,
             to_amount_min=quote.amount_out_min,
-            gas_cost_usd=6.0,  # ~20 TRX energy cost for swap
+            gas_cost_usd=TRON_SWAP_GAS_COST_USD,
+            # NOTE: fee_cost_usd is the THIRD-PARTY bridge/service fee, which is 0
+            # for a same-chain DEX swap (every same-chain quote path sets 0 here) —
+            # it is not Suwappu's platform fee. Suwappu's fee is applied separately
+            # via platform_fee_bps. SunSwap's router exposes no referrer-fee
+            # facility (unlike OKX DEX's feePercent), so a SunSwap-routed TRON swap
+            # currently collects NO platform fee. Closing that needs a separate
+            # fee-transfer leg or routing through our own contract — a money-path
+            # design change, deliberately not bolted on here.
             fee_cost_usd=0,
-            total_cost_usd=6.0,
+            total_cost_usd=TRON_SWAP_GAS_COST_USD,
             estimated_time=6,  # TRON block time ~3s, 2 confirmations
             price_impact=quote.price_impact,
             exchange_rate=exchange_rate,
@@ -1707,7 +1732,7 @@ class SwapEngine:
             if from_chain.lower() in ("bsc", "polygon", "fantom", "gnosis"):
                 gas_cost_usd *= 0.01  # Much cheaper chains
             elif from_chain.lower() == "tron":
-                gas_cost_usd = 6.0  # Flat estimate for TRON energy
+                gas_cost_usd = TRON_SWAP_GAS_COST_USD
             elif from_chain.lower() == "solana":
                 gas_cost_usd = 0.001
         except (ValueError, TypeError):
