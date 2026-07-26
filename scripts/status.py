@@ -171,6 +171,13 @@ def railway_services(env: str) -> tuple[list[dict], str | None]:
         hosts = [d.get("domain") for d in domains.get("customDomains", []) if d]
         hosts += [d.get("domain") for d in domains.get("serviceDomains", []) if d]
 
+        # A service with neither a repo nor an image connected cannot deploy at
+        # all — it is dormant, not broken. Railway keeps its last (often FAILED)
+        # deployment on record forever, so without this the service would be
+        # reported DOWN in perpetuity.
+        source = s.get("source") or {}
+        has_source = bool(source.get("repo") or source.get("image"))
+
         services.append(
             {
                 "name": s.get("serviceName") or s.get("serviceId", "?"),
@@ -180,6 +187,7 @@ def railway_services(env: str) -> tuple[list[dict], str | None]:
                 "replicas": s.get("numReplicas"),
                 "hosts": [h for h in hosts if h],
                 "has_active_deploy": bool(deploys),
+                "has_source": has_source,
             }
         )
     services.sort(key=lambda x: x["name"].lower())
@@ -191,13 +199,19 @@ def judge_service(svc: dict) -> tuple[str, str]:
     name, status = svc["name"], svc["status"]
     infra = name in INFRA_SERVICES
 
-    if status in BAD_DEPLOY_STATES:
-        return "down", f"deploy {status}"
     if not svc["has_active_deploy"] and not status:
         # Never deployed in this environment at all — Railway reports neither an
         # active nor a latest deployment. This is normal: dev only provisions a
         # subset of services. Not an outage, so it must not trip the exit code.
         return "absent", "not deployed in this environment"
+    if not svc.get("has_source", True) and not svc["has_active_deploy"] and not infra:
+        # Has deployed here before, but no repo or image is connected any more
+        # and nothing is running: decommissioned. Railway keeps the last (often
+        # FAILED) deployment on record forever, so this must be checked BEFORE
+        # the deploy-state cascade or the service reports DOWN in perpetuity.
+        return "absent", "no source connected (decommissioned)"
+    if status in BAD_DEPLOY_STATES:
+        return "down", f"deploy {status}"
     if not svc["has_active_deploy"]:
         # It HAS deployed here before but nothing is active now — that is a real
         # regression for our services (infra is managed by Railway).
@@ -503,7 +517,11 @@ def render_human(services: list[dict], env: str, lines: int) -> None:
     }
     for s in services:
         if s["verdict"] == "absent":
-            print(color(f"  · {s['name']:<18} not deployed in {env}", DIM))
+            # Distinguish "dev simply doesn't run this" from "decommissioned".
+            reason = s.get("reason") or f"not deployed in {env}"
+            if reason == "not deployed in this environment":
+                reason = f"not deployed in {env}"
+            print(color(f"  · {s['name']:<18} {reason}", DIM))
             continue
         inst = ",".join(s["instances"]) or "-"
         line = (

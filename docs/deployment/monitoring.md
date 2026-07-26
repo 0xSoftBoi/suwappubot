@@ -168,9 +168,9 @@ Required secrets/variables (nothing here is committed):
 | Where | Name | Purpose |
 |---|---|---|
 | GitHub secrets | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALERT_CHAT_ID` | probe alerts |
-| GitHub secrets | `MONITOR_HEARTBEAT_URL`, `MONITOR_HEARTBEAT_TOKEN` | dead-man's switch |
+| GitHub secrets | `MONITOR_HEARTBEAT_URL`, `MONITOR_HEARTBEAT_TOKEN` | dead-man's switch — **set 2026-07-26** |
 | Railway `monitor` service | same four, plus `PROBE_SOURCE` (set in config) | second scheduler |
-| Railway python-api | `MONITOR_HEARTBEAT_SECRET` | validates heartbeats |
+| Railway python-api | `MONITOR_HEARTBEAT_SECRET` | validates heartbeats — **set 2026-07-26** |
 | Railway python-api / api-ts | `SENTRY_DSN` (optional) | error tracking |
 
 Optional tuning (sensible defaults, only set to override):
@@ -198,9 +198,14 @@ carries extra keys), so the rationale lives here instead:
 
 ## Known gaps
 
-- **`suwappubot`** is an orphan Railway service pointed at a stale mirror repo. It
-  has no start command and fails every build. It needs deleting or
-  disconnecting — until then `status.py` will always report it DOWN.
+- **`suwappubot`** was an orphan Railway service pointed at the main repo with no
+  build config, so railpack found no start command and it failed *every* build —
+  paging Telegram through the deploy webhook on every push. Its repo source was
+  disconnected on 2026-07-26, which stops the failures without destroying
+  anything; the service shell remains and can be deleted once you're sure
+  nothing depended on it. `status.py` now reports a source-less, non-running
+  service as `absent` ("decommissioned") rather than DOWN, since Railway keeps
+  its last FAILED deployment on record forever.
 - Frontend surfaces (terminal, webapp, showcase) have **no browser-side error
   reporting**. A React crash that never touches the API is invisible.
 - No metrics/tracing (`/metrics`, Prometheus, OpenTelemetry). We have health and
