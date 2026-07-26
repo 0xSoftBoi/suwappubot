@@ -17,6 +17,7 @@ from web3 import Web3
 
 from bot.config.settings import settings
 from bot.services.p2p_service import P2PError, p2p_service
+from bot.utils.formatters import escape_markdown
 
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
@@ -67,7 +68,8 @@ async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         trade_id = int(args[0])
         buyer_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
-        await update.message.reply_text(f"❌ {e}")
+        logger.warning("p2prelease input rejected: %s", e)
+        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
         return
 
     await update.message.reply_text(f"⏳ Releasing escrow for trade {trade_id}…")
@@ -79,7 +81,9 @@ async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         logger.exception("p2prelease failed for trade %s", trade_id)
-        await update.message.reply_text(f"❌ Release failed: {e}")
+        await update.message.reply_text(
+            f"❌ Release failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+        )
 
 
 async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,7 +107,8 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         trade_id = int(args[0])
         seller_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
-        await update.message.reply_text(f"❌ {e}")
+        logger.warning("p2prefund input rejected: %s", e)
+        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
         return
 
     await update.message.reply_text(f"⏳ Refunding escrow for trade {trade_id}…")
@@ -116,7 +121,9 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     except Exception as e:
         logger.exception("p2prefund failed for trade %s", trade_id)
-        await update.message.reply_text(f"❌ Refund failed: {e}")
+        await update.message.reply_text(
+            f"❌ Refund failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+        )
 
 
 async def p2p_disputes_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -130,7 +137,9 @@ async def p2p_disputes_command(update: Update, context: ContextTypes.DEFAULT_TYP
         disputed = await p2p_service.get_disputed_trades()
     except Exception as e:
         logger.exception("p2pdisputes failed")
-        await update.message.reply_text(f"❌ Could not load disputes: {e}")
+        await update.message.reply_text(
+            f"❌ Could not load disputes: {escape_markdown(str(e))}", parse_mode="Markdown"
+        )
         return
 
     if not disputed:
@@ -183,7 +192,9 @@ async def p2p_resolve_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         logger.exception("p2presolve failed for trade %s", trade_id)
-        await update.message.reply_text(f"❌ Resolve failed: {e}")
+        await update.message.reply_text(
+            f"❌ Resolve failed: {escape_markdown(str(e))}", parse_mode="Markdown"
+        )
 
 
 async def p2p_dispute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -213,7 +224,7 @@ async def p2p_dispute_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         logger.info("p2pdispute rejected for trade %s: %s", trade_id, e)
-        await update.message.reply_text(f"❌ {e}")
+        await update.message.reply_text(f"❌ {escape_markdown(str(e))}", parse_mode="Markdown")
 
 
 # Create handlers

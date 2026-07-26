@@ -187,7 +187,7 @@ class TurnkeyClient:
             "X-Stamp": stamp,  # Already base64-encoded
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             async with session.request(
                 method,
                 url,

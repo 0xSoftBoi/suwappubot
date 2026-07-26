@@ -6,6 +6,7 @@ automated Tempo swaps (DCA / limit / snipe) without their root key and without
 per-trade approval. Authority is on-chain and revocable.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from telegram import Update
@@ -14,9 +15,11 @@ from telegram.ext import ContextTypes, CommandHandler
 from bot.models.user import User
 from bot.services.wallet import WalletService
 from bot.services.tempo_keychain import tempo_keychain_service, DEFAULT_CAP_USD
+from bot.services.error_guidance import classify_swap_failure
 from bot.utils.formatters import format_usd
 from database.db import get_session
 
+logger = logging.getLogger(__name__)
 wallet_service = WalletService()
 
 
@@ -99,7 +102,21 @@ async def _grant(update: Update, user_id: int, cap: float) -> None:
             parse_mode="Markdown",
         )
     except Exception as e:
-        await msg.edit_text(f"❌ Grant failed: {e}")
+        # M3 fix: never interpolate the raw exception into the log message.
+        # tempo_keychain.grant() creates the access key BEFORE encrypting it
+        # (Account.create() -> encrypt_private_key_v2(access.key.hex())); if
+        # anything in between raises with its input echoed into the exception
+        # text, str(e) could contain the plaintext key — and by this point the
+        # on-chain authorize_key tx may already be submitted, so a leaked key
+        # is immediately spendable up to cap_usd. Log only the exception TYPE.
+        logger.error(
+            "Tempo session key grant failed for user %s: %s",
+            user_id,
+            type(e).__name__,
+            exc_info=True,
+        )
+        guidance = classify_swap_failure(e, {"chain": "tempo"})
+        await msg.edit_text(guidance.to_message(), parse_mode="Markdown")
 
 
 async def _revoke(update: Update, user_id: int) -> None:

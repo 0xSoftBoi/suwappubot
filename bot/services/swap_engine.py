@@ -224,8 +224,8 @@ class SwapEngine:
                 zerox_state,
                 kyber_state,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to log aggregator readiness state: {e}")
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -439,7 +439,7 @@ class SwapEngine:
         try:
             url = rpc_manager.get_rpc_url("solana")
             payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 async with session.post(
                     url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
                 ) as resp:
@@ -633,8 +633,13 @@ class SwapEngine:
                     from bot.services.x402_service import x402_service
 
                     tier = await x402_service.get_tier(user_id)
-                except Exception:
-                    tier = None  # tier lookup failure → flat default, never block the quote
+                except Exception as e:
+                    # tier lookup failure → flat default, never block the quote
+                    logger.warning(
+                        f"x402 tier lookup failed for user_id={user_id}; "
+                        f"falling back to flat default fee: {e}"
+                    )
+                    tier = None
             platform_fee_bps = fee_service.get_fee_bps(tier)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different

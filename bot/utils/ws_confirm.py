@@ -86,7 +86,11 @@ def _parse_message(raw, signature: str) -> Optional[str]:
 
 
 async def _subscribe_and_wait(ws_url: str, signature: str) -> str:
-    async with aiohttp.ClientSession() as session:
+    # Note: the outer ws_wait_for_signature() already wraps this whole call in
+    # asyncio.wait_for(timeout=90), which bounds the handshake + read loop as a
+    # whole. This session-level timeout is a belt-and-suspenders guard on the
+    # initial connect (DNS/TCP/TLS/WS-handshake) specifically.
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         async with session.ws_connect(ws_url, heartbeat=20) as ws:
             sub_request = {
                 "jsonrpc": "2.0",

@@ -351,7 +351,9 @@ class RPCManager:
         """Fetch additional RPCs from chainlist.org (graceful failure)."""
         try:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
-            async with aiohttp.ClientSession(connector=connector) as session:
+            async with aiohttp.ClientSession(
+                connector=connector, timeout=aiohttp.ClientTimeout(total=15)
+            ) as session:
                 async with session.get(
                     "https://chainlist.org/rpcs.json",
                     timeout=aiohttp.ClientTimeout(total=15),
@@ -578,7 +580,9 @@ class RPCManager:
             start = time.monotonic()
             try:
                 connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
-                async with aiohttp.ClientSession(connector=connector) as session:
+                async with aiohttp.ClientSession(
+                    connector=connector, timeout=aiohttp.ClientTimeout(total=10)
+                ) as session:
                     async with session.post(
                         ep.url,
                         json=payload,
