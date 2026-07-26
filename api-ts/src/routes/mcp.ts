@@ -372,14 +372,24 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 }
 
-const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
+// MPP (Machine Payments Protocol) is gated OFF by default. As of 2026-07-26 the
+// protocol's hosts (api.mpp.dev / directory.mpp.dev) do not resolve (NXDOMAIN),
+// so browse_mpp_directory always fails. Advertising a tool that can only error
+// is worse than not advertising it, so it is hidden from tools/list and rejected
+// in tools/call unless MPP_ENABLED=true.
+const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
+const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
+
+const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
+
+const TOOLS_WITH_ANNOTATIONS = ADVERTISED_TOOLS.map((t) => ({
 	...t,
 	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
 }))
 
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.
-const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+const TOOL_NAMES = new Set<string>([...ADVERTISED_TOOLS.map((t) => t.name), 'predict_market_detail'])
 
 // predict_market_detail is a legacy alias for predict_market's schema.
 function toolSchemaName(name: string): string {
@@ -541,7 +551,7 @@ async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
 
 	try {
-		const url = new URL('https://directory.mpp.dev/v1/services')
+		const url = new URL(`${MPP_DIRECTORY_URL}/services`)
 		if (category) url.searchParams.set('category', category)
 		url.searchParams.set('limit', String(limit))
 

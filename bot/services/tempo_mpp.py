@@ -10,19 +10,25 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 from datetime import datetime, timezone
 
+from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 
 logger = logging.getLogger(__name__)
 
-# MPP endpoints
-MPP_API_BASE = "https://api.mpp.dev/v1"
-MPP_DIRECTORY_URL = "https://directory.mpp.dev/v1"
+# MPP endpoints. NOTE (2026-07-26): the default hosts api.mpp.dev and
+# directory.mpp.dev do NOT resolve (NXDOMAIN) — every call below fails until
+# the protocol actually ships them. The whole MPP surface is therefore gated
+# behind settings.mpp_enabled (default False); override these if MPP launches
+# on different hosts.
+MPP_API_BASE = settings.mpp_api_base
+MPP_DIRECTORY_URL = settings.mpp_directory_url
 
 
 @dataclass
 class MPPService:
     """A service registered in the MPP directory."""
+
     url: str
     name: str
     description: str
@@ -36,6 +42,7 @@ class MPPService:
 @dataclass
 class MPPSession:
     """An active MPP streaming payment session."""
+
     session_id: str
     service_url: str
     service_name: str
@@ -50,6 +57,7 @@ class MPPSession:
 @dataclass
 class MPPPaymentResult:
     """Result of an MPP payment."""
+
     success: bool
     tx_hash: Optional[str]
     amount: float
@@ -305,9 +313,11 @@ class TempoMPP:
             from bot.models.subscription import MPPSessionRecord
 
             with get_db_session() as db:
-                record = db.query(MPPSessionRecord).filter(
-                    MPPSessionRecord.session_id == session_id
-                ).first()
+                record = (
+                    db.query(MPPSessionRecord)
+                    .filter(MPPSessionRecord.session_id == session_id)
+                    .first()
+                )
                 if record:
                     record.status = "closed"
                     record.closed_at = datetime.now(timezone.utc)
@@ -320,9 +330,7 @@ class TempoMPP:
             from bot.models.subscription import MPPSessionRecord
 
             with get_db_session() as db:
-                query = db.query(MPPSessionRecord).filter(
-                    MPPSessionRecord.status == "active"
-                )
+                query = db.query(MPPSessionRecord).filter(MPPSessionRecord.status == "active")
                 if user_id is not None:
                     query = query.filter(MPPSessionRecord.user_id == user_id)
 

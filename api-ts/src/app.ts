@@ -380,7 +380,7 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1
 - GET /v1/agent/lend/market/:id — Market detail
 
 ## Protocols
-- MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0, 15 tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market
+- MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0, 14 tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market
 - A2A: POST https://api.suwappu.bot/a2a — JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json (also /.well-known/agent-card.json)
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
