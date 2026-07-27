@@ -5,6 +5,7 @@ import { publishedPosts, plannedPosts } from '@/content/research';
 import styles from './research.module.css';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
     'Engineering and protocol writing from the Suwappu team — best-price routing, gasless transactions, key management, and agent infrastructure.',

@@ -6839,3 +6839,40 @@ a.summer-button:active,
   .sw-rise { animation: none; }
   .nav__link::after { transition: none; }
 }
+
+/* ── Research figures ───────────────────────────────────────────────────────
+   Exhibits are SVG on a transparent ground so the page canvas shows through.
+   They break out slightly wider than the prose measure on large screens, and
+   scroll rather than squash on small ones. */
+.research-figure {
+  margin: 2.25rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.research-figure img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--suwappu-summer-line, #B9DFE9);
+  border-radius: var(--sw-r-md, 14px);
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0.9rem 0.75rem;
+}
+.research-figure figcaption {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--sw-muted, #4F6F7F);
+  max-width: 62ch;
+}
+@media (min-width: 1100px) {
+  .research-post .research-figure {
+    /* let exhibits run wider than the reading measure without breaking flow */
+    width: min(112%, 100vw - 4rem);
+    margin-left: -6%;
+  }
+}
+@media (max-width: 640px) {
+  .research-figure img { padding: 0.5rem 0.35rem; }
+  .research-figure figcaption { font-size: 0.75rem; }
+}
