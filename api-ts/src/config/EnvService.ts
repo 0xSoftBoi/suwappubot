@@ -52,6 +52,11 @@ export const EnvSchema = Schema.Struct({
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
+	// Sentry error tracking — fully optional. Unset = no-op (no init, no latency,
+	// no behavior change). Never required in production; only wire it up when
+	// operators provide a DSN.
+	SENTRY_DSN: Schema.optional(Schema.String),
+
 	// Sponge Gateway
 	SPONGE_API_KEY: Schema.optional(Schema.String),
 	SPONGE_WEBHOOK_SECRET: Schema.optional(Schema.String),

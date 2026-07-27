@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
+    "@sentry/node": "^10.68.0",
     "@turnkey/api-key-stamper": "^0.6.1",
     "@turnkey/sdk-server": "^6.1.1",
     "@types/jsonwebtoken": "^9.0.10",

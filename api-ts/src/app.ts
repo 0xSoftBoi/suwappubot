@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
 import type { AgentErrorCode } from './lib/agentError'
+import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
@@ -92,6 +93,18 @@ export function createApp(config: AppConfig) {
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
+			// Only report unexpected 5xx HTTPExceptions to Sentry. Expected 4xx
+			// (validation, auth failures, 402 billing challenges) are normal
+			// traffic, not incidents — capturing them would flood the quota.
+			if (err.status >= 500) {
+				captureServerError(err, {
+					path: c.req.path,
+					method: c.req.method,
+					requestId,
+					status: err.status,
+				})
+			}
+
 			const isAgentSurface = c.req.path.startsWith('/v1/agent') || c.req.path.startsWith('/mcp')
 			const cause = err.cause as { hint?: string } | undefined
 			const body: Record<string, unknown> = { error: err.message, requestId, timestamp }
@@ -106,6 +119,7 @@ export function createApp(config: AppConfig) {
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
+		captureServerError(err, { path: c.req.path, method: c.req.method, requestId })
 		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 
