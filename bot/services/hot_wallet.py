@@ -61,6 +61,47 @@ def _assert_withdrawals_enabled() -> None:
         )
 
 
+class ComplianceBlockedError(RuntimeError):
+    """Raised when a withdrawal recipient fails sanctions screening."""
+
+
+def _assert_recipient_compliant(
+    to_address: str, chain_name: str, token_address: Optional[str] = None
+) -> None:
+    """Sanctions-screen a withdrawal recipient before any funds move.
+
+    Placed beside the withdrawal kill-switch, inside send_native_token/send_token,
+    so EVERY withdraw surface (terminal API route, Telegram handler, future ones)
+    is covered without duplicating the check per call site.
+
+    Previously ``compliance_service.screen`` had exactly ONE call site —
+    ``SwapEngine.execute_swap`` — so withdrawals, the most obvious
+    funds-leave-the-platform path, were screened by nothing on every chain.
+
+    Behaviour follows ``COMPLIANCE_MODE``: DISABLED skips entirely (today's
+    default), MONITOR logs, ENFORCE raises. Screening errors are logged and
+    allowed through rather than breaking withdrawals — an outage in the screener
+    must not become an outage in the product. That is a deliberate fail-OPEN on
+    *errors* only; a real blocklist hit in ENFORCE mode always raises.
+    """
+    try:
+        from bot.services.compliance import compliance_service
+
+        if not compliance_service.enabled:
+            return
+        result = compliance_service.screen(
+            recipient=to_address,
+            tokens=[token_address] if token_address else None,
+            chain=chain_name,
+        )
+        if not result.allowed:
+            raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
+    except ComplianceBlockedError:
+        raise
+    except Exception as e:  # noqa: BLE001 — screener failure must not halt withdrawals
+        logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
+
+
 class PostBroadcastAmbiguous(RuntimeError):
     """Raised when the actual node broadcast call (send_raw_transaction /
     send_transaction) itself failed or threw AFTER the transaction may
@@ -868,6 +909,7 @@ class HotWalletService:
         always leaves a resolvable hash behind for the withdraw reconciler.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name)
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1128,6 +1170,7 @@ class HotWalletService:
         pre-broadcast hash onto the caller's claimed idempotency placeholder.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name, token_address)
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id
