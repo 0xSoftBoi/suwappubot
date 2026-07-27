@@ -126,7 +126,13 @@ TRUSTED_RPC_DOMAINS = frozenset(
         "blockpi.network",
         "alchemy.com",
         "infura.io",
-        "ankr.com",
+        # NOTE: ankr.com is deliberately absent. Ankr retired its unauthenticated
+        # public endpoints, so every chainlist-discovered `rpc.ankr.com/<chain>`
+        # answers `-32000 Unauthorized` and does nothing but trip the circuit
+        # breaker on repeat (observed continuously on polygon + gnosis in prod).
+        # Trusting the domain here only gates the UNTRUSTED chainlist feed — an
+        # authenticated Ankr URL configured in settings.py still bypasses this
+        # list, so re-adding it is not needed to use a paid Ankr key.
         "blastapi.io",
         "nodereal.io",
         "meowrpc.com",
