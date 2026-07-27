@@ -67,7 +67,7 @@ construct-typing==0.7.0
     # via solana
 crypto-cpp-py==2.0.0
     # via starknet-py
-cryptography==48.0.1
+cryptography==49.0.0
     # via -r requirements.in
 cytoolz==1.1.0
     # via eth-utils
