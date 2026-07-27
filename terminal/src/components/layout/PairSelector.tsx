@@ -69,8 +69,8 @@ export function PairSelector({ chain, selected, onSelect }: Props) {
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-terminal-bg-secondary border border-terminal-border rounded shadow-lg z-50">
-          <div className="p-2 border-b border-terminal-border">
+        <div className="terminal-theme-overlay absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden">
+          <div className="hairline-b p-2">
             <input
               ref={inputRef}
               type="text"
@@ -100,7 +100,7 @@ export function PairSelector({ chain, selected, onSelect }: Props) {
                   <span className="text-terminal-text-muted ml-2 text-xs">{token.name}</span>
                 </div>
                 {token.balance && (
-                  <span className="text-terminal-text-secondary text-xs font-mono">
+                  <span className="tnum text-terminal-text-secondary text-xs font-mono">
                     {parseFloat(token.balance).toFixed(4)}
                   </span>
                 )}

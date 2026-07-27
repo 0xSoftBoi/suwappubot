@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
@@ -15,14 +15,15 @@ import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
+import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
-import { ipRateLimit } from '../middleware/ipRateLimit'
+import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
-import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
+import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
@@ -63,6 +64,10 @@ import {
 type AgentContext = {
 	Variables: {
 		agent: Agent
+		// Set by meteredPayment() middleware — the outcome of the pay-per-call charge
+		// for this request, if metering ran. Used by /swap/execute to refund a charge
+		// on a non-execution failure path (mirrors mcp.ts's refundChargedCall guard).
+		meterCharge?: ChargeResult
 	}
 }
 
@@ -94,6 +99,48 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
+/**
+ * Resolve the token decimals used to build `quote_data.from_amount_human` /
+ * `to_amount_human` for POST /v1/agent/swap/execute. These feed the Python
+ * pipeline's pre-swap balance guard (bot/utils/quote_validator.py), so
+ * guessing a hardcoded constant here is what caused the original bug: a
+ * 6-decimal token (USDC/USDT) silently compared against a wrong-scale
+ * balance, letting an insufficient-balance swap through to an on-chain revert
+ * instead of a clean rejection.
+ *
+ * Precedence:
+ *  1. Decimals captured at QUOTE time (cached.fromDecimals/toDecimals) — the
+ *     token registry was in scope then, so this is authoritative.
+ *  2. Decimals carried on the raw provider quote itself. Li.Fi's SwapQuote
+ *     exposes fromToken.decimals/toToken.decimals directly; Jupiter's raw
+ *     quote carries only mint addresses, never decimals, so this is always
+ *     undefined for Solana.
+ *  3. FROM side: no further fallback — undefined means "refuse to execute,
+ *     ask for a fresh quote" (handled by the caller). TO side is
+ *     informational only (never gates the balance check), so falling back to
+ *     the FROM decimals is an acceptable, explicitly-documented approximation
+ *     rather than a silent guess of an unrelated constant.
+ */
+export function resolveSwapExecuteDecimals(cached: {
+	quote: any
+	isSolana?: boolean | undefined
+	fromDecimals?: number | undefined
+	toDecimals?: number | undefined
+}): { fromDecimals: number | undefined; toDecimals: number | undefined } {
+	const quote = cached.quote
+	const rawFromDecimals: number | undefined = cached.isSolana
+		? undefined
+		: (quote?.fromToken?.decimals as number | undefined)
+	const rawToDecimals: number | undefined = cached.isSolana
+		? undefined
+		: (quote?.toToken?.decimals as number | undefined)
+
+	const fromDecimals = cached.fromDecimals ?? rawFromDecimals
+	const toDecimals = cached.toDecimals ?? rawToDecimals ?? fromDecimals
+
+	return { fromDecimals, toDecimals }
 }
 
 // CoinGecko ID mapping for token prices
@@ -194,7 +241,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = RegisterAgentSchema.safeParse(body)
@@ -203,6 +250,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -210,6 +258,9 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	}
 
 	const { name, description, callback_url, metadata } = parsed.data
+
+	// Resolve client IP for the starter-credit anti-farm guard (see AgentService).
+	const ip = resolveRequestIp(c)
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -222,14 +273,15 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				)
 			}
 
-			const { agent, apiKey } = yield* agentService.registerAgent({
+			const { agent, apiKey, grantedCredits } = yield* agentService.registerAgent({
 				name,
 				description,
 				callbackUrl: callback_url,
 				metadata,
+				ip,
 			})
 
-			return { agent, apiKey }
+			return { agent, apiKey, grantedCredits }
 		}),
 	)
 
@@ -238,7 +290,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 		return c.json(body, status)
 	}
 
-	const { agent, apiKey } = result.right
+	const { agent, apiKey, grantedCredits } = result.right
 
 	return c.json(
 		{
@@ -251,6 +303,14 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				created_at: agent.createdAt,
 			},
 			important: 'SAVE YOUR API KEY! It cannot be retrieved later.',
+			credits: {
+				starting_balance: grantedCredits,
+				note:
+					grantedCredits > 0
+						? `You start with ${grantedCredits} free credits (~${grantedCredits} quote calls or ${Math.floor(grantedCredits / 5)} swaps) so you can try the API immediately. GET /v1/agent/tokens and GET /v1/agent/chains are always free.`
+						: 'Starter credits were not granted for this registration (rate-limited). GET /v1/agent/tokens and GET /v1/agent/chains are always free — top up to use metered endpoints.',
+				topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount} once your balance runs low',
+			},
 			next_steps: {
 				step_1: 'Save your api_key securely',
 				step_2: 'Use Authorization: Bearer YOUR_API_KEY for all requests',
@@ -276,13 +336,13 @@ agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 	// (or env is unavailable) reject — never accept an unverified callback, which
 	// could forge-register agents, trigger actions, or inject metadata.
 	if (Either.isLeft(envResult) || !envResult.right.SPONGE_WEBHOOK_SECRET) {
-		return c.json({ error: 'Sponge webhook is not configured' }, 503)
+		return agentError(c, 503, 'UPSTREAM_ERROR', 'Sponge webhook is not configured')
 	}
 	const webhookSecret = envResult.right.SPONGE_WEBHOOK_SECRET
 
 	const signature = c.req.header('X-Sponge-Signature')
 	if (!signature) {
-		return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Missing X-Sponge-Signature header')
 	}
 
 	const rawBody = await c.req.text()
@@ -293,19 +353,19 @@ agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 
 	// Reject a malformed signature (non-hex or wrong length) before constant-time compare.
 	if (!/^[0-9a-fA-F]+$/.test(signature) || signature.length !== expected.length) {
-		return c.json({ error: 'Invalid signature' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Invalid signature')
 	}
 	const sigBuf = Buffer.from(signature, 'hex')
 	const expBuf = Buffer.from(expected, 'hex')
 	if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-		return c.json({ error: 'Invalid signature' }, 401)
+		return agentError(c, 401, 'UNAUTHORIZED', 'Invalid signature')
 	}
 
 	let body: any
 	try {
 		body = JSON.parse(rawBody)
 	} catch {
-		return c.json({ error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	return handleSpongeCallback(c, body)
@@ -318,12 +378,14 @@ async function handleSpongeCallback(c: any, body: any) {
 		agent_url?: string
 	}
 
+	const ip = resolveRequestIp(c)
+
 	if (event !== 'agent_connect') {
-		return c.json({ error: `Unsupported event: ${event}` }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', `Unsupported event: ${event}`)
 	}
 
 	if (!agent_name) {
-		return c.json({ error: 'agent_name is required' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'agent_name is required')
 	}
 
 	// Auto-register the connecting agent
@@ -344,6 +406,7 @@ async function handleSpongeCallback(c: any, body: any) {
 				description: `Auto-registered via Sponge Gateway from ${agent_url || 'unknown'}`,
 				callbackUrl: agent_url,
 				metadata: { source: 'sponge', original_name: agent_name, connected_at: new Date().toISOString() },
+				ip,
 			})
 
 			return { agent, apiKey, isNew: true }
@@ -516,7 +579,7 @@ agentRoutes.patch('/me', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = UpdateAgentSchema.safeParse(body)
@@ -525,6 +588,7 @@ agentRoutes.patch('/me', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -577,7 +641,7 @@ agentRoutes.post('/quote', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = QuoteRequestSchema.safeParse(body)
@@ -586,6 +650,7 @@ agentRoutes.post('/quote', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 				examples: {
 					evm: { from_token: 'ETH', to_token: 'USDC', amount: '0.5', chain: 'base' },
@@ -612,7 +677,11 @@ agentRoutes.post('/quote', async (c) => {
 	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
 	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
 		return c.json(
-			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			{
+				success: false,
+				error: 'Starknet transactions are handled by the bot backend',
+				error_code: 'CHAIN_UNSUPPORTED',
+			},
 			400,
 		)
 	}
@@ -673,7 +742,10 @@ agentRoutes.post('/quote', async (c) => {
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
 				// Cache the quote
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				// Calculate human-readable amounts
 				const fromAmountHuman = parseFloat(quote.inAmount) / 10 ** fromTokenInfo.decimals
@@ -803,7 +875,10 @@ agentRoutes.post('/quote', async (c) => {
 			)
 
 			// Cache the quote
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			// Calculate human-readable amounts
 			const fromAmountHuman = parseFloat(quote.fromAmount) / 10 ** fromTokenInfo.decimals
@@ -872,7 +947,7 @@ agentRoutes.post('/swap', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = SwapRequestSchema.safeParse(body)
@@ -881,6 +956,7 @@ agentRoutes.post('/swap', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -909,6 +985,7 @@ agentRoutes.post('/swap', async (c) => {
 				{
 					success: false,
 					error: 'Quote expired or not found',
+					error_code: 'QUOTE_NOT_FOUND',
 					hint: 'Request a new quote using POST /v1/agent/quote',
 				},
 				400,
@@ -972,6 +1049,7 @@ agentRoutes.post('/swap', async (c) => {
 							decision === 'require_approval'
 								? 'Transaction requires approval under org policy'
 								: 'Transaction blocked by org policy',
+						error_code: 'POLICY_VIOLATION',
 						reason: reason ?? null,
 					},
 					status,
@@ -1015,6 +1093,7 @@ agentRoutes.post('/swap', async (c) => {
 					{
 						success: false,
 						error: 'Failed to get Solana transaction',
+						error_code: 'UPSTREAM_ERROR',
 						details: result.left.message,
 					},
 					400,
@@ -1055,7 +1134,7 @@ agentRoutes.post('/swap', async (c) => {
 		// that address (their managed wallet) — block constructing a fund-moving tx
 		// from an arbitrary/victim address (C16).
 		if (!checkEvmWalletOwnership(agent, wallet_address)) {
-			return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+			return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 		}
 
 		// EVM swap - return unsigned transaction
@@ -1101,18 +1180,13 @@ agentRoutes.post('/swap', async (c) => {
 	}
 
 	// No quote_id - need to get a fresh quote first
-	return c.json(
-		{
-			success: false,
-			error: 'quote_id required',
-			hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
-			example: {
-				step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
-				step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}',
-			},
+	return agentError(c, 400, 'VALIDATION_ERROR', 'quote_id required', {
+		hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
+		example: {
+			step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
+			step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}',
 		},
-		400,
-	)
+	})
 })
 
 // POST /v1/agent/swap/simulate - Tenderly-style dry run: fetch/reuse a quote and
@@ -1268,7 +1342,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 					)
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				return { quoteId, quote }
 			}),
@@ -1353,7 +1430,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 				Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
 			)
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromTokenInfo.decimals,
+				toDecimals: toTokenInfo.decimals,
+			})
 
 			return quote
 		}),
@@ -1400,7 +1480,7 @@ agentRoutes.post('/execute', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = ExecuteCommandSchema.safeParse(body)
@@ -1409,6 +1489,7 @@ agentRoutes.post('/execute', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 				hint: 'Example: {"command": "swap 0.5 ETH to USDC on Base", "wallet_address": "0x..."}',
 			},
@@ -1422,7 +1503,7 @@ agentRoutes.post('/execute', async (c) => {
 	// otherwise a natural-language command could carry a victim's address as the swap
 	// sender (C17).
 	if (wallet_address && !checkEvmWalletOwnership(agent, wallet_address)) {
-		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
 	// Track request
@@ -1444,7 +1525,7 @@ agentRoutes.post('/execute', async (c) => {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 
 		if (!amount || !fromToken || !toToken) {
-			return c.json({ error: 'Invalid swap command format' }, 400)
+			return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid swap command format')
 		}
 
 		// Get a quote
@@ -1502,7 +1583,10 @@ agentRoutes.post('/execute', async (c) => {
 					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				// Cache quote
-				cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+				cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+					fromDecimals: fromTokenInfo.decimals,
+					toDecimals: toTokenInfo.decimals,
+				})
 
 				const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 
@@ -1563,7 +1647,7 @@ agentRoutes.post('/execute', async (c) => {
 	if (quoteMatch) {
 		const [, amount, fromToken, toToken, chain] = quoteMatch
 		if (!amount || !fromToken || !toToken) {
-			return c.json({ error: 'Invalid quote command format' }, 400)
+			return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid quote command format')
 		}
 		// Redirect to quote endpoint logic (same as swap but different message)
 		return c.json({
@@ -1621,20 +1705,15 @@ agentRoutes.get('/portfolio', async (c) => {
 	const walletAddress = c.req.query('wallet_address')
 
 	if (!walletAddress) {
-		return c.json(
-			{
-				success: false,
-				error: 'Missing required query parameter: wallet_address',
-				hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
-			},
-			400,
-		)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Missing required query parameter: wallet_address', {
+			hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
+		})
 	}
 
 	// Only allow an agent to read its own managed wallet's balances — otherwise the
 	// endpoint discloses live balances for any address and enables wallet enumeration (H9).
 	if (!checkEvmWalletOwnership(agent, walletAddress)) {
-		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
 	const chain = c.req.query('chain')
@@ -1789,6 +1868,18 @@ agentRoutes.post('/wallets', async (c) => {
 	)
 })
 
+// Refund a pay-per-call charge for POST /v1/agent/swap/execute when the request
+// fails before (or without) actually executing a swap. Mirrors the MCP tool-dispatch
+// refund guard in mcp.ts (refundChargedCall call sites there) — only refund when the
+// charge actually deducted prepaid credits (kind === 'ok'); a facilitator-settled
+// on-chain payment ('settled') is never refunded here, matching that guard.
+async function refundSwapExecuteCharge(c: Context<AgentContext>, agent: Agent, reason: string): Promise<void> {
+	const charge = c.get('meterCharge')
+	if (charge?.kind === 'ok') {
+		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason })
+	}
+}
+
 // POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
 agentRoutes.post('/swap/execute', async (c) => {
 	const agent = c.get('agent')
@@ -1797,15 +1888,18 @@ agentRoutes.post('/swap/execute', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		await refundSwapExecuteCharge(c, agent, 'invalid JSON body')
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = ExecuteSwapSchema.safeParse(body)
 	if (!parsed.success) {
+		await refundSwapExecuteCharge(c, agent, 'schema validation failed')
 		return c.json(
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -1821,14 +1915,10 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const walletAddress = metadata.wallet_address as string | undefined
 
 	if (!internalUserId || !internalWalletId || !walletAddress) {
-		return c.json(
-			{
-				success: false,
-				error: 'No managed wallet found',
-				hint: 'Create a wallet first using POST /v1/agent/wallets',
-			},
-			400,
-		)
+		await refundSwapExecuteCharge(c, agent, 'WALLET_NOT_FOUND')
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', {
+			hint: 'Create a wallet first using POST /v1/agent/wallets',
+		})
 	}
 
 	// Look up cached quote (getCachedQuote returns null once the TTL has elapsed).
@@ -1836,17 +1926,28 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// message so cross-agent quote hijacking can't be probed.
 	const cached = getCachedQuote(quote_id)
 	if (!cached || cached.agentId !== agent.id) {
-		return c.json(
-			{
-				success: false,
-				error: 'Quote expired or not found',
-				hint: 'Request a new quote using POST /v1/agent/quote',
-			},
-			400,
-		)
+		await refundSwapExecuteCharge(c, agent, 'QUOTE_NOT_FOUND')
+		return agentError(c, 400, 'QUOTE_NOT_FOUND', 'Quote expired or not found', {
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		})
 	}
 
 	const quote = cached.quote
+
+	// Resolve decimals used to build the human-readable amounts that the Python
+	// pipeline's pre-swap balance guard relies on (bot/utils/quote_validator.py).
+	const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
+
+	if (fromDecimals === undefined) {
+		await refundSwapExecuteCharge(c, agent, 'unresolvable quote decimals')
+		return agentError(
+			c,
+			422,
+			'QUOTE_NOT_FOUND',
+			'Unable to resolve token decimals for this quote; request a fresh quote before executing',
+			{ hint: 'Request a new quote using POST /v1/agent/quote' },
+		)
+	}
 
 	// Build quote_data for the Python endpoint
 	const quoteData: Record<string, unknown> = cached.isSolana
@@ -1857,9 +1958,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 				from_token: quote.inputMint,
 				to_token: quote.outputMint,
 				from_amount: quote.inAmount,
-				from_amount_human: parseFloat(quote.inAmount) / 1e9,
+				from_amount_human: parseFloat(quote.inAmount) / 10 ** fromDecimals,
 				to_amount: quote.outAmount,
-				to_amount_human: parseFloat(quote.outAmount) / 1e6,
+				to_amount_human: parseFloat(quote.outAmount) / 10 ** (toDecimals ?? fromDecimals),
 				to_amount_min: quote.otherAmountThreshold,
 				gas_cost_usd: 0,
 				fee_cost_usd: 0,
@@ -1876,9 +1977,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 				from_token: quote.fromToken?.symbol || '',
 				to_token: quote.toToken?.symbol || '',
 				from_amount: quote.fromAmount || '',
-				from_amount_human: parseFloat(quote.fromAmount || '0') / 1e18,
+				from_amount_human: parseFloat(quote.fromAmount || '0') / 10 ** fromDecimals,
 				to_amount: quote.toAmount || '',
-				to_amount_human: parseFloat(quote.toAmount || '0') / 1e18,
+				to_amount_human: parseFloat(quote.toAmount || '0') / 10 ** (toDecimals ?? fromDecimals),
 				to_amount_min: quote.toAmountMin || quote.toAmount || '',
 				gas_cost_usd: parseFloat(quote.estimatedGasUsd || '0'),
 				fee_cost_usd: parseFloat(quote.bridgeFeeUsd || '0'),
@@ -1890,7 +1991,40 @@ agentRoutes.post('/swap/execute', async (c) => {
 				raw_quote: quote,
 			}
 
-	const idempotencyKey = `agent_${agent.id}_${quote_id}`
+	// Prefer a client-supplied Idempotency-Key (scoped per agent so agents can't
+	// collide on each other's keys) over the derived quote_id key. This lets a
+	// caller safely retry a request that timed out client-side without risking a
+	// duplicate on-chain swap, even if it regenerates a fresh quote_id on retry.
+	// The key embeds a fingerprint of the request (quote_id + route + amounts) so
+	// reusing the same key with a DIFFERENT quote can never return a stale swap's
+	// result as if it were this request's success — a mismatched reuse executes as
+	// a new swap instead of silently misreporting.
+	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
+	if (clientIdempotencyKey && !/^[A-Za-z0-9_.:-]{1,64}$/.test(clientIdempotencyKey)) {
+		await refundSwapExecuteCharge(c, agent, 'invalid Idempotency-Key')
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid Idempotency-Key', {
+			hint: 'Use 1-64 characters from A-Za-z0-9_.:-',
+		})
+	}
+	const requestFingerprint = crypto
+		.createHash('sha256')
+		.update(
+			// Deliberately EXCLUDES quote_id: a client retrying a timed-out request
+			// typically re-quotes first, so binding to quote_id would mint a new key
+			// and execute a second swap — the exact duplicate this header prevents.
+			// The fingerprint binds the economic terms instead, so reusing a key for a
+			// genuinely different trade executes fresh rather than returning a stale swap.
+			`${quoteData.from_chain}|${quoteData.to_chain}|${quoteData.from_token}|${quoteData.to_token}|${quoteData.from_amount}`,
+		)
+		.digest('hex')
+		.slice(0, 12)
+	const idempotencyKey = clientIdempotencyKey
+		? `agent_${agent.id}_${clientIdempotencyKey}_${requestFingerprint}`
+		: `agent_${agent.id}_${quote_id}`
+
+	// Set when a failure leaves the swap's on-chain outcome UNKNOWN (the request may
+	// have been received and broadcast). Such failures must NOT be refunded.
+	let internalOutcomeUnknown = false
 
 	// Call internal Python endpoint
 	const result = await runEffectEither(
@@ -1926,6 +2060,10 @@ agentRoutes.post('/swap/execute', async (c) => {
 					})
 
 					if (!res.ok) {
+						// A 5xx can arrive after the Python side already broadcast the tx
+						// (e.g. it failed while recording the swap), so the outcome is unknown.
+						// A 4xx is an explicit pre-submit rejection.
+						if (res.status >= 500) internalOutcomeUnknown = true
 						const errBody = (await res.json().catch(() => ({ detail: 'Unknown error' }))) as {
 							detail?: string
 						}
@@ -1934,7 +2072,21 @@ agentRoutes.post('/swap/execute', async (c) => {
 
 					return (await res.json()) as { swap_id: number; tx_hash: string | null; status: string }
 				},
-				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
+				catch: (e) => {
+					// execute-swap is synchronous through broadcast on the Python side and
+					// can wait ~120s on an ERC-20 approval receipt, while this fetch aborts
+					// at 30s. A timeout/abort/network error therefore does NOT mean the swap
+					// didn't execute — refunding here would hand credits back for trades that
+					// landed on-chain, which an agent could trigger deliberately.
+					if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+						internalOutcomeUnknown = true
+					} else if (e instanceof TypeError) {
+						// fetch() throws TypeError for connection-level failures, which may
+						// occur after the request was received and acted upon.
+						internalOutcomeUnknown = true
+					}
+					return new ValidationError({ message: e instanceof Error ? e.message : String(e) })
+				},
 			})
 
 			return swapResponse
@@ -1950,6 +2102,21 @@ agentRoutes.post('/swap/execute', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
+		// Refund ONLY when the swap provably did not execute (misconfiguration, or an
+		// explicit 4xx rejection from execute-swap). On a timeout/abort/network error or
+		// a 5xx the tx may already be on-chain, so we keep the charge and log for
+		// reconciliation — the idempotency key identifies the swap.
+		if (internalOutcomeUnknown) {
+			console.warn(
+				`[swap/execute] outcome unknown for agent=${agent.id} idempotency_key=${idempotencyKey}: ${result.left.message} — charge retained, needs reconciliation`,
+			)
+		} else {
+			await refundSwapExecuteCharge(
+				c,
+				agent,
+				`internal execute-swap call failed pre-submit: ${result.left.message}`,
+			)
+		}
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status)
 	}
@@ -1976,7 +2143,7 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 	const swapId = parseInt(c.req.param('swapId'), 10)
 
 	if (isNaN(swapId)) {
-		return c.json({ success: false, error: 'Invalid swap ID' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid swap ID')
 	}
 
 	const result = await runEffectEither(
@@ -2106,6 +2273,7 @@ agentRoutes.get('/prices', async (c) => {
 			{
 				success: false,
 				error: 'Missing required query parameter: symbols',
+				error_code: 'VALIDATION_ERROR',
 				hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
 				supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
 			},
@@ -2122,6 +2290,7 @@ agentRoutes.get('/prices', async (c) => {
 			{
 				success: false,
 				error: 'Provide 1-20 comma-separated symbols',
+				error_code: 'VALIDATION_ERROR',
 			},
 			400,
 		)
@@ -2186,6 +2355,7 @@ agentRoutes.get('/tokens', async (c) => {
 				{
 					success: false,
 					error: `Unknown chain: ${chainParam}`,
+					error_code: 'CHAIN_UNSUPPORTED',
 					supported: [...new Set(Object.values(CHAINS).map((c) => c.key)), 'solana'],
 				},
 				400,
@@ -2285,13 +2455,13 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	const body = await c.req.json()
 	const parsed = CreatePolicySchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({ error: 'Invalid request', details: formatZodErrors(parsed.error) }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
 	}
 
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const { type, params } = parsed.data
@@ -2324,7 +2494,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		return agentError(c, 500, 'INTERNAL', result.left.message)
 	}
 
 	return c.json({ success: true, policy: result.right })
@@ -2336,7 +2506,7 @@ agentRoutes.get('/wallet/policies', async (c) => {
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const result = await runEffectEither(
@@ -2347,7 +2517,7 @@ agentRoutes.get('/wallet/policies', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		return agentError(c, 500, 'INTERNAL', result.left.message)
 	}
 
 	return c.json({ success: true, policies: result.right })
@@ -2360,7 +2530,7 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
 	const subOrgId = metadata.wallet_sub_org_id as string
 	if (!subOrgId) {
-		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
 	}
 
 	const result = await runEffectEither(
@@ -2405,6 +2575,7 @@ agentRoutes.get('/webhooks', async (c) => {
 			{
 				success: false,
 				error: 'Validation error',
+				error_code: 'VALIDATION_ERROR',
 				fields: formatZodErrors(parsed.error),
 			},
 			400,
@@ -2483,14 +2654,9 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const agent = c.get('agent')
 
 	if (!agent.callbackUrl) {
-		return c.json(
-			{
-				success: false,
-				error: 'No callback_url configured',
-				hint: 'Set callback_url via PATCH /v1/agent/me first',
-			},
-			400,
-		)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'No callback_url configured', {
+			hint: 'Set callback_url via PATCH /v1/agent/me first',
+		})
 	}
 
 	// Extract raw API key from Authorization header for signing
@@ -2736,20 +2902,23 @@ agentRoutes.post('/billing/topup', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = TopupSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
 
 	const { txHash, chain, amount } = parsed.data
 	if (!Number.isFinite(amount) || amount <= 0) {
-		return c.json({ success: false, error: 'amount must be a positive number (USDC)' }, 400)
+		return c.json(
+			{ success: false, error: 'amount must be a positive number (USDC)', error_code: 'VALIDATION_ERROR' },
+			400,
+		)
 	}
 
 	const result = await runEffectEither(
@@ -2937,13 +3106,13 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 
 	const parsed = SubscribeSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
@@ -2951,11 +3120,15 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 	const { txHash, chain, amount, tier } = parsed.data
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
-		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, error_code: 'VALIDATION_ERROR', purchasable: PURCHASABLE_TIERS }, 400)
 	}
 	if (amount + 1e-9 < price) {
 		return c.json(
-			{ success: false, error: `Insufficient payment: ${tier} costs $${price}/30d, paid $${amount}` },
+			{
+				success: false,
+				error: `Insufficient payment: ${tier} costs $${price}/30d, paid $${amount}`,
+				error_code: 'INSUFFICIENT_CREDITS',
+			},
 			400,
 		)
 	}
@@ -3146,19 +3319,19 @@ agentRoutes.post('/billing/recurring', async (c) => {
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid JSON body')
 	}
 	const parsed = RecurringSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
-			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			{ success: false, error: 'Validation error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(parsed.error) },
 			400,
 		)
 	}
 	const { tier, signature, permission: pin } = parsed.data
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
-		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, error_code: 'VALIDATION_ERROR', purchasable: PURCHASABLE_TIERS }, 400)
 	}
 
 	const result = await runEffectEither(

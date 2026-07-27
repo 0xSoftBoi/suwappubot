@@ -29,6 +29,15 @@ FALLBACK_CLARIFICATION = (
     "Sorry, I couldn't understand that — try /s <amount> <token> <chain> to swap."
 )
 
+# Distinct from FALLBACK_CLARIFICATION so a capped-out user isn't told "I
+# couldn't understand that" (implying a parse failure they should rephrase)
+# when the real issue is the daily LLM-fallback budget — rephrasing won't
+# help, only /s will.
+CAPPED_CLARIFICATION = (
+    "I've hit today's free natural-language trading limit — "
+    "use /s <amount> <token> <chain> to swap directly."
+)
+
 _client: Optional["anthropic.AsyncAnthropic"] = None
 
 
@@ -153,6 +162,10 @@ def _fallback(message: str = FALLBACK_CLARIFICATION) -> TradeIntent:
     return TradeIntent(action="unknown", clarification=message, confidence=0.0)
 
 
+def _capped_fallback() -> TradeIntent:
+    return TradeIntent(action="unknown", clarification=CAPPED_CLARIFICATION, confidence=0.0)
+
+
 def _build_context_blurb(context: Optional[Dict[str, Any]]) -> str:
     if not context:
         return ""
@@ -166,6 +179,17 @@ def _build_context_blurb(context: Optional[Dict[str, Any]]) -> str:
     recent_tokens = context.get("recent_tokens")
     if recent_tokens:
         parts.append(f"Recently used tokens: {', '.join(str(t) for t in recent_tokens)}.")
+    pending_intent = context.get("pending_intent")
+    if pending_intent:
+        known_fields = ", ".join(
+            f"{k}={v}" for k, v in pending_intent.items() if v not in (None, "", "unknown")
+        )
+        parts.append(
+            "This message is a follow-up reply to a clarification question about an "
+            f"in-progress trade intent that already has: {known_fields}. Merge the new "
+            "message into that intent rather than starting over — only fill in what's "
+            "missing or being corrected."
+        )
     return " ".join(parts)
 
 
@@ -397,7 +421,7 @@ async def parse_trade_intent(
             "nl_intent_service: LLM fallback daily cap exceeded, degrading without LLM call",
             extra={"source": "fallback-capped"},
         )
-        return _fallback()
+        return _capped_fallback()
 
     provider, api_key, base_url, model = _resolve_provider_config()
     if not api_key:

@@ -107,3 +107,16 @@ except SuwappuError as err:
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
+
+## Publishing
+
+This package is not yet published to PyPI. When ready, publishing follows the
+standard `build` + `twine` flow from `packages/sdk-python/`:
+
+```bash
+python3 -m build
+twine upload dist/*
+```
+
+Bump `version` in `pyproject.toml` and `__version__` in `src/suwappu/__init__.py`
+together before tagging a release.

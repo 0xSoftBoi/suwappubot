@@ -10,16 +10,20 @@ import {
 } from 'lightweight-charts'
 import type { PredictionMarket } from '../../types/api'
 import { usePredictHistory } from '../../hooks/usePredictHistory'
-import { designTokens } from '@suwappu/design-tokens'
-
-const trading = designTokens.colors.trading
+import { TerminalEmptyState, TerminalSkeleton } from '../foundation'
 
 const RANGES = ['1H', '6H', '1D', '1W', '1M', 'ALL'] as const
 type Range = (typeof RANGES)[number]
 
-const AXIS_TEXT = '#8aa2b4'
-const GRID = 'rgba(148, 184, 215, 0.07)'
-const BORDER = 'rgba(148, 184, 215, 0.16)'
+// Institutional register (see src/index.css / WS-A report §2). lightweight-charts
+// takes literal colours, so these mirror the theme vars rather than read them.
+const CANVAS = '#0A0B0F'
+const AXIS_TEXT = '#9BA1AB'
+const GRID = 'rgba(236,237,239,0.06)'
+const BORDER = 'rgba(236,237,239,0.13)'
+const ACCENT = '#E58D2B'
+const UP = '#2FBF71'
+const DOWN = '#E5484D'
 
 interface Props {
   market: PredictionMarket | null
@@ -64,8 +68,8 @@ export function ProbabilityChart({ market }: Props) {
       },
       crosshair: {
         mode: CrosshairMode.Magnet,
-        vertLine: { color: 'rgba(56,189,248,0.5)', width: 1, labelBackgroundColor: '#0e3a52' },
-        horzLine: { color: 'rgba(56,189,248,0.5)', width: 1, labelBackgroundColor: '#0e3a52' },
+        vertLine: { color: 'rgba(229,141,43,0.55)', width: 1, labelBackgroundColor: ACCENT },
+        horzLine: { color: 'rgba(229,141,43,0.55)', width: 1, labelBackgroundColor: ACCENT },
       },
       rightPriceScale: { borderColor: BORDER, scaleMargins: { top: 0.12, bottom: 0.08 } },
       timeScale: { borderColor: BORDER, timeVisible: true, secondsVisible: false },
@@ -74,9 +78,9 @@ export function ProbabilityChart({ market }: Props) {
     chartRef.current = chart
 
     const area = chart.addAreaSeries({
-      lineColor: '#38bdf8',
-      topColor: 'rgba(56, 189, 248, 0.4)',
-      bottomColor: 'rgba(56, 189, 248, 0.02)',
+      lineColor: ACCENT,
+      topColor: 'rgba(229,141,43,0.28)',
+      bottomColor: 'rgba(229,141,43,0.02)',
       lineWidth: 2,
       priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(0)}%`, minMove: 0.1 },
     })
@@ -86,7 +90,7 @@ export function ProbabilityChart({ market }: Props) {
     // 50/50 reference line so a coin-flip market reads instantly.
     area.createPriceLine({
       price: 50,
-      color: 'rgba(148,184,215,0.35)',
+      color: 'rgba(236,237,239,0.22)',
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: false,
@@ -121,11 +125,10 @@ export function ProbabilityChart({ market }: Props) {
   useEffect(() => {
     if (!points || !areaRef.current) return
     const up = points.length > 1 ? points[points.length - 1].value >= points[0].value : true
-    const line = up ? trading.bull : trading.bear
     areaRef.current.applyOptions({
-      lineColor: line,
-      topColor: up ? 'rgba(34, 197, 94, 0.34)' : 'rgba(239, 68, 68, 0.3)',
-      bottomColor: up ? 'rgba(34, 197, 94, 0.02)' : 'rgba(239, 68, 68, 0.02)',
+      lineColor: up ? UP : DOWN,
+      topColor: up ? 'rgba(47,191,113,0.28)' : 'rgba(229,72,77,0.26)',
+      bottomColor: up ? 'rgba(47,191,113,0.02)' : 'rgba(229,72,77,0.02)',
     })
     // lightweight-charts hard-asserts strictly-ascending, unique timestamps —
     // a duplicate/out-of-order point (plausible from tick-level Polymarket
@@ -147,30 +150,35 @@ export function ProbabilityChart({ market }: Props) {
   // exists would leave the canvas un-created when a market is later selected.
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-terminal-border px-3 py-2.5">
+      <div className="hairline-b px-3 py-2.5">
         <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-terminal-text">
           {market ? market.question : 'Odds history'}
         </p>
         <div className="mt-1.5 flex items-end gap-2">
           {market && displayPct != null ? (
             <>
-              <span className="font-mono text-2xl font-bold leading-none text-terminal-text tabular-nums">
+              {/* Probability is the hero number. */}
+              <span className="font-mono text-3xl font-semibold leading-none tnum text-terminal-text">
                 {displayPct.toFixed(0)}
-                <span className="text-base text-terminal-text-muted">%</span>
+                <span className="text-lg text-terminal-text-muted">%</span>
               </span>
               <span className="pb-0.5 text-[11px] text-terminal-text-muted">
                 {activeToken?.outcome ?? ''} chance
               </span>
               {windowChange != null && (
                 <span
-                  className={`pb-0.5 font-mono text-[11px] font-semibold ${changeUp ? 'text-bull' : 'text-bear'}`}
+                  className={`pb-0.5 font-mono text-[11px] font-semibold tnum ${changeUp ? 'text-bull' : 'text-bear'}`}
                 >
-                  {changeUp ? '▲' : '▼'} {Math.abs(windowChange).toFixed(1)}pt
+                  <span aria-hidden="true">{changeUp ? '▲' : '▼'}</span>{' '}
+                  {changeUp ? '+' : '−'}
+                  {Math.abs(windowChange).toFixed(1)}pt
                 </span>
               )}
             </>
           ) : (
-            <span className="text-[11px] text-terminal-text-muted">Select a market to see its odds</span>
+            <span className="text-[11px] text-terminal-text-muted">
+              Select a market to see its odds
+            </span>
           )}
         </div>
         {market && tokens.length > 1 && (
@@ -179,9 +187,10 @@ export function ProbabilityChart({ market }: Props) {
               <button
                 key={t.tokenId}
                 onClick={() => setTokenIdx(i)}
-                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                aria-pressed={i === tokenIdx}
+                className={`rounded-terminal-pill px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
                   i === tokenIdx
-                    ? 'bg-sakura-500/15 text-sakura-500 ring-1 ring-sakura-500/40'
+                    ? 'accent-wash text-terminal-accent ring-1 ring-terminal-border-active'
                     : 'text-terminal-text-secondary hover:bg-terminal-bg-tertiary/60 hover:text-terminal-text'
                 }`}
               >
@@ -209,34 +218,43 @@ export function ProbabilityChart({ market }: Props) {
         ))}
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-white/5 bg-[radial-gradient(circle_at_80%_-10%,rgba(56,189,248,0.1),transparent_42%),linear-gradient(180deg,#0b1622_0%,#0a121d_100%)]">
+      <div
+        className="hairline relative min-h-0 flex-1 overflow-hidden rounded-terminal-inset"
+        style={{ backgroundColor: CANVAS }}
+      >
         <div ref={containerRef} className="h-full w-full" />
         {!market && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-slate-300 text-sm">Select a market</div>
-              <div className="text-slate-500 text-xs mt-1">Pick a market to see its odds history</div>
-            </div>
+            <TerminalEmptyState
+              className="bg-transparent"
+              kicker="Odds history"
+              title="Select a market"
+              description="Pick a market to chart its implied probability over time."
+            />
           </div>
         )}
         {market && isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-slate-400 text-sm animate-pulse">Loading odds…</div>
+          <div className="absolute inset-0 flex flex-col justify-end gap-2 p-4">
+            <TerminalSkeleton height={10} width="80%" label="Loading odds" />
+            <TerminalSkeleton height={10} width="64%" />
+            <TerminalSkeleton height={10} width="72%" />
           </div>
         )}
         {market && !isLoading && points && points.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-md border border-white/10 bg-slate-900/80 px-4 py-3 text-center shadow-lg">
-              <div className="text-slate-200 text-sm">No price history yet.</div>
-              <div className="text-slate-500 text-xs mt-1">
-                Polymarket has no trades for this outcome in this window.
+            <div className="terminal-theme-overlay px-4 py-3 text-center">
+              <div className="text-sm font-semibold text-terminal-text">No price history yet</div>
+              <div className="mt-1 text-xs text-terminal-text-secondary">
+                Polymarket has no trades for this outcome in this window. Try a wider range.
               </div>
             </div>
           </div>
         )}
         {market && !isLoading && !activeToken && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-slate-400 text-xs">No chartable outcome for this market.</div>
+            <div className="text-xs text-terminal-text-muted">
+              No chartable outcome for this market.
+            </div>
           </div>
         )}
       </div>

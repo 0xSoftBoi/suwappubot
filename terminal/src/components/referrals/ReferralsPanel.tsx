@@ -41,7 +41,7 @@ function formatDate(iso: string): string {
 function TierLabel({ tier }: { tier: 'standard' | 'power' | 'elite' }) {
   const map = {
     standard: { label: 'Standard', tone: 'neutral' as const },
-    power: { label: 'Power Partner', tone: 'sky' as const },
+    power: { label: 'Power Partner', tone: 'accent' as const },
     elite: { label: 'Elite Partner', tone: 'warm' as const },
   }
   const { label, tone } = map[tier]
@@ -93,6 +93,10 @@ function OverviewTab() {
       {/* Code + link */}
       <TerminalPanel>
         <div className="flex flex-col gap-3">
+          <div className="rounded border border-terminal-border-active bg-sakura-500/10 px-3 py-2 text-center text-[12px] font-medium text-terminal-text">
+            Share your link — you earn {stats.reward_rate_pct}% on their trades, and they get 10% off
+            their first 5 swaps. <span className="text-terminal-text-secondary font-normal">You both get fee credit.</span>
+          </div>
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <div className="text-[10px] uppercase text-terminal-text-muted tracking-wider mb-1">Your Code</div>

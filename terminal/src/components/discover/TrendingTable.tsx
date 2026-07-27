@@ -64,7 +64,7 @@ export function TrendingTable({ pools, securityMap, securityLoading }: TrendingT
                 key={pool.address || idx}
                 className="border-b border-terminal-border/50 hover:bg-terminal-bg-tertiary/50 transition-colors"
               >
-                <td className="py-1.5 px-2 text-terminal-text-muted font-mono">
+                <td className="py-1.5 px-2 text-terminal-text-muted font-mono tnum">
                   {idx + 1}
                 </td>
                 <td className="py-1.5 px-2">
@@ -75,22 +75,22 @@ export function TrendingTable({ pools, securityMap, securityLoading }: TrendingT
                     </span>
                   </div>
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text">
                   {formatUsd(pool.priceUsd)}
                 </td>
-                <td className={`py-1.5 px-2 text-right font-mono ${changeH1.className}`}>
+                <td className={`py-1.5 px-2 text-right font-mono tnum ${changeH1.className}`}>
                   {changeH1.text}
                 </td>
-                <td className={`py-1.5 px-2 text-right font-mono ${change.className}`}>
+                <td className={`py-1.5 px-2 text-right font-mono tnum ${change.className}`}>
                   {change.text}
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text-secondary">
                   {formatUsd(pool.volumeH24)}
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text-secondary">
                   {formatUsd(pool.reserveUsd)}
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text-secondary">
                   {formatUsd(pool.fdvUsd)}
                 </td>
                 <td className="py-1.5 px-2 text-center">

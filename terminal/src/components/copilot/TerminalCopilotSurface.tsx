@@ -10,8 +10,8 @@ function joinClasses(...values: Array<string | false | null | undefined>) {
 type Tone = 'neutral' | 'warm' | 'sky'
 
 const bubbleToneClasses: Record<'assistant' | 'user', string> = {
-  assistant: 'border-terminal-border bg-white/95 text-terminal-text',
-  user: 'border-sakura-300 bg-sakura-50/90 text-terminal-text',
+  assistant: 'border-terminal-border bg-terminal-panel text-terminal-text',
+  user: 'border-terminal-border-active bg-sakura-500/10 text-terminal-text',
 }
 
 export interface TerminalCopilotArtifact {
@@ -167,11 +167,11 @@ export function TerminalCopilotMessageBubble({
 function TypingIndicator() {
   return (
     <div className="flex justify-start">
-      <div className="terminal-theme-card bg-white/95 px-4 py-3">
+      <div role="status" aria-label="Copilot is typing" className="terminal-theme-card px-4 py-3">
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-terminal-text-muted animate-pulse" />
-          <span className="h-2 w-2 rounded-full bg-terminal-text-muted animate-pulse [animation-delay:140ms]" />
-          <span className="h-2 w-2 rounded-full bg-terminal-text-muted animate-pulse [animation-delay:280ms]" />
+          <span className="h-2 w-2 rounded-full bg-terminal-text-muted pulse-live" />
+          <span className="h-2 w-2 rounded-full bg-terminal-text-muted pulse-live [animation-delay:140ms]" />
+          <span className="h-2 w-2 rounded-full bg-terminal-text-muted pulse-live [animation-delay:280ms]" />
         </div>
       </div>
     </div>

@@ -57,6 +57,13 @@
       "when": 1784942421684,
       "tag": "0007_broad_killraven",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784993362236,
+      "tag": "0008_nervous_jazinda",
+      "breakpoints": true
     }
   ]
 }

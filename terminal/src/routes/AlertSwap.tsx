@@ -6,6 +6,7 @@ import { pairFromToken } from '../lib/quoteTokens'
 import { usePair } from '../contexts/PairContext'
 import { useTrading } from '../contexts/TradingContext'
 import { SwapPanel } from '../components/trade/SwapPanel'
+import { TerminalSkeletonText } from '../components/foundation'
 import type { SwapToken } from '../types/api'
 
 // Landing page for the alert deep link:
@@ -76,8 +77,11 @@ export function AlertSwap() {
             ? `Review and confirm your ${tokenSymbol}${chain ? ` (${chain})` : ''} trade. Nothing is submitted until you tap Buy/Sell below.`
             : 'Review and confirm your trade. Nothing is submitted until you tap Buy/Sell below.'}
         </p>
+        {tokenSymbol && chain && tokenQuery.isFetching && (
+          <TerminalSkeletonText lines={1} height={10} className="mt-1.5 max-w-[220px]" label="Resolving token" />
+        )}
         {tokenSymbol && chain && !tokenQuery.isFetching && !resolved && (
-          <p role="alert" className="mt-1 text-xs text-red-400">
+          <p role="alert" className="mt-1 text-xs text-bear">
             Couldn't find {tokenSymbol} on {chain} — pick the token manually below.
           </p>
         )}

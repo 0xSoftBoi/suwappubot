@@ -45,7 +45,7 @@ export function ChainSelector({ selected, onSelect }: Props) {
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-48 bg-terminal-bg-secondary border border-terminal-border rounded shadow-lg z-50">
+        <div className="terminal-theme-overlay absolute left-0 top-full z-50 mt-1 w-48 overflow-hidden">
           {CHAINS.map(chain => (
             <button
               key={chain.id}

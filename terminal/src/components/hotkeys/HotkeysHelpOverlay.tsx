@@ -38,20 +38,20 @@ export function HotkeysHelpOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="terminal-theme-scrim fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm"
       data-testid="hotkeys-overlay"
     >
       <div
         ref={overlayRef}
-        className="w-full max-w-md mx-4 bg-terminal-panel border border-terminal-border rounded-lg shadow-2xl"
+        className="terminal-theme-overlay mx-4 w-full max-w-md"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-terminal-border">
+        <div className="hairline-b flex items-center justify-between px-5 py-3">
           <h2 className="text-base font-semibold text-terminal-text">Keyboard Shortcuts</h2>
           <button
             onClick={() => setShowHelp(false)}
             className="text-terminal-text-muted hover:text-terminal-text transition-colors"
-            aria-label="Close"
+            aria-label="Close keyboard shortcuts"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -63,7 +63,7 @@ export function HotkeysHelpOverlay() {
         <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
           {grouped.map(group => (
             <div key={group.category} className="mb-5 last:mb-0">
-              <h3 className="text-xs font-semibold text-sakura-400 uppercase tracking-wider mb-2">
+              <h3 className="terminal-theme-caption mb-2 text-[10px] uppercase text-terminal-accent">
                 {group.category}
               </h3>
               <div className="space-y-1.5">
@@ -82,7 +82,7 @@ export function HotkeysHelpOverlay() {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-2.5 border-t border-terminal-border">
+        <div className="hairline-t px-5 py-2.5">
           <p className="text-xs text-terminal-text-muted text-center">
             Press <KeyBadge label="?" /> to toggle &middot; <KeyBadge label="Esc" /> to close
           </p>

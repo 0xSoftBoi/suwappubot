@@ -54,7 +54,8 @@ export function mppPaymentAuth() {
 			// MPP disabled — reject with 401 (caller should use bearer auth)
 			return c.json({
 				error: 'Authentication required',
-				hint: 'Use Authorization: Bearer YOUR_API_KEY or enable MPP payments',
+				error_code: 'UNAUTHORIZED',
+				hint: 'Use Authorization: Bearer YOUR_API_KEY, or register at POST /v1/agent/register',
 			}, 401)
 		}
 
@@ -92,7 +93,10 @@ export function mppPaymentAuth() {
 		// (Stripe/Tempo) header; do not add an x-ap2-version or similar claim here.
 		c.header('x-402', Buffer.from(JSON.stringify(paymentChallenge)).toString('base64'))
 
-		return c.json({ status: 402, payment_required: paymentChallenge }, 402)
+		return c.json(
+			{ status: 402, error_code: 'PAYMENT_REQUIRED', payment_required: paymentChallenge },
+			402,
+		)
 	}
 }
 

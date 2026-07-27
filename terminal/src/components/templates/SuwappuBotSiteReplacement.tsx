@@ -178,7 +178,7 @@ function SiteSection({
 
 function TopNav() {
   return (
-    <header className="sticky top-0 z-30 border-b border-terminal-border bg-white/78 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-terminal-border bg-terminal-panel/78 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-3 py-2 md:px-5">
         <a href="/" className="flex min-w-0 items-center gap-2">
           <PersimmonMark
@@ -429,7 +429,7 @@ function ProductModules() {
           <p className="mt-3 text-sm leading-6 text-terminal-text-secondary">
             {module.body}
           </p>
-          <div className="mt-5 inline-flex rounded-[8px] border border-terminal-border bg-white/78 px-3 py-1.5 font-mono text-xs text-terminal-text">
+          <div className="mt-5 inline-flex rounded-[8px] border border-terminal-border bg-terminal-panel/78 px-3 py-1.5 font-mono text-xs text-terminal-text">
             {module.stat}
           </div>
         </SiteSection>
@@ -483,7 +483,7 @@ function MobileBreezeSite() {
             gridTemplateColumns: "52px minmax(0, 1fr)",
           }}
         >
-          <div className="relative m-2 mr-0 min-h-[594px] overflow-hidden rounded-[10px] border border-white/80 bg-white/74 shadow-[0_16px_34px_rgba(88,142,162,0.12)]">
+          <div className="relative m-2 mr-0 min-h-[594px] overflow-hidden rounded-[10px] border border-white/75 bg-white/74 shadow-[0_16px_34px_rgba(88,142,162,0.12)]">
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-[#9bd6df]/70 to-transparent" />
             <div className="absolute left-1/2 top-[142px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#8ed3de]/45 bg-[#e9fbfb]/50" />
             <div className="absolute left-1/2 top-[248px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#f0c95a]/35 bg-[#fff2cf]/42" />
@@ -520,7 +520,7 @@ function MobileBreezeSite() {
 
           <div className="relative grid min-w-0 gap-2 p-2">
             <div
-              className="relative overflow-hidden rounded-[12px] border border-white/72 p-3"
+              className="relative overflow-hidden rounded-[12px] border border-white/75 p-3"
               style={{
                 background:
                   "radial-gradient(circle at 82% 18%, rgba(255,214,182,0.52), transparent 15%), radial-gradient(circle at 15% 4%, rgba(255,255,255,0.62), transparent 20%), radial-gradient(circle at 8% 86%, rgba(244,203,215,0.48), transparent 18%), linear-gradient(180deg, rgba(153,214,228,0.98) 0%, rgba(144,208,223,0.96) 30%, rgba(209,242,239,0.86) 66%, rgba(246,253,252,0.95) 100%)",
@@ -534,7 +534,7 @@ function MobileBreezeSite() {
                 <SakuraBloomMotif size={42} tone="soft" rotation={18} />
               </div>
               <div className="flex items-start justify-between gap-2">
-                <div className="rounded-[999px] border border-white/70 bg-white/32 px-3 py-1 text-[9px] uppercase tracking-[0.22em] text-[#4f8ca0]">
+                <div className="rounded-[999px] border border-white/75 bg-white/32 px-3 py-1 text-[9px] uppercase tracking-[0.22em] text-[#4f8ca0]">
                   summer breeze
                 </div>
                 <PersimmonMark
@@ -570,7 +570,7 @@ function MobileBreezeSite() {
                 </a>
                 <a
                   href={DOCS_URL}
-                  className="rounded-[8px] border border-white/80 bg-white/54 px-3 py-2 text-center text-xs font-semibold text-[#17324a]"
+                  className="rounded-[8px] border border-white/75 bg-white/54 px-3 py-2 text-center text-xs font-semibold text-[#17324a]"
                 >
                   Docs/API
                 </a>
@@ -578,7 +578,7 @@ function MobileBreezeSite() {
             </div>
 
             <div
-              className="relative overflow-hidden rounded-[10px] border border-white/80 bg-white/92"
+              className="relative overflow-hidden rounded-[10px] border border-white/75 bg-white/92"
               style={{
                 boxShadow:
                   "0 2px 0 rgba(255,255,255,0.9) inset, 0 -18px 42px rgba(132,204,216,0.16) inset, 0 22px 42px rgba(33,88,110,0.2)",
@@ -595,7 +595,7 @@ function MobileBreezeSite() {
               </div>
               <div className="pointer-events-none absolute -bottom-5 left-8 z-0 h-7 w-40 rounded-[999px] bg-[#17324a]/10 blur-[14px]" />
               <div
-                className="relative z-10 flex items-center justify-between border-b border-white/70 px-2 py-1.5"
+                className="relative z-10 flex items-center justify-between border-b border-white/75 px-2 py-1.5"
                 style={{
                   background:
                     "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(238,248,250,0.8))",
@@ -724,7 +724,7 @@ function MobileBreezeSite() {
                   ].map(([label, value]) => (
                     <div
                       key={label}
-                      className="rounded-[6px] border border-white/80 px-1.5 py-1"
+                      className="rounded-[6px] border border-white/75 px-1.5 py-1"
                       style={{
                         background:
                           "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(238,248,250,0.78))",
@@ -748,7 +748,7 @@ function MobileBreezeSite() {
               {["Chart", "Table", "Swap"].map((item) => (
                 <div
                   key={item}
-                  className="rounded-[7px] border border-white/78 bg-white/48 px-1.5 py-1.5 text-center font-mono text-[10px] text-[#345069]"
+                  className="rounded-[7px] border border-white/75 bg-white/48 px-1.5 py-1.5 text-center font-mono text-[10px] text-[#345069]"
                 >
                   {item}
                 </div>
@@ -789,7 +789,7 @@ function MobileBreezeSite() {
             <h2 className="mt-1 text-[15px] font-semibold leading-4 text-terminal-text">
               {module.title}
             </h2>
-            <div className="mt-2 rounded-[6px] border border-terminal-border bg-white/72 px-1.5 py-1 font-mono text-[9px] text-terminal-text">
+            <div className="mt-2 rounded-[6px] border border-terminal-border bg-terminal-panel/72 px-1.5 py-1 font-mono text-[9px] text-terminal-text">
               {module.stat}
             </div>
           </section>
@@ -806,7 +806,7 @@ function MobileBreezeSite() {
         <h2 className="mt-1 text-2xl font-semibold leading-7 text-terminal-text">
           Three calls. Full route.
         </h2>
-        <div className="mt-3 rounded-[8px] border border-terminal-border bg-white/80 p-2 font-mono text-[11px] leading-5">
+        <div className="mt-3 rounded-[8px] border border-terminal-border bg-terminal-panel/80 p-2 font-mono text-[11px] leading-5">
           {sdkLines.slice(1, 6).map((line, index) => (
             <div
               key={line}
@@ -844,7 +844,7 @@ function ProofTable() {
           commands.
         </p>
       </div>
-      <div className="overflow-hidden rounded-[8px] border border-terminal-border bg-white/80">
+      <div className="overflow-hidden rounded-[8px] border border-terminal-border bg-terminal-panel/80">
         <div className="flex gap-2 border-b border-terminal-border px-3 py-2 font-mono text-[10px] uppercase text-terminal-text-muted">
           <span className="min-w-0 flex-1">Pair</span>
           <span className="w-[74px] text-right">Price</span>
@@ -877,7 +877,7 @@ function ProofTable() {
 
 export function SuwappuBotSiteReplacement() {
   return (
-    <TerminalThemeScope mode="summer-breeze">
+    <TerminalThemeScope>
       <div className="terminal-theme-page min-h-screen overflow-hidden text-terminal-text">
         <div className="pointer-events-none fixed -left-24 top-24 hidden opacity-[0.16] md:block">
           <PersimmonStemMotif size={300} palette="butter" rotation={-18} />
@@ -931,7 +931,7 @@ export function SuwappuBotSiteReplacement() {
                   Read Docs
                 </a>
               </div>
-              <div className="mt-5 inline-flex max-w-full rounded-[8px] border border-terminal-border bg-white/82 px-3 py-2 font-mono text-xs text-terminal-text-secondary">
+              <div className="mt-5 inline-flex max-w-full rounded-[8px] border border-terminal-border bg-terminal-panel/82 px-3 py-2 font-mono text-xs text-terminal-text-secondary">
                 <span className="mr-2 text-[#e58d2b]">$</span>
                 <span className="truncate">bun add @suwappu/sdk</span>
               </div>

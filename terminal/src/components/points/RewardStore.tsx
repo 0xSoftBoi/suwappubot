@@ -27,10 +27,10 @@ function RewardCard({ reward, userXp }: { reward: Reward; userXp: number }) {
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="font-mono text-sm font-bold text-sakura-400">
+        <span className="font-mono text-sm font-semibold text-sakura-400">
           {reward.cost.toLocaleString()} XP
         </span>
-        <span className={`text-xs font-mono ${reward.stock <= 5 ? 'text-red-400' : 'text-terminal-text-secondary'}`}>
+        <span className={`text-xs font-mono ${reward.stock <= 5 ? 'text-bear' : 'text-terminal-text-secondary'}`}>
           {reward.stock} left
         </span>
       </div>

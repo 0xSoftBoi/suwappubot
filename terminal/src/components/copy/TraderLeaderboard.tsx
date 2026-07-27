@@ -134,21 +134,21 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                 className="border-b border-terminal-border/50 hover:bg-terminal-bg-tertiary/50 transition-colors cursor-pointer"
                 onClick={() => onSelectTrader(trader.id)}
               >
-                <td className="py-2.5 px-3 text-terminal-text-muted font-mono text-xs">{start + i + 1}</td>
+                <td className="py-2.5 px-3 text-terminal-text-muted font-mono tnum text-xs">{start + i + 1}</td>
                 <td className="py-2.5 px-3">
                   <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-terminal-bg-tertiary border border-terminal-border flex items-center justify-center text-[10px] font-mono text-terminal-text-secondary shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-terminal-bg-tertiary border border-terminal-border flex items-center justify-center text-[10px] font-mono tnum text-terminal-text-secondary shrink-0">
                       {(trader.name || trader.address).slice(0, 2).toUpperCase()}
                     </div>
-                    <span className="font-mono text-xs text-terminal-text">
+                    <span className="font-mono tnum text-xs text-terminal-text">
                       {trader.name || truncateAddress(trader.address)}
                     </span>
                   </div>
                 </td>
-                <td className={`py-2.5 px-3 text-right font-mono text-xs ${trader.pnl7d >= 0 ? 'text-bull' : 'text-bear'}`}>
+                <td className={`py-2.5 px-3 text-right font-mono tnum text-xs ${trader.pnl7d >= 0 ? 'text-bull' : 'text-bear'}`}>
                   {formatPnl(trader.pnl7d)}
                 </td>
-                <td className={`py-2.5 px-3 text-right font-mono text-xs ${trader.pnl30d >= 0 ? 'text-bull' : 'text-bear'}`}>
+                <td className={`py-2.5 px-3 text-right font-mono tnum text-xs ${trader.pnl30d >= 0 ? 'text-bull' : 'text-bear'}`}>
                   {formatPnl(trader.pnl30d)}
                 </td>
                 <td className="py-2.5 px-3 text-right">
@@ -159,19 +159,19 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                         style={{ width: `${Math.min(trader.winRate, 100)}%` }}
                       />
                     </div>
-                    <span className="font-mono text-xs text-terminal-text">{trader.winRate.toFixed(1)}%</span>
+                    <span className="font-mono tnum text-xs text-terminal-text">{trader.winRate.toFixed(1)}%</span>
                   </div>
                 </td>
-                <td className="py-2.5 px-3 text-right font-mono text-xs text-terminal-text-secondary">
+                <td className="py-2.5 px-3 text-right font-mono tnum text-xs text-terminal-text-secondary">
                   {trader.followers.toLocaleString()}
                 </td>
-                <td className="py-2.5 px-3 text-right font-mono text-xs text-terminal-text-secondary">
+                <td className="py-2.5 px-3 text-right font-mono tnum text-xs text-terminal-text-secondary">
                   {(trader.copiers ?? 0).toLocaleString()}
                 </td>
                 <td className="py-2.5 px-3 text-right">
                   <button
                     onClick={e => { e.stopPropagation(); onFollow(trader.id) }}
-                    className="px-3 py-1 rounded text-xs font-semibold bg-sakura-600 hover:bg-sakura-700 text-white transition-colors"
+                    className="px-3 py-1 rounded text-xs font-semibold bg-sakura-600 hover:bg-sakura-700 text-terminal-on-accent transition-colors"
                   >
                     Follow
                   </button>

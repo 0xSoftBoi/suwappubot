@@ -55,18 +55,18 @@ export function CopyFeed() {
           {/* Details */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-mono text-terminal-text-secondary">
+              <span className="text-xs font-mono tnum text-terminal-text-secondary">
                 {truncateAddress(trade.traderAddress)}
               </span>
               <span className="text-terminal-text-muted text-[10px]">traded</span>
               <span className="text-xs font-semibold text-terminal-text">{trade.tokenPair}</span>
             </div>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] font-mono text-terminal-text-muted">
+              <span className="text-[10px] font-mono tnum text-terminal-text-muted">
                 ${trade.amount.toLocaleString()}
               </span>
               {trade.pnl !== 0 && (
-                <span className={`text-[10px] font-mono ${trade.pnl >= 0 ? 'text-bull' : 'text-bear'}`}>
+                <span className={`text-[10px] font-mono tnum ${trade.pnl >= 0 ? 'text-bull' : 'text-bear'}`}>
                   {formatPnl(trade.pnl)}
                 </span>
               )}

@@ -74,7 +74,7 @@ export function WatchlistItem({ token, priceData, onRemove, onClick }: Props) {
 
       {/* Chain badge */}
       <span
-        className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${chainColor}`}
+        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded text-white ${chainColor}`}
       >
         {chainLabel}
       </span>
@@ -83,7 +83,10 @@ export function WatchlistItem({ token, priceData, onRemove, onClick }: Props) {
       <div className="flex-1" />
 
       {/* Price */}
-      <span className="text-xs font-mono text-terminal-text-secondary">
+      <span
+        key={price ?? 'none'}
+        className={`rounded text-xs font-mono tnum text-terminal-text-secondary ${price !== null && change24h !== null ? (isPositive ? 'flash-up' : 'flash-down') : ''}`}
+      >
         {loading ? (
           <span className="inline-block w-12 h-3 bg-terminal-bg-tertiary rounded animate-shimmer" />
         ) : price !== null ? (
@@ -94,7 +97,7 @@ export function WatchlistItem({ token, priceData, onRemove, onClick }: Props) {
       </span>
 
       {/* 24h change */}
-      <span className={`text-xs font-mono min-w-[52px] text-right ${changeColor}`}>
+      <span className={`text-xs font-mono tnum min-w-[52px] text-right ${changeColor}`}>
         {loading ? (
           <span className="inline-block w-10 h-3 bg-terminal-bg-tertiary rounded animate-shimmer" />
         ) : change24h !== null ? (
@@ -112,6 +115,7 @@ export function WatchlistItem({ token, priceData, onRemove, onClick }: Props) {
         }}
         className="opacity-0 group-hover:opacity-100 text-terminal-text-muted hover:text-bear transition-all ml-1"
         title="Remove from watchlist"
+        aria-label={`Remove ${token.symbol} from watchlist`}
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

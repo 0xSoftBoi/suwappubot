@@ -41,6 +41,63 @@ export function resolveClientIp(
 	return socketIp?.trim() || 'unknown'
 }
 
+// `cf-connecting-ip` is trivially spoofable by any direct caller UNLESS the request
+// actually transited Cloudflare. Only trust it when the caller also presents a shared
+// secret that only a configured Cloudflare Worker/Transform Rule attaches at the edge
+// (`cf-provenance: <secret>`). If CF_PROVENANCE_SECRET is unset, cf-connecting-ip is
+// ignored entirely and we fall through to the XFF/trusted-proxy-hop logic — a
+// direct-to-origin request (raw Railway URL) then cannot forge an identity to farm
+// starter credits or dodge per-IP limits.
+// Read lazily rather than captured at module scope: a module-scope constant is
+// frozen by whichever importer loads this file first, which makes the gate
+// untestable in-process and would silently ignore the secret if the env is
+// populated after import.
+function cfProvenanceSecret(): string {
+	return process.env.CF_PROVENANCE_SECRET?.trim() || ''
+}
+
+/**
+ * Resolve the client IP, honoring `cf-connecting-ip` only on requests with verified
+ * Cloudflare provenance; otherwise falling back to the spoof-resistant XFF
+ * trusted-proxy hop (then socket IP). Shared by the rate limiter and by the
+ * starter-credit anti-farm guard so the two can never disagree.
+ */
+export function resolveTrustedClientIp(
+	cfIp: string | undefined,
+	forwarded: string | undefined,
+	socketIp: string | undefined,
+	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
+	provenanceHeader?: string,
+): string {
+	const secret = cfProvenanceSecret()
+	const provenanceOk = !!secret && provenanceHeader?.trim() === secret
+	const trimmedCf = cfIp?.trim()
+	if (provenanceOk && trimmedCf) return trimmedCf
+	return resolveClientIp(forwarded, socketIp, trustedProxyCount)
+}
+
+/**
+ * Resolve the trusted client IP straight from a Hono Context. Use this rather than
+ * re-deriving the headers at each call site, so the rate limiter and the
+ * starter-credit anti-farm guard can never disagree about who the caller is.
+ */
+export function resolveRequestIp(c: Context): string {
+	let socketIp: string | undefined
+	try {
+		socketIp = getConnInfo(c).remote.address
+	} catch {
+		// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
+		socketIp = undefined
+	}
+	return resolveTrustedClientIp(
+		c.req.header('cf-connecting-ip'),
+		c.req.header('x-forwarded-for'),
+		socketIp,
+		undefined,
+		c.req.header('cf-provenance'),
+	)
+}
+
 const windows = new Map<string, SlidingWindowEntry>()
 let lastGlobalCleanup = Date.now()
 
@@ -58,27 +115,13 @@ function cleanupExpired() {
 	}
 }
 
-// `cf-connecting-ip` is trivially spoofable by any direct caller UNLESS the
-// request actually transited Cloudflare (or Railway strips/overwrites it,
-// which we cannot assume). Only trust it when the caller also presents a
-// shared secret that only a configured Cloudflare Worker/rule would attach
-// (e.g. a Transform Rule adding `CF-Provenance: <secret>` at the edge). If
-// CF_PROVENANCE_SECRET is unset, cf-connecting-ip is ignored entirely and we
-// fall through to the existing XFF/trusted-proxy-hop logic.
-const CF_PROVENANCE_SECRET = process.env.CF_PROVENANCE_SECRET
-
 /**
  * IP-based sliding window rate limiter for public endpoints.
  * Keyed by client IP from x-forwarded-for header.
  */
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 	return async (c: Context, next: Next) => {
-		// Only honor cf-connecting-ip when Cloudflare provenance is verified via
-		// a shared secret header — otherwise it's just another client-controlled
-		// header and must be ignored (see CF_PROVENANCE_SECRET above).
 		const cfIp = c.req.header('cf-connecting-ip')
-		const cfProvenanceOk =
-			!!CF_PROVENANCE_SECRET && c.req.header('cf-provenance') === CF_PROVENANCE_SECRET
 		const forwarded = c.req.header('x-forwarded-for')
 		let socketIp: string | undefined
 		try {
@@ -87,7 +130,13 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
 			socketIp = undefined
 		}
-		const ip = (cfProvenanceOk && cfIp?.trim()) || resolveClientIp(forwarded, socketIp)
+		const ip = resolveTrustedClientIp(
+			cfIp,
+			forwarded,
+			socketIp,
+			undefined,
+			c.req.header('cf-provenance'),
+		)
 		const key = `ip:${ip}`
 		const now = Date.now()
 

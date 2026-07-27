@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import type { TerminalPerpsOrder } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTerminalPerpsOrders, useCancelPerpsOrder } from '../../hooks/useTerminalPerps'
+import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
 // Resting HyperLiquid orders (limit entries + TP/SL triggers) for the signed-in
 // user, each cancellable. Pairs with the positions table in the perps desk.
@@ -26,38 +27,44 @@ export function PerpsOpenOrders() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-terminal-text-muted">
-        Sign in to view your orders
-      </div>
+      <TerminalEmptyState
+        className="h-full"
+        kicker="Perps"
+        title="Sign in to view your orders"
+        description="Resting limit entries and TP/SL triggers show here, each cancellable in one click."
+      />
     )
   }
 
   if (isLoading) {
     return (
-      <div className="flex h-full animate-pulse items-center justify-center text-sm text-terminal-text-muted">
-        Loading orders...
+      <div className="p-3">
+        <TerminalSkeletonRows rows={4} columns={5} label="Loading orders" />
       </div>
     )
   }
 
   if (!orders || orders.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-terminal-text-muted">
-        No open orders
-      </div>
+      <TerminalEmptyState
+        className="h-full"
+        kicker="Perps"
+        title="No resting orders"
+        description="Place a limit entry from the ticket and it waits here until price reaches it — cancel any time."
+      />
     )
   }
 
   return (
     <table className="w-full text-xs">
       <thead>
-        <tr className="border-b border-terminal-border text-terminal-text-muted">
-          <th className="px-3 py-2 text-left font-medium">Market</th>
-          <th className="px-3 py-2 text-left font-medium">Type</th>
-          <th className="px-3 py-2 text-left font-medium">Side</th>
-          <th className="px-3 py-2 text-right font-medium">Size</th>
-          <th className="px-3 py-2 text-right font-medium">Price</th>
-          <th className="px-3 py-2 text-right font-medium">Cancel</th>
+        <tr className="hairline-b text-terminal-text-muted">
+          <th className="terminal-theme-caption px-3 py-2 text-left text-[10px] uppercase">Market</th>
+          <th className="terminal-theme-caption px-3 py-2 text-left text-[10px] uppercase">Type</th>
+          <th className="terminal-theme-caption px-3 py-2 text-left text-[10px] uppercase">Side</th>
+          <th className="terminal-theme-caption px-3 py-2 text-right text-[10px] uppercase">Size</th>
+          <th className="terminal-theme-caption px-3 py-2 text-right text-[10px] uppercase">Price</th>
+          <th className="terminal-theme-caption px-3 py-2 text-right text-[10px] uppercase">Cancel</th>
         </tr>
       </thead>
       <tbody>
@@ -66,29 +73,32 @@ export function PerpsOpenOrders() {
           // A trigger order (TP/SL) shows its trigger price; a limit shows limitPx.
           const shownPrice = (o.isTrigger && o.triggerPrice ? o.triggerPrice : o.price) ?? 0
           return (
-            <tr
-              key={o.orderId}
-              className="border-b border-terminal-border/50 transition-colors hover:bg-terminal-bg-tertiary/50"
-            >
+            <tr key={o.orderId} className="hairline-b terminal-row">
               <td className="px-3 py-2 font-medium text-terminal-text">{o.market}</td>
               <td className="px-3 py-2 text-terminal-text-secondary">
                 {o.orderType}
                 {o.reduceOnly && (
-                  <span className="ml-1 text-[10px] text-terminal-text-muted">RO</span>
+                  <span className="hairline ml-1 rounded-terminal-pill px-1.5 py-0.5 font-mono text-[10px] text-terminal-text-muted">
+                    RO
+                  </span>
                 )}
               </td>
               <td className="px-3 py-2">
-                <span className={o.side === 'buy' ? 'text-bull' : 'text-bear'}>
+                <span
+                  className={`font-mono text-[11px] font-semibold ${o.side === 'buy' ? 'text-bull' : 'text-bear'}`}
+                >
+                  <span aria-hidden="true">{o.side === 'buy' ? '▲' : '▼'}</span>{' '}
                   {o.side.toUpperCase()}
                 </span>
               </td>
-              <td className="px-3 py-2 text-right font-mono">{(o.size ?? 0).toFixed(4)}</td>
-              <td className="px-3 py-2 text-right font-mono">${shownPrice.toFixed(2)}</td>
+              <td className="px-3 py-2 text-right font-mono tnum">{(o.size ?? 0).toFixed(4)}</td>
+              <td className="px-3 py-2 text-right font-mono tnum">${shownPrice.toFixed(2)}</td>
               <td className="px-3 py-2 text-right">
                 <button
                   onClick={() => doCancel(o)}
                   disabled={busy}
-                  className="rounded border border-terminal-border px-2 py-1 text-[10px] text-terminal-text-secondary transition-colors hover:border-bear hover:text-terminal-text disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={`Cancel ${o.orderType} order on ${o.market}`}
+                  className="rounded-terminal-control border border-terminal-border px-2 py-1 text-[10px] text-terminal-text-secondary transition-colors hover:border-bear hover:text-terminal-text disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy ? '…' : 'Cancel'}
                 </button>

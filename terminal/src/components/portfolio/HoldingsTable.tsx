@@ -48,10 +48,10 @@ export function HoldingsTable() {
               </div>
             </td>
             <td className="py-2 px-3 text-terminal-text-secondary capitalize">{token.chain}</td>
-            <td className="py-2 px-3 text-right font-mono text-terminal-text">
+            <td className="py-2 px-3 text-right font-mono tnum text-terminal-text">
               {parseFloat(token.balance).toFixed(4)}
             </td>
-            <td className="py-2 px-3 text-right font-mono text-terminal-text">
+            <td className="py-2 px-3 text-right font-mono tnum text-terminal-text">
               ${token.usdValue.toFixed(2)}
             </td>
           </tr>
@@ -60,7 +60,7 @@ export function HoldingsTable() {
       <tfoot>
         <tr className="text-terminal-text font-medium">
           <td colSpan={3} className="py-2 px-3 text-right">Total</td>
-          <td className="py-2 px-3 text-right font-mono">
+          <td className="py-2 px-3 text-right font-mono tnum">
             ${portfolio.totalUsdValue.toFixed(2)}
           </td>
         </tr>

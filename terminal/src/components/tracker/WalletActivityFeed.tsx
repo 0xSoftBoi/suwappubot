@@ -55,17 +55,17 @@ export function WalletActivityFeed({ activities, filterAddress }: WalletActivity
               className="border-t border-terminal-border hover:bg-terminal-bg-secondary transition-colors cursor-pointer"
               data-testid="activity-row"
             >
-              <td className="px-3 py-1.5 font-mono text-terminal-text-secondary">
+              <td className="px-3 py-1.5 font-mono tnum text-terminal-text-secondary">
                 {activity.walletLabel || `${activity.walletAddress.slice(0, 6)}...${activity.walletAddress.slice(-4)}`}
               </td>
               <td className="px-3 py-1.5">
-                <span className={`font-semibold ${activity.action === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`font-semibold ${activity.action === 'buy' ? 'text-bull' : 'text-bear'}`}>
                   {activity.action.toUpperCase()}
                 </span>
               </td>
               <td className="px-3 py-1.5 font-medium">{activity.tokenSymbol}</td>
-              <td className="px-3 py-1.5 text-right font-mono">{formatUsd(activity.amount)}</td>
-              <td className="px-3 py-1.5 text-right font-mono text-terminal-text-secondary">
+              <td className="px-3 py-1.5 text-right font-mono tnum">{formatUsd(activity.amount)}</td>
+              <td className="px-3 py-1.5 text-right font-mono tnum text-terminal-text-secondary">
                 ${activity.priceUsd < 0.01 ? activity.priceUsd.toFixed(6) : activity.priceUsd.toFixed(2)}
               </td>
               <td className="px-3 py-1.5 text-right text-terminal-text-muted capitalize">{activity.chain}</td>

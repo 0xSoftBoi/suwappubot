@@ -38,17 +38,17 @@ export function PerpsWorkspace() {
     { id: 'whales', label: 'Smart Money' },
   ] as const
   const bottomTabBar = (
-    <div role="tablist" aria-label="Perps activity" className="flex shrink-0 border-b border-terminal-border">
+    <div role="tablist" aria-label="Perps activity" className="hairline-b flex shrink-0">
       {BOTTOM_TABS.map((t) => (
         <button
           key={t.id}
           role="tab"
           aria-selected={bottomTab === t.id}
           onClick={() => setBottomTab(t.id)}
-          className={`px-3 py-2 text-sm font-semibold transition-colors ${
+          className={`border-b-2 px-3 py-2 text-[13px] font-medium transition-colors ${
             bottomTab === t.id
-              ? 'border-b-2 border-sakura-500 text-terminal-text'
-              : 'text-terminal-text-secondary hover:text-terminal-text'
+              ? 'border-terminal-accent font-semibold text-terminal-text'
+              : 'border-transparent text-terminal-text-secondary hover:text-terminal-text'
           }`}
         >
           {t.label}
