@@ -386,7 +386,7 @@ class StarknetYieldService:
             except Exception as e:
                 logger.warning("Yield paymaster eligibility check failed: %s", str(e)[:200])
 
-        private_key = self.wallet_service.get_private_key(wallet)
+        private_key = await self.wallet_service.get_private_key_async(wallet)
         try:
             account = await get_starknet_account(private_key, wallet.address)
 

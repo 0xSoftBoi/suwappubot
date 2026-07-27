@@ -16,6 +16,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
 from bot.utils import ws_confirm
+from bot.utils.safe_send import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -481,9 +482,11 @@ class TransactionPoller:
                         [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
                     ]
                 )
-                await self._bot.send_message(
-                    chat_id=telegram_id,
-                    text=text,
+                await safe_send(
+                    self._bot,
+                    telegram_id,
+                    text,
+                    category="swap_complete",
                     parse_mode="Markdown",
                     disable_web_page_preview=True,
                     reply_markup=keyboard,
@@ -501,9 +504,11 @@ class TransactionPoller:
                         [InlineKeyboardButton("📜 History", callback_data="history")],
                     ]
                 )
-                await self._bot.send_message(
-                    chat_id=telegram_id,
-                    text=text,
+                await safe_send(
+                    self._bot,
+                    telegram_id,
+                    text,
+                    category="swap_complete",
                     parse_mode="Markdown",
                     reply_markup=keyboard,
                     disable_web_page_preview=True,

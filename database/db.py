@@ -335,14 +335,14 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
-        # Unique index to enforce idempotency (NULLs allowed)
-        with db_engine.begin() as conn:
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
-                    "ON swap_transactions(idempotency_key)"
-                )
-            )
+        # Unique index to enforce idempotency (NULLs allowed). Delegated to a
+        # dedicated helper (see `_add_swap_idempotency_key_unique_index`) that
+        # checks for pre-existing duplicate non-NULL keys FIRST and skips
+        # (with a loud warning) instead of letting a duplicate-key violation
+        # raise here and abort the entire `_ensure_schema()` / `init_db()`
+        # call — a bare `CREATE UNIQUE INDEX` would otherwise take the whole
+        # boot path down with it.
+        _add_swap_idempotency_key_unique_index(db_engine, inspector, is_sqlite)
 
     # --- custodial_transactions idempotency (withdraw replay protection) ---
     if "custodial_transactions" in tables:
@@ -1621,6 +1621,67 @@ def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> No
             )
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_swap_idempotency_key_unique_index(db_engine, inspector, is_sqlite: bool) -> None:
+    """Enforce uniqueness on swap_transactions.idempotency_key, defensively.
+
+    `swap_engine.execute_swap()` guards against double-execution by SELECTing
+    on `idempotency_key` before writing — a read two concurrent requests can
+    both pass before either writes. Only a DB-level UNIQUE index actually
+    closes that race.
+
+    NULLs never violate a unique index in either Postgres or SQLite (NULL is
+    never considered equal to NULL for uniqueness purposes), so legacy rows
+    with no idempotency_key are always safe. Real DUPLICATE non-NULL values
+    are the risk: a plain `CREATE UNIQUE INDEX` raises on those, and since
+    this runs from `_ensure_schema()` inside `init_db()`'s try block, an
+    unhandled exception here would abort the ENTIRE db init — not just this
+    one migration — and could block boot. So: detect duplicates FIRST, and if
+    any exist, log a clear warning and skip creating the index (leaving the
+    existing non-unique index as the only guard for those specific keys)
+    rather than risk boot. Idempotent: a no-op once the index exists, and
+    re-checks duplicates fresh on every call in case they get cleaned up
+    later. Wrapped end-to-end so a failure here can never block boot.
+    """
+    try:
+        existing_indexes = {ix["name"] for ix in inspector.get_indexes("swap_transactions")}
+        if "ux_swap_transactions_idempotency_key" in existing_indexes:
+            return  # already enforced
+
+        with db_engine.begin() as conn:
+            dupes = conn.execute(
+                text(
+                    "SELECT idempotency_key, COUNT(*) AS cnt FROM swap_transactions "
+                    "WHERE idempotency_key IS NOT NULL "
+                    "GROUP BY idempotency_key HAVING COUNT(*) > 1"
+                )
+            ).fetchall()
+
+        if dupes:
+            sample = ", ".join(f"{row[0]!r} x{row[1]}" for row in dupes[:5])
+            logger.warning(
+                "swap_transactions.idempotency_key has %d duplicate non-NULL value(s) "
+                "(sample: %s) — SKIPPING unique index creation to avoid aborting boot. "
+                "Idempotency for these specific keys is currently enforced only at the "
+                "application read-then-write layer in swap_engine.execute_swap(), which "
+                "is NOT race-safe. Clean up the duplicate rows, then this migration will "
+                "create the index automatically on the next boot.",
+                len(dupes),
+                sample,
+            )
+            return
+
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                    "ON swap_transactions(idempotency_key)"
+                )
+            )
+        logger.info("✓ swap_transactions.idempotency_key unique index enforced")
+    except Exception as e:
+        logger.warning(f"Failed to enforce swap_transactions.idempotency_key uniqueness: {e}")
 
 
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:

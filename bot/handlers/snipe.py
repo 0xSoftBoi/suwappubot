@@ -515,7 +515,10 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
             if not wallet:
                 raise Exception("Wallet not found")
 
-            private_key = wallet_service.get_private_key(wallet)
+        # Fetched by id AFTER the session closes: the decrypt runs in a worker
+        # thread and may migrate the row, so no session-bound ORM object may
+        # cross that boundary. user_id keeps the ownership filter above.
+        private_key = await wallet_service.get_private_key_by_id_async(wallet_id, user_id=user_id)
 
         try:
             key_bytes = base58.b58decode(private_key)

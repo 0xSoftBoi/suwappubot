@@ -682,4 +682,8 @@ wallet_import_handler = ConversationHandler(
 )
 
 # Create handlers
-wallet_handler = CommandHandler("w", wallet_command)
+# Aliases: CommandHandler accepts a list of command names (verified against the
+# installed python-telegram-bot 22.5). Without "wallet" registered, the 12
+# user-facing error messages that tell users to run /wallet as the recovery
+# step (fund.py, predict.py, snipe.py, import_handler.py, swap.py) were dead ends.
+wallet_handler = CommandHandler(["w", "wallet"], wallet_command)

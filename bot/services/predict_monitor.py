@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from bot.services.polymarket_api import polymarket_client
 from bot.models.predict import PredictionPosition
+from bot.utils.safe_send import safe_send
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -227,8 +228,12 @@ class PredictMonitor:
             with get_session() as session:
                 user = session.query(User).get(user_id)
                 if user and user.telegram_id:
-                    await self._bot.send_message(
-                        chat_id=user.telegram_id, text=message, parse_mode="Markdown"
+                    await safe_send(
+                        self._bot,
+                        user.telegram_id,
+                        message,
+                        category="order_triggered",
+                        parse_mode="Markdown",
                     )
         except Exception as e:
             logger.error(f"Failed to notify user {user_id}: {e}")

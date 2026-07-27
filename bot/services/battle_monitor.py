@@ -13,6 +13,8 @@ battles within one interval of their expiry without hammering the DB.
 import asyncio
 import logging
 
+from bot.utils.safe_send import safe_send
+
 logger = logging.getLogger(__name__)
 
 
@@ -141,9 +143,11 @@ class BattleMonitor:
         )
 
         try:
-            await self._bot.send_message(
-                chat_id=telegram_id,
-                text=text,
+            await safe_send(
+                self._bot,
+                telegram_id,
+                text,
+                category="order_triggered",
                 parse_mode="Markdown",
             )
         except Exception as e:

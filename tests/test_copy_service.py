@@ -66,6 +66,12 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
                 return swap
 
     monkeypatch.setattr("bot.services.swap_engine.SwapEngine", FakeSwapEngine)
+    # copy_service holds a module-level shared SwapEngine so concurrent
+    # execute_copy() calls contend on the SAME per-wallet asyncio.Lock (a fresh
+    # instance per call gave each its own empty lock registry, serializing
+    # nothing). That instance is built at import, so patching the class alone
+    # would leave the already-constructed real engine in place.
+    monkeypatch.setattr("bot.services.copy_service._copy_swap_engine", FakeSwapEngine())
 
     with get_session() as session:
         session.add_all(

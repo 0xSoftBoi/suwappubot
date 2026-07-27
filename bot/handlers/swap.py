@@ -68,6 +68,28 @@ swap_engine = SwapEngine()
 wallet_service = WalletService()
 
 
+def _to_human_min_out(quote) -> float | None:
+    """Convert the quote's enforced minimum output into human units.
+
+    Mirrors ``bot.handlers.positions._to_human_min_out`` (duplicated rather
+    than imported to keep this module's confirm-screen rendering
+    self-contained). ``to_amount_min`` and ``to_amount`` are both raw
+    base-unit strings for the SAME token, so scaling by their ratio avoids
+    needing the token's decimals and can't disagree with how the provider
+    computed the minimum. Returns None if the provider gave us nothing
+    usable — never raises, because a display helper must not be able to
+    block a swap.
+    """
+    try:
+        raw_min = int(quote.to_amount_min)
+        raw_out = int(quote.to_amount)
+        if raw_min <= 0 or raw_out <= 0:
+            return None
+        return quote.to_amount_human * (raw_min / raw_out)
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 async def _safe_edit(edit_fn, *args, **kwargs) -> None:
     """Best-effort message edit.
 
@@ -1097,6 +1119,18 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         if quote.gas_cost_usd and quote.gas_cost_usd > 0:
             allin_lines.append(f"• Est. gas: {format_usd(quote.gas_cost_usd * num_wallets)}")
         allin_lines.append(f"• Max slippage: {slippage_pct}%")
+        # Prefer the quote's OWN to_amount_min — the minimum the on-chain tx
+        # actually enforces — over a slippage-derived guess computed here,
+        # which can silently disagree with what the provider built into the
+        # route. Fall back to the slippage estimate only when the provider
+        # gave nothing usable; per-wallet minimum scaled by num_wallets to
+        # match the other "Total" lines above.
+        min_received_per_wallet = _to_human_min_out(quote)
+        if min_received_per_wallet is None:
+            min_received_per_wallet = quote.to_amount_human * (1 - slippage_pct / 100)
+        allin_lines.append(
+            f"• Min received: {format_amount(min_received_per_wallet * num_wallets, symbol=swap_data['to_token'])}"
+        )
         allin_cost_block = "\n".join(allin_lines)
 
         text = (
@@ -1663,6 +1697,24 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         }
         provider_display2 = _pn.get(quote.provider, quote.provider.upper())
 
+        # Same rule as the multi-wallet confirm screen: prefer the quote's own
+        # enforced to_amount_min over a slippage-derived guess, so this screen
+        # can't show a minimum the chain won't actually honour. Falls back to
+        # the requote's own slippage setting only when the provider gave
+        # nothing usable.
+        # Deliberately NOT read from quote.raw_quote: it isn't guaranteed to be
+        # a dict (swap_engine guards it with isinstance elsewhere), so a .get()
+        # here would raise AttributeError and take out the whole requote
+        # screen. It also isn't guaranteed to be in percent — LI.FI sends
+        # slippage as a fraction (0.005 for 0.5%), which divided by 100 again
+        # would render a minimum showing almost no slippage protection.
+        # swap_data["slippage"] is already a percent and is the value this
+        # requote was actually built with.
+        requote_slippage_pct = swap_data.get("slippage") or 0.5
+        min_received_requote = _to_human_min_out(quote)
+        if min_received_requote is None:
+            min_received_requote = quote.to_amount_human * (1 - requote_slippage_pct / 100)
+
         text = (
             f"📊 *Updated Swap Quote*\n\n"
             f"*From:*\n"
@@ -1673,6 +1725,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"on {to_chain_config.display_name}\n\n"
             f"*Details:*\n"
             f"• Rate: 1 {swap_data['from_token']} = {quote.exchange_rate:.4f} {swap_data['to_token']}\n"
+            f"• Min received: {format_amount(min_received_requote, symbol=swap_data['to_token'])}\n"
             f"• Gas: {format_usd(quote.gas_cost_usd)}\n"
             f"• Bridge fee: {format_usd(quote.fee_cost_usd)}\n"
             f"• Time: {format_time_estimate(quote.estimated_time)}\n"

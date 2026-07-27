@@ -259,35 +259,50 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Process referral code if present and user is new
     referral_message = ""
-    if referral_code and is_new_user:
-        success, msg = referral_service.process_referral(user_id, referral_code)
-        if success:
-            # Referee-side welcome bonus: a one-time XP grant so joining via a
-            # friend is actually rewarding for the new user (not just the
-            # referrer). 100 XP ≈ 2x the daily-first-swap bonus (50) and matches
-            # the level-up bonus — meaningful (10% of the way to Silver) without
-            # being farmable: process_referral only links a brand-new user once,
-            # so this branch runs at most once per account.
-            try:
-                from bot.services.points_service import points_service
+    if referral_code:
+        if is_new_user:
+            success, msg = referral_service.process_referral(user_id, referral_code)
+            if success:
+                # Referee-side welcome bonus: a one-time XP grant so joining via a
+                # friend is actually rewarding for the new user (not just the
+                # referrer). 100 XP ≈ 2x the daily-first-swap bonus (50) and matches
+                # the level-up bonus — meaningful (10% of the way to Silver) without
+                # being farmable: process_referral only links a brand-new user once,
+                # so this branch runs at most once per account.
+                try:
+                    from bot.services.points_service import points_service
 
-                points_service.award_points(
-                    user_id=user_id,
-                    action="referral_welcome_bonus",
-                    amount=100,
-                    description="Welcome bonus for joining via a referral link",
-                )
-                referral_message = (
-                    "\n\n🎁 _You joined via a friend — *+100 XP* welcome bonus added!_"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to award referee welcome XP bonus: {e}")
-                referral_message = (
-                    "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
-                )
+                    points_service.award_points(
+                        user_id=user_id,
+                        action="referral_welcome_bonus",
+                        amount=100,
+                        description="Welcome bonus for joining via a referral link",
+                    )
+                    referral_message = (
+                        "\n\n🎁 _You joined via a friend — *+100 XP* welcome bonus added!_"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to award referee welcome XP bonus: {e}")
+                    referral_message = (
+                        "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
+                    )
+        elif tos_accepted:
+            # Already-registered user tapping a friend's referral link: no bonus
+            # (process_referral only ever links a brand-new account), but tell
+            # them the link worked so the referrer doesn't think it's broken.
+            # Gated on tos_accepted so we don't show this mid-onboarding (e.g. a
+            # user who declined ToS before and is retrying /start).
+            referral_message = (
+                "\n\n🔗 _You already have a Suwappu account, so there's no signup bonus "
+                "for this link — but it worked!_"
+            )
 
     # Check TOS
     if not tos_accepted:
+        if referral_message:
+            # Stash so the bonus/confirmation copy survives the ToS gate —
+            # delivered exactly once, after acceptance, by tos_accept_callback.
+            context.user_data["pending_referral_message"] = referral_message
         await update.message.reply_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
         return
 
@@ -352,6 +367,14 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             db_user.tos_accepted_at = datetime.now(timezone.utc)
             user_id = db_user.id
 
+    # Deliver the referral welcome bonus / "link worked" message stashed by
+    # start_command before the ToS gate (see there). `pop` guarantees it is
+    # read at most once, so it can never be shown twice even if this callback
+    # somehow fires again for the same user_data (e.g. a duplicate callback
+    # delivery) — and a user who never accepts ToS never reaches this callback,
+    # so the stashed message simply never gets delivered for them.
+    referral_message = context.user_data.pop("pending_referral_message", "")
+
     reply_markup = _build_main_keyboard()
 
     lang = get_user_lang(update.effective_user)
@@ -359,18 +382,30 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Fast path: no wallets yet → show the menu instantly, create wallets in background
     if not wallet_service.get_user_wallets(user_id):
         sent = await query.edit_message_text(
-            get_text("welcome", lang) + "\n\n" + get_text("wallet_creating", lang),
+            get_text("welcome", lang)
+            + "\n\n"
+            + get_text("wallet_creating", lang)
+            + referral_message,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
         if isinstance(sent, Message):
             asyncio.create_task(
-                _provision_wallets_and_update(user_id, sent, "", reply_markup, lang=lang)
+                _provision_wallets_and_update(
+                    user_id, sent, referral_message, reply_markup, lang=lang
+                )
             )
         return
 
     # Wallets already exist — keep the synchronous path
     await _ensure_wallets(user_id)
+
+    if referral_message:
+        # Surface the one-time referral message before the main menu redirect.
+        await query.message.reply_text(
+            get_text("welcome", lang) + referral_message,
+            parse_mode="Markdown",
+        )
 
     # Redirect to main menu
     await main_menu_callback(update, context)
@@ -513,4 +548,9 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # Create handlers
 start_handler = CommandHandler("start", start_command)
-help_handler = CommandHandler("h", help_command)
+# Aliases: CommandHandler accepts a list of command names (verified against the
+# installed python-telegram-bot 22.5 — CommandHandler(command: str | Collection[str]),
+# lowercase, <=32 chars, both satisfied here). Without this, /help never matched
+# anything (only /h was registered), even though several other handlers tell
+# users to run /wallet or reference /help as the recovery step.
+help_handler = CommandHandler(["h", "help"], help_command)

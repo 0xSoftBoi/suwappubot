@@ -9,8 +9,11 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
+from sqlalchemy import or_
+
 from database.db import get_session
 from bot.models.user import User, Wallet
+from bot.utils.safe_send import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,12 @@ class DigestService:
                 session.query(User)
                 .filter(
                     User.weekly_digest == True,  # noqa: E712
+                    # A Telegram block must not also cancel the WhatsApp leg
+                    # for a dual-channel user.
+                    or_(
+                        User.bot_blocked_at.is_(None),
+                        User.whatsapp_id.isnot(None),
+                    ),
                 )
                 .filter((User.telegram_id.isnot(None)) | (User.whatsapp_id.isnot(None)))
                 .all()
@@ -169,9 +178,11 @@ class DigestService:
 
         # Telegram delivery (guarded: some WhatsApp-only users have no telegram_id)
         if telegram_id and self._bot:
-            await self._bot.send_message(
-                chat_id=telegram_id,
-                text=text,
+            await safe_send(
+                self._bot,
+                telegram_id,
+                text,
+                category="weekly_digest",
                 parse_mode="Markdown",
             )
 

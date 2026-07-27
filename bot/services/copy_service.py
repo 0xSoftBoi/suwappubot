@@ -30,6 +30,7 @@ from bot.models.copy_trading import (
     TraderPosition,
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
+from bot.services.swap_engine import SwapEngine
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,17 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_FOLLOWS = 5  # Max traders a user can follow
 DEFAULT_COPY_AMOUNT = 10.0  # Default fixed copy amount in USD
+
+# Module-level singleton, so we aren't rebuilding every provider client on each
+# copy execution.
+#
+# NOTE: this is no longer what makes the per-wallet lock work — SwapEngine's
+# `_wallet_locks` registry is now a CLASS attribute shared by every engine in
+# the process, which is what actually serializes a copy trade against a
+# concurrent manual swap on the same wallet. The authoritative guarantee
+# against a duplicate execution is the UNIQUE index on
+# swap_transactions.idempotency_key; the lock only narrows the window.
+_copy_swap_engine = SwapEngine()
 
 # In-process TTL cache for the computed wallet PnL% (see get_wallet_pnl_pct).
 # Avoids re-aggregating a trader's realized-PnL history on every leaderboard
@@ -933,10 +945,10 @@ class CopyService:
 
             follow = session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
 
-        # Execute the swap via swap engine
-        from bot.services.swap_engine import SwapEngine
-
-        swap_engine = SwapEngine()
+        # Execute the swap via the shared swap engine (module-level singleton —
+        # see `_copy_swap_engine` above for why this must not be a fresh
+        # instance per call).
+        swap_engine = _copy_swap_engine
 
         try:
             quote = await swap_engine.get_quote(

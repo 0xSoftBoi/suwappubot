@@ -18,6 +18,7 @@ import math
 from typing import Optional
 
 from bot.config.morpho_config import URGENT_HF, WARN_HF
+from bot.utils.safe_send import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class MorphoMonitor:
         else:  # recovered
             text = f"✅ Your Morpho BTC loan recovered — health factor is back to {hf_text}."
         try:
-            await self.bot.send_message(chat_id=telegram_id, text=text)
+            await safe_send(self.bot, telegram_id, text, category="risk_event")
         except Exception as e:
             logger.warning("Morpho monitor: notify failed for %s: %s", telegram_id, str(e)[:200])
 

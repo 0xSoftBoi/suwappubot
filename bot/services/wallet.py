@@ -702,6 +702,83 @@ class WalletService:
                 auto_migrate=auto_migrate,
             )
 
+    async def get_private_key_async(self, wallet: Wallet, auto_migrate: bool = True) -> str:
+        """
+        Async wrapper around ``get_private_key``.
+
+        ``get_private_key`` is intentionally sync: it opens its own DB session
+        (``get_session()``) and makes a blocking, synchronous boto3 ``kms.decrypt``
+        network call (see ``bot/services/kms_client.py``). Calling it directly
+        from an ``async def`` freezes the entire event loop for the duration of
+        that KMS round-trip (observed 30-150ms), stalling every other concurrent
+        update on this bot instance. Async callers MUST use this wrapper (which
+        runs the sync call in a worker thread via ``asyncio.to_thread``) instead
+        of calling ``get_private_key`` directly. Non-async callers should keep
+        using the sync ``get_private_key``.
+        """
+        # run_in_db, NOT asyncio.to_thread: get_private_key opens a DB session,
+        # and to_thread uses the loop's DEFAULT executor (min(32, cpu+4)),
+        # which is separate from run_in_db's 24-worker pool. Together those two
+        # pools can hold up to 56 sessions against an engine capped at
+        # pool_size 15 + max_overflow 25 = 40, surfacing as QueuePool timeouts
+        # under load. Sharing the bounded pool keeps DB-touching concurrency
+        # under the connection ceiling by construction.
+        from database.db import run_in_db
+
+        return await run_in_db(self.get_private_key, wallet, auto_migrate)
+
+    def _get_private_key_by_id(
+        self, wallet_id: int, user_id: int, auto_migrate: bool = True
+    ) -> str:
+        """Sync counterpart of ``get_private_key_by_id_async`` — see its docstring.
+
+        Looks the wallet up fresh, in its own session, on whatever thread this
+        runs on — never accepts an already-loaded ORM instance from a caller.
+        """
+        with get_session() as session:
+            wallet = (
+                session.query(Wallet)
+                .filter(Wallet.id == wallet_id, Wallet.user_id == user_id)
+                .first()
+            )
+            if not wallet:
+                raise ValueError(f"Wallet {wallet_id} not found for user {user_id}")
+            return self.get_private_key(wallet, auto_migrate=auto_migrate)
+
+    async def get_private_key_by_id_async(
+        self, wallet_id: int, user_id: int, auto_migrate: bool = True
+    ) -> str:
+        """Look up the wallet AND decrypt it entirely inside the worker thread.
+
+        Callers holding an open ``with get_session() as session:`` block MUST
+        use this instead of ``get_private_key_async``: passing a live,
+        session-bound ORM instance into another thread is unsafe — SQLAlchemy
+        sessions and the instances they own are not thread-safe — and
+        ``get_private_key`` calls ``session.merge()`` on that instance in a
+        *different* session and, with the default ``auto_migrate=True``, may
+        WRITE to it (migrating a ``legacy_fernet_v1`` wallet to
+        ``kms_aesgcm_v2``). That is a genuine race: a worker thread merging and
+        possibly updating a row the caller's still-open session also holds.
+
+        This method takes only plain values (``wallet_id``, ``user_id``)
+        across the thread boundary and re-queries the wallet fresh inside the
+        worker thread's own session — no ORM object ever crosses threads.
+
+        ``user_id`` is required and scopes the lookup to that owner,
+        preserving the ``Wallet.id == wallet_id, Wallet.user_id == user_id``
+        ownership check callers previously performed themselves — this must
+        never become a way to read another user's private key by id alone.
+
+        Raises:
+            ValueError: If no matching wallet exists for that (wallet_id,
+                user_id) pair, or it is a Turnkey wallet (keys don't leave
+                Turnkey — raised by the underlying ``get_private_key`` call).
+        """
+        # Shares run_in_db's bounded pool — see get_private_key_async.
+        from database.db import run_in_db
+
+        return await run_in_db(self._get_private_key_by_id, wallet_id, user_id, auto_migrate)
+
     def get_backup_private_key(self, wallet: Wallet) -> str:
         """
         Get the backup private key for a Turnkey wallet.
@@ -1144,7 +1221,7 @@ class WalletService:
 
         from starknet_py.net.signer.stark_curve_signer import KeyPair
 
-        private_key = self.get_private_key(wallet)
+        private_key = await self.get_private_key_async(wallet)
         try:
             key_pair = KeyPair.from_private_key(int(private_key, 16))
         finally:
@@ -1234,7 +1311,7 @@ class WalletService:
         from bot.config.starknet_addresses import ARGENT_V040_CLASS_HASH
         from bot.services.starknet.client import get_starknet_chain_id, get_starknet_client
 
-        private_key = self.get_private_key(wallet)
+        private_key = await self.get_private_key_async(wallet)
         try:
             key_int = int(private_key, 16)
             key_pair = KeyPair.from_private_key(key_int)
@@ -1872,7 +1949,7 @@ class WalletService:
         if wallet.is_turnkey_wallet:
             private_key_hex = self.get_backup_private_key(wallet)
         else:
-            private_key_hex = self.get_private_key(wallet)
+            private_key_hex = await self.get_private_key_async(wallet)
         pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
 
         rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"

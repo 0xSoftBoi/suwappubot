@@ -352,6 +352,21 @@ class HotWalletService:
                 auto_migrate=auto_migrate,
             )
 
+    async def get_private_key_async(self, wallet: HotWallet, auto_migrate: bool = True) -> str:
+        """
+        Async wrapper around ``get_private_key``.
+
+        ``get_private_key`` is intentionally sync: it opens its own DB session
+        (``get_session()``) and makes a blocking, synchronous boto3 ``kms.decrypt``
+        network call. Calling it directly from an ``async def`` freezes the
+        entire event loop for the duration of that KMS round-trip, stalling
+        every other concurrent update on this bot instance. Async callers MUST
+        use this wrapper (which runs the sync call in a worker thread via
+        ``asyncio.to_thread``) instead of calling ``get_private_key`` directly.
+        Non-async callers should keep using the sync ``get_private_key``.
+        """
+        return await asyncio.to_thread(self.get_private_key, wallet, auto_migrate)
+
     # === Balance Management ===
 
     def get_custodial_balance(
@@ -905,7 +920,7 @@ class HotWalletService:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
             raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
         else:
-            private_key = self.get_private_key(wallet)
+            private_key = await self.get_private_key_async(wallet)
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
@@ -960,7 +975,7 @@ class HotWalletService:
             raise ValueError("Solana RPC URL not configured")
 
         # Decrypt private key and restore keypair
-        private_key = self.get_private_key(wallet)
+        private_key = await self.get_private_key_async(wallet)
         key_bytes = base58.b58decode(private_key)
         keypair = Keypair.from_bytes(key_bytes)
 
@@ -1042,7 +1057,7 @@ class HotWalletService:
             raise ValueError("Solana RPC URL not configured")
 
         # Decrypt private key and restore keypair
-        private_key = self.get_private_key(wallet)
+        private_key = await self.get_private_key_async(wallet)
         key_bytes = base58.b58decode(private_key)
         keypair = Keypair.from_bytes(key_bytes)
 
@@ -1206,7 +1221,7 @@ class HotWalletService:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
             raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
         else:
-            private_key = self.get_private_key(wallet)
+            private_key = await self.get_private_key_async(wallet)
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)

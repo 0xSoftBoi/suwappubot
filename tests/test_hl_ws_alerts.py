@@ -68,11 +68,14 @@ def svc(monkeypatch):
     s._addr_to_user = {"0xabc": 42}
     sent = []
 
-    async def _fake_notify_user(user_id, message):
-        sent.append((user_id, message))
+    # Both take an optional `category`, which safe_send uses to honor the
+    # user's per-notification-type mute settings. Accept and record it so the
+    # fakes match the real signatures.
+    async def _fake_notify_user(user_id, message, category=None):
+        sent.append((user_id, message, category))
 
-    async def _fake_notify_channel(message):
-        sent.append(("channel", message))
+    async def _fake_notify_channel(message, category=None):
+        sent.append(("channel", message, category))
 
     monkeypatch.setattr(s, "_notify_user", _fake_notify_user)
     monkeypatch.setattr(s, "_notify_channel", _fake_notify_channel)
@@ -153,9 +156,15 @@ async def test_user_events_liquidation_and_funding(svc, monkeypatch):
         }
     )
     await svc._handle_message(frame)
-    msgs = [m for _, m in svc._sent]
+    msgs = [m for _, m, _category in svc._sent]
     assert any("LIQUIDATION" in m for m in msgs)
     assert any("Funding" in m for m in msgs)
+
+    # A liquidation is a risk event; funding is routine. They must be gated by
+    # different preference toggles so muting one doesn't silence the other.
+    categories = {m: c for _, m, c in svc._sent}
+    assert next(c for m, c in categories.items() if "LIQUIDATION" in m) == "risk_event"
+    assert next(c for m, c in categories.items() if "Funding" in m) == "proactive_alert"
 
 
 @pytest.mark.asyncio

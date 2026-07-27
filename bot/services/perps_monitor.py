@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from bot.services.hyperliquid_client import hyperliquid_client
 from bot.models.perps import PerpPosition, HyperLiquidAccount
+from bot.utils.safe_send import safe_send
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,14 @@ class PerpsMonitor:
         notified-at dedup flag: marking an alert as sent when it never left
         the process would suppress it permanently, and a missed stop-loss
         alert on a leveraged position is far more costly than a duplicate.
+
+        Note the deliberate consequence for a user who has MUTED risk events:
+        safe_send returns False, so the dedup flag is never written and this
+        re-evaluates on every poll. That costs only a 30s-cached preference
+        lookup (no DM, no API call), and it means the alert is delivered if
+        they unmute while the position is still past its trigger — which is
+        the behaviour we want. It is not the notification loop this flag was
+        added to stop.
         """
         if not self._bot:
             return False
@@ -190,12 +199,13 @@ class PerpsMonitor:
             if not telegram_id:
                 return False
 
-            await self._bot.send_message(
-                chat_id=telegram_id,
-                text=f"\U0001f4ca **Perps Alert**\n\n{message}",
+            return await safe_send(
+                self._bot,
+                telegram_id,
+                f"\U0001f4ca **Perps Alert**\n\n{message}",
+                category="risk_event",
                 parse_mode="Markdown",
             )
-            return True
         except Exception as e:
             logger.error(f"Failed to notify user {user_id}: {e}")
             return False

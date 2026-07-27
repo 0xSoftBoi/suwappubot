@@ -681,10 +681,19 @@ class PredictFlow(BaseWhatsAppFlow):
                 w = session.query(Wallet).filter(Wallet.id == wallet_id).first()
                 if not w:
                     raise Exception("Wallet not found")
-                private_key = (
-                    wallet_service.get_backup_private_key(w)
-                    if is_turnkey
-                    else wallet_service.get_private_key(w)
+                # Turnkey backup keys resolve synchronously on this thread.
+                # The local-key path does a blocking KMS decrypt, so it runs
+                # off the event loop by id once the session has closed — a
+                # live session-bound instance must not cross threads.
+                private_key = wallet_service.get_backup_private_key(w) if is_turnkey else None
+
+            if private_key is None:
+                # user_db_id is redundant here (wallet_id came from a query
+                # already scoped to this user) but passing it enforces the
+                # ownership invariant at the decrypt instead of relying on the
+                # id's provenance staying correct.
+                private_key = await wallet_service.get_private_key_by_id_async(
+                    wallet_id, user_id=user_db_id
                 )
 
             result = await polymarket_client.place_order(
@@ -973,12 +982,17 @@ class PredictFlow(BaseWhatsAppFlow):
                     )
                 if not w:
                     raise Exception("Wallet not found")
-                private_key = (
-                    wallet_service.get_backup_private_key(w)
-                    if w.is_turnkey_wallet
-                    else wallet_service.get_private_key(w)
-                )
                 wid = w.id
+                # See the buy path above: the blocking KMS decrypt runs off
+                # the event loop by id after this session closes.
+                private_key = (
+                    wallet_service.get_backup_private_key(w) if w.is_turnkey_wallet else None
+                )
+
+            if private_key is None:
+                private_key = await wallet_service.get_private_key_by_id_async(
+                    wid, user_id=user_db_id
+                )
 
             midpoint = await polymarket_client.get_midpoint(token_id)
             price = midpoint if midpoint else 0.5
