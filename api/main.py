@@ -880,6 +880,27 @@ def get_db():
 
 # --- Health Checks ---
 
+# Max age of a background service's heartbeat before /health calls it "dead",
+# per service. Each value is roughly 3x that service's own loop cadence, so a
+# healthy-but-slow loop is never reported dead:
+#   tx_poller          poll_interval=15s (3s when txs are pending)
+#   perps_monitor      POLL_INTERVAL=10s
+#   withdraw_reconciler poll_interval=60s
+#   balance_refresher  refresh_interval=60s + a refresh pass over all wallets
+#   predict_monitor    POLL_INTERVAL=120s
+#   hl_ws_alerts       websocket refresh loop
+# Keep these in sync with each writer's ttl_seconds — the TTL must be >= the
+# threshold, or the key is evicted before it can ever be seen as stale.
+SERVICE_STALENESS_SECONDS: dict[str, int] = {
+    "tx_poller": 90,
+    "perps_monitor": 90,
+    "withdraw_reconciler": 180,
+    "balance_refresher": 300,
+    "predict_monitor": 360,
+    "hl_ws_alerts": 300,
+}
+DEFAULT_STALENESS_SECONDS = 90
+
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
 async def health_live():
@@ -922,7 +943,14 @@ async def health_ready():
     # Redis ping
     redis_ok = await redis_cache.ping()
 
-    # Background service heartbeats (TTL 60s; missing key = service dead)
+    # Background service heartbeats. A single global staleness threshold does not
+    # work here: these loops have cadences an order of magnitude apart, and each
+    # only beats once per cycle. The old flat 90s cutoff meant predict_monitor
+    # (POLL_INTERVAL=120) was reported "dead" for a chunk of every single cycle
+    # while perfectly healthy, and balance_refresher flapped whenever a refresh
+    # pass pushed its cycle past 90s. Allow ~3 cycles of slack per service, and
+    # keep each writer's Redis TTL >= its threshold so a stopped service reads
+    # "dead" (stale beat) rather than "unknown" (key already evicted).
     now = time.time()
     svc_heartbeats: dict = {}
     watched_services = [
@@ -940,7 +968,7 @@ async def health_ready():
         last = await redis_cache.get(f"service:{svc}:heartbeat")
         if last is None:
             svc_heartbeats[svc] = "unknown"
-        elif now - float(last) > 90:
+        elif now - float(last) > SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS):
             svc_heartbeats[svc] = "dead"
         else:
             svc_heartbeats[svc] = "alive"

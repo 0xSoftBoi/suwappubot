@@ -64,7 +64,7 @@ class BalanceRefresher:
                 # stale once the TTL lapses. Matches withdraw_reconciler /
                 # predict_monitor, which use 180s for the same reason.
                 await redis_cache.set(
-                    "service:balance_refresher:heartbeat", _time.time(), ttl_seconds=180
+                    "service:balance_refresher:heartbeat", _time.time(), ttl_seconds=300
                 )
                 await self._refresh_all()
             except asyncio.CancelledError:
