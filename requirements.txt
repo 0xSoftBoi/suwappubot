@@ -301,7 +301,7 @@ pyyaml==6.0.3
     # via uvicorn
 qrcode==8.2
     # via -r requirements.in
-redis==7.0.1
+redis==8.0.1
     # via -r requirements.in
 regex==2026.1.15
     # via parsimonious

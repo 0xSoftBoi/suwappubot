@@ -84,7 +84,7 @@ qrcode>=7.4,<9.0
 Pillow>=10.0                          # imported as PIL
 
 # ---- Cache ----
-redis==7.0.1
+redis==8.0.1
 
 # ---- Serialization / misc ----
 orjson>=3.10
