@@ -86,7 +86,21 @@ def _parse_message(raw, signature: str) -> Optional[str]:
 
 
 async def _subscribe_and_wait(ws_url: str, signature: str) -> str:
-    async with aiohttp.ClientSession() as session:
+    # Note: the outer ws_wait_for_signature() already wraps this whole call in
+    # asyncio.wait_for(timeout=90), which bounds the handshake + read loop as a
+    # whole. This session-level timeout is a belt-and-suspenders guard on the
+    # initial connect (DNS/TCP/TLS/WS-handshake) specifically.
+    #
+    # Deliberately NOT bot.utils.http_client.get_session(): this is a
+    # persistent, long-lived bidirectional WS stream, not a short REST call.
+    # ws_connect()'s own `timeout=` only accepts a ClientWSTimeout
+    # (ws_receive/ws_close) — there is no way to override the shared
+    # session's `sock_read=15s`/`total=20s` ClientTimeout for this call, and
+    # those bounds are tuned for bursty JSON fetches. Reusing them here could
+    # silently kill a healthy-but-idle WS connection between heartbeats
+    # (heartbeat=20s > sock_read=15s), so this keeps its own short-lived
+    # session dedicated to the WS handshake instead.
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         async with session.ws_connect(ws_url, heartbeat=20) as ws:
             sub_request = {
                 "jsonrpc": "2.0",

@@ -32,6 +32,13 @@ class User(Base):
     # Settings
     default_slippage = Column(Integer, default=50)  # In basis points (50 = 0.5%)
     notifications_enabled = Column(Boolean, default=True)
+
+    # Set when Telegram tells us this user blocked the bot (my_chat_member ->
+    # kicked), cleared when they unblock. Background senders skip these users:
+    # without it, 15 monitor services retried dead chats forever — the perps
+    # monitor every 10 seconds — burning API quota and flood budget. Also the
+    # only churn signal Telegram gives us.
+    bot_blocked_at = Column(DateTime, nullable=True)
     panic_sell_enabled = Column(Boolean, default=False)
     gas_mode = Column(String(10), default="auto")  # Read/written by api-ts (webapp gas settings)
 

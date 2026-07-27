@@ -7,6 +7,7 @@ from database.db import Base
 
 class PerpPosition(Base):
     """Perpetual trading position."""
+
     __tablename__ = "perp_positions"
 
     id = Column(Integer, primary_key=True)
@@ -29,6 +30,12 @@ class PerpPosition(Base):
     tp_price = Column(Numeric(precision=20, scale=8), nullable=True)  # Take profit
     sl_price = Column(Numeric(precision=20, scale=8), nullable=True)  # Stop loss
 
+    # Notification dedup: set once the TP/SL alert has fired so the monitor's
+    # 10s poll doesn't re-send it every cycle. Cleared when the position
+    # closes/reopens so a future trigger can alert again.
+    tp_notified_at = Column(DateTime, nullable=True)
+    sl_notified_at = Column(DateTime, nullable=True)
+
     status = Column(String(20), default="open", index=True)  # open, closed, liquidated
 
     opened_at = Column(DateTime, default=datetime.utcnow)
@@ -38,6 +45,7 @@ class PerpPosition(Base):
 
 class PerpOrder(Base):
     """Perpetual trading order."""
+
     __tablename__ = "perp_orders"
 
     id = Column(Integer, primary_key=True)
@@ -48,7 +56,9 @@ class PerpOrder(Base):
     market = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # "long" or "short"
 
-    order_type = Column(String(20), nullable=False)  # market, limit, stop_market, take_profit, stop_loss
+    order_type = Column(
+        String(20), nullable=False
+    )  # market, limit, stop_market, take_profit, stop_loss
     size = Column(Numeric(precision=20, scale=8), nullable=False)
     price = Column(Numeric(precision=20, scale=8), nullable=True)  # NULL for market orders
     leverage = Column(Integer, default=1)
@@ -65,6 +75,7 @@ class PerpOrder(Base):
 
 class HyperLiquidAccount(Base):
     """User's HyperLiquid account configuration."""
+
     __tablename__ = "hyperliquid_accounts"
 
     id = Column(Integer, primary_key=True)

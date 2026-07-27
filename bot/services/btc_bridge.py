@@ -465,7 +465,7 @@ class BtcBridge:
             # Validate BEFORE signing/executing anything.
             await self._validate_calls(row, invoke_calls)
 
-            private_key = self.wallet_service.get_private_key(wallet)
+            private_key = await self.wallet_service.get_private_key_async(wallet)
             try:
                 from bot.services.starknet.client import get_starknet_account
 

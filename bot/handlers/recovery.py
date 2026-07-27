@@ -35,7 +35,9 @@ def _instructions(req: dict) -> str:
         "your provider counts.\n\n"
         f"⏳ For your safety, recovery executes *{delay_h}h after approval* — the "
         "original owner can cancel during that window from their account with "
-        "/recover."
+        "/recover.\n\n"
+        "🗑️ This code and your recovery email are sensitive — delete this "
+        "message once you've sent the approval email."
     )
 
 
@@ -51,7 +53,12 @@ async def recover_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not req:
             await update.message.reply_text(f"❌ {msg}")
             return
-        await update.message.reply_text(_instructions(req), parse_mode="Markdown")
+        # protect_content: this message carries the DKIM approval code and the
+        # recovery email address — the two pieces of information needed to
+        # approve an account takeover. Not forwardable/screenshottable.
+        await update.message.reply_text(
+            _instructions(req), parse_mode="Markdown", protect_content=True
+        )
         return
 
     # `/recover` — status for the current account.

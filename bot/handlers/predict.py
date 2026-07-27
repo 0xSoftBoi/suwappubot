@@ -810,10 +810,19 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
             )
             if not wallet:
                 raise Exception("Wallet not found")
-            if wallet.is_turnkey_wallet:
-                private_key = wallet_service.get_backup_private_key(wallet)
-            else:
-                private_key = wallet_service.get_private_key(wallet)
+            # The Turnkey backup key is read synchronously on THIS thread,
+            # which is safe while the session is open. The local-key path
+            # decrypts in a worker thread and may migrate the row, so it must
+            # run by id after the session closes — a live session-bound ORM
+            # instance must never cross a thread boundary.
+            private_key = (
+                wallet_service.get_backup_private_key(wallet) if wallet.is_turnkey_wallet else None
+            )
+
+        if private_key is None:
+            private_key = await wallet_service.get_private_key_by_id_async(
+                wallet_id, user_id=user_id
+            )
 
         # Place order via official Polymarket SDK
         result = await polymarket_client.place_order(
@@ -1145,10 +1154,19 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
             if not wallet:
                 raise Exception("Wallet not found")
-            if wallet.is_turnkey_wallet:
-                private_key = wallet_service.get_backup_private_key(wallet)
-            else:
-                private_key = wallet_service.get_private_key(wallet)
+            # The Turnkey backup key is read synchronously on THIS thread,
+            # which is safe while the session is open. The local-key path
+            # decrypts in a worker thread and may migrate the row, so it must
+            # run by id after the session closes — a live session-bound ORM
+            # instance must never cross a thread boundary.
+            private_key = (
+                wallet_service.get_backup_private_key(wallet) if wallet.is_turnkey_wallet else None
+            )
+
+        if private_key is None:
+            private_key = await wallet_service.get_private_key_by_id_async(
+                wallet_id, user_id=user_id
+            )
 
         # Get current midpoint for pricing
         midpoint = await polymarket_client.get_midpoint(token_id)
@@ -1511,6 +1529,11 @@ predict_conversation_handler = ConversationHandler(
         CommandHandler("predict", predict_command),
         # Inline-button entry from the main menu ("🔮 Predictions").
         CallbackQueryHandler(predict_command, pattern="^predict_open$"),
+        # Inline-button entry from Home's "🎁 Redeem $X" resolved-prediction
+        # button (callback_data="pred_positions"). Without this, a user who
+        # taps it from Home (no active predict conversation) hits no handler
+        # at all — the tap is a no-op and their winnings look unreachable.
+        CallbackQueryHandler(positions_callback, pattern="^pred_positions$"),
     ],
     states={
         MAIN_MENU: [

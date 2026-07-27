@@ -5,8 +5,12 @@ import logging
 from typing import List, Optional
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
+
 from bot.models.advanced import AdvancedPriceAlert as PriceAlert, AlertType
+from bot.models.user import User
 from bot.services.price_service import price_service
+from bot.utils.safe_send import safe_send
 from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
@@ -110,9 +114,19 @@ class AlertService:
             with get_session() as session:
                 alerts = (
                     session.query(PriceAlert)
+                    .join(User, User.id == PriceAlert.user_id)
                     .filter(
                         PriceAlert.is_active == True,
                         PriceAlert.is_triggered == False,
+                        # Skip users who blocked the Telegram bot — UNLESS they
+                        # also have WhatsApp, which _trigger_alert delivers to.
+                        # Dropping them here would stop their WhatsApp alerts
+                        # too, and leave is_triggered unset so the alert fires
+                        # at a stale price if they ever unblock.
+                        or_(
+                            User.bot_blocked_at.is_(None),
+                            User.whatsapp_id.isnot(None),
+                        ),
                     )
                     .all()
                 )
@@ -216,7 +230,7 @@ class AlertService:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Price alert service task cancelled during stop()")
         logger.info("Price alert service stopped")
 
     async def _alert_loop(self):
@@ -267,8 +281,8 @@ class AlertService:
                 direction = "changed"
 
             # Get user's telegram_id and whatsapp_id
-            from bot.models.user import User
-
+            telegram_id = None
+            whatsapp_id = None
             with get_session() as session:
                 user = session.query(User).filter(User.id == alert["user_id"]).first()
                 if user:
@@ -285,9 +299,11 @@ class AlertService:
                     [[InlineKeyboardButton("💱 Review & Sign", url=deep_link)]]
                 )
 
-                await self._bot.send_message(
-                    chat_id=telegram_id,
-                    text=text,
+                await safe_send(
+                    self._bot,
+                    telegram_id,
+                    text,
+                    category="price_alert",
                     parse_mode="Markdown",
                     reply_markup=reply_markup,
                 )

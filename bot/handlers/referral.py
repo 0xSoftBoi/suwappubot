@@ -14,6 +14,7 @@ from bot.services.referral_service import referral_service, MIN_CLAIM_USD
 from bot.services.fee_service import fee_service
 from bot.models.user import User
 from bot.utils.tos_utils import enforce_tos
+from bot.utils.templates import copy_button
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -71,10 +72,18 @@ def _ref_main_keyboard(user_id: int, code: str) -> InlineKeyboardMarkup:
         rows.append(
             [InlineKeyboardButton(f"💸 Claim ${pending_usd:.2f}", callback_data="ref_claim")]
         )
+    # One-tap clipboard copy (Bot API 7.11+ CopyTextButton) instead of the old
+    # "ref_copy_" callback, which only popped a show_alert() toast the user
+    # still had to select-copy manually — no actual clipboard write. Falls
+    # back to the old behavior on the (practically impossible) chance a code
+    # exceeds Telegram's 256-char copy_text limit.
+    copy_btn = copy_button("📋 Copy Code", code) or InlineKeyboardButton(
+        "📋 Copy Code", callback_data=f"ref_copy_{code}"
+    )
     rows.append(
         [
             InlineKeyboardButton("📣 Share Link", callback_data="ref_share"),
-            InlineKeyboardButton("📋 Copy Code", callback_data=f"ref_copy_{code}"),
+            copy_btn,
         ]
     )
     return InlineKeyboardMarkup(rows)
@@ -263,11 +272,12 @@ async def fees_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "_This is one of the highest referral rates in the industry!_"
         )
 
-        keyboard = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("⬅️ Back to Fees", callback_data="fees_back")],
-            ]
-        )
+        rows = []
+        copy_btn = copy_button("📋 Copy Code", code.code)
+        if copy_btn:
+            rows.append([copy_btn])
+        rows.append([InlineKeyboardButton("⬅️ Back to Fees", callback_data="fees_back")])
+        keyboard = InlineKeyboardMarkup(rows)
 
         await query.edit_message_text(
             message,

@@ -17,12 +17,14 @@ from decimal import Decimal
 import aiohttp
 
 from bot.config.settings import settings
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
 
 class AlchemyRateLimitError(Exception):
     """Raised when Alchemy returns 429 or circuit breaker is open."""
+
     pass
 
 
@@ -81,6 +83,7 @@ UNSUPPORTED_CHAINS = {"bsc", "solana"}
 @dataclass
 class TokenBalance:
     """Token balance with metadata."""
+
     contract_address: str
     symbol: str
     name: str
@@ -94,6 +97,7 @@ class TokenBalance:
 @dataclass
 class TokenMetadata:
     """Token metadata from Alchemy."""
+
     address: str
     symbol: str
     name: str
@@ -105,6 +109,7 @@ class TokenMetadata:
 @dataclass
 class AssetTransfer:
     """Asset transfer record from Alchemy."""
+
     block_num: int
     block_hash: str
     tx_hash: str
@@ -120,6 +125,7 @@ class AssetTransfer:
 @dataclass
 class SimulationResult:
     """Transaction simulation result."""
+
     success: bool
     gas_used: int
     gas_limit: int
@@ -143,7 +149,6 @@ class AlchemyClient:
             api_key: Alchemy API key (uses settings if not provided)
         """
         self._api_key = api_key or settings.alchemy_api_key
-        self._http_session: Optional[aiohttp.ClientSession] = None
 
         if not self._api_key:
             logger.warning("Alchemy API key not configured - using fallback RPCs")
@@ -154,15 +159,13 @@ class AlchemyClient:
         return bool(self._api_key)
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        return self._http_session
+        """Get the shared, pooled HTTP session (see bot/utils/http_client.py)."""
+        return await get_http_session()
 
     async def close(self):
-        """Close HTTP session."""
-        if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
+        """No-op: the underlying session is shared/global and closed centrally
+        on app shutdown (bot.utils.http_client.close_session), not per-instance."""
+        pass
 
     def _get_base_url(self, chain: str) -> Optional[str]:
         """Get Alchemy base URL for a chain."""
@@ -258,17 +261,19 @@ class AlchemyClient:
                 if not include_spam and self._is_spam_token(metadata):
                     continue
 
-                balance_formatted = raw_balance / (10 ** metadata.decimals)
+                balance_formatted = raw_balance / (10**metadata.decimals)
 
-                balances.append(TokenBalance(
-                    contract_address=contract,
-                    symbol=metadata.symbol,
-                    name=metadata.name,
-                    decimals=metadata.decimals,
-                    balance=str(raw_balance),
-                    balance_formatted=balance_formatted,
-                    logo_url=metadata.logo_url,
-                ))
+                balances.append(
+                    TokenBalance(
+                        contract_address=contract,
+                        symbol=metadata.symbol,
+                        name=metadata.name,
+                        decimals=metadata.decimals,
+                        balance=str(raw_balance),
+                        balance_formatted=balance_formatted,
+                        logo_url=metadata.logo_url,
+                    )
+                )
 
             return balances
 
@@ -373,7 +378,7 @@ class AlchemyClient:
 
             alchemy_circuit.record_success()
             balance_wei = int(result.get("result", "0x0"), 16)
-            return balance_wei / (10 ** 18)
+            return balance_wei / (10**18)
 
         except AlchemyRateLimitError:
             raise
@@ -447,18 +452,20 @@ class AlchemyClient:
                     continue
 
                 for tx in result.get("result", {}).get("transfers", []):
-                    transfers.append(AssetTransfer(
-                        block_num=int(tx.get("blockNum", "0x0"), 16),
-                        block_hash=tx.get("hash", ""),
-                        tx_hash=tx.get("hash", ""),
-                        from_address=tx.get("from", ""),
-                        to_address=tx.get("to", ""),
-                        value=tx.get("value"),
-                        asset=tx.get("asset", "ETH"),
-                        category=tx.get("category", "external"),
-                        raw_contract=tx.get("rawContract"),
-                        block_timestamp=(tx.get("metadata") or {}).get("blockTimestamp"),
-                    ))
+                    transfers.append(
+                        AssetTransfer(
+                            block_num=int(tx.get("blockNum", "0x0"), 16),
+                            block_hash=tx.get("hash", ""),
+                            tx_hash=tx.get("hash", ""),
+                            from_address=tx.get("from", ""),
+                            to_address=tx.get("to", ""),
+                            value=tx.get("value"),
+                            asset=tx.get("asset", "ETH"),
+                            category=tx.get("category", "external"),
+                            raw_contract=tx.get("rawContract"),
+                            block_timestamp=(tx.get("metadata") or {}).get("blockTimestamp"),
+                        )
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to get asset transfers: {e}")
@@ -506,12 +513,14 @@ class AlchemyClient:
             "jsonrpc": "2.0",
             "id": 1,
             "method": "alchemy_simulateExecution",
-            "params": [{
-                "from": from_address,
-                "to": to_address,
-                "data": data,
-                "value": value,
-            }],
+            "params": [
+                {
+                    "from": from_address,
+                    "to": to_address,
+                    "data": data,
+                    "value": value,
+                }
+            ],
         }
 
         try:
@@ -540,7 +549,9 @@ class AlchemyClient:
             return SimulationResult(
                 success=not sim_result.get("error"),
                 gas_used=int(sim_result.get("gasUsed", "0x0"), 16),
-                gas_limit=int(sim_result.get("gasLimit", "0x0"), 16) if sim_result.get("gasLimit") else 0,
+                gas_limit=(
+                    int(sim_result.get("gasLimit", "0x0"), 16) if sim_result.get("gasLimit") else 0
+                ),
                 return_data=sim_result.get("returnValue"),
                 error=sim_result.get("error"),
                 state_changes=sim_result.get("stateDiff"),

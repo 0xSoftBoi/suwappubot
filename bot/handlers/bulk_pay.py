@@ -370,7 +370,7 @@ async def _execute_solana_sequential(
     from solders.message import Message
 
     rpc_url = rpc_manager.get_rpc_url("solana")
-    private_key_str = wallet_service.get_private_key(wallet)
+    private_key_str = await wallet_service.get_private_key_async(wallet)
     try:
         key_bytes = _base58.b58decode(private_key_str)
         keypair = Keypair.from_bytes(key_bytes)

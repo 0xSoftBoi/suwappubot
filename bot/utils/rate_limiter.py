@@ -118,6 +118,12 @@ class APIRateLimiter:
 class UserRateLimiter:
     """Per-user rate limiter for bot commands."""
 
+    # Safety bound on the request-history map size to keep memory in check —
+    # mirrors the _MAX_LOCKS pattern in bot/utils/update_processor.py's
+    # PerUserSerializingProcessor. Without this, _user_requests grows one
+    # entry per distinct user/chat ID ever seen, forever.
+    _MAX_USERS = 50_000
+
     def __init__(
         self,
         max_requests: int = 30,
@@ -154,6 +160,12 @@ class UserRateLimiter:
             self._user_requests[user_id] = [
                 ts for ts in self._user_requests[user_id] if ts > cutoff
             ]
+
+            if len(self._user_requests) > self._MAX_USERS:
+                # Drop users with no requests left in the current window to
+                # bound memory usage (mirrors PerUserSerializingProcessor).
+                for k in [k for k, v in self._user_requests.items() if not v]:
+                    del self._user_requests[k]
 
             if len(self._user_requests[user_id]) >= self.max_requests:
                 oldest = min(self._user_requests[user_id])

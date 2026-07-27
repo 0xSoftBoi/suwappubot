@@ -26,10 +26,13 @@ class Settings(BaseSettings):
         default=None, description="Secret token for webhook verification"
     )
     bot_concurrent_updates: int = Field(
-        default=0,
+        default=256,
         description=(
-            "Max concurrent Telegram updates (per-user serialized). "
-            "0 = sequential processing (PTB default). Recommended: 256."
+            "Max concurrent Telegram updates (per-user serialized via "
+            "PerUserSerializingProcessor: different users run in parallel, one "
+            "user's updates stay strictly ordered). 0 = sequential processing "
+            "(PTB's default), which makes every user wait behind the slowest "
+            "in-flight handler — a single 3-8s quote fan-out stalls the whole bot."
         ),
     )
 
@@ -589,6 +592,40 @@ class Settings(BaseSettings):
     morpho_vault_default: str = Field(
         default="0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
+    )
+
+    # Rug Protection auto-sell (bot/services/token_security/rug_service.py).
+    # MONEY-PATH: when True, the bot subscribes to Raydium AMM logs and fires
+    # unattended panic-sell swaps (25% slippage, full balance) for opted-in
+    # users when a liquidity removal is detected AND verified (an executed
+    # Raydium instruction that drained >50% of its own pool vault — see
+    # RUG_WITHDRAWAL_MIN_FRACTION). Default OFF: this moves user funds off a
+    # public log/mempool signal with no human in the loop, so it stays behind
+    # an explicit, deliberate opt-in even after that hardening.
+    rug_auto_sell_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the Rug Protection auto-sell service. When True, "
+            "opted-in users' full balance of a token is auto-sold at 25% slippage "
+            "the moment a verified Raydium liquidity-removal is detected. Default "
+            "off — a deliberate, explicit opt-in required to arm this money-path."
+        ),
+    )
+
+    # B1 hardening: RUG_WITHDRAWAL_MIN_FRACTION (relative-only) let a
+    # permissionless Raydium pool seeded with a few dollars trigger the exact
+    # same panic-sell as a real multi-figure rug. This is an absolute USD
+    # floor on the paired WSOL/stablecoin vault's PRE-withdrawal balance —
+    # see rug_service.RUG_MIN_DRAINED_NOTIONAL_USD for the full rationale.
+    rug_min_drained_notional_usd: float = Field(
+        default=35_000.0,
+        description=(
+            "Absolute USD floor on the paired WSOL/stablecoin vault's pre-withdrawal "
+            "balance before a Raydium liquidity removal is treated as a real rug. "
+            "Closes the gap where RUG_WITHDRAWAL_MIN_FRACTION alone (purely relative) "
+            "let an attacker spin up a fresh, cheaply-seeded pool and 100%-withdraw it "
+            "to trigger the same panic-sell as a real multi-figure rug."
+        ),
     )
 
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).

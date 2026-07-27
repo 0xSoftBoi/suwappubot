@@ -25,9 +25,24 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
     all_balances = {}
     total_usd = 0.0
 
-    for wallet_id, address, chain_type, name in wallet_infos:
-        balances = await wallet_service.get_balances_by_address(address, chain_type)
+    # Fetch every wallet's balances concurrently instead of serially (was
+    # 3 wallets x ~600ms Alchemy = 1.8s). One bad RPC degrades to {} instead
+    # of zeroing the whole portfolio — same shape as balance.py's fetch.
+    async def fetch_wallet_balance(wallet_info):
+        wallet_id, address, chain_type, name = wallet_info
+        try:
+            return await wallet_service.get_balances_by_address(address, chain_type)
+        except Exception as e:
+            logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
+            return {}
 
+    balance_results = await asyncio.gather(
+        *[fetch_wallet_balance(w) for w in wallet_infos], return_exceptions=True
+    )
+
+    for balances in balance_results:
+        if isinstance(balances, Exception) or not balances:
+            continue
         for chain, tokens in balances.items():
             if chain not in all_balances:
                 all_balances[chain] = {}

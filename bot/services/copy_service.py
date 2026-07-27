@@ -9,6 +9,8 @@ Handles:
 """
 
 import logging
+import threading
+import time
 from typing import Optional, List, Tuple
 from datetime import datetime, timezone, timedelta
 
@@ -28,6 +30,7 @@ from bot.models.copy_trading import (
     TraderPosition,
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
+from bot.services.swap_engine import SwapEngine
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,61 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_FOLLOWS = 5  # Max traders a user can follow
 DEFAULT_COPY_AMOUNT = 10.0  # Default fixed copy amount in USD
+
+# Module-level singleton, so we aren't rebuilding every provider client on each
+# copy execution.
+#
+# NOTE: this is no longer what makes the per-wallet lock work — SwapEngine's
+# `_wallet_locks` registry is now a CLASS attribute shared by every engine in
+# the process, which is what actually serializes a copy trade against a
+# concurrent manual swap on the same wallet. The authoritative guarantee
+# against a duplicate execution is the UNIQUE index on
+# swap_transactions.idempotency_key; the lock only narrows the window.
+_copy_swap_engine = SwapEngine()
+
+# In-process TTL cache for the computed wallet PnL% (see get_wallet_pnl_pct).
+# Avoids re-aggregating a trader's realized-PnL history on every leaderboard
+# render or copy-notification filter check. Keyed by (trader_id, days) ->
+# (pnl_pct, expires_at) — MUST include `days` in the key, otherwise a days=7
+# caller can be served a cached days=30 value (and vice versa).
+_WALLET_PNL_CACHE_TTL_SECONDS = 300  # 5 minutes
+_WALLET_PNL_CACHE_MAX_SIZE = 2000  # bound the unbounded-dict risk; simple eviction below
+_wallet_pnl_cache: dict = {}
+# A3 hardening: get_wallet_pnl_pct() is called from request/notification code
+# that ultimately runs on the run_in_db thread pool (multiple worker threads),
+# so the module-level cache above is mutated concurrently. Without a lock,
+# `min(_wallet_pnl_cache, key=...)` during eviction can KeyError (or blow up
+# with "dictionary changed size during iteration") if another thread pops an
+# entry mid-iteration. A single RLock around every read/evict/write of
+# `_wallet_pnl_cache` closes that race; RLock (not Lock) so the evict helper
+# can be called standalone in tests without deadlocking against the
+# read/write critical section below.
+_wallet_pnl_cache_lock = threading.RLock()
+
+
+def format_wallet_pnl_pct(pnl_pct: Optional[float]) -> str:
+    """Render a wallet PnL% for display. `pnl_pct` is None when
+    get_wallet_pnl_pct() has insufficient realized-close data — show a plain
+    "N/A" rather than a fabricated 0.0% or a misleading blank."""
+    if pnl_pct is None:
+        return "N/A"
+    return f"{pnl_pct:+.1f}%"
+
+
+def _wallet_pnl_cache_evict_if_full(cache_key) -> None:
+    """Simple size cap for the module-level PnL cache: when full, clear it
+    rather than scanning for a victim to evict. TTL already expires most
+    entries well before the cache fills, so a full-clear has the same
+    amortized effect as evicting one entry at a time (a handful of cold
+    lookups get re-aggregated on the next few calls) without an O(n) scan.
+
+    A3: guarded by `_wallet_pnl_cache_lock` so the size check and the clear
+    can never race against a concurrent read/write from another thread.
+    """
+    with _wallet_pnl_cache_lock:
+        if cache_key in _wallet_pnl_cache or len(_wallet_pnl_cache) < _WALLET_PNL_CACHE_MAX_SIZE:
+            return
+        _wallet_pnl_cache.clear()
 
 
 class CopyService:
@@ -371,6 +429,199 @@ class CopyService:
         pnl_pct = (pnl / cost_of_sold * 100.0) if cost_of_sold > 0 else 0.0
         return pnl, pnl_pct, (pnl > 0)
 
+    def get_wallet_pnl_pct(
+        self,
+        trader_id: int,
+        days: int = 30,
+        use_cache: bool = True,
+        session: Optional[Session] = None,
+    ) -> Optional[float]:
+        """A trader's REALIZED wallet PnL% over a trailing window, sourced from
+        already-settled per-trade PnL — never a meaningless same-swap spread.
+
+        Computed as return-on-capital against the trader's true cost basis,
+        over is_closed TraderTrade rows in the trailing window:
+
+            cost_basis_usd = SUM(amount_usd) - SUM(pnl_usd)
+            pnl_pct        = SUM(pnl_usd) / cost_basis_usd * 100
+
+        `TraderTrade.amount_usd` is the PROCEEDS of the realized sell (the USD
+        value of the swap's FROM leg), not its cost basis — and since
+        proceeds = cost + pnl, cost = proceeds - pnl. The denominator here is
+        deliberately the derived cost, not proceeds: dividing pnl by proceeds
+        instead is mathematically CAPPED at +100% (as cost -> 0, pnl/proceeds
+        -> 1), so a trader who genuinely 10x'd would show only +90%, and a
+        `min_wallet_pnl_pct=100` filter ("only copy traders who doubled their
+        money") could never be satisfied by anyone. Dividing by cost basis
+        instead has no such ceiling: a 10x (cost 100, proceeds 1000, pnl 900)
+        correctly reads +900%, and doubling (cost 100, proceeds 200, pnl 100)
+        reads exactly +100%.
+
+        Both source columns are filtered row-wise to be non-NULL together
+        (not just coalesced at the aggregate level) so one asymmetric/legacy-
+        NULL row can't silently skew the ratio in either direction. The
+        derived `cost_basis_usd` is separately guarded: if it comes out <= 0
+        (e.g. a data anomaly), this returns None ("insufficient data") rather
+        than dividing by a non-positive number or fabricating a percentage —
+        never a block.
+
+        Returns None ("insufficient data") when there is no realized-close
+        volume in the window — e.g. a brand-new trader, or one who has only
+        bought so far. Callers (the `min_wallet_pnl_pct` follow filter and the
+        leaderboard/stat renderers) MUST treat None as pass-through / unknown,
+        never as 0.0 and never as a below-threshold block.
+
+        Results are cached in-process for `_WALLET_PNL_CACHE_TTL_SECONDS`,
+        keyed by (trader_id, days), so repeated leaderboard renders /
+        notification fan-outs don't re-aggregate trade history every time.
+        """
+        now = time.time()
+        cache_key = (trader_id, days)
+        if use_cache:
+            with _wallet_pnl_cache_lock:
+                cached = _wallet_pnl_cache.get(cache_key)
+                if cached is not None and cached[1] > now:
+                    return cached[0]
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        def _query(s: Session):
+            return (
+                s.query(
+                    func.sum(TraderTrade.pnl_usd),
+                    func.sum(TraderTrade.amount_usd),
+                )
+                .filter(
+                    TraderTrade.trader_id == trader_id,
+                    TraderTrade.is_closed == True,
+                    TraderTrade.created_at >= cutoff,
+                    TraderTrade.pnl_usd.isnot(None),
+                    TraderTrade.amount_usd.isnot(None),
+                )
+                .one()
+            )
+
+        if session is not None:
+            total_realized_pnl_usd, total_realized_proceeds_usd = _query(session)
+        else:
+            with get_session() as new_session:
+                total_realized_pnl_usd, total_realized_proceeds_usd = _query(new_session)
+
+        if total_realized_pnl_usd is None or total_realized_proceeds_usd is None:
+            # No realized closes in the window -> insufficient data, not 0.0.
+            pnl_pct = None
+        else:
+            # proceeds = cost + pnl  =>  cost = proceeds - pnl.
+            cost_basis_usd = float(total_realized_proceeds_usd) - float(total_realized_pnl_usd)
+            if cost_basis_usd <= 0:
+                # Degenerate/anomalous aggregate (e.g. zero or negative
+                # implied cost basis) -- fail to "unknown", never fabricate a
+                # percentage and never treat this as a block.
+                pnl_pct = None
+            else:
+                pnl_pct = float(total_realized_pnl_usd) / cost_basis_usd * 100.0
+
+        if use_cache:
+            with _wallet_pnl_cache_lock:
+                _wallet_pnl_cache_evict_if_full(cache_key)
+                _wallet_pnl_cache[cache_key] = (pnl_pct, now + _WALLET_PNL_CACHE_TTL_SECONDS)
+
+        return pnl_pct
+
+    def _get_wallet_pnl_pct_bulk(
+        self,
+        trader_ids: List[int],
+        days: int = 30,
+        session: Optional[Session] = None,
+    ) -> dict:
+        """Bulk variant of get_wallet_pnl_pct() for rendering a whole page of
+        traders (e.g. the leaderboard) without one aggregate query per row.
+
+        Serves each trader_id from the in-process cache when warm (same
+        (trader_id, days) key as get_wallet_pnl_pct()), and for whatever is
+        left issues ONE grouped query covering all of them instead of one
+        query per trader -- same non-NULL row filters, same cost-basis
+        denominator (SUM(amount_usd) - SUM(pnl_usd)), same None-on-
+        insufficient-data sentinel, same cache population. A trader_id with
+        no matching group in the result set yields None, never 0.0.
+
+        Returns a dict of {trader_id: Optional[float]} covering every id in
+        `trader_ids`.
+        """
+        now = time.time()
+        results: dict = {}
+        missing_ids: List[int] = []
+
+        with _wallet_pnl_cache_lock:
+            for trader_id in trader_ids:
+                cached = _wallet_pnl_cache.get((trader_id, days))
+                if cached is not None and cached[1] > now:
+                    results[trader_id] = cached[0]
+                else:
+                    missing_ids.append(trader_id)
+
+        if not missing_ids:
+            return results
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        def _query(s: Session):
+            return (
+                s.query(
+                    TraderTrade.trader_id,
+                    func.sum(TraderTrade.pnl_usd),
+                    func.sum(TraderTrade.amount_usd),
+                )
+                .filter(
+                    TraderTrade.trader_id.in_(missing_ids),
+                    TraderTrade.is_closed == True,
+                    TraderTrade.created_at >= cutoff,
+                    TraderTrade.pnl_usd.isnot(None),
+                    TraderTrade.amount_usd.isnot(None),
+                )
+                .group_by(TraderTrade.trader_id)
+                .all()
+            )
+
+        if session is not None:
+            rows = _query(session)
+        else:
+            with get_session() as new_session:
+                rows = _query(new_session)
+
+        totals_by_trader = {row[0]: (row[1], row[2]) for row in rows}
+
+        for trader_id in missing_ids:
+            row = totals_by_trader.get(trader_id)
+            if row is None:
+                # No realized closes in the window for this trader -> insufficient
+                # data, not 0.0 (same sentinel as get_wallet_pnl_pct()).
+                pnl_pct = None
+            else:
+                total_realized_pnl_usd, total_realized_proceeds_usd = row
+                if total_realized_pnl_usd is None or total_realized_proceeds_usd is None:
+                    pnl_pct = None
+                else:
+                    # proceeds = cost + pnl  =>  cost = proceeds - pnl.
+                    cost_basis_usd = float(total_realized_proceeds_usd) - float(
+                        total_realized_pnl_usd
+                    )
+                    if cost_basis_usd <= 0:
+                        pnl_pct = None
+                    else:
+                        pnl_pct = float(total_realized_pnl_usd) / cost_basis_usd * 100.0
+
+            results[trader_id] = pnl_pct
+
+            with _wallet_pnl_cache_lock:
+                _wallet_pnl_cache_evict_if_full((trader_id, days))
+                _wallet_pnl_cache[(trader_id, days)] = (
+                    pnl_pct,
+                    now + _WALLET_PNL_CACHE_TTL_SECONDS,
+                )
+
+        return results
+
     async def record_trade(
         self,
         trader_id: int,
@@ -445,6 +696,10 @@ class CopyService:
                 .all()
             )
 
+            # Computed once per trade (not per follower) — reused by the
+            # min_wallet_pnl_pct filter below and cached across calls.
+            wallet_pnl_pct = self.get_wallet_pnl_pct(trader_id, session=session)
+
             for follow in followers:
                 chains_filter = getattr(follow, "chains_filter", None)
                 if chains_filter:
@@ -465,15 +720,41 @@ class CopyService:
                     )
                     continue
 
-                # min_wallet_pnl_pct: requires external all-time PnL data — wired for
-                # future implementation; pass-through for now.
-                # TODO: fetch trader's all-time PnL% from an on-chain analytics provider
-                # and compare against follow.min_wallet_pnl_pct when set.
+                # min_wallet_pnl_pct: only copy/notify if the trader's own recent
+                # REALIZED wallet performance clears the follower's bar. Computed
+                # from settled TraderTrade PnL — see get_wallet_pnl_pct() — no
+                # external analytics provider call.
+                #
+                # wallet_pnl_pct is None when there isn't enough realized-close
+                # data yet (new trader / buys-only so far). That is "unknown",
+                # not "failing" — fail OPEN (pass-through) rather than silently
+                # dropping every copy for a trader we simply can't measure yet.
+                if (
+                    follow.min_wallet_pnl_pct is not None
+                    and wallet_pnl_pct is not None
+                    and wallet_pnl_pct < follow.min_wallet_pnl_pct
+                ):
+                    # A2: this is a paid feature — a follower's copy being
+                    # silently dropped (with only a DEBUG log nobody looks at
+                    # in production) is a support incident waiting to happen.
+                    # logger.info + trader/follower ids + the compared values
+                    # so this is at least diagnosable from normal log level.
+                    logger.info(
+                        "Copy skipped: trader %s wallet PnL %.2f%% below follower %s's "
+                        "min_wallet_pnl_pct threshold %.2f%% (follow_id=%s)",
+                        trader_id,
+                        wallet_pnl_pct,
+                        follow.follower_id,
+                        follow.min_wallet_pnl_pct,
+                        follow.id,
+                    )
+                    continue
 
-                # min_token_age_hours: requires token launch timestamp lookup — wired for
-                # future implementation; pass-through for now.
-                # TODO: fetch token creation time (e.g. from DexScreener / Helius) and
-                # compare swap.to_token age against follow.min_token_age_hours when set.
+                # min_token_age_hours: requires a token launch-timestamp source
+                # (e.g. a DexScreener/Helius pair-creation lookup) that copy-trading
+                # does not have wired up today, and we're deliberately NOT adding a
+                # new external client just for this filter. Deferred — pass-through
+                # (never blocks a copy on unknown data) until that data exists.
 
                 copy_amount = follow.get_copy_amount(amount_usd)
 
@@ -664,10 +945,10 @@ class CopyService:
 
             follow = session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
 
-        # Execute the swap via swap engine
-        from bot.services.swap_engine import SwapEngine
-
-        swap_engine = SwapEngine()
+        # Execute the swap via the shared swap engine (module-level singleton —
+        # see `_copy_swap_engine` above for why this must not be a fresh
+        # instance per call).
+        swap_engine = _copy_swap_engine
 
         try:
             quote = await swap_engine.get_quote(
@@ -726,7 +1007,7 @@ class CopyService:
                     metadata={"amount_usd": float(copy_amount)},
                 )
             except Exception as e:
-                logger.debug(f"copy_trade award skipped for copier {copier_id}: {e}")
+                logger.error(f"copy_trade points award failed for copier {copier_id}: {e}")
 
             try:
                 if trader_id:
@@ -738,7 +1019,7 @@ class CopyService:
                         metadata={"amount_usd": float(copy_amount)},
                     )
             except Exception as e:
-                logger.debug(f"get_copied award skipped for leader {trader_id}: {e}")
+                logger.error(f"get_copied points award failed for leader {trader_id}: {e}")
 
             return True, "Trade copied successfully!", swap_tx.id
 
@@ -927,6 +1208,15 @@ class CopyService:
                 .all()
             )
 
+            # 30d REALIZED wallet PnL% (None = insufficient data, not 0) for
+            # every trader on this page, from settled TraderTrade records —
+            # see get_wallet_pnl_pct(). One grouped query covers every cache
+            # miss instead of one aggregate query per row (was N+1 on a cold
+            # cache). Reuses this open session.
+            pnl_pct_by_trader = self._get_wallet_pnl_pct_bulk(
+                [p.user_id for p, _ in profiles], session=session
+            )
+
             return [
                 {
                     "rank": i + 1,
@@ -939,6 +1229,7 @@ class CopyService:
                     "total_volume": p.total_volume_usd,
                     "follower_count": p.follower_count,
                     "times_copied": p.times_copied,
+                    "pnl_pct": pnl_pct_by_trader.get(p.user_id),
                 }
                 for i, (p, u) in enumerate(profiles)
             ]
@@ -1002,6 +1293,9 @@ class CopyService:
                     "avg_trade_size": profile.avg_trade_size_usd,
                     "best_trade": profile.best_trade_pnl_usd,
                     "worst_trade": profile.worst_trade_pnl_usd,
+                    # 30d REALIZED wallet PnL% (None = insufficient data), from
+                    # settled TraderTrade records (cached).
+                    "pnl_pct": self.get_wallet_pnl_pct(trader_id, session=session),
                 },
                 "social": {
                     "follower_count": profile.follower_count,
@@ -1015,6 +1309,11 @@ class CopyService:
                         "amount": t.amount_usd,
                         "pnl": t.pnl_usd,
                         "date": t.created_at,
+                        # Token launch age: no metadata/dexscreener client with cached
+                        # creation timestamps exists in bot/services/ yet for copy-trading
+                        # — deferred rather than adding a new external API client.
+                        # Render "—" instead of a blank/broken cell until that's wired up.
+                        "token_age": "—",
                     }
                     for t in recent_trades
                 ],
@@ -1049,9 +1348,11 @@ class CopyService:
                 else "🥈" if t["rank"] == 2 else "🥉" if t["rank"] == 3 else f"#{t['rank']}"
             )
             pnl_emoji = "📈" if t["total_pnl"] >= 0 else "📉"
+            pnl_pct_display = format_wallet_pnl_pct(t.get("pnl_pct"))
             msg += (
                 f"{rank_emoji} {t['avatar']} *{t['display_name']}*\n"
-                f"    ✅ {t['win_rate']:.0f}% • {pnl_emoji} ${t['total_pnl']:,.0f} • 👥 {t['follower_count']}\n\n"
+                f"    ✅ {t['win_rate']:.0f}% • {pnl_emoji} ${t['total_pnl']:,.0f} "
+                f"({pnl_pct_display} 30d) • 👥 {t['follower_count']}\n\n"
             )
 
         msg += "_Go public to appear on this list!_"

@@ -24,8 +24,9 @@ from bot.services.orders import order_service
 from bot.services.wallet import WalletService
 from bot.services.swap_engine import SwapEngine
 from bot.config.chains import get_chain_by_name
-from bot.utils.formatters import format_amount
+from bot.utils.formatters import format_amount, format_usd
 from bot.utils.telegram_safe import safe_md, send_md_safe
+from bot.utils.cache import quote_cache
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +83,20 @@ async def _build_positions(user_id: int) -> tuple[str, list[tuple[str, str]]]:
             if float(r.qty or 0) > 1e-9
         ]
 
+    # Batch all held-token prices into ONE get_prices() call instead of a
+    # get_price() call per token inside this loop — each call serialized
+    # behind a 1-req/sec CoinGecko rate limiter, so N held tokens meant N
+    # seconds of pure rate-limit wait before /pos could render. A token that's
+    # missing from the batched response still resolves to None (get_prices
+    # sets it explicitly), so the "skip if no price" behavior below — and
+    # every displayed number — is unchanged.
+    try:
+        prices = await price_service.get_prices([t for t, _, _, _ in held]) if held else {}
+    except Exception:
+        prices = {}
+
     for token, chain, qty, cost in held:
-        try:
-            price = await price_service.get_price(token)
-        except Exception:
-            price = None
+        price = prices.get(token.upper())
         if not price:
             continue
         value = qty * price
@@ -302,8 +312,64 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # Money path: every sell below routes token -> USDC on the SAME chain through
 # swap_engine.get_quote + swap_engine.execute_swap (the guarded path), reusing
 # the exact pattern from quickswap_confirm. No custom transaction is built.
+#
+# Flow is PREVIEW -> CONFIRM, mirroring quickswap.py / swap.py. A single tap on
+# "Sell X%" used to run get_quote() then execute_swap() back-to-back with only
+# progress messages in between — the user never saw the output amount, price
+# impact, fee, or minimum received before their tokens were sold. This is ONE
+# tap from /pos, so it now stops at a preview card with an explicit
+# Confirm/Cancel gate before anything executes.
+#
+# The quote is NOT stashed in context.user_data — PicklePersistence
+# periodically re-serializes user_data, and quote blobs there are a known
+# problem. Instead the quote (plus the exact amount/wallet/user it was
+# fetched for) rides in the existing `quote_cache` (bot/utils/cache.py, TTL
+# matched to the quote's own declared validity) under a short, deterministic
+# key built from the SAME opaque `key` already used for the pos_manage
+# lookup, combined with the pct. Only that key + pct — both already present
+# in the "Sell X%" button's callback_data — ride in the new confirm button's
+# callback_data; no new random id is needed, and the pct is never re-parsed
+# from a string on the confirm leg (see pos_sell_confirm_callback).
 
 _SELL_PCTS = (25, 50, 100)
+
+# Namespaced so this can never collide with swap.py's own quote_cache keys
+# ("quote:...", "prewarm:...").
+_POS_SELL_CACHE_PREFIX = "possell_quote:"
+
+
+def _pos_sell_cache_key(key: str, pct: int) -> str:
+    return f"{_POS_SELL_CACHE_PREFIX}{key}:{pct}"
+
+
+# Upper bound on the confirm window. Must stay under the 30s freshness limit
+# execute_swap enforces via quote_validator, since this TTL starts after the
+# quote's own timestamp.
+_POS_SELL_MAX_QUOTE_TTL = 25
+
+# How long a consumed entry is remembered so a duplicate tap is recognised as
+# "already submitted" rather than "expired". Comfortably longer than a swap
+# takes to broadcast.
+_POS_SELL_TOMBSTONE_TTL = 180
+
+
+def _to_human_min_out(quote) -> float | None:
+    """Convert the quote's enforced minimum output into human units.
+
+    ``to_amount_min`` and ``to_amount`` are both raw base-unit strings for the
+    SAME token, so scaling by their ratio avoids needing the token's decimals
+    and can't disagree with how the provider computed the minimum. Returns
+    None if the provider gave us nothing usable — never raises, because a
+    display helper must not be able to block a sell.
+    """
+    try:
+        raw_min = int(quote.to_amount_min)
+        raw_out = int(quote.to_amount)
+        if raw_min <= 0 or raw_out <= 0:
+            return None
+        return quote.to_amount_human * (raw_min / raw_out)
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _resolve_chain_type(chain: str) -> str | None:
@@ -342,7 +408,9 @@ async def pos_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Execute a token -> USDC sell for the chosen % via the guarded swap path."""
+    """Entry point for 'Sell X%' — parses the selection then renders a
+    preview card. No execution happens here (see pos_sell_confirm_callback).
+    """
     query = update.callback_query
     await query.answer()
 
@@ -360,6 +428,28 @@ async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.answer("Session expired — reopen Positions.", show_alert=True)
         return
     token, chain = pair
+
+    await _render_pos_sell_preview(update, context, key=key, token=token, chain=chain, pct=pct)
+
+
+async def _render_pos_sell_preview(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    key: str,
+    token: str,
+    chain: str,
+    pct: int,
+) -> None:
+    """Fetch balance + quote for a token -> USDC sell and render a preview
+    card with an explicit Confirm/Cancel gate. Caches the quote — plus the
+    exact amount/wallet/user it was fetched for — so confirm executes against
+    the SAME numbers the user saw, never a re-derived guess.
+
+    Called both from the initial "Sell X%" tap and from the confirm handler
+    when the cached quote has expired (re-quote-and-re-preview path).
+    """
+    query = update.callback_query
 
     if token.upper() == "USDC":
         await query.answer("Already USDC — nothing to sell.", show_alert=True)
@@ -418,6 +508,10 @@ async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             to_token="USDC",
             amount=amount,
             from_address=wallet.address,
+            # Without user_id the engine can't look up the caller's tier and
+            # falls back to the default fee — so a PRO/PREMIUM user selling
+            # from /pos was quoted (and charged) the flat rate.
+            user_id=user_id,
         )
     except Exception as e:
         logger.error(f"pos_sell quote failed: {e}", exc_info=True)
@@ -428,22 +522,183 @@ async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await send_md_safe(update, f"❌ No route found to sell {safe_md(token)} into USDC.")
         return
 
+    # Cache the quote (+ everything execution needs) under a deterministic key
+    # so confirm can look it up from just `key` + `pct` — both already carried
+    # in the button's callback_data, so no extra random id is needed.
+    #
+    # The TTL must stay STRICTLY INSIDE what execute_swap will accept:
+    # quote_validator.validate_quote_freshness rejects a quote older than 30s
+    # measured from quote.timestamp, and this cache TTL starts later than that
+    # timestamp. A window wider than the validator's just guarantees a
+    # confirm that gets rejected downstream, so cap well under 30s.
+    ttl = max(10, min(int(getattr(quote, "expires_in", 25) or 25), _POS_SELL_MAX_QUOTE_TTL))
+    attempt_id = secrets.token_urlsafe(16)
+    await quote_cache.set(
+        _pos_sell_cache_key(key, pct),
+        {
+            "token": token,
+            "chain": chain,
+            "pct": pct,
+            "amount": amount,
+            "quote": quote,
+            "wallet_id": wallet.id,
+            "user_id": user_id,
+            "attempt_id": attempt_id,
+        },
+        ttl=ttl,
+    )
+
+    rate = (
+        quote.exchange_rate
+        if quote.exchange_rate
+        else (quote.to_amount_human / amount if amount > 0 else 0)
+    )
+    # Same fallback swap.py's confirm screen uses — pos_sell never overrides
+    # slippage on get_quote(), so this is the actual 0.5% default in effect,
+    # not an invented number.
+    slippage_pct = quote.raw_quote.get("slippage") or 0.5
+    # Prefer the quote's OWN to_amount_min — that is the minimum the on-chain
+    # transaction actually enforces, and providers derive it differently per
+    # route. Recomputing it from the displayed slippage would put a number on
+    # a "Minimum Received" line that the chain will not honour. Fall back to
+    # the derived value only when the provider didn't supply one.
+    min_received = _to_human_min_out(quote)
+    if min_received is None:
+        min_received = quote.to_amount_human * (1 - slippage_pct / 100)
+
+    text = (
+        f"💱 *Confirm Sell*\n\n"
+        f"📤 *From:* {format_amount(amount, symbol=token)} ({safe_md(chain)})\n"
+        f"📥 *To:* ~{format_amount(quote.to_amount_human, symbol='USDC')} ({safe_md(chain)})\n\n"
+        f"💱 *Rate:* 1 {safe_md(token)} ≈ {rate:.6f} USDC\n"
+        f"📊 *Price Impact:* {quote.price_impact:.2f}%\n"
+        f"🛡️ *Minimum Received:* ~{format_amount(min_received, symbol='USDC')}\n"
+        f"📉 *Max Slippage:* {slippage_pct}%\n"
+        f"⛽ *Gas:* {format_usd(quote.gas_cost_usd)}\n"
+    )
+    if quote.fee_cost_usd and quote.fee_cost_usd > 0:
+        text += f"🌉 *Bridge/Provider Fee:* {format_usd(quote.fee_cost_usd)}\n"
+    text += (
+        f"\n💵 *Total Fees:* {format_usd(quote.total_cost_usd)}\n\n"
+        f"⚠️ Review carefully — this executes an on-chain sell and cannot be undone."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Confirm Sell", callback_data=f"possx_{key}_{pct}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="positions_refresh"),
+            ],
+        ]
+    )
+    await send_md_safe(update, text, keyboard)
+
+
+async def pos_sell_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Execute a previously-previewed token -> USDC sell via the guarded swap
+    path. Only reachable from the Confirm button rendered by
+    `_render_pos_sell_preview`.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    raw = query.data[len("possx_") :]
+    key, _, pct_str = raw.rpartition("_")
+    try:
+        pct = int(pct_str)
+    except (TypeError, ValueError):
+        await query.answer("Invalid selection.", show_alert=True)
+        return
+
+    ctx_map = context.user_data.get("pos_manage") or {}
+    pair = ctx_map.get(key)
+    if not pair:
+        await query.answer("Session expired — reopen Positions.", show_alert=True)
+        return
+    token, chain = pair
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await send_md_safe(update, "❌ Please use /start first.")
+            return
+        user_id = db_user.id
+
+    cache_key = _pos_sell_cache_key(key, pct)
+    blob = await quote_cache.get(cache_key)
+
+    # A consumed entry leaves a TOMBSTONE rather than vanishing, because
+    # "already submitted" and "quote expired" are otherwise indistinguishable
+    # — and re-previewing an already-submitted sell is how a double-tap turns
+    # into a SECOND on-chain sell: tap 1 consumes and starts a multi-second
+    # execute_swap, tap 2 misses, re-quotes off the not-yet-settled balance,
+    # and offers a fresh Confirm button with a NEW attempt_id (so the
+    # idempotency key differs and does not stop it).
+    if blob and blob.get("consumed"):
+        await query.answer("Already submitted — check 📜 History.", show_alert=True)
+        return
+
+    # Missing/expired entry, or a mismatched user (defense in depth — the key
+    # is only ever handed to the user who generated it): never execute against
+    # stale or unverified numbers. Re-quote and re-preview so the user
+    # re-confirms fresh numbers rather than seeing a dead end.
+    if not blob or blob.get("user_id") != user_id:
+        await send_md_safe(update, "⏳ Quote expired — refreshing with a new one...")
+        await _render_pos_sell_preview(update, context, key=key, token=token, chain=chain, pct=pct)
+        return
+
+    # Claim-and-consume. There is no await between the get() above and this
+    # write, so two concurrent confirms cannot both observe the live blob.
+    await quote_cache.set(cache_key, {"consumed": True}, ttl=_POS_SELL_TOMBSTONE_TTL)
+
+    quote = blob["quote"]
+    amount = blob["amount"]
+    wallet_id = blob["wallet_id"]
+    attempt_id = blob["attempt_id"]
+
     await send_md_safe(
         update,
         f"⏳ Selling {pct}% = *{format_amount(amount, symbol=token)}* → USDC...",
     )
 
-    attempt_id = secrets.token_urlsafe(16)
     try:
         swap_tx = await swap_engine.execute_swap(
             quote=quote,
-            wallet_id=wallet.id,
+            wallet_id=wallet_id,
             user_id=user_id,
-            idempotency_key=f"tg_possell:{user_id}:{wallet.id}:{attempt_id}",
+            idempotency_key=f"tg_possell:{user_id}:{wallet_id}:{attempt_id}",
         )
     except Exception as e:
         logger.error(f"pos_sell execute failed: {e}", exc_info=True)
-        await send_md_safe(update, "❌ An unexpected error occurred. Please try again.")
+        # A quote that went stale between preview and confirm is expected, not
+        # exceptional — the engine re-checks freshness independently of our
+        # cache TTL. Route it back to a fresh preview instead of a dead-end
+        # error, since we already consumed the tombstone and the user would
+        # otherwise have no way forward.
+        if "expired" in str(e).lower():
+            await quote_cache.delete(cache_key)
+            await send_md_safe(update, "⏳ Quote expired — refreshing with a new one...")
+            await _render_pos_sell_preview(
+                update, context, key=key, token=token, chain=chain, pct=pct
+            )
+            return
+        # The tombstone is deliberately left in place: the transaction may have
+        # been broadcast before the error, so re-tapping THIS button must not
+        # fire a second sell. Reopening Positions mints a fresh key (and so a
+        # fresh cache entry), which is the safe way to retry — point there
+        # rather than saying "try again" about a button that is now inert.
+        await send_md_safe(
+            update,
+            "❌ The sell could not be completed. Check 📜 History to confirm "
+            "nothing went through, then reopen Positions to try again.",
+            InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("📜 History", callback_data="history")],
+                    [InlineKeyboardButton("« Positions", callback_data="positions_refresh")],
+                ]
+            ),
+        )
         return
 
     keyboard = InlineKeyboardMarkup(
@@ -479,3 +734,6 @@ positions_refresh_callback_handler = CallbackQueryHandler(
 )
 pos_manage_callback_handler = CallbackQueryHandler(pos_manage_callback, pattern="^pos_manage_")
 pos_sell_callback_handler = CallbackQueryHandler(pos_sell_callback, pattern="^pos_sell_")
+pos_sell_confirm_callback_handler = CallbackQueryHandler(
+    pos_sell_confirm_callback, pattern="^possx_"
+)

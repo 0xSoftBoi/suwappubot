@@ -27,6 +27,7 @@ from typing import Dict, List, Optional
 
 from bot.config.settings import settings
 from bot.models.perps import HyperLiquidAccount
+from bot.utils.safe_send import safe_send
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -88,13 +89,17 @@ class HLWebSocketAlerts:
         Mirrors HLEcosystemMonitor's ``HyperLiquidAccount(is_active=True)``
         discovery; an address is only tracked if it's non-empty.
         """
+        from bot.models.user import User
+
         mapping: Dict[str, int] = {}
         try:
             with get_session() as session:
                 rows = (
                     session.query(HyperLiquidAccount.user_id, HyperLiquidAccount.hl_address)
+                    .join(User, User.id == HyperLiquidAccount.user_id)
                     .filter(HyperLiquidAccount.is_active.is_(True))
                     .filter(HyperLiquidAccount.hl_address.isnot(None))
+                    .filter(User.bot_blocked_at.is_(None))
                     .all()
                 )
             for user_id, addr in rows:
@@ -224,7 +229,7 @@ class HLWebSocketAlerts:
         for fill in fills:
             text = self._format_fill(fill)
             if text:
-                await self._notify_user(user_id, text)
+                await self._notify_user(user_id, text, category="proactive_alert")
 
     async def _on_user_events(self, data):
         if not getattr(settings, "hl_ws_alerts_enabled", False):
@@ -241,14 +246,14 @@ class HLWebSocketAlerts:
         ):
             text = self._format_liquidation(liq)
             if text:
-                await self._notify_user(user_id, text)
+                await self._notify_user(user_id, text, category="risk_event")
         fundings = data.get("funding")
         if isinstance(fundings, dict):
             fundings = [fundings]
         for fnd in fundings or []:
             text = self._format_funding(fnd)
             if text:
-                await self._notify_user(user_id, text)
+                await self._notify_user(user_id, text, category="proactive_alert")
 
     async def _on_trades(self, data):
         if not getattr(settings, "hl_whale_alerts_enabled", False):
@@ -260,7 +265,7 @@ class HLWebSocketAlerts:
         for trade in trades:
             text = self._format_whale(trade, threshold)
             if text:
-                await self._notify_channel(text)
+                await self._notify_channel(text, category="proactive_alert")
 
     # ------------------------------------------------------------------ #
     # Formatters (pure functions of the payload)
@@ -340,7 +345,7 @@ class HLWebSocketAlerts:
     # ------------------------------------------------------------------ #
     # Delivery
     # ------------------------------------------------------------------ #
-    async def _notify_user(self, user_id: int, message: str):
+    async def _notify_user(self, user_id: int, message: str, category: Optional[str] = None):
         if not self._bot:
             return
         try:
@@ -350,18 +355,18 @@ class HLWebSocketAlerts:
                 user = session.query(User).get(user_id)
                 telegram_id = user.telegram_id if user else None
             if telegram_id:
-                await self._bot.send_message(
-                    chat_id=telegram_id, text=message, parse_mode="Markdown"
+                await safe_send(
+                    self._bot, telegram_id, message, category=category, parse_mode="Markdown"
                 )
         except Exception as e:
             logger.error(f"HL WS alerts: failed to notify user {user_id}: {e}")
 
-    async def _notify_channel(self, message: str):
+    async def _notify_channel(self, message: str, category: Optional[str] = None):
         """Whale alerts go to every active HL user (broadcast-style market signal)."""
         if not self._bot:
             return
         for user_id in set(self._addr_to_user.values()):
-            await self._notify_user(user_id, message)
+            await self._notify_user(user_id, message, category=category)
 
 
 # Global instance (mirrors hl_ecosystem_monitor).

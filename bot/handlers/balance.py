@@ -13,12 +13,10 @@ from bot.utils.templates import (
     LOADING_BALANCE,
     START_FIRST,
     NO_WALLETS,
-    BALANCE_KEYBOARD,
     WALLET_ADD_KEYBOARD,
 )
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
-
 
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
@@ -74,10 +72,26 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Build per-wallet display with full addresses
         text = _format_wallet_balances(wallet_infos, balance_results)
 
+        # Built locally (rather than the static BALANCE_KEYBOARD template) so a
+        # zero-balance new user always has a way out of the "Insufficient
+        # funds" dead end — routes into the existing wallet QR deposit flow
+        # via wallet_menu (registered: bot/main.py CallbackQueryHandler(
+        # wallet_menu_callback, pattern="^wallet_menu$")).
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔄 Refresh", callback_data="balance"),
+                    InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
+                ],
+                [InlineKeyboardButton("📥 Deposit", callback_data="wallet_menu")],
+                [InlineKeyboardButton("« Back", callback_data="main_menu")],
+            ]
+        )
+
         await loading_msg.edit_text(
             text,
             parse_mode="Markdown",
-            reply_markup=BALANCE_KEYBOARD,
+            reply_markup=keyboard,
         )
 
     except Exception as e:
@@ -160,6 +174,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("🔄 Refresh", callback_data="balance"),
                 InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
             ],
+            [InlineKeyboardButton("📥 Deposit", callback_data="wallet_menu")],
             [InlineKeyboardButton("« Back", callback_data="main_menu")],
         ]
 

@@ -335,14 +335,14 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
-        # Unique index to enforce idempotency (NULLs allowed)
-        with db_engine.begin() as conn:
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
-                    "ON swap_transactions(idempotency_key)"
-                )
-            )
+        # Unique index to enforce idempotency (NULLs allowed). Delegated to a
+        # dedicated helper (see `_add_swap_idempotency_key_unique_index`) that
+        # checks for pre-existing duplicate non-NULL keys FIRST and skips
+        # (with a loud warning) instead of letting a duplicate-key violation
+        # raise here and abort the entire `_ensure_schema()` / `init_db()`
+        # call — a bare `CREATE UNIQUE INDEX` would otherwise take the whole
+        # boot path down with it.
+        _add_swap_idempotency_key_unique_index(db_engine, inspector, is_sqlite)
 
     # --- custodial_transactions idempotency (withdraw replay protection) ---
     if "custodial_transactions" in tables:
@@ -543,6 +543,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
+    _add_user_bot_blocked_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
@@ -651,6 +652,10 @@ def _ensure_schema(db_engine) -> None:
 
     # --- On-chain fee-cashback rewards (weekly Merkle epochs) ---
     _create_onchain_rewards_tables(db_engine, inspector, is_sqlite)
+
+    # --- perp_positions: TP/SL notification-dedup timestamps ---
+    if "perp_positions" in tables:
+        _add_perps_notify_columns(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -887,6 +892,22 @@ def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Added users.region")
     except Exception as e:
         logger.warning(f"Failed to add users.region: {e}")
+
+
+def _add_user_bot_blocked_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.bot_blocked_at so background senders can skip blocked chats."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "bot_blocked_at" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN bot_blocked_at TIMESTAMP"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.bot_blocked_at")
+    except Exception as e:
+        logger.warning(f"Failed to add users.bot_blocked_at: {e}")
 
 
 def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1602,6 +1623,67 @@ def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> No
             conn.execute(text(ddl))
 
 
+def _add_swap_idempotency_key_unique_index(db_engine, inspector, is_sqlite: bool) -> None:
+    """Enforce uniqueness on swap_transactions.idempotency_key, defensively.
+
+    `swap_engine.execute_swap()` guards against double-execution by SELECTing
+    on `idempotency_key` before writing — a read two concurrent requests can
+    both pass before either writes. Only a DB-level UNIQUE index actually
+    closes that race.
+
+    NULLs never violate a unique index in either Postgres or SQLite (NULL is
+    never considered equal to NULL for uniqueness purposes), so legacy rows
+    with no idempotency_key are always safe. Real DUPLICATE non-NULL values
+    are the risk: a plain `CREATE UNIQUE INDEX` raises on those, and since
+    this runs from `_ensure_schema()` inside `init_db()`'s try block, an
+    unhandled exception here would abort the ENTIRE db init — not just this
+    one migration — and could block boot. So: detect duplicates FIRST, and if
+    any exist, log a clear warning and skip creating the index (leaving the
+    existing non-unique index as the only guard for those specific keys)
+    rather than risk boot. Idempotent: a no-op once the index exists, and
+    re-checks duplicates fresh on every call in case they get cleaned up
+    later. Wrapped end-to-end so a failure here can never block boot.
+    """
+    try:
+        existing_indexes = {ix["name"] for ix in inspector.get_indexes("swap_transactions")}
+        if "ux_swap_transactions_idempotency_key" in existing_indexes:
+            return  # already enforced
+
+        with db_engine.begin() as conn:
+            dupes = conn.execute(
+                text(
+                    "SELECT idempotency_key, COUNT(*) AS cnt FROM swap_transactions "
+                    "WHERE idempotency_key IS NOT NULL "
+                    "GROUP BY idempotency_key HAVING COUNT(*) > 1"
+                )
+            ).fetchall()
+
+        if dupes:
+            sample = ", ".join(f"{row[0]!r} x{row[1]}" for row in dupes[:5])
+            logger.warning(
+                "swap_transactions.idempotency_key has %d duplicate non-NULL value(s) "
+                "(sample: %s) — SKIPPING unique index creation to avoid aborting boot. "
+                "Idempotency for these specific keys is currently enforced only at the "
+                "application read-then-write layer in swap_engine.execute_swap(), which "
+                "is NOT race-safe. Clean up the duplicate rows, then this migration will "
+                "create the index automatically on the next boot.",
+                len(dupes),
+                sample,
+            )
+            return
+
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                    "ON swap_transactions(idempotency_key)"
+                )
+            )
+        logger.info("✓ swap_transactions.idempotency_key unique index enforced")
+    except Exception as e:
+        logger.warning(f"Failed to enforce swap_transactions.idempotency_key uniqueness: {e}")
+
+
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:
     """Add MEV protection toggle to user_settings table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("user_settings")}
@@ -1725,6 +1807,26 @@ def _add_prediction_redeem_columns(db_engine, inspector, is_sqlite: bool) -> Non
                     f"ALTER TABLE prediction_positions ADD COLUMN IF NOT EXISTS "
                     f"{col_name} {col_type} DEFAULT {default}"
                 )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_perps_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add TP/SL notification-dedup timestamps to perp_positions, idempotently.
+
+    Without these, the perps monitor's TP/SL trigger check re-fired the Telegram
+    DM on every 10s poll once mark price crossed the trigger price (unbounded
+    DMs until the user closed the position or blocked the bot). NULL means "not
+    yet notified"; the monitor sets it once the alert fires and clears it when
+    the position closes so a future position can alert again.
+    """
+    cols = {c["name"] for c in inspector.get_columns("perp_positions")}
+    for col_name in ("tp_notified_at", "sl_notified_at"):
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE perp_positions ADD COLUMN {col_name} TIMESTAMP"
+            else:
+                ddl = f"ALTER TABLE perp_positions ADD COLUMN IF NOT EXISTS {col_name} TIMESTAMP"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 

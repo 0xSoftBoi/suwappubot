@@ -72,14 +72,54 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
-from bot.main import add_handlers
+from bot.main import add_handlers, ALLOWED_UPDATES
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Tracks optional/non-critical services that failed to start (or, for
+# periodic tasks, most recently failed) so /health can surface them without
+# flipping the process unhealthy — these are deliberately non-fatal to
+# startup, but a failure should never be invisible. name -> short error
+# summary. Cleared on a subsequent success so a self-healing periodic task
+# (e.g. auth-challenge cleanup) doesn't stay flagged forever.
+DEGRADED_SERVICES: dict[str, str] = {}
+
+
+def _mark_degraded(name: str, error: BaseException) -> None:
+    DEGRADED_SERVICES[name] = str(error)[:300]
+
+
+def _clear_degraded(name: str) -> None:
+    DEGRADED_SERVICES.pop(name, None)
+
+
+@contextmanager
+def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
+    """Run one optional startup step, never letting its failure block startup.
+
+    Collapses the try/except/`_mark_degraded`/`_clear_degraded` skeleton that
+    was previously hand-rolled at each optional-service call site (p2p_escrow,
+    discord_alerts, auth_challenge_cleanup, event_bus, internal_api_client,
+    whatsapp_queue) into one reusable wrapper. On a clean exit,
+    `_clear_degraded(name)` runs automatically unless `auto_clear=False` — the
+    event_bus site needs that escape hatch because "connected" and "ran
+    without error but stayed disconnected" are both non-exceptional outcomes
+    that should NOT both clear the degraded flag, so it clears explicitly
+    inside its own body instead.
+    """
+    try:
+        yield
+        if auto_clear:
+            _clear_degraded(name)
+    except Exception as e:  # noqa: BLE001 — deliberately broad: never block startup
+        logger.warning(f"{log_prefix}: {e}")
+        _mark_degraded(name, e)
+
 
 # --- Lifespan Manager ---
 
@@ -143,19 +183,24 @@ async def lifespan(app: FastAPI):
         persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
         persistence = PicklePersistence(filepath=persistence_path)
         _bot_builder = (
-            Application.builder().token(settings.telegram_bot_token).persistence(persistence)
+            Application.builder()
+            .token(settings.telegram_bot_token)
+            .persistence(persistence)
+            # Transport tuning applies unconditionally — see bot/main.py for the
+            # rationale. Previously these sat inside the concurrency branch, so
+            # the default config ran with no rate limiter and no 429 handling.
+            .rate_limiter(AIORateLimiter(max_retries=3))
+            .connection_pool_size(512)
+            .pool_timeout(10.0)
+            .read_timeout(15.0)
+            .write_timeout(15.0)
+            .media_write_timeout(60.0)
         )
         if settings.bot_concurrent_updates > 0:
             from bot.utils.update_processor import PerUserSerializingProcessor
 
-            _bot_builder = (
-                _bot_builder.concurrent_updates(
-                    PerUserSerializingProcessor(
-                        max_concurrent_updates=settings.bot_concurrent_updates
-                    )
-                )
-                .connection_pool_size(512)
-                .rate_limiter(AIORateLimiter(max_retries=3))
+            _bot_builder = _bot_builder.concurrent_updates(
+                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
             )
         bot_app = _bot_builder.build()
         add_handlers(bot_app)
@@ -186,9 +231,12 @@ async def lifespan(app: FastAPI):
                     await bot_app.bot.set_webhook(
                         url=settings.webhook_url,
                         secret_token=webhook_secret,
-                        allowed_updates=Update.ALL_TYPES,
+                        allowed_updates=ALLOWED_UPDATES,
                         drop_pending_updates=True,
-                        max_connections=40,
+                        # Telegram allows up to 100 concurrent webhook
+                        # deliveries; 40 was capping ingress parallelism at
+                        # under half of what the API grants for free.
+                        max_connections=100,
                     )
                     using_webhook = True
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
@@ -225,7 +273,7 @@ async def lifespan(app: FastAPI):
                         # drop_pending_updates=True helps avoid conflicts during redeploys
                         polling_task = asyncio.create_task(
                             bot_app.updater.start_polling(
-                                allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
+                                allowed_updates=ALLOWED_UPDATES, drop_pending_updates=True
                             )
                         )
             else:
@@ -291,12 +339,10 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         # Wire the native P2P escrow executor to the on-chain USDC settlement path.
         if getattr(settings, "p2p_enabled", True):
-            try:
+            with _track_degraded("p2p_escrow", "P2P escrow wiring skipped"):
                 from bot.services.p2p_escrow_executor import wire_p2p_escrow
 
                 wire_p2p_escrow()
-            except Exception as e:  # noqa: BLE001 — never block startup on P2P
-                logger.warning("P2P escrow wiring skipped: %s", e)
         # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
         await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -318,13 +364,11 @@ async def lifespan(app: FastAPI):
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
-            try:
+            with _track_degraded("discord_alerts", "⚠️ Discord alerts failed to start"):
                 from bot.services.discord_alerts import discord_alert_service
 
                 await discord_alert_service.start(discord_bot)
                 logger.info("✓ Discord alert service started")
-            except Exception as e:
-                logger.warning(f"⚠️ Discord alerts failed to start: {e}")
 
         logger.info("✓ All background services running")
     else:
@@ -336,36 +380,29 @@ async def lifespan(app: FastAPI):
 
         while True:
             await asyncio.sleep(300)  # every 5 minutes
-            try:
+            with _track_degraded("auth_challenge_cleanup", "Auth challenge cleanup error"):
                 removed = cleanup_expired_challenges()
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
-            except Exception as e:
-                logger.warning(f"Auth challenge cleanup error: {e}")
 
     auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
 
     # 6. Start cross-service integrations
-    try:
+    with _track_degraded("event_bus", "⚠️ Event bus failed to connect", auto_clear=False):
         await event_bus.connect()
         if event_bus.connected:
             logger.info("✓ Event bus connected (Redis pub/sub)")
+            _clear_degraded("event_bus")
         else:
             logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
-    except Exception as e:
-        logger.warning(f"⚠️ Event bus failed to connect: {e}")
 
-    try:
+    with _track_degraded("internal_api_client", "⚠️ Internal API client failed to init"):
         await api_client.init()
         logger.info("✓ Internal API client initialized")
-    except Exception as e:
-        logger.warning(f"⚠️ Internal API client failed to init: {e}")
 
     # Start the per-user WhatsApp message queue (ordered processing).
-    try:
+    with _track_degraded("whatsapp_queue", "⚠️ WhatsApp message queue failed to start"):
         await _wa_queue.start()
-    except Exception as e:
-        logger.warning(f"⚠️ WhatsApp message queue failed to start: {e}")
 
     yield
 
@@ -960,6 +997,12 @@ async def health_ready():
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
             },
+            # Optional non-critical services that failed to start (or, for
+            # periodic tasks, most recently failed) — never affects
+            # ready/status_code, purely visibility. Empty when all healthy.
+            "degraded": [
+                {"service": name, "error": err} for name, err in DEGRADED_SERVICES.items()
+            ],
         },
     )
 

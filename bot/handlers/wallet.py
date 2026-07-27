@@ -16,6 +16,8 @@ from bot.utils.validators import validate_private_key
 from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from bot.utils.telegram_safe import safe_md
+from bot.utils.templates import copy_button
+from bot.services.error_guidance import user_facing_error
 from bot.i18n import get_text, get_user_lang
 from database.db import get_session
 import logging
@@ -320,8 +322,8 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
                     w.is_default = True
                     session.flush()
     except Exception as e:
-        logger.error(f"Wallet creation failed: {e}")
-        await query.edit_message_text(f"❌ Wallet creation failed: {e}")
+        logger.error(f"Wallet creation failed: {e}", exc_info=True)
+        await query.edit_message_text(user_facing_error(e, prefix="❌ Wallet creation failed: "))
         return
 
     # Show wallet created WITHOUT the private key in chat
@@ -406,14 +408,17 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         qr_bytes = generate_wallet_qr(address, chain=chain)
     except Exception:
         # Fallback without QR
+        fallback_rows = []
+        copy_btn = copy_button("📋 Copy Address", address)
+        if copy_btn:
+            fallback_rows.append([copy_btn])
+        fallback_rows.append([InlineKeyboardButton("« Back", callback_data="wallet_menu")])
         await query.edit_message_text(
             f"{chain_emoji} *{safe_md(wallet_name)}*\n\n"
             f"Address:\n`{address}`\n\n"
             f"Tap address to copy.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="wallet_menu")]]
-            ),
+            reply_markup=InlineKeyboardMarkup(fallback_rows),
         )
         return
 
@@ -429,10 +434,16 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"• Tap address above to copy"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("👛 Back to Wallets", callback_data="wallet_menu")],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
-    ]
+    keyboard = []
+    copy_btn = copy_button("📋 Copy Address", address)
+    if copy_btn:
+        keyboard.append([copy_btn])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("👛 Back to Wallets", callback_data="wallet_menu")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ]
+    )
 
     await context.bot.send_photo(
         chat_id=query.message.chat_id,
@@ -507,8 +518,20 @@ async def wallet_import_key(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             address = wallet_service.import_solana_wallet(private_key)
     except Exception as e:
+        # Never interpolate the raw private_key into logs or chat. All our own
+        # rejections are a curated ValueError ("Invalid {CHAIN} private key");
+        # log only the exception TYPE for anything unexpected from the
+        # underlying key-derivation libraries (Account.from_key / Keypair /
+        # TronPrivateKey), matching the tempo_keychain grant/revoke precedent.
+        logger.error(
+            "Wallet import failed (chain_type=%s): %s",
+            chain_type,
+            type(e).__name__,
+            exc_info=True,
+        )
         await update.message.reply_text(
-            f"❌ Error importing wallet: {str(e)}\n\nPlease try again or /cancel.",
+            user_facing_error(e, prefix="❌ Error importing wallet: ")
+            + "\n\nPlease try again or /cancel.",
         )
         return WALLET_KEY
 
@@ -659,4 +682,8 @@ wallet_import_handler = ConversationHandler(
 )
 
 # Create handlers
-wallet_handler = CommandHandler("w", wallet_command)
+# Aliases: CommandHandler accepts a list of command names (verified against the
+# installed python-telegram-bot 22.5). Without "wallet" registered, the 12
+# user-facing error messages that tell users to run /wallet as the recovery
+# step (fund.py, predict.py, snipe.py, import_handler.py, swap.py) were dead ends.
+wallet_handler = CommandHandler(["w", "wallet"], wallet_command)

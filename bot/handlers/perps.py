@@ -106,11 +106,7 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("\U0001f519 Back", callback_data="main_menu")],
     ]
 
-    await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
-    )
+    await _send_perps(update, text, keyboard)
     return PERPS_MENU
 
 
@@ -121,13 +117,16 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = query.data
 
     if data == "perps_setup":
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="perps_back")]]
         await query.edit_message_text(
             "\U0001f511 **HyperLiquid Account Setup**\n\n"
             "To connect your HyperLiquid account:\n"
             "1. Go to app.hyperliquid.xyz\n"
             "2. Create an API key\n"
             "3. Send your API key below\n\n"
-            "Your credentials are encrypted and stored securely.",
+            "Your credentials are encrypted and stored securely.\n"
+            "⚠️ Delete your message after sending it — it contains a credential.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
         return PERPS_SETUP_KEY
@@ -672,6 +671,41 @@ async def perps_tpsl_input_handler(update: Update, context: ContextTypes.DEFAULT
     return PERPS_TPSL_INPUT
 
 
+async def perps_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """End the perps conversation — /cancel command or the '« Back to Main' button.
+
+    Previously the "^main_menu$" fallback routed into perps_menu_callback, which
+    has no main_menu branch: it fell through to `return PERPS_MENU` without
+    editing the message, so the button looked dead — and since this conversation
+    is registered before the real main_menu handler in main.py, it hijacked the
+    "Back to Main" button for EVERY user with an open perps conversation, no
+    matter which flow they tapped it from. Ending here and delegating to the
+    real main_menu_callback (same pattern as borrow_cancel/btc_cancel) lets the
+    user actually reach home.
+    """
+    context.user_data.pop("perps_side", None)
+    context.user_data.pop("perps_market", None)
+    context.user_data.pop("perps_amount", None)
+    context.user_data.pop("perps_leverage", None)
+    context.user_data.pop("perps_tpsl_position_id", None)
+    context.user_data.pop("perps_tpsl_step", None)
+    context.user_data.pop("perps_tpsl_tp", None)
+    context.user_data.pop("hl_api_key", None)
+
+    if update.callback_query:
+        from bot.handlers.start import main_menu_callback
+
+        # Deliberately NOT answering the query here: main_menu_callback answers
+        # it itself, and Telegram rejects a second answerCallbackQuery for the
+        # same id with BadRequest — which would surface as an error message and
+        # abort the render, leaving the user stuck on the screen they tried to
+        # leave. Landing on home is its own confirmation; no toast needed.
+        await main_menu_callback(update, context)
+    else:
+        await update.message.reply_text("Cancelled.")
+    return ConversationHandler.END
+
+
 # Conversation handler
 perps_conversation_handler = ConversationHandler(
     name="perps",
@@ -708,6 +742,9 @@ perps_conversation_handler = ConversationHandler(
             CallbackQueryHandler(perps_menu_callback, pattern="^perps_back$"),
         ],
         PERPS_SETUP_KEY: [
+            # "❌ Cancel" button on the setup prompt — back to the perps menu
+            # instead of silently swallowing every subsequent text message.
+            CallbackQueryHandler(perps_menu_callback, pattern="^perps_back$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, perps_setup_key),
         ],
         PERPS_SETUP_SECRET: [
@@ -716,7 +753,8 @@ perps_conversation_handler = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("perps", perps_command),
-        CallbackQueryHandler(perps_menu_callback, pattern="^main_menu$"),
+        CommandHandler("cancel", perps_cancel),
+        CallbackQueryHandler(perps_cancel, pattern="^main_menu$"),
     ],
 )
 

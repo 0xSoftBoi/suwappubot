@@ -394,9 +394,19 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # REFUNDS while the marketplace is disabled (points never lost). gift_card now
     # routes here instead of the old hard reject.
     if reward_category in ASYNC_CATEGORIES:
-        success, message, order_id = points_service.redeem_marketplace_reward(
-            user_id=user_id, reward_id=reward_id
-        )
+        try:
+            success, message, order_id = points_service.redeem_marketplace_reward(
+                user_id=user_id, reward_id=reward_id
+            )
+        except NotImplementedError as e:
+            # Defense-in-depth: redeem_marketplace_reward already treats a provider
+            # crash (base RewardProvider.fulfill() raises NotImplementedError for
+            # any category without a real provider wired) as a refunded failure, so
+            # this should never actually surface — but never let a raw
+            # NotImplementedError reach the redemption button regardless.
+            logger.error(f"Reward provider not implemented for category {reward_category}: {e}")
+            await query.answer("This reward option isn't available yet.", show_alert=True)
+            return
         if success:
             await query.answer(f"🎉 Redeemed {reward_name}!", show_alert=True)
             msg = (

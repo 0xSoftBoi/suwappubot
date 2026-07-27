@@ -2,18 +2,46 @@
 
 import logging
 import asyncio
-from telegram import Update, MenuButtonWebApp, WebAppInfo, BotCommand
+from datetime import datetime, timezone
+from telegram import (
+    Update,
+    MenuButtonWebApp,
+    WebAppInfo,
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.error import Forbidden, NetworkError, RetryAfter
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
+    ChatMemberHandler,
     CommandHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     MessageHandler,
+    TypeHandler,
     filters,
     PicklePersistence,
     AIORateLimiter,
 )
 
 from bot.config.settings import settings
+
+# Update types we actually register handlers for. Telegram only sends what we
+# ask for, and anything else is decoded, wrapped in an Update and walked through
+# the whole handler chain before being dropped. Update.ALL_TYPES is 23 types; we
+# handle three. `my_chat_member` is kept deliberately — it is how Telegram tells
+# us a user blocked the bot, which is the only churn signal we get.
+#
+# NOTE: allowed_updates is sticky server-side. It changes only on the next
+# setWebhook/getUpdates call, so a deploy is required for edits here to apply.
+ALLOWED_UPDATES = [
+    Update.MESSAGE,
+    Update.CALLBACK_QUERY,
+    Update.INLINE_QUERY,
+    Update.MY_CHAT_MEMBER,
+]
 from bot.handlers.start import (
     start_handler,
     help_handler,
@@ -23,6 +51,7 @@ from bot.handlers.start import (
     noop_callback,
     tos_accept_callback,
     tos_decline_callback,
+    tos_review_callback,
 )
 from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
@@ -48,6 +77,14 @@ from bot.handlers.airdrop import (
     airdrop_cancel_campaign_handler,
 )
 from bot.handlers.giftcard import gift_conversation
+from bot.utils.safe_send import on_my_chat_member
+from bot.handlers.support import (
+    support_conversation_handler,
+    tickets_handler,
+    ticket_handler,
+    treply_handler,
+    tclose_handler,
+)
 from bot.handlers.stocks import (
     stocks_command_handler,
     stocks_page_callback_handler,
@@ -76,6 +113,7 @@ from bot.handlers.history import (
     history_callback,
     history_menu_callback,
     history_page_handler,
+    history_stats_handler,
     share_pnl_handler,
 )
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
@@ -85,6 +123,7 @@ from bot.handlers.positions import (
     positions_refresh_callback_handler,
     pos_manage_callback_handler,
     pos_sell_callback_handler,
+    pos_sell_confirm_callback_handler,
 )
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import (
@@ -119,6 +158,7 @@ from bot.handlers.settings import (
 )
 from bot.handlers.admin import (
     status_handler,
+    status_refresh_callback,
     clear_cache_handler,
     broadcast_handler,
     hl_builder_handler,
@@ -302,6 +342,7 @@ from bot.handlers.enterprise import (
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
+from bot.handlers.inline_query import inline_query_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -337,23 +378,92 @@ logger = logging.getLogger(__name__)
 
 async def error_handler(update: Update, context) -> None:
     """Handle errors with user-friendly messages."""
-    logger.error(f"Exception while handling an update: {context.error}")
+    error = context.error
 
-    if update and update.effective_message:
-        # Try to get user-friendly error message
+    # Telegram-level conditions that are not bugs and must not page anyone:
+    # the user blocked us, or we are being flood-limited. Log and stop — trying
+    # to reply to a user who blocked the bot just raises Forbidden again.
+    if isinstance(error, Forbidden):
+        logger.info("Update skipped: bot is blocked or lacks rights in this chat")
+        return
+    if isinstance(error, RetryAfter):
+        logger.warning("Flood control: retry in %ss", getattr(error, "retry_after", "?"))
+        return
+    if isinstance(error, NetworkError):
+        logger.warning("Telegram network error: %s", error)
+        return
+
+    # exc_info is what makes this line actionable — without it every production
+    # stack trace was thrown away and we only kept the exception's str().
+    logger.error("Exception while handling an update: %s", error, exc_info=error)
+
+    if not update:
+        return
+
+    # Answer the callback query FIRST. Until this returns, the user is staring
+    # at a spinner on the button they tapped, and Telegram expires the query
+    # after ~15s — after which the spinner hangs until they leave the chat.
+    if getattr(update, "callback_query", None) is not None:
         try:
-            user_message = handle_swap_error(context.error)
+            await update.callback_query.answer()
+        except Exception:
+            pass
+
+    if update.effective_message:
+        try:
+            user_message = handle_swap_error(error)
         except Exception:
             user_message = "❌ An error occurred. Please try again later."
 
         try:
-            await update.effective_message.reply_text(user_message)
+            await update.effective_message.reply_text(
+                user_message,
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏠 Home", callback_data="main_menu")]]
+                ),
+            )
         except Exception:
             pass  # Message might not be sendable
 
 
+# Updates older than this are refused rather than executed. A queued /s that
+# runs 20 minutes late would trade at a price the user never agreed to.
+#
+# This deliberately checks ONLY update.message, whose `date` is when the user
+# sent it. A callback_query carries no tap timestamp — its effective_message is
+# the message the BUTTON is attached to, which the bot may have sent hours ago,
+# so ageing callbacks off that field would break every button on an old message.
+STALE_UPDATE_MAX_AGE_SECONDS = 300
+
+
+async def drop_stale_updates(update: Update, context) -> None:
+    """Refuse updates that sat in a queue while the bot was down or behind."""
+    message = getattr(update, "message", None)
+    if message is None or message.date is None:
+        return
+
+    age = (datetime.now(timezone.utc) - message.date).total_seconds()
+    if age > STALE_UPDATE_MAX_AGE_SECONDS:
+        logger.warning(
+            "Dropping stale update %s (%.0fs old, limit %ss)",
+            update.update_id,
+            age,
+            STALE_UPDATE_MAX_AGE_SECONDS,
+        )
+        raise ApplicationHandlerStop
+
+
 def add_handlers(application: Application) -> None:
     """Add all handlers to the application."""
+    # Group -1 runs before every other handler, so a stale update is discarded
+    # before any handler can act on it.
+    application.add_handler(TypeHandler(Update, drop_stale_updates), group=-1)
+    # Block/unblock tracking. Runs in its own group so it never competes with
+    # the command/callback handlers below.
+    application.add_handler(
+        ChatMemberHandler(on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER), group=-1
+    )
+
     # ============ COMMAND HANDLERS ============
     application.add_handler(start_handler)
     application.add_handler(help_handler)
@@ -366,7 +476,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(positions_menu_callback_handler)  # 💼 Positions button
     application.add_handler(positions_refresh_callback_handler)  # Refresh
     application.add_handler(pos_manage_callback_handler)  # Positions → Manage token
-    application.add_handler(pos_sell_callback_handler)  # Positions → Sell %
+    application.add_handler(pos_sell_callback_handler)  # Positions → Sell % (preview)
+    application.add_handler(pos_sell_confirm_callback_handler)  # MONEY-PATH: Sell % confirm
     application.add_handler(gas_handler)  # /g
     application.add_handler(favorites_handler)  # /f
     application.add_handler(settings_handler)  # /set
@@ -407,6 +518,9 @@ def add_handlers(application: Application) -> None:
 
     # Admin commands
     application.add_handler(status_handler)  # /status
+    application.add_handler(
+        CallbackQueryHandler(status_refresh_callback, pattern="^admin_status$")
+    )  # "Refresh" button on /status output
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
@@ -472,6 +586,15 @@ def add_handlers(application: Application) -> None:
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
     application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
     application.add_handler(gift_conversation)  # /gift gift cards (gated on BITREFILL_API_KEY)
+    # Support tickets. These handlers were written but never registered, so
+    # /support, /bug, /tickets, /ticket, /treply and /tclose all silently did
+    # nothing — commands bypass the freeform catch-all, so a stuck user got no
+    # reply at all.
+    application.add_handler(support_conversation_handler)  # /support, /bug
+    application.add_handler(tickets_handler)  # /tickets
+    application.add_handler(ticket_handler)  # /ticket <id>
+    application.add_handler(treply_handler)  # /treply <id> (admin)
+    application.add_handler(tclose_handler)  # /tclose <id> (admin)
 
     # ============ COMMUNITY PAYMENT TOOLS (Bucket 2) ============
     # MONEY-PATH: custodial-balance transfers (tip / lucky box / split)
@@ -529,6 +652,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
+    application.add_handler(CallbackQueryHandler(tos_review_callback, pattern="^tos_review$"))
 
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
@@ -536,6 +660,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(history_callback)
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
+    application.add_handler(history_stats_handler)
+    application.add_handler(share_pnl_handler)  # "^pnl_share_\d+$" Share PnL button
 
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -697,6 +823,11 @@ def add_handlers(application: Application) -> None:
     # BullX Neo migration wizard — /import
     application.add_handler(import_conversation_handler)
 
+    # Inline mode — "@<botname> BTC" in any chat renders a price card with a
+    # referral deep link. Requires enabling inline mode for the bot via
+    # BotFather (/setinline) in addition to this registration.
+    application.add_handler(InlineQueryHandler(inline_query_handler))
+
     # Natural-language trade intent (Anthropic-backed) — registered in the
     # SAME default group (0), immediately BEFORE the freeform-text catch-all,
     # and ONLY when settings.NL_TRADING_ENABLED is True. This placement is
@@ -840,9 +971,13 @@ async def post_init(application) -> None:
         await launch_detector.start()
         logger.info("✓ Token launch detector started")
 
-        # Start rug protection service
-        await rug_service.start(swap_engine=SwapEngine())
-        logger.info("✓ Rug protection service started")
+        # Start rug protection service (money-path auto-sell — gated off by
+        # default, see RUG_AUTO_SELL_ENABLED in bot/config/settings.py)
+        if settings.rug_auto_sell_enabled:
+            await rug_service.start(swap_engine=SwapEngine())
+            logger.info("✓ Rug protection service started")
+        else:
+            logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
 
         # Start HyperLiquid WebSocket alert feed
         if settings.hl_ws_alerts_enabled:
@@ -884,7 +1019,10 @@ async def run_headless() -> None:
     await order_service.start(bot=None, swap_engine=SwapEngine())
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
-    await rug_service.start(swap_engine=SwapEngine())
+    if settings.rug_auto_sell_enabled:
+        await rug_service.start(swap_engine=SwapEngine())
+    else:
+        logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
 
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
 
@@ -944,16 +1082,26 @@ def main() -> None:
         .persistence(persistence)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
+        # Transport tuning applies unconditionally. These used to sit inside the
+        # `bot_concurrent_updates > 0` branch, which meant the default config ran
+        # with no flood control at all: a 429 RetryAfter from Telegram surfaced as
+        # a dropped user action instead of a transparent retry.
+        .rate_limiter(AIORateLimiter(max_retries=3))
+        .connection_pool_size(512)
+        # PTB's default pool_timeout is 1.0s. With many concurrent updates each
+        # making 2-3 API calls, waiting for a free connection legitimately takes
+        # longer than that, and the 1s default turns contention into a phantom
+        # TimedOut that looks like a Telegram outage.
+        .pool_timeout(10.0)
+        .read_timeout(15.0)
+        .write_timeout(15.0)
+        .media_write_timeout(60.0)
     )
     if settings.bot_concurrent_updates > 0:
         from bot.utils.update_processor import PerUserSerializingProcessor
 
-        builder = (
-            builder.concurrent_updates(
-                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
-            )
-            .connection_pool_size(512)
-            .rate_limiter(AIORateLimiter(max_retries=3))
+        builder = builder.concurrent_updates(
+            PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
         )
     application = builder.build()
 
@@ -974,7 +1122,7 @@ def main() -> None:
     # Start the bot
     logger.info("Starting bot...")
     try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        application.run_polling(allowed_updates=ALLOWED_UPDATES)
     except Exception as e:
         if "Unauthorized" in str(e) or "InvalidToken" in str(e) or "rejected" in str(e):
             logger.error(f"❌ Telegram authentication failed: {e}")

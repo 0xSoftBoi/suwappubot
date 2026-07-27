@@ -18,6 +18,8 @@ Providers:
 
 import asyncio
 import json
+
+from sqlalchemy.exc import IntegrityError
 import logging
 from typing import Optional, List
 from dataclasses import dataclass, field
@@ -172,6 +174,19 @@ class SwapEngine:
     - Chainlink CCIP: Cross-chain messaging
     """
 
+    # CLASS-level, so every SwapEngine in the process shares one lock per
+    # wallet. This registry serializes the idempotency read-then-write in
+    # execute_swap; as an INSTANCE attribute it protected nothing, because the
+    # codebase constructs ~12 independent engines (one per handler module,
+    # copy_service, orders, the WhatsApp flows, and a fresh one per HTTP
+    # request in api/webapp.py). Two engines meant two empty lock dicts, so a
+    # bot-initiated swap and a copy trade on the SAME wallet could both pass
+    # the idempotency check before either inserted its row.
+    #
+    # A plain dict is safe here: it is only mutated from the event loop, and
+    # the mutation path below contains no await.
+    _wallet_locks: dict[int, asyncio.Lock] = {}
+
     def __init__(self):
         # New high-value providers
         self.cow = cow_api
@@ -192,7 +207,8 @@ class SwapEngine:
         self.zerox = ZeroXAPI()
         self.kyberswap = KyberSwapAPI()
         self.wallet_service = WalletService()
-        self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
+        # Per-wallet locks are deliberately CLASS-level (see _wallet_locks
+        # below) so every SwapEngine in the process shares them.
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
 
         # Surface optional-provider config at startup so a silently-disabled
@@ -224,8 +240,8 @@ class SwapEngine:
                 zerox_state,
                 kyber_state,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to log aggregator readiness state: {e}")
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -439,11 +455,11 @@ class SwapEngine:
         try:
             url = rpc_manager.get_rpc_url("solana")
             payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    data = await resp.json()
+            session = await get_http_session()
+            async with session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
             return int(data["result"]["value"]["decimals"])
         except Exception as e:
             logger.debug(f"solana mint decimals read failed for {mint}: {e}")
@@ -633,8 +649,13 @@ class SwapEngine:
                     from bot.services.x402_service import x402_service
 
                     tier = await x402_service.get_tier(user_id)
-                except Exception:
-                    tier = None  # tier lookup failure → flat default, never block the quote
+                except Exception as e:
+                    # tier lookup failure → flat default, never block the quote
+                    logger.warning(
+                        f"x402 tier lookup failed for user_id={user_id}; "
+                        f"falling back to flat default fee: {e}"
+                    )
+                    tier = None
             platform_fee_bps = fee_service.get_fee_bps(tier)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
@@ -2667,7 +2688,26 @@ class SwapEngine:
                     session.flush()
                     return swap_tx.id
 
-            swap_id = await run_in_db(_create_swap_record)
+            try:
+                swap_id = await run_in_db(_create_swap_record)
+            except IntegrityError:
+                # We lost a race on the UNIQUE index over idempotency_key —
+                # another concurrent attempt inserted the same key between our
+                # check above and this insert. That is the index doing exactly
+                # its job (the per-wallet lock only narrows the window; engines
+                # in other processes/replicas don't share it). Return the row
+                # the winner created instead of surfacing a raw DB error.
+                #
+                # Safe to swallow: this insert happens BEFORE any signing or
+                # broadcast, so nothing was spent on this path.
+                logger.warning(
+                    "Duplicate idempotency_key %s — returning the existing swap",
+                    idempotency_key,
+                )
+                existing = await run_in_db(_check_idempotency) if idempotency_key else None
+                if existing:
+                    return existing
+                raise
 
             # Create a simple wallet data object for signing
             wallet_data = {
@@ -3809,7 +3849,7 @@ class SwapEngine:
             try:
                 from bot.services.tempo_tip20 import tempo_tip20
 
-                owner_key = self.wallet_service.get_private_key(wallet)
+                owner_key = await self.wallet_service.get_private_key_async(wallet)
                 if not owner_key.startswith("0x"):
                     owner_key = "0x" + owner_key
                 v, r, s, deadline = await tempo_tip20.build_permit_signature(
@@ -3962,7 +4002,7 @@ class SwapEngine:
         sender_key = (
             None
             if (sender_turnkey or access_key is not None)
-            else self.wallet_service.get_private_key(wallet)
+            else await self.wallet_service.get_private_key_async(wallet)
         )
 
         # nonce_key 0 == protocol nonce, which is the standard account nonce.
@@ -4564,7 +4604,7 @@ class SwapEngine:
             except Exception as e:
                 logger.warning("Paymaster eligibility check failed: %s", str(e)[:200])
 
-        private_key = self.wallet_service.get_private_key(wallet)
+        private_key = await self.wallet_service.get_private_key_async(wallet)
         try:
             account = await get_starknet_account(private_key, wallet.address)
 

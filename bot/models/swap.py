@@ -48,7 +48,13 @@ class SwapTransaction(Base):
     destination_tx_hash = Column(String(255), nullable=True)  # Destination chain tx hash
 
     # Idempotency (prevents duplicate submits on double-click/retry)
-    # Enforced via a unique index created in `database/db.py` migrations helper.
+    # Enforced via a UNIQUE index created in `database/db.py::_ensure_schema()`
+    # (see `_add_swap_idempotency_key_unique_index`). The column itself stays
+    # `index=True` (non-unique) here because SQLAlchemy's declarative
+    # `Column(..., index=True)` would otherwise emit a second, non-unique
+    # index of its own on `create_all()` for fresh databases; the real
+    # uniqueness guarantee lives entirely in the runtime migration so it can
+    # defensively detect pre-existing duplicate values before enforcing it.
     idempotency_key = Column(String(128), nullable=True, index=True)
 
     # Route info

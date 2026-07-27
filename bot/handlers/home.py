@@ -149,11 +149,24 @@ async def _portfolio_usd(user_id: int) -> float | None:
         if not wallets:
             return None
 
-        all_balances: dict[str, dict[str, float]] = {}
-        for w in wallets:
+        # Fetch every wallet's balances concurrently (was a serial loop —
+        # 3 wallets x ~600ms Alchemy = 1.8s on the hottest path in the bot).
+        # A failed RPC on one wallet degrades to {} instead of zeroing the
+        # whole portfolio (same shape as balance.py's fetch_wallet_balance).
+        async def _fetch(w):
             try:
-                balances = await wallet_service.get_balances_by_address(w.address, w.chain_type)
-            except Exception:
+                return await wallet_service.get_balances_by_address(w.address, w.chain_type)
+            except Exception as e:
+                logger.debug(f"home: balance fetch failed for wallet {w.id}: {e}")
+                return {}
+
+        balance_results = await asyncio.gather(
+            *[_fetch(w) for w in wallets], return_exceptions=True
+        )
+
+        all_balances: dict[str, dict[str, float]] = {}
+        for balances in balance_results:
+            if isinstance(balances, Exception) or not balances:
                 continue
             for chain, tokens in balances.items():
                 bucket = all_balances.setdefault(chain, {})
@@ -210,13 +223,17 @@ def _contextual_row(
     apy: float | None,
     claimable_count: int,
     claimable_usd: float,
+    portfolio_usd: float | None = None,
 ) -> list[InlineKeyboardButton]:
     """Decide the single contextual action row from live state.
 
     Priority:
       1. claimable prediction exists -> Redeem (highest-value, time-sensitive).
-      2. idle USDC > $50 -> Earn on idle cash (the discovery payoff).
-      3. else -> default quick actions (Swap / Positions / Trending).
+      2. confirmed zero portfolio balance -> Deposit + Trending (no funds
+         required to browse trending tokens while a deposit lands; offering
+         "Swap" here is guaranteed to fail with "Insufficient funds").
+      3. idle USDC > $50 -> Earn on idle cash (the discovery payoff).
+      4. else -> default quick actions (Swap / Positions / Trending).
     """
     if claimable_count > 0 and claimable_usd > 0:
         return [
@@ -224,19 +241,23 @@ def _contextual_row(
                 f"🎁 Redeem {_fmt_usd(claimable_usd)}", callback_data="pred_positions"
             )
         ]
+    if portfolio_usd is not None and portfolio_usd <= 0:
+        return [
+            InlineKeyboardButton("📥 Deposit", callback_data="wallet_menu"),
+            InlineKeyboardButton("🔥 Trending", callback_data="trending_open"),
+        ]
     if idle_usdc > 50 and apy is not None:
         return [
             InlineKeyboardButton(
                 f"🏦 Earn {apy:.1f}% on {_fmt_usd(idle_usdc)}", callback_data="save_menu"
             )
         ]
-    # Default quick actions. NB: "trending_open" has no registered handler
-    # anywhere in the bot (it's a dead button in paste_trade.py), so the third
-    # slot uses the live "quickswap_menu" callback instead to avoid a no-op.
+    # Default quick actions. "trending_open" IS registered (bot/main.py ~line
+    # 502, CallbackQueryHandler(trending_open_callback, pattern="^trending_open$")).
     return [
         InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
         InlineKeyboardButton("💼 Positions", callback_data="positions_menu"),
-        InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
+        InlineKeyboardButton("🔥 Trending", callback_data="trending_open"),
     ]
 
 
@@ -245,6 +266,7 @@ def _home_keyboard(
     apy: float | None = None,
     claimable_count: int = 0,
     claimable_usd: float = 0.0,
+    portfolio_usd: float | None = None,
 ) -> InlineKeyboardMarkup:
     """Compose the hub keyboard: refresh + contextual row + the main grid.
 
@@ -255,8 +277,9 @@ def _home_keyboard(
         [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
         [
             InlineKeyboardButton("🔄 Refresh", callback_data="home_refresh"),
+            InlineKeyboardButton("📥 Deposit", callback_data="wallet_menu"),
         ],
-        _contextual_row(idle_usdc, apy, claimable_count, claimable_usd),
+        _contextual_row(idle_usdc, apy, claimable_count, claimable_usd, portfolio_usd),
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
             InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
@@ -333,7 +356,7 @@ def _compose_text(
         )
 
     if not bits and not claimable_count and not refreshing and not portfolio_usd:
-        lines.append("\n_Deposit funds to start trading — tap Swap below._")
+        lines.append("\n_Deposit funds to start trading — tap 📥 Deposit below._")
 
     return "\n".join(lines)
 
@@ -341,14 +364,20 @@ def _compose_text(
 # ---------------------------------------------------------------------------
 # public entry points
 # ---------------------------------------------------------------------------
-async def render_home(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+async def render_home(user_id: int, state: dict | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """Compose the FULL live hub (text + keyboard) including RPC-bound balances.
 
     Safe to call directly when a blocking render is acceptable (e.g. a refresh
     where the user expects a spinner). For first paint, prefer the
     render-instant-then-edit flow in `send_home`.
+
+    `state` may be an already-computed `_fast_state()` snapshot (e.g. the one
+    `send_home` already fetched for the instant first paint) to avoid running
+    the same ~4 blocking DB sessions twice per render cycle. Pass None to
+    compute a fresh snapshot (default — used by direct/refresh callers).
     """
-    state = _fast_state(user_id)
+    if state is None:
+        state = _fast_state(user_id)
 
     # Fetch the slow/RPC pieces concurrently; each already degrades gracefully.
     portfolio_usd, pnl, (idle_usdc, apy) = await asyncio.gather(
@@ -363,14 +392,23 @@ async def render_home(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         apy=apy,
         claimable_count=int(state.get("claimable_count", 0)),
         claimable_usd=float(state.get("claimable_usd", 0.0)),
+        portfolio_usd=portfolio_usd,
     )
     return text, keyboard
 
 
-async def _fill_home_in_background(user_id: int, message: Message) -> None:
-    """Second paint: fetch full live state and edit the already-sent message."""
+async def _fill_home_in_background(
+    user_id: int, message: Message, state: dict | None = None
+) -> None:
+    """Second paint: fetch full live state and edit the already-sent message.
+
+    `state` reuses the fast-snapshot already computed by `send_home` for the
+    first paint — see `render_home` for why this is safe to reuse rather than
+    re-querying (the counts are local-DB-only and the gap between the two
+    paints is the RPC round-trip, not user-perceptible drift).
+    """
     try:
-        text, keyboard = await render_home(user_id)
+        text, keyboard = await render_home(user_id, state=state)
         await message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception:
         logger.exception(f"home: background fill failed for user {user_id}")
@@ -420,7 +458,7 @@ async def send_home(
             return
 
     if isinstance(sent, Message):
-        asyncio.create_task(_fill_home_in_background(user_id, sent))
+        asyncio.create_task(_fill_home_in_background(user_id, sent, state=state))
 
 
 async def home_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

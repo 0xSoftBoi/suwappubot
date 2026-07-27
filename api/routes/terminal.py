@@ -1692,10 +1692,21 @@ async def terminal_predict_order(request: Request, body: PredictOrderBody):
             )
         wallet_id = wallet.id
         try:
-            if wallet.is_turnkey_wallet:
-                private_key = wallet_service.get_backup_private_key(wallet)
-            else:
-                private_key = wallet_service.get_private_key(wallet)
+            # Turnkey backup keys resolve synchronously on this thread, which is
+            # safe while the session is open. The local-key path does a blocking
+            # KMS decrypt and is deferred until after the session closes (below)
+            # so it can run off the event loop without a session-bound ORM
+            # instance crossing a thread boundary.
+            private_key = (
+                wallet_service.get_backup_private_key(wallet) if wallet.is_turnkey_wallet else None
+            )
+        except Exception as e:
+            logger.error("terminal predict wallet key resolution failed: %s", e)
+            raise HTTPException(status_code=400, detail="Could not access your wallet key.")
+
+    if private_key is None:
+        try:
+            private_key = await wallet_service.get_private_key_by_id_async(wallet_id, user_id=uid)
         except Exception as e:
             logger.error("terminal predict wallet key resolution failed: %s", e)
             raise HTTPException(status_code=400, detail="Could not access your wallet key.")

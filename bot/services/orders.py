@@ -16,9 +16,9 @@ from bot.models.advanced import (
     SwapTemplate,
 )
 from bot.models.swap import SwapStatus
-from bot.models.favorites import UserSettings
 from bot.services.price_service import price_service
 from bot.services.swap_engine import SwapEngine
+from bot.utils.safe_send import safe_send
 from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
@@ -537,7 +537,7 @@ class OrderService:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Order service task cancelled during stop()")
         logger.info("Order service stopped")
 
     async def _order_loop(self):
@@ -728,8 +728,11 @@ class OrderService:
         try:
             from bot.models.user import User
 
+            from bot.models.favorites import UserSettings
+
             telegram_id = None
             whatsapp_id = None
+            order_triggered_enabled = True
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
@@ -739,7 +742,10 @@ class OrderService:
                         session.query(UserSettings).filter(UserSettings.user_id == user.id).first()
                     )
                     if user_settings and not getattr(user_settings, "notify_order_triggered", True):
-                        return
+                        order_triggered_enabled = False
+
+            if not order_triggered_enabled:
+                return
 
             if telegram_id:
                 tx_info = ""
@@ -761,9 +767,11 @@ class OrderService:
                     f"{trigger_line}"
                     f"{tx_info}"
                 )
-                await self._bot.send_message(
-                    chat_id=telegram_id,
-                    text=text,
+                await safe_send(
+                    self._bot,
+                    telegram_id,
+                    text,
+                    category="order_triggered",
                     parse_mode="Markdown",
                     disable_web_page_preview=True,
                 )
@@ -820,9 +828,11 @@ class OrderService:
                     f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
                     f"{tx_info}"
                 )
-                await self._bot.send_message(
-                    chat_id=telegram_id,
-                    text=text,
+                await safe_send(
+                    self._bot,
+                    telegram_id,
+                    text,
+                    category="order_triggered",
                     parse_mode="Markdown",
                     disable_web_page_preview=True,
                 )

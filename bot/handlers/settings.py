@@ -180,6 +180,39 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 # ---------------------------------------------------------------------------
+# Shared dual-write helper: UserSettings <-> User column sync
+# ---------------------------------------------------------------------------
+#
+# Several boolean settings are read by other services off the `User` row
+# (e.g. rug_service, the webapp settings API in api/routes/settings.py) while
+# the Telegram settings screen only ever wrote the `UserSettings` copy. The
+# WhatsApp flow (bot/services/whatsapp_flows/settings_flow.py's
+# `_toggle_user_settings`) already solved this with a generalized dual-write
+# toggle; that helper lives on a WhatsApp-flow class (its own `_get_or_create_settings`
+# signature, `FlowResponse`, `self._clear` state teardown) so importing it here
+# would be an awkward cross-surface dependency. This is the Telegram-side
+# equivalent — route every boolean toggle in this file through it so the two
+# columns can't drift again.
+
+
+def _toggle_synced_setting(
+    db_user: User,
+    user_settings: UserSettings,
+    field: str,
+    also_user_field: str | None = None,
+) -> bool:
+    """Flip a boolean UserSettings field, optionally mirroring it onto User.
+
+    Returns the new value.
+    """
+    new_value = not getattr(user_settings, field)
+    setattr(user_settings, field, new_value)
+    if also_user_field and db_user is not None and hasattr(db_user, also_user_field):
+        setattr(db_user, also_user_field, new_value)
+    return new_value
+
+
+# ---------------------------------------------------------------------------
 # Toggle: notifications
 # ---------------------------------------------------------------------------
 
@@ -194,7 +227,15 @@ async def toggle_notify_callback(update: Update, context: ContextTypes.DEFAULT_T
     with get_session() as session:
         db_user, user_settings = _get_or_create_settings(session, user.id)
         if db_user and user_settings:
-            user_settings.notify_on_complete = not user_settings.notify_on_complete
+            # Mirror onto User.notifications_enabled — the webapp settings API
+            # and the WhatsApp flow both read/write that column; the Telegram
+            # toggle previously left it unsynced (latent bug fix, see report).
+            _toggle_synced_setting(
+                db_user,
+                user_settings,
+                "notify_on_complete",
+                also_user_field="notifications_enabled",
+            )
 
     await settings_callback(update, context)
 
@@ -226,8 +267,15 @@ async def toggle_panic_sell_callback(update: Update, context: ContextTypes.DEFAU
             return
 
         if user_settings:
-            user_settings.panic_sell_enabled = not user_settings.panic_sell_enabled
-            status = "enabled" if user_settings.panic_sell_enabled else "disabled"
+            # Keep User.panic_sell_enabled in sync — rug_service and other
+            # consumers may read either column; see helper docstring above.
+            new_value = _toggle_synced_setting(
+                db_user,
+                user_settings,
+                "panic_sell_enabled",
+                also_user_field="panic_sell_enabled",
+            )
+            status = "enabled" if new_value else "disabled"
             await query.answer(f"Panic Sell {status}!")
 
     await settings_callback(update, context)

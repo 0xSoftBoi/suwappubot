@@ -10,7 +10,6 @@ from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames
 from bot.utils.http_client import get_session as get_http_session
 
-
 # Token to CoinGecko ID mapping
 TOKEN_TO_COINGECKO = {
     # Stablecoins
@@ -30,6 +29,7 @@ TOKEN_TO_COINGECKO = {
     "FDUSD": "first-digital-usd",
     "USDe": "ethena-usde",
     # Major tokens
+    "BTC": "bitcoin",
     "ETH": "ethereum",
     "WETH": "weth",
     "WBTC": "wrapped-bitcoin",

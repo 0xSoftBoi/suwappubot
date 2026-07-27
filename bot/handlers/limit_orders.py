@@ -17,6 +17,7 @@ from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
 from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
+from bot.utils.formatters import escape_markdown
 from database.db import get_session
 
 
@@ -150,7 +151,8 @@ async def dca_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["dca_token"] = token
 
     await query.edit_message_text(
-        f"Token: *{token}*\n\nEnter amount per execution (in USDC):", parse_mode="Markdown"
+        f"Token: *{escape_markdown(token)}*\n\nEnter amount per execution (in USDC):",
+        parse_mode="Markdown",
     )
     return DCA_AMOUNT
 
@@ -505,7 +507,8 @@ async def lo_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["lo_price"] = prices.get(token, 0)
 
     await query.edit_message_text(
-        f"Token: *{token}* (${prices.get(token, 0):.2f})\n\nEnter amount:", parse_mode="Markdown"
+        f"Token: *{escape_markdown(token)}* (${prices.get(token, 0):.2f})\n\nEnter amount:",
+        parse_mode="Markdown",
     )
     return LO_AMOUNT
 

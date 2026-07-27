@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from bot.services.btc_bridge import BtcBridge, btc_bridge
+from bot.utils.safe_send import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ class BtcBridgePoller:
                 sats_text = ""
             verb = "✅ completed" if success else "❌ failed"
             text = f"₿ Your {labels.get(direction, 'BTC bridge swap')} {sats_text} {verb}. See /btc → 📋 My BTC swaps."
-            await self.bot.send_message(chat_id=telegram_id, text=text)
+            await safe_send(self.bot, telegram_id, text, category="swap_complete")
         except Exception as e:
             logger.warning(
                 "BTC bridge: completion notify failed for %s: %s", btc_swap_id, str(e)[:200]
