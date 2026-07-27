@@ -11,6 +11,7 @@ exit with a message so Claude sees the error immediately after the edit.
 """
 import ast
 import json
+import subprocess
 import sys
 
 
@@ -41,7 +42,28 @@ def main() -> int:
         )
         return 2  # signal the edit produced non-parseable Python
 
+    _format(path)
     return 0
+
+
+def _format(path: str) -> None:
+    """Best-effort `black` on the single edited file.
+
+    CI runs `black --check --line-length=100 bot/ api/ tests/`, so formatting at
+    edit time is what keeps style failures out of CI. Scoped to ONE file on
+    purpose — running black repo-wide here would rewrite unrelated code.
+    Never blocks: if black is missing or errors, the edit still stands.
+    """
+    if not any(f"/{d}/" in path or path.startswith(f"{d}/") for d in ("bot", "api", "tests")):
+        return
+    try:
+        subprocess.run(
+            ["black", "--quiet", "--line-length=100", path],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 if __name__ == "__main__":
