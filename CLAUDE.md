@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **IMPLEMENT, don't plan.** When asked to fix or build something, DO the work. If you need to explore first, limit exploration to 5 minutes then start building. Only produce a plan document if explicitly asked for one.
 - If blocked, say so explicitly — don't fill the response with exploration as a substitute for implementation.
 
+## Response Length
+
+- Keep each assistant turn under **~400 output tokens**. Prefer many short turns over one long turn.
+- For long reports, audits, or plans: `Write` them to a file and reply with the path + a 3-bullet summary. Never inline a whole document in a turn.
+- Write deliverables to disk **as they are produced**, not at the end. An interrupted session should cost a turn, not the whole run.
+
 ## Git Conventions
 
 - **IMPORTANT**: Do NOT add "Co-Authored-By" lines to commit messages.
@@ -20,6 +26,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **Worktree check**: Run `git rev-parse --git-common-dir` — if in a worktree, **NEVER rebase**. Always use `git merge` or `git pull --no-rebase`.
 4. **Divergence check**: Compare `git rev-parse HEAD` vs `git rev-parse @{u}` to detect local/remote divergence. Recommend merge (not force-push) unless user explicitly approves.
 5. **Uncommitted work**: Run `git status` and `git stash list` to surface any uncommitted changes or stashed work. Report before proceeding.
+
+### PR merge policy
+When asked to "merge all PRs": check CI on **every** open PR, merge the green ones, then actively **fix** the failing ones (including Dependabot) rather than reporting them as blocked. Only stop and ask if the fix needs a product decision or a secret you don't have. Report per-PR: merged / fixed-then-merged / blocked-with-reason.
 
 ### Additional rules:
 - **NEVER use `git rebase`**. Always use `git merge` or `git pull --no-rebase`.
@@ -214,6 +223,9 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - `/ship` — Branch → commit → PR → wait for CI green → merge → verify the bot boots
 - `/deploy` — Deploy services to Railway (`prod|dev` × `python-api|python-worker|terminal|api-ts|showcase|all`)
 - `/audit` — Attacker-minded security audit of scoped files; streams compact findings incrementally
+- `/audit-fleet` — Parallel audit: one `security-auditor` per attack surface, findings streamed to `.audit/findings/*.jsonl`, then deduped/ranked/filed
+- `/bugclass` — Treat one confirmed bug as a class: reproduce → fix → sweep both stacks → one commit per instance
+- `/worktree-check` — Audit all worktrees for uncommitted/unpushed/stashed work at risk **before** any reset or cleanup
 - `/worktree` — Manage git worktrees for parallel development
 - `/migrations` — Database migration tutorial
 - `/new-handler` — Add a new Telegram bot command handler
@@ -227,11 +239,20 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - Keep each finding compact: `severity`, `file:line`, exploit path, fix. Distinguish real bugs from false positives explicitly.
 - End with a candid coverage QA note: what you scanned, what you skipped or refused, and why.
 - Scope to specific candidate files up front rather than "audit everything."
+- **Structured output goes FIRST.** When asked for JSON findings, emit/append the JSON object for each finding **before** any prose explanation, file-by-file. Never buffer the analysis and dump the JSON at the end — multiple audits (IDOR, 2FA bypass, fee overcharge) died at the spend limit with zero parseable output.
+- Finding shape: `{file, line, severity, title, exploit_path, preconditions, confidence, false_positive_reasoning}`.
 
 ## CI / Testing
 
 - **Do NOT cancel a CI run or long command assuming it hung.** GitHub Actions runner contention is common and slow suites are expected. The Bash tool caps ~2 min — that is a tool timeout, not a hung job. Wait and re-check `gh run watch` / poll status before concluding failure.
 - Give slow test suites generous timeouts; an 18-test run taking minutes is normal, not a hang.
+- **Always pass an explicit `timeout` of at least `600000` ms** to Bash for `pytest`, `npm test`/`bun test`, builds, and CI polling. Never cancel a GitHub Actions run for slowness — check whether the job is *queued* (runner contention) vs actually stuck, and wait at least 15 minutes before escalating.
+
+## Live Verification
+
+- **A fix is not complete until it is verified on the live deployed URL.** CI green and "deploy succeeded" are not evidence.
+- After any deploy: load the production URL with the claude-in-chrome MCP, screenshot the affected view, and report the evidence. If the browser tool can't set the viewport, use the iframe workaround at the target width.
+- If live verification is genuinely blocked, say "code-complete, not functionally verified — needs X." Never report "deployed" from CI status alone.
 
 ## Working Style / Scope
 
