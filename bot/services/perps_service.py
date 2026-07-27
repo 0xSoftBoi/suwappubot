@@ -209,15 +209,53 @@ class PerpsService:
 
             session.expunge(position)
 
-        # Place TP/SL orders if specified
-        if tp_price:
-            await self._place_tp_sl(
-                user_id, account, market, side, size, "take_profit", tp_price, position_id
-            )
-        if sl_price:
-            await self._place_tp_sl(
-                user_id, account, market, side, size, "stop_loss", sl_price, position_id
-            )
+        # TP/SL were submitted ATOMICALLY with the entry (grouping="normalTpsl"),
+        # so filling or cancelling one leg cancels its siblings. Record the legs
+        # the exchange accepted.
+        #
+        # Previously these were placed as two SEPARATE follow-up orders, which
+        # left them unlinked: a filled TP left the SL resting as a naked
+        # reduce-only order that could re-open the position inverted.
+        #
+        # A leg can still be rejected while the entry succeeds (e.g. a trigger
+        # price the exchange refuses). place_order logs that, and we only persist
+        # the prices the exchange actually accepted — so the UI never shows
+        # protection that does not exist.
+        accepted_legs = getattr(result, "child_order_ids", None) or {}
+        for leg_name, leg_price in (("take_profit", tp_price), ("stop_loss", sl_price)):
+            if not leg_price:
+                continue
+            hl_leg_id = accepted_legs.get(leg_name)
+            if not hl_leg_id:
+                logger.warning(
+                    "HL rejected the %s leg for position %s — not recording it as active",
+                    leg_name,
+                    position_id,
+                )
+                with get_session() as session:
+                    pos = session.query(PerpPosition).filter_by(id=position_id).first()
+                    if pos:
+                        if leg_name == "take_profit":
+                            pos.tp_price = None
+                        else:
+                            pos.sl_price = None
+                continue
+
+            with get_session() as session:
+                session.add(
+                    PerpOrder(
+                        user_id=user_id,
+                        position_id=position_id,
+                        exchange="hyperliquid",
+                        market=market,
+                        side=side,
+                        order_type=leg_name,
+                        size=Decimal(str(size)),
+                        price=Decimal(str(leg_price)),
+                        status="pending",
+                        hl_order_id=hl_leg_id,
+                    )
+                )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
 
@@ -374,6 +412,50 @@ class PerpsService:
             order_id=order_id,
         )
 
+    async def _cancel_resting_tp_sl(
+        self,
+        user_id: int,
+        position_id: int,
+        market: str,
+        order_types: Optional[tuple] = None,
+    ) -> None:
+        """Cancel this position's resting TP/SL orders and mark the rows cancelled.
+
+        Best-effort by design: a cancel failure is logged, never raised, so it
+        cannot turn a completed close into an apparent failure. Shared by
+        close_position (clear brackets that would outlive the position) and
+        modify_tp_sl (replace rather than stack a second trigger).
+        """
+        wanted = order_types or ("take_profit", "stop_loss")
+        with get_session() as session:
+            rows = (
+                session.query(PerpOrder)
+                .filter(
+                    PerpOrder.position_id == position_id,
+                    PerpOrder.user_id == user_id,
+                    PerpOrder.order_type.in_(wanted),
+                    PerpOrder.status == "pending",
+                    PerpOrder.hl_order_id.isnot(None),
+                )
+                .all()
+            )
+            targets = [(o.id, o.hl_order_id) for o in rows]
+
+        for db_id, hl_order_id in targets:
+            try:
+                cancelled = await self.cancel_order(user_id, market, hl_order_id)
+            except Exception as e:  # noqa: BLE001 — never block the caller
+                cancelled = False
+                logger.warning(
+                    f"Could not cancel resting TP/SL {hl_order_id} "
+                    f"for position {position_id}: {e}"
+                )
+            if cancelled:
+                with get_session() as session:
+                    row = session.query(PerpOrder).filter_by(id=db_id).first()
+                    if row:
+                        row.status = "cancelled"
+
     async def close_position(
         self,
         user_id: int,
@@ -419,6 +501,14 @@ class PerpsService:
 
         if not result:
             raise Exception("Failed to close position on HyperLiquid")
+
+        # Cancel any resting TP/SL for a FULL close. HL's normalTpsl grouping
+        # cancels siblings when a bracket leg fills, but this close is a separate
+        # reduce-only order, so the brackets would otherwise survive the position
+        # and sit on the book as naked reduce-only triggers. Best-effort: a failed
+        # cancel must never make a completed close look like a failure.
+        if percent >= 100:
+            await self._cancel_resting_tp_sl(user_id, position_id, market)
 
         close_price = result.fill_price or await self._client.get_mark_price(market) or 0
 
@@ -563,34 +653,7 @@ class PerpsService:
 
             # Cancel any resting order of this type for the position, so an edit
             # replaces the protection instead of stacking a second trigger.
-            with get_session() as session:
-                stale = (
-                    session.query(PerpOrder)
-                    .filter(
-                        PerpOrder.position_id == position_id,
-                        PerpOrder.user_id == user_id,
-                        PerpOrder.order_type == order_type,
-                        PerpOrder.status == "pending",
-                        PerpOrder.hl_order_id.isnot(None),
-                    )
-                    .all()
-                )
-                stale_ids = [(o.id, o.hl_order_id) for o in stale]
-
-            for db_id, hl_order_id in stale_ids:
-                try:
-                    cancelled = await self.cancel_order(user_id, market, hl_order_id)
-                except Exception as e:  # noqa: BLE001 — never block the replacement
-                    cancelled = False
-                    logger.warning(
-                        f"Could not cancel stale {order_type} {hl_order_id} "
-                        f"for position {position_id}: {e}"
-                    )
-                if cancelled:
-                    with get_session() as session:
-                        row = session.query(PerpOrder).filter_by(id=db_id).first()
-                        if row:
-                            row.status = "cancelled"
+            await self._cancel_resting_tp_sl(user_id, position_id, market, (order_type,))
 
             placed = await self._place_tp_sl(
                 user_id, account, market, side, size, order_type, float(new_price), position_id
@@ -612,14 +675,17 @@ class PerpsService:
 
         logger.info(f"Updated TP/SL for position {position_id}: TP={tp_price}, SL={sl_price}")
 
-    # TODO(hl-brackets): entry/TP/SL are still three independent orders —
-    # hyperliquid_client.place_order hardcodes grouping="na". HL supports
-    # grouping="normalTpsl" (entry + its TP/SL as one atomic set) and
-    # "positionTpsl" (attach to the position itself), where filling or cancelling
-    # one leg cancels its siblings. Until that lands, a filled TP leaves the SL
-    # resting as a naked reduce-only order, and close_position does not cancel
-    # siblings either. Tracked separately — it needs a place_order refactor
-    # (multi-order `orders` array + positional statuses[] parsing).
+    # Bracket coverage, for reference:
+    #   open_position   — entry + TP/SL submitted atomically (grouping="normalTpsl"),
+    #                     so filling/cancelling one leg cancels its siblings.
+    #   close_position  — cancels resting TP/SL on a full close (the close is a
+    #                     separate reduce-only order, so HL does not clear them).
+    #   modify_tp_sl    — cancel + replace; brief unprotected window is inherent
+    #                     to cancel/replace and is documented on that method.
+    # Remaining gap: a PARTIAL close leaves bracket legs sized to the original
+    # position, so they stay larger than what is left open. They are reduce-only,
+    # so they cannot flip the position — HL clamps them to the remaining size —
+    # but resizing them on partial close would be tidier.
 
     def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
         """Get user's positions."""

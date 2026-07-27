@@ -3,7 +3,7 @@
 import logging
 import time
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -62,6 +62,10 @@ class HLOrderResult:
     status: str  # "filled", "open", "cancelled"
     fill_price: Optional[float] = None
     filled_size: Optional[float] = None
+    # Exchange order ids of the TP/SL legs placed atomically alongside an entry
+    # (grouping="normalTpsl"), keyed "take_profit" / "stop_loss". Empty when the
+    # order carried no bracket.
+    child_order_ids: dict = field(default_factory=dict)
 
 
 class HyperLiquidClient:
@@ -328,11 +332,46 @@ class HyperLiquidClient:
             # Set leverage
             await self._set_leverage(client, address, api_key, api_secret, asset, leverage)
 
-            # Build and sign the action
+            # Attach TP/SL as an ATOMIC BRACKET when opening a position.
+            #
+            # HyperLiquid's grouping="normalTpsl" ties an entry to its TP/SL legs:
+            # filling or cancelling one leg cancels its siblings. Without it (the
+            # old grouping="na" with three separately-submitted orders) a filled
+            # TP left the SL resting as a naked reduce-only order, which can
+            # re-open the position in the opposite direction.
+            #
+            # The bracket legs are reduce-only triggers on the OPPOSITE side of
+            # the entry (close a long by selling), sized to the entry. Only
+            # applies to opening orders — a reduce_only order has no bracket.
+            bracket_legs: list[str] = []
+            orders = [order]
+            if not reduce_only and (tp_price or sl_price):
+                for leg_name, leg_px, leg_tpsl in (
+                    ("take_profit", tp_price, "tp"),
+                    ("stop_loss", sl_price, "sl"),
+                ):
+                    if not leg_px:
+                        continue
+                    orders.append(
+                        self._order_wire(
+                            asset_id,
+                            not is_buy,  # exit side is the inverse of the entry
+                            float(leg_px),
+                            size,
+                            sz_dec,
+                            False,
+                            reduce_only=True,
+                            tpsl=leg_tpsl,
+                        )
+                    )
+                    bracket_legs.append(leg_name)
+
+            # Build and sign the action. grouping stays "na" for a plain order so
+            # existing single-order behaviour is untouched.
             action = {
                 "type": "order",
-                "orders": [order],
-                "grouping": "na",
+                "orders": orders,
+                "grouping": "normalTpsl" if bracket_legs else "na",
             }
 
             # Attach builder fee so Suwappu earns on the order. The builder
@@ -363,11 +402,30 @@ class HyperLiquidClient:
                 statuses = status_data.get("statuses", [{}])
 
                 if statuses:
+                    # statuses[] is POSITIONAL — it mirrors the orders[] array we
+                    # sent, so with a bracket statuses[0] is the entry and
+                    # statuses[1..] are the TP/SL legs in `bracket_legs` order.
+                    child_ids: dict = {}
+                    for idx, leg_name in enumerate(bracket_legs, start=1):
+                        if idx >= len(statuses):
+                            break
+                        leg = statuses[idx] or {}
+                        oid = (leg.get("resting") or leg.get("filled") or {}).get("oid")
+                        if oid is not None:
+                            child_ids[leg_name] = str(oid)
+                        else:
+                            # An entry can succeed while a leg is rejected; surface
+                            # it instead of silently reporting a protected position.
+                            logger.warning(
+                                "HL bracket leg %s not accepted for %s: %s", leg_name, market, leg
+                            )
+
                     order_status = statuses[0]
                     if "resting" in order_status:
                         return HLOrderResult(
                             order_id=str(order_status["resting"]["oid"]),
                             status="open",
+                            child_order_ids=child_ids,
                         )
                     elif "filled" in order_status:
                         return HLOrderResult(
@@ -375,6 +433,7 @@ class HyperLiquidClient:
                             status="filled",
                             fill_price=float(order_status["filled"].get("avgPx", 0)),
                             filled_size=float(order_status["filled"].get("totalSz", 0)),
+                            child_order_ids=child_ids,
                         )
 
                 logger.warning(f"Unexpected order response: {data}")
