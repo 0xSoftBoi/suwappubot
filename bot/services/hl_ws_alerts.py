@@ -41,7 +41,7 @@ _BACKOFF_MAX = 60.0
 _REFRESH_INTERVAL = 300  # 5 minutes
 
 _HEARTBEAT_KEY = "service:hl_ws_alerts:heartbeat"
-_HEARTBEAT_TTL = 180
+_HEARTBEAT_TTL = 300
 
 
 class HLWebSocketAlerts:

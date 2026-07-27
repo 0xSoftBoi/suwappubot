@@ -58,7 +58,7 @@ class PredictMonitor:
             try:
                 await self._tick()
                 await redis_cache.set(
-                    "service:predict_monitor:heartbeat", _time.time(), ttl_seconds=180
+                    "service:predict_monitor:heartbeat", _time.time(), ttl_seconds=360
                 )
             except asyncio.CancelledError:
                 break
