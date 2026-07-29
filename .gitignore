@@ -1,5 +1,22 @@
 .DS_Store
 
+# Secrets — never commit real credentials.
+# All .env files are ignored; the checked-in templates/public files are re-included below.
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.prod.template
+!.env.testnet
+!**/.env.example
+!**/.env.development
+*.pem
+*.p12
+*.key
+id_rsa*
+credentials.json
+serviceaccount*.json
+
 # Python cache/build artifacts
 __pycache__/
 *.py[cod]

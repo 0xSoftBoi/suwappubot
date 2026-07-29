@@ -339,7 +339,7 @@ Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECUR
 | [GitBook API Docs](gitbook/) | Full API reference (33 files) |
 | [Agent Integration](docs/features/agent_integration.md) | MCP, A2A, REST setup |
 | [Examples](examples/) | Working examples: swap-agent, perps-trader, yield-farmer, prediction-bot |
-| [Deployment](docs/deployment/) | AWS, CI/CD, releases |
+| [Deployment](docs/deployment/) | Railway deploys, CI/CD, releases |
 | [Development](docs/development/) | Local setup, debugging, migrations |
 
 ---
@@ -351,3 +351,22 @@ Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECUR
 - **Showcase:** https://www.suwappu.bot
 - **Telegram Bot:** [@SuwappuBot](https://t.me/SuwappuBot)
 - **Agent Card:** https://api.suwappu.bot/.well-known/agent.json
+
+---
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for the
+repository map, local setup, testing commands and code style, and
+[CLAUDE.md](./CLAUDE.md) for architecture and build gotchas.
+
+- Good places to start: issues labelled [`good first issue`](https://github.com/0xSoftBoi/suwappubot/labels/good%20first%20issue)
+- All participants are expected to follow our [Code of Conduct](./CODE_OF_CONDUCT.md)
+- Security vulnerabilities go to **security@suwappu.bot**, never a public issue — see [SECURITY.md](./SECURITY.md)
+
+**Never commit secrets.** Real keys, bot tokens, seed phrases and database URLs do not
+belong in the repo. A gitleaks scan runs on every push and pull request.
+
+## License
+
+Licensed under the [Apache License 2.0](./LICENSE).

@@ -1,0 +1,31 @@
+# Configuration for gitleaks (see .github/workflows/secret-scan.yml).
+
+title = "Suwappu gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe fixtures, examples and public values"
+
+paths = [
+  '''.*/__tests__/sentryRedact\.test\.ts''',
+  '''tests/test_sentry_service\.py''',
+  '''tests/test_enterprise_api\.py''',
+  '''api-ts/src/__tests__/enterprise\.test\.ts''',
+  '''api-ts/openapi-agent\.json''',
+  '''.*\.env\.example''',
+  '''.*\.env\.template''',
+  '''\.env\.prod\.template''',
+  # Public Base Sepolia contract addresses only — documented as containing no secrets.
+  '''\.env\.testnet''',
+  '''package-lock\.json''',
+  '''bun\.lockb''',
+]
+
+regexes = [
+  '''suwappu_sk_live_[a-f0-9]{32}''',   # documentation placeholders in the OpenAPI spec
+  '''sk_live_ab(cdef)?[0-9a-f]{10,}''', # test fixtures
+  '''AKIAIOSFODNN7EXAMPLE''',           # AWS's own documented example key
+  '''1234567890:AAHfiqksKZ8WmR2zSjiQ7_v4swadNQbY5Vv''', # redaction-test fixture
+]
