@@ -104,73 +104,171 @@ export default function SectionField({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
-    /* ── The chain graph. Named nodes on a ring, real routes across it. ── */
-    const chains = (t: number) => {
-      // A ring, not a scatter: it frames the copy instead of sitting under it,
-      // so no chain label ever collides with the headline.
-      const cx = w * 0.5, cy = h * 0.48;
-      const rx = w * 0.42, ry = h * 0.36;
-      const N = CHAINS.length;
-      const P = CHAINS.map(([n], i) => {
-        const ang = ((i + 0.5) / N) * 6.284 - 1.57;
-        return { n, x: cx + Math.cos(ang) * rx, y: cy + Math.sin(ang) * ry, ang };
-      });
+    /* ── The chain sphere ────────────────────────────────────────
+       A dense dot-matrix sphere, hand-projected: ~1100 points on a Fibonacci
+       lattice, rotated, perspective-projected and depth-shaded, with the real
+       chain names pinned to fixed coordinates and great-circle routes lifting
+       off the surface. Same device as the reference globe, but the body is the
+       multichain surface rather than Earth, so it depicts what we actually do.
+       Hand-rolled rather than pulling in three.js: this is ~10KB, not 500KB. */
+    const DOTS = 3600;
+    const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
+    // Fixed lattice, built once per resize.
+    let lattice: Array<{ x: number; y: number; z: number }> = [];
+    const buildLattice = () => {
+      lattice = [];
+      for (let i = 0; i < DOTS; i++) {
+        const y = 1 - (i / (DOTS - 1)) * 2;
+        const r = Math.sqrt(Math.max(0, 1 - y * y));
+        const th = i * GOLDEN;
+        lattice.push({ x: Math.cos(th) * r, y, z: Math.sin(th) * r });
+      }
+    };
+    buildLattice();
+
+    // Chain anchors as (lat, lon) in degrees, spread so labels do not stack.
+    const ANCHORS: Array<[string, number, number]> = [
+      ['Ethereum', 34, 12], ['Base', 12, 58], ['Arbitrum', -8, 104],
+      ['Optimism', 26, 150], ['Solana', -30, 196], ['Polygon', 8, 242],
+      ['BSC', -18, 288], ['Avalanche', 40, 322], ['Tron', -44, 68],
+      ['Starknet', 52, 200], ['HyperEVM', -12, 340], ['Tempo', 20, 262],
+    ];
+    const toVec = (lat: number, lon: number) => {
+      const a1 = (lat * Math.PI) / 180, a2 = (lon * Math.PI) / 180;
+      return { x: Math.cos(a1) * Math.cos(a2), y: Math.sin(a1), z: Math.cos(a1) * Math.sin(a2) };
+    };
+    const ANCHOR_V = ANCHORS.map(([n, la, lo]) => ({ n, ...toVec(la, lo) }));
+
+    const sphere = (t: number) => {
+      const R = Math.min(w, h) * 0.42;
+      const cx = w * 0.5, cy = h * 0.5;
+      const spin = reduce ? 0.6 : t * 0.00009;
+      const FOV = 3.2;
+
+      const rot = (v: { x: number; y: number; z: number }) => {
+        const c = Math.cos(spin), s2 = Math.sin(spin);
+        const x = v.x * c + v.z * s2;
+        const z = -v.x * s2 + v.z * c;
+        // Slight tilt so it reads as a sphere, not a disc.
+        const y = v.y * 0.94 - z * 0.12;
+        return { x, y, z: z * 0.94 + v.y * 0.12 };
+      };
+      const proj = (v: { x: number; y: number; z: number }) => {
+        const k = FOV / (FOV - v.z);
+        return { x: cx + v.x * R * k, y: cy + v.y * R * k, k, z: v.z };
+      };
+
+      // Solid body first: occludes the page grid and gives the dots a surface
+      // to sit on. Lit from the same up-left key as the dots below.
+      const bg = ctx.createRadialGradient(
+        cx - R * 0.32, cy - R * 0.34, R * 0.05, cx, cy, R
+      );
+      bg.addColorStop(0, 'rgba(46, 32, 18, 0.95)');
+      bg.addColorStop(0.55, 'rgba(24, 18, 12, 0.95)');
+      bg.addColorStop(1, 'rgba(11, 9, 8, 0.95)');
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.284);
+      ctx.fillStyle = bg; ctx.fill();
+
+      // A crisp terminator edge reads as a sphere silhouette.
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.284);
+      ctx.strokeStyle = a(0.16); ctx.lineWidth = 1; ctx.stroke();
+
+      // Limb glow, so the body reads as volume.
+      const lg = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R * 1.16);
+      lg.addColorStop(0, a(0));
+      lg.addColorStop(0.6, a(0.09));
+      lg.addColorStop(1, a(0));
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.16, 0, 6.284);
+      ctx.fillStyle = lg; ctx.fill();
+
+      // The surface. Back hemisphere first so the front overlays it.
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.284); ctx.clip();
+      for (let li = 0; li < lattice.length; li++) {
+        const v = rot(lattice[li]);
+        if (v.z <= 0.04) continue; // only the face we can see
+        const s3 = proj(v);
+        // Lambert-ish term against a fixed up-left key light.
+        const lam = Math.max(0, v.x * -0.42 + v.y * 0.44 + v.z * 0.79);
+        ctx.beginPath();
+        ctx.arc(s3.x, s3.y, 0.85 * s3.k * 0.6, 0, 6.284);
+        ctx.fillStyle = a(0.10 + lam * 0.92);
+        ctx.fill();
+      }
+      ctx.restore();
 
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
 
-      // The ring itself, barely there.
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, 6.284);
-      ctx.strokeStyle = dim(0.04);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      for (const p of P) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.6, 0, 6.284);
-        ctx.fillStyle = a(0.5);
-        ctx.fill();
-        // Labels sit outside the ring, pushed along their own radius.
-        const lx = p.x + Math.cos(p.ang) * 12;
-        const ly = p.y + Math.sin(p.ang) * 12;
-        ctx.textAlign = Math.cos(p.ang) < -0.25 ? 'right' : Math.cos(p.ang) > 0.25 ? 'left' : 'center';
-        ctx.fillStyle = dim(0.3);
-        ctx.fillText(p.n, lx, ly);
-      }
-
-      // One route at a time crosses the ring, carrying the provider that won it.
-      const per = 3400;
+      // Great-circle route, lifted off the surface.
+      const per = 4200;
       const idx = reduce ? 0 : Math.floor(t / per) % HOPS.length;
       const prog = reduce ? 0.55 : ((t % per) / per);
       const [fi, ti, prov] = HOPS[idx];
-      const A = P[fi % N], B = P[ti % N];
+      const A = ANCHOR_V[fi % ANCHOR_V.length], B = ANCHOR_V[ti % ANCHOR_V.length];
+      const dot = Math.max(-1, Math.min(1, A.x * B.x + A.y * B.y + A.z * B.z));
+      const omega = Math.acos(dot) || 0.0001;
 
+      const arcPt = (u: number) => {
+        const s1 = Math.sin((1 - u) * omega) / Math.sin(omega);
+        const s2 = Math.sin(u * omega) / Math.sin(omega);
+        const lift = 1 + 0.22 * Math.sin(Math.PI * u);
+        return rot({
+          x: (A.x * s1 + B.x * s2) * lift,
+          y: (A.y * s1 + B.y * s2) * lift,
+          z: (A.z * s1 + B.z * s2) * lift,
+        });
+      };
+
+      // The full path, faint.
       ctx.beginPath();
-      ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
-      ctx.strokeStyle = a(0.22); ctx.lineWidth = 1.2; ctx.stroke();
+      for (let i = 0; i <= 48; i++) {
+        const q = proj(arcPt(i / 48));
+        i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+      }
+      ctx.strokeStyle = a(0.18); ctx.lineWidth = 1; ctx.stroke();
 
-      const e = prog < 0.5 ? 2 * prog * prog : 1 - Math.pow(-2 * prog + 2, 2) / 2;
-      const hx = A.x + (B.x - A.x) * e, hy = A.y + (B.y - A.y) * e;
-
-      const g = ctx.createLinearGradient(A.x, A.y, hx, hy);
-      g.addColorStop(0, a(0)); g.addColorStop(1, a(0.85));
+      // The travelling segment.
+      const ease = prog < 0.5 ? 2 * prog * prog : 1 - Math.pow(-2 * prog + 2, 2) / 2;
       ctx.beginPath();
-      ctx.moveTo(A.x, A.y); ctx.lineTo(hx, hy);
-      ctx.strokeStyle = g; ctx.lineWidth = 1.8; ctx.stroke();
+      const from = Math.max(0, ease - 0.22);
+      for (let i = 0; i <= 20; i++) {
+        const u = from + (ease - from) * (i / 20);
+        const q = proj(arcPt(u));
+        i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+      }
+      ctx.strokeStyle = a(0.8); ctx.lineWidth = 1.8; ctx.stroke();
 
-      ctx.beginPath();
-      ctx.arc(hx, hy, 3, 0, 6.284);
+      const head = proj(arcPt(ease));
+      ctx.beginPath(); ctx.arc(head.x, head.y, 3, 0, 6.284);
       ctx.fillStyle = a(1); ctx.fill();
-
       ctx.textAlign = 'center';
-      ctx.fillStyle = a(0.8);
-      ctx.fillText(prov, hx, hy - 13);
+      ctx.fillStyle = a(0.9);
+      ctx.fillText(prov, head.x, head.y - 13);
 
-      for (const p of [A, B]) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 5.5, 0, 6.284);
-        ctx.strokeStyle = a(0.4); ctx.lineWidth = 1; ctx.stroke();
+      // Chain anchors, drawn front-to-back so labels never sit behind the body.
+      const anchors = ANCHOR_V.map((v) => {
+        const r2 = rot(v); return { n: v.n, ...proj(r2), zz: r2.z };
+      }).sort((p1, p2) => p1.zz - p2.zz);
+
+      const placed: Array<{ x: number; y: number }> = [];
+      for (const p2 of anchors) {
+        const front = p2.zz > 0;
+        if (!front) continue;
+        const fade = Math.min(1, p2.zz * 2.2);
+        ctx.beginPath(); ctx.arc(p2.x, p2.y, 2.8 * p2.k * 0.8, 0, 6.284);
+        ctx.fillStyle = a(0.55 * fade + 0.25); ctx.fill();
+        ctx.beginPath(); ctx.arc(p2.x, p2.y, 5.5 * p2.k * 0.8, 0, 6.284);
+        ctx.strokeStyle = a(0.22 * fade); ctx.lineWidth = 1; ctx.stroke();
+        // Two anchors near the limb can project on top of each other.
+        const clash = placed.some((q) => Math.abs(q.x - p2.x) < 62 && Math.abs(q.y - p2.y) < 14);
+        if (!clash) {
+          placed.push({ x: p2.x, y: p2.y - 12 });
+          ctx.textAlign = 'center';
+          ctx.fillStyle = dim(0.16 + 0.30 * fade);
+          ctx.fillText(p2.n, p2.x, p2.y - 12);
+        }
       }
     };
 
@@ -333,7 +431,7 @@ export default function SectionField({
       });
     };
 
-    const MOTIFS = { chains, race, markets, sponsor, tools };
+    const MOTIFS = { chains: sphere, race, markets, sponsor, tools };
 
     const draw = (t: number) => {
       if (!w || !h) return;

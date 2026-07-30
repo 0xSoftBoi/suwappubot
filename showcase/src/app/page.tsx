@@ -99,10 +99,9 @@ export default function Home() {
         <SummerNav />
 
         {/* ── Hero ─────────────────────────────────────────────── */}
-        <section className="hd__hero">
+        <section className="hd__hero hd__hero--split">
           <div className="he__grid" aria-hidden="true" />
-          <SectionField motif="chains" className="sw__field sw__field--hero" />
-
+          <div className="hd__copy">
           <p className="hd__eyebrow">Cross-chain execution</p>
           <h1 className="hd__h1">The best price, proven every trade.</h1>
           <p className="hd__lead">
@@ -115,6 +114,11 @@ export default function Home() {
           </div>
 
           <Reveal className="hd__stage"><LiveQuote variant="dark" /></Reveal>
+          </div>
+
+          <div className="hd__object">
+            <SectionField motif="chains" className="sw__field--sphere" />
+          </div>
 
           <Reveal className="hd__rail" delay={120}>
             {RAIL.map((s) => (

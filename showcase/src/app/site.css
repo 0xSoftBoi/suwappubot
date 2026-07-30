@@ -441,3 +441,43 @@
   .sw__sec:has(.sw__field) .sw__steps { max-width: none; }
   .sw__field--hero { display: block; }
 }
+
+/* ── Split hero: copy left, chain sphere right ───────────────────
+   The reference gives its globe a column of its own next to left-aligned
+   copy. A large object centred behind centred text just reads as noise. */
+.hd__hero--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  grid-template-areas: 'copy object' 'rail rail';
+  align-items: center;
+  column-gap: clamp(1.5rem, 4vw, 3.5rem);
+  text-align: left;
+  max-width: 1240px;
+}
+
+.hd__hero--split .hd__copy { grid-area: copy; }
+.hd__hero--split .hd__object { grid-area: object; position: relative; }
+.hd__hero--split .hd__rail { grid-area: rail; }
+
+/* The centred-hero rules no longer apply once it is a split. */
+.hd__hero--split .hd__h1,
+.hd__hero--split .hd__lead { max-width: 100%; }
+.hd__hero--split .hd__cta { justify-content: flex-start; }
+.hd__hero--split .hd__stage { margin-top: 2rem; max-width: 100%; }
+
+.sw__field--sphere {
+  display: block;
+  width: 100%;
+  /* Square box keeps the sphere circular at any width. */
+  aspect-ratio: 1 / 1;
+  max-height: 60vh;
+  margin-inline: auto;
+}
+
+@media (max-width: 980px) {
+  .hd__hero--split {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'copy' 'object' 'rail';
+  }
+  .hd__hero--split .hd__object { max-width: 26rem; margin-inline: auto; }
+}
