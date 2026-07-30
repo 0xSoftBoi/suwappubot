@@ -491,6 +491,9 @@ def _ensure_schema(db_engine) -> None:
     # --- recurring crypto subscriptions (Base Spend Permissions) ---
     _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
 
+    # --- execution intelligence: swap_route_candidates ---
+    _create_swap_route_candidates_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -3095,3 +3098,74 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_reward_epochs_status" " ON reward_epochs(status)")
         )
+
+
+def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the swap_route_candidates table idempotently.
+
+    EXECUTION INTELLIGENCE: stores every route the aggregator offered for a
+    quote, not just the one executed. The rejected alternatives are the only
+    basis on which a routing decision can be evaluated after the fact, and
+    they were previously discarded at quote time (api-ts persisted just
+    ``JSON.stringify(quote._rawQuote)`` for the chosen route).
+
+    Written by BOTH stacks — api-ts (SwapService quote path) and the python
+    bot (socket_api route list) — so the table is created here, which is the
+    authoritative shared-DB path. Additive and idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "swap_route_candidates" in tables:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    bool_default = "0" if is_sqlite else "FALSE"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS swap_route_candidates (
+                    {pk},
+                    quote_id VARCHAR(128) NOT NULL,
+                    swap_id INTEGER,
+                    user_id INTEGER,
+                    agent_id INTEGER,
+                    from_chain VARCHAR(50) NOT NULL,
+                    to_chain VARCHAR(50) NOT NULL,
+                    from_token VARCHAR(40) NOT NULL,
+                    to_token VARCHAR(40) NOT NULL,
+                    from_amount_usd DOUBLE PRECISION,
+                    provider VARCHAR(50),
+                    tool VARCHAR(80),
+                    quoted_to_amount VARCHAR(78),
+                    quoted_to_amount_usd DOUBLE PRECISION,
+                    quoted_gas_usd DOUBLE PRECISION,
+                    quoted_fee_usd DOUBLE PRECISION,
+                    quoted_duration_s INTEGER,
+                    rank INTEGER,
+                    was_selected BOOLEAN NOT NULL DEFAULT {bool_default},
+                    route_hash VARCHAR(64),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """.replace("DOUBLE PRECISION", "REAL" if is_sqlite else "DOUBLE PRECISION")))
+
+        for idx, cols in (
+            ("ix_swap_route_candidates_quote_id", "quote_id"),
+            ("ix_swap_route_candidates_swap_id", "swap_id"),
+            ("ix_swap_route_candidates_user_id", "user_id"),
+            ("ix_swap_route_candidates_agent_id", "agent_id"),
+            ("ix_swap_route_candidates_created_at", "created_at"),
+            ("ix_swap_route_candidates_route_hash", "route_hash"),
+            # Cohort lookups for the execution-percentile benchmark.
+            (
+                "ix_swap_route_candidates_shape",
+                "from_chain, to_chain, from_token, to_token",
+            ),
+        ):
+            conn.execute(
+                text(f"CREATE INDEX IF NOT EXISTS {idx} " f"ON swap_route_candidates ({cols})")
+            )
+
+    logger.info("Created swap_route_candidates table")

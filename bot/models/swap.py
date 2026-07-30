@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, Enum
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, ForeignKey, Text, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
@@ -93,3 +93,71 @@ class SwapTransaction(Base):
     def is_failed(self) -> bool:
         """Check if swap failed."""
         return self.status == SwapStatus.FAILED.value
+
+
+class SwapRouteCandidate(Base):
+    """One route option the aggregator returned for a quote — taken or not.
+
+    EXECUTION INTELLIGENCE (the counterfactual): the swap path previously
+    persisted only the route it executed (``swap_transactions.route_data``),
+    so every alternative the aggregator offered was discarded at quote time.
+    Without the rejected options there is no way to ask the only question that
+    improves a routing decision — "should we have picked something else?" —
+    because realized cost has nothing to be compared against.
+
+    One row per candidate route per quote. ``was_selected`` marks the one that
+    executed; ``swap_id`` is backfilled once a quote turns into a swap (a quote
+    that is never executed keeps ``swap_id`` NULL and is still useful).
+
+    Deliberately normalized rather than raw JSON blobs: at N routes per quote
+    the raw payloads grow far faster than the columns anyone queries.
+
+    NOTE: scores computed for routes that were NOT taken are *modeled*
+    counterfactuals, not observations — nobody can know the slippage a
+    route would actually have realized. Safe for ranking providers; never
+    present as an observed outcome or a guarantee.
+    """
+
+    __tablename__ = "swap_route_candidates"
+
+    id = Column(Integer, primary_key=True)
+
+    # Quote correlation — set at quote time, before any swap exists.
+    quote_id = Column(String(128), nullable=False, index=True)
+    # Backfilled when the quote is executed. NULL = quote never executed.
+    swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=True, index=True)
+
+    # Principal. user_id is nullable so anonymous/public quotes still record.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # Set only for agent-originated quotes — the agent-vs-human split.
+    agent_id = Column(Integer, nullable=True, index=True)
+
+    # Trade shape (denormalized so cohort queries need no join).
+    from_chain = Column(String(50), nullable=False)
+    to_chain = Column(String(50), nullable=False)
+    from_token = Column(String(40), nullable=False)
+    to_token = Column(String(40), nullable=False)
+    from_amount_usd = Column(Float, nullable=True)
+
+    # The candidate itself.
+    provider = Column(String(50), nullable=True)  # lifi, socket, jupiter
+    tool = Column(String(80), nullable=True)  # underlying bridge/DEX
+    quoted_to_amount = Column(String(78), nullable=True)
+    quoted_to_amount_usd = Column(Float, nullable=True)
+    quoted_gas_usd = Column(Float, nullable=True)
+    quoted_fee_usd = Column(Float, nullable=True)
+    quoted_duration_s = Column(Integer, nullable=True)
+
+    # Rank as the aggregator returned it (0 = its own best).
+    rank = Column(Integer, nullable=True)
+    was_selected = Column(Boolean, default=False, nullable=False)
+    # Stable identity for dedupe across repeated quotes of the same shape.
+    route_hash = Column(String(64), nullable=True, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<SwapRouteCandidate(quote={self.quote_id}, provider={self.provider}, "
+            f"tool={self.tool}, selected={self.was_selected})>"
+        )
