@@ -20,6 +20,8 @@ import { useEffect, useRef } from 'react';
  * and painting stops entirely when the section leaves the viewport.
  */
 
+export { JOURNEYS };
+
 export type Motif = 'chains' | 'race' | 'markets' | 'sponsor' | 'tools';
 
 const ACCENT = '246, 169, 60';
@@ -41,14 +43,41 @@ const CHAINS: Array<[string, number, number]> = [
   ['Tempo', 0.90, 0.13],
 ];
 
-/** Routes actually worth showing, with the provider that would carry them. */
-const HOPS: Array<[number, number, string]> = [
-  [1, 2, 'Li.Fi'],
-  [0, 4, 'Jupiter'],
-  [3, 6, 'OKX'],
-  [5, 7, '1inch'],
-  [2, 9, 'CoW'],
-  [10, 11, 'Across'],
+/** Multi-stage journeys. Cross-chain is never one hop: the source asset is
+ *  swapped on its own chain, bridged, then swapped again on the destination.
+ *  Bridges named here are real providers from stats.generated.json. */
+export type Leg = { kind: 'swap' | 'bridge'; venue: string; note: string };
+export type Journey = {
+  fromChain: string; fromToken: string;
+  toChain: string;   toToken: string;
+  legs: [Leg, Leg, Leg];
+};
+
+const JOURNEYS: Journey[] = [
+  {
+    fromChain: 'Base', fromToken: 'USDC', toChain: 'Tron', toToken: 'USDT',
+    legs: [
+      { kind: 'swap',   venue: 'Base DEX',  note: 'USDC to bridge asset' },
+      { kind: 'bridge', venue: 'best bridge', note: 'Base to Tron' },
+      { kind: 'swap',   venue: 'SunSwap',   note: 'to USDT on Tron' },
+    ],
+  },
+  {
+    fromChain: 'Base', fromToken: 'USDC', toChain: 'Solana', toToken: 'SOL',
+    legs: [
+      { kind: 'swap',   venue: 'Base DEX',  note: 'USDC to bridge asset' },
+      { kind: 'bridge', venue: 'best bridge', note: 'Base to Solana' },
+      { kind: 'swap',   venue: 'Jupiter',   note: 'to SOL on Solana' },
+    ],
+  },
+  {
+    fromChain: 'Tron', fromToken: 'USDT', toChain: 'Solana', toToken: 'USDC',
+    legs: [
+      { kind: 'swap',   venue: 'SunSwap',   note: 'USDT to bridge asset' },
+      { kind: 'bridge', venue: 'best bridge', note: 'Tron to Solana' },
+      { kind: 'swap',   venue: 'Jupiter',   note: 'to USDC on Solana' },
+    ],
+  },
 ];
 
 /** Real providers from stats.generated.json, with plausible relative quotes. */
@@ -141,7 +170,7 @@ export default function SectionField({
     const ANCHOR_V = ANCHORS.map(([n, la, lo]) => ({ n, ...toVec(la, lo) }));
 
     const sphere = (t: number) => {
-      const R = Math.min(w, h) * 0.42;
+      const R = Math.min(w, h) * 0.355;
       const cx = w * 0.5, cy = h * 0.5;
       const spin = reduce ? 0.6 : t * 0.00009;
       const FOV = 3.2;
@@ -201,19 +230,29 @@ export default function SectionField({
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
 
-      // Great-circle route, lifted off the surface.
-      const per = 4200;
-      const idx = reduce ? 0 : Math.floor(t / per) % HOPS.length;
-      const prog = reduce ? 0.55 : ((t % per) / per);
-      const [fi, ti, prov] = HOPS[idx];
-      const A = ANCHOR_V[fi % ANCHOR_V.length], B = ANCHOR_V[ti % ANCHOR_V.length];
-      const dot = Math.max(-1, Math.min(1, A.x * B.x + A.y * B.y + A.z * B.z));
-      const omega = Math.acos(dot) || 0.0001;
+      // ── The multi-stage journey ─────────────────────────────
+      // Three legs, in sequence: swap on the source chain, bridge across,
+      // swap again on the destination. The stage that is currently executing
+      // is the one that lights up.
+      const per = 7200;
+      const jIdx = reduce ? 0 : Math.floor(t / per) % JOURNEYS.length;
+      const jp = reduce ? 0.5 : ((t % per) / per);
+      const J = JOURNEYS[jIdx];
 
+      const byName = (n: string) =>
+        ANCHOR_V.find((v) => v.n === n) ?? ANCHOR_V[0];
+      const A = byName(J.fromChain), B = byName(J.toChain);
+
+      // Legs occupy 0-0.28 (swap), 0.28-0.72 (bridge), 0.72-1 (swap).
+      const stage = jp < 0.28 ? 0 : jp < 0.72 ? 1 : 2;
+      const bridgeU = Math.max(0, Math.min(1, (jp - 0.28) / 0.44));
+
+      const dot2 = Math.max(-1, Math.min(1, A.x * B.x + A.y * B.y + A.z * B.z));
+      const omega = Math.acos(dot2) || 0.0001;
       const arcPt = (u: number) => {
         const s1 = Math.sin((1 - u) * omega) / Math.sin(omega);
         const s2 = Math.sin(u * omega) / Math.sin(omega);
-        const lift = 1 + 0.22 * Math.sin(Math.PI * u);
+        const lift = 1 + 0.24 * Math.sin(Math.PI * u);
         return rot({
           x: (A.x * s1 + B.x * s2) * lift,
           y: (A.y * s1 + B.y * s2) * lift,
@@ -221,31 +260,36 @@ export default function SectionField({
         });
       };
 
-      // The full path, faint.
+      // Whole path, faint.
       ctx.beginPath();
-      for (let i = 0; i <= 48; i++) {
-        const q = proj(arcPt(i / 48));
+      for (let i = 0; i <= 56; i++) {
+        const q = proj(arcPt(i / 56));
         i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
       }
-      ctx.strokeStyle = a(0.18); ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = a(0.28); ctx.lineWidth = 1; ctx.stroke();
 
-      // The travelling segment.
-      const ease = prog < 0.5 ? 2 * prog * prog : 1 - Math.pow(-2 * prog + 2, 2) / 2;
-      ctx.beginPath();
-      const from = Math.max(0, ease - 0.22);
-      for (let i = 0; i <= 20; i++) {
-        const u = from + (ease - from) * (i / 20);
-        const q = proj(arcPt(u));
-        i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+      // Travelled portion.
+      if (stage >= 1) {
+        ctx.beginPath();
+        for (let i = 0; i <= 40; i++) {
+          const q = proj(arcPt((i / 40) * bridgeU));
+          i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+        }
+        ctx.strokeStyle = a(0.85); ctx.lineWidth = 1.9; ctx.stroke();
+        const head = proj(arcPt(bridgeU));
+        ctx.beginPath(); ctx.arc(head.x, head.y, 3.2, 0, 6.284);
+        ctx.fillStyle = a(1); ctx.fill();
       }
-      ctx.strokeStyle = a(0.8); ctx.lineWidth = 1.8; ctx.stroke();
 
-      const head = proj(arcPt(ease));
-      ctx.beginPath(); ctx.arc(head.x, head.y, 3, 0, 6.284);
-      ctx.fillStyle = a(1); ctx.fill();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = a(0.9);
-      ctx.fillText(prov, head.x, head.y - 13);
+      // Endpoint pulses while its swap leg runs.
+      const pulse = (v: typeof A, on: boolean) => {
+        const q = proj(rot(v));
+        ctx.beginPath(); ctx.arc(q.x, q.y, on ? 9 : 5.5, 0, 6.284);
+        ctx.strokeStyle = a(on ? 0.75 : 0.3);
+        ctx.lineWidth = on ? 1.8 : 1; ctx.stroke();
+      };
+      pulse(A, stage === 0);
+      pulse(B, stage === 2);
 
       // Chain anchors, drawn front-to-back so labels never sit behind the body.
       const anchors = ANCHOR_V.map((v) => {

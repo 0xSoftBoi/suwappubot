@@ -4,6 +4,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import SectionField from '@/components/SectionField';
+import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
 import AgentHandoff from '@/components/AgentHandoff';
 import productStats from '@/data/stats.generated.json';
@@ -118,6 +119,7 @@ export default function Home() {
 
           <div className="hd__object">
             <SectionField motif="chains" className="sw__field--sphere" />
+            <RouteStages />
           </div>
 
           <Reveal className="hd__rail" delay={120}>

@@ -481,3 +481,58 @@
   }
   .hd__hero--split .hd__object { max-width: 26rem; margin-inline: auto; }
 }
+
+/* ── Multi-stage route readout ───────────────────────────────────
+   Names the three legs of a cross-chain swap so the staging is explicit,
+   in step with the sphere's animation. */
+.stages {
+  margin-top: -0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--fg-faint);
+}
+
+.stages__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  justify-content: center;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.stages__tok { color: var(--fg); font-size: 0.8125rem; font-weight: 600; }
+.stages__chain { color: var(--fg-faint); }
+.stages__arrow { color: var(--accent); padding: 0 0.2rem; }
+
+.stages__list { list-style: none; margin: 0; padding: 0.5rem 0 0; }
+
+.stages__list li {
+  display: grid;
+  grid-template-columns: 1.6rem 3.6rem 6rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.stages__on { background: rgba(246, 169, 60, 0.08); }
+.stages__on .stages__kind, .stages__on .stages__venue { color: var(--accent); }
+
+.stages__n { color: var(--fg-faint); opacity: 0.6; }
+.stages__kind { text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-dim); }
+.stages__venue { color: var(--fg-dim); }
+.stages__note { color: var(--fg-faint); }
+
+.stages__foot {
+  margin: 0.6rem 0 0;
+  text-align: center;
+  color: var(--fg-faint);
+  opacity: 0.7;
+}
+
+@media (max-width: 520px) {
+  .stages__list li { grid-template-columns: 1.4rem 3.2rem 1fr; }
+  .stages__note { display: none; }
+}

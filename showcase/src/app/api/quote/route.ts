@@ -12,11 +12,15 @@ import { NextResponse } from 'next/server';
 const UPSTREAM = 'https://api.suwappu.bot/v1/agent/quote';
 
 /** Only these exact demo routes are quotable through the public proxy. */
-const ALLOWED = new Map<string, { from: string; to: string; chain: string; amount: string }>([
+const ALLOWED = new Map<
+  string,
+  { from: string; to: string; chain: string; toChain?: string; amount: string }
+>([
   ['usdc-eth-base', { from: 'USDC', to: 'ETH', chain: 'base', amount: '100' }],
-  ['usdc-eth-arbitrum', { from: 'USDC', to: 'ETH', chain: 'arbitrum', amount: '100' }],
   ['eth-usdc-base', { from: 'ETH', to: 'USDC', chain: 'base', amount: '0.1' }],
-  ['usdc-sol-solana', { from: 'USDC', to: 'SOL', chain: 'solana', amount: '100' }],
+  // Cross-chain: these are the multi-stage routes, swap then bridge then swap.
+  ['usdc-base-usdt-polygon', { from: 'USDC', to: 'USDT', chain: 'base', toChain: 'polygon', amount: '100' }],
+  ['usdc-base-eth-arbitrum', { from: 'USDC', to: 'ETH', chain: 'base', toChain: 'arbitrum', amount: '100' }],
 ]);
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +51,7 @@ export async function GET(req: Request) {
         from_token: route.from,
         to_token: route.to,
         chain: route.chain,
+        ...(route.toChain ? { to_chain: route.toChain } : {}),
         amount: route.amount,
       }),
       // A quote is only valid ~60s, so caching it any longer would be a lie.
@@ -68,6 +73,10 @@ export async function GET(req: Request) {
       from: { symbol: data.from_token?.symbol ?? route.from, amount: data.amount_in },
       to: { symbol: data.to_token?.symbol ?? route.to, amount: data.amount_out },
       chain: data.from_chain,
+      toChain: data.to_chain,
+      crossChain: data.from_chain !== data.to_chain,
+      bridgeFeeUsd: data.bridge_fee_usd ?? null,
+      etaSeconds: data.estimated_time_seconds ?? null,
       rate: data.exchange_rate,
       priceImpact: data.price_impact,
       gasUsd: data.estimated_gas_usd,
