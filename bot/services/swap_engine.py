@@ -39,6 +39,7 @@ from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
 from bot.services.layerzero_api import LayerZeroAPI, LayerZeroQuote, LayerZeroError
 from bot.services.ccip_api import ChainlinkCCIPAPI, CCIPQuote, CCIPError
 from bot.services.cctp_api import CircleCCTPAPI, CCTPQuote, CCTPError
+from bot.services.bridge.usdt0_api import usdt0_api
 from bot.services.across_api import AcrossAPI, AcrossQuote, AcrossError
 from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
 from bot.services.cow_api import CoWProtocolAPI, cow_api, CoWError
@@ -84,13 +85,18 @@ logger = logging.getLogger(__name__)
 # previously ended in `else: _execute_lifi_swap`, so any unknown value was
 # quietly executed by the Li.Fi executor against a foreign quote.
 #
-# Deliberately ABSENT: near_intents, allbridge, symbiosis, arbitrum_native,
-# usdt0. Those are quote-only today -- bot/services/bridge/registry.py can
-# surface them for route comparison, but none has an executor here, so they must
-# fail loudly rather than be mis-executed. Add a name here only together with a
-# real `_execute_<provider>_swap` branch below.
+# Deliberately ABSENT: near_intents, allbridge, symbiosis, arbitrum_native.
+# Those are quote-only today -- bot/services/bridge/registry.py can surface them
+# for route comparison, but none has an executor here, so they must fail loudly
+# rather than be mis-executed. Add a name here only together with a real
+# `_execute_<provider>_swap` branch below.
+#
+# usdt0 IS executable (_execute_usdt0_swap), but note it stays unreachable in
+# practice until USDT0_BRIDGE_ENABLED is flipped: _is_usdt0_route gates on the
+# provider's own `enabled` flag, so no usdt0 quote is produced while it is off.
 EXECUTABLE_PROVIDERS = frozenset(
     {
+        "usdt0",
         "tempo_dex",
         "cow",
         "socket",
@@ -353,6 +359,22 @@ class SwapEngine:
         if from_token != to_token:
             return False
         return self.layerzero.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_usdt0_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
+        """USDT0 (LayerZero OFT canonical USDT): 1:1 mint/burn, no AMM slippage.
+
+        Same-token only. Gated on the provider's own `enabled` flag (default
+        False) and on both legs having a verified OFT address configured, so an
+        unconfigured chain is never offered. Plasma and HyperEVM have no native
+        USDT deployment, so this is the only non-wrapped path to them.
+        """
+        if from_token != to_token:
+            return False
+        if not usdt0_api.enabled:
+            return False
+        return usdt0_api.is_supported_route(from_chain, to_chain, from_token)
 
     def _is_cctp_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
@@ -889,6 +911,14 @@ class SwapEngine:
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(
                     self._get_layerzero_quote(
+                        from_chain, to_chain, from_token, amount, amount_raw, from_address, slippage
+                    )
+                )
+            # USDT0: 1:1 OFT mint/burn for USDT, and the only non-wrapped path
+            # to Plasma/HyperEVM. No-ops while USDT0_BRIDGE_ENABLED is False.
+            if self._is_usdt0_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(
+                    self._get_usdt0_quote(
                         from_chain, to_chain, from_token, amount, amount_raw, from_address, slippage
                     )
                 )
@@ -2016,6 +2046,77 @@ class SwapEngine:
             },
         )
 
+    async def _get_usdt0_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        slippage: float,
+        to_address: Optional[str] = None,
+    ) -> SwapQuote:
+        """Adapt a USDT0 BridgeQuote into a SwapQuote.
+
+        Note the unit change at this boundary: swap_engine speaks slippage in
+        PERCENT (0.5 == 0.5%) while BridgeProvider speaks basis points, so the
+        conversion is explicit here. `round()` not `int()` — truncation would
+        turn a sub-1% slippage into 0 bps, and the provider rejects 0.
+        """
+        bridge_quote = await usdt0_api.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            from_amount=amount_raw,
+            from_address=from_address,
+            to_address=to_address or from_address,
+            slippage_bps=max(1, round(slippage * 100)),
+        )
+        if bridge_quote is None:
+            # Fails closed for an unconfigured chain, a quoteSend RPC failure,
+            # a fee above the ceiling, or an invalid recipient. Raise rather
+            # than return None so the race logs it instead of dropping it
+            # silently (get_quote filters on isinstance(r, SwapQuote)).
+            raise SwapError(f"USDT0 could not quote {from_chain}->{to_chain} {token}")
+
+        tx = bridge_quote.transaction_request or {}
+        to_amount_human = self._get_token_amount_human(bridge_quote.to_amount, token, to_chain)
+
+        return SwapQuote(
+            provider="usdt0",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=bridge_quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=bridge_quote.to_amount_min,
+            # The LayerZero messaging fee is paid in native currency as tx
+            # `value`, exactly like gas — the provider reports it as
+            # gas_cost_usd so router.py's net_output_usd ranks this route
+            # honestly rather than treating USDT0 as free.
+            gas_cost_usd=bridge_quote.gas_cost_usd,
+            fee_cost_usd=bridge_quote.fee_cost_usd,
+            total_cost_usd=bridge_quote.gas_cost_usd + bridge_quote.fee_cost_usd,
+            estimated_time=bridge_quote.estimated_time,
+            price_impact=0.0,
+            # 1:1 mint/burn rail.
+            exchange_rate=1.0,
+            # Carry everything _execute_usdt0_swap needs, so execution never
+            # re-quotes (a re-quote could return a different fee/minAmountLD
+            # than the one the user was shown and agreed to).
+            raw_quote={
+                **(bridge_quote.raw_response or {}),
+                "send_to": tx.get("to"),
+                "send_data": tx.get("data"),
+                "send_value": tx.get("value"),
+                "approval_tx": tx.get("approval_tx"),
+            },
+        )
+
     async def _get_layerzero_quote(
         self,
         from_chain: str,
@@ -2369,6 +2470,21 @@ class SwapEngine:
             tasks.append(
                 self._get_layerzero_quote(
                     from_chain, to_chain, from_token, amount, amount_raw, from_address, slippage
+                )
+            )
+
+        # USDT0 (LayerZero OFT) for same-token USDT cross-chain
+        if self._is_usdt0_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(
+                self._get_usdt0_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                    to_address,
                 )
             )
 
@@ -2803,6 +2919,8 @@ class SwapEngine:
                     tx_hash = await self._execute_ccip_swap(quote, wallet)
                 elif quote.provider == "layerzero":
                     tx_hash = await self._execute_layerzero_swap(quote, wallet)
+                elif quote.provider == "usdt0":
+                    tx_hash = await self._execute_usdt0_swap(quote, wallet)
                 elif quote.provider == "cctp":
                     tx_hash = await self._execute_cctp_swap(quote, wallet)
                 elif quote.provider == "across":
@@ -4131,6 +4249,118 @@ class SwapEngine:
         key = raw_key if raw_key.startswith("0x") else "0x" + raw_key
         signed = Account.from_key(key).unsafe_sign_hash(hash32)
         return Signature(r=signed.r, s=signed.s, v=signed.v)
+
+    async def _execute_usdt0_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a USDT0 (LayerZero OFT) transfer.
+
+        Uses the calldata built at quote time verbatim — it never re-quotes,
+        because a fresh `quoteSend` could return a different fee or
+        minAmountLD than the one the user was shown.
+
+        The approve is conditional and that is not an optimisation: it was
+        verified on-chain per chain via `approvalRequired()`. The satellite
+        chains (arbitrum, plasma, hyperevm, ink, unichain, berachain, flare)
+        are native mint/burn OFTs and need NO ERC20 approve; Ethereum is a
+        lockbox holding canonical Tether USDT and REQUIRES one. Sending an
+        approve where none is needed only wastes gas, but omitting it on
+        Ethereum makes the send revert. The quote decides, not this method.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        raw = quote.raw_quote or {}
+        send_to = raw.get("send_to")
+        send_data = raw.get("send_data")
+        send_value = raw.get("send_value")
+
+        # Fail closed rather than substituting defaults: a zero/absent value
+        # would under-pay the LayerZero fee and the message would never be
+        # delivered, stranding the transfer mid-flight.
+        if not send_to or not send_data or send_value is None:
+            raise SwapError(
+                "USDT0 quote is missing execution data (send_to/send_data/send_value); "
+                "refusing to execute."
+            )
+
+        sender = wallet_data["address"]
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = self._get_web3_with_fallback(quote.from_chain)
+
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+
+        # Step 1: approve, ONLY when the quote says this chain needs one.
+        approval = raw.get("approval_tx")
+        if approval:
+            approve_tx = {
+                "to": Web3.to_checksum_address(approval["to"]),
+                "data": approval["data"],
+                "value": 0,
+                "gas": 100_000,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+            signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            approve_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
+            )
+            logger.info(f"USDT0 approval tx: {approve_hash.hex()}")
+
+            receipt = await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            )
+            if receipt["status"] != 1:
+                # Abort before send: an OFT send against a failed approval
+                # would revert on-chain and waste the gas already spent here.
+                raise SwapError(f"USDT0 ERC20 approval failed (tx: {approve_hash.hex()})")
+            nonce += 1
+
+        # Step 2: send() on the OFT. `value` is the buffered LayerZero
+        # messaging fee; surplus is refunded to the sender by LayerZero
+        # (_refundAddress was set to the sender at quote time).
+        gas_estimate = 350_000
+        try:
+            estimated = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(sender),
+                        "to": Web3.to_checksum_address(send_to),
+                        "data": send_data,
+                        "value": int(send_value),
+                    }
+                )
+            )
+            gas_estimate = max(gas_estimate, int(estimated * 1.3))
+        except Exception as e:
+            logger.warning(f"USDT0 send gas estimate failed, using {gas_estimate}: {e}")
+
+        send_tx = {
+            "to": Web3.to_checksum_address(send_to),
+            "data": send_data,
+            "value": int(send_value),
+            "gas": gas_estimate,
+            "gasPrice": gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_send = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_send.replace("0x", "")))
+        )
+
+        logger.info(
+            f"USDT0 send: {tx_hash.hex()} "
+            f"({quote.from_chain}→{quote.to_chain} {quote.from_token}, "
+            f"eid {raw.get('eid_src')}→{raw.get('eid_dst')})"
+        )
+        return tx_hash.hex()
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.

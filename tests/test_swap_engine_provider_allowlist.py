@@ -105,19 +105,44 @@ def test_every_provider_swap_engine_emits_is_executable():
 
 @pytest.mark.parametrize(
     "provider",
-    ["near_intents", "allbridge", "symbiosis", "arbitrum_native", "usdt0"],
+    ["near_intents", "allbridge", "symbiosis", "arbitrum_native"],
 )
 def test_quote_only_bridge_providers_are_refused(provider):
     """The bridge registry can surface these; none has an executor.
 
     Before the allowlist each of these would have been executed by
-    `_execute_lifi_swap`.
+    `_execute_lifi_swap`. (usdt0 was in this list until it got a real
+    executor — see test_usdt0_is_executable_but_gated.)
     """
     assert provider not in EXECUTABLE_PROVIDERS
 
     engine = SwapEngine.__new__(SwapEngine)  # guard runs before any __init__ state is needed
     with pytest.raises(SwapError, match="No executor is wired"):
         asyncio.run(engine.execute_swap(quote=_quote(provider), wallet_id=1, user_id=1))
+
+
+def test_usdt0_is_executable_but_gated():
+    """usdt0 has an executor, so it must pass the allowlist — but it must also
+    be unreachable while the provider flag is off.
+
+    Both halves matter: allowlisting it without the executor would mean
+    mis-execution, and having the executor without the route gate would mean
+    offering an un-live-tested rail by default.
+    """
+    assert "usdt0" in EXECUTABLE_PROVIDERS
+
+    from bot.services.bridge.usdt0_api import usdt0_api
+
+    assert usdt0_api.enabled is False, "USDT0 must stay default-OFF until live-tested"
+
+    engine = SwapEngine.__new__(SwapEngine)
+    assert engine._is_usdt0_route("arbitrum", "plasma", "USDT", "USDT") is False
+
+    # Past the allowlist guard: it fails later for unrelated reasons (no
+    # DB/wallet here), which is the point — the block must not be the allowlist.
+    with pytest.raises(Exception) as excinfo:
+        asyncio.run(engine.execute_swap(quote=_quote("usdt0"), wallet_id=1, user_id=1))
+    assert "No executor is wired" not in str(excinfo.value)
 
 
 @pytest.mark.parametrize("provider", ["", "totally-made-up", "LIFI", "lifi_evm", "../../etc"])
