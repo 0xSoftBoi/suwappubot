@@ -321,7 +321,21 @@ class SwapEngine:
     def _is_cctp_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
     ) -> bool:
-        """Circle CCTP: zero-fee native USDC cross-chain (same token)."""
+        """Circle CCTP: zero-fee native USDC cross-chain (same token).
+
+        FUND-LOSS GUARD — do not remove this gate without wiring a completion
+        relayer first. `_execute_cctp_swap` below only does approve+burn on the
+        source chain; nothing in this codebase polls the Circle attestation or
+        submits `receiveMessage` on the destination chain for this generic
+        rail (cctp_relayer.py only completes bot/services/cctp_hypercore.py's
+        separate HyperCore-funding burns). Offering this route today means a
+        user's USDC is burned on the source chain and never minted anywhere —
+        permanent fund loss. Gated behind `settings.cctp_generic_rail_enabled`
+        (default False) until a real completion relayer exists and is
+        verified end-to-end for this rail.
+        """
+        if not getattr(settings, "cctp_generic_rail_enabled", False):
+            return False
         if from_token != to_token:
             return False
         return self.cctp.is_supported_route(from_chain, to_chain, from_token)
@@ -4160,7 +4174,20 @@ class SwapEngine:
         return tx_hash.hex()
 
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a USDC transfer via Circle CCTP (cheapest for USDC)."""
+        """Execute a USDC transfer via Circle CCTP (cheapest for USDC).
+
+        FUND-LOSS WARNING: this only does approve + depositForBurn on the
+        source chain and returns the burn tx hash. It does NOT poll the
+        Circle attestation and does NOT submit `receiveMessage` on the
+        destination chain — nothing else in this codebase does either for
+        this generic rail (cctp_relayer.py is HyperCore-specific and only
+        completes bot/services/cctp_hypercore.py burns). Reaching this method
+        with completion unwired burns the user's USDC with no mint ever
+        happening. This is guarded upstream by `_is_cctp_route`, which is
+        gated behind `settings.cctp_generic_rail_enabled` (default False) —
+        do not bypass that gate without first building and verifying a real
+        completion relayer for this rail.
+        """
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
@@ -4193,10 +4220,17 @@ class SwapEngine:
         )
         logger.info(f"CCTP approval tx: {approve_hash.hex()}")
 
-        # Wait for approval confirmation
-        await asyncio.to_thread(
+        # Wait for approval confirmation and verify it actually succeeded --
+        # a burn built against a reverted/never-applied approval would itself
+        # revert on-chain, wasting the gas the user already spent on approve.
+        approve_receipt = await asyncio.to_thread(
             lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
         )
+        if approve_receipt.get("status") != 1:
+            raise SwapError(
+                f"CCTP USDC approval failed (tx: {approve_hash.hex()}); aborting before burn "
+                "to avoid submitting a depositForBurn that can't possibly succeed."
+            )
 
         # Step 2: Execute depositForBurn
         burn_tx = self.cctp.build_burn_transaction(
@@ -4206,7 +4240,26 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
-        burn_tx["gas"] = 200000
+        # V2 depositForBurn (7 args: adds destinationCaller/maxFee/minFinality
+        # vs V1) does strictly more work than V1's 4-arg call, so a v1-sized
+        # gas limit can be too low. Estimate live, with 200k kept only as the
+        # floor/fallback if estimation itself fails.
+        gas_estimate = 200000
+        try:
+            estimated = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(wallet_data["address"]),
+                        "to": burn_tx["to"],
+                        "data": burn_tx["data"],
+                        "value": burn_tx["value"],
+                    }
+                )
+            )
+            gas_estimate = max(gas_estimate, int(estimated * 1.3))
+        except Exception as e:
+            logger.warning(f"CCTP burn gas estimate failed, using default {gas_estimate}: {e}")
+        burn_tx["gas"] = gas_estimate
         burn_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         burn_tx["nonce"] = nonce
         burn_tx["chainId"] = chain.chain_id

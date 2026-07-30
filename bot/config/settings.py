@@ -1273,6 +1273,23 @@ class Settings(BaseSettings):
             "(returns None / raises) any Fast-mode build with an unset or zero cap."
         ),
     )
+    cctp_generic_rail_enabled: bool = Field(
+        default=False,
+        description=(
+            "FAIL-CLOSED KILL SWITCH. The generic CCTP rail in bot/services/cctp_api.py "
+            "+ swap_engine._execute_cctp_swap only implements approve+burn on the source "
+            "chain — it never polls the attestation or calls receiveMessage on the "
+            "destination chain, and nothing else in the codebase completes a generic-rail "
+            "burn (cctp_relayer.py only completes bot/services/cctp_hypercore.py's "
+            "HyperCore-funding burns, a separate code path). Leaving this True with no "
+            "completion relayer wired means every generic CCTP swap burns the user's USDC "
+            "on the source chain and it is NEVER minted on the destination — permanent "
+            "fund loss. Keep False until a completion relayer (attestation poll + "
+            "receiveMessage submission) is built and verified for the generic rail. Does "
+            "NOT affect the HyperCore CCTP path (cctp_hypercore/cctp_relayer), which "
+            "completes correctly and is unconditionally available."
+        ),
+    )
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
