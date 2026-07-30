@@ -1,23 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import styles from './next.module.css';
 
 /**
- * AgentHandoff — the "copy and paste everything into Claude or Codex" block.
+ * AgentHandoff — the copy-and-paste-into-your-agent block.
  *
- * The primary action is COPY EVERYTHING: one click puts a complete, self-
- * contained onboarding brief on the clipboard, so a user can paste it into
- * Claude Code / Codex / Cursor and let the agent wire itself up. The tabs
- * below are the narrow path for people who already know which client they
- * are configuring.
+ * Replaces the two static (and incorrect) MCP config snippets that used to sit
+ * in the agents and build sections. Those advertised a local `npx
+ * @suwappu/mcp-server` stdio command that does not exist, and an `X-API-Key`
+ * header the API does not accept.
+ *
+ * The primary action copies a complete setup brief so a user can paste it into
+ * Claude Code, Codex, or any agent and have it wire itself up. The tabs are the
+ * narrow path for people who already know which client they are configuring.
  */
 
 const MCP_URL = 'https://api.suwappu.bot/mcp';
 
-/** The paste-anywhere brief. Deliberately plain text — no fences, so it
- *  survives being dropped into any chat box. */
-const EVERYTHING = `You are setting up Suwappu, a cross-chain trading API built for AI agents.
+/** Plain text, no code fences, so it survives being pasted into any chat box. */
+const BRIEF = `You are setting up Suwappu, a cross-chain trading API built for AI agents.
 Do this for me end to end.
 
 1. READ THE DOCS FIRST
@@ -29,8 +30,8 @@ Do this for me end to end.
 2. GET A KEY
    POST https://api.suwappu.bot/v1/agent/register with {"name":"<my-agent>"}
    No auth required. The response contains an API key (suwappu_sk_...) shown
-   exactly once — save it to my environment as SUWAPPU_API_KEY, never inline
-   it into a file that gets committed.
+   exactly once. Save it to my environment as SUWAPPU_API_KEY. Never write it
+   into a file that gets committed.
 
 3. WIRE UP THE MCP SERVER
    Suwappu is a remote MCP server at ${MCP_URL} (JSON-RPC 2.0 over
@@ -50,15 +51,15 @@ Do this for me end to end.
        "headers": { "Authorization": "Bearer <my key>" } } }
 
 4. WHAT YOU CAN DO ONCE CONNECTED
-   Best-price spot swaps across 40+ chains — nine routers are raced per quote
+   Best-price spot swaps across 40+ chains. Nine routers are raced per quote
    (LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP, ParaSwap).
-   HyperLiquid perps: markets, quotes, positions, funding.
-   Prediction markets, lending markets, live prices and portfolio reads.
+   HyperLiquid perps: markets, quotes, positions. Prediction markets, lending
+   markets, live prices, portfolio reads, and swap history.
 
 5. RULES THAT MATTER
-   Never hardcode chains or token symbols — call GET /chains and
+   Never hardcode chains or token symbols. Call GET /chains and
    GET /tokens?chain=... for the authoritative lists.
-   Swap flow: POST /quote returns a quote_id valid ~60s, then POST
+   Swap flow: POST /quote returns a quote_id valid about 60s, then POST
    /swap/execute (managed wallet, server-signed) or POST /swap (returns an
    unsigned tx for me to sign myself), then GET /swap/status/:swapId.
    Errors come back as a JSON envelope with an error code. On HTTP 429, back
@@ -76,7 +77,7 @@ const TABS = [
     file: 'terminal',
     code: `claude mcp add --transport http suwappu ${MCP_URL} \\
   --header "Authorization: Bearer $SUWAPPU_API_KEY"`,
-    note: 'One line. Restart not required — run /mcp to confirm it connected.',
+    note: 'Run /mcp afterwards to confirm it connected.',
   },
   {
     id: 'codex',
@@ -90,7 +91,7 @@ startup_timeout_sec = 30`,
   },
   {
     id: 'json',
-    label: 'Cursor · Claude Desktop',
+    label: 'Cursor, Claude Desktop',
     file: 'mcp.json',
     code: `{
   "mcpServers": {
@@ -102,7 +103,7 @@ startup_timeout_sec = 30`,
     }
   }
 }`,
-    note: 'Same block works in any client that speaks MCP Streamable HTTP.',
+    note: 'Works in any client that speaks MCP Streamable HTTP.',
   },
   {
     id: 'sdk',
@@ -117,59 +118,52 @@ const quote = await client.quote({
   chain: "base", amount: "100",
 });
 const swap = await client.executeSwap({ quote_id: quote.quote_id });`,
-    note: 'Python: pip install suwappu — same call shape, async.',
+    note: 'Python: pip install suwappu. Same call shape, async.',
   },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
 
-function useCopy() {
+export default function AgentHandoff() {
+  const [active, setActive] = useState<TabId>('claude');
   const [copied, setCopied] = useState<string | null>(null);
+  const tab = TABS.find((t) => t.id === active)!;
+
   const copy = async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(key);
       setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
     } catch {
-      /* clipboard unavailable — no-op */
+      /* clipboard unavailable, nothing useful to show */
     }
   };
-  return { copied, copy };
-}
-
-export function AgentHandoff() {
-  const [active, setActive] = useState<TabId>('claude');
-  const { copied, copy } = useCopy();
-  const tab = TABS.find((t) => t.id === active)!;
 
   return (
-    <div className={styles.handoff}>
-      {/* Primary action — paste the whole brief into any agent. */}
-      <div className={styles.handoffHero}>
-        <div className={styles.handoffHeroText}>
-          <span className={styles.handoffKicker}>THE FAST WAY</span>
-          <p className={styles.handoffLede}>
-            Copy the whole brief and paste it into Claude Code, Codex, or any agent.
-            It reads the docs, registers a key, and wires up the MCP server itself.
+    <div className="sw-handoff">
+      <div className="sw-handoff__lead">
+        <div className="sw-handoff__copy">
+          <h3>Hand it to your agent.</h3>
+          <p>
+            Copy the brief and paste it into Claude Code or Codex. It reads the docs,
+            registers a key, and connects the MCP server for you.
           </p>
         </div>
         <button
           type="button"
-          className={styles.handoffCopyAll}
-          onClick={() => copy(EVERYTHING, 'all')}
-          aria-label="Copy the full agent setup brief to the clipboard"
+          className="sw-handoff__primary"
+          onClick={() => copy(BRIEF, 'brief')}
         >
-          {copied === 'all' ? '✓ copied — now paste it' : 'Copy everything'}
+          {copied === 'brief' ? 'Copied. Now paste it.' : 'Copy the brief'}
         </button>
       </div>
 
-      <details className={styles.handoffPreview}>
-        <summary className={styles.handoffSummary}>Preview what gets copied</summary>
-        <pre className={styles.handoffPre}>{EVERYTHING}</pre>
+      <details className="sw-handoff__preview">
+        <summary>Preview what gets copied</summary>
+        <pre>{BRIEF}</pre>
       </details>
 
-      {/* Secondary — per-client config for people who know what they want. */}
-      <div className={styles.handoffTabs} role="tablist" aria-label="MCP client setup">
+      <div className="sw-handoff__tabs" role="tablist" aria-label="MCP client setup">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -178,7 +172,7 @@ export function AgentHandoff() {
             id={`handoff-tab-${t.id}`}
             aria-selected={active === t.id}
             aria-controls={`handoff-panel-${t.id}`}
-            className={`${styles.handoffTab}${active === t.id ? ` ${styles.handoffTabActive}` : ''}`}
+            className={`sw-handoff__tab${active === t.id ? ' sw-handoff__tab--active' : ''}`}
             onClick={() => setActive(t.id)}
           >
             {t.label}
@@ -190,21 +184,26 @@ export function AgentHandoff() {
         id={`handoff-panel-${tab.id}`}
         role="tabpanel"
         aria-labelledby={`handoff-tab-${tab.id}`}
-        className={styles.handoffPanel}
+        className="summer-code sw-handoff__panel"
       >
-        <div className={styles.handoffPanelBar}>
-          <span className={styles.handoffFile}>{tab.file}</span>
+        <div className="summer-code__bar">
+          <span />
+          <span />
+          <span />
+          <b>{tab.file}</b>
           <button
             type="button"
-            className={styles.handoffCopy}
+            className="sw-handoff__mini"
             onClick={() => copy(tab.code, tab.id)}
             aria-label={`Copy the ${tab.label} configuration`}
           >
-            {copied === tab.id ? 'copied ✓' : 'copy'}
+            {copied === tab.id ? 'copied' : 'copy'}
           </button>
         </div>
-        <pre className={styles.handoffCode}>{tab.code}</pre>
-        <p className={styles.handoffNote}>{tab.note}</p>
+        <pre>
+          <code>{tab.code}</code>
+        </pre>
+        <p className="sw-handoff__note">{tab.note}</p>
       </div>
     </div>
   );

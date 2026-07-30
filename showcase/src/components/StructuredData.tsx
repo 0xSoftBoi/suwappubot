@@ -71,7 +71,7 @@ export default function StructuredData() {
           name: 'How do I integrate Suwappu with Claude or other AI agents?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu provides an MCP server with 10 tools. Add the MCP server URL to your Claude Desktop config or use the npm package @suwappu/mcp-server for local stdio transport.',
+            text: 'Suwappu runs a remote MCP server at https://api.suwappu.bot/mcp exposing 22 tools over Streamable HTTP. There is nothing to install locally: in Claude Code run "claude mcp add --transport http suwappu https://api.suwappu.bot/mcp", in Codex add it to ~/.codex/config.toml, or point any MCP client at the URL with an Authorization: Bearer header.',
           },
         },
         {

@@ -2,8 +2,6 @@ import type { Metadata } from 'next';
 import { JetBrains_Mono } from 'next/font/google';
 import { PhosphorRace } from './PhosphorRace';
 import { MarketTicker } from './MarketTicker';
-import { AgentHandoff } from './AgentHandoff';
-import { TELEGRAM_URL } from '@/lib/links';
 import styles from './next.module.css';
 
 export const metadata: Metadata = {
@@ -18,61 +16,6 @@ const jb = JetBrains_Mono({
   variable: '--font-jb',
   display: 'swap',
 });
-
-/** Mirrors the TOOLS registry in api-ts/src/routes/mcp.ts — keep in sync.
- *  The three PROMPTS in that file (swap_tokens, check_portfolio,
- *  research_prediction_market) are workflow templates, not tools, and are
- *  counted separately below. */
-const MCP_TOOLS = [
-  'get_quote',
-  'simulate_swap',
-  'execute_swap',
-  'get_swap_status',
-  'get_swap_history',
-  'get_portfolio',
-  'get_prices',
-  'list_chains',
-  'list_tokens',
-  'get_tempo_tokens',
-  'list_wallet_policies',
-  'browse_mpp_directory',
-  'perps_markets',
-  'perps_quote',
-  'perps_positions',
-  'predict_markets',
-  'predict_market',
-  'predict_book',
-  'predict_price',
-  'predict_trades',
-  'lend_markets',
-  'lend_market',
-] as const;
-
-/** Mirrors the panel directories under terminal/src/components. */
-const TERMINAL_PANELS = [
-  'swap',
-  'perps',
-  'predict',
-  'lending',
-  'orderbook',
-  'chart',
-  'portfolio',
-  'watchlist',
-  'discover',
-  'signals',
-  'market',
-  'tracker',
-  'alerts',
-  'dca',
-  'templates',
-  'copy',
-  'copilot',
-  'tweets',
-  'points',
-  'rewards',
-  'referrals',
-  'hotkeys',
-] as const;
 
 export default function KakisPage() {
   return (
@@ -119,7 +62,7 @@ export default function KakisPage() {
             <span className={styles.statRule} aria-hidden="true">·</span>
             <div className={styles.statItem}>
               <span className={styles.statLabel}>MCP TOOLS</span>
-              <span className={styles.statVal}>{MCP_TOOLS.length}</span>
+              <span className={styles.statVal}>14</span>
             </div>
             <span className={styles.statRule} aria-hidden="true">·</span>
             <div className={styles.statItem}>
@@ -248,18 +191,7 @@ export default function KakisPage() {
               </div>
             </section>
 
-            {/* ── 4. CONNECT — the copy-paste handoff ──────────── */}
-            <section className={styles.section}>
-              <div className={styles.sectionPrompt}>
-                <span className={styles.sectionDollar}>$</span>
-                <span className={styles.sectionCmd}>suwappu connect --agent</span>
-              </div>
-              <div className={styles.sectionBody}>
-                <AgentHandoff />
-              </div>
-            </section>
-
-            {/* ── 5. MCP --tools ───────────────────────────────── */}
+            {/* ── 4. MCP --tools ───────────────────────────────── */}
             <section className={styles.section}>
               <div className={styles.sectionPrompt}>
                 <span className={styles.sectionDollar}>$</span>
@@ -270,12 +202,27 @@ export default function KakisPage() {
                   <div className={styles.panelHeader}>
                     <span className={styles.panelTitle}>TOOL REGISTRY</span>
                     <span className={styles.panelBadge}>
-                      {MCP_TOOLS.length} tools · 3 workflow prompts · streamable-http
+                      14 tools · Bearer suwappu_sk_ · streamable-http
                     </span>
                   </div>
 
                   <div className={styles.toolGrid} aria-label="MCP tools">
-                    {MCP_TOOLS.map((tool, i) => (
+                    {[
+                      'get_quote',
+                      'execute_swap',
+                      'get_portfolio',
+                      'get_prices',
+                      'list_chains',
+                      'list_tokens',
+                      'get_tempo_tokens',
+                      'browse_mpp_directory',
+                      'predict_markets',
+                      'predict_market',
+                      'perps_markets',
+                      'perps_quote',
+                      'perps_positions',
+                      'lend_markets',
+                    ].map((tool, i) => (
                       <div key={tool} className={styles.toolItem}>
                         <span className={styles.toolIdx}>{String(i + 1).padStart(2, '0')}</span>
                         <span className={styles.toolName}>{tool}</span>
@@ -284,46 +231,24 @@ export default function KakisPage() {
                   </div>
                 </div>
 
+                <pre className={styles.codeBlock}>{`{
+  "mcpServers": {
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": {
+        "Authorization": "Bearer suwappu_sk_YOUR_KEY"
+      }
+    }
+  }
+}`}</pre>
+
                 <p className={styles.codeNote}>
-                  @suwappu/openclaw · TypeScript + Python SDK · REST /v1/agent · A2A JSON-RPC ·
-                  OpenAPI 3.1 · llms.txt
+                  @suwappu/openclaw · TypeScript + Python SDK · REST /v1/agent · A2A JSON-RPC
                 </p>
               </div>
             </section>
 
-            {/* ── 5b. TERMINAL ─────────────────────────────────── */}
-            <section className={styles.section}>
-              <div className={styles.sectionPrompt}>
-                <span className={styles.sectionDollar}>$</span>
-                <span className={styles.sectionCmd}>suwappu terminal --panels</span>
-              </div>
-              <div className={styles.sectionBody}>
-                <div className={styles.panel}>
-                  <div className={styles.panelHeader}>
-                    <span className={styles.panelTitle}>WORKSPACE</span>
-                    <span className={styles.panelBadge}>
-                      terminal.suwappu.bot · connect a wallet, or trade from Telegram
-                    </span>
-                  </div>
-
-                  <div className={styles.toolGrid} aria-label="Terminal panels">
-                    {TERMINAL_PANELS.map((panel, i) => (
-                      <div key={panel} className={styles.toolItem}>
-                        <span className={styles.toolIdx}>{String(i + 1).padStart(2, '0')}</span>
-                        <span className={styles.toolName}>{panel}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <p className={styles.panelCaption}>
-                    A dockable workspace, not a swap box. Bring your own wallet — MetaMask,
-                    WalletConnect, or Ledger — and sign every fill yourself.
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            {/* ── 6. SURFACES ──────────────────────────────────── */}
+            {/* ── 5. SURFACES ──────────────────────────────────── */}
             <section className={styles.section}>
               <div className={styles.sectionPrompt}>
                 <span className={styles.sectionDollar}>$</span>
@@ -359,7 +284,7 @@ export default function KakisPage() {
               </div>
             </section>
 
-            {/* ── 7. LIVE MARKET TICKER ────────────────────────── */}
+            {/* ── 6. LIVE MARKET TICKER ────────────────────────── */}
             <section className={styles.section}>
               <div className={styles.sectionPrompt}>
                 <span className={styles.sectionDollar}>$</span>
@@ -381,7 +306,7 @@ export default function KakisPage() {
 
           </div>{/* end sections */}
 
-          {/* ── 8. CTA TERMINAL MOMENT ───────────────────────── */}
+          {/* ── 7. CTA TERMINAL MOMENT ───────────────────────── */}
           <div className={styles.ctaBlock}>
             <div className={styles.ctaPromptLine}>
               <span className={styles.ctaDollar}>$</span>
@@ -391,7 +316,7 @@ export default function KakisPage() {
             <div className={styles.ctaComment}># start trading in one line</div>
             <div className={styles.ctaButtons}>
               <a
-                href={TELEGRAM_URL}
+                href="https://t.me/suwappu_bot"
                 className={styles.ctaBtn}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -421,7 +346,7 @@ export default function KakisPage() {
               { label: 'Pricing',  href: '/pricing' },
               { label: 'Agents',   href: 'https://docs.suwappu.bot/agents' },
               { label: 'Terminal', href: 'https://terminal.suwappu.bot' },
-              { label: 'Telegram', href: TELEGRAM_URL },
+              { label: 'Telegram', href: 'https://t.me/suwappu_bot' },
             ].map((link, i, arr) => (
               <span key={link.href}>
                 <a

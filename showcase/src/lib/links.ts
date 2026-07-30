@@ -5,6 +5,14 @@
 
 export const TELEGRAM_URL = 'https://t.me/suwappu_bot';
 
+// The two hosted product surfaces. Both are live and served through the
+// Cloudflare worker router.
+export const TERMINAL_URL = 'https://terminal.suwappu.bot';
+export const MINI_APP_URL = 'https://app.suwappu.bot';
+
+// Public docs live on the showcase itself under /docs.
+export const GITHUB_URL = 'https://github.com/0xSoftBoi/suwappubot';
+
 // Enterprise / "Talk to the team" lead-capture page (native form on the site).
 // Submissions POST to the API and fan out to the team instantly (Telegram +
 // Linear) via the support_notifier — speed-to-lead is the #1 conversion lever.
