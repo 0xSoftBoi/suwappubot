@@ -2,6 +2,7 @@
 
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import ProductMenu from './ProductMenu';
+import NavDrawer from './NavDrawer';
 
 /**
  * SummerNav — the homepage header.
@@ -37,6 +38,30 @@ export default function SummerNav() {
         >
           Open Bot
         </a>
+
+        {/* Below 980px the link row is hidden; this is the only way in. */}
+        <NavDrawer
+          className="summer-nav__burger"
+          extraLinks={[
+            { href: '/pricing', label: 'Pricing' },
+            { href: '/docs', label: 'Docs' },
+          ]}
+          actions={
+            <>
+              <a
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="nav__drawer-cta"
+              >
+                Open Bot
+              </a>
+              <a href={TERMINAL_URL} className="nav__drawer-cta nav__drawer-cta--ghost">
+                Open Terminal
+              </a>
+            </>
+          }
+        />
       </div>
     </header>
   );

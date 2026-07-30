@@ -7276,3 +7276,80 @@ a.summer-button:active,
   .summer-nav .nav__panel { animation: none; }
   .summer-nav__trigger { transition: none; }
 }
+
+/* ==========================================================================
+   VISUAL QA FIXES (verified against Playwright screenshots)
+   ========================================================================== */
+
+/* 1. Panel links inside the homepage header were inheriting
+   `.summer-nav nav a` (specificity 0,1,2), which is inline-flex + centered +
+   36px min-height. That laid the title and description side by side instead
+   of stacking them. Match the specificity to win it back. */
+.summer-nav nav a.nav__panel-link {
+  display: block;
+  min-height: 0;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--sw-r-sm);
+  text-align: left;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.summer-nav nav a.nav__panel-link:hover {
+  background: var(--sw-accent-wash);
+}
+
+/* The panel is a light surface even on the cosmic (dark) header, so its text
+   must not inherit the header's light-on-dark link colour. */
+.summer-page--cosmic .summer-nav nav a.nav__panel-link .nav__panel-title,
+.summer-nav nav a.nav__panel-link .nav__panel-title {
+  color: #1a1a1a;
+}
+
+.summer-page--cosmic .summer-nav nav a.nav__panel-link .nav__panel-desc,
+.summer-nav nav a.nav__panel-link .nav__panel-desc {
+  color: var(--sw-muted);
+}
+
+/* Give the two-column panel room so titles like "Cross-chain swaps" and
+   "Gasless on Tempo" stay on one line. */
+.nav__panel-inner { grid-template-columns: repeat(2, minmax(11rem, 1fr)); }
+.nav__panel-title { white-space: nowrap; }
+
+/* 2. `.summer-code__bar b` is `margin-left: auto`, so the filename already
+   sits hard right — an absolutely positioned copy button landed on top of it.
+   Make the button a normal flex sibling instead. */
+.sw-handoff__mini {
+  position: static;
+  transform: none;
+  margin-left: 0.75rem;
+  flex: 0 0 auto;
+}
+
+/* 3. The homepage link row hides at 980px but the shared hamburger only
+   appeared at 768px, leaving 769-980px with no navigation at all. */
+.summer-nav__burger { display: none; }
+
+@media (max-width: 980px) {
+  .summer-nav__burger {
+    display: flex;
+    margin-left: 4px;
+  }
+  /* .summer-nav collapses to 2 columns at this width; the actions cell holds
+     the burger, so it must not be pushed off the edge. */
+  .summer-nav__actions { gap: 8px; }
+}
+
+/* Cosmic header: the hamburger bars need to read against the dark glass. */
+.summer-page--cosmic .summer-nav__burger .nav__hamburger-line {
+  background: rgba(244, 241, 255, 0.92);
+}
+
+/* Accordion contents are nested one level down, so they are not direct flex
+   children of .nav__drawer and were laying out inline. */
+.nav__drawer-sublist {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav__drawer-sublist[hidden] { display: none; }
