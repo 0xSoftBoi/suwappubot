@@ -77,6 +77,42 @@ from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
+# Providers that execute_swap can actually execute. This must stay in sync with
+# the dispatch chain in execute_swap -- one entry per `elif quote.provider ==`
+# branch. It is an allowlist rather than a denylist on purpose: `quote.provider`
+# arrives from the caller on the internal/webapp execute paths, and the dispatch
+# previously ended in `else: _execute_lifi_swap`, so any unknown value was
+# quietly executed by the Li.Fi executor against a foreign quote.
+#
+# Deliberately ABSENT: near_intents, allbridge, symbiosis, arbitrum_native,
+# usdt0. Those are quote-only today -- bot/services/bridge/registry.py can
+# surface them for route comparison, but none has an executor here, so they must
+# fail loudly rather than be mis-executed. Add a name here only together with a
+# real `_execute_<provider>_swap` branch below.
+EXECUTABLE_PROVIDERS = frozenset(
+    {
+        "tempo_dex",
+        "cow",
+        "socket",
+        "jito",
+        "jupiter",
+        "ccip",
+        "layerzero",
+        "cctp",
+        "across",
+        "wormhole",
+        "sunswap",
+        "okx_dex",
+        "1inch",
+        "0x",
+        "kyberswap",
+        "avnu",
+        "goatswap",
+        "juiceswap",
+        "lifi",
+    }
+)
+
 # Try to import C++ core for performance
 try:
     import suwappu_core
@@ -2501,6 +2537,23 @@ class SwapEngine:
         Raises:
             SwapError: If validation fails or swap execution fails
         """
+        # Hard backstop BEFORE any provider dispatch: the provider must have a
+        # real executor. `quote.provider` is caller-supplied on the internal and
+        # webapp execute paths (api/routes/internal.py and api/main.py both do
+        # `qd.get("provider", "lifi")`), and the dispatch below used to end in
+        # `else: _execute_lifi_swap` — so an unrecognised string was handed to
+        # the Li.Fi executor, which would fetch and sign a Li.Fi transaction
+        # against a quote that did not come from Li.Fi. The same fall-through
+        # silently mis-executed our own quote-only bridge providers
+        # (near_intents / allbridge / symbiosis / arbitrum_native / usdt0).
+        # Rejected here, before locks, DB rows or any fund movement.
+        if quote.provider not in EXECUTABLE_PROVIDERS:
+            raise SwapError(
+                f"No executor is wired for provider '{quote.provider}' -- refusing to execute. "
+                "Executing it through another provider's executor would sign a transaction "
+                "that does not match this quote."
+            )
+
         # Hard backstop BEFORE any provider dispatch: GOAT must NEVER execute via
         # the Li.Fi/EVM aggregator path — no aggregator supports chain id 2345.
         # Checked up-front so a mis-built quote fails before locks/DB/funds.
@@ -2782,8 +2835,28 @@ class SwapEngine:
                     raise SwapError(
                         f"Starknet swaps must route via AVNU (got provider '{quote.provider}')"
                     )
-                else:
+                elif quote.provider == "lifi":
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
+                else:
+                    # FAIL CLOSED. This used to be `else: _execute_lifi_swap`,
+                    # which handed ANY unrecognised provider to the Li.Fi
+                    # executor -- it would re-fetch a Li.Fi transaction and
+                    # sign it against a quote that came from somewhere else
+                    # entirely. That matters because `provider` is
+                    # caller-supplied on the internal/webapp execute paths
+                    # (api/routes/internal.py and api/main.py both do
+                    # `qd.get("provider", "lifi")`), so an unknown string from
+                    # a client reached the Li.Fi path silently.
+                    #
+                    # It also silently mis-executed our own quote-only
+                    # providers: the bridge registry can surface near_intents /
+                    # allbridge / symbiosis / arbitrum_native / usdt0 quotes,
+                    # and none of those had an execution branch.
+                    raise SwapError(
+                        f"No executor is wired for provider '{quote.provider}' -- refusing to "
+                        "execute. This quote cannot be signed safely by another provider's "
+                        "executor; the route should not have been offered."
+                    )
 
                 # Persist tx_hash to the database record
                 def _update_tx_hash():
