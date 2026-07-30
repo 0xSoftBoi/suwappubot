@@ -222,7 +222,7 @@ Per `docs/economics/COBRAND_CARD_AND_COALITION.md`: interchange ~1.6% (prepaid a
 - `api-ts/src/routes/webapp.ts` — webapp route pattern for `/webapp/card`
 - `database/db.py` — `_ensure_schema()` for additive idempotent migrations
 - `docs/economics/COBRAND_CARD_AND_COALITION.md` — interchange economics + two-balance rule (authoritative)
-- `docs/NEOBANK_ROADMAP.md` — competitive context; card is roadmap item #10
+- `docs/internal/NEOBANK_ROADMAP.md` — competitive context; card is roadmap item #10
 
 ---
 

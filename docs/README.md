@@ -43,6 +43,7 @@ The full REST reference lives in [`gitbook/`](../gitbook/).
 
 ---
 
-Other directories (`plans/`, `economics/`, `parity/`, `rewards/`, `integrations/`)
-hold working notes and internal planning documents. They are not maintained as
-user-facing documentation and may be out of date.
+`internal/` holds working notes, roadmaps and planning documents. They are snapshots of
+thinking at a point in time, are not maintained as user-facing documentation, and are
+frequently out of date — read them as history, not as specification. The same caveat
+applies to `economics/`, `rewards/` and `integrations/`.

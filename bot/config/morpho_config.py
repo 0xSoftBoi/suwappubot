@@ -1,6 +1,6 @@
 """Morpho Blue on Base — constants for the cbBTC/USDC borrow market + USDC earn vaults.
 
-All addresses verified on-chain 2026-06-12 (see docs/plans/btcfi-expansion-plan.md P2).
+All addresses verified on-chain 2026-06-12 (see docs/internal/plans/btcfi-expansion-plan.md P2).
 
 Oracle note: ORACLE is a MorphoChainlinkOracleV2 whose `price()` is 1e36-scaled
 adjusted for token decimals: scale = 1e(36 + loanDecimals - collateralDecimals)

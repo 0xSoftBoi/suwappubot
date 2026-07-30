@@ -16,6 +16,11 @@
 id_rsa*
 credentials.json
 serviceaccount*.json
+# Tooling that caches auth tokens to disk. A GitHub token was committed via
+# packages/mcp-server/.mcpregistry_github_token once already.
+.mcpregistry*
+.npmrc
+.pypirc
 
 # Python cache/build artifacts
 __pycache__/

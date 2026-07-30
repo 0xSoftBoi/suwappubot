@@ -25,8 +25,9 @@ You usually do NOT need to run anything — merge the PR and Railway rebuilds.
 Other services in the project: `suwappu-bridge`, `suwappu-relayer`, `Postgres`, `Redis`.
 **`webapp/` is DEAD** — no Railway config, deployed nowhere. The live Mini App is `terminal/`.
 
-Project: `suwappu` (id `428680a3-dd24-4f7c-8349-e66d791b5104`), workspace "Eric Manganaro's Projects",
-env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
+Project: `suwappu`, env `production`. The Railway project id, workspace name and service
+ids are deliberately not recorded here — read them from `railway status`, or from the
+`RAILWAY_PROJECT_ID` / `RAILWAY_SERVICE_ID` environment variables in your linked shell.
 
 ## Manual deploy (emergency override / when you can't merge)
 

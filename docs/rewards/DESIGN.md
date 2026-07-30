@@ -3,7 +3,7 @@
 Production design for the on-chain rewards application: weekly fee-cashback epochs
 settled through an **audited `SuwappuRewardsDistributor` smart contract** (trusted
 external component) with a custodial-credit fallback. Implements roadmap item #8
-(Referral 2.0 — auto-recurring cashback) from `docs/parity/competitive-improvements.md`.
+(Referral 2.0 — auto-recurring cashback) from `docs/internal/parity/competitive-improvements.md`.
 
 Everything in the *Shipped* column below exists on this branch and is tested; the
 *Roadmap* section at the end is explicit about what is not built yet.
