@@ -1162,9 +1162,7 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 approve_amount = self._approval_amount(amount_needed)
-                approve_data = token_contract.encode_abi(
-                    fn_name="approve", args=[spender, approve_amount]
-                )
+                approve_data = token_contract.encode_abi("approve", args=[spender, approve_amount])
                 approval = {
                     "to": token_addr,
                     "data": approve_data,
@@ -4270,7 +4268,7 @@ class SwapEngine:
             )
 
             approve_data = token_contract.encode_abi(
-                fn_name="approve",
+                "approve",
                 args=[Web3.to_checksum_address(across_quote.spoke_pool), int(quote.from_amount)],
             )
 
@@ -4374,7 +4372,7 @@ class SwapEngine:
         )
 
         approve_data = token_contract.encode_abi(
-            fn_name="approve", args=[Web3.to_checksum_address(token_bridge), int(quote.from_amount)]
+            "approve", args=[Web3.to_checksum_address(token_bridge), int(quote.from_amount)]
         )
 
         nonce = await asyncio.to_thread(

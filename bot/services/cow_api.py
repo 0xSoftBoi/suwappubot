@@ -495,7 +495,7 @@ class CoWProtocolAPI:
         )
         
         data = token_contract.encode_abi(
-            fn_name="approve",
+            "approve",
             args=[
                 Web3.to_checksum_address(COW_VAULT_RELAYER),
                 int(amount) if amount != "max" else 2**256 - 1
