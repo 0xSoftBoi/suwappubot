@@ -158,7 +158,7 @@ export default function LiveTerminal({ className = '' }: { className?: string })
       <div className="pro-term__grid">
         {/* Command stream */}
         <div className="pro-term__log" role="log" aria-live="off">
-          <div className="pro-term__intro">suwappu — best-route execution · {stats.platformChains} chains</div>
+          <div className="pro-term__intro">suwappu best-route execution · {stats.platformChains} chains</div>
           <AnimatePresence initial={false}>
             {lines.map((line, i) => (
               <motion.div

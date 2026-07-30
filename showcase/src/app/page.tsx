@@ -204,12 +204,10 @@ async function Hero() {
         </div>
         <CopyInstall text="bun add @suwappu/sdk" />
         {/* Trust micro-copy — security as a feature, not a footnote. */}
-        <p className="summer-hero__trust">
-          Non-custodial&nbsp;·&nbsp;No KYC for basic swaps&nbsp;·&nbsp;MPC key security
-        </p>
-        <a className="summer-hero__waitlist-pill" href="#mobile-app">
-          iOS and Android, with the Suwappu Card by Rain — join the waitlist
-        </a>
+        {/* The trust micro-strip and the mobile-waitlist pill used to sit here.
+            Both are duplicated below (StatsStrip carries "Non-custodial", and
+            the waitlist pill only linked down to #mobile-app), and they pushed
+            the hero to seven stacked text elements. */}
       </div>
       <LiveTerminal className={styles.termFrame} />
     </section>
