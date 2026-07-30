@@ -24,8 +24,13 @@ from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
 
-# Circle CCTP Attestation API
+# Circle CCTP Attestation API -- V1 only. V2 attestations live under a
+# different shape (see IRIS_V2_BASE below / cctp_hypercore.py's IRIS_V2_BASE):
+# keyed by SOURCE DOMAIN + burn tx hash, not by a v1 message hash.
 CCTP_ATTESTATION_API = "https://iris-api.circle.com/attestations"
+
+# Circle Iris V2 API (messages + fees), same base cctp_hypercore.py uses.
+IRIS_V2_BASE = "https://iris-api.circle.com/v2"
 
 
 class CCTPTransferMode(str, Enum):
@@ -61,8 +66,23 @@ CCTP_V2_FINALITY_THRESHOLD = {
 # unverified guess.
 #
 # Tron is NOT supported by CCTP at all (confirmed) -- never add it.
-# Arc and HyperEVM domain IDs are UNVERIFIED against Circle's live domain list
-# -- do NOT add them here without confirming against Circle's docs first.
+# Arc's domain ID is UNVERIFIED against Circle's live domain list -- do NOT
+# add it here without confirming against Circle's docs first.
+# HyperEVM's CCTP V2 domain (19) IS treated as verified elsewhere in this repo
+# -- bot/services/cctp_hypercore.py's HYPEREVM_CCTP_DOMAIN=19 already ships
+# and is used in a live depositForBurn call, and that module's own "VERIFY
+# before mainnet" flags are scoped only to the HyperEVM native-USDC token
+# address and its HyperCore token index, NOT to the domain ID. So the domain
+# ID itself is not the open question. HyperEVM is still deliberately excluded
+# from CCTP_DOMAINS here (not "unverified", but out of scope for this file):
+# CCTP_DOMAINS/get_domain_id is used as *both* a source and a destination in
+# this generic client, and this file has no HyperEVM native-USDC source
+# address (NATIVE_USDC_ADDRESSES has no "hyperevm" entry) and no verified
+# EVM execution path for burning *from* HyperEVM here. Adding just the domain
+# ID without that would let is_supported_route() claim a route this client
+# can't actually build a correct burn/mint tx for. If HyperEVM support is
+# wanted in the generic rail, add the source USDC address + a verified
+# execution path first, then add the domain -- don't add the domain alone.
 CCTP_DOMAINS = {
     "ethereum": 0,
     "avalanche": 1,
@@ -323,8 +343,10 @@ class CircleCCTPAPI:
         dest_domain = self.get_domain_id(to_chain)
         usdc_address = self.get_usdc_address(from_chain)
 
-        # CCTP is always 1:1 for USDC (no slippage, no bridge fee at the mint)
-        amount_human = int(amount) / 1e6  # USDC has 6 decimals
+        # CCTP is 1:1 for USDC EXCEPT V2 Fast Transfer, where Circle deducts a
+        # live fee (capped by maxFee) from the burned amount at mint time --
+        # the recipient only ever gets amount - fee, never the full amount.
+        # This is computed below once max_fee is known (raw-unit integer math).
 
         # Estimate gas cost (varies by chain)
         gas_estimates_usd = {
@@ -367,15 +389,24 @@ class CircleCCTPAPI:
             else:
                 max_fee = 0  # Standard transfers do not charge a Fast fee.
 
+        # Integer math on raw (6dp) units: Fast deducts max_fee from the
+        # burned amount at mint; Standard mints the full amount 1:1.
+        amount_int = int(amount)
+        to_amount_raw = amount_int - int(max_fee) if max_fee else amount_int
+        if to_amount_raw < 0:
+            raise CCTPError("CCTP quote: maxFee exceeds transfer amount")
+        to_amount_str = str(to_amount_raw)
+        bridge_fee_usd = (int(max_fee) / 1e6) if max_fee else 0.0
+
         return CCTPQuote(
             from_chain=from_chain,
             to_chain=to_chain,
             from_amount=amount,
-            to_amount=amount,  # 1:1 transfer
-            to_amount_human=amount_human,
+            to_amount=to_amount_str,  # 1:1 minus any Fast-mode maxFee
+            to_amount_human=to_amount_raw / 1e6,
             gas_cost_usd=gas_cost,
-            bridge_fee_usd=0.0,  # CCTP has no protocol bridge fee (Fast has a live Circle fee)
-            total_cost_usd=gas_cost,
+            bridge_fee_usd=bridge_fee_usd,  # live Circle Fast fee; 0 for Standard
+            total_cost_usd=gas_cost + bridge_fee_usd,
             estimated_time=estimated_time,
             token_messenger=token_messenger,
             message_transmitter=message_transmitter,
@@ -530,6 +561,22 @@ class CircleCCTPAPI:
         min_finality = quote.min_finality_threshold
         if min_finality is None:
             raise CCTPError("V2 quote is missing min_finality_threshold; refusing to build tx.")
+        if min_finality not in (
+            CCTP_V2_FINALITY_THRESHOLD[CCTPTransferMode.FAST],
+            CCTP_V2_FINALITY_THRESHOLD[CCTPTransferMode.STANDARD],
+        ):
+            # Circle only defines two valid tiers (1000=Fast, 2000=Standard).
+            # A value like 1500 is "soft finality, Circle still charges a
+            # fee" -- treating anything <=1000 as the only "fast" case and
+            # silently forcing maxFee=0 for everything else would degrade an
+            # implicitly-paid soft-finality transfer to a free hard-finality
+            # one without ever charging (or disclosing) the fee it promised.
+            # Fail closed instead of guessing.
+            raise CCTPError(
+                f"Unsupported min_finality_threshold={min_finality!r}; must be "
+                f"{CCTP_V2_FINALITY_THRESHOLD[CCTPTransferMode.FAST]} (Fast) or "
+                f"{CCTP_V2_FINALITY_THRESHOLD[CCTPTransferMode.STANDARD]} (Standard)."
+            )
 
         is_fast = min_finality <= 1000
         max_fee = quote.max_fee
@@ -581,18 +628,41 @@ class CircleCCTPAPI:
         message_hash: str,
         max_attempts: int = 60,
         poll_interval: int = 2,
+        version: int = 1,
     ) -> CCTPStatus:
         """
         Wait for and retrieve Circle attestation for a burn transaction.
+
+        V1-ONLY. A V2 burn (TokenMessengerV2.depositForBurn, the default since
+        get_quote defaults to version=2) is NOT queryable via the v1
+        `/attestations/{message_hash}` endpoint used here -- Circle keys V2
+        attestations by source domain + burn tx hash under `/v2/messages/...`
+        (see `get_attestation_v2`). Silently polling this v1 endpoint for a
+        v2 transfer 404s every attempt and returns status="PENDING" forever,
+        which looks like "still confirming" instead of "wrong endpoint" --
+        fail loud instead: pass version=2 (or call get_attestation_v2
+        directly) and this raises rather than polling uselessly.
 
         Args:
             message_hash: The message hash from the burn transaction logs
             max_attempts: Maximum polling attempts
             poll_interval: Seconds between polls
+            version: Must be 1. Passing 2 raises immediately -- use
+                get_attestation_v2(from_chain, burn_tx_hash) instead.
 
         Returns:
             CCTPStatus with attestation if available
         """
+        if version == 2:
+            raise CCTPError(
+                "get_attestation() is the V1 Iris client and cannot resolve a V2 "
+                "attestation from a v1 message_hash. Use get_attestation_v2(from_chain, "
+                "burn_tx_hash) instead -- V2 is keyed by source domain + burn tx hash, "
+                "not a v1 message hash."
+            )
+        if version != 1:
+            raise CCTPError(f"get_attestation: unsupported version {version!r} (must be 1 or 2)")
+
         session = await get_session()
 
         for attempt in range(max_attempts):
@@ -633,24 +703,116 @@ class CircleCCTPAPI:
             raw_response={},
         )
 
+    async def get_attestation_v2(
+        self,
+        from_chain: str,
+        burn_tx_hash: str,
+        max_attempts: int = 60,
+        poll_interval: int = 2,
+    ) -> CCTPStatus:
+        """
+        Poll Circle Iris V2 for the attestation over a V2 burn message.
+
+        V2 is keyed by SOURCE DOMAIN + burn tx hash (not a v1 message hash),
+        via `/v2/messages/{sourceDomainId}?transactionHash=...`. Mirrors
+        `bot.services.cctp_hypercore.CctpHyperCoreAPI.get_attestation`.
+
+        Args:
+            from_chain: Source chain name (used to resolve the source domain)
+            burn_tx_hash: The depositForBurn transaction hash
+            max_attempts: Maximum polling attempts
+            poll_interval: Seconds between polls
+
+        Returns:
+            CCTPStatus with attestation if available (message_hash field is
+            repurposed to carry the burn tx hash for V2, and raw_response's
+            "message" key carries the message bytes needed for receiveMessage).
+        """
+        src_domain = self.get_domain_id(from_chain)
+        session = await get_session()
+        url = f"{IRIS_V2_BASE}/messages/{src_domain}"
+
+        for _attempt in range(max_attempts):
+            await api_limiter.wait_and_acquire("cctp")
+            try:
+                async with session.get(url, params={"transactionHash": burn_tx_hash}) as resp:
+                    if resp.status == 404:
+                        await asyncio.sleep(poll_interval)
+                        continue
+                    if resp.status != 200:
+                        await asyncio.sleep(poll_interval)
+                        continue
+                    data = await resp.json()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"CCTP V2 attestation poll error: {e}")
+                await asyncio.sleep(poll_interval)
+                continue
+
+            msgs = data.get("messages") or []
+            if msgs:
+                m = msgs[0]
+                if m.get("status") == "complete" and m.get("attestation") and m.get("message"):
+                    return CCTPStatus(
+                        message_hash=burn_tx_hash,
+                        status="ATTESTED",
+                        attestation=m["attestation"],
+                        raw_response={**data, "message": m["message"]},
+                    )
+            await asyncio.sleep(poll_interval)
+
+        return CCTPStatus(
+            message_hash=burn_tx_hash,
+            status="PENDING",
+            attestation=None,
+            raw_response={},
+        )
+
     def build_receive_transaction(
         self,
         to_chain: str,
         message: bytes,
         attestation: str,
+        version: Optional[int] = None,
+        quote: Optional[CCTPQuote] = None,
     ) -> Dict[str, Any]:
         """
         Build the receiveMessage transaction to mint USDC on destination.
+
+        A V2 burn (TokenMessengerV2.depositForBurn) is ONLY redeemable via
+        MessageTransmitterV2 -- submitting its message/attestation to the V1
+        MessageTransmitter reverts and the already-burned USDC becomes
+        unmintable via this client. So the version used here MUST match the
+        version used to build the burn. Prefer passing `quote` (the same
+        CCTPQuote returned by get_quote for this transfer) -- its
+        `message_transmitter` field already carries the correct
+        version-matched address and is used verbatim. Falls back to
+        `version` (resolved the same way get_quote resolves it, via
+        settings.cctp_v2_enabled) only if no quote is available.
 
         Args:
             to_chain: Destination chain name
             message: Original message bytes from burn tx
             attestation: Attestation from Circle API
+            version: 1 or 2. Only consulted if `quote` isn't passed. Defaults
+                to settings.cctp_v2_enabled, same as get_quote.
+            quote: The CCTPQuote for this transfer, if available. Its
+                `message_transmitter` address is used directly and takes
+                precedence over `version`.
 
         Returns:
             Transaction dict ready for signing
         """
-        message_transmitter_addr = self.get_message_transmitter(to_chain)
+        if quote is not None:
+            message_transmitter_addr = quote.message_transmitter
+        else:
+            resolved_version = (
+                version
+                if version is not None
+                else (2 if getattr(settings, "cctp_v2_enabled", True) else 1)
+            )
+            message_transmitter_addr = self.get_message_transmitter(
+                to_chain, version=resolved_version
+            )
 
         message_transmitter = Web3().eth.contract(
             address=Web3.to_checksum_address(message_transmitter_addr), abi=MESSAGE_TRANSMITTER_ABI

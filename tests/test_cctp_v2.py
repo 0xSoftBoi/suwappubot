@@ -17,6 +17,8 @@ from bot.services.cctp_api import (
     CCTPQuote,
     CCTPTransferMode,
     CCTP_V2_FINALITY_THRESHOLD,
+    MESSAGE_TRANSMITTER_ADDRESSES,
+    MESSAGE_TRANSMITTER_V2_ADDRESS,
     TOKEN_MESSENGER_V2_ADDRESS,
 )
 from bot.config.settings import settings
@@ -211,3 +213,120 @@ async def test_v1_quote_and_burn_tx_still_work(api):
 def test_v1_addresses_still_resolvable(api):
     assert api.get_token_messenger("ethereum", version=1) != TOKEN_MESSENGER_V2_ADDRESS
     assert api.get_token_messenger("ethereum", version=2) == TOKEN_MESSENGER_V2_ADDRESS
+
+
+# ---------------------------------------------------------------------------
+# HIGH 1: mint helper must resolve the V2 transmitter for a V2 burn
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_quote_v2_resolves_v2_message_transmitter(api):
+    quote = await api.get_quote("ethereum", "base", "1000000")
+    assert quote.version == 2
+    assert quote.message_transmitter.lower() == MESSAGE_TRANSMITTER_V2_ADDRESS.lower()
+
+
+def test_build_receive_transaction_uses_quote_message_transmitter(api):
+    """Passing the CCTPQuote directly must use its (version-matched) address,
+    never fall back to a version-1-defaulted lookup."""
+    quote = CCTPQuote(
+        from_chain="ethereum",
+        to_chain="base",
+        from_amount="1000000",
+        to_amount="1000000",
+        to_amount_human=1.0,
+        gas_cost_usd=0.2,
+        bridge_fee_usd=0.0,
+        total_cost_usd=0.2,
+        estimated_time=20,
+        token_messenger=TOKEN_MESSENGER_V2_ADDRESS,
+        message_transmitter=MESSAGE_TRANSMITTER_V2_ADDRESS,
+        destination_domain=6,
+        usdc_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        raw_data={},
+        version=2,
+    )
+    tx = api.build_receive_transaction("base", b"\x01" * 32, "0x" + "ab" * 65, quote=quote)
+    assert tx["to"].lower() == MESSAGE_TRANSMITTER_V2_ADDRESS.lower()
+
+
+def test_build_receive_transaction_v2_default_resolves_v2_without_quote(api):
+    """Even without an explicit quote, get_quote's own default (v2) must be
+    mirrored here instead of silently falling back to the v1 address."""
+    tx = api.build_receive_transaction("base", b"\x01" * 32, "0x" + "ab" * 65)
+    assert tx["to"].lower() == MESSAGE_TRANSMITTER_V2_ADDRESS.lower()
+
+
+def test_build_receive_transaction_v1_explicit_version(api):
+    tx = api.build_receive_transaction("base", b"\x01" * 32, "0x" + "ab" * 65, version=1)
+    assert tx["to"].lower() == MESSAGE_TRANSMITTER_ADDRESSES["base"].lower()
+    assert tx["to"].lower() != MESSAGE_TRANSMITTER_V2_ADDRESS.lower()
+
+
+# ---------------------------------------------------------------------------
+# HIGH 2: v1 attestation must fail loud on a v2 transfer, not poll forever
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v1_get_attestation_raises_on_v2_version(api):
+    with pytest.raises(CCTPError):
+        await api.get_attestation("0xdeadbeef", version=2, max_attempts=1)
+
+
+@pytest.mark.asyncio
+async def test_v1_get_attestation_rejects_bad_version(api):
+    with pytest.raises(CCTPError):
+        await api.get_attestation("0xdeadbeef", version=3, max_attempts=1)
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM 3: FAST quotes must discount to_amount by maxFee, not overstate it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fast_quote_discounts_to_amount_by_max_fee(api):
+    settings.cctp_v2_max_fast_fee_bps = 5  # 5 bps
+    quote = await api.get_quote("ethereum", "base", "1000000", mode=CCTPTransferMode.FAST)
+    assert quote.max_fee == 500  # 1_000_000 * 5 // 10_000
+    assert quote.to_amount == "999500"
+    assert quote.to_amount_human == pytest.approx(0.9995)
+    assert quote.bridge_fee_usd == pytest.approx(0.0005)
+    assert quote.total_cost_usd == pytest.approx(quote.gas_cost_usd + 0.0005)
+
+
+@pytest.mark.asyncio
+async def test_standard_quote_keeps_full_amount_and_zero_fee(api):
+    quote = await api.get_quote("ethereum", "base", "1000000")
+    assert quote.mode == "standard"
+    assert quote.to_amount == "1000000"
+    assert quote.bridge_fee_usd == 0.0
+
+
+@pytest.mark.asyncio
+async def test_fast_quote_to_amount_min_reflects_max_fee_via_swap_engine_mapping(api):
+    """swap_engine._get_cctp_quote sets to_amount_min = quote.to_amount, so a
+    discounted to_amount (this fix) automatically fixes an otherwise
+    unsatisfiable min-received assertion downstream."""
+    settings.cctp_v2_max_fast_fee_bps = 10
+    quote = await api.get_quote("ethereum", "base", "5000000", mode=CCTPTransferMode.FAST)
+    expected_min = str(5_000_000 - quote.max_fee)
+    assert quote.to_amount == expected_min
+
+
+# ---------------------------------------------------------------------------
+# LOW 5: min_finality_threshold must be exactly 1000 or 2000
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_burn_transaction_v2_rejects_unsupported_finality_threshold(api):
+    settings.cctp_v2_max_fast_fee_bps = 10
+    quote = await api.get_quote("ethereum", "base", "1000000", mode=CCTPTransferMode.FAST)
+    bad_quote = CCTPQuote(**{**quote.__dict__, "min_finality_threshold": 1500})
+    with pytest.raises(CCTPError):
+        api.build_burn_transaction_v2(
+            bad_quote, from_address="0x1111111111111111111111111111111111111111"
+        )

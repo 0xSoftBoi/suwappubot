@@ -645,7 +645,10 @@ class SmartRouter:
                 to_amount=quote.to_amount,
                 to_amount_human=quote.to_amount_human,
                 gas_cost_usd=quote.gas_cost_usd,
-                bridge_fee_usd=0.0,  # CCTP has ZERO bridge fee!
+                # CCTP has zero PROTOCOL bridge fee, but V2 Fast Transfer charges
+                # a live Circle fee (bounded by maxFee) deducted at mint -- quote
+                # already prices it into bridge_fee_usd/total_cost_usd/to_amount.
+                bridge_fee_usd=quote.bridge_fee_usd,
                 total_cost_usd=quote.total_cost_usd,
                 output_usd=output_usd,
                 net_output_usd=output_usd - quote.total_cost_usd,
@@ -1083,14 +1086,23 @@ class SmartRouter:
                     # a provider already scored higher for other reasons
                     # isn't penalized.
                     rel_score = max(rel_score, 0.99)
-                else:
-                    # Pooled/AMM bridge on a stable pair: modest discount
-                    # reflecting settlement/spread risk not captured in the
-                    # point-in-time quote. Kept small (10%) so a pooled
-                    # bridge with a genuinely better net output can still
-                    # win — this nudges ranking, it doesn't override honest
-                    # output/cost comparison.
-                    rel_score = rel_score * 0.9
+                # NOTE: a blanket "pooled bridge on a stable pair" discount
+                # used to be applied here to every non-native-rail provider.
+                # It was removed (money-path review) because it wrongly
+                # penalized guaranteed-output providers: Across quotes a
+                # guaranteed relayer fill amount and CoW settles at a signed
+                # limit price via batch auction, so neither has quote-to-fill
+                # output slippage the way a generic pooled/AMM bridge does.
+                # The discount let CCTP-Fast (whose maxFee IS a genuinely
+                # unpriced-at-quote-time cost before the fix above) outrank a
+                # materially better Across/CoW route. If settlement
+                # uncertainty needs to be encoded again, key it on
+                # raw_quote["settlement"]/raw_quote["trust_model"] (already
+                # plumbed through) and explicitly exempt guaranteed-output
+                # providers -- never on "provider not in a 2-element
+                # allowlist". The native-rail floor above is kept; it doesn't
+                # depend on this discount and doesn't misrepresent any
+                # provider's execution risk.
 
             # MEV protection score
             mev_score = mev_protection.get(route.provider, 0.3)
