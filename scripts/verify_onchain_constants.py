@@ -135,6 +135,10 @@ SEL = {
     )
 }
 
+# usedNonces takes an argument, so it is built separately; callers append the
+# 32-byte nonce. Must equal bot/services/cctp_api.USED_NONCES_SELECTOR.
+SEL_USED_NONCES = _selector("usedNonces(bytes32)")
+
 
 class RpcError(RuntimeError):
     pass
@@ -214,7 +218,22 @@ def verify_cctp() -> list[str]:
                 print(f"  {chain:10} FAIL domain {domain} != {expected_domain}")
                 continue
 
-            print(f"  {chain:10} OK   domain={domain} transmitter linked")
+            # usedNonces is the authoritative replay check the generic relayer
+            # depends on (cctp_api.is_nonce_used). It matters that this keeps
+            # answering: the thing it replaced was revert-string matching,
+            # which marked deposits "minted" that had never minted. Assert the
+            # shape — an unused nonce reads 0, the all-zero nonce is consumed.
+            unused = _call_int(url, MESSAGE_TRANSMITTER_V2, SEL_USED_NONCES + "11" * 32)
+            sentinel = _call_int(url, MESSAGE_TRANSMITTER_V2, SEL_USED_NONCES + "00" * 32)
+            if unused != 0 or not sentinel:
+                failures.append(
+                    f"cctp/{chain}: usedNonces shape unexpected "
+                    f"(unused={unused}, zero-nonce={sentinel})"
+                )
+                print(f"  {chain:10} FAIL usedNonces unused={unused} zero={sentinel}")
+                continue
+
+            print(f"  {chain:10} OK   domain={domain} transmitter+usedNonces verified")
         except Exception as exc:  # noqa: BLE001 - report, never abort the sweep
             failures.append(f"cctp/{chain}: {type(exc).__name__}: {exc}")
             print(f"  {chain:10} ERROR {type(exc).__name__}: {str(exc)[:60]}")
