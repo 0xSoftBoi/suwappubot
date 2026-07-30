@@ -1,0 +1,379 @@
+/* ==========================================================================
+   SITE — the sections below the hero, in the hero-e register.
+   Inherits every token from .hd (near-black, hairlines, tabular numerals).
+   Rules held to: one accent under 5% of surface, hairline borders at 8%,
+   10px radii, mono for labels only, motion on scroll entry only, and at
+   most one eyebrow per three sections.
+   ========================================================================== */
+
+.sw { background: var(--bg); }
+
+.sw__sec {
+  position: relative;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(2.75rem, 5.5vw, 4.5rem) 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+/* The hero already ends on a field, so the first section needs no rule. */
+.sw__sec:first-of-type { border-top: 0; }
+
+.sw__h2 {
+  margin: 0;
+  font-size: clamp(1.9rem, 3.6vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  color: var(--fg);
+  max-width: 20ch;
+}
+
+.sw__lead {
+  margin: 1rem 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 62ch;
+}
+
+.sw__eyebrow {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* ── Integrations strip ──────────────────────────────────────── */
+.sw__strip { text-align: center; }
+
+.sw__strip-h {
+  margin: 0 0 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--fg-dim);
+}
+
+.sw__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sw__chips li {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.32rem 0.7rem;
+}
+
+.sw__note {
+  margin: 1.25rem auto 0;
+  max-width: 56ch;
+  font-size: 0.8125rem;
+  color: var(--fg-faint);
+}
+
+/* ── Engine steps ────────────────────────────────────────────── */
+.sw__steps {
+  list-style: none;
+  margin: 2.5rem 0 0;
+  padding: 0;
+}
+
+.sw__steps li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 1.5rem;
+  padding: 1.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.sw__step-n {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--fg-faint);
+  padding-top: 0.3rem;
+}
+
+.sw__steps h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sw__steps p {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 62ch;
+}
+
+/* ── Surfaces ────────────────────────────────────────────────── */
+.sw__surfaces {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-top: 2.5rem;
+}
+
+.sw__surface {
+  position: relative;
+  display: block;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.015);
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.sw__surface:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line-strong);
+}
+
+.sw__surface-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--fg-faint);
+}
+
+.sw__surface h3 {
+  margin: 0.6rem 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.sw__surface p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+.sw__arrow {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--fg-faint);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.sw__surface:hover .sw__arrow { transform: translateX(3px); color: var(--fg); }
+
+/* ── Command list ────────────────────────────────────────────── */
+.sw__cmds {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0 3rem;
+  margin: 2.25rem 0 0;
+}
+
+.sw__cmds > div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 1rem;
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.sw__cmds dt {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--fg);
+}
+
+.sw__cmds dd {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+/* ── Split sections ──────────────────────────────────────────── */
+.sw__split > .reveal,
+.sw__split > div:first-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+}
+
+.sw__flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.sw__flow li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw__flow b { font-size: 0.9375rem; font-weight: 600; color: var(--fg); }
+.sw__flow span { font-family: var(--font-mono); font-size: 0.75rem; color: var(--fg-faint); }
+.sw__flow li:last-child { border-color: rgba(246, 169, 60, 0.28); }
+.sw__flow li:last-child span { color: var(--accent); }
+
+/* ── Panels, tools, code ─────────────────────────────────────── */
+.sw__panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.sw__panel-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.sw__panel-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--fg-faint);
+}
+
+.sw__tools {
+  list-style: none;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem 1.5rem;
+}
+
+.sw__tools li {
+  display: flex;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
+
+.sw__tools li span { color: var(--fg-faint); }
+
+.sw__code {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--fg-dim);
+  overflow-x: auto;
+}
+
+.sw__close { text-align: center; }
+.sw__close .sw__h2, .sw__close .sw__lead { margin-left: auto; margin-right: auto; }
+.sw__close .hd__cta { justify-content: center; }
+
+/* ── The agent handoff, restyled for the dark register ───────── */
+.sw .sw-handoff { margin-top: 2.25rem; }
+
+.sw .sw-handoff__lead {
+  background: rgba(246, 169, 60, 0.05);
+  border-color: rgba(246, 169, 60, 0.22);
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__copy h3 { color: var(--fg); font-family: var(--font-sans); }
+.sw .sw-handoff__copy p { color: var(--fg-dim); }
+
+.sw .sw-handoff__primary {
+  background: var(--fg);
+  color: #0A0A0A;
+  border: 0;
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__primary:hover { opacity: 0.88; box-shadow: none; transform: none; }
+
+.sw .sw-handoff__preview,
+.sw .sw-handoff__panel {
+  background: var(--bg-elev);
+  border-color: var(--line);
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__preview > summary { color: var(--fg-dim); }
+.sw .sw-handoff__preview > summary::before { color: var(--accent); }
+.sw .sw-handoff__preview pre { color: var(--fg-faint); }
+
+.sw .sw-handoff__tab {
+  border-color: var(--line);
+  color: var(--fg-dim);
+  border-radius: 6px;
+}
+
+.sw .sw-handoff__tab--active {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
+
+.sw .sw-handoff__panel .summer-code__bar {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+}
+
+.sw .sw-handoff__panel pre { color: var(--fg-dim); }
+.sw .sw-handoff__note { color: var(--fg-faint); }
+.sw .sw-handoff__mini { color: var(--accent); border-color: var(--line); }
+
+/* ── Footer in the dark register ─────────────────────────────── */
+.sw .summer-footer {
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  color: var(--fg-dim);
+}
+
+.sw .summer-footer a { color: var(--fg-dim); }
+.sw .summer-footer a:hover { color: var(--fg); }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sw__surfaces { grid-template-columns: 1fr; }
+  .sw__cmds { grid-template-columns: 1fr; gap: 0; }
+  .sw__split > .reveal { grid-template-columns: 1fr; }
+  .sw__tools { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .sw__steps li { grid-template-columns: 2.5rem 1fr; gap: 1rem; }
+  .sw__cmds > div { grid-template-columns: 1fr; gap: 0.3rem; }
+  .sw__tools { grid-template-columns: 1fr; }
+}
