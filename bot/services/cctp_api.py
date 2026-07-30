@@ -68,8 +68,11 @@ CCTP_V2_FINALITY_THRESHOLD = {
 # Tron is NOT supported by CCTP at all (confirmed) -- never add it.
 # Arc's domain ID is UNVERIFIED against Circle's live domain list -- do NOT
 # add it here without confirming against Circle's docs first.
-# HyperEVM's CCTP V2 domain (19) IS treated as verified elsewhere in this repo
-# -- bot/services/cctp_hypercore.py's HYPEREVM_CCTP_DOMAIN=19 already ships
+# HyperEVM's CCTP V2 domain (19) is verified on-chain: MessageTransmitterV2's
+# localDomain() returns 19 there -- see scripts/verify_onchain_constants.py,
+# which also confirms both V2 contract addresses and every domain ID in
+# CCTP_DOMAINS below against the live chains. Consistent with the rest of this
+# repo -- bot/services/cctp_hypercore.py's HYPEREVM_CCTP_DOMAIN=19 already ships
 # and is used in a live depositForBurn call, and that module's own "VERIFY
 # before mainnet" flags are scoped only to the HyperEVM native-USDC token
 # address and its HyperCore token index, NOT to the domain ID. So the domain
@@ -172,7 +175,15 @@ TOKEN_MESSENGER_V2_ABI = [
     }
 ]
 
-# MessageTransmitter ABI (minimal for receiveMessage)
+# MessageTransmitter ABI (minimal for receiveMessage + the authoritative
+# on-chain idempotency check). `usedNonces(bytes32) -> uint256` is the ONLY
+# reliable way to know whether a message's nonce has already been consumed --
+# selector 0xfeb61724, confirmed live on base/arbitrum/ethereum (unused nonce
+# returns 0, a consumed one returns non-zero). Revert-string matching on a
+# broadcast error is NOT a substitute for this: broadcast errors are
+# dominated by ordinary EOA transaction-nonce collisions, which several RPC
+# providers phrase as literally "nonce already used" -- matching that text
+# would falsely mark a deposit "minted" with no mint having happened.
 MESSAGE_TRANSMITTER_ABI = [
     {
         "inputs": [{"name": "message", "type": "bytes"}, {"name": "attestation", "type": "bytes"}],
@@ -180,8 +191,20 @@ MESSAGE_TRANSMITTER_ABI = [
         "outputs": [{"name": "success", "type": "bool"}],
         "stateMutability": "nonpayable",
         "type": "function",
-    }
+    },
+    {
+        "inputs": [{"name": "nonce", "type": "bytes32"}],
+        "name": "usedNonces",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
+
+# usedNonces(bytes32) selector, for callers that want a raw eth_call instead
+# of instantiating a web3 Contract (e.g. from a thread pool without a running
+# event loop). Keccak("usedNonces(bytes32)")[:4] == 0xfeb61724.
+USED_NONCES_SELECTOR = "0xfeb61724"
 
 # ERC20 approve ABI
 ERC20_APPROVE_ABI = [
@@ -622,6 +645,37 @@ class CircleCCTPAPI:
             "data": data,
             "value": 0,
         }
+
+    @staticmethod
+    def message_nonce_bytes32(message: bytes) -> bytes:
+        """Extract the 32-byte nonce from a CCTP V2 message.
+
+        V2 message header layout: version(4) | sourceDomain(4) |
+        destinationDomain(4) | nonce(32) | ... -- so the nonce is
+        message[12:44]. This is the value MessageTransmitterV2.usedNonces
+        expects, and is the authoritative key for on-chain idempotency
+        (see MESSAGE_TRANSMITTER_ABI's usedNonces entry).
+        """
+        if len(message) < 44:
+            raise CCTPError(
+                f"CCTP V2 message too short to contain a nonce ({len(message)} bytes, need >= 44)"
+            )
+        return message[12:44]
+
+    def is_nonce_used(self, web3, to_chain: str, nonce: bytes, version: int = 2) -> bool:
+        """Authoritative on-chain check: has this message's nonce already been
+        consumed by MessageTransmitterV2.usedNonces on `to_chain`?
+
+        Synchronous (plain eth_call) -- callers on the async path should wrap
+        this in `asyncio.to_thread`. Never infer this from a revert string;
+        always ask the contract directly.
+        """
+        if len(nonce) != 32:
+            raise CCTPError(f"CCTP nonce must be 32 bytes, got {len(nonce)}")
+        mt_addr = self.get_message_transmitter(to_chain, version=version)
+        data = USED_NONCES_SELECTOR + nonce.hex()
+        result = web3.eth.call({"to": Web3.to_checksum_address(mt_addr), "data": data})
+        return int.from_bytes(bytes(result), "big") != 0
 
     async def get_attestation(
         self,

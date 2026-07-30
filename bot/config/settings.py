@@ -1276,18 +1276,50 @@ class Settings(BaseSettings):
     cctp_generic_rail_enabled: bool = Field(
         default=False,
         description=(
-            "FAIL-CLOSED KILL SWITCH. The generic CCTP rail in bot/services/cctp_api.py "
-            "+ swap_engine._execute_cctp_swap only implements approve+burn on the source "
-            "chain — it never polls the attestation or calls receiveMessage on the "
-            "destination chain, and nothing else in the codebase completes a generic-rail "
-            "burn (cctp_relayer.py only completes bot/services/cctp_hypercore.py's "
-            "HyperCore-funding burns, a separate code path). Leaving this True with no "
-            "completion relayer wired means every generic CCTP swap burns the user's USDC "
-            "on the source chain and it is NEVER minted on the destination — permanent "
-            "fund loss. Keep False until a completion relayer (attestation poll + "
-            "receiveMessage submission) is built and verified for the generic rail. Does "
-            "NOT affect the HyperCore CCTP path (cctp_hypercore/cctp_relayer), which "
-            "completes correctly and is unconditionally available."
+            "FAIL-CLOSED KILL SWITCH. The generic CCTP rail (bot/services/cctp_api.py + "
+            "swap_engine._execute_cctp_swap) now has a completion relayer wired "
+            "(bot/services/cctp_generic_relayer.py, unit-tested with mocked RPC/attestation "
+            "in tests/test_cctp_relayer_generic.py) that polls the v2 attestation and "
+            "submits receiveMessage on the destination chain. It is CODE-COMPLETE but NOT "
+            "yet LIVE-verified. Before flipping this to True: (1) run one real small-amount "
+            "burn -> attestation -> receiveMessage end-to-end on a single corridor (e.g. "
+            "Base -> Arbitrum testnet or a $1 mainnet transfer) and confirm the recipient "
+            "actually receives minted USDC; (2) fund settings.cctp_relayer_private_key's "
+            "wallet with native gas on EVERY destination chain in cctp_api.CCTP_DOMAINS "
+            "(ethereum/avalanche/optimism/arbitrum/base/polygon) -- the relayer surfaces and "
+            "alerts on a per-chain shortfall (does not silently drop the deposit) but cannot "
+            "complete a mint without gas; (3) set "
+            "settings.cctp_generic_relayer_enabled=True so the relayer loop actually runs. "
+            "Do NOT flip this flag as part of the relayer build/test work alone -- it "
+            "requires the live corridor test above. Does NOT affect the HyperCore CCTP path "
+            "(cctp_hypercore/cctp_relayer), which completes correctly and is unconditionally "
+            "available."
+        ),
+    )
+
+    # Generic-rail CCTP completion relayer (bot/services/cctp_generic_relayer.py).
+    # Separate switch from cctp_relayer_enabled (the HyperCore-only relayer) so
+    # enabling one never silently activates the other. Builds/tests this relayer
+    # do NOT themselves flip cctp_generic_rail_enabled -- see that field's
+    # docstring for the exact live-test bar that must be cleared first.
+    cctp_generic_relayer_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the generic-rail CCTP completion relayer background loop. Requires "
+            "cctp_relayer_private_key (same relayer EOA reused across chains) to be "
+            "funded with native gas on EVERY destination chain a generic CCTP burn can "
+            "target (see cctp_api.CCTP_DOMAINS). Independent of cctp_generic_rail_enabled "
+            "(the swap-execution kill switch) -- this only controls whether the relayer "
+            "processes already-recorded deposits."
+        ),
+    )
+    cctp_generic_relayer_min_native_alert: float = Field(
+        default=0.01,
+        description=(
+            "Alert admins once per chain when the relayer wallet's native-gas balance on "
+            "that destination chain drops below this (in the chain's native unit, e.g. "
+            "ETH/MATIC/AVAX). Deliberately conservative/uniform across chains -- top up "
+            "generously rather than tuning per-chain thresholds."
         ),
     )
 

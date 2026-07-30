@@ -4176,17 +4176,25 @@ class SwapEngine:
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a USDC transfer via Circle CCTP (cheapest for USDC).
 
-        FUND-LOSS WARNING: this only does approve + depositForBurn on the
-        source chain and returns the burn tx hash. It does NOT poll the
-        Circle attestation and does NOT submit `receiveMessage` on the
-        destination chain — nothing else in this codebase does either for
-        this generic rail (cctp_relayer.py is HyperCore-specific and only
-        completes bot/services/cctp_hypercore.py burns). Reaching this method
-        with completion unwired burns the user's USDC with no mint ever
-        happening. This is guarded upstream by `_is_cctp_route`, which is
-        gated behind `settings.cctp_generic_rail_enabled` (default False) —
-        do not bypass that gate without first building and verifying a real
-        completion relayer for this rail.
+        This does approve + depositForBurn on the source chain. The burn is
+        recorded with bot/services/cctp_generic_relayer.py (record_burn)
+        BEFORE the depositForBurn tx is broadcast -- status="pending_broadcast",
+        keyed on the tx hash recovered locally from the signed payload (see
+        below) -- so a crash or a client-side broadcast error AFTER the raw
+        tx already propagated still leaves a DB row the relayer's reconciler
+        can find via the source-chain receipt. If pre-recording fails, this
+        aborts BEFORE broadcasting (the safe direction: nothing burned). If
+        recording succeeds but the broadcast itself raises, the row is left
+        in pending_broadcast for the relayer to resolve -- an unrecorded burn
+        is unmintable, but a recorded-then-unresolved one is recoverable.
+
+        Still guarded upstream by `_is_cctp_route`, gated behind
+        `settings.cctp_generic_rail_enabled` (default False, see that
+        field's docstring in bot/config/settings.py for the exact live-test
+        bar to clear before flipping it) — the relayer is code-complete but
+        NOT yet live-verified end-to-end (real burn -> real attestation ->
+        real mint on a real destination chain). Do not flip the gate without
+        that verification.
         """
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
@@ -4265,12 +4273,110 @@ class SwapEngine:
         burn_tx["chainId"] = chain.chain_id
 
         signed_burn_hex = await self.wallet_service.sign_evm_transaction(wallet, burn_tx)
-        burn_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_burn_hex.replace("0x", "")))
-        )
+        signed_raw_bytes = bytes.fromhex(signed_burn_hex.replace("0x", ""))
 
-        logger.info(f"CCTP burn tx: {burn_hash.hex()}")
-        return burn_hash.hex()
+        # The tx hash is deterministic from the signed payload -- recover it
+        # LOCALLY, before ever broadcasting. This is what makes pre-broadcast
+        # recording possible: record_burn(status="pending_broadcast") below
+        # persists a DB row keyed on this same hash BEFORE send_raw_transaction
+        # runs, so a crash or a client-side error AFTER the raw tx already
+        # propagated (a real failure mode on congested RPCs -- e.g. a read
+        # timeout on send_raw_transaction/wait_for_receipt) still leaves a row
+        # for the relayer's reconciler to find via get_transaction_receipt.
+        # Recording strictly AFTER broadcasting (the previous behaviour) has
+        # no such row for that window -- the burn is on-chain but nowhere in
+        # the DB, i.e. permanently unmintable.
+        burn_hex = Web3.keccak(signed_raw_bytes).hex()
+        if not burn_hex.startswith("0x"):
+            burn_hex = "0x" + burn_hex
+
+        from bot.services.cctp_generic_relayer import cctp_generic_relayer
+
+        try:
+            cctp_generic_relayer.record_burn(
+                user_id=wallet_data["user_id"],
+                recipient_address=wallet_data["address"],
+                from_chain=quote.from_chain,
+                to_chain=quote.to_chain,
+                burn_tx_hash=burn_hex,
+                amount_raw=int(cctp_quote.from_amount),
+                version=getattr(cctp_quote, "version", 2),
+                status="pending_broadcast",
+            )
+        except Exception as e:  # noqa: BLE001 — safe direction: abort BEFORE broadcasting
+            logger.error(
+                "CCTP burn for %s could not be pre-recorded with the completion relayer -- "
+                "aborting BEFORE broadcast (no funds burned). Error: %s",
+                burn_hex,
+                e,
+            )
+            raise SwapError(
+                f"CCTP burn could not be prepared for completion tracking ({e}). "
+                "Nothing was burned on-chain -- please retry."
+            ) from e
+
+        try:
+            burn_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(signed_raw_bytes)
+            )
+        except Exception as e:
+            # The raw tx may have propagated despite this exception (e.g. a
+            # client-side read timeout on a congested RPC). We do NOT delete
+            # or touch the pending_broadcast row here -- it stays exactly as
+            # recorded, and cctp_generic_relayer._reconcile_pending_broadcasts
+            # resolves it by checking get_transaction_receipt(burn_hex) on the
+            # source chain: if it landed, it's promoted to "burned" and
+            # relayed normally; if it never propagated, admins are alerted
+            # after an hour with no receipt and the user can safely retry
+            # (nothing was burned).
+            logger.error(
+                "CCTP burn %s broadcast raised (tx may still have propagated) -- left in "
+                "pending_broadcast for the relayer's reconciler to resolve via on-chain "
+                "receipt lookup. Error: %s",
+                burn_hex,
+                e,
+            )
+            raise SwapError(
+                f"CCTP burn broadcast failed ({e}). If it actually landed on-chain (tx "
+                f"{burn_hex}), it will still be detected and relayed automatically -- do "
+                "NOT retry without checking that hash first."
+            ) from e
+
+        broadcast_hex = burn_hash.hex()
+        if not broadcast_hex.startswith("0x"):
+            broadcast_hex = "0x" + broadcast_hex
+        if broadcast_hex.lower() != burn_hex.lower():
+            # Should be mathematically impossible (same signed payload,
+            # deterministic keccak) -- if it ever happens, the RPC's
+            # send_raw_transaction returned something we didn't predict, so
+            # trust the LOCAL hash for pending_broadcast bookkeeping and fail
+            # loud rather than silently relaying under a hash the DB doesn't
+            # have a row for.
+            logger.error(
+                "CCTP burn hash mismatch: locally-derived %s != RPC-returned %s -- "
+                "recording under the locally-derived hash regardless (that's the row "
+                "already persisted pre-broadcast).",
+                burn_hex,
+                broadcast_hex,
+            )
+
+        logger.info(f"CCTP burn tx: {burn_hex}")
+
+        # Promote pending_broadcast -> burned now that we know the broadcast
+        # itself returned successfully (no exception). Best-effort: even if
+        # this fails, _reconcile_pending_broadcasts will promote it on the
+        # next relayer pass once it observes the on-chain receipt.
+        try:
+            cctp_generic_relayer.mark_broadcast(burn_hex)
+        except Exception as e:  # noqa: BLE001 — non-fatal; reconciler will catch it
+            logger.warning(
+                "CCTP burn %s broadcast succeeded but mark_broadcast failed (relayer's "
+                "reconciler will promote it from pending_broadcast on the next pass): %s",
+                burn_hex,
+                e,
+            )
+
+        return burn_hex
 
     async def _execute_across_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Across Protocol (cheap EVM bridges)."""

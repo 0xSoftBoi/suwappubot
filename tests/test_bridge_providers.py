@@ -627,7 +627,11 @@ async def test_usdt0_disabled_by_default():
 async def test_usdt0_returns_none_with_no_configured_address_even_if_enabled():
     """Even with the feature flag flipped on, an empty OFT_ADDRESSES map
     must mean no route is quotable — never fabricate an address."""
-    with patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True):
+    with (
+        patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True),
+        patch("bot.services.bridge.usdt0_api.OFT_ADDRESSES", {}),
+        patch("bot.services.bridge.usdt0_api.USDT0_SUPPORTED_CHAINS", set()),
+    ):
         provider = USDT0Bridge()
         assert provider.enabled is True
         assert provider.is_supported_route("arbitrum", "plasma", "USDT") is False
@@ -662,18 +666,25 @@ def test_usdt0_unsupported_chain_rejected():
 
 @pytest.mark.asyncio
 async def test_usdt0_never_fabricates_better_than_1to1_output():
-    """Structural guard: even if addresses were configured (simulated via
-    patched OFT_ADDRESSES + enabled flag), get_quote must never be coaxed
-    into returning a quote with to_amount > from_amount for a 1:1 rail —
-    right now it always returns None since quoteSend() isn't wired, which
-    trivially satisfies this, but the assertion pins the fail-closed
-    contract so a future implementation can't regress it silently."""
+    """Structural guard: even with a mocked successful quoteSend(), get_quote
+    must never return to_amount > from_amount for a 1:1 rail. See
+    tests/test_usdt0.py for the full RPC-mocked implementation test suite."""
+    from unittest.mock import MagicMock
+
+    mock_contract = MagicMock()
+    mock_contract.functions.quoteSend.return_value.call.return_value = (12345, 0)
+    mock_contract.encode_abi.return_value = "0xdeadbeef"
+
+    mock_web3 = MagicMock()
+    mock_web3.eth.contract.return_value = mock_contract
+    # from_wei must return a real number: get_quote converts the buffered
+    # LayerZero fee to native units to check it against the ceiling, and a
+    # MagicMock there fails the float() conversion rather than the assertion.
+    mock_web3.from_wei.side_effect = lambda value, unit: int(value) / 10**18
+
     with (
         patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True),
-        patch(
-            "bot.services.bridge.usdt0_api.OFT_ADDRESSES",
-            {"arbitrum": ADDR, "plasma": ADDR2},
-        ),
+        patch("bot.services.rpc_manager.rpc_manager.get_web3", return_value=mock_web3),
     ):
         provider = USDT0Bridge()
         assert provider.is_supported_route("arbitrum", "plasma", "USDT") is True
@@ -684,10 +695,8 @@ async def test_usdt0_never_fabricates_better_than_1to1_output():
             from_amount="1000000",
             from_address=ADDR,
         )
-    if quote is not None:
-        assert int(quote.to_amount) <= int(quote.from_amount)
-    else:
-        assert quote is None
+    assert quote is not None
+    assert int(quote.to_amount) <= int(quote.from_amount)
 
 
 # ---------------------------------------------------------------------------
