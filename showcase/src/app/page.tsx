@@ -38,7 +38,7 @@ const engineFeatures = [
     mark: 'fruit',
     title: 'Best-price routing',
     description:
-      `Every provider that supports your route races to quote it — ${productStats.routerCount} integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Across, Wormhole, and Jupiter. You get the winner, automatically.`,
+      `Every provider that supports your route races to quote it: ${productStats.routerCount} integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Across, Wormhole, and Jupiter. You get the winner, automatically.`,
   },
   {
     mark: 'sun',
@@ -56,7 +56,7 @@ const engineFeatures = [
     mark: 'mist',
     title: 'One execution layer',
     description:
-      'Telegram bot, web terminal, REST API, and MCP server all call the same router — identical pricing, settlement, and guardrails behind every surface.',
+      'Telegram bot, web terminal, REST API, and MCP server all call the same router: identical pricing, settlement, and guardrails behind every surface.',
   },
 ];
 
@@ -77,7 +77,7 @@ const modules = [
   {
     eyebrow: 'Fast command lane',
     title: 'Telegram bot',
-    body: 'Quote, swap, snipe, run perps, stake, set DCA, copy traders, or watch a wallet — all without leaving the chat.',
+    body: 'Quote, swap, snipe, run perps, stake, set DCA, copy traders, or watch a wallet, all without leaving the chat.',
     stat: '@suwappu_bot',
   },
 ];
@@ -97,7 +97,7 @@ const hyperliquid = [
   {
     cmd: '/stake',
     title: 'HYPE staking',
-    body: 'Delegate to a ranked validator picker — APR and commission visible — with auto-compounding. No address pasting.',
+    body: 'Delegate to a ranked validator picker with auto-compounding. APR and commission stay visible. No address pasting.',
   },
   {
     cmd: '/vault',
@@ -107,7 +107,7 @@ const hyperliquid = [
   {
     cmd: '/twap',
     title: 'TWAP orders',
-    body: 'Split a large order evenly over time with randomization — persisted and monitored in the background.',
+    body: 'Split a large order evenly over time with randomization, persisted and monitored in the background.',
   },
   {
     cmd: '/spot',
@@ -133,7 +133,7 @@ const agentCards = [
   {
     tag: 'SDK + REST',
     title: 'Ship in TypeScript or Python',
-    body: '`bun add @suwappu/sdk` or call the REST API directly — the exact execution layer the terminal runs on.',
+    body: '`bun add @suwappu/sdk` or call the REST API directly. It is the exact execution layer the terminal runs on.',
   },
   {
     tag: 'Discoverable',
@@ -142,7 +142,7 @@ const agentCards = [
   },
   {
     tag: 'Guardrails',
-    title: 'Risk limits built in — agents can\'t overspend',
+    title: 'Risk limits built in, so agents can\'t overspend',
     body: 'Per-key slippage caps, spend limits, allowed chains and pairs, plus 2FA. Autonomous agents act inside rails you define.',
   },
 ];
@@ -292,10 +292,10 @@ export default async function Home() {
           <section id="mobile-app" className="summer-mobile" aria-label="Mobile app waitlist">
             <span className="summer-flower summer-flower--sun summer-mobile__flower" aria-hidden="true" />
             <div className="summer-mobile__copy">
-              <p className="summer-kicker">Coming soon — iOS &amp; Android</p>
+              <p className="summer-kicker">Coming soon: iOS and Android</p>
               <h2>Suwappu, in your pocket. With the Suwappu Card by Rain.</h2>
               <p>
-                The full swap engine and terminal, native on your phone — plus the
+                The full swap engine and terminal, native on your phone, plus the
                 Suwappu Card by Rain, a crypto-linked card you can spend anywhere.
                 Get on the list and we&rsquo;ll email you the moment your device is
                 supported.
@@ -315,7 +315,6 @@ export default async function Home() {
           {/* ── CROSS-CHAIN ENGINE — outcome cards ── */}
           <section id="engine" className="summer-features" aria-label="Cross-chain engine">
             <div className="summer-features__head">
-              <p className="summer-kicker">The engine</p>
               <h2>One router across {productStats.platformChains} chains.</h2>
             </div>
             <div className="summer-features__grid">
@@ -375,11 +374,10 @@ export default async function Home() {
             <div className="summer-flower summer-flower--sun summer-hub__flower" aria-hidden="true" />
             <div className="summer-hub__head">
               <div>
-                <p className="summer-kicker">Institutional-grade perps</p>
                 <h2>Up to 20x leverage. Managed from chat.</h2>
               </div>
               <p>
-                The full HyperLiquid ecosystem from inside the bot — fund your
+                The full HyperLiquid ecosystem from inside the bot: fund your
                 HyperCore account from any chain, trade perps up to 20x on the
                 fastest on-chain perp exchange, stake HYPE, and earn in vaults.
                 No bridging tabs, no address pasting.
@@ -404,10 +402,9 @@ export default async function Home() {
           <section id="tempo" className="summer-tempo" aria-label="Gasless swaps on Tempo">
             <div className="summer-flower summer-flower--mist summer-tempo__flower" aria-hidden="true" />
             <div className="summer-tempo__copy">
-              <p className="summer-kicker">Gasless swaps on Tempo</p>
               <h2>Trade without holding gas tokens.</h2>
               <p>
-                Suwappu sponsors your transaction fees on Tempo chains — you swap
+                Suwappu sponsors your transaction fees on Tempo chains, so you swap
                 TIP-20 stablecoins for about a tenth of a cent while we cover the
                 rest. Falls back to a normal swap if sponsorship is unavailable, so
                 nothing ever blocks.
@@ -440,11 +437,10 @@ export default async function Home() {
           <section id="api" className="summer-sdk">
             <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
-              <p className="summer-kicker">Agent API &amp; SDK</p>
               <h2>Two calls from quote to settlement.</h2>
               <p>
                 The same execution surface the terminal runs on, exposed as a
-                TypeScript SDK, an MCP server, and a REST API — swaps, perps,
+                TypeScript SDK, an MCP server, and a REST API: swaps, perps,
                 prediction markets, and lending across {productStats.agentApiChains}{' '}
                 agent-ready chains.
               </p>
@@ -473,10 +469,9 @@ export default async function Home() {
           {/* ── NON-CUSTODIAL PLEDGE ── */}
           <section className="summer-pledge" aria-label="Non-custodial">
             <span className="summer-flower summer-flower--soft summer-pledge__mark" aria-hidden="true" />
-            <p className="summer-kicker">Non-custodial by design</p>
             <p className="summer-pledge__body">
               Suwappu is non-custodial. We never hold your keys or your funds. We provide
-              the routing and settlement layer — your tokens stay yours, end to end.
+              the routing and settlement layer. Your tokens stay yours, end to end.
             </p>
           </section>
 
@@ -488,7 +483,7 @@ export default async function Home() {
               <h2>Let an agent execute. You set the limits.</h2>
               <p>
                 Suwappu exposes the same execution surface as an MCP server, a
-                TypeScript SDK, and a REST API across {productStats.agentApiChains} agent-ready chains —
+                TypeScript SDK, and a REST API across {productStats.agentApiChains} agent-ready chains,
                 discoverable through llms.txt and an agent manifest, with policy
                 guardrails so autonomous swaps stay inside the rails you define. No
                 signup required: register for a key instantly, or pay per call over
@@ -515,14 +510,13 @@ export default async function Home() {
           {/* ── DEVELOPER QUICKSTART (agent trading layer) ── */}
           <section id="build" className="summer-devlayer" aria-label="Build with Suwappu">
             <div className="summer-devlayer__head">
-              <p className="summer-kicker">For builders</p>
               {/* The polish layer does not scale this head — display-2 applies here. */}
               <h2 className={`sw-display-2 ${styles.h2Scale}`}>
                 Your AI agent&apos;s trading layer.
               </h2>
               <p>
                 Native MCP, TypeScript and Python SDKs, and org-scoped API keys with
-                per-key spend caps — built for agents, not just humans.
+                per-key spend caps, built for agents, not just humans.
               </p>
             </div>
             <div className="summer-devlayer__grid">
@@ -546,7 +540,7 @@ export default async function Home() {
               >
                 <b>TypeScript SDK</b>
                 <h3>npm install @suwappu/sdk</h3>
-                <p>Swap, perps, predict, lending — one typed client across {productStats.platformChains} chains.</p>
+                <p>Swap, perps, predict, lending: one typed client across {productStats.platformChains} chains.</p>
                 <div className="summer-code summer-devlayer__snippet">
                   <div className="summer-code__bar">
                     <span /><span /><span />

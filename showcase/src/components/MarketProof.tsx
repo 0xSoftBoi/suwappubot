@@ -77,11 +77,10 @@ export default async function MarketProof() {
       <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
       <div className="summer-proof__head">
         <div>
-          <p className="summer-kicker">Live routing</p>
           <h2>Real prices. Best-route execution.</h2>
         </div>
         <p>
-          The markets you can trade right now — spot across chains plus a gasless stable swap
+          The markets you can trade right now: spot across chains plus a gasless stable swap
           on Tempo. Suwappu routes each to the best available venue.
         </p>
       </div>

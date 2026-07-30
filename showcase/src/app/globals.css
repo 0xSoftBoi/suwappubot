@@ -7353,3 +7353,16 @@ a.summer-button:active,
 }
 
 .nav__drawer-sublist[hidden] { display: none; }
+
+/* The HyperLiquid section header was the one "big headline left, small
+   explainer floating right" split on the page. The right column carried only
+   body copy, not a visual, so stack it and cap the measure instead. */
+.summer-hub__head {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.summer-hub__head > p:last-child {
+  max-width: 68ch;
+}
