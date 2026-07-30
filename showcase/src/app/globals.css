@@ -7469,3 +7469,10 @@ a.summer-button:active,
    becomes absolute inside the fixed, viewport-sized portal instead. */
 .nav__portal .nav__drawer { position: absolute; }
 .nav__portal .nav__backdrop { position: absolute; }
+
+/* With the hamburger present the homepage header has three actions competing
+   at phone widths, and the ghost CTA was overlapping the wordmark. Drop it
+   below 620px: the drawer already carries "Open Terminal". */
+@media (max-width: 620px) {
+  .summer-nav__actions .summer-nav__cta--ghost { display: none; }
+}
