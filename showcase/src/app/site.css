@@ -378,51 +378,66 @@
   .sw__tools { grid-template-columns: 1fr; }
 }
 
-/* ── Per-section motion fields ───────────────────────────────────
-   Each section carries a canvas depicting what that section sells:
-   providers racing to a quote, a market, a fee-payer absorbing gas,
-   agent tool calls, three surfaces converging. Masked and held low so
-   they read as substrate behind the copy, never as competition for it. */
+/* ── Section figures ─────────────────────────────────────────────
+   The reference's globe is a bounded object sitting beside the copy, not a
+   background wash. That is what lets its labels stay legible. These are the
+   same: a discrete diagram in the right column at full opacity, with the copy
+   held to the left so the two never overlap. */
 .sw__field {
   position: absolute;
+  right: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(44%, 520px);
+  height: min(76%, 360px);
+  pointer-events: none;
+  opacity: 1;
+  /* Only the outer edge is softened, so nothing is clipped mid-label. */
+  mask-image: radial-gradient(ellipse 92% 92% at 50% 50%, #000 62%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 92% 92% at 50% 50%, #000 62%, transparent 100%);
+}
+
+/* Keep the copy clear of the figure. */
+.sw__sec:has(.sw__field) .sw__h2,
+.sw__sec:has(.sw__field) .sw__lead,
+.sw__sec:has(.sw__field) .sw__steps { max-width: min(54%, 620px); }
+
+.sw__sec:has(.sw__field) .sw__steps p { max-width: 100%; }
+
+/* The hero graph is the page's hero object, so it stays full-bleed and large,
+   with its ring of chain labels falling outside the centred copy. */
+.sw__field--hero {
+  position: absolute;
   left: 50%;
+  right: auto;
+  top: 0;
+  transform: none;
   width: 100vw;
   margin-left: -50vw;
-  top: 0;
   height: 100%;
-  pointer-events: none;
-  opacity: 0.62;
-  /* Copy is left-aligned in these sections, so the field is masked toward the
-     open right-hand space. Motion behind body text hurts legibility. */
-  mask-image:
-    radial-gradient(ellipse 60% 78% at 74% 50%, #000 12%, transparent 72%),
-    linear-gradient(90deg, transparent 0%, transparent 34%, #000 62%);
-  -webkit-mask-image:
-    radial-gradient(ellipse 60% 78% at 74% 50%, #000 12%, transparent 72%),
-    linear-gradient(90deg, transparent 0%, transparent 34%, #000 62%);
-  mask-composite: intersect;
-  -webkit-mask-composite: source-in;
+  opacity: 0.85;
+  mask-image: radial-gradient(ellipse 86% 80% at 50% 42%, #000 55%, transparent 92%);
+  -webkit-mask-image: radial-gradient(ellipse 86% 80% at 50% 42%, #000 55%, transparent 92%);
 }
 
-/* Centred sections put their copy in the middle, so the field returns to a
-   symmetric mask and drops back so it never sits under the headline. */
-.sw__close .sw__field,
-.sw__strip .sw__field {
-  opacity: 0.4;
-  mask-image: radial-gradient(ellipse 82% 74% at 50% 50%, transparent 26%, #000 62%, transparent 86%);
-  -webkit-mask-image: radial-gradient(ellipse 82% 74% at 50% 50%, transparent 26%, #000 62%, transparent 86%);
-  mask-composite: add;
-  -webkit-mask-composite: source-over;
+/* Sections whose body is full-width (the handoff block) have no free column,
+   so their figure is pinned to the header band instead of the vertical middle. */
+.sw__field--top {
+  top: clamp(2.75rem, 5.5vw, 4.5rem);
+  transform: none;
+  height: min(42%, 220px);
+  width: min(38%, 420px);
 }
 
-/* The hero already has the field and grid behind it, so its routes sit lower. */
-.sw__field--hero {
-  opacity: 0.9;
-  mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
-  -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
-}
-
-/* Sections are the positioning context and must not clip the 100vw fields. */
 .sw__sec { overflow: visible; }
 .sw__sec > .reveal, .sw__sec > * { position: relative; }
 .sw__sec > .sw__field { position: absolute; }
+
+@media (max-width: 1024px) {
+  /* Below this the copy needs the full width, so the figures step aside. */
+  .sw__field { display: none; }
+  .sw__sec:has(.sw__field) .sw__h2,
+  .sw__sec:has(.sw__field) .sw__lead,
+  .sw__sec:has(.sw__field) .sw__steps { max-width: none; }
+  .sw__field--hero { display: block; }
+}

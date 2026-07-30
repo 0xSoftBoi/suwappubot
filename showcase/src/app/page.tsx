@@ -101,7 +101,7 @@ export default function Home() {
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section className="hd__hero">
           <div className="he__grid" aria-hidden="true" />
-          <SectionField motif="routes" className="sw__field sw__field--hero" />
+          <SectionField motif="chains" className="sw__field sw__field--hero" />
 
           <p className="hd__eyebrow">Cross-chain execution</p>
           <h1 className="hd__h1">The best price, proven every trade.</h1>
@@ -163,7 +163,7 @@ export default function Home() {
 
         {/* ── Surfaces ─────────────────────────────────────────── */}
         <section id="terminal" className="sw__sec" aria-label="Product surfaces">
-          <SectionField motif="converge" className="sw__field" />
+          <SectionField motif="chains" className="sw__field" />
           <Reveal>
             <h2 className="sw__h2">One engine, three ways in.</h2>
             <div className="sw__surfaces">
@@ -181,7 +181,7 @@ export default function Home() {
 
         {/* ── Perps ────────────────────────────────────────────── */}
         <section id="hyperliquid" className="sw__sec" aria-label="HyperLiquid perps">
-          <SectionField motif="book" className="sw__field" />
+          <SectionField motif="markets" className="sw__field" />
           <Reveal>
             <h2 className="sw__h2">HyperLiquid, managed from chat.</h2>
             <p className="sw__lead">
@@ -221,7 +221,7 @@ export default function Home() {
 
         {/* ── Agents ───────────────────────────────────────────── */}
         <section id="agents" className="sw__sec" aria-label="Built for agents">
-          <SectionField motif="calls" className="sw__field" />
+          <SectionField motif="tools" className="sw__field sw__field--top" />
           <Reveal>
             <p className="sw__eyebrow">Built for the agentic era</p>
             <h2 className="sw__h2">Hand your trading layer to an agent.</h2>
@@ -273,7 +273,6 @@ export default function Home() {
 
         {/* ── Close ────────────────────────────────────────────── */}
         <section className="sw__sec sw__close" aria-label="Get started">
-          <SectionField motif="converge" className="sw__field" />
           <Reveal>
             <h2 className="sw__h2">Start in thirty seconds.</h2>
             <p className="sw__lead">
