@@ -9,6 +9,7 @@ from bot.services.bridge.arbitrum_native import arbitrum_native_api
 from bot.services.bridge.base import BridgeProvider, BridgeQuote
 from bot.services.bridge.near_intents import near_intents_api
 from bot.services.bridge.symbiosis_api import symbiosis_api
+from bot.services.bridge.usdt0_api import usdt0_api
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ BRIDGE_PROVIDERS: List[BridgeProvider] = [
     allbridge_api,
     symbiosis_api,
     arbitrum_native_api,
+    usdt0_api,
 ]
 
 

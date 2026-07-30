@@ -1242,6 +1242,38 @@ class Settings(BaseSettings):
         """Parse `monitor_expected_sources` into a clean list of source names."""
         return [s.strip() for s in (self.monitor_expected_sources or "").split(",") if s.strip()]
 
+    # CCTP V2 (Circle's canonical version — V1 is deprecated). Controls the
+    # generic cctp_api.py client used by router/swap_engine. Fast Transfer is a
+    # PAID tier (a live Circle fee, capped by maxFee) that trades cost for speed
+    # via soft finality; Standard is free/gas-only hard finality. Default to
+    # Standard so we never silently start paying Fast fees.
+    cctp_v2_enabled: bool = Field(
+        default=True,
+        description=(
+            "Use CCTP V2 (TokenMessengerV2.depositForBurn, 7-arg signature) as the "
+            "default cctp_api.py code path. When False, falls back to the legacy V1 "
+            "4-arg depositForBurn call (kept intact for rollback only)."
+        ),
+    )
+    cctp_v2_default_mode: str = Field(
+        default="standard",
+        description=(
+            "Default CCTP V2 transfer mode: 'standard' (minFinalityThreshold=2000, "
+            "hard finality, gas-only) or 'fast' (minFinalityThreshold<=1000, soft "
+            "finality in ~8-20s, but charges a live Circle fee capped by maxFee). "
+            "Conservative default is 'standard'."
+        ),
+    )
+    cctp_v2_max_fast_fee_bps: int = Field(
+        default=0,
+        description=(
+            "Maximum acceptable Fast Transfer fee, in basis points of the burn amount. "
+            "Used to compute the bounded maxFee passed to depositForBurn. Must be set "
+            "to a positive value before Fast mode can be used — cctp_api.py refuses "
+            "(returns None / raises) any Fast-mode build with an unset or zero cap."
+        ),
+    )
+
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )

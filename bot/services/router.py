@@ -37,6 +37,71 @@ from bot.config.tokens import get_token_decimals, get_token_address
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# Stablecoin registry + native-rail helpers
+#
+# Bug this fixes: `is_usdc` (see get_all_routes) was computed but only ever
+# consulted at the CCTP gate — it never reached _score_routes, so a 1:1
+# zero-slippage rail (CCTP, USDT0/OFT) got scored with the *same* generic
+# reliability number as a pooled/AMM bridge on a stable pair, even though
+# pooled bridges structurally carry spread/slippage risk that CCTP/OFT
+# cannot. These helpers make "is this a stablecoin route" and "is this
+# route a native 1:1 rail" first-class so _score_routes can apply a
+# principled, stable-pair-only preference instead of guessing at output.
+# ============================================================
+
+# Symbols treated as stablecoins for routing-preference purposes. Includes
+# USDT0 (LayerZero-OFT USDT) and the Tempo TIP-20 stables already priced
+# elsewhere in the codebase (Tempo has no USDC/USDT deployment).
+STABLECOIN_SYMBOLS = {
+    "USDC",
+    "USDT",
+    "USDT0",
+    "USDE",
+    "DAI",
+    "PYUSD",
+    "PATHUSD",
+    # Tempo TIP-20 stables
+    "USDT-TIP",
+    "USDC-TIP",
+    "USD1",
+}
+
+# Providers that settle stable-pair transfers via 1:1 burn/mint (CCTP,
+# USDT0/OFT) rather than a pooled AMM. These are structurally slippage-free
+# by construction — there is no pool depth to move against. Any provider
+# not in this set is treated conservatively as "pooled" even if it happens
+# to be cheap right now (fail closed: no undeserved bonus without a
+# confirmed native-rail settlement mechanism).
+NATIVE_RAIL_PROVIDERS = {"cctp", "usdt0"}
+
+
+def is_stablecoin(symbol: Optional[str]) -> bool:
+    """Whether `symbol` is a recognized stablecoin (case-insensitive)."""
+    if not symbol:
+        return False
+    return symbol.upper() in STABLECOIN_SYMBOLS
+
+
+def is_stable_pair(from_token: Optional[str], to_token: Optional[str]) -> bool:
+    """Whether both legs of a swap/bridge are stablecoins (incl. cross-stable
+    pairs like USDC -> USDT), not just same-symbol transfers.
+    """
+    return is_stablecoin(from_token) and is_stablecoin(to_token)
+
+
+def is_same_stable(from_token: Optional[str], to_token: Optional[str]) -> bool:
+    """Whether both legs are the *same* stablecoin symbol (e.g. USDC -> USDC)."""
+    if not from_token or not to_token:
+        return False
+    return is_stablecoin(from_token) and from_token.upper() == to_token.upper()
+
+
+def is_native_rail_route(provider: str) -> bool:
+    """Whether `provider` settles via a 1:1 burn/mint rail (no AMM slippage)."""
+    return provider in NATIVE_RAIL_PROVIDERS
+
+
 @dataclass
 class RouteOption:
     """A single route option from a provider."""
@@ -179,6 +244,13 @@ class SmartRouter:
 
         # ============================================================
         # PRIORITY 4: Circle CCTP (cheapest for USDC - $0 bridge fee)
+        #
+        # NOTE: intentionally NOT widened beyond USDC. CCTP is Circle's
+        # proprietary burn/mint mechanism tied specifically to USDC's mint
+        # authority — there is no "CCTP for USDT" to gate into. The other
+        # stable rail (USDT0/LayerZero-OFT) is reached generically via the
+        # bridge registry below (PRIORITY 6.5) and gets its native-rail
+        # scoring preference in _score_routes via NATIVE_RAIL_PROVIDERS.
         # ============================================================
         if (
             is_usdc
@@ -991,6 +1063,34 @@ class SmartRouter:
 
             # Reliability score
             rel_score = reliability.get(route.provider, 0.8)
+
+            # Stable-pair native-rail preference (the fix for the bug
+            # described at the top of this module): net_output_usd already
+            # reflects the provider's *quoted* fees, but a pooled/AMM
+            # bridge's quote is a point-in-time estimate that can still
+            # slip between quote and settlement, while CCTP/USDT0 are 1:1
+            # burn/mint with no pool to move against — that execution
+            # certainty isn't priced into net_output_usd at all. We encode
+            # it as a reliability adjustment, scoped ONLY to stable pairs,
+            # so non-stable routing (e.g. volatile-token swaps) is
+            # completely unaffected. Fail closed: if the pair isn't a
+            # recognized stablecoin pair, or the provider isn't a confirmed
+            # native rail, no adjustment is applied.
+            if is_stable_pair(route.from_token, route.to_token):
+                if is_native_rail_route(route.provider):
+                    # Native 1:1 rail on a stable pair: floor reliability at
+                    # a near-max value rather than blindly overriding it, so
+                    # a provider already scored higher for other reasons
+                    # isn't penalized.
+                    rel_score = max(rel_score, 0.99)
+                else:
+                    # Pooled/AMM bridge on a stable pair: modest discount
+                    # reflecting settlement/spread risk not captured in the
+                    # point-in-time quote. Kept small (10%) so a pooled
+                    # bridge with a genuinely better net output can still
+                    # win — this nudges ranking, it doesn't override honest
+                    # output/cost comparison.
+                    rel_score = rel_score * 0.9
 
             # MEV protection score
             mev_score = mev_protection.get(route.provider, 0.3)

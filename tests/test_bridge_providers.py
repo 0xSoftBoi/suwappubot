@@ -10,6 +10,7 @@ from bot.services.bridge.base import normalize_amount, validate_address_for_chai
 from bot.services.bridge.near_intents import NearIntentsBridge
 from bot.services.bridge.registry import bridge_quote, get_bridge_quotes
 from bot.services.bridge.symbiosis_api import SymbiosisBridge
+from bot.services.bridge.usdt0_api import USDT0Bridge
 
 ADDR = "0x1111111111111111111111111111111111111111"
 ADDR2 = "0x2222222222222222222222222222222222222222"
@@ -601,6 +602,92 @@ def test_arbitrum_native_build_deposit_transaction_correct_encoding():
     # value must cover maxSubmissionCost + maxGas * gasPriceBid, not 0.
     assert tx["value"] == 1000000000000 + 300000 * 100000000
     assert tx["value"] > 0
+
+
+# ---------------------------------------------------------------------------
+# USDT0 (LayerZero-OFT canonical USDT)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_usdt0_disabled_by_default():
+    provider = USDT0Bridge()
+    assert provider.enabled is False
+    quote = await provider.get_quote(
+        from_chain="arbitrum",
+        to_chain="plasma",
+        from_token="USDT",
+        from_amount="1000000",
+        from_address=ADDR,
+    )
+    assert quote is None
+
+
+@pytest.mark.asyncio
+async def test_usdt0_returns_none_with_no_configured_address_even_if_enabled():
+    """Even with the feature flag flipped on, an empty OFT_ADDRESSES map
+    must mean no route is quotable — never fabricate an address."""
+    with patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True):
+        provider = USDT0Bridge()
+        assert provider.enabled is True
+        assert provider.is_supported_route("arbitrum", "plasma", "USDT") is False
+        quote = await provider.get_quote(
+            from_chain="arbitrum",
+            to_chain="plasma",
+            from_token="USDT",
+            from_amount="1000000",
+            from_address=ADDR,
+        )
+    assert quote is None
+
+
+def test_usdt0_tron_rejected():
+    provider = USDT0Bridge()
+    # Tron runs original TRC20 USDT with a separate mint authority — never
+    # on USDT0, even if someone accidentally adds "tron" to the supported
+    # chain set upstream.
+    assert provider.is_supported_route("tron", "arbitrum", "USDT") is False
+    assert provider.is_supported_route("arbitrum", "tron", "USDT") is False
+
+
+def test_usdt0_same_chain_rejected():
+    provider = USDT0Bridge()
+    assert provider.is_supported_route("arbitrum", "arbitrum", "USDT") is False
+
+
+def test_usdt0_unsupported_chain_rejected():
+    provider = USDT0Bridge()
+    assert provider.is_supported_route("ethereum", "polygon", "USDT") is False
+
+
+@pytest.mark.asyncio
+async def test_usdt0_never_fabricates_better_than_1to1_output():
+    """Structural guard: even if addresses were configured (simulated via
+    patched OFT_ADDRESSES + enabled flag), get_quote must never be coaxed
+    into returning a quote with to_amount > from_amount for a 1:1 rail —
+    right now it always returns None since quoteSend() isn't wired, which
+    trivially satisfies this, but the assertion pins the fail-closed
+    contract so a future implementation can't regress it silently."""
+    with (
+        patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True),
+        patch(
+            "bot.services.bridge.usdt0_api.OFT_ADDRESSES",
+            {"arbitrum": ADDR, "plasma": ADDR2},
+        ),
+    ):
+        provider = USDT0Bridge()
+        assert provider.is_supported_route("arbitrum", "plasma", "USDT") is True
+        quote = await provider.get_quote(
+            from_chain="arbitrum",
+            to_chain="plasma",
+            from_token="USDT",
+            from_amount="1000000",
+            from_address=ADDR,
+        )
+    if quote is not None:
+        assert int(quote.to_amount) <= int(quote.from_amount)
+    else:
+        assert quote is None
 
 
 # ---------------------------------------------------------------------------
