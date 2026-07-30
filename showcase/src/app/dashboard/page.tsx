@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/links';
 import { useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
+import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -735,14 +736,14 @@ export default function DashboardPage() {
           <div className={styles.billingLink}>
             <Link
               href="/pricing"
-              className={`${styles.actionBtn} ${styles['actionBtn--create']}`}
+              className={styles.actionBtn}
               style={{
                 display: 'inline-flex', alignItems: 'center', textDecoration: 'none',
                 minHeight: 34, padding: '0 14px', borderRadius: 8,
                 border: '1px solid rgba(207,227,234,0.9)',
               }}
             >
-              Manage Billing
+              Compare plans
             </Link>
           </div>
         </div>
@@ -795,6 +796,9 @@ export default function DashboardPage() {
 
         </div>
       </section>
+
+      {/* ── Billing & credits (plan changes, top-ups, invoices, portal) ── */}
+      <BillingPanel apiFetch={apiFetch} fallbackTier={org.tier} />
 
       {/* ── New key modal ── */}
       {showNewKey && (
