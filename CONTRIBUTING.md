@@ -31,27 +31,48 @@ it is written for AI coding agents, but the commands and gotchas apply to everyo
 
 ### Prerequisites
 
-- Python 3.11+ (bot + API)
-- Bun (TypeScript API, mobile, TUI)
+- Python 3.12 (bot + API)
+- [Bun](https://bun.sh) (TypeScript API, mobile)
 - Node.js 18+ (webapp)
-- Docker (for local development with docker-compose)
-- PostgreSQL (or use docker-compose)
+- PostgreSQL — optional; the default config uses SQLite
 
 ### Quick start
 
+You need two things to boot: a Telegram bot token from
+[@BotFather](https://t.me/BotFather), and an encryption key. Everything else has a
+working default — a fresh checkout runs against SQLite and public RPC endpoints.
+
 ```bash
-# Python bot + API
-python -m venv venv && source venv/bin/activate
+git clone https://github.com/0xSoftBoi/suwappubot.git
+cd suwappubot
+
+cp .env.example .env
+python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+# paste that into ENCRYPTION_KEY, and your BotFather token into TELEGRAM_BOT_TOKEN
+
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.template .env  # Fill in your values
-uvicorn api.main:app --reload
-
-# TypeScript API
-cd api-ts && bun install && bun run dev
-
-# Webapp
-cd webapp && npm install && npm run dev
+uvicorn api.main:app --reload --port 8000
 ```
+
+Check it came up, then message your bot on Telegram:
+
+```bash
+curl http://localhost:8000/health
+```
+
+The other services are independent — run only what you're working on:
+
+```bash
+cd api-ts  && bun install && bun run dev    # TypeScript API
+cd webapp  && npm install && npm run dev    # Telegram Mini App
+cd terminal && npm install && npm run dev   # Web trading terminal
+cd showcase && npm install && npm run dev   # Marketing site
+```
+
+> The bot polls Telegram by default (`USE_WEBHOOK=false`). Run **one instance at a
+> time** — two pollers against the same token each receive every update, so your bot
+> will reply twice.
 
 ## Testing
 
