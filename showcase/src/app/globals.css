@@ -7366,3 +7366,106 @@ a.summer-button:active,
 .summer-hub__head > p:last-child {
   max-width: 68ch;
 }
+
+/* ==========================================================================
+   LIVE QUOTE (hero candidates)
+   ========================================================================== */
+.lq { border-radius: var(--sw-r-lg); overflow: hidden; font-variant-numeric: tabular-nums; }
+.lq--dark { background: #10151c; border: 1px solid rgba(150,180,210,0.16); color: #c9d6e4; }
+.lq--warm { background: #fff; border: 1px solid var(--sw-hairline-strong); color: var(--sw-ink); box-shadow: var(--sw-shadow-md); }
+
+.lq__bar { display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  padding:.7rem 1rem; border-bottom:1px solid rgba(150,180,210,0.14); }
+.lq--warm .lq__bar { border-bottom-color: var(--sw-hairline); }
+.lq__title { font-size:.75rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.lq__src { font-family: var(--font-mono); font-size:.66rem; opacity:.55; }
+
+.lq__pairs { display:flex; gap:.4rem; padding:.7rem 1rem 0; flex-wrap:wrap; }
+.lq__pair { font-family:inherit; font-size:.72rem; font-weight:600; cursor:pointer;
+  padding:.28rem .6rem; border-radius:999px; background:transparent;
+  border:1px solid rgba(150,180,210,0.22); color:inherit; opacity:.7; }
+.lq--warm .lq__pair { border-color: var(--sw-hairline-strong); }
+.lq__pair--on { opacity:1; border-color: var(--sw-accent); color: var(--sw-accent-bright); }
+.lq--warm .lq__pair--on { color: var(--sw-accent-deep); background: var(--sw-accent-wash); }
+
+.lq__body { padding: 1rem; }
+.lq__out { display:flex; align-items:baseline; gap:.5rem; }
+.lq__num { font-size: clamp(2rem, 4vw, 2.9rem); font-weight:700; letter-spacing:-.02em; line-height:1; }
+.lq--dark .lq__num { color:#f0f6ff; }
+.lq__sym { font-size:1rem; font-weight:700; opacity:.75; }
+.lq__sub { margin:.4rem 0 0; font-size:.8rem; opacity:.7; }
+
+.lq__grid { display:grid; grid-template-columns:1fr 1fr; gap:.7rem 1rem; margin:1rem 0 0; }
+.lq__grid div { min-width:0; }
+.lq__grid dt { font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; opacity:.55; }
+.lq__grid dd { margin:.15rem 0 0; font-size:.86rem; font-weight:600; }
+.lq__warn { color: var(--sw-accent-bright); }
+.lq--warm .lq__warn { color: var(--sw-accent-deep); }
+
+.lq__skel { height:.85rem; border-radius:4px; margin:.5rem 0;
+  background:linear-gradient(90deg, rgba(150,180,210,.10), rgba(150,180,210,.20), rgba(150,180,210,.10));
+  background-size:200% 100%; animation: lq-sh 1.2s linear infinite; }
+.lq__skel--xl { height:2.4rem; width:60%; }
+.lq__skel--sm { width:40%; }
+@keyframes lq-sh { from{background-position:200% 0} to{background-position:-200% 0} }
+@media (prefers-reduced-motion: reduce){ .lq__skel{animation:none} }
+
+.lq__retry { margin-top:.8rem; font-family:inherit; font-size:.78rem; font-weight:600;
+  cursor:pointer; padding:.4rem .8rem; border-radius:999px;
+  border:1px solid var(--sw-accent); background:transparent; color:var(--sw-accent-bright); }
+.lq--warm .lq__retry { color: var(--sw-accent-deep); }
+.lq__body--error p { margin:0 0 .2rem; font-size:.85rem; }
+
+/* Dark hero candidates: the light .summer-nav is unreadable on them, so reuse
+   the cosmic header's dark-glass treatment. */
+.ha .summer-nav,
+.hc .summer-nav {
+  background: rgba(12, 16, 22, 0.72);
+  border-bottom-color: rgba(150, 180, 210, 0.18);
+}
+.ha .summer-brand, .hc .summer-brand { color: #F4F8FF; }
+.ha .summer-nav nav, .hc .summer-nav nav {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(150,180,210,0.16);
+}
+.ha .summer-nav nav a, .hc .summer-nav nav a,
+.ha .summer-nav__trigger, .hc .summer-nav__trigger { color: rgba(226,236,248,0.86); }
+.ha .summer-nav nav a:hover, .hc .summer-nav nav a:hover,
+.ha .summer-nav__trigger:hover, .hc .summer-nav__trigger:hover {
+  color: #fff; background: rgba(255,255,255,0.10);
+}
+.ha .summer-nav__cta--ghost, .hc .summer-nav__cta--ghost {
+  color: #EDF3FA; border-color: rgba(150,180,210,0.30); background: transparent;
+}
+
+/* The closed drawer is only translated off-screen, so it still contributed
+   280px of horizontal scroll and kept its links in the keyboard tab order.
+   visibility:hidden removes it from both. */
+.nav__drawer {
+  visibility: hidden;
+  transition: transform 0.3s var(--sw-ease), visibility 0.3s;
+}
+
+.nav__drawer--open { visibility: visible; }
+
+/* Viewport-sized clip for the drawer. Without it the closed drawer, which is
+   translated 100% off the right edge, widens the document. */
+.nav__portal {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: var(--z-drawer);
+}
+
+.nav__portal > * { pointer-events: auto; }
+
+/* The portal is inert until the drawer opens, so it never blocks the page. */
+.nav__portal:has(.nav__drawer:not(.nav__drawer--open)):not(:has(.nav__backdrop)) {
+  pointer-events: none;
+}
+
+/* A position:fixed child escapes an ancestor's overflow clip, so the drawer
+   becomes absolute inside the fixed, viewport-sized portal instead. */
+.nav__portal .nav__drawer { position: absolute; }
+.nav__portal .nav__backdrop { position: absolute; }

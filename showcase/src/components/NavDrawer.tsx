@@ -55,6 +55,8 @@ export default function NavDrawer({
         <span className={`nav__hamburger-line ${open ? 'nav__hamburger-line--open' : ''}`} />
       </button>
 
+      {/* Clips the off-screen drawer so it cannot create horizontal scroll. */}
+      <div className="nav__portal">
       {open && <div className="nav__backdrop" onClick={close} aria-hidden="true" />}
 
       <div
@@ -115,6 +117,7 @@ export default function NavDrawer({
         ))}
 
         {actions}
+      </div>
       </div>
     </>
   );

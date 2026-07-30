@@ -37,3 +37,10 @@ contracts/slither_results.json
 .venv-test/
 .claude/settings.local.json
 contracts/lib/openzeppelin-contracts/package-lock.json
+
+# Local environment files (secrets). Nothing matching these may ever be
+# committed; .env.example / .env.sample are the documented, key-free templates.
+.env
+.env.*
+!.env.example
+!.env.sample
