@@ -336,6 +336,44 @@ class Settings(BaseSettings):
         default=None,
         description="Across integrator id for the Swap API (attribution). Unset = omitted.",
     )
+    # NEAR Intents 1-Click API (https://1click.chaindefuser.com) — deposit-address/
+    # solver-filled bridge. Unset = provider disabled (enabled property returns False).
+    near_intents_api_key: Optional[str] = Field(
+        default=None,
+        description="NEAR Intents 1-Click API key. Unset = provider disabled.",
+    )
+    near_intents_fee_recipient: Optional[str] = Field(
+        default=None,
+        description="Address that receives NEAR Intents appFee referral cut, if configured.",
+    )
+    near_intents_fee_bps: int = Field(
+        default=0,
+        description="NEAR Intents appFee cut in basis points (0-100). Must be a NEAR-side "
+        "recipient account; appFees are skipped if near_intents_fee_recipient is not a "
+        "plausible NEAR account id.",
+    )
+    # Allbridge Core public REST API — no API key required. Still gated OFF by
+    # default until a live small-amount transfer has been verified end-to-end.
+    allbridge_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Allbridge Core bridge provider. Default OFF until a live "
+        "small-amount transfer is verified.",
+    )
+    symbiosis_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Symbiosis Finance bridge provider. Default OFF until a live "
+        "small-amount transfer is verified.",
+    )
+    arbitrum_native_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Arbitrum native canonical deposit bridge. Default OFF: "
+        "get_quote refuses to emit a quote until live L2 gas params (maxSubmissionCost/"
+        "maxGas/gasPriceBid via NodeInterface.estimateRetryableTicket) are wired in.",
+    )
+    allbridge_api_url: str = Field(
+        default="https://core.api.allbridgecoreapi.net",
+        description="Allbridge Core API base URL (public, no key required).",
+    )
     across_api_key: Optional[str] = Field(
         default=None,
         description=(
