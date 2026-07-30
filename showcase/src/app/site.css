@@ -377,3 +377,52 @@
   .sw__cmds > div { grid-template-columns: 1fr; gap: 0.3rem; }
   .sw__tools { grid-template-columns: 1fr; }
 }
+
+/* ── Per-section motion fields ───────────────────────────────────
+   Each section carries a canvas depicting what that section sells:
+   providers racing to a quote, a market, a fee-payer absorbing gas,
+   agent tool calls, three surfaces converging. Masked and held low so
+   they read as substrate behind the copy, never as competition for it. */
+.sw__field {
+  position: absolute;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.62;
+  /* Copy is left-aligned in these sections, so the field is masked toward the
+     open right-hand space. Motion behind body text hurts legibility. */
+  mask-image:
+    radial-gradient(ellipse 60% 78% at 74% 50%, #000 12%, transparent 72%),
+    linear-gradient(90deg, transparent 0%, transparent 34%, #000 62%);
+  -webkit-mask-image:
+    radial-gradient(ellipse 60% 78% at 74% 50%, #000 12%, transparent 72%),
+    linear-gradient(90deg, transparent 0%, transparent 34%, #000 62%);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+}
+
+/* Centred sections put their copy in the middle, so the field returns to a
+   symmetric mask and drops back so it never sits under the headline. */
+.sw__close .sw__field,
+.sw__strip .sw__field {
+  opacity: 0.4;
+  mask-image: radial-gradient(ellipse 82% 74% at 50% 50%, transparent 26%, #000 62%, transparent 86%);
+  -webkit-mask-image: radial-gradient(ellipse 82% 74% at 50% 50%, transparent 26%, #000 62%, transparent 86%);
+  mask-composite: add;
+  -webkit-mask-composite: source-over;
+}
+
+/* The hero already has the field and grid behind it, so its routes sit lower. */
+.sw__field--hero {
+  opacity: 0.9;
+  mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
+}
+
+/* Sections are the positioning context and must not clip the 100vw fields. */
+.sw__sec { overflow: visible; }
+.sw__sec > .reveal, .sw__sec > * { position: relative; }
+.sw__sec > .sw__field { position: absolute; }
