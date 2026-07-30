@@ -24,7 +24,10 @@ export { JOURNEYS };
 
 export type Motif = 'chains' | 'race' | 'markets' | 'sponsor' | 'tools';
 
+import productStats from '@/data/stats.generated.json';
+
 const ACCENT = '246, 169, 60';
+const productStatsRouterCount = productStats.routerCount;
 
 /** Real chains, from bot/config/chains.py. Positions are hand-placed so the
  *  graph is stable and legible rather than a random scatter. */
@@ -316,50 +319,117 @@ export default function SectionField({
       }
     };
 
-    /* ── The quote race. Real providers, real-shaped numbers. ── */
+    /* ── The quote race, in 3D ───────────────────────────────────
+       Every provider that supports the route quotes it at once. This is that
+       race as a braid: one source node, one destination node, and a bundle of
+       paths bowing through 3D space between them, one per provider. Each
+       packet travels at its provider's pace; the winner arrives first and its
+       path stays lit while the rest fade back.
+       Same hand-rolled projection as the sphere, so the two objects share a
+       camera and read as one family. */
     const race = (t: number) => {
-      const cycle = 5200;
-      const phase = reduce ? 1 : Math.min(1, ((t % cycle) / cycle) * 1.35);
-      const rows = PROVIDERS.length;
-      const gap = Math.min(26, h / (rows + 2));
-      const top = h * 0.5 - (rows * gap) / 2;
-      const x0 = w * 0.34, span = w * 0.38;
+      const cx = w * 0.5, cy = h * 0.5;
+      const S = Math.min(w * 0.42, h * 0.62);
+      const spin = reduce ? 0.55 : t * 0.00007;
+      const FOV = 3.4;
+
+      const rot3 = (x: number, y: number, z: number) => {
+        const c = Math.cos(spin), sn = Math.sin(spin);
+        const rx = x * c + z * sn;
+        const rz = -x * sn + z * c;
+        return { x: rx, y: y * 0.92 - rz * 0.1, z: rz };
+      };
+      const proj3 = (x: number, y: number, z: number) => {
+        const v = rot3(x, y, z);
+        const k = FOV / (FOV - v.z * 0.6);
+        return { x: cx + v.x * S * k, y: cy + v.y * S * k, k, z: v.z };
+      };
+
+      const cycle = 6000;
+      const phase = reduce ? 1 : Math.min(1.12, ((t % cycle) / cycle) * 1.28);
+      const N = PROVIDERS.length;
+
+      // Source and destination anchors, on the axis.
+      const A = proj3(-0.78, 0, 0), B = proj3(0.78, 0, 0);
 
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
 
-      PROVIDERS.forEach(([name, pace], i) => {
-        const y = top + i * gap;
-        const p = Math.min(1, phase * pace);
-        const x = x0 + span * p;
-        const won = i === 0 && p >= 1;
+      // Depth-sort the strands so nearer ones overlay farther ones.
+      const strands = PROVIDERS.map(([name, pace], i) => {
+        const ang = (i / N) * 6.284;
+        return { name, pace, ang, i, depth: Math.cos(ang) };
+      }).sort((p, q) => p.depth - q.depth);
 
-        ctx.textAlign = 'right';
-        ctx.fillStyle = won ? a(0.95) : dim(0.3);
-        ctx.fillText(name, x0 - 10, y);
+      for (const st of strands) {
+        // Each strand bows out on its own plane around the source-destination
+        // axis, so the bundle reads as a braid rather than a flat fan.
+        const bow = 0.5 + (st.i % 3) * 0.1;
+        const pt = (u: number) => {
+          const swell = Math.sin(Math.PI * u) * bow;
+          return proj3(
+            -0.78 + 1.56 * u,
+            Math.sin(st.ang) * swell,
+            Math.cos(st.ang) * swell
+          );
+        };
 
+        const near = st.depth > 0;
+        const p = Math.min(1, phase * st.pace);
+        const won = st.i === 0 && p >= 1;
+
+        // The full strand.
         ctx.beginPath();
-        ctx.moveTo(x0, y); ctx.lineTo(x0 + span, y);
-        ctx.strokeStyle = dim(0.06); ctx.lineWidth = 1; ctx.stroke();
+        for (let k = 0; k <= 26; k++) {
+          const q = pt(k / 26);
+          k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+        }
+        ctx.strokeStyle = won ? a(0.5) : dim(near ? 0.07 : 0.04);
+        ctx.lineWidth = won ? 1.6 : 1;
+        ctx.stroke();
 
-        const g = ctx.createLinearGradient(x0, y, x, y);
-        g.addColorStop(0, a(0));
-        g.addColorStop(1, won ? a(0.95) : a(0.42));
+        // The travelled head.
         ctx.beginPath();
-        ctx.moveTo(x0, y); ctx.lineTo(x, y);
-        ctx.strokeStyle = g; ctx.lineWidth = won ? 2.2 : 1.4; ctx.stroke();
+        const from = Math.max(0, p - 0.3);
+        for (let k = 0; k <= 16; k++) {
+          const q = pt(from + (p - from) * (k / 16));
+          k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+        }
+        ctx.strokeStyle = won ? a(0.95) : a(near ? 0.4 : 0.2);
+        ctx.lineWidth = won ? 2.2 : 1.3;
+        ctx.stroke();
 
-        // The quote each provider returned. Best is on top and wins.
-        ctx.textAlign = 'left';
-        ctx.fillStyle = won ? a(0.95) : dim(0.26);
-        ctx.fillText((0.0517 - i * 0.00004).toFixed(5), x + 7, y);
-      });
+        const head = pt(p);
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, (won ? 3.2 : 2) * head.k * 0.85, 0, 6.284);
+        ctx.fillStyle = won ? a(1) : a(near ? 0.7 : 0.35);
+        ctx.fill();
 
-      ctx.textAlign = 'left';
-      ctx.fillStyle = dim(0.22);
-      ctx.fillText('best price wins', x0 - 4, top - gap);
-      ctx.fillStyle = dim(0.14);
-      ctx.fillText('illustrative', x0 - 4, top + rows * gap + 4);
+        // Only near strands label, and only once clear of the start, or the
+        // names pile up on top of each other at the source node.
+        if ((near || won) && p > 0.18) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = won ? a(0.95) : dim(0.28);
+          ctx.fillText(st.name, head.x, head.y - 11);
+        }
+      }
+
+      // Endpoints.
+      for (const [q, label, align] of [
+        [A, 'your order', 'right'],
+        [B, 'best fill', 'left'],
+      ] as const) {
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 5, 0, 6.284);
+        ctx.strokeStyle = a(0.75); ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.textAlign = align;
+        ctx.fillStyle = a(0.65);
+        ctx.fillText(label, q.x + (align === 'right' ? -12 : 12), q.y);
+      }
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = dim(0.2);
+      ctx.fillText(`${productStatsRouterCount} providers quote at once`, cx, h - 14);
     };
 
     /* ── Markets. Real perp tickers with their own series. ── */
