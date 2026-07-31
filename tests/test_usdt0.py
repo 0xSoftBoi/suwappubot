@@ -13,7 +13,8 @@ from web3 import Web3
 from bot.services.bridge.usdt0_api import (
     ERC20_APPROVE_ABI,
     NATIVE_FEE_BUFFER_BPS,
-    NATIVE_FEE_CEILING_NATIVE_UNITS,
+    NATIVE_FEE_CEILING_UNPRICED_UNITS,
+    NATIVE_FEE_CEILING_USD,
     OFT_ABI,
     OFT_ADDRESSES,
     USDT0Bridge,
@@ -325,10 +326,11 @@ async def test_price_service_failure_still_returns_quote_with_zero_gas_cost():
 
 
 @pytest.mark.asyncio
-async def test_absurd_native_fee_rejected_by_ceiling():
-    """M4: an absurd/compromised-OFT quote (way above real LayerZero fees)
-    must be rejected outright, not attached as `value` unbounded."""
-    absurd_fee_wei = Web3.to_wei(NATIVE_FEE_CEILING_NATIVE_UNITS * 10, "ether")
+async def test_absurd_fee_rejected_by_usd_ceiling():
+    """M4: an absurd/compromised-OFT quote must be rejected outright, not
+    attached as `value` unbounded."""
+    # At the mocked $3000/ETH, this is far past the USD ceiling.
+    absurd_fee_wei = Web3.to_wei(NATIVE_FEE_CEILING_USD / 3000.0 * 10, "ether")
     mock_web3, _ = _mock_web3(native_fee=absurd_fee_wei)
     with (
         _mock_price_service(),
@@ -348,8 +350,8 @@ async def test_absurd_native_fee_rejected_by_ceiling():
 
 @pytest.mark.asyncio
 async def test_fee_just_under_ceiling_after_buffer_still_accepted():
-    # Pick a raw fee such that the BUFFERED value still lands under the ceiling.
-    raw_fee_wei = Web3.to_wei(NATIVE_FEE_CEILING_NATIVE_UNITS * 0.5, "ether")
+    # Raw fee chosen so the BUFFERED value still lands under the USD ceiling.
+    raw_fee_wei = Web3.to_wei(NATIVE_FEE_CEILING_USD / 3000.0 * 0.5, "ether")
     mock_web3, _ = _mock_web3(native_fee=raw_fee_wei)
     with (
         _mock_price_service(),
@@ -366,6 +368,61 @@ async def test_fee_just_under_ceiling_after_buffer_still_accepted():
         )
     assert quote is not None
     assert quote.transaction_request["value"] == _buffered(raw_fee_wei)
+
+
+@pytest.mark.asyncio
+async def test_a_cheap_native_token_is_not_rejected_for_being_numerous():
+    """Regression for a bug live testing caught: the ceiling used to be a fixed
+    0.05 NATIVE units, which is ~$150 of ETH but ~a cent of XPL — so every real
+    Plasma quote was refused (a genuine plasma->arbitrum fee buffers to ~1.24
+    XPL). Denominated in USD, a large *count* of a cheap token is fine.
+    """
+    # 1.5 native units at $0.20 is ~$0.30 — nowhere near the ceiling.
+    fee_wei = Web3.to_wei(1.5, "ether")
+    mock_web3, _ = _mock_web3(native_fee=fee_wei)
+    with (
+        patch(
+            "bot.services.price_service.price_service.get_prices",
+            AsyncMock(return_value={"XPL": 0.20}),
+        ),
+        patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True),
+        patch("bot.services.rpc_manager.rpc_manager.get_web3", return_value=mock_web3),
+    ):
+        provider = USDT0Bridge()
+        quote = await provider.get_quote(
+            from_chain="plasma",
+            to_chain="arbitrum",
+            from_token="USDT",
+            from_amount="1000000",
+            from_address=ADDR,
+        )
+    assert quote is not None, "a cheap-but-numerous native fee was wrongly refused"
+    assert quote.gas_cost_usd > 0
+
+
+@pytest.mark.asyncio
+async def test_unpriced_native_token_still_bounds_the_value():
+    """With no price we cannot apply the USD ceiling, but `value` must not be
+    left unbounded — a loose native fallback bound applies."""
+    fee_wei = Web3.to_wei(NATIVE_FEE_CEILING_UNPRICED_UNITS * 5, "ether")
+    mock_web3, _ = _mock_web3(native_fee=fee_wei)
+    with (
+        patch(
+            "bot.services.price_service.price_service.get_prices",
+            AsyncMock(return_value={}),
+        ),
+        patch("bot.services.bridge.usdt0_api.USDT0_BRIDGE_ENABLED", True),
+        patch("bot.services.rpc_manager.rpc_manager.get_web3", return_value=mock_web3),
+    ):
+        provider = USDT0Bridge()
+        quote = await provider.get_quote(
+            from_chain="plasma",
+            to_chain="arbitrum",
+            from_token="USDT",
+            from_amount="1000000",
+            from_address=ADDR,
+        )
+    assert quote is None
 
 
 def test_oft_addresses_all_have_required_fields():

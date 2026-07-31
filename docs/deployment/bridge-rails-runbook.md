@@ -117,9 +117,37 @@ that message's nonce on the destination chain.
 
 ## `usdt0_bridge_enabled` — OFF
 
-The verified part: all eight token/OFT pairs, decimals, EIDs, and the
-per-chain approve asymmetry. Both the quote path and the executor are wired, so
-this flag is the only thing between the current state and a live transfer.
+**Quote path verified against mainnet.** With the flag on, real `quoteSend`
+calls (view calls — no funds move) return live quotes on every corridor tried:
+
+| corridor | fee | approve |
+|---|---|---|
+| arbitrum → plasma | ~$0.11 | no |
+| plasma → arbitrum | unpriced | no |
+| arbitrum → hyperevm | ~$0.03 | no |
+| hyperevm → arbitrum | unpriced | no |
+| ethereum → arbitrum | ~$0.11 | **yes** (lockbox) |
+| arbitrum → ethereum | ~$1.17 | no |
+
+The `send` calldata was decoded and checked: correct `dstEid`, the recipient
+correctly **left-padded** into `bytes32`, and `amountLD`/`minAmountLD` matching
+the requested amount and slippage floor.
+
+**What is still unverified: the signature.** No transfer has been signed, so the
+executor path — approve, chain switch, send, record — has never run against a
+real wallet. That is the gap this flag still guards.
+
+Two known limitations to weigh first:
+
+- **XPL and HYPE are not priced**, so quotes *from* Plasma and HyperEVM report
+  `$0.00` cost and look free to `router.py`'s ranking. Impact is limited because
+  those chains have no native USDT, so USDT0 is usually the only USDT route
+  there — there is nothing for it to unfairly outrank. Worth fixing before those
+  corridors carry volume.
+- The fee ceiling is denominated in **USD** (`NATIVE_FEE_CEILING_USD`), not
+  native units. A native-unit bound cannot be right for both ETH and XPL: the
+  original fixed 0.05-native ceiling passed on Ethereum and rejected every real
+  Plasma quote, since a genuine plasma→arbitrum fee buffers to ~1.24 XPL.
 
 The asymmetry is the thing to understand before enabling:
 

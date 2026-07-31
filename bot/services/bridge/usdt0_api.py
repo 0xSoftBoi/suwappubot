@@ -67,14 +67,28 @@ USDT0_BRIDGE_ENABLED = settings.usdt0_bridge_enabled
 # and LayerZero refunds any surplus native automatically.
 NATIVE_FEE_BUFFER_BPS = 1_750  # 17.5% headroom, mid of the requested 15-20% range
 
-# Hard ceiling on the native value a single USDT0 send() may attach, in the
-# source chain's native unit (ETH/AVAX/etc). quoteSend() is a view call on
-# the OFT contract we trust, but there is no upper bound otherwise -- a
-# wrong/compromised OFT address could return an absurd fee and drain the
-# user's whole native balance into `value`. This is deliberately generous
-# (LayerZero fees are normally cents-to-low-dollars) so it only ever catches
-# a genuinely broken/malicious quote, never a real fee.
-NATIVE_FEE_CEILING_NATIVE_UNITS = 0.05
+# Hard ceiling on the native value a single USDT0 send() may attach. quoteSend()
+# is a view call on the OFT contract we trust, but nothing otherwise bounds what
+# it returns -- a wrong/compromised OFT could report an absurd fee and drain the
+# user's whole native balance into `value`.
+#
+# Denominated in USD, not native units. A fixed native-unit ceiling is
+# meaningless across chains: 0.05 is ~$150 of ETH but ~a cent of XPL, so the
+# original 0.05-native bound passed on Ethereum and rejected every legitimate
+# Plasma quote (measured: a real plasma->arbitrum fee buffers to ~1.24 XPL).
+# Generous on purpose. Real LayerZero fees are normally cents to low dollars,
+# but an expensive corridor during a gas spike can legitimately reach tens of
+# dollars, so the bound is set well clear of that: it exists to catch an absurd
+# quote (a wrong or compromised OFT reporting orders of magnitude too much), not
+# to price-protect the user against a genuinely expensive route. Rejecting a
+# real fee would look like "no route available", which is its own harm.
+NATIVE_FEE_CEILING_USD = 100.0
+
+# Fallback bound, in native units, used only when the native token cannot be
+# priced. Without a price we cannot apply the USD ceiling, and blocking every
+# quote during a price-service outage would be a worse failure than a loose
+# bound -- but leaving `value` completely unbounded is not acceptable either.
+NATIVE_FEE_CEILING_UNPRICED_UNITS = 5.0
 
 # Chain -> {token, oft, eid, decimals, approval_required}.
 #
@@ -398,16 +412,45 @@ class USDT0Bridge(BridgeProvider):
         # refunded automatically by LayerZero (_refundAddress=from_address).
         buffered_fee = (native_fee * (10_000 + NATIVE_FEE_BUFFER_BPS)) // 10_000
 
-        # Hard ceiling (native units) -- fail closed on an absurd/compromised
-        # quote rather than attaching an unbounded amount of the user's
-        # native balance as `value`.
         buffered_fee_native = float(web3.from_wei(buffered_fee, "ether"))
-        if buffered_fee_native > NATIVE_FEE_CEILING_NATIVE_UNITS:
+
+        # Price the fee once: it serves both the safety ceiling below and the
+        # honest cost reported on the quote (router.py subtracts it from
+        # net_output_usd, so a zero here would make USDT0 look free).
+        gas_cost_usd = 0.0
+        native_price = 0.0
+        try:
+            from bot.config.chains import get_chain_by_name
+            from bot.services.price_service import price_service
+
+            native_symbol = get_chain_by_name(from_chain).native_token
+            prices = await price_service.get_prices([native_symbol])
+            native_price = float(prices.get(native_symbol, 0) or 0)
+            gas_cost_usd = buffered_fee_native * native_price
+        except Exception as e:  # noqa: BLE001 — the on-chain `value` is unaffected
             logger.warning(
-                f"USDT0: quoteSend native_fee for {from_chain}->{to_chain} (oft={src['oft']}) "
-                f"buffers to {buffered_fee_native:.6f} native units, above the "
-                f"{NATIVE_FEE_CEILING_NATIVE_UNITS} ceiling -- refusing to quote (likely a "
-                "broken or compromised OFT/quote path, not a real fee)."
+                f"USDT0: failed to price native_fee to USD for {from_chain}->{to_chain}: {e}"
+            )
+
+        # Fail closed on an absurd/compromised quote rather than attaching an
+        # unbounded amount of the user's native balance as `value`. Compared in
+        # USD, because a native-unit bound cannot be right for both ETH and XPL.
+        if native_price > 0:
+            if gas_cost_usd > NATIVE_FEE_CEILING_USD:
+                logger.warning(
+                    f"USDT0: quoteSend fee for {from_chain}->{to_chain} (oft={src['oft']}) "
+                    f"buffers to ${gas_cost_usd:.2f}, above the ${NATIVE_FEE_CEILING_USD} "
+                    "ceiling -- refusing to quote (likely a broken or compromised OFT/quote "
+                    "path, not a real fee)."
+                )
+                return None
+        elif buffered_fee_native > NATIVE_FEE_CEILING_UNPRICED_UNITS:
+            # Unpriced: a loose native bound still beats leaving `value` open.
+            logger.warning(
+                f"USDT0: quoteSend fee for {from_chain}->{to_chain} (oft={src['oft']}) "
+                f"buffers to {buffered_fee_native:.6f} native units and the native token "
+                f"could not be priced, above the {NATIVE_FEE_CEILING_UNPRICED_UNITS}-unit "
+                "unpriced ceiling -- refusing to quote."
             )
             return None
 
@@ -425,26 +468,6 @@ class USDT0Bridge(BridgeProvider):
             "data": send_data,
             "value": buffered_fee,
         }
-
-        # Convert the native fee to USD so this route is ranked honestly
-        # against alternatives -- router.py's net_output_usd subtracts
-        # (gas_cost_usd + fee_cost_usd), and a hardcoded 0.0 here made USDT0
-        # look free while `native_fee` was charged as real `value`.
-        gas_cost_usd = 0.0
-        try:
-            from bot.config.chains import get_chain_by_name
-            from bot.services.price_service import price_service
-
-            native_symbol = get_chain_by_name(from_chain).native_token
-            prices = await price_service.get_prices([native_symbol])
-            native_price = prices.get(native_symbol, 0) or 0
-            gas_cost_usd = buffered_fee_native * native_price
-        except Exception as e:  # noqa: BLE001 — fail closed to 0.0 only for USD *display*;
-            # the on-chain `value` above is unaffected. Never let a price-service
-            # hiccup block the quote -- but log it since ranking will be off.
-            logger.warning(
-                f"USDT0: failed to price native_fee to USD for {from_chain}->{to_chain}: {e}"
-            )
 
         # Approve is ONLY required on the Ethereum lockbox leg
         # (approvalRequired() == 1, verified on-chain). Satellite chains use

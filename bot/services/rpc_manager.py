@@ -122,10 +122,18 @@ TRUSTED_RPC_DOMAINS = frozenset(
         "publicnode.com",
         "1rpc.io",
         "drpc.org",
-        "llamarpc.com",
         "blockpi.network",
         "alchemy.com",
         "infura.io",
+        # NOTE: llamarpc.com is deliberately absent, for the same reason as
+        # ankr.com below. Its unauthenticated public endpoints no longer serve:
+        # `eth.llamarpc.com` answers HTTP 403 and `polygon.llamarpc.com` does not
+        # resolve at all (measured). Because it was trusted, chainlist discovery
+        # kept selecting it and a USDT0 quoteSend on ethereum failed with a bare
+        # 403 — the provider failed closed correctly, but the route was silently
+        # unavailable until the circuit breaker rotated away. Trusting the domain
+        # only gates the UNTRUSTED chainlist feed; an authenticated LlamaNodes URL
+        # in settings.py still bypasses this list.
         # NOTE: ankr.com is deliberately absent. Ankr retired its unauthenticated
         # public endpoints, so every chainlist-discovered `rpc.ankr.com/<chain>`
         # answers `-32000 Unauthorized` and does nothing but trip the circuit
@@ -138,6 +146,12 @@ TRUSTED_RPC_DOMAINS = frozenset(
         "meowrpc.com",
         "tenderly.co",
         # Chain-native / first-party RPC domains
+        # plasma.to is Plasma's own RPC (rpc.plasma.to, verified serving chainId
+        # 0x2611 = 9745). Without it Plasma had NO endpoints at all, which meant
+        # the arbitrum<->plasma USDT0 corridor could never be quoted — and that
+        # corridor is the reason USDT0 matters for Plasma in the first place,
+        # since Plasma has no native USDT deployment.
+        "plasma.to",
         "binance.org",
         "bnbchain.org",
         "arbitrum.io",
@@ -306,8 +320,11 @@ class RPCManager:
     def _load_configured_endpoints(self):
         """Load endpoints from settings.py — Infura, Alchemy, and public defaults."""
         all_chains = list(CHAINLIST_IDS.keys())
-        # Also add non-chainlist chains (tempo, solana, tron)
-        for extra in ("tempo", "solana", "tron"):
+        # Also add chains absent from CHAINLIST_IDS, which would otherwise get no
+        # endpoints at all — not even their configured default — and raise
+        # "No RPC endpoints for <chain>" on first use. plasma was in exactly that
+        # state, which made the arbitrum<->plasma USDT0 corridor unquotable.
+        for extra in ("tempo", "solana", "tron", "plasma"):
             if extra not in all_chains:
                 all_chains.append(extra)
 

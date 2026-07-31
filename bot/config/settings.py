@@ -193,8 +193,12 @@ class Settings(BaseSettings):
 
     # EVM RPC Endpoints — sourced from chainlist.org, no API keys needed
     # Infura/Alchemy are prepended automatically when keys are set
+    # eth.llamarpc.com removed: it answers HTTP 403 for unauthenticated callers
+    # (measured), so it only burned a failover slot and intermittently made
+    # Ethereum reads fail — a USDT0 quoteSend on ethereum returned no route
+    # because of it. See the matching note in rpc_manager.TRUSTED_RPC_DOMAINS.
     ethereum_rpc_url: str = Field(
-        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org,https://eth.llamarpc.com",
+        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org",
         description="Ethereum mainnet RPC URL(s)",
     )
     bsc_rpc_url: str = Field(
@@ -294,6 +298,15 @@ class Settings(BaseSettings):
     )
     hyperevm_rpc_url: str = Field(
         default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC"
+    )
+    # Plasma had NO endpoint from any source: chainlist discovery never offered
+    # one and there was no configured default, so rpc_manager raised
+    # "No RPC endpoints for plasma". That silently made the arbitrum<->plasma
+    # USDT0 corridor unquotable — the corridor USDT0 exists for on Plasma, which
+    # has no native USDT deployment. rpc.plasma.to verified serving chainId
+    # 0x2611 (9745), matching chains.py.
+    plasma_rpc_url: str = Field(
+        default="https://rpc.plasma.to", description="Plasma mainnet RPC URL(s)"
     )
 
     # HyperLiquid builder codes — Suwappu earns a builder fee on perp orders routed
