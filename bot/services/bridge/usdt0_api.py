@@ -39,6 +39,7 @@ from typing import Any, Dict, Optional
 
 from web3 import Web3
 
+from bot.config.settings import settings
 from bot.services.bridge.base import (
     BridgeError,
     BridgeProvider,
@@ -49,12 +50,15 @@ from bot.services.bridge.base import (
 
 logger = logging.getLogger(__name__)
 
-# Default-OFF: the address map and quoteSend()/send() wiring below are real
-# and verified (see module docstring), but the provider stays disabled until
-# explicitly flipped on. Module-level constant (not settings.py — that file
-# is owned by a parallel workstream); promote to a proper Settings field when
-# convenient.
-USDT0_BRIDGE_ENABLED = False
+# Default-OFF: the address map and quoteSend()/send() wiring below are real and
+# verified (see module docstring), but the provider stays disabled until
+# explicitly flipped on.
+#
+# `settings.usdt0_bridge_enabled` is the single source of truth, so this can be
+# turned on per environment without a code change. The module-level alias is
+# kept because it is read once at import (consistent with how the rest of the
+# repo treats Settings) and because it is a convenient patch point in tests.
+USDT0_BRIDGE_ENABLED = settings.usdt0_bridge_enabled
 
 # LayerZero fees track destination gas at delivery time, not at quote time --
 # quoteSend() is a snapshot. Buffering the `value` we actually send protects

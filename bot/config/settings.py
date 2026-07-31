@@ -370,6 +370,17 @@ class Settings(BaseSettings):
         "get_quote refuses to emit a quote until live L2 gas params (maxSubmissionCost/"
         "maxGas/gasPriceBid via NodeInterface.estimateRetryableTicket) are wired in.",
     )
+    # USDT0 (LayerZero OFT canonical USDT). Addresses/EIDs are verified on-chain
+    # (scripts/verify_onchain_constants.py) and both the quote path and the
+    # executor are wired, so flipping this is all that stands between here and a
+    # live transfer -- hence still OFF until one small transfer per direction has
+    # been run, including one through the Ethereum lockbox leg (the only leg with
+    # an ERC20 approve step).
+    usdt0_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the USDT0 (LayerZero OFT) bridge provider. Default OFF until a "
+        "live small-amount transfer is verified in both directions.",
+    )
     allbridge_api_url: str = Field(
         default="https://core.api.allbridgecoreapi.net",
         description="Allbridge Core API base URL (public, no key required).",
