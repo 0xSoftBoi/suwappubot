@@ -96,7 +96,11 @@ class ExecutionScorer:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop())
-        logger.info("Execution scorer started")
+        logger.info(
+            "Execution scorer started (interval=%ss, horizons=%s)",
+            self._interval,
+            ",".join(HORIZON_ORDER),
+        )
 
     async def stop(self):
         self._running = False
@@ -112,15 +116,27 @@ class ExecutionScorer:
         from bot.utils.redis_cache import redis_cache
 
         while self._running:
+            # Beat FIRST, before the work.
+            #
+            # The heartbeat answers "is this loop alive?", which is a different
+            # question from "did the last pass succeed?". Writing it after the
+            # work (as this originally did) means one raised exception makes a
+            # perfectly healthy, retrying service report `unknown` in
+            # /health/ready — indistinguishable from never having started.
+            # Failures are surfaced through the log line below instead.
+            try:
+                await redis_cache.set(
+                    "service:execution_scorer:heartbeat", time.time(), ttl_seconds=300
+                )
+            except Exception as e:  # pragma: no cover - redis outage
+                logger.warning(f"[execution_scorer] heartbeat write failed: {e}")
+
             try:
                 scored = await self._score_due_swaps()
                 if scored:
                     logger.info(f"[execution_scorer] wrote {scored} marks")
-                await redis_cache.set(
-                    "service:execution_scorer:heartbeat", time.time(), ttl_seconds=300
-                )
             except Exception as e:
-                logger.error(f"[execution_scorer] pass failed: {e}")
+                logger.error(f"[execution_scorer] pass failed: {e}", exc_info=True)
 
             await asyncio.sleep(self._interval)
 
