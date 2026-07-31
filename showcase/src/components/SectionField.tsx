@@ -650,43 +650,95 @@ export default function SectionField({
       ctx.fillText('you paid $0.001', laneB.x, laneB.y + 20);
     };
 
-    /* ── MCP. Real tool names called and returning. ── */
+    /* ── MCP tool calls, in 3D ───────────────────────────────────
+       The agent sits at the centre of a ring of its tools, tilted and turning
+       so the ring reads as an orbit rather than a flat wheel. Calls travel out
+       along a spoke and return along it, and each tool lights while its call
+       is in flight. Depth-sorted so the far side passes behind the agent.
+       Tool names are the real registry from api-ts/src/routes/mcp.ts. */
     const tools = (t: number) => {
-      const cx = w * 0.5, cy = h * 0.5;
-      const rx = Math.min(w * 0.3, 190), ry = Math.min(h * 0.34, 130);
+      const cx = w * 0.5, cy = h * 0.52;
+      // Longest name is ~15 chars at 11px mono, about 92px, plus a 9px gap.
+      const S = Math.min(w * 0.5 - 104, h * 0.46);
+      const spin = reduce ? 0.5 : t * 0.00009;
+      const TILT = 0.42;
+
+      const proj3 = (x: number, y: number, z: number) => {
+        const c = Math.cos(spin), sn = Math.sin(spin);
+        const x1 = x * c + z * sn;
+        const z1 = -x * sn + z * c;
+        const y1 = y * Math.cos(TILT) - z1 * Math.sin(TILT);
+        const z2 = y * Math.sin(TILT) + z1 * Math.cos(TILT);
+        const FOV = 3.4;
+        const k = FOV / (FOV - z2 * 0.55);
+        return { x: cx + x1 * S * k, y: cy + y1 * S * k, k, z: z2 };
+      };
+
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
 
+      // The orbit path itself.
       ctx.beginPath();
-      ctx.arc(cx, cy, 5, 0, 6.284);
-      ctx.strokeStyle = a(0.7); ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = a(0.6);
-      ctx.fillText('your agent', cx, cy + 20);
+      for (let i = 0; i <= 72; i++) {
+        const a2 = (i / 72) * 6.284;
+        const q = proj3(Math.cos(a2), 0, Math.sin(a2));
+        i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
+      }
+      ctx.strokeStyle = dim(0.06); ctx.lineWidth = 1; ctx.stroke();
 
-      TOOLS.forEach((name, i) => {
-        const ang = (i / TOOLS.length) * 6.284 - 1.57;
-        const ex = cx + Math.cos(ang) * rx, ey = cy + Math.sin(ang) * ry;
+      const nodes = TOOLS.map((name, i) => {
+        const a2 = (i / TOOLS.length) * 6.284;
+        const v = proj3(Math.cos(a2), 0, Math.sin(a2));
+        const raw = reduce ? 0.45 : ((t * 0.00017 + i / TOOLS.length) % 1);
+        return { name, ...v, raw, i };
+      }).sort((p1, p2) => p1.z - p2.z);
+
+      const agent = proj3(0, 0, 0);
+
+      // Far half first, then the agent, then the near half, so the ring
+      // genuinely passes behind the centre.
+      const draw = (n: typeof nodes[number]) => {
+        const near = n.z > 0;
+        ctx.beginPath();
+        ctx.moveTo(agent.x, agent.y); ctx.lineTo(n.x, n.y);
+        ctx.strokeStyle = dim(near ? 0.07 : 0.035); ctx.lineWidth = 1; ctx.stroke();
+
+        const out = n.raw < 0.5;
+        const u = out ? n.raw * 2 : (1 - n.raw) * 2;
+        const live = u > 0.55;
 
         ctx.beginPath();
-        ctx.moveTo(cx, cy); ctx.lineTo(ex, ey);
-        ctx.strokeStyle = dim(0.05); ctx.lineWidth = 1; ctx.stroke();
-
-        const raw = reduce ? 0.45 : ((t * 0.00019 + i / TOOLS.length) % 1);
-        const out = raw < 0.5;
-        const u = out ? raw * 2 : (1 - raw) * 2;
-        const active = u > 0.75;
-
-        ctx.textAlign = Math.cos(ang) < -0.2 ? 'right' : Math.cos(ang) > 0.2 ? 'left' : 'center';
-        const lx = ex + (Math.cos(ang) < -0.2 ? -8 : Math.cos(ang) > 0.2 ? 8 : 0);
-        ctx.fillStyle = active ? a(0.85) : dim(0.24);
-        ctx.fillText(name, lx, ey);
-
-        ctx.beginPath();
-        ctx.arc(cx + (ex - cx) * u, cy + (ey - cy) * u, 2.2, 0, 6.284);
-        ctx.fillStyle = out ? a(0.85) : dim(0.45);
+        ctx.arc(n.x, n.y, (live ? 3 : 2) * n.k * 0.8, 0, 6.284);
+        ctx.fillStyle = live ? a(0.9) : a(near ? 0.4 : 0.2);
         ctx.fill();
-      });
+
+        // Labels sit outside the ring, clear of the agent.
+        const dirx = n.x - agent.x;
+        ctx.textAlign = dirx < -6 ? 'right' : dirx > 6 ? 'left' : 'center';
+        const lx = n.x + (dirx < -6 ? -9 : dirx > 6 ? 9 : 0);
+        const ly = n.y + (Math.abs(dirx) <= 6 ? (n.y < agent.y ? -11 : 11) : 0);
+        ctx.fillStyle = live ? a(0.9) : dim(near ? 0.3 : 0.15);
+        ctx.fillText(n.name, lx, ly);
+
+        // The call in flight.
+        const px = agent.x + (n.x - agent.x) * u;
+        const py = agent.y + (n.y - agent.y) * u;
+        ctx.beginPath();
+        ctx.arc(px, py, 2 * n.k * 0.8, 0, 6.284);
+        ctx.fillStyle = out ? a(0.85) : dim(0.5);
+        ctx.fill();
+      };
+
+      nodes.filter((n) => n.z <= 0).forEach(draw);
+
+      ctx.beginPath();
+      ctx.arc(agent.x, agent.y, 5.5, 0, 6.284);
+      ctx.strokeStyle = a(0.8); ctx.lineWidth = 1.7; ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = a(0.7);
+      ctx.fillText('your agent', agent.x, agent.y + 18);
+
+      nodes.filter((n) => n.z > 0).forEach(draw);
     };
 
     const MOTIFS = { chains: sphere, race, markets, sponsor, tools };

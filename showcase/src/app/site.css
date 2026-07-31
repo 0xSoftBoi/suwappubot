@@ -554,3 +554,11 @@
   height: min(46%, 230px);
   width: min(42%, 440px);
 }
+
+/* The MCP orbit carries long tool names on both sides, so it needs a wider
+   box than the default header-band figure. */
+#agents .sw__field--top {
+  width: min(46%, 500px);
+  height: min(50%, 260px);
+  right: 0.5rem;
+}
