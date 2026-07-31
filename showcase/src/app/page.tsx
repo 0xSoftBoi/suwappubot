@@ -169,12 +169,15 @@ export default function Home() {
 
         {/* ── Surfaces ─────────────────────────────────────────── */}
         <section id="terminal" className="sw__sec" aria-label="Product surfaces">
-          <SectionField motif="chains" className="sw__field" />
           <Reveal>
             <h2 className="sw__h2">One engine, three ways in.</h2>
             <div className="sw__surfaces">
-              {SURFACES.map((s) => (
-                <a key={s.name} className="sw__surface" href={s.href}>
+              {SURFACES.map((s, i) => (
+                <a
+                  key={s.name}
+                  className={`sw__surface${i === 0 ? ' sw__surface--lead' : ''}`}
+                  href={s.href}
+                >
                   <span className="sw__surface-meta">{s.meta}</span>
                   <h3>{s.name}</h3>
                   <p>{s.d}</p>

@@ -468,6 +468,8 @@
 .sw__field--sphere {
   display: block;
   width: 100%;
+  /* Leaves clearance for the stage readout directly beneath. */
+  margin-bottom: 0.5rem;
   /* Square box keeps the sphere circular at any width. */
   aspect-ratio: 1 / 1;
   max-height: 60vh;
@@ -551,7 +553,8 @@
 /* The perps object carries three ribbons and a book ladder, so it needs more
    height than the default header-band figure. */
 #hyperliquid .sw__field--top {
-  height: min(46%, 230px);
+  /* Must clear the command rows below; measured overlap forced this down. */
+  height: min(34%, 178px);
   width: min(42%, 440px);
 }
 
@@ -561,4 +564,23 @@
   width: min(46%, 500px);
   height: min(50%, 260px);
   right: 0.5rem;
+}
+
+/* Three equal cards is the templated pattern the checklist calls out, so the
+   flagship surface leads and the other two sit beside it. */
+.sw__surfaces {
+  grid-template-columns: 1.35fr 1fr 1fr;
+  align-items: stretch;
+}
+
+.sw__surface--lead {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--line-strong);
+}
+
+.sw__surface--lead h3 { font-size: 1.5rem; }
+.sw__surface--lead p { font-size: 0.9375rem; }
+
+@media (max-width: 900px) {
+  .sw__surfaces { grid-template-columns: 1fr; }
 }
