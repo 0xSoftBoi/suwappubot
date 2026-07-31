@@ -318,6 +318,46 @@ class WebAppSwap(BaseModel):
     errorMessage: Optional[str] = None
 
 
+class WebAppBridgeRoutesRequest(BaseModel):
+    fromChain: str
+    toChain: str
+    token: str
+    amount: str
+    fromAddress: Optional[str] = None
+    toAddress: Optional[str] = None
+    slippageBps: Optional[int] = 50
+
+
+class WebAppBridgeRoute(BaseModel):
+    """One cross-chain route.
+
+    `settlement` and `trustModel` come straight from BridgeQuote and are the
+    reason this is not just a SwapQuote: they describe what happens during the
+    window where the funds are on neither chain.
+    """
+
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    fromAmount: str
+    toAmount: str
+    toAmountMin: str
+    toAmountHuman: float
+    gasCostUsd: float
+    feeCostUsd: float
+    totalCostUsd: float
+    estimatedTime: int
+    settlement: str
+    trustModel: str
+    zeroSlippage: bool
+    depositAddress: Optional[str] = None
+
+
+class WebAppBridgeRoutesResponse(BaseModel):
+    routes: List[WebAppBridgeRoute]
+
+
 class WebAppSwapQuoteRequest(BaseModel):
     fromToken: str
     toToken: str
@@ -2805,6 +2845,80 @@ async def terminal_copilot_command(
         ),
         data={"supported": ["price", "swap_quote", "portfolio"]},
     )
+
+
+@router.post("/bridge/routes", response_model=WebAppBridgeRoutesResponse)
+async def list_terminal_bridge_routes(
+    body: WebAppBridgeRoutesRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Cross-chain routes for a token, ranked by the registry.
+
+    Separate from /swap/quote because a bridge carries information a swap
+    quote has nowhere to put: how it settles, and who holds the funds while
+    they are in flight. The terminal surfaces both, so they must survive the
+    trip over the wire rather than being flattened into a provider name.
+
+    Returns an empty list rather than erroring when no provider can serve the
+    pair — every bridge provider is behind a default-OFF flag, so "no routes"
+    is the normal answer until one is enabled.
+    """
+    from bot.services.bridge.registry import get_bridge_quotes
+
+    if body.fromChain == body.toChain:
+        raise HTTPException(status_code=400, detail="Bridging requires two different chains")
+
+    try:
+        quotes = await get_bridge_quotes(
+            from_chain=body.fromChain,
+            to_chain=body.toChain,
+            from_token=body.token,
+            from_amount=body.amount,
+            from_address=body.fromAddress or "",
+            to_address=body.toAddress,
+            slippage_bps=body.slippageBps or 50,
+        )
+    except Exception as exc:  # noqa: BLE001 — a provider fault must not 500 the page
+        logger.warning(f"bridge routes failed {body.fromChain}->{body.toChain}: {exc}")
+        return WebAppBridgeRoutesResponse(routes=[])
+
+    decimals = get_token_decimals(body.token, body.toChain) or 6
+
+    routes: List[WebAppBridgeRoute] = []
+    for quote in quotes:
+        try:
+            to_amount_human = int(quote.to_amount) / (10**decimals)
+        except (TypeError, ValueError):
+            # A quote whose amount we cannot parse cannot be ranked or shown
+            # honestly, so drop it rather than render a wrong number.
+            continue
+
+        routes.append(
+            WebAppBridgeRoute(
+                provider=quote.provider,
+                fromChain=quote.from_chain,
+                toChain=quote.to_chain,
+                token=quote.from_token,
+                fromAmount=quote.from_amount,
+                toAmount=quote.to_amount,
+                toAmountMin=quote.to_amount_min,
+                toAmountHuman=to_amount_human,
+                gasCostUsd=quote.gas_cost_usd,
+                feeCostUsd=quote.fee_cost_usd,
+                totalCostUsd=quote.gas_cost_usd + quote.fee_cost_usd,
+                estimatedTime=quote.estimated_time,
+                settlement=quote.settlement,
+                trustModel=quote.trust_model,
+                # 1:1 mint/burn rails have no price impact by construction.
+                # Anything we cannot positively identify as such is reported as
+                # pooled, so the UI never claims a guarantee we cannot make.
+                zeroSlippage=quote.provider in ("cctp", "usdt0"),
+                depositAddress=quote.deposit_address,
+            )
+        )
+
+    return WebAppBridgeRoutesResponse(routes=routes)
 
 
 @router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)

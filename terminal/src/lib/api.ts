@@ -1,5 +1,10 @@
 import { getAuthToken } from './auth'
 import type {
+  BridgeRoutesRequest,
+  BridgeRoutesResponse,
+  BridgeTransfer,
+} from '../types/bridge'
+import type {
   SwapQuoteRequest,
   SwapQuote,
   SwapExecuteRequest,
@@ -263,6 +268,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     })
+  },
+
+  // Bridge — cross-chain routes and in-flight tracking. Separate from swap
+  // because the interesting state is what happens *between* the chains, which
+  // a single quote/execute pair has nowhere to put.
+  getBridgeRoutes(req: BridgeRoutesRequest) {
+    return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  getBridgeTransfer(id: string) {
+    return request<BridgeTransfer>(`/webapp/bridge/transfers/${encodeURIComponent(id)}`)
   },
 
   // Swap
