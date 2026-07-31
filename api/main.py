@@ -54,6 +54,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
+from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
@@ -286,6 +287,11 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Post-trade execution scoring (execution intelligence, phase 2).
+        # Marks out completed swaps at fixed horizons so realized-vs-quoted
+        # (ours) can be separated from markout (the market's).
+        await execution_scorer.start()
+        await asyncio.sleep(2)
         # Perps position-sync loop (#248): previously implemented but never started.
         await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -417,6 +423,7 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
@@ -887,6 +894,7 @@ def get_db():
 #   perps_monitor      POLL_INTERVAL=10s
 #   withdraw_reconciler poll_interval=60s
 #   balance_refresher  refresh_interval=60s + a refresh pass over all wallets
+#   execution_scorer   interval=120s (post-trade marks)
 #   predict_monitor    POLL_INTERVAL=120s
 #   hl_ws_alerts       websocket refresh loop
 # Keep these in sync with each writer's ttl_seconds — the TTL must be >= the
@@ -896,6 +904,8 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
     "perps_monitor": 90,
     "withdraw_reconciler": 180,
     "balance_refresher": 300,
+    # interval=120s, ttl=300s -> threshold must sit between the two.
+    "execution_scorer": 300,
     "predict_monitor": 360,
     "hl_ws_alerts": 300,
 }

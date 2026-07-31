@@ -1,4 +1,15 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, ForeignKey, Text, Enum
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Float,
+    ForeignKey,
+    Text,
+    Enum,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
@@ -160,4 +171,54 @@ class SwapRouteCandidate(Base):
         return (
             f"<SwapRouteCandidate(quote={self.quote_id}, provider={self.provider}, "
             f"tool={self.tool}, selected={self.was_selected})>"
+        )
+
+
+class SwapExecutionMark(Base):
+    """Post-trade price mark for a completed swap, at a fixed horizon.
+
+    EXECUTION INTELLIGENCE (phase 2): a fill can only be judged against what
+    happened after it. This records the destination-token price at fixed
+    horizons past completion so execution quality can be separated into:
+
+      * ``realized_vs_quoted_bps`` — did we deliver what the quote promised?
+        (our routing / slippage accuracy, known immediately)
+      * ``markout_bps`` — did the price move against the taker after the fill?
+        (adverse selection / toxicity, only knowable later)
+
+    One row per (swap, horizon); the unique constraint makes the scorer
+    idempotent, so a restart or an overlapping pass cannot double-write.
+
+    Sign convention: markout is expressed from the TAKER's perspective —
+    positive means the fill aged well (price moved in the taker's favour).
+    """
+
+    __tablename__ = "swap_execution_marks"
+
+    id = Column(Integer, primary_key=True)
+    swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=False, index=True)
+
+    # Horizon label: '5m', '1h', '24h'.
+    horizon = Column(String(8), nullable=False)
+
+    # Destination-token USD price observed at the horizon.
+    to_token_price_usd = Column(Float, nullable=True)
+    # Reference price captured at completion, so the mark is self-contained.
+    fill_price_usd = Column(Float, nullable=True)
+
+    # Basis-point measures. Nullable — a horizon can be scored for price drift
+    # even when the quote comparison is impossible (missing amounts).
+    realized_vs_quoted_bps = Column(Float, nullable=True)
+    markout_bps = Column(Float, nullable=True)
+
+    scored_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("swap_id", "horizon", name="uq_swap_execution_marks_swap_horizon"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<SwapExecutionMark(swap={self.swap_id}, horizon={self.horizon}, "
+            f"markout_bps={self.markout_bps})>"
         )

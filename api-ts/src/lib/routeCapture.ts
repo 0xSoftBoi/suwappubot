@@ -333,12 +333,18 @@ export async function captureQuoteRoutes(params: CaptureQuoteParams): Promise<vo
 			})),
 		)
 
-		logger.debug(
+		// INFO, not debug: capture is a sampled background process with no
+		// user-visible surface, so this line is the only operational signal
+		// that the pipeline is alive and writing. Logged after the insert
+		// commits, so it confirms persistence rather than just the fetch.
+		logger.info(
 			'[routeCapture] captured %d candidates for quote %s',
 			candidates.length,
 			params.quoteId,
 		)
 	} catch (e) {
-		logger.debug('[routeCapture] persist failed (ignored): %s', String(e))
+		// WARN so a persistently broken capture path is visible, while still
+		// never affecting the quote that triggered it.
+		logger.warn('[routeCapture] persist failed (ignored): %s', String(e))
 	}
 }
