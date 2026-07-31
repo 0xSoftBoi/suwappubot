@@ -3148,7 +3148,10 @@ def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -
                     rank INTEGER,
                     was_selected BOOLEAN NOT NULL DEFAULT {bool_default},
                     route_hash VARCHAR(64),
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    -- Mirror the model's ForeignKeys (see note above).
+                    FOREIGN KEY (swap_id) REFERENCES swap_transactions (id),
+                    FOREIGN KEY (user_id) REFERENCES users (id)
                 )
                 """.replace("DOUBLE PRECISION", "REAL" if is_sqlite else "DOUBLE PRECISION")))
 
@@ -3206,7 +3209,13 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
                     markout_bps {float_type},
                     scored_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT uq_swap_execution_marks_swap_horizon
-                        UNIQUE (swap_id, horizon)
+                        UNIQUE (swap_id, horizon),
+                    -- Mirrors SwapExecutionMark.swap_id's ForeignKey. Without
+                    -- it the two creation paths diverge: create_all() runs
+                    -- BEFORE _ensure_schema() and builds the FK version, so on
+                    -- a real boot this DDL never runs — but on any path where
+                    -- it does, the schema would silently lack the constraint.
+                    FOREIGN KEY (swap_id) REFERENCES swap_transactions (id)
                 )
                 """))
         conn.execute(
