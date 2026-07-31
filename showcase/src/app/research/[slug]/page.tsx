@@ -43,7 +43,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   const html = markdownToHtml(body);
 
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell sw-dark">
       <Navigation />
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">

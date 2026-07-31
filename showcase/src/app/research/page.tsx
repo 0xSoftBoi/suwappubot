@@ -19,7 +19,7 @@ function fmtDate(iso: string) {
 export default function ResearchPage() {
   const [featured, ...rest] = publishedPosts;
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell sw-dark">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
