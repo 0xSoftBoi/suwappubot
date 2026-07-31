@@ -299,7 +299,7 @@ function CompareValue({ value }: { value: string }) {
 
 export default function PricingPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page sw-dark docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">

@@ -7476,3 +7476,110 @@ a.summer-button:active,
 @media (max-width: 620px) {
   .summer-nav__actions .summer-nav__cta--ghost { display: none; }
 }
+
+/* ==========================================================================
+   DARK REGISTER for inner pages
+   The homepage is near-black; inner pages were still warm cream, so any nav
+   click in a demo jumped registers. This remaps the summer tokens inside a
+   .sw-dark subtree and overrides the component styles that hardcode white.
+   Applied per page so each conversion can be verified on its own.
+   ========================================================================== */
+.sw-dark {
+  --suwappu-summer-ink: #FAFAFA;
+  --suwappu-summer-muted: #A1A1A1;
+  --suwappu-summer-line: rgba(255, 255, 255, 0.08);
+  --suwappu-summer-line-strong: rgba(255, 255, 255, 0.14);
+  --suwappu-summer-canvas: #0A0A0A;
+  --suwappu-summer-canvas-warm: #0A0A0A;
+  --suwappu-summer-canvas-cool: #131313;
+  --suwappu-summer-panel: rgba(255, 255, 255, 0.03);
+  --suwappu-summer-panel-strong: rgba(255, 255, 255, 0.05);
+  --suwappu-summer-shell-background: #0A0A0A;
+  --suwappu-summer-panel-background: #131313;
+  --suwappu-summer-inset-background: #131313;
+  --suwappu-summer-card-background: rgba(255, 255, 255, 0.015);
+  --suwappu-summer-control-background: rgba(255, 255, 255, 0.04);
+  --suwappu-summer-control-background-hover: rgba(255, 255, 255, 0.07);
+  --suwappu-summer-control-background-active: rgba(255, 255, 255, 0.09);
+
+  --sw-hairline: rgba(255, 255, 255, 0.08);
+  --sw-hairline-strong: rgba(255, 255, 255, 0.14);
+  --sw-ink: #FAFAFA;
+  --sw-muted: #A1A1A1;
+
+  background: #0A0A0A;
+  color: #FAFAFA;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shell gradient is a hardcoded light stack. */
+.sw-dark.summer-page,
+.sw-dark .summer-page { background: #0A0A0A; }
+
+/* Headings and body copy that hardcode the light ink. */
+.sw-dark h1, .sw-dark h2, .sw-dark h3, .sw-dark h4 { color: #FAFAFA; }
+.sw-dark p, .sw-dark li, .sw-dark dd { color: #A1A1A1; }
+.sw-dark strong, .sw-dark b { color: #FAFAFA; }
+
+/* Cards and panels that hardcode white backgrounds. */
+.sw-dark [class*='card'],
+.sw-dark [class*='Card'],
+.sw-dark [class*='panel'],
+.sw-dark [class*='tier'],
+.sw-dark [class*='plan'] {
+  background: rgba(255, 255, 255, 0.015);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #FAFAFA;
+}
+
+.sw-dark .summer-kicker { color: var(--sw-accent-bright); }
+
+/* Nav sits outside main, so the page shell tints it directly. */
+.sw-dark-nav .summer-nav,
+body:has(.sw-dark) .nav {
+  background: rgba(10, 10, 10, 0.72);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+body:has(.sw-dark) .nav__logo { color: #FAFAFA; }
+body:has(.sw-dark) .nav__link { color: #A1A1A1; }
+body:has(.sw-dark) .nav__link:hover,
+body:has(.sw-dark) .nav__link--active { color: #FAFAFA; }
+body:has(.sw-dark) .nav__cta--ghost { color: #FAFAFA; border-color: rgba(255,255,255,0.16); }
+body:has(.sw-dark) .nav__panel {
+  background: rgba(19, 19, 19, 0.97);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+body:has(.sw-dark) .nav__panel-title { color: #FAFAFA; }
+body:has(.sw-dark) .nav__panel-desc { color: #A1A1A1; }
+body:has(.sw-dark) .nav__panel-link:hover { background: rgba(255,255,255,0.06); }
+body:has(.sw-dark) .nav__drawer { background: #131313; }
+body:has(.sw-dark) .nav__drawer-link,
+body:has(.sw-dark) .nav__drawer-toggle { color: #FAFAFA; }
+body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
+
+/* The blanket card/panel remap above also flattened the primary buttons,
+   so the recommended tier's CTA lost its accent fill and read identical to
+   the secondary ones. Restore the primary treatment inside the dark register. */
+.sw-dark .summer-button--primary {
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  border: 1px solid var(--sw-accent-deep);
+  color: #17324A;
+}
+
+.sw-dark .summer-button--primary:hover {
+  background: var(--sw-accent-bright);
+  color: #17324A;
+}
+
+/* Secondary buttons stay outlined, but must read on near-black. */
+.sw-dark .summer-button--secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #FAFAFA;
+}
+
+.sw-dark .summer-button--secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FAFAFA;
+}
