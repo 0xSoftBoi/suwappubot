@@ -912,6 +912,47 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
 DEFAULT_STALENESS_SECONDS = 90
 
 
+# ---------------------------------------------------------------------------
+# Build fingerprint
+#
+# A deploy that reports SUCCESS is NOT proof the new code is running: Railway
+# can keep an older container serving, and `railway redeploy` re-deploys a
+# PREVIOUS image rather than current source. That cost real debugging time —
+# a scorer was wired into the lifespan, deployed green, and simply was not in
+# the running build, with nothing to reveal the mismatch.
+#
+# So the app fingerprints its OWN source at import: hash every .py under the
+# application root. Compare the value in /health against the same hash
+# computed locally, and "did my deploy actually land?" becomes a one-line
+# check instead of an investigation. No build step, no env var, no git
+# metadata required — it works identically for `railway up`, GitHub builds
+# and local runs.
+# ---------------------------------------------------------------------------
+def _compute_source_fingerprint() -> str:
+    """SHA-256 over the app's own Python sources, truncated. Import-time only."""
+    import hashlib
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    digest = hashlib.sha256()
+    try:
+        for sub in ("api", "bot", "database"):
+            base = root / sub
+            if not base.is_dir():
+                continue
+            for path in sorted(base.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                digest.update(path.relative_to(root).as_posix().encode())
+                digest.update(path.read_bytes())
+    except Exception:  # pragma: no cover - never block startup on this
+        return "unavailable"
+    return digest.hexdigest()[:12]
+
+
+SOURCE_FINGERPRINT = _compute_source_fingerprint()
+
+
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
 async def health_live():
     """K8s/ECS liveness probe — confirms the process is alive.
@@ -919,7 +960,10 @@ async def health_live():
     Load balancers should use ``/health/ready`` to gate traffic;
     orchestrators use this to decide whether to restart the container.
     """
-    return {"status": "alive"}
+    # Fingerprint is included here too: /health/live answers even when the DB
+    # or Redis is down, so deploy verification never depends on dependencies
+    # being healthy.
+    return {"status": "alive", "source_fingerprint": SOURCE_FINGERPRINT}
 
 
 @app.get("/health/ready", tags=["Health"], summary="Readiness probe")
@@ -1002,6 +1046,10 @@ async def health_ready():
         content={
             "ready": is_ready,
             "service": "suwappu-bot",
+            # Which build is actually serving this request. See
+            # _compute_source_fingerprint() — a green deploy is not proof the
+            # new code is live; this is.
+            "source_fingerprint": SOURCE_FINGERPRINT,
             "checks": {
                 "database": "connected" if DATABASE_AVAILABLE else "disconnected",
                 "redis": "connected" if redis_ok else "memory-fallback",
