@@ -7656,3 +7656,15 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
   border-color: var(--sw-hairline);
   color: #FAFAFA;
 }
+
+/* The docs quick-link badges still used the old sky accent (#0EA5E9), which
+   is the one colour on the site that is not the brand persimmon. One accent,
+   everywhere. */
+/* The icon is a span, and `.docs-shell .docs-quicklink span` (0,2,1) outranks
+   a plain (0,2,0) selector, so this needs the extra class to win. */
+.sw-dark .docs-quicklink .docs-quicklink__icon {
+  background: rgba(246, 169, 60, 0.12);
+  color: var(--sw-accent-bright);
+}
+
+.sw-dark .docs-quicklink:hover { border-color: rgba(246, 169, 60, 0.4); }

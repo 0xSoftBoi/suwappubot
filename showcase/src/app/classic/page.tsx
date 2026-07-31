@@ -188,7 +188,7 @@ async function Hero() {
           {t('h1')}{' '}
           <span className="summer-hero__accent">{t('h1_accent')}</span>
         </h1>
-        <p className="summer-hero__lead">{t('lead')}</p>
+        <p className="summer-hero__lead">{t('lead', { chains: productStats.platformChains })}</p>
         <div className="summer-actions">
           <a
             className="summer-button summer-button--primary"
