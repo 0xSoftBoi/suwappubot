@@ -969,6 +969,10 @@ async def health_ready():
         "balance_refresher",
         "perps_monitor",
         "predict_monitor",
+        # Post-trade execution scoring. Without this entry the service would
+        # run unmonitored — a silently dead scorer looks identical to one with
+        # no swaps to score.
+        "execution_scorer",
     ]
     if getattr(settings, "hl_ws_alerts_enabled", False) or getattr(
         settings, "hl_whale_alerts_enabled", False
