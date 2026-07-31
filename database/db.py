@@ -494,6 +494,7 @@ def _ensure_schema(db_engine) -> None:
     # --- execution intelligence: swap_route_candidates + swap_execution_marks ---
     _create_swap_route_candidates_table(db_engine, inspector, is_sqlite)
     _create_swap_execution_marks_table(db_engine, inspector, is_sqlite)
+    _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite)
 
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
@@ -3226,3 +3227,49 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
         )
 
     logger.info("Created swap_execution_marks table")
+
+
+def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add DB-level defaults to execution-intelligence timestamp columns.
+
+    SQLAlchemy's ``default=`` is applied in PYTHON, not by the database, so a
+    table built by ``create_all()`` gets ``NOT NULL`` with NO ``DEFAULT``
+    clause. api-ts/Drizzle declares ``.defaultNow()``, assumes a DB default
+    exists, and emits ``default`` in its INSERT — which resolves to NULL and
+    violates NOT NULL.
+
+    This bit production: every counterfactual-capture insert failed with the
+    table already created, so no ALTER of the model alone can fix existing
+    deployments. Idempotent; Postgres only (SQLite tables are created fresh
+    from the DDL above, which already carries the default).
+    """
+    if is_sqlite:
+        return
+
+    targets = [
+        ("swap_route_candidates", "created_at"),
+        ("swap_execution_marks", "scored_at"),
+    ]
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    for table, column in targets:
+        if table not in tables:
+            continue
+        try:
+            cols = {c["name"]: c for c in inspector.get_columns(table)}
+            col = cols.get(column)
+            if col is None or col.get("default") is not None:
+                continue
+            with db_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} "
+                        f"ALTER COLUMN {column} SET DEFAULT CURRENT_TIMESTAMP"
+                    )
+                )
+            logger.info(f"Set DB default on {table}.{column}")
+        except Exception as e:
+            logger.warning(f"Could not set default on {table}.{column}: {e}")
