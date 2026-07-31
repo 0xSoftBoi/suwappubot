@@ -584,3 +584,56 @@
 @media (max-width: 900px) {
   .sw__surfaces { grid-template-columns: 1fr; }
 }
+
+/* ── Full-width object bands ─────────────────────────────────────
+   Every section had the same shape: heading left, copy left, a small diagram
+   stranded in the right margin. Six times in a row that reads as the
+   templated rhythm the objects were meant to break. The two objects with the
+   most to show now run full width as bands, which also gives them the scale
+   they were missing. */
+.sw__band {
+  position: relative;
+  width: 100%;
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.sw__band-canvas {
+  display: block;
+  width: 100%;
+  height: 210px;
+}
+
+.sw__band--tall .sw__band-canvas { height: 240px; }
+
+/* Wider shell for the band sections, so they read as a change of scale
+   rather than more of the same column. */
+.sw__sec--wide { max-width: 1320px; }
+
+/* Steps run in columns under a band section instead of a tall stack. */
+.sw__steps--cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0 2rem;
+  margin-top: 2rem;
+}
+
+.sw__steps--cols li {
+  grid-template-columns: 2.2rem 1fr;
+  gap: 0.9rem;
+  border-top: 1px solid var(--line);
+  padding: 1.25rem 0 0;
+}
+
+.sw__steps--cols p { max-width: 100%; font-size: 0.875rem; }
+
+/* The wide sections no longer hold the copy to half width. */
+.sw__sec--wide .sw__h2,
+.sw__sec--wide .sw__lead { max-width: min(62ch, 100%); }
+
+@media (max-width: 900px) {
+  .sw__steps--cols { grid-template-columns: 1fr; }
+  .sw__band-canvas, .sw__band--tall .sw__band-canvas { height: 170px; }
+}

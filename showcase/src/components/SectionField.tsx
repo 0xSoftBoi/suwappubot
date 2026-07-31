@@ -329,7 +329,10 @@ export default function SectionField({
        camera and read as one family. */
     const race = (t: number) => {
       const cx = w * 0.5, cy = h * 0.5;
-      const S = Math.min(w * 0.42, h * 0.62);
+      // Separate axes: the braid is naturally wide, so it fills the band
+      // horizontally while the bow stays proportional to the height.
+      const SX = w * 0.44;
+      const SY = Math.min(h * 0.36, w * 0.12);
       const spin = reduce ? 0.55 : t * 0.00007;
       const FOV = 3.4;
 
@@ -342,7 +345,7 @@ export default function SectionField({
       const proj3 = (x: number, y: number, z: number) => {
         const v = rot3(x, y, z);
         const k = FOV / (FOV - v.z * 0.6);
-        return { x: cx + v.x * S * k, y: cy + v.y * S * k, k, z: v.z };
+        return { x: cx + v.x * SX * k, y: cy + v.y * SY * k, k, z: v.z };
       };
 
       const cycle = 6000;
@@ -441,7 +444,7 @@ export default function SectionField({
        object is labelled as an illustration. */
     const markets = (t: number) => {
       const cx = w * 0.5, cy = h * 0.5;
-      const S = Math.min(w * 0.34, h * 0.58);
+      const SX = w * 0.4, SY = Math.min(h * 0.42, w * 0.14);
       const drift = reduce ? 0 : t * 0.00016;
 
       // Fixed three-quarter camera, shared with the other motifs.
@@ -452,7 +455,7 @@ export default function SectionField({
         const y1 = y * Math.cos(pitch) - z1 * Math.sin(pitch);
         const z2 = y * Math.sin(pitch) + z1 * Math.cos(pitch);
         const k = FOV / (FOV - z2 * 0.5);
-        return { x: cx + x1 * S * k, y: cy + y1 * S * k, k, z: z2 };
+        return { x: cx + x1 * SX * k, y: cy + y1 * SY * k, k, z: z2 };
       };
 
       ctx.font = MONO;
@@ -538,7 +541,7 @@ export default function SectionField({
        Same projection and camera as the sphere and the braid. */
     const sponsor = (t: number) => {
       const cx = w * 0.5, cy = h * 0.5;
-      const S = Math.min(w * 0.44, h * 0.72);
+      const SX = w * 0.46, SY = Math.min(h * 0.4, w * 0.1);
       const spin = reduce ? 0.4 : t * 0.00013;
       const FOV = 3.6;
 
@@ -551,7 +554,7 @@ export default function SectionField({
         const y1 = y * Math.cos(pitch) - z1 * Math.sin(pitch);
         const z2 = y * Math.sin(pitch) + z1 * Math.cos(pitch);
         const k = FOV / (FOV - z2 * 0.5);
-        return { x: cx + x1 * S * k, y: cy + y1 * S * k, k, z: z2 };
+        return { x: cx + x1 * SX * k, y: cy + y1 * SY * k, k, z: z2 };
       };
 
       ctx.font = MONO;

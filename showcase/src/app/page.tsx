@@ -149,11 +149,10 @@ export default function Home() {
         </section>
 
         {/* ── Engine ───────────────────────────────────────────── */}
-        <section id="engine" className="sw__sec" aria-label="How the engine works">
-          <SectionField motif="race" className="sw__field" />
+        <section id="engine" className="sw__sec sw__sec--wide" aria-label="How the engine works">
           <Reveal>
             <h2 className="sw__h2">Three steps, every trade.</h2>
-            <ol className="sw__steps">
+            <ol className="sw__steps sw__steps--cols">
               {ENGINE.map((s, i) => (
                 <li key={s.k}>
                   <span className="sw__step-n">{String(i + 1).padStart(2, '0')}</span>
@@ -164,6 +163,9 @@ export default function Home() {
                 </li>
               ))}
             </ol>
+            <div className="sw__band">
+              <SectionField motif="race" className="sw__band-canvas" />
+            </div>
           </Reveal>
         </section>
 
@@ -190,13 +192,15 @@ export default function Home() {
 
         {/* ── Perps ────────────────────────────────────────────── */}
         <section id="hyperliquid" className="sw__sec" aria-label="HyperLiquid perps">
-          <SectionField motif="markets" className="sw__field sw__field--top" />
           <Reveal>
             <h2 className="sw__h2">HyperLiquid, managed from chat.</h2>
             <p className="sw__lead">
               The full ecosystem from inside the bot. Fund from any chain, trade up to 20x,
               stake HYPE and earn in vaults. No bridging tabs, no address pasting.
             </p>
+            <div className="sw__band sw__band--tall">
+              <SectionField motif="markets" className="sw__band-canvas" />
+            </div>
             <dl className="sw__cmds">
               {PERPS.map((p) => (
                 <div key={p.c}>
@@ -209,18 +213,16 @@ export default function Home() {
         </section>
 
         {/* ── Tempo ────────────────────────────────────────────── */}
-        <section id="tempo" className="sw__sec sw__split" aria-label="Gasless swaps on Tempo">
+        <section id="tempo" className="sw__sec sw__sec--wide" aria-label="Gasless swaps on Tempo">
           <Reveal>
-            <div>
-              <h2 className="sw__h2">Trade without holding gas tokens.</h2>
-              <p className="sw__lead">
-                Suwappu sponsors transaction fees on Tempo chains, so you swap TIP-20 stablecoins
-                for about a tenth of a cent while we cover the rest. It falls back to a normal
-                swap if sponsorship is unavailable, so nothing ever blocks.
-              </p>
-            </div>
-            <div className="sw__figure">
-              <SectionField motif="sponsor" className="sw__figure-canvas" />
+            <h2 className="sw__h2">Trade without holding gas tokens.</h2>
+            <p className="sw__lead">
+              Suwappu sponsors transaction fees on Tempo chains, so you swap TIP-20 stablecoins
+              for about a tenth of a cent while we cover the rest. It falls back to a normal
+              swap if sponsorship is unavailable, so nothing ever blocks.
+            </p>
+            <div className="sw__band">
+              <SectionField motif="sponsor" className="sw__band-canvas" />
             </div>
           </Reveal>
         </section>
