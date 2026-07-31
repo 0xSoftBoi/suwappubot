@@ -491,8 +491,9 @@ def _ensure_schema(db_engine) -> None:
     # --- recurring crypto subscriptions (Base Spend Permissions) ---
     _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
 
-    # --- execution intelligence: swap_route_candidates ---
+    # --- execution intelligence: swap_route_candidates + swap_execution_marks ---
     _create_swap_route_candidates_table(db_engine, inspector, is_sqlite)
+    _create_swap_execution_marks_table(db_engine, inspector, is_sqlite)
 
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
@@ -3169,3 +3170,50 @@ def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -
             )
 
     logger.info("Created swap_route_candidates table")
+
+
+def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the swap_execution_marks table idempotently.
+
+    EXECUTION INTELLIGENCE (phase 2): post-trade price marks for completed
+    swaps, written by the ``execution_scorer`` background service. Splits
+    execution quality into realized-vs-quoted (our slippage accuracy, known at
+    fill) and markout (price drift after the fill, only knowable later).
+
+    UNIQUE(swap_id, horizon) is what makes the scorer idempotent — a restart or
+    an overlapping pass re-inserts nothing rather than double-writing.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "swap_execution_marks" in tables:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    float_type = "REAL" if is_sqlite else "DOUBLE PRECISION"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS swap_execution_marks (
+                    {pk},
+                    swap_id INTEGER NOT NULL,
+                    horizon VARCHAR(8) NOT NULL,
+                    to_token_price_usd {float_type},
+                    fill_price_usd {float_type},
+                    realized_vs_quoted_bps {float_type},
+                    markout_bps {float_type},
+                    scored_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uq_swap_execution_marks_swap_horizon
+                        UNIQUE (swap_id, horizon)
+                )
+                """))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_swap_execution_marks_swap_id "
+                "ON swap_execution_marks (swap_id)"
+            )
+        )
+
+    logger.info("Created swap_execution_marks table")
