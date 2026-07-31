@@ -543,6 +543,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite)
+    _add_bridge_transfer_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
@@ -888,6 +889,29 @@ def _add_cctp_tables(db_engine, inspector, is_sqlite: bool) -> None:
                 f"recorded against this table will raise and cannot be relayed until this "
                 f"is fixed: {e}"
             )
+
+
+def _add_bridge_transfer_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the user-facing bridge_transfers table idempotently.
+
+    Same reasoning as _add_cctp_tables: the row is created before the user
+    signs anything, so if the table is missing the build call fails and no
+    transaction is broadcast. That is the safe direction, but it is a hard
+    outage for the bridge flow, so log a creation failure loudly rather than
+    letting it pass as a warning.
+    """
+    from bot.models.bridge import BridgeTransfer
+
+    try:
+        if not inspector.has_table(BridgeTransfer.__tablename__):
+            BridgeTransfer.__table__.create(bind=db_engine)
+            logger.info(f"Created {BridgeTransfer.__tablename__} table")
+    except Exception as e:
+        logger.error(
+            f"CRITICAL: failed to create {BridgeTransfer.__tablename__} table -- the bridge "
+            f"flow cannot record transfers and will refuse to build them until this is "
+            f"fixed: {e}"
+        )
 
 
 def _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite: bool) -> None:

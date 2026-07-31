@@ -126,3 +126,39 @@ export interface BridgeRoutesResponse {
   /** Chains/tokens the server could not quote, so the UI can say why. */
   unavailable?: Array<{ provider: string; reason: string }>;
 }
+
+export interface BridgeBuildRequest {
+  provider: string;
+  fromChain: string;
+  toChain: string;
+  token: string;
+  amount: string;
+  fromAddress: string;
+  toAddress?: string;
+  slippageBps?: number;
+}
+
+export interface BridgeUnsignedTx {
+  to: string;
+  data: string;
+  /** Decimal string of the native value in wei. */
+  value: string;
+  gas?: number | null;
+}
+
+export interface BridgeBuildResult {
+  /**
+   * Issued before anything is signed, so a broadcast always has something to
+   * be recorded against. See api/webapp.py's build endpoint.
+   */
+  transferId: number;
+  /** Null for deposit-address rails, which need no signature. */
+  chainId?: number | null;
+  settlement: BridgeSettlement;
+  trustModel: BridgeTrustModel;
+  /** Only present when the source chain needs an ERC20 approve first. */
+  approval?: BridgeUnsignedTx | null;
+  /** Null for deposit-address rails. */
+  tx?: BridgeUnsignedTx | null;
+  depositAddress?: string | null;
+}

@@ -358,6 +358,64 @@ class WebAppBridgeRoutesResponse(BaseModel):
     routes: List[WebAppBridgeRoute]
 
 
+class WebAppBridgeBuildRequest(BaseModel):
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    amount: str
+    fromAddress: str
+    toAddress: Optional[str] = None
+    slippageBps: Optional[int] = 50
+
+
+class WebAppBridgeTx(BaseModel):
+    to: str
+    data: str
+    value: str
+    gas: Optional[int] = None
+
+
+class WebAppBridgeBuildResponse(BaseModel):
+    """Unsigned transaction(s) for an external wallet, plus the transfer to track.
+
+    `transferId` is issued here, before anything is signed, so the client always
+    has something to report a broadcast against.
+    """
+
+    transferId: int
+    chainId: Optional[int] = None
+    settlement: str
+    trustModel: str
+    approval: Optional[WebAppBridgeTx] = None
+    tx: Optional[WebAppBridgeTx] = None
+    depositAddress: Optional[str] = None
+
+
+class WebAppBridgeRecordRequest(BaseModel):
+    transferId: int
+    txHash: str
+
+
+class WebAppBridgeTransferResponse(BaseModel):
+    id: str
+    state: str
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    amountHuman: float
+    trustModel: str
+    settlement: str
+    sourceTxHash: Optional[str] = None
+    destinationTxHash: Optional[str] = None
+    depositAddress: Optional[str] = None
+    startedAt: str
+    updatedAt: str
+    estimatedTime: int
+    statusDetail: Optional[str] = None
+
+
 class WebAppSwapQuoteRequest(BaseModel):
     fromToken: str
     toToken: str
@@ -2919,6 +2977,294 @@ async def list_terminal_bridge_routes(
         )
 
     return WebAppBridgeRoutesResponse(routes=routes)
+
+
+def _cctp_relayer_state(session, source_tx_hash: str) -> Optional[tuple]:
+    """Live (state, detail) for a CCTP transfer, read from the relayer's row.
+
+    The relayer's table is the authority on relay progress; bridge_transfers is
+    the user-facing record. Deriving here rather than copying on every relayer
+    tick means the two can't drift into disagreeing about whether funds landed.
+    """
+    try:
+        from bot.models.cctp import CctpGenericDeposit
+    except Exception:  # noqa: BLE001 — model unavailable is not a request error
+        return None
+
+    row = (
+        session.query(CctpGenericDeposit)
+        .filter(CctpGenericDeposit.burn_tx_hash == source_tx_hash)
+        .first()
+    )
+    if not row:
+        return None
+
+    if row.status == "failed":
+        return (
+            "failed",
+            "This transfer stopped and needs to be completed manually. Support can recover it.",
+        )
+    # A stall is "not moving but safe" — usually the relayer is out of gas on
+    # the destination chain. Distinct from failed, which no longer retries.
+    if getattr(row, "stall_count", 0) and row.status != "minted":
+        return ("stalled", "Waiting on the relayer. Your funds are safe and this will retry.")
+
+    return {
+        "pending_broadcast": ("pending_broadcast", None),
+        "burned": ("attesting", None),
+        "attested": ("destination_pending", None),
+        "minted": ("complete", None),
+    }.get(row.status, (None, None))
+
+
+@router.post("/bridge/build", response_model=WebAppBridgeBuildResponse)
+async def build_terminal_bridge_transfer(
+    body: WebAppBridgeBuildRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Build the unsigned transaction(s) for a bridge, and start tracking it.
+
+    The transfer row is written BEFORE the response, so it exists before the
+    user can sign anything. That ordering is deliberate and is the same lesson
+    as swap_engine's pre-broadcast recording: a signed transaction with no row
+    is invisible forever, while a row whose transaction is never signed is
+    harmless — nothing moved, and it simply stays in pending_broadcast.
+    """
+    from bot.config.chains import get_chain_by_name
+    from bot.models.bridge import BridgeTransfer
+    from bot.services.bridge.registry import get_bridge_quotes
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = auth_payload["user_id"]
+
+    if body.fromChain == body.toChain:
+        raise HTTPException(status_code=400, detail="Bridging requires two different chains")
+
+    sender = (body.fromAddress or "").strip()
+    if not sender:
+        raise HTTPException(status_code=400, detail="Connect a wallet first")
+    recipient = (body.toAddress or sender).strip()
+
+    # Validate both addresses against the chain they will be used on, before
+    # anything is quoted or persisted. The providers validate too, but a bad
+    # address must fail with a clear message rather than surfacing as "no route"
+    # — and the recipient is sealed into the transfer, so a malformed one sends
+    # funds somewhere nobody controls. Matches the /swap/build check.
+    from bot.services.bridge.base import validate_address_for_chain
+
+    if not validate_address_for_chain(sender, body.fromChain):
+        raise HTTPException(
+            status_code=400, detail=f"That wallet address isn't valid on {body.fromChain}"
+        )
+    if not validate_address_for_chain(recipient, body.toChain):
+        raise HTTPException(
+            status_code=400,
+            detail=f"The destination address isn't valid on {body.toChain}. "
+            "Cross-chain transfers need an address in the destination chain's format.",
+        )
+
+    quotes = await get_bridge_quotes(
+        from_chain=body.fromChain,
+        to_chain=body.toChain,
+        from_token=body.token,
+        from_amount=body.amount,
+        from_address=sender,
+        to_address=recipient,
+        slippage_bps=body.slippageBps or 50,
+    )
+    quote = next((q for q in quotes if q.provider == body.provider), None)
+    if quote is None:
+        # Re-quoting can legitimately lose a route (a fee moved, a provider went
+        # away). Say that rather than silently substituting a different one —
+        # the user chose this rail for its trust model, not just its price.
+        raise HTTPException(
+            status_code=409,
+            detail="That route is no longer available. Refresh to see current routes.",
+        )
+
+    tx = quote.transaction_request or {}
+    approval = tx.get("approval_tx")
+    is_deposit_address = quote.settlement == "deposit_address"
+
+    if is_deposit_address and not quote.deposit_address:
+        raise HTTPException(status_code=502, detail="Provider did not return a deposit address")
+    if not is_deposit_address and not (tx.get("to") and tx.get("data")):
+        raise HTTPException(
+            status_code=502, detail="Provider did not return a signable transaction"
+        )
+
+    decimals = get_token_decimals(body.token, body.fromChain) or 6
+
+    # Raw base units must be an exact integer. A provider handing back something
+    # unparseable is a bug on their side, but persisting it would store a wrong
+    # amount against real funds — refuse rather than coerce.
+    try:
+        amount_raw = int(quote.from_amount)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=502, detail="Provider returned an amount that could not be read"
+        )
+
+    transfer = BridgeTransfer(
+        user_id=user_id,
+        provider=quote.provider,
+        from_chain=quote.from_chain,
+        to_chain=quote.to_chain,
+        token=quote.from_token,
+        amount_raw=amount_raw,
+        decimals=decimals,
+        sender_address=sender,
+        recipient_address=recipient,
+        settlement=quote.settlement,
+        trust_model=quote.trust_model,
+        estimated_time=quote.estimated_time,
+        state="awaiting_deposit" if is_deposit_address else "pending_broadcast",
+        deposit_address=quote.deposit_address,
+    )
+    db.add(transfer)
+    db.commit()
+    db.refresh(transfer)
+
+    chain_id = None
+    if not is_deposit_address:
+        chain = get_chain_by_name(quote.from_chain)
+        chain_id = getattr(chain, "chain_id", None)
+        if not isinstance(chain_id, int):
+            # A non-EVM source can't be signed by an EVM wallet; the row stays
+            # for the record but the client is told plainly.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{quote.from_chain} transfers can't be signed by a connected EVM wallet",
+            )
+
+    return WebAppBridgeBuildResponse(
+        transferId=transfer.id,
+        chainId=chain_id,
+        settlement=quote.settlement,
+        trustModel=quote.trust_model,
+        approval=(
+            WebAppBridgeTx(
+                to=approval["to"], data=approval["data"], value=str(approval.get("value", 0))
+            )
+            if approval
+            else None
+        ),
+        tx=(
+            None
+            if is_deposit_address
+            else WebAppBridgeTx(
+                to=tx["to"], data=tx["data"], value=str(tx.get("value", 0)), gas=tx.get("gas")
+            )
+        ),
+        depositAddress=quote.deposit_address,
+    )
+
+
+@router.post("/bridge/record", response_model=WebAppBridgeTransferResponse)
+async def record_terminal_bridge_transfer(
+    body: WebAppBridgeRecordRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Attach the broadcast hash to a transfer built earlier."""
+    from bot.models.bridge import BridgeTransfer
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    transfer = (
+        db.query(BridgeTransfer)
+        .filter(
+            BridgeTransfer.id == body.transferId,
+            BridgeTransfer.user_id == auth_payload["user_id"],
+        )
+        .first()
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    tx_hash = (body.txHash or "").strip()
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail="Missing transaction hash")
+
+    # Idempotent: a client retrying the record call must not reset progress the
+    # relayer has already made.
+    if not transfer.source_tx_hash:
+        transfer.source_tx_hash = tx_hash
+        if transfer.state == "pending_broadcast":
+            transfer.state = "source_pending"
+        db.commit()
+        db.refresh(transfer)
+
+    return _bridge_transfer_response(db, transfer)
+
+
+@router.get("/bridge/transfers/{transfer_id}", response_model=WebAppBridgeTransferResponse)
+async def get_terminal_bridge_transfer(
+    transfer_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Current position of one transfer.
+
+    Polled by the terminal while the transfer is in flight, which is the window
+    where funds have left the source chain and not yet arrived.
+    """
+    from bot.models.bridge import BridgeTransfer
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    transfer = (
+        db.query(BridgeTransfer)
+        .filter(
+            BridgeTransfer.id == transfer_id,
+            BridgeTransfer.user_id == auth_payload["user_id"],
+        )
+        .first()
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    return _bridge_transfer_response(db, transfer)
+
+
+def _bridge_transfer_response(db, transfer) -> WebAppBridgeTransferResponse:
+    """Serialise a transfer, preferring the relayer's live view where it has one."""
+    state = transfer.state
+    detail = transfer.status_detail
+
+    if transfer.provider == "cctp" and transfer.source_tx_hash:
+        derived = _cctp_relayer_state(db, transfer.source_tx_hash)
+        if derived and derived[0]:
+            state = derived[0]
+            detail = derived[1] or detail
+
+    try:
+        amount_human = int(transfer.amount_raw) / (10 ** (transfer.decimals or 6))
+    except (TypeError, ValueError):
+        amount_human = 0.0
+
+    return WebAppBridgeTransferResponse(
+        id=str(transfer.id),
+        state=state,
+        provider=transfer.provider,
+        fromChain=transfer.from_chain,
+        toChain=transfer.to_chain,
+        token=transfer.token,
+        amountHuman=amount_human,
+        trustModel=transfer.trust_model,
+        settlement=transfer.settlement,
+        sourceTxHash=transfer.source_tx_hash,
+        destinationTxHash=transfer.destination_tx_hash,
+        depositAddress=transfer.deposit_address,
+        startedAt=(transfer.created_at.isoformat() if transfer.created_at else ""),
+        updatedAt=(transfer.updated_at.isoformat() if transfer.updated_at else ""),
+        estimatedTime=transfer.estimated_time or 0,
+        statusDetail=detail,
+    )
 
 
 @router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)

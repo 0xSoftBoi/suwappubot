@@ -40,9 +40,15 @@ interface Props {
   tokenPriceUsd?: number;
   /** Hand off the chosen route to whatever performs signing. */
   onConfirm?: (route: BridgeRoute) => void;
+  /** True while the wallet is being prompted / the transfer is starting. */
+  isSubmitting?: boolean;
 }
 
-export function BridgePanel({ tokenPriceUsd = 1, onConfirm }: Props) {
+export function BridgePanel({
+  tokenPriceUsd = 1,
+  onConfirm,
+  isSubmitting = false,
+}: Props) {
   const [fromChain, setFromChain] = useState<string>("arbitrum");
   const [toChain, setToChain] = useState<string>("base");
   const [token, setToken] = useState<string>("USDC");
@@ -165,12 +171,22 @@ export function BridgePanel({ tokenPriceUsd = 1, onConfirm }: Props) {
           <TerminalButton
             className="w-full"
             onClick={() => onConfirm?.(selected)}
-            disabled={!onConfirm}
+            disabled={!onConfirm || isSubmitting}
           >
-            {selected.settlement === "deposit_address"
-              ? `Get deposit address`
-              : `Bridge to ${selected.toChain}`}
+            {isSubmitting
+              ? "Confirm in your wallet…"
+              : selected.settlement === "deposit_address"
+                ? "Get deposit address"
+                : `Bridge to ${selected.toChain}`}
           </TerminalButton>
+          {/* Two signatures on rails that lock rather than mint — say so before
+              the first prompt, not between them. */}
+          {selected.settlement !== "deposit_address" ? (
+            <p className="text-[10px] leading-[1.4] text-terminal-text-muted">
+              You may be asked to approve the token first, then to confirm the
+              transfer.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </TerminalPanel>

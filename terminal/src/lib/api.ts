@@ -1,5 +1,7 @@
 import { getAuthToken } from './auth'
 import type {
+  BridgeBuildRequest,
+  BridgeBuildResult,
   BridgeRoutesRequest,
   BridgeRoutesResponse,
   BridgeTransfer,
@@ -275,6 +277,23 @@ export const api = {
   // a single quote/execute pair has nowhere to put.
   getBridgeRoutes(req: BridgeRoutesRequest) {
     return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // Build the unsigned tx(s) AND start tracking the transfer. The server issues
+  // the transferId before anything is signed, so a broadcast always has
+  // something to be recorded against.
+  buildBridgeTransfer(req: BridgeBuildRequest) {
+    return request<BridgeBuildResult>('/webapp/bridge/build', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  recordBridgeTransfer(req: { transferId: number; txHash: string }) {
+    return request<BridgeTransfer>('/webapp/bridge/record', {
       method: 'POST',
       body: JSON.stringify(req),
     })
