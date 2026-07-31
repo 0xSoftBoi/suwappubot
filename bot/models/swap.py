@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     UniqueConstraint,
 )
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
@@ -165,7 +166,17 @@ class SwapRouteCandidate(Base):
     # Stable identity for dedupe across repeated quotes of the same shape.
     route_hash = Column(String(64), nullable=True, index=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    # server_default is REQUIRED, not decoration: `default=` alone is applied
+    # by SQLAlchemy in Python and produces NO database DEFAULT, so any other
+    # writer (api-ts/Drizzle) inserting `default` for this column hits a NOT
+    # NULL violation. This bit production — every capture insert failed.
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
 
     def __repr__(self) -> str:
         return (
@@ -211,7 +222,7 @@ class SwapExecutionMark(Base):
     realized_vs_quoted_bps = Column(Float, nullable=True)
     markout_bps = Column(Float, nullable=True)
 
-    scored_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    scored_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("swap_id", "horizon", name="uq_swap_execution_marks_swap_horizon"),

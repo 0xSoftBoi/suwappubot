@@ -330,6 +330,13 @@ export async function captureQuoteRoutes(params: CaptureQuoteParams): Promise<vo
 				// recorded honestly rather than guessed.
 				wasSelected: params.selectedTool !== null && c.tool === params.selectedTool,
 				routeHash: c.routeHash,
+				// Explicit, NOT relying on the column default. `created_at` is
+				// NOT NULL but has NO database default in production: the table
+				// was built by SQLAlchemy create_all(), whose `default=` is a
+				// PYTHON-side default and never becomes a DB DEFAULT clause.
+				// Drizzle's .defaultNow() assumed one existed and emitted
+				// `default`, which resolved to NULL and failed every insert.
+				createdAt: new Date(),
 			})),
 		)
 
