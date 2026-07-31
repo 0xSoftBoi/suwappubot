@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Suwappu",
+    "slug": "suwappu",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "suwappu",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "jsEngine": "hermes",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "bot.suwappu.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "bot.suwappu.app",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFDF9",
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": { "useFrameworks": "static" },
+          "android": { "enableProguardInReleaseBuilds": true, "enableShrinkResourcesInReleaseBuilds": true }
+        }
+      ]
+    ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0
+    },
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "apiUrl": "https://api.suwappu.bot"
+    }
+  }
+}
