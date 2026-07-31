@@ -446,8 +446,11 @@ export default function SectionField({
       const cx = w * 0.5, cy = h * 0.5;
       const SX = w * 0.4, SY = Math.min(h * 0.42, w * 0.14);
       const drift = reduce ? 0 : t * 0.00016;
+      // At phone widths three ribbons plus a book ladder do not fit: the
+      // tickers clipped at the left edge and the position marker collided
+      // with the book label. Narrow shows one market and no ladder.
+      const narrow = w < 520;
 
-      // Fixed three-quarter camera, shared with the other motifs.
       const proj3 = (x: number, y: number, z: number) => {
         const yaw = 0.72, pitch = 0.3, FOV = 3.6;
         const x1 = x * Math.cos(yaw) + z * Math.sin(yaw);
@@ -465,71 +468,74 @@ export default function SectionField({
         Math.sin(i * (0.2 + k * 0.05) + drift * (1 + k * 0.35)) * 0.55 +
         Math.sin(i * (0.073 + k * 0.02) + drift * 0.7) * 0.34;
 
-      // Far markets first so nearer ribbons overlay them.
-      const lanes = [2, 1, 0];
+      // Labels are measured, so the ribbon always starts clear of the edge.
+      const pad = 8;
+      const widest = Math.max(...MARKETS.map((m) => ctx.measureText(m).width));
+      const x0 = narrow ? -0.42 : -0.62;
+
+      const lanes = narrow ? [0] : [2, 1, 0];
       for (const k of lanes) {
-        const z = -0.55 + k * 0.55;
+        const z = narrow ? 0 : -0.55 + k * 0.55;
         const near = k === 0;
 
-        // The price ribbon.
         ctx.beginPath();
         for (let i = 0; i <= 64; i++) {
-          const q = proj3(-0.62 + (i / 64) * 1.3, series(i, k) * 0.26, z);
+          const q = proj3(x0 + (i / 64) * (narrow ? 1.0 : 1.3), series(i, k) * 0.26, z);
           i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y);
         }
         ctx.strokeStyle = near ? a(0.85) : a(0.3 - k * 0.08);
         ctx.lineWidth = near ? 1.9 : 1.2;
         ctx.stroke();
 
-        // Ticker rides the left end of its own ribbon.
-        const head = proj3(-0.62, series(0, k) * 0.26, z);
-        ctx.textAlign = 'right';
+        const head = proj3(x0, series(0, k) * 0.26, z);
+        ctx.textAlign = 'left';
         ctx.fillStyle = near ? a(0.9) : dim(0.26);
-        ctx.fillText(MARKETS[k], head.x - 8, head.y);
+        // Clamp so the ticker can never run past the left edge.
+        ctx.fillText(MARKETS[k], Math.max(pad, head.x - widest - 6), head.y);
 
         if (near) {
-          // Entry band and position marker on the front market.
           ctx.beginPath();
-          const e0 = proj3(-0.62, 0, z), e1 = proj3(0.68, 0, z);
+          const e0 = proj3(x0, 0, z), e1 = proj3(x0 + (narrow ? 1.0 : 1.3), 0, z);
           ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y);
           ctx.setLineDash([3, 5]);
           ctx.strokeStyle = dim(0.14); ctx.lineWidth = 1; ctx.stroke();
           ctx.setLineDash([]);
 
-          const now = proj3(0.68, series(64, k) * 0.26, z);
+          const now = proj3(x0 + (narrow ? 1.0 : 1.3), series(64, k) * 0.26, z);
           ctx.beginPath(); ctx.arc(now.x, now.y, 3.2, 0, 6.284);
           ctx.fillStyle = a(1); ctx.fill();
+          const lbl = 'long 20x';
+          const lw = ctx.measureText(lbl).width;
           ctx.textAlign = 'left';
           ctx.fillStyle = a(0.9);
-          ctx.fillText('long 20x', now.x + 8, now.y);
+          ctx.fillText(lbl, Math.min(now.x + 8, w - lw - pad), now.y);
         }
       }
 
-      // Order-book ladder standing at the near edge: bids under the mid,
-      // asks over it, rung length by resting size.
-      const LEVELS = 9;
-      for (let i = 0; i < LEVELS; i++) {
-        const f = (i - (LEVELS - 1) / 2) / LEVELS;
-        const y = f * 0.44;
-        const size = 0.1 + ((i * 7) % 5) * 0.052;
-        const bid = f < 0;
-        const r0 = proj3(0.76, y, 0.55);
-        const r1 = proj3(0.76, y, 0.55 - size);
-        ctx.beginPath();
-        ctx.moveTo(r0.x, r0.y); ctx.lineTo(r1.x, r1.y);
-        ctx.strokeStyle = bid ? a(0.55) : dim(0.16);
-        ctx.lineWidth = 2.4;
-        ctx.stroke();
+      if (!narrow) {
+        const LEVELS = 9;
+        for (let i = 0; i < LEVELS; i++) {
+          const f = (i - (LEVELS - 1) / 2) / LEVELS;
+          const y = f * 0.44;
+          const size = 0.1 + ((i * 7) % 5) * 0.052;
+          const bid = f < 0;
+          const r0 = proj3(0.76, y, 0.55);
+          const r1 = proj3(0.76, y, 0.55 - size);
+          ctx.beginPath();
+          ctx.moveTo(r0.x, r0.y); ctx.lineTo(r1.x, r1.y);
+          ctx.strokeStyle = bid ? a(0.55) : dim(0.16);
+          ctx.lineWidth = 2.4;
+          ctx.stroke();
+        }
+        const bookTop = proj3(0.76, 0.32, 0.55);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = dim(0.26);
+        ctx.fillText('order book', bookTop.x - 6, bookTop.y);
       }
-      const bookTop = proj3(0.76, 0.32, 0.55);
-      ctx.textAlign = 'right';
-      ctx.fillStyle = dim(0.26);
-      ctx.fillText('order book', bookTop.x - 6, bookTop.y);
 
-      // Top-left, so it does not land on the section divider below.
       ctx.textAlign = 'left';
       ctx.fillStyle = dim(0.16);
-      ctx.fillText('illustrative', 2, 8);
+      ctx.fillText('illustrative', pad, 10);
     };
 
     /* ── Tempo sponsorship, in 3D ────────────────────────────────
