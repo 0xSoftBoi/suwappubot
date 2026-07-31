@@ -11,6 +11,17 @@ import { NextResponse } from 'next/server';
 
 const UPSTREAM = 'https://api.suwappu.bot/v1/agent/quote';
 
+/**
+ * Last known good quote per pair, held in module memory.
+ *
+ * The hero calls this on every page view and each call spends a credit on the
+ * demo agent. When the balance runs out the upstream returns HTTP 402, and
+ * without this the hero would show an error box to every visitor. Serving the
+ * last real quote with its age, clearly labelled as stale, is honest and
+ * degrades far better than a blank panel.
+ */
+const lastGood = new Map<string, { body: Record<string, unknown>; at: number }>();
+
 /** Only these exact demo routes are quotable through the public proxy. */
 const ALLOWED = new Map<
   string,
@@ -60,6 +71,15 @@ export async function GET(req: Request) {
 
     const data = await upstream.json();
     if (!upstream.ok) {
+      // Fall back to the last real quote for this pair rather than erroring.
+      const prev = lastGood.get(pair);
+      if (prev) {
+        return NextResponse.json({
+          ...prev.body,
+          stale: true,
+          ageSeconds: Math.round((Date.now() - prev.at) / 1000),
+        });
+      }
       return NextResponse.json(
         { error: 'upstream_error', status: upstream.status, detail: data?.error ?? null },
         { status: 502 }
@@ -68,7 +88,7 @@ export async function GET(req: Request) {
 
     // Return only what the widget renders. No quote_id: this is a display
     // surface, not an execution path, and a quote_id invites misuse.
-    return NextResponse.json({
+    const body = {
       pair,
       from: { symbol: data.from_token?.symbol ?? route.from, amount: data.amount_in },
       to: { symbol: data.to_token?.symbol ?? route.to, amount: data.amount_out },
@@ -84,7 +104,9 @@ export async function GET(req: Request) {
       dex: data.dex,
       expiresIn: data.expires_in_seconds,
       fetchedAt: Date.now(),
-    });
+    };
+    lastGood.set(pair, { body, at: Date.now() });
+    return NextResponse.json(body);
   } catch {
     return NextResponse.json({ error: 'unreachable' }, { status: 502 });
   }

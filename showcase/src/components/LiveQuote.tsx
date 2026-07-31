@@ -15,6 +15,8 @@ import { useEffect, useState, useCallback } from 'react';
  */
 
 type Quote = {
+  stale?: boolean;
+  ageSeconds?: number;
   from: { symbol: string; amount: string };
   to: { symbol: string; amount: string };
   chain: string;
@@ -66,7 +68,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
   return (
     <div className={c}>
       <div className="lq__bar">
-        <span className="lq__title">Live quote</span>
+        <span className="lq__title">{quote?.stale ? 'Last quote' : 'Live quote'}</span>
         <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
       </div>
 
@@ -108,6 +110,12 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
           <p className="lq__sub">
             for {quote.from.amount} {quote.from.symbol} on {quote.chain}
           </p>
+          {quote.stale && (
+            // Never present a cached quote as live.
+            <p className="lq__stale">
+              last quote, {quote.ageSeconds}s ago. Live quoting is paused.
+            </p>
+          )}
 
           <dl className="lq__grid">
             <div><dt>Best route</dt><dd>{quote.dex}</dd></div>

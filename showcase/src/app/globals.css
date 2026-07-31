@@ -7668,3 +7668,12 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
 }
 
 .sw-dark .docs-quicklink:hover { border-color: rgba(246, 169, 60, 0.4); }
+
+/* A cached quote must never look live. */
+.lq__stale {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--sw-accent-bright);
+  opacity: 0.85;
+}
