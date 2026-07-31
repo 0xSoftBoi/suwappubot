@@ -331,7 +331,12 @@ export default function SectionField({
       const cx = w * 0.5, cy = h * 0.5;
       // Separate axes: the braid is naturally wide, so it fills the band
       // horizontally while the bow stays proportional to the height.
-      const SX = w * 0.44;
+      ctx.font = MONO;
+      const narrow = w < 560;
+      // Reserve room for the end labels so they can never run off an edge.
+      const endPad = Math.max(ctx.measureText('your order').width,
+                              ctx.measureText('best fill').width) + 18;
+      const SX = Math.max(60, (w / 2) - endPad) * 0.98;
       const SY = Math.min(h * 0.36, w * 0.12);
       const spin = reduce ? 0.55 : t * 0.00007;
       const FOV = 3.4;
@@ -353,7 +358,7 @@ export default function SectionField({
       const N = PROVIDERS.length;
 
       // Source and destination anchors, on the axis.
-      const A = proj3(-0.78, 0, 0), B = proj3(0.78, 0, 0);
+      const A = proj3(-1, 0, 0), B = proj3(1, 0, 0);
 
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
@@ -371,7 +376,7 @@ export default function SectionField({
         const pt = (u: number) => {
           const swell = Math.sin(Math.PI * u) * bow;
           return proj3(
-            -0.78 + 1.56 * u,
+            -1 + 2 * u,
             Math.sin(st.ang) * swell,
             Math.cos(st.ang) * swell
           );
@@ -410,7 +415,7 @@ export default function SectionField({
 
         // Only near strands label, and only once clear of the start, or the
         // names pile up on top of each other at the source node.
-        if ((near || won) && p > 0.18) {
+        if ((won || (!narrow && near)) && p > 0.18) {
           ctx.textAlign = 'center';
           ctx.fillStyle = won ? a(0.95) : dim(0.28);
           ctx.fillText(st.name, head.x, head.y - 11);
