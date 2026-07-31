@@ -547,3 +547,10 @@
   aspect-ratio: 4 / 3;
   max-height: 340px;
 }
+
+/* The perps object carries three ribbons and a book ladder, so it needs more
+   height than the default header-band figure. */
+#hyperliquid .sw__field--top {
+  height: min(46%, 230px);
+  width: min(42%, 440px);
+}

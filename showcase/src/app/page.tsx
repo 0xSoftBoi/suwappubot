@@ -187,7 +187,7 @@ export default function Home() {
 
         {/* ── Perps ────────────────────────────────────────────── */}
         <section id="hyperliquid" className="sw__sec" aria-label="HyperLiquid perps">
-          <SectionField motif="markets" className="sw__field" />
+          <SectionField motif="markets" className="sw__field sw__field--top" />
           <Reveal>
             <h2 className="sw__h2">HyperLiquid, managed from chat.</h2>
             <p className="sw__lead">
