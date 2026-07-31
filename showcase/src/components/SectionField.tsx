@@ -460,50 +460,125 @@ export default function SectionField({
       });
     };
 
-    /* ── Tempo. A labelled transaction passing a labelled fee-payer. ── */
+    /* ── Tempo sponsorship, in 3D ────────────────────────────────
+       The mechanic drawn literally: transactions fly down a lane toward
+       settlement, each carrying the gas it owes. At the midpoint sits the
+       fee-payer, a ring seen in perspective. Crossing it, the gas detaches
+       and is pulled into the fee-payer, which counter-signs (type 0x76), and
+       the transaction continues and settles having paid a tenth of a cent.
+       Same projection and camera as the sphere and the braid. */
     const sponsor = (t: number) => {
-      const y = h * 0.5, payer = w * 0.5;
+      const cx = w * 0.5, cy = h * 0.5;
+      const S = Math.min(w * 0.44, h * 0.72);
+      const spin = reduce ? 0.4 : t * 0.00013;
+      const FOV = 3.6;
+
+      // The lane runs along x; the gate is a ring in the y/z plane at x = 0.
+      const proj3 = (x: number, y: number, z: number) => {
+        // Fixed three-quarter camera so the ring reads as a circle in space.
+        const yaw = 0.62, pitch = 0.26;
+        const x1 = x * Math.cos(yaw) + z * Math.sin(yaw);
+        const z1 = -x * Math.sin(yaw) + z * Math.cos(yaw);
+        const y1 = y * Math.cos(pitch) - z1 * Math.sin(pitch);
+        const z2 = y * Math.sin(pitch) + z1 * Math.cos(pitch);
+        const k = FOV / (FOV - z2 * 0.5);
+        return { x: cx + x1 * S * k, y: cy + y1 * S * k, k, z: z2 };
+      };
+
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
-      ctx.textAlign = 'center';
 
+      // The lane itself.
+      const laneA = proj3(-0.82, 0, 0), laneB = proj3(0.82, 0, 0);
       ctx.beginPath();
-      ctx.moveTo(w * 0.1, y); ctx.lineTo(w * 0.9, y);
-      ctx.strokeStyle = dim(0.09); ctx.lineWidth = 1; ctx.stroke();
+      ctx.moveTo(laneA.x, laneA.y); ctx.lineTo(laneB.x, laneB.y);
+      ctx.strokeStyle = dim(0.08); ctx.lineWidth = 1; ctx.stroke();
 
-      ctx.beginPath();
-      ctx.arc(payer, y, 6, 0, 6.284);
-      ctx.strokeStyle = a(0.7); ctx.lineWidth = 1.6; ctx.stroke();
-      ctx.fillStyle = a(0.7);
-      ctx.fillText('fee-payer 0x76', payer, y + 22);
+      // Packets, staggered so one is always at the gate.
+      const LANES = 4;
+      const packets = Array.from({ length: LANES }, (_, i) => {
+        const u = reduce ? 0.28 + i * 0.2 : ((t * 0.00013 + i / LANES) % 1);
+        const off = (i - (LANES - 1) / 2) * 0.09;
+        return { u, x: -0.82 + 1.64 * u, y: off * 0.5, z: off, i };
+      });
 
-      ctx.fillStyle = dim(0.26);
-      ctx.fillText('gas owed', w * 0.22, y + 22);
-      ctx.fillStyle = a(0.6);
-      ctx.fillText('you paid $0.001', w * 0.8, y + 22);
+      // Label only the packet closest to the gate.
+      let leadIdx = 0, leadD = 9;
+      for (const pk of packets) {
+        const d = Math.abs(pk.x);
+        if (d < leadD) { leadD = d; leadIdx = pk.i; }
+      }
 
-      for (let k = 0; k < 4; k++) {
-        const p = reduce ? 0.2 + k * 0.2 : ((t * 0.00017 + k / 4) % 1);
-        const x = w * 0.1 + p * w * 0.8;
+      // Behind-the-gate packets first.
+      const drawPacket = (pk: typeof packets[number]) => {
+        const q = proj3(pk.x, pk.y, pk.z);
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, 6.284);
-        ctx.fillStyle = a(0.85); ctx.fill();
-        ctx.fillStyle = dim(0.3);
-        ctx.fillText('100 USDC', x, y - 16);
+        ctx.arc(q.x, q.y, 3.4 * q.k * 0.7, 0, 6.284);
+        ctx.fillStyle = a(0.9); ctx.fill();
+        if (pk.i === leadIdx) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = dim(0.32);
+          ctx.fillText('100 USDC', q.x, q.y - 14);
+        }
 
-        if (x < payer) {
-          // Carrying the gas cost, which the payer will absorb.
+        if (pk.x < 0) {
+          // Still carrying the gas it owes.
+          const g = proj3(pk.x, pk.y + 0.16, pk.z);
           ctx.beginPath();
-          ctx.arc(x, y + 9, 2, 0, 6.284);
-          ctx.fillStyle = dim(0.34); ctx.fill();
+          ctx.arc(g.x, g.y, 2.2 * g.k * 0.7, 0, 6.284);
+          ctx.fillStyle = dim(0.42); ctx.fill();
         } else {
-          const since = (x - payer) / (w * 0.9 - payer);
+          // Released at the gate and drawn into the fee-payer.
+          const pull = Math.min(1, pk.x * 3.2);
+          const gx = pk.x * (1 - pull), gy = (pk.y + 0.16) * (1 - pull) + 0.16 * pull;
+          const g = proj3(gx, gy, pk.z * (1 - pull));
           ctx.beginPath();
-          ctx.arc(payer, y, 6 + since * 26, 0, 6.284);
-          ctx.strokeStyle = a(Math.max(0, 0.3 * (1 - since)));
-          ctx.lineWidth = 1; ctx.stroke();
+          ctx.arc(g.x, g.y, 2.2 * g.k * 0.7 * (1 - pull), 0, 6.284);
+          ctx.fillStyle = `rgba(255,255,255,${0.42 * (1 - pull)})`;
+          ctx.fill();
+        }
+      };
+
+      packets.filter((pk) => pk.x <= 0).forEach(drawPacket);
+
+      // The fee-payer gate: a ring of dots in the y/z plane, slowly turning.
+      const RING = 76;
+      let crossing = 0;
+      for (const pk of packets) if (Math.abs(pk.x) < 0.12) crossing = 1 - Math.abs(pk.x) / 0.12;
+      for (let i = 0; i < RING; i++) {
+        const ang = (i / RING) * 6.284 + spin;
+        const q = proj3(0, Math.sin(ang) * 0.34, Math.cos(ang) * 0.34);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, (1.5 + crossing * 1.1) * q.k * 0.72, 0, 6.284);
+        ctx.fillStyle = a(0.5 + crossing * 0.45);
+        ctx.fill();
+      }
+      // Counter-sign pulse as a packet passes through.
+      if (crossing > 0.02) {
+        for (let i = 0; i < RING; i += 2) {
+          const ang = (i / RING) * 6.284 + spin;
+          const rr = 0.34 + (1 - crossing) * 0.3;
+          const q = proj3(0, Math.sin(ang) * rr, Math.cos(ang) * rr);
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, 1.1 * q.k * 0.7, 0, 6.284);
+          ctx.fillStyle = a(0.3 * crossing);
+          ctx.fill();
         }
       }
+
+      packets.filter((pk) => pk.x > 0).forEach(drawPacket);
+
+      // Endpoint and gate labels.
+      const gate = proj3(0, -0.44, 0);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = a(0.75);
+      ctx.fillText('fee-payer counter-signs 0x76', gate.x, gate.y);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = dim(0.3);
+      ctx.fillText('gas owed', laneA.x, laneA.y + 20);
+      ctx.fillStyle = a(0.75);
+      ctx.fillText('you paid $0.001', laneB.x, laneB.y + 20);
     };
 
     /* ── MCP. Real tool names called and returning. ── */

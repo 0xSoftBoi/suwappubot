@@ -536,3 +536,14 @@
   .stages__list li { grid-template-columns: 1.4rem 3.2rem 1fr; }
   .stages__note { display: none; }
 }
+
+/* An inline figure: used where a split section's right column is the object
+   itself rather than a text block. */
+.sw__figure { position: relative; width: 100%; }
+
+.sw__figure-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 340px;
+}

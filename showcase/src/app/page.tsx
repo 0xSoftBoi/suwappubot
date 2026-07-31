@@ -207,7 +207,6 @@ export default function Home() {
 
         {/* ── Tempo ────────────────────────────────────────────── */}
         <section id="tempo" className="sw__sec sw__split" aria-label="Gasless swaps on Tempo">
-          <SectionField motif="sponsor" className="sw__field" />
           <Reveal>
             <div>
               <h2 className="sw__h2">Trade without holding gas tokens.</h2>
@@ -217,11 +216,9 @@ export default function Home() {
                 swap if sponsorship is unavailable, so nothing ever blocks.
               </p>
             </div>
-            <ol className="sw__flow">
-              <li><b>You swap</b><span>100 USDC to pathUSD</span></li>
-              <li><b>We sponsor gas</b><span>fee-payer counter-signs 0x76</span></li>
-              <li><b>Settled on Tempo</b><span>you paid $0.001</span></li>
-            </ol>
+            <div className="sw__figure">
+              <SectionField motif="sponsor" className="sw__figure-canvas" />
+            </div>
           </Reveal>
         </section>
 
