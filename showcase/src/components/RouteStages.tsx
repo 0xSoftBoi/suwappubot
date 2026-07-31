@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { JOURNEYS } from './SectionField';
 
 /**
- * RouteStages — the stage readout beside the sphere.
+ * RouteStages: the stage readout beside the sphere.
  *
  * A cross-chain swap is never one hop: the source asset is swapped on its own
  * chain, bridged, then swapped again on the destination. The sphere shows the

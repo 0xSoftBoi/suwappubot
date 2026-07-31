@@ -2,11 +2,11 @@
  * Lightweight client-side event tracking.
  *
  * Fires to whichever analytics provider Analytics.tsx loaded (Plausible or
- * Google Analytics), if any. Safe to call when no provider is configured —
+ * Google Analytics), if any. Safe to call when no provider is configured -
  * it simply no-ops, so funnel instrumentation can ship before analytics is
  * switched on (set NEXT_PUBLIC_ANALYTICS_ID to enable).
  *
- * Also forwards conversion events to any active ad pixels (X / Reddit — see
+ * Also forwards conversion events to any active ad pixels (X / Reddit: see
  * Analytics.tsx) via CONVERSION_EVENTS below.
  */
 type EventProps = Record<string, string | number | boolean>;

@@ -6,9 +6,9 @@ import stats from '@/data/stats.generated.json';
 import styles from './solutions.module.css';
 
 export const metadata: Metadata = {
-  title: 'Solutions — Suwappu',
+  title: 'Solutions | Suwappu',
   description:
-    `What you can build with the Suwappu Agent API: trading agents, portfolio agents, payment & commerce agents, and embedded wallets — across ${stats.agentApiChains} chains.`,
+    `What you can build with the Suwappu Agent API: trading agents, portfolio agents, payment & commerce agents, and embedded wallets: across ${stats.agentApiChains} chains.`,
 };
 
 const solutions: {
@@ -25,7 +25,7 @@ const solutions: {
     id: 'trading',
     eyebrow: 'For autonomous strategies',
     title: 'Trading agents',
-    body: `Give a strategy — human-written or fully autonomous — the ability to quote and execute swaps across ${stats.agentApiChains} chains, inside spend and slippage limits you set. The same two calls whether it runs once a day or once a second.`,
+    body: `Give a strategy: human-written or fully autonomous: the ability to quote and execute swaps across ${stats.agentApiChains} chains, inside spend and slippage limits you set. The same two calls whether it runs once a day or once a second.`,
     flow: ['Register agent', 'Set spend policy', 'Request a quote', 'Execute the swap'],
     file: 'trading-agent.ts',
     code: `import { Suwappu } from "@suwappu/sdk";
@@ -43,7 +43,7 @@ console.log(tx.txHash, tx.status);   // -> 0x… "filled"`,
     id: 'portfolio',
     eyebrow: 'For research & rebalancing',
     title: 'Portfolio agents',
-    body: 'Pull live token prices and cross-chain portfolio balances your agent can reason over, decide when a position has drifted, then rebalance in the same session — no separate data provider to stitch in.',
+    body: 'Pull live token prices and cross-chain portfolio balances your agent can reason over, decide when a position has drifted, then rebalance in the same session: no separate data provider to stitch in.',
     flow: ['Get portfolio', 'Get prices', 'Decide & quote', 'Execute rebalance'],
     file: 'portfolio-check.sh',
     code: `curl https://api.suwappu.bot/v1/agent/portfolio \\
@@ -58,7 +58,7 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
     id: 'payments',
     eyebrow: 'For pay-per-call & micropayments',
     title: 'Payment & commerce agents',
-    body: 'Pay per request over HTTP 402 with x402 — no signup, no subscription, no API key handshake — or settle in gasless stablecoin micropayments on Tempo for about a tenth of a cent per swap. Built for agents that transact machine-to-machine.',
+    body: 'Pay per request over HTTP 402 with x402: no signup, no subscription, no API key handshake, or settle in gasless stablecoin micropayments on Tempo for about a tenth of a cent per swap. Built for agents that transact machine-to-machine.',
     flow: ['Call the endpoint', 'Receive HTTP 402', 'Pay in USDC', 'Get the result'],
     file: 'x402-call.sh',
     code: `curl -i https://api.suwappu.bot/v1/agent/quote \\
@@ -66,15 +66,14 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
 # HTTP/1.1 402 Payment Required
 # X-Payment: { "amount": "0.001", "asset": "USDC", "chain": "base" }
 
-# Pay the invoice, then retry with the payment proof attached —
-# no registration, no API key, charged per call.`,
+# Pay the invoice, then retry with the payment proof attached: # no registration, no API key, charged per call.`,
     cta: { label: 'Agentic Payments (x402) docs', href: '/docs/billing/agentic-payments' },
   },
   {
     id: 'wallets',
     eyebrow: "For apps that don't want to touch keys",
     title: 'Embedded wallets',
-    body: 'Provision a server-side wallet signed via Turnkey for your users or your agent, with per-key spend limits and allowed chains/pairs — your app or agent never handles a private key. Prefer full self-custody instead? Request an unsigned transaction and sign it yourself.',
+    body: 'Provision a server-side wallet signed via Turnkey for your users or your agent, with per-key spend limits and allowed chains/pairs: your app or agent never handles a private key. Prefer full self-custody instead? Request an unsigned transaction and sign it yourself.',
     flow: ['Create wallet', 'Set policy', 'Get quote', 'Execute via quote_id'],
     file: 'create-wallet.sh',
     code: `curl -X POST https://api.suwappu.bot/v1/agent/wallets \\
@@ -86,7 +85,7 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
   },
 ];
 
-/** The code surface is the proof artifact — dark register, one per row. */
+/** The code surface is the proof artifact: dark register, one per row. */
 function CodeBlock({ file, code }: { file: string; code: string }) {
   return (
     <div className={styles.codeShell}>
@@ -117,7 +116,7 @@ export default function SolutionsPage() {
           <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
           <p className="mkt-hero__lead">
             Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
-            to secure itself — the same REST API, MCP server, and A2A protocol cover all four.
+            to secure itself: the same REST API, MCP server, and A2A protocol cover all four.
           </p>
         </header>
 

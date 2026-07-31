@@ -3,7 +3,7 @@ import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — Suwappu',
+  title: 'Privacy Policy | Suwappu',
   description: 'What data Suwappu collects, how it is used, and how it is protected.',
 };
 
@@ -35,7 +35,7 @@ export default function PrivacyPage() {
           <p>We use data to execute and settle your requests, prevent abuse and fraud, enforce limits and rate-limiting, provide support, and improve the Service. We do not sell your personal data.</p>
 
           <h2>4. Sharing &amp; sub-processors</h2>
-          <p>We share data only as needed to operate the Service — for example with infrastructure, key-management, and routing providers (liquidity aggregators, bridges, and venues) that execute your transactions, and where required by law. These providers process data under their own terms and our agreements with them.</p>
+          <p>We share data only as needed to operate the Service: for example with infrastructure, key-management, and routing providers (liquidity aggregators, bridges, and venues) that execute your transactions, and where required by law. These providers process data under their own terms and our agreements with them.</p>
 
           <h2>5. Security</h2>
           <p>We encrypt secrets at rest (AES-256-GCM) and data in transit (TLS), restrict access to sensitive material, and submit our wallet and key paths to independent review. No system is perfectly secure; you share responsibility by safeguarding your credentials.</p>

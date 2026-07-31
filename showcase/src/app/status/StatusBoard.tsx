@@ -8,8 +8,8 @@ type StatusData = { checkedAt: string; allUp: boolean; services: Service[] };
 
 /**
  * Live health-check board. Polls the server-side /api/status route (avoids
- * browser CORS) every 30s. Only surfaces we can actually reach over HTTP —
- * the production and development API — get a live dot; see the static
+ * browser CORS) every 30s. Only surfaces we can actually reach over HTTP -
+ * the production and development API: get a live dot; see the static
  * "Surfaces" section on the page for MCP/A2A/bot/terminal, which share this
  * same backend rather than exposing their own health endpoints.
  */

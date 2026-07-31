@@ -4,7 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import styles from './changelog.module.css';
 
 export const metadata: Metadata = {
-  title: 'Changelog — Suwappu',
+  title: 'Changelog | Suwappu',
   description: 'What shipped, and when. New chains, features, and improvements to the Suwappu bot, terminal, and agent API.',
 };
 
@@ -19,7 +19,7 @@ const entries: Entry[] = [
       'MCP server now negotiates `protocolVersion` on `initialize` (`2024-11-05`, `2025-03-26`, `2025-06-18`) instead of assuming one.',
       'New `/.well-known/ai-catalog.json` (ARD v0.9 draft) for machine discovery, mounted next to the agent card.',
       'Agent card now declares the `a2a-x402` payment extension in `capabilities.extensions`.',
-      '`POST /v1/agent/swap/simulate` + `simulate_swap` MCP tool — a zero-funds-move dry run with balance, allowance, gas, revert, and slippage checks.',
+      '`POST /v1/agent/swap/simulate` + `simulate_swap` MCP tool: a zero-funds-move dry run with balance, allowance, gas, revert, and slippage checks.',
     ],
   },
   {
@@ -28,7 +28,7 @@ const entries: Entry[] = [
     title: 'Agent-native landing, CLI & Skills',
     points: [
       'New Dune-style `/agents` landing page: capability grid, REST/MCP/A2A/SDK comparison matrix, and an agent-API FAQ.',
-      'Agent-native CLI (`suwappu` command) — every command supports `-o json` with structured `{success, error}` envelopes for scripting.',
+      'Agent-native CLI (`suwappu` command): every command supports `-o json` with structured `{success, error}` envelopes for scripting.',
       'Installable Agent Skills package (agentskills.io spec) for one-line onboarding into MCP-compatible agent hosts.',
       'Agent API pricing (credits, subscriptions, x402) broken out on `/pricing`.',
     ],
@@ -38,7 +38,7 @@ const entries: Entry[] = [
     tag: 'Docs',
     title: 'Agent-native documentation',
     points: [
-      'Every docs page is now available as clean Markdown — append `.md` or send `Accept: text/markdown`.',
+      'Every docs page is now available as clean Markdown: append `.md` or send `Accept: text/markdown`.',
       'Published `llms.txt` + `llms-full.txt` indexes, advertised in response headers.',
       'OpenAPI 3.1 spec enriched with examples and error responses; cURL/TypeScript/Python tabs across the API reference.',
     ],
@@ -48,7 +48,7 @@ const entries: Entry[] = [
     tag: 'Protocol',
     title: 'Gasless swaps on Tempo',
     points: [
-      'New users get their first swaps sponsored via Tempo fee-payer (type 0x76) transactions — about $0.001 on TIP-20 stablecoins.',
+      'New users get their first swaps sponsored via Tempo fee-payer (type 0x76) transactions: about $0.001 on TIP-20 stablecoins.',
       'Graceful fallback to a normal user-paid swap when sponsorship is unavailable.',
       'Suwappu Micropayments (pathUSD) endpoints for pay-per-call on Tempo.',
     ],
@@ -60,7 +60,7 @@ const entries: Entry[] = [
     points: [
       'Perps up to 20x with take-profit, stop-loss, and live PnL.',
       'One-click cross-chain funding to HyperCore via Across and HyperUnit.',
-      'HYPE staking, vaults, TWAP orders, and spot trading — all from the bot.',
+      'HYPE staking, vaults, TWAP orders, and spot trading: all from the bot.',
     ],
   },
   {
@@ -107,7 +107,7 @@ export default function ChangelogPage() {
           <h1>What shipped, and when.</h1>
           <p className="mkt-hero__lead">
             New chains, features, and improvements across the bot, terminal, and agent API.
-            We ship continuously — here&apos;s the trail.
+            We ship continuously: here&apos;s the trail.
           </p>
         </header>
 

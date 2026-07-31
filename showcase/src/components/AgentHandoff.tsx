@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 /**
- * AgentHandoff — the copy-and-paste-into-your-agent block.
+ * AgentHandoff: the copy-and-paste-into-your-agent block.
  *
  * Replaces the two static (and incorrect) MCP config snippets that used to sit
  * in the agents and build sections. Those advertised a local `npx
@@ -51,8 +51,10 @@ Do this for me end to end.
        "headers": { "Authorization": "Bearer <my key>" } } }
 
 4. WHAT YOU CAN DO ONCE CONNECTED
-   Best-price spot swaps across 40+ chains. Nine routers are raced per quote
-   (LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP, ParaSwap).
+   Best-price spot swaps across 41 chains. 18 routing providers are integrated
+   (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole, CCTP and
+   more); providers are chain-gated, so each swap races the subset that
+   supports its route.
    HyperLiquid perps: markets, quotes, positions. Prediction markets, lending
    markets, live prices, portfolio reads, and swap history.
 

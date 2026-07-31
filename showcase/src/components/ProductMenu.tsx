@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { MENU_PANELS } from './NavMenuData';
 
 /**
- * ProductMenu — the grouped product directory shared by both headers.
+ * ProductMenu: the grouped product directory shared by both headers.
  *
  * The site has two header shells: `.summer-nav` (sticky, homepage) and `.nav`
  * (fixed, every other page). They position differently, so they stay separate,

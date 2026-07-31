@@ -11,9 +11,9 @@ import FeeCalculator from '@/components/FeeCalculator';
 import styles from './pricing.module.css';
 
 export const metadata: Metadata = {
-  title: 'Pricing — Suwappu',
+  title: 'Pricing | Suwappu',
   description:
-    'Simple subscription tiers that lower your swap fee — Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
+    'Simple subscription tiers that lower your swap fee: Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
 };
 
 type Tier = {
@@ -42,8 +42,8 @@ const tiers: Tier[] = [
       `Best-price routing across ${stats.routerCount} providers`,
       'HyperLiquid perps & funding',
       'Gasless first swaps on Tempo',
-      'Agent API, SDK & MCP access — 30 req/min',
-      '1× loyalty points — redeem for fee credits',
+      'Agent API, SDK & MCP access: 30 req/min',
+      '1× loyalty points: redeem for fee credits',
     ],
   },
   {
@@ -51,12 +51,12 @@ const tiers: Tier[] = [
     price: '$9.99',
     cadence: '/mo',
     fee: '0.5%',
-    blurb: '', // derived from the fee ladder — see ladderBlurb()
+    blurb: '', // derived from the fee ladder: see ladderBlurb()
     cta: 'Upgrade to Pro',
     highlight: false,
     features: [
       'Everything in Free',
-      '0.5% swap fee — half of Free',
+      '0.5% swap fee: half of Free',
       '500 API requests/min',
       'Copy trading & DCA',
       '1.1× loyalty points on every trade',
@@ -67,13 +67,13 @@ const tiers: Tier[] = [
     price: '$29.99',
     cadence: '/mo',
     fee: '0.3%',
-    blurb: '', // derived from the fee ladder — see ladderBlurb()
+    blurb: '', // derived from the fee ladder: see ladderBlurb()
     cta: 'Go Premium',
     highlight: true,
     badge: 'Recommended',
     features: [
       'Everything in Pro',
-      '0.3% swap fee — 70% below Free',
+      '0.3% swap fee: 70% below Free',
       '500 API requests/min',
       'Advanced alerts & analytics',
       '1.25× loyalty points on every trade',
@@ -95,13 +95,13 @@ const tiers: Tier[] = [
       'Multi-user org accounts with RBAC (Owner / Admin / Member / Viewer)',
       'Up to 10 seats per org (configurable)',
       'Programmatic API keys with scoped permissions',
-      'Per-org rate limits — 1,000 API calls/min default',
+      'Per-org rate limits: 1,000 API calls/min default',
       `${stats.platformChains}-chain execution (competitors offer 1–2)`,
-      'KMS envelope encryption — institutional-grade custody',
-      'Dedicated support + SLA — first in category',
+      'KMS envelope encryption: institutional-grade custody',
+      'Dedicated support + SLA: first in category',
       'Usage dashboard: API calls, rate-limit monitoring',
-      'Custom RPC / dedicated node — contact for pricing',
-      'White-label available — contact for pricing',
+      'Custom RPC / dedicated node: contact for pricing',
+      'White-label available: contact for pricing',
       '1.5× loyalty points on every trade',
     ],
   },
@@ -111,7 +111,7 @@ const money = (t: Tier) => Number(t.price.replace(/[^0-9.]/g, ''));
 const feePct = (t: Tier) => Number(t.fee.replace('%', ''));
 
 /**
- * Monthly volume at which `upper` becomes cheaper than `lower` — the point
+ * Monthly volume at which `upper` becomes cheaper than `lower`: the point
  * where the extra subscription is repaid by the lower swap fee. Derived from
  * the same fee ladder the cards and the calculator render, so a price change
  * can never leave a stale number in the copy. Rounded to the nearest $100 so
@@ -140,7 +140,7 @@ const enterprise = tiers.find((t) => t.name === 'Enterprise') as Tier;
 const featuredIndex = tiers.findIndex((t) => t.highlight);
 
 const enterpriseStats: { value: string; label: string }[] = [
-  { value: '0.1%', label: 'Swap fee — a tenth of the 1% category standard' },
+  { value: '0.1%', label: 'Swap fee: a tenth of the 1% category standard' },
   { value: '1,000', label: 'API requests per minute, per org, by default' },
   { value: '10', label: 'Seats per org with RBAC roles (configurable)' },
 ];
@@ -152,7 +152,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
       { label: 'Swap fee', values: ['1.0%', '0.5%', '0.3%', '0.1%'] },
       { label: `Cross-chain routing (${stats.routerCount} providers)`, values: ['✓', '✓', '✓', '✓'] },
       { label: 'Limit orders & DCA', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Copy trading', values: ['—', '✓', '✓', '✓'] },
+      { label: 'Copy trading', values: ['-', '✓', '✓', '✓'] },
     ],
   },
   {
@@ -173,12 +173,12 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
   {
     category: 'Team & Org (Enterprise only)',
     rows: [
-      { label: 'Multi-user org accounts', values: ['—', '—', '—', '✓'] },
-      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['—', '—', '—', '✓'] },
-      { label: 'Programmatic API keys with scoped access', values: ['—', '—', '—', '✓'] },
-      { label: 'Usage dashboard & rate-limit monitoring', values: ['—', '—', '—', '✓'] },
-      { label: 'Custom RPC / dedicated node', values: ['—', '—', '—', 'Contact'] },
-      { label: 'White-label', values: ['—', '—', '—', 'Contact'] },
+      { label: 'Multi-user org accounts', values: ['-', '-', '-', '✓'] },
+      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['-', '-', '-', '✓'] },
+      { label: 'Programmatic API keys with scoped access', values: ['-', '-', '-', '✓'] },
+      { label: 'Usage dashboard & rate-limit monitoring', values: ['-', '-', '-', '✓'] },
+      { label: 'Custom RPC / dedicated node', values: ['-', '-', '-', 'Contact'] },
+      { label: 'White-label', values: ['-', '-', '-', 'Contact'] },
     ],
   },
   {
@@ -202,7 +202,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
 const faqs = [
   {
     q: 'How does the swap fee work?',
-    a: 'A small percentage is applied to each swap, set by your subscription tier — 1.0% on Free down to 0.1% on Enterprise. There are no per-seat charges; one subscription covers your whole account.',
+    a: 'A small percentage is applied to each swap, set by your subscription tier: 1.0% on Free down to 0.1% on Enterprise. There are no per-seat charges; one subscription covers your whole account.',
   },
   {
     q: 'Can I cancel anytime?',
@@ -214,11 +214,11 @@ const faqs = [
   },
   {
     q: 'Does my trading pay for my membership?',
-    a: 'Effectively, yes. Every swap, perp, prediction-market and P2P trade earns loyalty points, and higher tiers earn faster — 1.1× on Pro, 1.25× on Premium, 1.5× on Enterprise. Redeem points for fee credits, gas rebates, or to cover your next month of subscription. Your activity also accrues season points that convert to SUWP.',
+    a: 'Effectively, yes. Every swap, perp, prediction-market and P2P trade earns loyalty points, and higher tiers earn faster: 1.1× on Pro, 1.25× on Premium, 1.5× on Enterprise. Redeem points for fee credits, gas rebates, or to cover your next month of subscription. Your activity also accrues season points that convert to SUWP.',
   },
   {
     q: 'Can I earn a lower fee just by trading?',
-    a: 'Yes — your VIP status is the better of your plan and your trading. Rack up cross-product volume in a season (swaps, perps, prediction markets, P2P all count toward one status) and you auto-unlock a lower swap fee and a faster points multiplier, even on Free. Check /vip in the bot to see your status and the next threshold.',
+    a: 'Yes: your VIP status is the better of your plan and your trading. Rack up cross-product volume in a season (swaps, perps, prediction markets, P2P all count toward one status) and you auto-unlock a lower swap fee and a faster points multiplier, even on Free. Check /vip in the bot to see your status and the next threshold.',
   },
   {
     q: 'What does the Enterprise tier include that competitors do not?',
@@ -226,14 +226,14 @@ const faqs = [
   },
   {
     q: 'How do referrals work?',
-    a: 'Refer a friend with /ref and earn 30% of the trading fees they generate — paid out automatically, on every chain, for as long as they trade.',
+    a: 'Refer a friend with /ref and earn 30% of the trading fees they generate: paid out automatically, on every chain, for as long as they trade.',
   },
   {
     q: "What's a credit, for the Agent API?",
-    a: 'Credits are the Agent API’s prepaid unit — 1 credit ≈ $0.001. Reads (quotes, prices, portfolio, chains, tokens) cost 1 credit each; a swap execution costs 5 credits. Top up your balance with USDC on Base whenever it runs low, independent of any subscription tier.',
+    a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Reads (quotes, prices, portfolio, chains, tokens) cost 1 credit each; a swap execution costs 5 credits. Top up your balance with USDC on Base whenever it runs low, independent of any subscription tier.',
   },
   {
-    q: 'x402 pay-per-call vs a subscription — which should my agent use?',
+    q: 'x402 pay-per-call vs a subscription, which should my agent use?',
     a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A subscription (Pro/Premium/Enterprise) is worth it once your agent is calling often enough that a higher rate limit and a lower swap fee outweigh a flat monthly cost. Both share the same auth, wallets, and execution engine, so you can start on x402 and add a subscription later without changing integration code.',
   },
   {
@@ -244,22 +244,22 @@ const faqs = [
 
 // ── Agent API pricing (MONEY-PATH: mirrors api-ts credit/tier config) ──
 const creditCosts: { action: string; credits: string; usd: string }[] = [
-  { action: 'Reads — quote, prices, portfolio, chains, tokens', credits: '1 credit', usd: '≈ $0.001' },
-  { action: 'Swaps — execute', credits: '5 credits', usd: '≈ $0.005' },
+  { action: 'Reads: quote, prices, portfolio, chains, tokens', credits: '1 credit', usd: '≈ $0.001' },
+  { action: 'Swaps: execute', credits: '5 credits', usd: '≈ $0.005' },
 ];
 
 const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
   { tier: 'Free', rateLimit: '30 req/min', swapFee: '1.0%' },
   { tier: 'Agent (default key)', rateLimit: '100 req/min', swapFee: '1.0%' },
-  { tier: 'Pro — $9.99/mo', rateLimit: '500 req/min', swapFee: '0.5%' },
-  { tier: 'Premium — $29.99/mo', rateLimit: '500 req/min', swapFee: '0.3%' },
-  { tier: 'Enterprise — $99.99/mo', rateLimit: '1,000 req/min', swapFee: '0.1%' },
+  { tier: 'Pro: $9.99/mo', rateLimit: '500 req/min', swapFee: '0.5%' },
+  { tier: 'Premium: $29.99/mo', rateLimit: '500 req/min', swapFee: '0.3%' },
+  { tier: 'Enterprise: $99.99/mo', rateLimit: '1,000 req/min', swapFee: '0.1%' },
 ];
 
 const agentPaymentModes = [
   {
     title: 'x402 pay-per-call',
-    body: 'Pay per request over HTTP 402 — no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
+    body: 'Pay per request over HTTP 402: no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
   },
   {
     title: 'Prepaid credits',
@@ -267,11 +267,11 @@ const agentPaymentModes = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro, Premium, or Enterprise — 30-day prepaid and stackable. Each tier raises your rate limit and lowers your swap fee.',
+    body: 'Crypto or Stripe fiat checkout for Pro, Premium, or Enterprise: 30-day prepaid and stackable. Each tier raises your rate limit and lowers your swap fee.',
   },
 ];
 
-/** Comparison cells are either a glyph or a literal value — render accordingly
+/** Comparison cells are either a glyph or a literal value: render accordingly
  *  so screen readers hear "Included"/"Not included" instead of a bare symbol. */
 function CompareValue({ value }: { value: string }) {
   if (value === '✓') {
@@ -284,11 +284,11 @@ function CompareValue({ value }: { value: string }) {
       </>
     );
   }
-  if (value === '—') {
+  if (value === '-') {
     return (
       <>
         <span className={styles.no} aria-hidden="true">
-          —
+          -
         </span>
         <span className="sr-only">Not included</span>
       </>
@@ -306,12 +306,12 @@ export default function PricingPage() {
           <p className="summer-kicker">Pricing</p>
           <h1>One subscription. A lower fee on every swap.</h1>
           <p className="mkt-hero__lead">
-            Every plan carries the same engine — {stats.platformChains} chains, {stats.routerCount}{' '}
+            Every plan carries the same engine: {stats.platformChains} chains, {stats.routerCount}{' '}
             quote providers, HyperLiquid perps, and the agent API. The tier only changes your swap
             fee: 1.0% on Free down to 0.1% on Enterprise.
           </p>
           <p className="mkt-hero__clerk">
-            Free to start, no card. Month to month — cancel and you keep the tier until the period
+            Free to start, no card. Month to month: cancel and you keep the tier until the period
             ends.
           </p>
         </header>
@@ -373,7 +373,7 @@ export default function PricingPage() {
         {/* Enterprise sits below the ladder, not inside it: a quote-only plan
             standing next to three published prices makes every price look
             negotiable, and the buyer is a different person on a different
-            timeline. One CTA — a call. */}
+            timeline. One CTA: a call. */}
         <section
           className={`${styles.enterprise} sw-card-dark sw-grain sw-grain--dark`}
           aria-labelledby="enterprise-band"
@@ -386,7 +386,7 @@ export default function PricingPage() {
               </h2>
               <p className={styles.enterpriseBody}>
                 BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at all
-                — no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
+               : no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
                 desks, agent fleets, and institutions that need all three.
               </p>
               <div className={styles.enterpriseStats}>
@@ -405,7 +405,7 @@ export default function PricingPage() {
                   Talk to sales
                 </DemoCallCta>
                 <p className={styles.enterpriseNote}>
-                  30 minutes, no deck. Or <a href={ENTERPRISE_CONTACT_PATH}>send us a note</a> —
+                  30 minutes, no deck. Or <a href={ENTERPRISE_CONTACT_PATH}>send us a note</a> -
                   we reply within one business day.
                 </p>
               </div>

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * RouteField — the hero's generative background object.
+ * RouteField: the hero's generative background object.
  *
  * The reference (globalsettlement.com) uses a canvas dot-matrix globe with an
  * animated arc. Same device, honest subject: this draws chain nodes and the

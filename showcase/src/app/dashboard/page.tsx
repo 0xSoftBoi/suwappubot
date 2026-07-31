@@ -67,12 +67,12 @@ interface DashboardData {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso?: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     return new Date(iso).toLocaleDateString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
     });
-  } catch { return '—'; }
+  } catch { return '-'; }
 }
 
 function fmtNumber(n: number): string {
@@ -442,21 +442,21 @@ export default function DashboardPage() {
       {/* ── 6-tile KPI strip ── */}
       <div className={styles.kpiRow} aria-label="Key performance indicators">
 
-        {/* 1 — API Calls Today */}
+        {/* 1: API Calls Today */}
         <div className={styles.kpiCard}>
           <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
           <p className={styles.kpiLabel}>API Calls Today</p>
           <span className={styles.kpiValue}>{fmtNumber(usage.callsToday)}</span>
         </div>
 
-        {/* 2 — API Calls This Month */}
+        {/* 2: API Calls This Month */}
         <div className={styles.kpiCard}>
           <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
           <p className={styles.kpiLabel}>API Calls This Month</p>
           <span className={styles.kpiValue}>{fmtNumber(usage.callsThisMonth)}</span>
         </div>
 
-        {/* 3 — Error Rate */}
+        {/* 3: Error Rate */}
         <div className={styles.kpiCard}>
           <div
             className={styles.kpiDot}
@@ -467,7 +467,7 @@ export default function DashboardPage() {
           <span className={styles.kpiValue}>{usage.errorRate.toFixed(2)}%</span>
         </div>
 
-        {/* 4 — Avg Response Time */}
+        {/* 4: Avg Response Time */}
         <div className={styles.kpiCard}>
           <div
             className={styles.kpiDot}
@@ -478,14 +478,14 @@ export default function DashboardPage() {
           <span className={styles.kpiValue}>{fmtMs(usage.avgDurationMs)}</span>
         </div>
 
-        {/* 5 — Team Members */}
+        {/* 5: Team Members */}
         <div className={styles.kpiCard}>
           <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
           <p className={styles.kpiLabel}>Team Members</p>
           <span className={styles.kpiValue}>{fmtNumber(members.length)}</span>
         </div>
 
-        {/* 6 — Active API Keys */}
+        {/* 6: Active API Keys */}
         <div className={styles.kpiCard}>
           <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
           <p className={styles.kpiLabel}>Active API Keys</p>
@@ -682,7 +682,7 @@ export default function DashboardPage() {
                     </div>
                   </td>
                   <td className={styles.mono}>
-                    {k.callsThisMonth !== undefined ? k.callsThisMonth.toLocaleString() : '—'}
+                    {k.callsThisMonth !== undefined ? k.callsThisMonth.toLocaleString() : '-'}
                   </td>
                   <td>
                     <span className={`${styles.keyStatusBadge} ${styles[`keyStatus--${st}`]}`}>
@@ -760,7 +760,7 @@ export default function DashboardPage() {
             </div>
             {totalCalls > ENTERPRISE_SOFT_WARN * 0.8 && (
               <p className={styles.billingWarn}>
-                Heads up — approaching {(ENTERPRISE_SOFT_WARN / 1000).toFixed(0)}k soft monitoring threshold.
+                Heads up: approaching {(ENTERPRISE_SOFT_WARN / 1000).toFixed(0)}k soft monitoring threshold.
                 Contact your account manager to discuss capacity.
               </p>
             )}

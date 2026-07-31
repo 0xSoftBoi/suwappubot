@@ -5,9 +5,9 @@ import { publishedPosts, plannedPosts } from '@/content/research';
 import styles from './research.module.css';
 
 export const metadata: Metadata = {
-  title: 'Research — Suwappu',
+  title: 'Research | Suwappu',
   description:
-    'Engineering and protocol writing from the Suwappu team — best-price routing, gasless transactions, key management, and agent infrastructure.',
+    'Engineering and protocol writing from the Suwappu team: best-price routing, gasless transactions, key management, and agent infrastructure.',
 };
 
 function fmtDate(iso: string) {
@@ -27,7 +27,7 @@ export default function ResearchPage() {
           <h1>How we build it.</h1>
           <p className="mkt-hero__lead">
             Deep dives on cross-chain routing, gasless transactions, key management, and
-            agent infrastructure — written to stand on their own.
+            agent infrastructure: written to stand on their own.
           </p>
         </header>
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * SectionField — literal, labelled diagrams of the product, drawn on canvas.
+ * SectionField: literal, labelled diagrams of the product, drawn on canvas.
  *
  * The reference (globalsettlement.com) works because its globe is a
  * recognisable object: real continent shapes in dot-matrix, arcs between real

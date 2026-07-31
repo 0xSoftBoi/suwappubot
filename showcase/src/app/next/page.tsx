@@ -5,9 +5,9 @@ import { MarketTicker } from './MarketTicker';
 import styles from './next.module.css';
 
 export const metadata: Metadata = {
-  title: 'Suwappu — the cross-chain execution terminal',
+  title: 'Suwappu | the cross-chain execution terminal',
   description:
-    'Nine routers race for every swap. Non-custodial, sub-second, 41 chains. The best price wins — and you sign.',
+    'Nine routers race for every swap. Non-custodial, sub-second, 41 chains. The best price wins, and you sign.',
 };
 
 const jb = JetBrains_Mono({
@@ -98,7 +98,7 @@ export default function KakisPage() {
                       <span className={styles.traceLabel}>QUOTE</span>
                       <span className={styles.traceArrow}>→</span>
                       <span className={styles.traceDesc}>
-                        9 routers race in parallel — LiFi · CoW · OKX · 1inch · KyberSwap ·
+                        9 routers race in parallel: LiFi · CoW · OKX · 1inch · KyberSwap ·
                         Jupiter · Across · CCTP · ParaSwap. All results surface in &lt;400 ms.
                       </span>
                     </div>
@@ -179,7 +179,7 @@ export default function KakisPage() {
                   </div>
 
                   <p className={styles.panelCaption}>
-                    HyperLiquid up to 20× — funding, HYPE staking, vaults, TWAP, from chat.
+                    HyperLiquid up to 20×: funding, HYPE staking, vaults, TWAP, from chat.
                   </p>
                 </div>
 
@@ -277,7 +277,7 @@ export default function KakisPage() {
   └─────────────────┘     └─────────────────┘
 `}</pre>
                   <p className={styles.panelCaption}>
-                    Same price, same speed, same security — wherever you trade.
+                    Same price, same speed, same security: wherever you trade.
                     Gasless on Tempo.
                   </p>
                 </div>

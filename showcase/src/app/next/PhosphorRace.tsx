@@ -46,7 +46,7 @@ export function PhosphorRace() {
       return;
     }
 
-    // `start` is local to THIS effect invocation — immune to Strict Mode sharing
+    // `start` is local to THIS effect invocation: immune to Strict Mode sharing
     const start = performance.now();
 
     const step = (now: number) => {
@@ -55,7 +55,7 @@ export function PhosphorRace() {
         setProgress(elapsed / RACE_MS);
         rafRef.current = requestAnimationFrame(step);
       } else {
-        // Lock permanently — no further rAF
+        // Lock permanently: no further rAF
         setProgress(1);
         setSettled(true);
       }

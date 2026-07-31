@@ -99,7 +99,7 @@ export default function SummerFooter() {
         </nav>
       </div>
 
-      {/* Legal line — prose only. No compliance badges we do not actually hold. */}
+      {/* Legal line: prose only. No compliance badges we do not actually hold. */}
       <div className="summer-footer__legal">
         <p>
           Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.

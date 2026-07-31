@@ -72,7 +72,7 @@ function slugify(s: string): string {
 
 export type TocItem = { level: number; text: string; id: string };
 
-// Headings for the "On this page" rail — fence-aware so `##` inside code blocks is ignored.
+// Headings for the "On this page" rail: fence-aware so `##` inside code blocks is ignored.
 export function buildToc(md: string): TocItem[] {
   const items: TocItem[] = [];
   let inFence = false;
@@ -133,7 +133,7 @@ export function markdownToHtml(md: string): string {
     return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
   });
 
-  // Headings — stable slug ids (deterministic deep links for humans AND agents)
+  // Headings: stable slug ids (deterministic deep links for humans AND agents)
   // plus HTTP method badges for "VERB /path" API-reference headings.
   const renderHeading = (level: number, text: string) => {
     const id = slugify(text);

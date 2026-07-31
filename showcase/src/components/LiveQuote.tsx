@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 
 /**
- * LiveQuote — a real quote from the real router, in the hero.
+ * LiveQuote: a real quote from the real router, in the hero.
  *
  * This replaces the scripted `<div>` terminal. Every number here comes from
  * POST /v1/agent/quote via the server proxy at /api/quote. The API returns

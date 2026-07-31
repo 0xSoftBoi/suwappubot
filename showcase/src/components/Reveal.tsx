@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
- * Reveal — scroll-entry fade and lift.
+ * Reveal: scroll-entry fade and lift.
  *
  * The only motion this register allows: no ambient loops, no parallax, no
  * gradient drift. IntersectionObserver, not a scroll listener. Honors

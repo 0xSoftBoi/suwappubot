@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import styles from './agents.module.css';
 
-// Tab definitions for "add your key" — same shape as the old /agents tab
+// Tab definitions for "add your key": same shape as the old /agents tab
 // widget, kept for the visual pattern (agents-tabs / agents-panel / agents-code).
 const TABS = [
   {

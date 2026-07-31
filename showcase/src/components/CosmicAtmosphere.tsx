@@ -1,10 +1,10 @@
 /**
- * "Journey" atmospheric backdrop — a No Man's Sky cosmos at the top of the page
+ * "Journey" atmospheric backdrop: a No Man's Sky cosmos at the top of the page
  * that gradients, as you scroll, down through the atmosphere into the Suwappu
  * brand world on the ground: Mount Fuji, the ocean, rolling waves, and drifting
  * sakura petals. Persimmon + teal palette.
  *
- * Anchored to the document (absolute, full page height — NOT fixed) so scrolling
+ * Anchored to the document (absolute, full page height: NOT fixed) so scrolling
  * is a top-to-bottom descent: space → alien sky → dawn horizon → sea. It sits at
  * z-index 0, behind `.summer-shell` content (z-index 1). Pure CSS, no images, no
  * JS loop. All motion stops under `prefers-reduced-motion`.

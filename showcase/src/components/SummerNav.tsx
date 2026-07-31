@@ -5,7 +5,7 @@ import ProductMenu from './ProductMenu';
 import NavDrawer from './NavDrawer';
 
 /**
- * SummerNav — the homepage header.
+ * SummerNav: the homepage header.
  *
  * Keeps the `.summer-nav` shell (sticky, in-flow, sits above the cosmic hero)
  * that the homepage layout is built around, but swaps the old flat row of eight

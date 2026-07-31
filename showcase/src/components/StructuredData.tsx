@@ -7,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        `Cross-chain DeFi SDK for AI agents — swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
+        `Cross-chain DeFi SDK for AI agents: swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -79,7 +79,7 @@ export default function StructuredData() {
           name: 'Is Suwappu non-custodial?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API — the non-custodial path is always available.',
+            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API: the non-custodial path is always available.',
           },
         },
         {

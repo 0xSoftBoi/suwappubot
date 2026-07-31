@@ -9,7 +9,7 @@ import styles from './next.module.css';
  *   char   2   ,   9  9  0   .   4  4
  *   type  DIG SEP DIG DIG DIG SEP DIG DIG
  *
- * SEP characters (',' and '.') are rendered as plain static spans — never
+ * SEP characters (',' and '.') are rendered as plain static spans: never
  * shuffled, never wrong. Only DIG slots cycle through DIGIT_CHARS.
  *
  * While racing  : digits shuffle continuously (random from DIGIT_CHARS).
@@ -17,7 +17,7 @@ import styles from './next.module.css';
  *                 to its real target char (the prop), left-to-right.
  * After settle  : display is frozen at the real char permanently.
  *
- * No hasLocked guard — the parent never resets settled back to false, so
+ * No hasLocked guard: the parent never resets settled back to false, so
  * the settle effect fires exactly once and the timeout runs to completion.
  */
 
@@ -84,7 +84,7 @@ function Digit({
     }
 
     // Staggered settle: flip N times then hard-lock on targetChar.
-    // Capture targetChar in the closure right now — it won't change.
+    // Capture targetChar in the closure right now: it won't change.
     const target = targetChar;
     let tick = 0;
 
@@ -93,7 +93,7 @@ function Digit({
       if (tick >= SETTLE_TICKS) {
         setDisplay(target);
         setLocked(true);
-        return; // done — no more scheduling
+        return; // done: no more scheduling
       }
       setDisplay(DIGIT_CHARS[Math.floor(Math.random() * DIGIT_CHARS.length)]);
       timerRef.current = setTimeout(run, SETTLE_HZ);

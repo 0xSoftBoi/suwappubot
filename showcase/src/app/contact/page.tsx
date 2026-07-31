@@ -7,17 +7,17 @@ import styles from './contact.module.css';
 import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
-  title: 'Talk to the team — Suwappu',
+  title: 'Talk to the team | Suwappu',
   description:
-    'Enterprise execution for desks and agent fleets — 0.1% swap fee, dedicated rate limits, and priority support. Tell us what you’re building and our team will follow up fast.',
+    'Enterprise execution for desks and agent fleets: 0.1% swap fee, dedicated rate limits, and priority support. Tell us what you’re building and our team will follow up fast.',
 };
 
 const trust = [
-  { text: 'KMS envelope encryption — managed-wallet keys are encrypted with AWS KMS, never handled in the clear.' },
-  { text: 'Self-custody option — bring your own keys via the agent API for full non-custodial execution.' },
+  { text: 'KMS envelope encryption: managed-wallet keys are encrypted with AWS KMS, never handled in the clear.' },
+  { text: 'Self-custody option: bring your own keys via the agent API for full non-custodial execution.' },
   { text: 'Spending limits, 2FA, and withdrawal allowlists on every account.' },
   { text: `Best-price routing across ${stats.routerCount} integrated providers on ${stats.platformChains} chains.` },
-  { text: 'SOC 2 on our roadmap — happy to walk your security team through our controls under NDA.', note: true },
+  { text: 'SOC 2 on our roadmap: happy to walk your security team through our controls under NDA.', note: true },
 ];
 
 export default function ContactPage() {
@@ -29,19 +29,19 @@ export default function ContactPage() {
           <p className="summer-kicker">Enterprise</p>
           <h1>Talk to the team.</h1>
           <p className="mkt-hero__lead">
-            For trading desks, OTC desks, funds, and teams building agent fleets — a 0.1% swap
+            For trading desks, OTC desks, funds, and teams building agent fleets: a 0.1% swap
             fee, dedicated rate limits, and priority support. Tell us what you&rsquo;re building and
             we&rsquo;ll get back to you fast.
           </p>
         </header>
 
-        {/* Saphira-style gate — the fastest path is a 30-min call, not the form. */}
+        {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
         <section className={styles.demoCard} aria-label="Schedule a demo">
           <div>
             <p className={styles.demoEyebrow}>Fastest path</p>
             <h2 className="mkt-h2">Book a 30-min demo.</h2>
             <p className={styles.demoBody}>
-              Skip the form — grab time with our team directly and we&rsquo;ll walk through rate
+              Skip the form: grab time with our team directly and we&rsquo;ll walk through rate
               limits, custody model, and integration for your desk or agent fleet live.
             </p>
           </div>
@@ -56,7 +56,7 @@ export default function ContactPage() {
               {stats.platformChains} chains, self-custody or managed keys, one agent API.
             </h2>
             <p>
-              Prefer to send us a note first? Fill out the form and our team will follow up fast —
+              Prefer to send us a note first? Fill out the form and our team will follow up fast -
               or book the call above and skip straight to a conversation.
             </p>
             <p className={styles.trustLabel}>Security &amp; trust</p>

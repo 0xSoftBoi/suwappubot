@@ -25,15 +25,15 @@ export async function generateMetadata({
   const page = section?.pages.find((p) => p.slug === slug);
 
   if (!section || !page) {
-    return { title: 'Not Found — Suwappu Docs' };
+    return { title: 'Not Found | Suwappu Docs' };
   }
 
   const desc = page.description || `${page.title} documentation for the Suwappu cross-chain DeFi API.`;
   return {
-    title: `${page.title} — Suwappu Docs`,
+    title: `${page.title}: Suwappu Docs`,
     description: desc,
     openGraph: {
-      title: `${page.title} — Suwappu Docs`,
+      title: `${page.title}: Suwappu Docs`,
       description: desc,
       type: 'article',
       url: `https://suwappu.bot/docs/${sectionId}/${slug}`,

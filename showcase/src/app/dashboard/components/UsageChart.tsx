@@ -1,6 +1,6 @@
 'use client';
 
-// Pure-SVG API usage chart — no charting library.
+// Pure-SVG API usage chart: no charting library.
 // Supports period switching (7D / 30D), error rate overlay, rate-limit
 // hit markers, and a hover tooltip.
 
@@ -9,7 +9,7 @@ import { useState, useRef, useCallback } from 'react';
 export interface DailyBucket {
   date: string;   // ISO date string e.g. "2026-06-20"
   count: number;
-  // Per-day error / rate-limit data is not yet returned by the API —
+  // Per-day error / rate-limit data is not yet returned by the API -
   // we fall back to displaying the period-level averages.
 }
 
@@ -45,7 +45,7 @@ function fmtDateLabel(iso: string, barCount: number): string {
     if (barCount <= 10) {
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
-    // For 30-day view, only show every ~5th label — caller handles filtering
+    // For 30-day view, only show every ~5th label: caller handles filtering
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   } catch {
     return iso;
@@ -151,7 +151,7 @@ export default function UsageChart({
       </div>
 
       {/* ── SVG chart ── */}
-      <div role="img" aria-label={`API usage chart — last ${period === '7d' ? '7' : '30'} days`}
+      <div role="img" aria-label={`API usage chart: last ${period === '7d' ? '7' : '30'} days`}
            style={{ position: 'relative' }}>
         <svg
           ref={svgRef}
@@ -311,7 +311,7 @@ export default function UsageChart({
           )}
         </svg>
 
-        {/* Hover tooltip — positioned as an absolutely placed div */}
+        {/* Hover tooltip: positioned as an absolutely placed div */}
         {hovered && hoveredIdx !== null && (
           <div
             style={{

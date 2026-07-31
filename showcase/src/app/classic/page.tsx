@@ -21,7 +21,7 @@ export const revalidate = 60;
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
-// Outcome-first stats — product facts only, no unverifiable usage/volume claims.
+// Outcome-first stats: product facts only, no unverifiable usage/volume claims.
 const stats = [
   // "Integrated", not "raced per quote": providers are chain-gated, so any single
   // swap races the subset that supports its route, never all of them.
@@ -31,7 +31,7 @@ const stats = [
   { value: 'Non-custodial', label: 'Always your keys' },
 ];
 
-// Cross-chain engine — noun-phrase titles, numbers carried in the body copy.
+// Cross-chain engine: noun-phrase titles, numbers carried in the body copy.
 // Cells 1 and 4 are the wide bento cells and render in the dark register.
 const engineFeatures = [
   {
@@ -71,7 +71,7 @@ const modules = [
     eyebrow: 'Execution layer',
     title: 'Agent API',
     body: 'Quotes, swaps, status checks, perps, prediction markets, lending, and managed wallet actions through one API.',
-    // Agent-API scope, NOT the platform total — GET /v1/agent/chains is authoritative.
+    // Agent-API scope, NOT the platform total: GET /v1/agent/chains is authoritative.
     stat: `${productStats.agentApiChains} chains`,
   },
   {
@@ -82,7 +82,7 @@ const modules = [
   },
 ];
 
-// HyperLiquid — institutional-grade perps, outcome-led.
+// HyperLiquid: institutional-grade perps, outcome-led.
 const hyperliquid = [
   {
     cmd: '/perps',
@@ -116,14 +116,14 @@ const hyperliquid = [
   },
 ];
 
-// Chain and router logos — clean integration strip, no verify clutter.
+// Chain and router logos: clean integration strip, no verify clutter.
 const trustChains = [
   'Ethereum', 'Base', 'Arbitrum', 'Optimism', 'Solana', 'Polygon',
   'BSC', 'Avalanche', 'Starknet', 'HyperLiquid', 'Tempo',
 ];
 const trustRouters = ['LiFi', 'CoW', 'OKX', '1inch', 'KyberSwap', 'Jupiter', 'Across', 'CCTP'];
 
-// Agent cards — outcome titles, agentic-era framing.
+// Agent cards: outcome titles, agentic-era framing.
 const agentCards = [
   {
     tag: 'MCP server',
@@ -148,7 +148,7 @@ const agentCards = [
 ];
 
 // Real, copyable @suwappu/sdk agent flow: quote → execute the swap.
-// Mirrors packages/sdk (new Suwappu, getQuote, swap) — every call is real.
+// Mirrors packages/sdk (new Suwappu, getQuote, swap): every call is real.
 const agentSnippet = `import { Suwappu } from "@suwappu/sdk";
 
 const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
@@ -164,7 +164,7 @@ async function Hero() {
   const t = await getTranslations('hero');
   return (
     <section className="summer-hero">
-      {/* Grain rides a dedicated overlay: .summer-hero already owns ::after. */}
+      {/* Grain rides a dedicated overlay: .summer-hero already owns :after. */}
       <div className={`sw-grain ${styles.heroGrain}`} aria-hidden="true" />
       <div className="summer-flower-field summer-flower-field--hero" aria-hidden="true">
         <span className="summer-flower summer-flower--soft" />
@@ -203,7 +203,7 @@ async function Hero() {
           </a>
         </div>
         <CopyInstall text="bun add @suwappu/sdk" />
-        {/* Trust micro-copy — security as a feature, not a footnote. */}
+        {/* Trust micro-copy: security as a feature, not a footnote. */}
         {/* The trust micro-strip and the mobile-waitlist pill used to sit here.
             Both are duplicated below (StatsStrip carries "Non-custodial", and
             the waitlist pill only linked down to #mobile-app), and they pushed
@@ -215,7 +215,7 @@ async function Hero() {
 }
 
 /**
- * Streamed placeholder for MarketProof. Deliberately carries no `id="bot"` —
+ * Streamed placeholder for MarketProof. Deliberately carries no `id="bot"` -
  * the anchor belongs to the real section so nav scroll-spy never binds to a
  * node that is about to be replaced.
  */
@@ -257,10 +257,10 @@ export default async function Home() {
         <div className={`summer-shell ${styles.shell}`}>
           <Hero />
 
-          {/* ── STATS STRIP — count-up numerals, final values server-rendered ── */}
+          {/* ── STATS STRIP: count-up numerals, final values server-rendered ── */}
           <StatsStrip stats={stats} />
 
-          {/* ── ROUTES ACROSS — clean integration strip ── */}
+          {/* ── ROUTES ACROSS: clean integration strip ── */}
           <section className="summer-trust" aria-label="Routes across">
             <p className="summer-trust__label">
               Routes across {productStats.platformChains} chains and{' '}
@@ -288,7 +288,7 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── MOBILE APP WAITLIST — Suwappu Card by Rain ── */}
+          {/* ── MOBILE APP WAITLIST: Suwappu Card by Rain ── */}
           <section id="mobile-app" className="summer-mobile" aria-label="Mobile app waitlist">
             <span className="summer-flower summer-flower--sun summer-mobile__flower" aria-hidden="true" />
             <div className="summer-mobile__copy">
@@ -312,14 +312,14 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── CROSS-CHAIN ENGINE — outcome cards ── */}
+          {/* ── CROSS-CHAIN ENGINE: outcome cards ── */}
           <section id="engine" className="summer-features" aria-label="Cross-chain engine">
             <div className="summer-features__head">
               <h2>One router across {productStats.platformChains} chains.</h2>
             </div>
             <div className="summer-features__grid">
               {engineFeatures.map((feature, index) => {
-                // Cells 1 and 4 are the wide bento cells — dark register.
+                // Cells 1 and 4 are the wide bento cells: dark register.
                 const wide = index === 0 || index === 3;
                 return (
                   <article
@@ -433,7 +433,7 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── BUILD TRADING AGENTS — developer section ── */}
+          {/* ── BUILD TRADING AGENTS: developer section ── */}
           <section id="api" className="summer-sdk">
             <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
@@ -510,7 +510,7 @@ export default async function Home() {
           {/* ── DEVELOPER QUICKSTART (agent trading layer) ── */}
           <section id="build" className="summer-devlayer" aria-label="Build with Suwappu">
             <div className="summer-devlayer__head">
-              {/* The polish layer does not scale this head — display-2 applies here. */}
+              {/* The polish layer does not scale this head: display-2 applies here. */}
               <h2 className={`sw-display-2 ${styles.h2Scale}`}>
                 Your AI agent&apos;s trading layer.
               </h2>

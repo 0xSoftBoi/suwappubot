@@ -5,9 +5,9 @@ import stats from '@/data/stats.generated.json';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 /**
- * LiveTerminal — the dark, data-dense "pro terminal" in the hero.
+ * LiveTerminal: the dark, data-dense "pro terminal" in the hero.
  * The marketing page stays light (Summer Breeze); the embedded product
- * surface goes near-black and dense — the premium signal in this category.
+ * surface goes near-black and dense: the premium signal in this category.
  * Left: animated command stream (real Suwappu flows). Right: live-looking
  * market data (quote, order book, open position). Bottom: route status bar.
  */

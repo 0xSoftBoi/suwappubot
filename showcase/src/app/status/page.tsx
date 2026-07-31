@@ -6,7 +6,7 @@ import { TELEGRAM_URL } from '@/lib/links';
 import styles from './status.module.css';
 
 export const metadata: Metadata = {
-  title: 'Status — Suwappu',
+  title: 'Status | Suwappu',
   description:
     'Live health checks for the Suwappu API, plus how the MCP server, A2A protocol, Telegram bot, and trading terminal map onto that same backend.',
 };
@@ -14,22 +14,22 @@ export const metadata: Metadata = {
 // Surfaces that ride on top of the API checked live above. MCP and A2A are
 // the same Hono process as the REST API (no separate health endpoint to
 // poll), so their status mirrors it 1:1. The bot and terminal are Telegram
-// clients, not independently pollable services — linked here for reference
+// clients, not independently pollable services: linked here for reference
 // rather than faked with a synthetic health dot.
 const SURFACES = [
   {
     name: 'REST API',
-    desc: 'v1/agent/* — checked live below against api.suwappu.bot/health.',
+    desc: 'v1/agent/*: checked live below against api.suwappu.bot/health.',
     href: '/docs/api-reference/overview',
   },
   {
     name: 'MCP server',
-    desc: 'POST /mcp on the same backend process as the API — healthy whenever the API above is.',
+    desc: 'POST /mcp on the same backend process as the API: healthy whenever the API above is.',
     href: '/docs/protocols/mcp',
   },
   {
     name: 'A2A protocol',
-    desc: 'POST /a2a, also served from the API process — same uptime as the API above.',
+    desc: 'POST /a2a, also served from the API process: same uptime as the API above.',
     href: '/docs/protocols/mcp',
   },
   {

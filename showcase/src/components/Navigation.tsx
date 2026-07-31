@@ -14,7 +14,7 @@ const SECTION_IDS = ['engine', 'agents', 'api', 'hyperliquid', 'tempo', 'mobile-
 /** Read current locale from cookie (set by LanguageSwitcher) or localStorage fallback. */
 function getCurrentLocale(): string {
   try {
-    // localStorage mirror is the fastest read — no cookie parse needed.
+    // localStorage mirror is the fastest read: no cookie parse needed.
     const ls = localStorage.getItem('NEXT_LOCALE');
     if (ls) return ls;
   } catch {}
@@ -37,7 +37,7 @@ export default function Navigation() {
   );
 
   useEffect(() => {
-    // 8px is enough to commit to the hairline — any more reads as lag.
+    // 8px is enough to commit to the hairline: any more reads as lag.
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -68,7 +68,7 @@ export default function Navigation() {
         }
         setActiveSection(order.find((id) => seen.has(id)) ?? null);
       },
-      // Middle band of the viewport — exactly one section owns the nav at a time.
+      // Middle band of the viewport: exactly one section owns the nav at a time.
       { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
     );
     nodes.forEach((n) => observer.observe(n));

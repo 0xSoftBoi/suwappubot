@@ -7,7 +7,7 @@ import styles from './FaqAccordion.module.css';
 export type FaqItem = { q: string; a: string };
 
 /**
- * Generic single-open FAQ accordion. Used on the /agents landing page —
+ * Generic single-open FAQ accordion. Used on the /agents landing page -
  * follows the same expand/collapse + chevron-rotate pattern as
  * components/docs/DocsAccordion.tsx, but for flat Q/A pairs instead of
  * doc-section trees.

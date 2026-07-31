@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { MENU_PANELS } from './NavMenuData';
 
 /**
- * NavDrawer — the small-screen menu, shared by both header shells.
+ * NavDrawer: the small-screen menu, shared by both header shells.
  *
  * The homepage header used to hide its links outright below 980px with nothing
  * to replace them, so phones got no navigation at all. Both headers now render
@@ -19,7 +19,7 @@ export default function NavDrawer({
 }: {
   /** Flat links shown under the accordions (Pricing, Docs, ...). */
   extraLinks?: Array<{ href: string; label: string; external?: boolean }>;
-  /** Rendered at the bottom of the drawer — the CTAs each shell wants. */
+  /** Rendered at the bottom of the drawer: the CTAs each shell wants. */
   actions?: ReactNode;
   className?: string;
 }) {

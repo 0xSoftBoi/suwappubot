@@ -14,7 +14,7 @@ type Token = {
 };
 
 // Seed table: [price_cents, last_digit_cycle[], chg_bps]
-// Prices are illustrative sample values — never labelled live.
+// Prices are illustrative sample values: never labelled live.
 const SEED: Token[] = [
   { sym: 'ETH',  price: 3_487.14, chg:  +1.83 },
   { sym: 'BTC',  price: 67_204.80, chg: +0.74 },
@@ -23,7 +23,7 @@ const SEED: Token[] = [
   { sym: 'USDC', price: 1.0001,   chg:  +0.00 },
 ];
 
-// Tiny tick deltas per token — last digit(s) only
+// Tiny tick deltas per token: last digit(s) only
 const TICKS: number[][] = [
   [+0.01, -0.02, +0.03, -0.01, +0.02, -0.03, +0.01],
   [+1.00, -2.00, +3.00, -1.00, +2.00, -1.00, +0.00],
