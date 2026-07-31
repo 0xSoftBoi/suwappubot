@@ -65,15 +65,16 @@
   },
   "hero": {
     "kicker": "El único bot que hace las tres cosas",
-    "h1": "Swaps entre cadenas, perps de HyperLiquid y operaciones sin gas.",
+    "h1": "El mejor precio, demostrado en cada operación.",
     "h1_accent": "sin gas",
-    "lead": "Otras herramientas te obligan a elegir: un bridge, un escritorio de perps o una wallet de gas. Suwappu unifica las tres: enrutamiento al mejor precio en más de 40 cadenas, perps hasta 20x y swaps con gas patrocinado.",
-    "cta_bot": "Abrir Bot de Telegram",
+    "lead": "Cada proveedor que soporta tu ruta compite por la orden, en {chains} cadenas. Las claves siguen siendo tuyas en todo momento.",
+    "cta_bot": "Empieza gratis",
     "cta_terminal": "Abrir Terminal",
     "byline_pre": "Creado por el autor de",
     "byline_book": "Printing Money",
     "byline_mid": "- un libro práctico sobre seguridad DeFi, y colaborador de código abierto de",
-    "byline_and": "y"
+    "byline_and": "y",
+    "eyebrow": "Ejecución multicadena"
   },
   "cta": {
     "kicker": "Empieza ahora",

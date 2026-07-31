@@ -7,6 +7,7 @@ import SectionField from '@/components/SectionField';
 import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
 import AgentHandoff from '@/components/AgentHandoff';
+import { getTranslations } from 'next-intl/server';
 import productStats from '@/data/stats.generated.json';
 import { TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import './hero-e/hero-e.css';
@@ -92,7 +93,8 @@ const quote = await client.getQuote({
 });
 const tx = await client.swap(quote);`;
 
-export default function Home() {
+export default async function Home() {
+  const t = await getTranslations('hero');
   return (
     <>
       <StructuredData />
@@ -103,15 +105,14 @@ export default function Home() {
         <section className="hd__hero hd__hero--split">
           <div className="he__grid" aria-hidden="true" />
           <div className="hd__copy">
-          <p className="hd__eyebrow">Cross-chain execution</p>
-          <h1 className="hd__h1">The best price, proven every trade.</h1>
+          <p className="hd__eyebrow">{t('eyebrow')}</p>
+          <h1 className="hd__h1">{t('h1')}</h1>
           <p className="hd__lead">
-            Every provider that supports your route competes for the order, across{' '}
-            {productStats.platformChains} chains. You hold the keys the whole way.
+            {t('lead', { chains: productStats.platformChains })}
           </p>
           <div className="hd__cta">
-            <a className="hd__btn" href={TELEGRAM_URL}>Start trading free</a>
-            <a className="hd__btn hd__btn--ghost" href={TERMINAL_URL}>Open Terminal</a>
+            <a className="hd__btn" href={TELEGRAM_URL}>{t('cta_bot')}</a>
+            <a className="hd__btn hd__btn--ghost" href={TERMINAL_URL}>{t('cta_terminal')}</a>
           </div>
 
           <Reveal className="hd__stage"><LiveQuote variant="dark" /></Reveal>

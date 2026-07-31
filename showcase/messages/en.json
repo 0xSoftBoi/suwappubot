@@ -65,15 +65,16 @@
   },
   "hero": {
     "kicker": "Now in open beta · 41 chains",
-    "h1": "Trade anything.",
+    "h1": "The best price, proven every trade.",
     "h1_accent": "No limits.",
-    "lead": "Suwappu routes every trade across 41 chains and 18 liquidity networks to find the best price. Non-custodial, no KYC.",
+    "lead": "Every provider that supports your route competes for the order, across {chains} chains. You hold the keys the whole way.",
     "cta_bot": "Start trading free",
     "cta_terminal": "Open Terminal",
     "byline_pre": "Built by the author of",
     "byline_book": "Printing Money",
     "byline_mid": "- a hands-on DeFi-security book, and an open-source contributor to",
-    "byline_and": "and"
+    "byline_and": "and",
+    "eyebrow": "Cross-chain execution"
   },
   "cta": {
     "kicker": "Start free",
