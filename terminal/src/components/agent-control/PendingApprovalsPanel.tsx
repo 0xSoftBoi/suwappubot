@@ -42,7 +42,7 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
       { id: approval.id, decision },
       {
         onError: (err: any) => {
-          toast.error(err?.detail || `Could not ${decision} the request. Try again.`)
+          toast.error(err?.message || `Could not ${decision} the request. Try again.`)
         },
         onSuccess: () => {
           toast.success(decision === 'approve' ? 'Approved' : 'Denied')
@@ -127,7 +127,7 @@ export function PendingApprovalsPanel() {
             <TerminalPanel>
               <TerminalEmptyState
                 title="No pending approvals"
-                description="Approval requests from your agents will show up here as they come in. Today, decisions are made via the Telegram bot — web approve/deny is not wired up yet."
+                description="Approval requests from your agents will show up here as they come in. You can approve or deny them right here, or via the Telegram bot."
               />
             </TerminalPanel>
           </div>

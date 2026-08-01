@@ -20,6 +20,8 @@ import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
 import { RewardsPanel } from '../rewards/RewardsPanel'
+import { PendingApprovalsPanel } from '../agent-control/PendingApprovalsPanel'
+import { AuditLogPanel } from '../agent-control/AuditLogPanel'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
@@ -39,7 +41,25 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
+  { id: 'agent-control', label: 'Agent Control' },
 ]
+
+function AgentControlPlanePanel({ mobile }: { mobile?: boolean }) {
+  return (
+    <div className={`h-full flex ${mobile ? 'flex-col divide-y' : 'divide-x'} divide-terminal-border overflow-y-auto`}>
+      <div className={mobile ? 'min-h-[280px]' : 'flex-1'}>
+        <ErrorBoundary label="Pending Approvals">
+          <PendingApprovalsPanel />
+        </ErrorBoundary>
+      </div>
+      <div className={mobile ? 'min-h-[280px]' : 'flex-1'}>
+        <ErrorBoundary label="Audit Log">
+          <AuditLogPanel />
+        </ErrorBoundary>
+      </div>
+    </div>
+  )
+}
 
 type MobileTab = 'chart' | 'swap' | 'more'
 
@@ -156,6 +176,7 @@ function MobileLayout() {
               {bottomTab === 'copilot' && <CopilotPanel />}
               {bottomTab === 'referrals' && <ReferralsPanel />}
               {bottomTab === 'rewards' && <RewardsPanel />}
+              {bottomTab === 'agent-control' && <AgentControlPlanePanel mobile />}
             </div>
           </div>
         )}
@@ -297,6 +318,7 @@ function DesktopLayout() {
             {bottomTab === 'copilot' && <CopilotPanel />}
             {bottomTab === 'referrals' && <ReferralsPanel />}
             {bottomTab === 'rewards' && <RewardsPanel />}
+            {bottomTab === 'agent-control' && <AgentControlPlanePanel />}
           </div>
         </div>
       </Allotment.Pane>

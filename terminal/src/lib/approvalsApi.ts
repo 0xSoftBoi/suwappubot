@@ -1,19 +1,21 @@
 /**
  * Data layer for the agent control-plane surfaces (pending approvals + audit
- * log) in the terminal. Wraps the live /v1/agent/* endpoints and isolates the
- * endpoints that do NOT exist yet behind clearly-marked TODO stubs, so wiring
- * them later is a one-file change.
- *
- * Auth note: /v1/agent/* is gated by agentFlexAuth (org `sk_live_...` API key
- * OR per-agent `suwappu_sk_...` bearer token) — NOT the terminal user's SIWE
- * session JWT. We reuse the terminal's existing bearer-token request path
- * (getAuthToken()) for consistency, but until the backend accepts the user's
- * session JWT on this surface (or the terminal has an org-key input), these
- * calls will 401 in production. See report for the exact gap.
+ * log) in the terminal. Wraps the USER-authenticated /webapp/approvals* and
+ * /webapp/audit* endpoints (api-ts/src/routes/webapp.ts) — same flexAuth
+ * (Telegram init-data or the terminal's Bearer JWT) the rest of the terminal
+ * already uses. No agent-key / org-key surface involved here.
  */
 import { getAuthToken } from './auth'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
+
+class ApprovalApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 async function agentRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken()
@@ -29,33 +31,33 @@ async function agentRequest<T>(path: string, options: RequestInit = {}): Promise
   try {
     res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
   } catch {
-    throw { detail: "Can't reach Suwappu right now. Check your connection and try again.", status: 0 }
+    throw new ApprovalApiError(
+      "Can't reach Suwappu right now. Check your connection and try again.",
+      0,
+    )
   }
+  const body = await res.json().catch(() => ({}) as Record<string, unknown>)
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }))
     const friendly =
       res.status === 401 ? 'Your session expired — reconnect your wallet.'
       : res.status === 403 ? "You don't have access to that."
       : res.status === 429 ? 'Too many requests — slow down a moment.'
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
       : null
-    throw { detail: body.detail || body.message || friendly || res.statusText, status: res.status }
+    const detail =
+      (body as { error?: string; detail?: string; message?: string }).error ||
+      (body as { detail?: string }).detail ||
+      (body as { message?: string }).message ||
+      friendly ||
+      res.statusText
+    throw new ApprovalApiError(detail, res.status)
   }
-  return res.json()
+  return body as T
 }
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired'
 
-export interface AgentApprovalDetail {
-  id: string
-  status: ApprovalStatus
-  chain: string
-  value_usd: number | string | null
-  created_at: string
-  expires_at: string | null
-}
-
-/** Row shape we want for the pending-approvals list UI once a list endpoint exists. */
+/** Row shape returned by GET /webapp/approvals. */
 export interface PendingApproval {
   id: string
   agentId: string
@@ -63,7 +65,9 @@ export interface PendingApproval {
   chain: string
   fromToken?: string
   toToken?: string
+  fromAmount?: string
   valueUsd: number
+  status: ApprovalStatus
   createdAt: string
   expiresAt: string | null
 }
@@ -97,6 +101,10 @@ export interface AuditVerifyResult {
   valid: boolean
   checked: number
   firstBreakId?: string
+  /** Set to 'no org chain' when the caller owns agents but no org — there is
+   * no well-defined hash chain to walk. UI should render this as a neutral
+   * "not applicable" state, not a false "valid" badge. */
+  note?: string
 }
 
 export interface AuditQueryParams {
@@ -106,72 +114,80 @@ export interface AuditQueryParams {
   limit?: number
 }
 
+interface RawApprovalRow {
+  id: string
+  agent_name: string | null
+  chain: string
+  value_usd: number | string | null
+  status: ApprovalStatus
+  created_at: string
+  expires_at: string | null
+  intent?: { fromToken?: string; toToken?: string; fromAmount?: string } | null
+}
+
+function toPendingApproval(row: RawApprovalRow): PendingApproval {
+  return {
+    id: row.id,
+    agentId: row.agent_name ?? row.id,
+    agentName: row.agent_name ?? undefined,
+    chain: row.chain,
+    fromToken: row.intent?.fromToken,
+    toToken: row.intent?.toToken,
+    fromAmount: row.intent?.fromAmount,
+    valueUsd: typeof row.value_usd === 'string' ? Number(row.value_usd) : (row.value_usd ?? 0),
+    status: row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  }
+}
+
 export const approvalsApi = {
   /**
-   * LIVE: GET /v1/agent/approvals/:id
-   * Fetches a single approval by id. Useful for polling a known request
-   * (e.g. one surfaced via a Telegram deep link) but cannot enumerate all
-   * pending approvals for the current org/agent — see listPendingApprovals.
+   * GET /webapp/approvals?status=pending&limit=50 — the caller's own
+   * agent-approval requests, user-authenticated (flexAuth).
    */
-  async getApproval(id: string): Promise<AgentApprovalDetail> {
-    const res = await agentRequest<{
-      success: boolean
-      id: string
-      status: ApprovalStatus
-      chain: string
-      value_usd: number | string | null
-      created_at: string
-      expires_at: string | null
-    }>(`/v1/agent/approvals/${encodeURIComponent(id)}`)
-    return {
-      id: res.id,
-      status: res.status,
-      chain: res.chain,
-      value_usd: res.value_usd,
-      created_at: res.created_at,
-      expires_at: res.expires_at,
-    }
+  async listPendingApprovals(_params?: { agentId?: string }): Promise<PendingApproval[]> {
+    const res = await agentRequest<{ approvals: RawApprovalRow[] }>(
+      '/webapp/approvals?status=pending&limit=50',
+    )
+    return (res.approvals ?? []).map(toPendingApproval)
   },
 
   /**
-   * LIVE: GET /v1/agent/audit
+   * POST /webapp/approvals/:id/decide { decision } — approve or deny a
+   * pending approval. The endpoint returns 404 (not found/not yours), 409
+   * (already decided or expired), or 200 on success; callers should surface
+   * the server's `error` message and refetch the list either way.
+   */
+  async decideApproval(id: string, decision: 'approve' | 'deny'): Promise<{ success: true; id: string; status: ApprovalStatus }> {
+    return agentRequest(`/webapp/approvals/${encodeURIComponent(id)}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    })
+  },
+
+  /**
+   * GET /webapp/audit — audit events visible to the authenticated user
+   * (their own agents' rows plus their org's rows, if they own one).
    */
   async getAuditLog(params: AuditQueryParams = {}): Promise<AuditListResult> {
     const search = new URLSearchParams()
     if (params.eventType) search.set('event_type', params.eventType)
-    if (params.agentId) search.set('agent_id', params.agentId)
     if (params.since) search.set('since', params.since)
     if (params.limit) search.set('limit', String(params.limit))
     const qs = search.toString()
-    return agentRequest<AuditListResult>(`/v1/agent/audit${qs ? `?${qs}` : ''}`)
+    return agentRequest<AuditListResult>(`/webapp/audit${qs ? `?${qs}` : ''}`)
   },
 
   /**
-   * LIVE: GET /v1/agent/audit/verify
+   * GET /webapp/audit/verify — walk the hash chain the caller can see. When
+   * the caller owns no org, the backend returns `{valid: true, checked: 0,
+   * note: 'no org chain'}` — a no-op, not a verified chain.
    */
   async verifyAuditChain(limit?: number): Promise<AuditVerifyResult> {
     const qs = limit ? `?limit=${limit}` : ''
-    return agentRequest<AuditVerifyResult>(`/v1/agent/audit/verify${qs}`)
-  },
-
-  /**
-   * TODO(backend): no list-pending-approvals endpoint exists yet
-   * (e.g. GET /v1/agent/approvals?status=pending). Wire this up as soon as
-   * that endpoint ships — this is the only function the Pending Approvals
-   * panel needs changed. Returns an empty list today so the UI renders its
-   * real empty state instead of fake data.
-   */
-  async listPendingApprovals(_params?: { agentId?: string }): Promise<PendingApproval[]> {
-    return []
-  },
-
-  /**
-   * TODO(backend): no web approve/deny endpoint exists yet
-   * (e.g. POST /v1/agent/approvals/:id/decide { decision: 'approve' | 'deny' }).
-   * Decisions currently only happen via the Telegram bot. Wire this up as
-   * soon as that endpoint ships.
-   */
-  async decideApproval(_id: string, _decision: 'approve' | 'deny'): Promise<never> {
-    throw new Error('not implemented: web approve/deny endpoint does not exist yet')
+    return agentRequest<AuditVerifyResult>(`/webapp/audit/verify${qs}`)
   },
 }
+
+export { ApprovalApiError }

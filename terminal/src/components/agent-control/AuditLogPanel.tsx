@@ -64,6 +64,9 @@ function VerifyBadge() {
   if (!data) {
     return <TerminalStatusPill tone="neutral">Verification unavailable</TerminalStatusPill>
   }
+  if (data.note === 'no org chain') {
+    return <TerminalStatusPill tone="neutral">Not applicable — no org hash chain</TerminalStatusPill>
+  }
   if (data.valid) {
     return (
       <TerminalStatusPill tone="up">
