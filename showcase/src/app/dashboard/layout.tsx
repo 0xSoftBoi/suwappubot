@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { TELEGRAM_URL, API_BASE_URL } from '@/lib/links';
+import TelegramLoginButton from './components/TelegramLoginButton';
 import { DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
 
@@ -57,14 +58,17 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           and handle billing.
         </p>
 
+        {/* Real browser sign-in. Previously this was a link that sent the
+            user to the bot to fetch a token by hand. */}
+        <TelegramLoginButton onToken={onToken} onError={setErr} />
+
         <a
-          className="summer-button summer-button--primary"
+          className={styles.loginAdvancedToggle}
           href={`${TELEGRAM_URL}?start=link`}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
         >
-          Connect via Telegram
+          Open the Suwappu bot
         </a>
 
         {/* Token entry is a fallback, not a peer of the primary action.

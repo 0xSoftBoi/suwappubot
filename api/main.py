@@ -40,6 +40,7 @@ import secrets
 import json
 import jwt
 import hashlib
+import hmac
 import base64
 
 # Add project root to path to import bot modules
@@ -1268,34 +1269,18 @@ class TelegramAuthResponse(BaseModel):
     address: str
 
 
-@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
-async def auth_telegram(
-    request: Request,
-    response: Response,
-    body: Optional[TelegramAuthRequest] = None,
-    db: Session = Depends(get_db),
-):
+async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, db: Session):
+    """Resolve/create the user, ensure a wallet, mint the session JWT.
+
+    Shared by BOTH Telegram entry points so they cannot drift:
+      * /auth/telegram         — Mini App initData (inside Telegram)
+      * /auth/telegram/widget  — Login Widget (a normal web browser)
+
+    The two differ ONLY in how the payload is verified; everything after that
+    — user provisioning, wallet lookup, token minting, cookie attributes — is
+    identical and must stay identical, which is why it lives here rather than
+    being copied into the second endpoint.
     """
-    Authenticate a Telegram Mini App user via validated WebApp initData.
-
-    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
-    resolve (or create) the user by their telegram_id reusing the bot's wallet
-    provisioning, mint the same session JWT the other auth flows mint, set the
-    httponly 'suwappu_auth' cookie, and return the token + wallet address.
-    """
-    from api.webapp import validate_telegram_init_data
-
-    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
-    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
-    if not init_data:
-        raise HTTPException(status_code=401, detail="Missing Telegram initData")
-
-    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
-    if not tg_user or not tg_user.get("id"):
-        # Never log the raw initData.
-        logger.warning("auth/telegram: invalid or unverifiable initData")
-        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
-
     telegram_id = int(tg_user["id"])
 
     # Resolve or create the user by telegram_id (same shape the bot's /start uses).
@@ -1373,6 +1358,123 @@ async def auth_telegram(
         user={"id": user.id},
         address=wallet_address or "",
     )
+
+
+class TelegramWidgetAuthRequest(BaseModel):
+    """Payload produced by Telegram's Login Widget (a browser, not a Mini App)."""
+
+    id: int
+    auth_date: int
+    hash: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+def _verify_telegram_widget(payload: Dict[str, Any], bot_token: str) -> bool:
+    """Verify a Telegram Login Widget signature.
+
+    CAREFUL — this is NOT the Mini App scheme. The two derive the secret key
+    differently and are not interchangeable:
+
+        Login Widget : secret = SHA256(bot_token)
+        Mini App     : secret = HMAC_SHA256("WebAppData", bot_token)
+
+    Using the Mini App derivation here silently rejects every valid browser
+    login; using this one for initData would accept nothing. See
+    https://core.telegram.org/widgets/login#checking-authorization
+
+    Returns True only for a signature match on a fresh payload.
+    """
+    received_hash = payload.get("hash")
+    if not received_hash or not bot_token:
+        return False
+
+    # Every field EXCEPT hash, sorted, as "key=value" joined by newlines.
+    # None values are omitted — Telegram does not send absent optional fields,
+    # so including them as empty strings would break the digest.
+    pairs = sorted(f"{k}={v}" for k, v in payload.items() if k != "hash" and v is not None)
+    data_check_string = "\n".join(pairs)
+
+    secret_key = hashlib.sha256(bot_token.encode("utf-8")).digest()
+    calculated = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(calculated, str(received_hash)):
+        return False
+
+    # Replay protection: the signature is valid forever on its own, so a
+    # captured payload could be reused indefinitely without a freshness check.
+    try:
+        auth_date = int(payload.get("auth_date", 0))
+    except (TypeError, ValueError):
+        return False
+    age = datetime.now(timezone.utc).timestamp() - auth_date
+    return 0 <= age <= 86400
+
+
+@app.post("/auth/telegram/widget", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram_widget(
+    body: TelegramWidgetAuthRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Sign in from a normal web browser via the Telegram Login Widget.
+
+    The dashboard previously had no browser sign-in at all: users were told to
+    open the bot, obtain a token and paste it into a password field. That is
+    not something an enterprise buyer gets past, and it trains people to
+    handle bearer tokens by hand.
+
+    This mints the SAME session JWT as every other auth flow by delegating to
+    _complete_telegram_login, so nothing about sessions, wallets or cookies
+    diverges between entry points.
+    """
+    payload = body.model_dump(exclude_none=True)
+
+    if not _verify_telegram_widget(payload, settings.telegram_bot_token):
+        # Never log the payload itself.
+        logger.warning("auth/telegram/widget: invalid or stale login payload")
+        raise HTTPException(status_code=401, detail="Invalid Telegram login")
+
+    tg_user = {
+        "id": body.id,
+        "username": body.username,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+    }
+    return await _complete_telegram_login(tg_user, response, db)
+
+
+@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram(
+    request: Request,
+    response: Response,
+    body: Optional[TelegramAuthRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Authenticate a Telegram Mini App user via validated WebApp initData.
+
+    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
+    resolve (or create) the user by their telegram_id reusing the bot's wallet
+    provisioning, mint the same session JWT the other auth flows mint, set the
+    httponly 'suwappu_auth' cookie, and return the token + wallet address.
+    """
+    from api.webapp import validate_telegram_init_data
+
+    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
+    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Missing Telegram initData")
+
+    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
+    if not tg_user or not tg_user.get("id"):
+        # Never log the raw initData.
+        logger.warning("auth/telegram: invalid or unverifiable initData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
+
+    return await _complete_telegram_login(tg_user, response, db)
 
 
 # --- Refresh tokens (H13): short-lived access JWT + rotating refresh token ---
