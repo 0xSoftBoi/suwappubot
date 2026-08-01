@@ -1,3 +1,31 @@
+# LOOP CLOSED — final state (2026-08-01)
+
+## Verdict: static surface EXHAUSTED and converging clean. Further static rounds ≈ no progress.
+FIXED + PUSHED (branch claude/pr-review-deploy-loop-zidvbq):
+  - api/routes/mobile.py: 28 attr/method breaks → 5 GET routes no longer 500 (dbd2ed09 + my 996eff84 anti-drift refactor)
+  - 4 dead bot buttons wired or made honest (6514ed33)
+AUDITED CLEAN (real coverage, not assumed): api-ts routes + tsc (clean), terminal Mini App contract (99 calls all resolve),
+  bot/handlers 60/63 files swept for the attr class (0 confirmed, 6 candidates correctly rejected as false positives),
+  api/webapp.py, api/main.py, api/routes/{terminal,internal,oauth}.py.
+BLOCKED ON USER (cannot proceed without a decision or access):
+  1. Forward-port mobile.py fix to `dev` — dev still 500s; pushing to dev is outside my designated branch.
+  2. Issue #673 mobile app: forward-port mobile/lib/* from unmerged branch; fix eas.json .xyz→.bot host; reconcile /v1 vs /v1/mobile prefix (touches packages/shared → webapp+api-ts blast radius).
+  3. Issue #672 admin key-import money-path design.
+  4. DEPLOY: Railway is unreachable from sandbox (no CLI/token, deploy-railway.yml DISABLED, Actions billing dead). Nothing fixed this session is LIVE.
+  5. REAL LOGS: remaining error classes (external API/RPC failures, timeouts, auth edge cases, data-dependent 500s) are NOT statically detectable. Need `railway logs --service python-api` tail.
+
+## Self-improvement lessons from this run (carry into the next loop)
+L1. Unauth curl probes return 401, not 500 → they prove a route is MOUNTED, nothing more. Post-auth bugs are invisible to them. Don't mistake 401 for health.
+L2. Static attr-vs-model diffing DOES find real 500s (28 of them) — it's the best log substitute available. But it cannot see runtime/integration failures. Say which class you covered.
+L3. Subagents stop mid-work constantly. Always demand "COMPLETE final report in ONE response, do not stop early", and SendMessage-nudge when they narrate instead of concluding.
+L4. Subagent `git checkout` in the SHARED tree hijacks the conductor's branch → always mandate isolated `git worktree add` under scratchpad.
+L5. VERIFY THE AUDITOR. The fix agent found 4 breaks the audit missed; I found a drift risk the fix agent introduced (duplicated LEVELS list) and confirmed its riskiest change (the new join) was actually correct. Trust nothing unverified — but also don't assume the agent is wrong: round 5's 6 "findings" were correctly self-rejected.
+L6. Don't let a broken button become a fake feature. snipe_watch_add had NO backing service → made honest, not faked. admin_import_wallet HAD a backing service (import_hot_wallet) and was still refused, because pasting a private key into Telegram is a key-exposure hazard. "It's easy to wire" is not "it's safe to wire".
+L7. Cross-branch drift is invisible to single-branch audits: mobile/ isn't on main, dev still carries the old broken attrs, and mobile/lib/* lives on a third branch. Check WHICH branch actually deploys before trusting any contract audit.
+L8. Grep the deploy config, not just the code: eas.json pointed production at a .xyz domain that doesn't resolve. Code can be perfect and still ship to a dead host.
+
+---
+
 # LOOP MISSION (updated): fix broken routes one by one
 
 New goal: find real broken routes and fix them one at a time with verification.
