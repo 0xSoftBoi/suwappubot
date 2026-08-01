@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import {
   approvalsApi,
+  ApprovalApiError,
   type AuditQueryParams,
   type PendingApproval,
 } from '../lib/approvalsApi'
@@ -22,8 +23,23 @@ export function useApprovalDecision() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, decision }: { id: string; decision: 'approve' | 'deny' }) =>
-      approvalsApi.decideApproval(id, decision),
+    mutationFn: async ({ id, decision }: { id: string; decision: 'approve' | 'deny' }) => {
+      try {
+        return await approvalsApi.decideApproval(id, decision)
+      } catch (err) {
+        // If step-up re-confirmation is required (APPROVAL_STEP_UP_REQUIRED
+        // on, approve only), mint a fresh challenge and retry exactly once.
+        if (
+          decision === 'approve' &&
+          err instanceof ApprovalApiError &&
+          err.code === 'STEP_UP_REQUIRED'
+        ) {
+          const { challenge } = await approvalsApi.getStepUpChallenge(id)
+          return approvalsApi.decideApproval(id, decision, challenge)
+        }
+        throw err
+      }
+    },
     onMutate: async ({ id }) => {
       const queryKey = ['agent-control-plane', 'approvals', 'pending']
       await queryClient.cancelQueries({ queryKey })

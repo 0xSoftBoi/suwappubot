@@ -11,9 +11,11 @@ const BASE_URL = import.meta.env.VITE_API_URL || ''
 
 class ApprovalApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  code?: string
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -50,7 +52,8 @@ async function agentRequest<T>(path: string, options: RequestInit = {}): Promise
       (body as { message?: string }).message ||
       friendly ||
       res.statusText
-    throw new ApprovalApiError(detail, res.status)
+    const code = (body as { code?: string }).code
+    throw new ApprovalApiError(detail, res.status, code)
   }
   return body as T
 }
@@ -159,10 +162,27 @@ export const approvalsApi = {
    * (already decided or expired), or 200 on success; callers should surface
    * the server's `error` message and refetch the list either way.
    */
-  async decideApproval(id: string, decision: 'approve' | 'deny'): Promise<{ success: true; id: string; status: ApprovalStatus }> {
+  async decideApproval(
+    id: string,
+    decision: 'approve' | 'deny',
+    stepUpChallenge?: string,
+  ): Promise<{ success: true; id: string; status: ApprovalStatus }> {
     return agentRequest(`/webapp/approvals/${encodeURIComponent(id)}/decide`, {
       method: 'POST',
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify(
+        stepUpChallenge ? { decision, step_up_challenge: stepUpChallenge } : { decision },
+      ),
+    })
+  },
+
+  /**
+   * POST /webapp/approvals/:id/step-up/challenge — mint a short-TTL,
+   * single-use step-up nonce required before /decide can approve when
+   * APPROVAL_STEP_UP_REQUIRED is on. Deny never needs this.
+   */
+  async getStepUpChallenge(id: string): Promise<{ challenge: string; expires_at: string }> {
+    return agentRequest(`/webapp/approvals/${encodeURIComponent(id)}/step-up/challenge`, {
+      method: 'POST',
     })
   },
 

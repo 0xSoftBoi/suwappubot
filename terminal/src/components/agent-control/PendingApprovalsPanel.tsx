@@ -23,21 +23,38 @@ function useCountdown(expiresAt: string | null) {
     return () => clearInterval(id)
   }, [])
 
-  if (!expiresAt) return { label: '—', expired: false }
+  if (!expiresAt) return { label: '—', totalSec: null as number | null, expired: false }
   const diffMs = new Date(expiresAt).getTime() - now
-  if (diffMs <= 0) return { label: 'Expired', expired: true }
+  if (diffMs <= 0) return { label: 'Expired', totalSec: 0, expired: true }
 
   const totalSec = Math.floor(diffMs / 1000)
   const min = Math.floor(totalSec / 60)
   const sec = totalSec % 60
-  return { label: `${min}:${sec.toString().padStart(2, '0')}`, expired: false }
+  return { label: `${min}:${sec.toString().padStart(2, '0')}`, totalSec, expired: false }
 }
+
+const APPROVE_CONFIRM_TIMEOUT_MS = 5000
+const URGENT_THRESHOLD_SEC = 60
 
 function ApprovalRow({ approval }: { approval: PendingApproval }) {
   const { mutate, isPending } = useApprovalDecision()
-  const { label: countdown, expired } = useCountdown(approval.expiresAt)
+  const { label: countdown, totalSec, expired } = useCountdown(approval.expiresAt)
+  const [confirmingApprove, setConfirmingApprove] = useState(false)
+
+  useEffect(() => {
+    if (!confirmingApprove) return
+    const id = setTimeout(() => setConfirmingApprove(false), APPROVE_CONFIRM_TIMEOUT_MS)
+    return () => clearTimeout(id)
+  }, [confirmingApprove])
+
+  // Never leave a stale "Confirm approve?" state armed once the request
+  // expires out from under the user.
+  useEffect(() => {
+    if (expired) setConfirmingApprove(false)
+  }, [expired])
 
   const decide = (decision: 'approve' | 'deny') => {
+    setConfirmingApprove(false)
     mutate(
       { id: approval.id, decision },
       {
@@ -51,46 +68,88 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
     )
   }
 
+  const amountLine =
+    approval.fromAmount && approval.fromToken && approval.toToken
+      ? `${approval.fromAmount} ${approval.fromToken} → ${approval.toToken}`
+      : approval.fromToken && approval.toToken
+        ? `${approval.fromToken} → ${approval.toToken}`
+        : 'Swap request'
+
+  const urgent = !expired && totalSec !== null && totalSec <= URGENT_THRESHOLD_SEC
+
+  const handleApproveClick = () => {
+    if (!confirmingApprove) {
+      setConfirmingApprove(true)
+      return
+    }
+    decide('approve')
+  }
+
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-terminal-border/50 px-4 py-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm text-terminal-text">
-            {approval.agentName || approval.agentId}
-          </span>
-          <TerminalStatusPill tone="neutral">{approval.chain}</TerminalStatusPill>
+    <div className="flex flex-col gap-2 border-b border-terminal-border/50 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm text-terminal-text">
+              {approval.agentName || approval.agentId}
+            </span>
+            <TerminalStatusPill tone="neutral">{approval.chain}</TerminalStatusPill>
+          </div>
+          <div className="font-mono text-sm text-terminal-text">{amountLine}</div>
         </div>
-        <div className="text-xs text-terminal-text-secondary">
-          {approval.fromToken && approval.toToken
-            ? `${approval.fromToken} → ${approval.toToken}`
-            : 'Swap request'}
+
+        <div className="flex shrink-0 items-center gap-4">
+          <div className="text-right">
+            <div className="font-mono text-sm text-terminal-text">
+              {formatUsd(approval.valueUsd)}
+            </div>
+            <div
+              className={`text-[11px] font-mono ${
+                expired
+                  ? 'text-bear'
+                  : urgent
+                    ? 'animate-pulse font-semibold text-bear'
+                    : 'text-terminal-text-muted'
+              }`}
+            >
+              {expired ? countdown : `expires in ${countdown}`}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="terminal-button-secondary text-xs"
+              disabled={isPending || expired}
+              onClick={() => decide('deny')}
+            >
+              Deny
+            </button>
+            <button
+              className={`text-xs ${
+                confirmingApprove ? 'terminal-button !border-bear !bg-bear/20 !text-bear' : 'terminal-button'
+              }`}
+              disabled={isPending || expired}
+              onClick={handleApproveClick}
+            >
+              {isPending ? 'Approving…' : confirmingApprove ? 'Confirm approve?' : 'Approve'}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-4">
-        <div className="text-right">
-          <div className="font-mono text-sm text-terminal-text">{formatUsd(approval.valueUsd)}</div>
-          <div className={`text-[11px] font-mono ${expired ? 'text-bear' : 'text-terminal-text-muted'}`}>
-            {expired ? countdown : `expires in ${countdown}`}
+      {confirmingApprove && !expired && (
+        <div className="flex items-center justify-between gap-4 rounded border border-terminal-border/70 bg-terminal-bg-secondary/50 px-3 py-2">
+          <div className="text-xs text-terminal-text-secondary">
+            Confirm: approve <span className="font-mono text-terminal-text">{amountLine}</span>{' '}
+            for <span className="font-mono text-terminal-text">{formatUsd(approval.valueUsd)}</span>?
           </div>
-        </div>
-        <div className="flex items-center gap-2">
           <button
-            className="terminal-button-secondary text-xs"
-            disabled={isPending || expired}
-            onClick={() => decide('deny')}
+            className="terminal-button-secondary shrink-0 text-[11px]"
+            onClick={() => setConfirmingApprove(false)}
           >
-            Deny
-          </button>
-          <button
-            className="terminal-button text-xs"
-            disabled={isPending || expired}
-            onClick={() => decide('approve')}
-          >
-            Approve
+            Cancel
           </button>
         </div>
-      </div>
+      )}
     </div>
   )
 }
