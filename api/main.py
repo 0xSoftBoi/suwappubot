@@ -694,28 +694,6 @@ from api.routes.mobile import router as mobile_router
 
 app.include_router(mobile_router)
 
-# --- Import and register new webapp routes (TS API parity) ---
-try:
-    from api.routes.webapp import router as webapp_v2_router
-
-    app.include_router(webapp_v2_router)
-except ImportError as e:
-    print(f"Warning: Could not load webapp_v2_router: {e}")
-
-try:
-    from api.routes.swap import router as swap_router
-
-    app.include_router(swap_router)
-except ImportError as e:
-    print(f"Warning: Could not load swap_router: {e}")
-
-try:
-    from api.routes.a2a import router as a2a_router
-
-    app.include_router(a2a_router)
-except ImportError as e:
-    print(f"Warning: Could not load a2a_router: {e}")
-
 try:
     from api.routes.internal import router as internal_router
 

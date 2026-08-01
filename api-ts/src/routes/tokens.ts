@@ -77,6 +77,103 @@ tokenRoutes.get('/search', async (c) => {
 	}
 })
 
+// In-memory cache for single-token lookups by chain+address
+const tokenLookupCache = new Map<string, { data: unknown; expiry: number }>()
+const LOOKUP_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+const CHAIN_ALIASES: Record<string, string> = {
+	eth: '1',
+	ethereum: '1',
+	polygon: '137',
+	matic: '137',
+	arbitrum: '42161',
+	arb: '42161',
+	base: '8453',
+	optimism: '10',
+	op: '10',
+	bsc: '56',
+	bnb: '56',
+	avalanche: '43114',
+	avax: '43114',
+}
+
+/**
+ * GET /webapp/tokens/lookup?address=0x...&chain=1
+ * Look up a single token by contract address (defaults to Ethereum mainnet
+ * if no chain is given). Backs the webapp's paste-address quick-lookup UI
+ * (ClipboardLookup.tsx). Returns 404 if the token can't be resolved.
+ *
+ * NOTE: safetyScore is null — this service has no wired honeypot/rug-risk
+ * checker (that logic currently only exists on the Python side). Clients
+ * must render it as "unknown", never as a neutral score.
+ */
+tokenRoutes.get('/lookup', async (c) => {
+	const address = c.req.query('address')?.trim()
+	const chainParam = c.req.query('chain')?.trim().toLowerCase()
+
+	if (!address) {
+		return c.json({ error: 'address parameter is required' }, 400)
+	}
+
+	const chainId = chainParam ? CHAIN_ALIASES[chainParam] ?? chainParam : '1'
+	const cacheKey = `${chainId}:${address.toLowerCase()}`
+
+	const cached = tokenLookupCache.get(cacheKey)
+	if (cached && Date.now() < cached.expiry) {
+		return c.json(cached.data)
+	}
+
+	try {
+		const response = await fetch(
+			`https://li.quest/v1/token?chain=${encodeURIComponent(chainId)}&token=${encodeURIComponent(address)}`,
+			{
+				headers: {
+					Accept: 'application/json',
+					...(process.env.LIFI_API_KEY && { 'x-lifi-api-key': process.env.LIFI_API_KEY }),
+				},
+			}
+		)
+
+		if (response.status === 404) {
+			return c.json({ error: 'Token not found' }, 404)
+		}
+
+		if (!response.ok) {
+			throw new Error(`Li.Fi API error: ${response.statusText}`)
+		}
+
+		const token = (await response.json()) as {
+			address: string
+			symbol: string
+			decimals: number
+			name: string
+			chainId: number
+			logoURI?: string
+			priceUSD?: string
+		}
+
+		if (!token?.address) {
+			return c.json({ error: 'Token not found' }, 404)
+		}
+
+		const result = {
+			name: token.name,
+			symbol: token.symbol,
+			price: token.priceUSD ? Number(token.priceUSD) : null,
+			safetyScore: null,
+			chain: chainId,
+			address: token.address,
+			logoUrl: token.logoURI,
+		}
+
+		tokenLookupCache.set(cacheKey, { data: result, expiry: Date.now() + LOOKUP_CACHE_TTL })
+		return c.json(result)
+	} catch (error) {
+		logger.error({ err: error }, '[TokenRoutes] Lookup error')
+		return c.json({ error: 'Failed to look up token' }, 500)
+	}
+})
+
 /**
  * GET /webapp/tokens/prices?tokens=ETH,USDC,SOL
  * Batch price lookup via CoinGecko

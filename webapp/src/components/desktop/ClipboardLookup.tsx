@@ -10,7 +10,7 @@ interface TokenInfo {
   name: string
   symbol: string
   price: string
-  safetyScore: number
+  safetyScore: number | null
   chain: string
   address: string
 }
@@ -25,13 +25,15 @@ function shortenAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
-function getSafetyColor(score: number): string {
+function getSafetyColor(score: number | null): string {
+  if (score === null) return 'text-suwappu-text-muted'
   if (score >= 80) return 'text-green-400'
   if (score >= 50) return 'text-yellow-400'
   return 'text-red-400'
 }
 
-function getSafetyLabel(score: number): string {
+function getSafetyLabel(score: number | null): string {
+  if (score === null) return 'Unknown'
   if (score >= 80) return 'Safe'
   if (score >= 50) return 'Caution'
   return 'Risky'
@@ -185,7 +187,9 @@ export function ClipboardLookup() {
             <div className="flex items-center gap-2 px-3 py-2 bg-suwappu-sakura-50 rounded-xl">
               <span className="text-xs text-suwappu-text-secondary">Safety:</span>
               <span className={`text-xs font-bold ${getSafetyColor(tokenInfo.safetyScore)}`}>
-                {tokenInfo.safetyScore}/100 ({getSafetyLabel(tokenInfo.safetyScore)})
+                {tokenInfo.safetyScore === null
+                  ? getSafetyLabel(tokenInfo.safetyScore)
+                  : `${tokenInfo.safetyScore}/100 (${getSafetyLabel(tokenInfo.safetyScore)})`}
               </span>
             </div>
 
