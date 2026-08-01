@@ -6876,3 +6876,88 @@ a.summer-button:active,
   .research-figure img { padding: 0.5rem 0.35rem; }
   .research-figure figcaption { font-size: 0.75rem; }
 }
+
+/* ---- Data & code availability page (/research/replication) ---- */
+.repl-page .repl-note {
+  margin: 0 0 2.5rem;
+  padding: 1rem 1.15rem;
+  border-left: 3px solid var(--suwappu-summer-accent, #E58D2B);
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 0 var(--sw-r-md, 14px) var(--sw-r-md, 14px) 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  max-width: 72ch;
+}
+.repl-section { margin: 0 0 3.25rem; }
+.repl-section > h2 {
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+.repl-section > h3 {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sw-muted, #4F6F7F);
+  margin: 2rem 0 0.6rem;
+}
+.repl-section > p {
+  max-width: 72ch;
+  line-height: 1.65;
+  color: var(--sw-muted, #4F6F7F);
+  margin: 0 0 1rem;
+}
+.repl-caveat {
+  margin-top: 1.25rem !important;
+  font-size: 0.875rem;
+}
+.repl-caveat strong { color: var(--suwappu-summer-ink, #17324A); }
+
+/* Tables scroll inside their own container so the page never scrolls sideways. */
+.repl-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--suwappu-summer-line, #B9DFE9);
+  border-radius: var(--sw-r-md, 14px);
+  background: rgba(255, 255, 255, 0.45);
+}
+.repl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  min-width: 34rem;
+}
+.repl-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sw-muted, #4F6F7F);
+  font-weight: 500;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--suwappu-summer-line, #B9DFE9);
+  white-space: nowrap;
+}
+.repl-table td {
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--suwappu-summer-faint, #DCEDF3);
+  vertical-align: top;
+  line-height: 1.55;
+  color: var(--sw-muted, #4F6F7F);
+}
+.repl-table tr:last-child td { border-bottom: none; }
+.repl-file {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: var(--suwappu-summer-ink, #17324A);
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--suwappu-summer-line, #B9DFE9);
+  text-underline-offset: 3px;
+}
+.repl-file:hover { text-decoration-color: var(--suwappu-summer-accent, #E58D2B); }
+.repl-size {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

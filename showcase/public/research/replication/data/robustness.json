@@ -1,0 +1,84 @@
+{
+  "n_observations": 183,
+  "date_range": [
+    "2025-07-26",
+    "2026-07-25"
+  ],
+  "serial_correlation": {
+    "ar1_full_sample": 0.9501594716668517,
+    "ar1_post_break": 0.6160796139701215,
+    "ljung_box_post_break": {
+      "lag_1": {
+        "stat": 62.96850662919967,
+        "pvalue": 2.10038244471811e-15
+      },
+      "lag_5": {
+        "stat": 129.0184648909014,
+        "pvalue": 3.8446042682310845e-26
+      },
+      "lag_10": {
+        "stat": 139.88658480534698,
+        "pvalue": 4.446061714410404e-25
+      }
+    }
+  },
+  "structural_break": {
+    "method": "exhaustive least-squares single-mean-shift search, 5% trimming",
+    "estimated_break_index": 16,
+    "last_obs_before_break": "2025-08-25",
+    "first_obs_after_break": "2025-08-27",
+    "sup_F_statistic": 5214.791716097741,
+    "bootstrap": {
+      "null": "stationary block bootstrap of the demeaned series, no break",
+      "block_length": 45,
+      "replications": 2000,
+      "p_value": 0.0045,
+      "null_sup_F_p95": 337.0846268497134,
+      "null_sup_F_max": 14286.993866257195
+    }
+  },
+  "post_break_mean": {
+    "n": 165,
+    "mean": 1.0313289605268967,
+    "median": 1.0316181191080607,
+    "min": 1.0015078875556895,
+    "max": 1.186561057163563,
+    "sd_raw": 0.02534777286627238,
+    "se_iid_naive": 0.001973321441323915,
+    "se_newey_west": 0.0033590966222230476,
+    "newey_west_maxlags": 4,
+    "se_inflation_vs_iid": 1.7022551683061866,
+    "effective_sample_size": 39.19786076585032,
+    "ci95_hac": [
+      1.0247451311473394,
+      1.037912789906454
+    ]
+  },
+  "test_ratio_above_one": {
+    "null": "mean post-break ratio = 1.0",
+    "alternative": "> 1.0",
+    "t_statistic_hac": 9.326602968081112,
+    "p_value_one_sided": 0.0
+  },
+  "stationarity_post_break": {
+    "test": "augmented Dickey-Fuller",
+    "statistic": -4.924306818628133,
+    "pvalue": 3.126768852262797e-05,
+    "lags_used": 3,
+    "critical_values": {
+      "1%": -3.471633386932248,
+      "5%": -2.8796651107461972,
+      "10%": -2.576433647235832
+    }
+  },
+  "coverage_threshold": {
+    "definition": "unmeasured liabilities that would drive the observation below 1.0",
+    "min_usd": 5094148.411295891,
+    "median_usd": 113684098.68706179,
+    "min_pct_of_measured": 0.15078875556896343,
+    "median_pct_of_measured": 3.1618119108060774,
+    "share_of_obs_flipped_if_unmeasured_is_50m": 0.2606060606060606,
+    "share_of_obs_flipped_if_unmeasured_is_100m": 0.41818181818181815,
+    "share_of_obs_flipped_if_unmeasured_is_200m": 0.8909090909090909
+  }
+}

@@ -18,6 +18,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/compare', priority: 0.8, freq: 'monthly' },
     { path: '/changelog', priority: 0.7, freq: 'weekly' },
     { path: '/research', priority: 0.7, freq: 'weekly' },
+    // Landing page for the released datasets; carries Dataset structured data,
+    // so it should be crawlable in its own right and not only via the posts.
+    { path: '/research/replication', priority: 0.6, freq: 'monthly' },
     { path: '/about', priority: 0.6, freq: 'monthly' },
     { path: '/careers', priority: 0.5, freq: 'weekly' },
     { path: '/status', priority: 0.4, freq: 'daily' },

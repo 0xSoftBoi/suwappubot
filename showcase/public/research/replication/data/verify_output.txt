@@ -1,0 +1,76 @@
+P1 max |closed-form - numeric| dissipation error: 0.000e+00
+P2 dissipation spread across 1000x cost range: 2.220e-16
+P3 n=   10 active=    5 dissipation=0.6653
+P3 n=   50 active=    7 dissipation=0.7347
+P3 n=  200 active=    5 dissipation=0.7865
+P3 n= 1000 active=    8 dissipation=0.8149
+P4 sybil neutrality max deviation (pro-rata): 0.000e+00
+P4 sybil gain with per-wallet bonus (k=1000 vs k=1): 1.209x
+P5 0.05 share -> revenue/pool = 0.050
+P5 0.50 share -> revenue/pool = 0.495
+P5 0.90 share -> revenue/pool = 0.891
+P5 0.97 share -> revenue/pool = 0.960
+wrote tullock_results.json + 3 figures
+=== symmetric (sanity: theory says D=(n-1)/n) ===
+n=2 symmetric   [theory D=0.5000]
+  active=2  S=500,000  dissipation=0.5000
+  A. max |FOC residual| (active)      = 0.000e+00   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.979e-15 (active~2)   OK
+n=10 symmetric   [theory D=0.9000]
+  active=10  S=900,000  dissipation=0.9000
+  A. max |FOC residual| (active)      = 0.000e+00   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.164e-15 (active~10)   OK
+n=100 symmetric   [theory D=0.9900]
+  active=100  S=990,000  dissipation=0.9900
+  A. max |FOC residual| (active)      = 0.000e+00   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.176e-16 (active~100)   OK
+
+=== heterogeneous lognormal costs ===
+n=10 sigma=0.3
+  active=6  S=961,220  dissipation=0.8104
+  A. max |FOC residual| (active)      = 4.441e-16   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.696e-15 (active~6)   OK
+n=10 sigma=0.6
+  active=4  S=1,451,322  dissipation=0.6608
+  A. max |FOC residual| (active)      = 1.110e-16   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.925e-15 (active~4)   OK
+n=200 sigma=0.3
+  active=12  S=1,632,506  dissipation=0.8667
+  A. max |FOC residual| (active)      = 1.221e-15   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 9.984e-16 (active~12)   OK
+n=200 sigma=0.6
+  active=4  S=3,732,424  dissipation=0.5872
+  A. max |FOC residual| (active)      = 1.110e-16   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 1.996e-15 (active~4)   OK
+n=1000 sigma=0.3
+  active=16  S=1,979,127  dissipation=0.8903
+  A. max |FOC residual| (active)      = 7.772e-16   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 0.000e+00   OK
+  D. indep. dynamics aggregate rel.err= 2.118e-15 (active~16)   OK
+n=1000 sigma=0.6
+  active=5  S=5,892,092  dissipation=0.6358
+  A. max |FOC residual| (active)      = 8.327e-17   OK
+  B. inactive players wanting entry   = 0          OK
+  C. best grid deviation gain (/V)    = 2.910e-17   OK
+  D. indep. dynamics aggregate rel.err= 1.265e-15 (active~5)   OK
+
+=== how many farmers actually capture the pool? ===
+  sigma=0.2: active= 17/5000  dissipation=0.9114  farmer surplus=0.0886 of pool  top-1 share of pool=0.163
+  sigma=0.4: active= 11/5000  dissipation=0.8386  farmer surplus=0.1614 of pool  top-1 share of pool=0.222
+  sigma=0.6: active= 10/5000  dissipation=0.8438  farmer surplus=0.1562 of pool  top-1 share of pool=0.282
+  sigma=1.0: active=  6/5000  dissipation=0.8010  farmer surplus=0.1990 of pool  top-1 share of pool=0.229

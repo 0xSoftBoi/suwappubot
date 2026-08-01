@@ -1,0 +1,208 @@
+{
+  "P1_symmetric_equilibrium": [
+    {
+      "n": 2,
+      "closed_form_dissipation": 0.5,
+      "numeric_dissipation": 0.5,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.5
+    },
+    {
+      "n": 5,
+      "closed_form_dissipation": 0.8,
+      "numeric_dissipation": 0.8,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.8
+    },
+    {
+      "n": 10,
+      "closed_form_dissipation": 0.9,
+      "numeric_dissipation": 0.9,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.9
+    },
+    {
+      "n": 50,
+      "closed_form_dissipation": 0.98,
+      "numeric_dissipation": 0.98,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.98
+    },
+    {
+      "n": 100,
+      "closed_form_dissipation": 0.99,
+      "numeric_dissipation": 0.99,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.99
+    },
+    {
+      "n": 500,
+      "closed_form_dissipation": 0.998,
+      "numeric_dissipation": 0.998,
+      "abs_err": 0.0,
+      "theory_(n-1)/n": 0.998
+    }
+  ],
+  "P1_max_abs_error_vs_theory": 0.0,
+  "P2_cost_invariance": [
+    {
+      "c": 0.1,
+      "points_minted": 9900000.000000002,
+      "dollars_spent": 990000.0000000002,
+      "dissipation": 0.9900000000000002
+    },
+    {
+      "c": 0.5,
+      "points_minted": 1980000.0,
+      "dollars_spent": 990000.0,
+      "dissipation": 0.99
+    },
+    {
+      "c": 1.0,
+      "points_minted": 990000.0,
+      "dollars_spent": 990000.0,
+      "dissipation": 0.99
+    },
+    {
+      "c": 5.0,
+      "points_minted": 198000.00000000003,
+      "dollars_spent": 990000.0000000001,
+      "dissipation": 0.9900000000000001
+    },
+    {
+      "c": 25.0,
+      "points_minted": 39600.00000000001,
+      "dollars_spent": 990000.0000000002,
+      "dissipation": 0.9900000000000002
+    },
+    {
+      "c": 100.0,
+      "points_minted": 9900.000000000002,
+      "dollars_spent": 990000.0000000002,
+      "dissipation": 0.9900000000000002
+    }
+  ],
+  "P2_dissipation_spread": 2.220446049250313e-16,
+  "P3_heterogeneous_costs": [
+    {
+      "n": 10,
+      "active_players": 5,
+      "dissipation": 0.6653240850738632,
+      "cost_p10": 0.5183045042249741,
+      "cost_p90": 1.76137668108317,
+      "top_player_share_of_points": 0.4778904378702633
+    },
+    {
+      "n": 50,
+      "active_players": 7,
+      "dissipation": 0.7347106732891134,
+      "cost_p10": 0.3711233201957224,
+      "cost_p90": 1.67031171109756,
+      "top_player_share_of_points": 0.3977705923645028
+    },
+    {
+      "n": 200,
+      "active_players": 5,
+      "dissipation": 0.786488097476071,
+      "cost_p10": 0.36290882226278615,
+      "cost_p90": 1.817950430786177,
+      "top_player_share_of_points": 0.2926308661324
+    },
+    {
+      "n": 1000,
+      "active_players": 8,
+      "dissipation": 0.8148807647249081,
+      "cost_p10": 0.3988690989713667,
+      "cost_p90": 1.7767250452194652,
+      "top_player_share_of_points": 0.28187385679343163
+    }
+  ],
+  "P4_sybil_fee_denominated_pro_rata": [
+    {
+      "k": 1,
+      "pool_share": 0.09090909090909091
+    },
+    {
+      "k": 2,
+      "pool_share": 0.09090909090909091
+    },
+    {
+      "k": 5,
+      "pool_share": 0.09090909090909091
+    },
+    {
+      "k": 10,
+      "pool_share": 0.09090909090909091
+    },
+    {
+      "k": 100,
+      "pool_share": 0.09090909090909091
+    },
+    {
+      "k": 1000,
+      "pool_share": 0.09090909090909091
+    }
+  ],
+  "P4_sybil_with_per_wallet_bonus": [
+    {
+      "k": 1,
+      "pool_share": 0.09194097616345062
+    },
+    {
+      "k": 2,
+      "pool_share": 0.09297052154195011
+    },
+    {
+      "k": 5,
+      "pool_share": 0.096045197740113
+    },
+    {
+      "k": 10,
+      "pool_share": 0.10112359550561797
+    },
+    {
+      "k": 100,
+      "pool_share": 0.1111111111111111
+    },
+    {
+      "k": 1000,
+      "pool_share": 0.1111111111111111
+    }
+  ],
+  "P4_neutrality_max_deviation": 0.0,
+  "P4_bonus_sybil_gain_x": 1.2085048010973936,
+  "P5_revenue_capture": [
+    {
+      "design": "volume-denominated (wash trade: fee rebated/minimal, cost is slippage+gas)",
+      "c_protocol_share": 0.05,
+      "total_dissipated": 990000.0,
+      "protocol_revenue": 49500.0,
+      "revenue_over_pool": 0.0495,
+      "deadweight": 940500.0
+    },
+    {
+      "design": "mixed (fee = half of marginal cost)",
+      "c_protocol_share": 0.5,
+      "total_dissipated": 990000.0,
+      "protocol_revenue": 495000.0,
+      "revenue_over_pool": 0.495,
+      "deadweight": 495000.0
+    },
+    {
+      "design": "fee-denominated, cheap chain (fee dominates gas)",
+      "c_protocol_share": 0.9,
+      "total_dissipated": 990000.0,
+      "protocol_revenue": 891000.0,
+      "revenue_over_pool": 0.891,
+      "deadweight": 99000.0
+    },
+    {
+      "design": "fee-denominated, very cheap chain",
+      "c_protocol_share": 0.97,
+      "total_dissipated": 990000.0,
+      "protocol_revenue": 960300.0,
+      "revenue_over_pool": 0.9603,
+      "deadweight": 29700.0
+    }
+  ]
+}
