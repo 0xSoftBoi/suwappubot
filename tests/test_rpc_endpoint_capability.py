@@ -25,7 +25,32 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.services.rpc_manager import RPCEndpoint, RPCTier  # noqa: E402
+import pytest  # noqa: E402
+
+from bot.services.rpc_manager import (  # noqa: E402
+    RPCEndpoint,
+    RPCTier,
+    _is_method_unsupported,
+)
+
+
+@pytest.mark.parametrize(
+    "error,expected,label",
+    [
+        # The real meowrpc response that started this.
+        ({"code": -32000, "message": "The method eth_call is not supported."}, True, "meowrpc"),
+        ({"code": -32601, "message": "Method not found"}, True, "standard -32601"),
+        # Flow EXECUTES the synthetic to=0x0 probe and rejects it. The method
+        # plainly works, so quarantining this endpoint evicted a healthy node.
+        ({"code": -32000, "message": "invalid: failed transaction: tr"}, False, "flow exec error"),
+        ({"code": 3, "message": "execution reverted"}, False, "revert"),
+        ({"code": -32000, "message": "insufficient funds"}, False, "exec error"),
+        ("not-a-dict", False, "malformed"),
+    ],
+)
+def test_only_a_missing_method_counts_as_unsupported(error, expected, label):
+    """An execution error proves eth_call works; only method-not-found does not."""
+    assert _is_method_unsupported(error) is expected, label
 
 
 def _endpoint(url="https://node.example/rpc", tier=RPCTier.DISCOVERED):

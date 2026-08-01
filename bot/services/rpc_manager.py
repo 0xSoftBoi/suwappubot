@@ -188,6 +188,26 @@ TRUSTED_RPC_DOMAINS = frozenset(
 )
 
 
+def _is_method_unsupported(error) -> bool:
+    """True only when a JSON-RPC error means the method itself is missing.
+
+    Deliberately narrow. An execution error ("invalid: failed transaction",
+    "execution reverted") proves the opposite — the node ran the call. Treating
+    those as unsupported evicts healthy endpoints, which is what happened to
+    Flow's node the first time this check shipped.
+    """
+    if not isinstance(error, dict):
+        return False
+    # -32601 is JSON-RPC's standard "Method not found".
+    if error.get("code") == -32601:
+        return True
+    message = str(error.get("message", "")).lower()
+    return any(
+        phrase in message
+        for phrase in ("not supported", "method not found", "unsupported method", "not available")
+    )
+
+
 def _is_trusted_rpc_url(url: str) -> bool:
     """Return True only for https URLs whose host is a trusted RPC domain.
 
@@ -674,7 +694,15 @@ class RPCManager:
                 ep.record_failure(str(e)[:80])
 
     async def _supports_eth_call(self, session, ep: RPCEndpoint) -> bool:
-        """Probe eth_call; record a failure and return False if unsupported."""
+        """Probe whether the endpoint implements eth_call at all.
+
+        The distinction that matters is capability, not outcome. If the node
+        *executes* the probe and complains about it, eth_call works and the
+        endpoint is fine — some chains reject the synthetic to=0x0 payload
+        (Flow answers "invalid: failed transaction"), and quarantining those
+        would evict perfectly healthy nodes. Only a genuine method-not-found
+        means contract reads are impossible here.
+        """
         payload = {
             "jsonrpc": "2.0",
             "method": "eth_call",
@@ -689,15 +717,15 @@ class RPCManager:
                     ep.record_failure(f"eth_call http_{resp.status}")
                     return False
                 data = await resp.json()
-                if "error" in data:
-                    # A node either implements eth_call or it does not; this
-                    # will not come good on retry, so quarantine it now rather
-                    # than after three sweeps (six minutes) of serving broken
-                    # contract reads.
-                    ep.record_failure(
-                        f"eth_call unsupported: {str(data['error'])[:60]}", fatal=True
-                    )
+                error = data.get("error")
+                if error and _is_method_unsupported(error):
+                    # Not transient: a node either implements the method or it
+                    # does not. Quarantine now rather than after three sweeps
+                    # (six minutes) of serving broken contract reads.
+                    ep.record_failure(f"eth_call unsupported: {str(error)[:60]}", fatal=True)
                     return False
+                # Any other error means the call was executed and rejected —
+                # the capability is present, which is all this probe asks.
                 return True
         except asyncio.TimeoutError:
             ep.record_failure("eth_call timeout")
