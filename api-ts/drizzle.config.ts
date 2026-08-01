@@ -46,6 +46,9 @@ export default defineConfig({
 		'policies',
 		'policy_decisions',
 		'policy_kill_switches',
+		// api-ts-exclusive human-in-the-loop approval queue (approvals.ts) — no
+		// python owner.
+		'approval_requests',
 		// api-ts-exclusive anti-farm guard for the starter-credit grant
 		// (payments.ts) — no python owner.
 		'agent_registration_grants',

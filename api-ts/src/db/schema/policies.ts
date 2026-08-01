@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
 	bigserial,
 	boolean,
@@ -8,6 +9,7 @@ import {
 	real,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
@@ -96,11 +98,22 @@ export const policyDecisions = pgTable(
 		// Snapshot of the evaluated transaction intent (chain, tokens, amounts, usd…).
 		intent: jsonb('intent'),
 		valueUsd: real('value_usd'),
+		// Set when this decision row exists to make an approved human-in-the-loop
+		// trade count toward daily/session/velocity caps (see ApprovalService +
+		// the agent.ts swap-execute resubmit path). Nullable — most rows are a
+		// normal PolicyService.evaluate() call with no associated approval.
+		approvalId: uuid('approval_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => ({
 		orgCreatedIdx: index('policy_decisions_org_created_idx').on(t.organizationId, t.createdAt),
 		agentCreatedIdx: index('policy_decisions_agent_created_idx').on(t.agentId, t.createdAt),
+		// DB-level idempotency for the cap-accounting 'allow' override insert in
+		// agent.ts's approval-resubmit path — at most one decision row per
+		// approval_id (see migration 0011_silly_black_queen for the rationale).
+		approvalIdUniqueIdx: uniqueIndex('policy_decisions_approval_id_unique_idx')
+			.on(t.approvalId)
+			.where(sql`${t.approvalId} IS NOT NULL`),
 	}),
 )
 

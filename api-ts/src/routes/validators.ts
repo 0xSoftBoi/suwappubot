@@ -111,6 +111,9 @@ export const SwapRequestSchema = z.object({
 	chain: z.string().optional(),
 	wallet_address: z.string().min(1, 'wallet_address is required'),
 	slippage: z.number().min(0).max(1).optional(),
+	// Present when re-submitting an execute call that was previously deferred
+	// with a 202 require_approval response — see ApprovalService.consume().
+	approval_id: z.string().uuid().optional(),
 })
 
 export const ExecuteCommandSchema = z.object({
@@ -148,7 +151,11 @@ export const CreatePolicySchema = z.object({
 
 /** Format Zod errors into a flat field map */
 export const ExecuteSwapSchema = z.object({
-	quote_id: z.string().min(1, 'quote_id is required'),
+	quote_id: z.string().min(1).optional(),
+	// Present when re-submitting an execute call that was previously deferred
+	// with a 202 require_approval response — see ApprovalService.consume() and
+	// the POST /v1/agent/swap/execute resubmit path.
+	approval_id: z.string().uuid().optional(),
 })
 
 export const SwapStatusQuerySchema = z.object({

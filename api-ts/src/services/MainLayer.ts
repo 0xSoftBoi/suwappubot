@@ -3,6 +3,7 @@ import { EnvServiceLive } from '../config/EnvService'
 import { DrizzleServiceLive } from '../db'
 import { AgentServiceLive } from './AgentService'
 import { AlertServiceLive } from './AlertService'
+import { ApprovalServiceLive } from './ApprovalService'
 import { BalanceServiceLive } from './BalanceService'
 import { CopyTradingServiceLive } from './CopyTradingService'
 import { DCAServiceLive } from './DCAService'
@@ -78,6 +79,7 @@ export const ServicesLayer = Layer.mergeAll(
 	CopyTradingServiceLive,
 	DCAServiceLive,
 	AlertServiceLive,
+	ApprovalServiceLive,
 	OrderServiceLive,
 	ReferralServiceLive,
 	HyperliquidServiceLive,
