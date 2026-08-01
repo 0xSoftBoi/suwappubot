@@ -26,6 +26,17 @@ def _install_stub(name):
 
     class _Stub(types.ModuleType):
         def __getattr__(self, item):
+            # Never fake dunder attributes (e.g. __file__, __path__): doing so
+            # breaks stdlib `inspect.getmodule()`, which iterates every entry in
+            # sys.modules and calls getattr(module, "__file__"). Pydantic 2.13's
+            # docstring-extraction feature calls inspect.getmodule() when any
+            # BaseModel/BaseSettings class is defined, so a fake non-string
+            # __file__ here crashes unrelated model creation elsewhere in the
+            # import chain with "type object '__file__' has no attribute
+            # 'endswith'". Real attribute lookups (qrcode.constants, etc.) still
+            # get auto-stubbed below.
+            if item.startswith("__") and item.endswith("__"):
+                raise AttributeError(item)
             s = type(item, (), {})
             setattr(self, item, s)
             return s
@@ -35,9 +46,17 @@ def _install_stub(name):
     sys.modules[name] = m
 
 
-for _n in ("qrcode", "qrcode.constants", "qrcode.image", "qrcode.image.styledpil",
-           "qrcode.image.styles", "qrcode.image.styles.moduledrawers",
-           "qrcode.image.styles.colormasks", "PIL", "PIL.Image"):
+for _n in (
+    "qrcode",
+    "qrcode.constants",
+    "qrcode.image",
+    "qrcode.image.styledpil",
+    "qrcode.image.styles",
+    "qrcode.image.styles.moduledrawers",
+    "qrcode.image.styles.colormasks",
+    "PIL",
+    "PIL.Image",
+):
     _install_stub(_n)
 
 

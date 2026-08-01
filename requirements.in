@@ -94,3 +94,13 @@ orjson>=3.10
 # AwsKmsClient and only needed by the one-time re-wrap migration
 # (scripts/requirements-migrate.txt). Keeping it out avoids a botocore<->urllib3
 # conflict on the pinned HTTP stack.
+
+# ---- Testing ----
+# pytest itself is NOT listed here — it's already pulled in transitively (see
+# poly-eip712-structs / py-order-utils below in requirements.txt) at a version
+# compatible with this pin. pytest-asyncio IS listed explicitly: tests/ uses
+# `@pytest.mark.asyncio` under pyproject.toml's `asyncio_mode = "auto"` +
+# `--strict-markers`, so without this package 25 test files fail to even
+# collect ("'asyncio' not found in markers configuration"). 1.4.0 requires
+# pytest<10,>=8.4, which the pinned pytest==9.1.1 satisfies.
+pytest-asyncio==1.4.0

@@ -287,6 +287,9 @@ pytest==9.1.1
     # via
     #   poly-eip712-structs
     #   py-order-utils
+    #   pytest-asyncio
+pytest-asyncio==1.4.0
+    # via -r requirements.in
 python-dotenv==1.2.1
     # via
     #   py-builder-signing-sdk
@@ -368,6 +371,7 @@ typing-extensions==4.15.0
     #   openai
     #   pydantic
     #   pydantic-core
+    #   pytest-asyncio
     #   solders
     #   sqlalchemy
     #   starknet-py
