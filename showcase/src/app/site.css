@@ -637,3 +637,16 @@
   .sw__steps--cols { grid-template-columns: 1fr; }
   .sw__band-canvas, .sw__band--tall .sw__band-canvas { height: 170px; }
 }
+
+/* The GPU sphere is two stacked canvases: WebGL for the body and point cloud,
+   a 2D overlay for labels and the route. */
+.csgl { position: relative; display: block; }
+.csgl__gl,
+.csgl__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.csgl__overlay { pointer-events: none; }

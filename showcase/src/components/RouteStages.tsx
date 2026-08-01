@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { JOURNEYS } from './SectionField';
+import { JOURNEYS } from './ChainSphereGL';
 
 /**
  * RouteStages: the stage readout beside the sphere.

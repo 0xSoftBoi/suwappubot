@@ -4,6 +4,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import SectionField from '@/components/SectionField';
+import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
 import AgentHandoff from '@/components/AgentHandoff';
@@ -119,7 +120,7 @@ export default async function Home() {
           </div>
 
           <div className="hd__object">
-            <SectionField motif="chains" className="sw__field--sphere" />
+            <ChainSphereGL className="sw__field--sphere" />
             <RouteStages />
           </div>
 
