@@ -1,3 +1,12 @@
+# DOCS PASS (4a8db110, 6b14e962) — only verified-wrong claims fixed, nothing cosmetic
+- .claude/commands/deploy.md said "webapp/ is DEAD — no Railway config, deployed nowhere". FALSE and dangerous: railway.webapp.json exists (healthcheck + numReplicas), webapp is in deploy-railway.yml's service list w/ watchPatterns, committed to today. Corrected + evidence inline so nobody re-deletes it. (I had repeated this false claim earlier in this file too — corrected.)
+- README Deployment section described AWS ECS Fargate + ECR + ECS deploy. FALSE — target is Railway (CLAUDE.md:137 already warned). Replaced with the real service/config/watchPatterns table + the api.suwappu.bot=api-ts gotcha + infra/ is legacy-unused note.
+- README Project Structure listed cpp/, tui/, examples/ — NONE exist on origin/main. Removed. mobile/ removed w/ explanation of the backend-on-main/client-on-dev split.
+- Stale counts corrected from my own counts (agent's bot-services number was wrong: it said 171, real top-level is 120): handlers 27→60, bot services 56→120, api-ts routes 15→22, api-ts services 22→36, webapp 18p/95c→28p/85c, gitbook 33→53.
+- Dead links fixed: docs/features/agent_integration.md (absent) → docs/agent-clients.md; examples/ row removed; CLAUDE.md's docs/development/migrations.md → /migrations skill. Verified ZERO dead relative links remain in README.
+- NEW docs/development/testing.md: pytest-asyncio collection trap, the JWT_SECRET import-time pollution pattern + bisect recipe + monkeypatch fix, cross-branch mobile/packages-shared drift warning. Creating this dir also repaired README's pre-existing dead docs/development/ link.
+L12: verify the auditor's numbers too — I re-counted everything myself and one figure was materially wrong.
+
 # FINAL: FULL SUITE GREEN — 1381 passed, 0 failed, 0 errors (315s, verified by me directly)
 Session arc on the test suite: 1022 collected / 25 collection errors / 60 "failures"  →  1381 passed / 0 failed / 0 errors.
 Two fixes did it: f7c7840d (pytest-asyncio missing from requirements → +359 tests collect, ~58 phantom failures cleared)
