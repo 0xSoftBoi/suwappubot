@@ -603,11 +603,10 @@
 .sw__band-canvas {
   display: block;
   width: 100%;
-  /* Taller: at 210px these read as strips rather than objects. */
-  height: 300px;
+  height: 210px;
 }
 
-.sw__band--tall .sw__band-canvas { height: 330px; }
+.sw__band--tall .sw__band-canvas { height: 240px; }
 
 /* Wider shell for the band sections, so they read as a change of scale
    rather than more of the same column. */
@@ -636,7 +635,7 @@
 
 @media (max-width: 900px) {
   .sw__steps--cols { grid-template-columns: 1fr; }
-  .sw__band-canvas, .sw__band--tall .sw__band-canvas { height: 176px; }
+  .sw__band-canvas, .sw__band--tall .sw__band-canvas { height: 170px; }
 }
 
 /* The GPU sphere is two stacked canvases: WebGL for the body and point cloud,

@@ -79,7 +79,7 @@ export default function SectionFieldGL({
       const endPad = Math.max(ctx.measureText('your order').width,
                               ctx.measureText('best fill').width) + 18;
       const SX = Math.max(60, w / 2 - endPad) * 0.98;
-      const SY = Math.min(h * 0.44, w * 0.17);
+      const SY = Math.min(h * 0.36, w * 0.12);
       const spin = reduce ? 0.55 : t * 0.00007;
       const cycle = 6000;
       const phase = reduce ? 1 : Math.min(1.12, ((t % cycle) / cycle) * 1.28);
@@ -92,23 +92,13 @@ export default function SectionFieldGL({
         return { x: cx + rx * SX * k, y: cy + yy * SY * k, k, z: zz };
       };
 
-      // Every provider gets a bundle of filaments rather than one hairline.
-      // Mass is what gives the object presence; a single stroke per provider
-      // reads as a scratch at page scale.
-      const FIL = 4;
-      const strands = PROVIDERS.flatMap(([name, pace], i) =>
-        Array.from({ length: FIL }, (_, f) => {
-          const ang = (i / PROVIDERS.length) * 6.284 + (f - (FIL - 1) / 2) * 0.09;
-          return {
-            name, i, f,
-            pace: pace * (1 - (f - (FIL - 1) / 2) * 0.012),
-            ang, depth: Math.cos(ang),
-          };
-        })
-      ).sort((a, b) => a.depth - b.depth);
+      const strands = PROVIDERS.map(([name, pace], i) => {
+        const ang = (i / PROVIDERS.length) * 6.284;
+        return { name, pace, ang, i, depth: Math.cos(ang) };
+      }).sort((a, b) => a.depth - b.depth);
 
       for (const st of strands) {
-        const bow = 0.5 + (st.i % 3) * 0.1 + (st.f - 1.5) * 0.022;
+        const bow = 0.5 + (st.i % 3) * 0.1;
         const pt = (u: number) => {
           const sw = Math.sin(Math.PI * u) * bow;
           return proj(-1 + 2 * u, Math.sin(st.ang) * sw, Math.cos(st.ang) * sw);
@@ -116,21 +106,20 @@ export default function SectionFieldGL({
         const near = st.depth > 0;
         const p = Math.min(1, phase * st.pace);
         const won = st.i === 0 && p >= 1;
-        const isLead = st.f === 1;
 
         // The whole strand as a polyline: continuous by construction.
-        const SEG = 96;
+        const SEG = 160;
         const whole = [];
         for (let k = 0; k <= SEG; k++) whole.push(pt(k / SEG));
-        lines.path(whole, won ? 2.0 : 1.2, won ? 0.75 : near ? 0.3 : 0.14);
+        lines.path(whole, won ? 2.6 : 1.6, won ? 0.9 : near ? 0.42 : 0.2);
 
         // The travelled head, brighter, with a tail that fades in.
         const from = Math.max(0, p - 0.3);
         const tail = [];
-        for (let k = 0; k <= 64; k++) tail.push(pt(from + (p - from) * (k / 64)));
+        for (let k = 0; k <= 120; k++) tail.push(pt(from + (p - from) * (k / 120)));
         lines.path(tail, won ? 3.2 : 2.2, 0.0, won ? 1.0 : near ? 0.8 : 0.45);
         // A soft point run over the tail turns the line into a glow.
-        for (let k = 0; k <= 64; k++) {
+        for (let k = 0; k <= 120; k++) {
           const q = tail[k], fade = k / 120;
           if (k % 4 === 0) batch.push(q.x, q.y, (won ? 10 : 7) * q.k, (won ? 0.13 : 0.06) * fade);
         }
@@ -138,7 +127,7 @@ export default function SectionFieldGL({
         for (let g = 0; g < 4; g++) {
           batch.push(head.x, head.y, (won ? 10 : 7) - g, (won ? 1.0 : 0.6));
         }
-        if (isLead && (won || (!narrow && near)) && p > 0.18) {
+        if ((won || (!narrow && near)) && p > 0.18) {
           ctx.textAlign = 'center';
           ctx.fillStyle = won ? A(0.95) : D(0.28);
           ctx.fillText(st.name, head.x, head.y - 11);
@@ -162,8 +151,7 @@ export default function SectionFieldGL({
     /* ── Market ribbons ─────────────────────────────────────── */
     const markets = (t: number) => {
       const cx = w * 0.5, cy = h * 0.5;
-      const NK = w < 520 ? 1.75 : 1;
-      const SX = w * 0.42, SY = Math.min(h * 0.5, w * 0.19 * NK);
+      const SX = w * 0.4, SY = Math.min(h * 0.42, w * 0.14);
       const drift = reduce ? 0 : t * 0.00016;
       const narrow = w < 520;
       ctx.font = MONO;
@@ -191,24 +179,14 @@ export default function SectionFieldGL({
       for (const k of lanes) {
         const z = narrow ? 0 : -0.55 + k * 0.55;
         const near = k === 0;
-        const SEG = 132;
-        // Each market is a surface, not a hairline: stacked filaments sampled
-        // at slightly different phases read as a woven price band.
-        const FILM = 7;
-        let ribbon: ReturnType<typeof proj>[] = [];
-        for (let f = 0; f < FILM; f++) {
-          const off = (f - (FILM - 1) / 2) / (FILM - 1);
-          const cur: ReturnType<typeof proj>[] = [];
-          for (let i = 0; i <= SEG; i++) {
-            const u = i / SEG;
-            cur.push(proj(x0 + u * span, series(u * 64, k + off * 0.85) * 0.26 + off * 0.3, z));
-          }
-          const mid = f === (FILM - 1) / 2;
-          lines.path(cur, near ? (mid ? 2.2 : 1.1) : (mid ? 1.5 : 0.8),
-                     near ? (mid ? 0.85 : 0.34) : (mid ? 0.3 : 0.16));
-          if (mid) ribbon = cur;
+        const SEG = 220;
+        const ribbon = [];
+        for (let i = 0; i <= SEG; i++) {
+          const u = i / SEG;
+          ribbon.push(proj(x0 + u * span, series(u * 64, k) * 0.26, z));
         }
-        if (near) for (let i = 0; i < ribbon.length; i += 4) batch.push(ribbon[i].x, ribbon[i].y, 8 * ribbon[i].k, 0.07);
+        lines.path(ribbon, near ? 2.2 : 1.5, near ? 0.85 : 0.28);
+        if (near) for (let i = 0; i < ribbon.length; i += 5) batch.push(ribbon[i].x, ribbon[i].y, 8 * ribbon[i].k, 0.07);
         const head = proj(x0, series(0, k) * 0.26, z);
         ctx.textAlign = 'left';
         ctx.fillStyle = near ? A(0.9) : D(0.26);
@@ -226,16 +204,15 @@ export default function SectionFieldGL({
       }
 
       if (!narrow) {
-        const LV = 24;
-        for (let i = 0; i < LV; i++) {
-          const f = (i - (LV - 1) / 2) / LV;
-          const size = 0.07 + ((i * 7) % 5) * 0.045 + Math.abs(f) * 0.16;
+        for (let i = 0; i < 9; i++) {
+          const f = (i - 4) / 9;
+          const size = 0.1 + ((i * 7) % 5) * 0.052;
           const r0 = proj(0.76, f * 0.44, 0.55);
           const r1 = proj(0.76, f * 0.44, 0.55 - size);
-          lines.seg(r0.x, r0.y, r1.x, r1.y, 1.9, f < 0 ? 0.55 : 0.2);
-          batch.push((r0.x+r1.x)/2, (r0.y+r1.y)/2, 5, f < 0 ? 0.07 : 0.03);
+          lines.seg(r0.x, r0.y, r1.x, r1.y, 2.4, f < 0 ? 0.6 : 0.22);
+          batch.push((r0.x+r1.x)/2, (r0.y+r1.y)/2, 6, f < 0 ? 0.1 : 0.04);
         }
-        const bt = proj(0.76, 0.46, 0.55);
+        const bt = proj(0.76, 0.32, 0.55);
         ctx.textAlign = 'right';
         ctx.fillStyle = D(0.26);
         ctx.fillText('order book', bt.x - 6, bt.y);
@@ -248,8 +225,7 @@ export default function SectionFieldGL({
     /* ── Tempo: the fee-payer gate ──────────────────────────── */
     const sponsor = (t: number) => {
       const cx = w * 0.5, cy = h * 0.5;
-      const NK = w < 520 ? 1.75 : 1;
-      const SX = w * 0.46, SY = Math.min(h * 0.48, w * 0.15 * NK);
+      const SX = w * 0.46, SY = Math.min(h * 0.4, w * 0.1);
       const spin = reduce ? 0.4 : t * 0.00013;
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
@@ -268,14 +244,13 @@ export default function SectionFieldGL({
       lines.seg(a0.x, a0.y, b0.x, b0.y, 1.4, 0.42);
 
       // Gate: a dense ring, brighter while a transaction crosses.
-      const PK = 26;
-      const packets = Array.from({ length: PK }, (_, i) => {
-        const u = reduce ? (i / PK) : ((t * 0.00019 + i / PK) % 1);
-        const off = ((i % 7) - 3) * 0.075;
+      const packets = Array.from({ length: 6 }, (_, i) => {
+        const u = reduce ? 0.16 + i * 0.14 : ((t * 0.00019 + i / 6) % 1);
+        const off = (i - 2.5) * 0.09;
         return { u, x: -0.82 + 1.64 * u, y: off * 0.5, z: off, i };
       });
       let crossing = 0;
-      for (const pk of packets) crossing = Math.max(crossing, Math.abs(pk.x) < 0.12 ? 1 - Math.abs(pk.x) / 0.12 : 0);
+      for (const pk of packets) if (Math.abs(pk.x) < 0.12) crossing = 1 - Math.abs(pk.x) / 0.12;
 
       for (let i = 0; i < 260; i++) {
         const ang = (i / 260) * 6.284 + spin;
@@ -336,7 +311,7 @@ export default function SectionFieldGL({
       const cx = w * 0.5, cy = h * 0.52;
       ctx.font = MONO;
       ctx.textBaseline = 'middle';
-      const S = Math.min(w * 0.5 - 104, h * 0.5);
+      const S = Math.min(w * 0.5 - 104, h * 0.46);
       const spin = reduce ? 0.5 : t * 0.00009;
       const TILT = 0.42;
 
@@ -356,15 +331,6 @@ export default function SectionFieldGL({
         orbit.push(proj(Math.cos(a2), 0, Math.sin(a2)));
       }
       lines.path(orbit, 1.4, 0.5);
-      // Concentric rings give the orbit body instead of a single wire.
-      for (const rr of [0.82, 0.91, 1.09, 1.18]) {
-        const ring = [];
-        for (let i = 0; i <= 160; i++) {
-          const a2 = (i / 160) * 6.284;
-          ring.push(proj(Math.cos(a2) * rr, 0, Math.sin(a2) * rr));
-        }
-        lines.path(ring, 1.0, 0.13);
-      }
 
       const agent = proj(0, 0, 0);
       const nodes = TOOLS.map((name, i) => {
@@ -382,12 +348,6 @@ export default function SectionFieldGL({
         const live = u > 0.55;
         for (let g = 0; g < 4; g++) batch.push(n.x, n.y, (live ? 10 : 7) - g, live ? 0.95 : near ? 0.55 : 0.28);
         // Comet trail on the call.
-        // Several calls in flight per spoke, staggered.
-        for (let q = 1; q <= 3; q++) {
-          const uq = Math.max(0, u - q * 0.16);
-          const px2 = agent.x + (n.x - agent.x) * uq, py2 = agent.y + (n.y - agent.y) * uq;
-          batch.push(px2, py2, 4.5, 0.3 / q);
-        }
         const ct = [];
         for (let s2 = 0; s2 <= 60; s2++) {
           const uu = Math.max(0, u - s2 * 0.005);
