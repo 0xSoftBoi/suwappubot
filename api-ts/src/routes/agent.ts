@@ -1287,14 +1287,23 @@ async function enforcePolicyGateForFreshQuote(
 	)
 }
 
+/** A cap-accounting reservation made by resolveApprovalResubmit(). `created`
+ * distinguishes a row THIS call actually inserted from one it merely found
+ * already reserved (e.g. a retried resubmit hitting the partial unique
+ * index) — only the former may ever be released. */
+export type ApprovalReserve = { id: number; approvalId: string; created: boolean } | null
+
 /** Release a cap-accounting reservation made by resolveApprovalResubmit()
- * when the build that followed it failed — see PolicyService.releaseApprovalAllowance. */
-async function releaseApprovalReserve(reserveId: number | null): Promise<void> {
-	if (reserveId == null) return
+ * when the build that followed it failed — see PolicyService.releaseApprovalAllowance.
+ * No-ops when `created` is false: releasing a reservation this call didn't
+ * create could delete a concurrent winner's row for a trade that DID
+ * execute (see PolicyService.reserveApprovalAllowance's `created` doc). */
+async function releaseApprovalReserve(reserve: ApprovalReserve): Promise<void> {
+	if (reserve == null || !reserve.created) return
 	await runEffectEither(
 		Effect.gen(function* () {
 			const policy = yield* PolicyService
-			yield* policy.releaseApprovalAllowance(reserveId)
+			yield* policy.releaseApprovalAllowance(reserve.id, reserve.approvalId)
 		}),
 	)
 }
@@ -1312,7 +1321,7 @@ async function releaseApprovalReserve(reserveId: number | null): Promise<void> {
  *
  * Shared by POST /swap and POST /swap/execute — the caller is responsible for
  * actually building the transaction (unsigned tx vs. custodial sign+broadcast)
- * and MUST call releaseApprovalReserve(reserveId) if that build fails.
+ * and MUST call releaseApprovalReserve(reserve) if that build fails.
  */
 async function resolveApprovalResubmit(
 	c: Context,
@@ -1329,7 +1338,7 @@ async function resolveApprovalResubmit(
 			decidedBy: number | null
 			decidedAt: Date | null
 			payload: unknown
-			reserveId: number | null
+			reserve: ApprovalReserve
 	  }
 > {
 	const loaded = await runEffectEither(
@@ -1463,7 +1472,7 @@ async function resolveApprovalResubmit(
 	// Always re-run the policy gate (kill switches / block rules still apply).
 	// A valid, price-checked approval only satisfies a 'require_approval'
 	// verdict — 'block' still 403s even with an approved approval_id.
-	let reserveId: number | null = null
+	let reserve: ApprovalReserve = null
 	if (orgId) {
 		const freshGasUsd = isSolana
 			? undefined
@@ -1556,7 +1565,7 @@ async function resolveApprovalResubmit(
 				}
 			}
 
-			reserveId = reserved.right.id
+			reserve = { id: reserved.right.id, approvalId, created: reserved.right.created }
 		}
 	}
 
@@ -1567,7 +1576,7 @@ async function resolveApprovalResubmit(
 		decidedBy: approvalRow.decidedBy,
 		decidedAt: approvalRow.decidedAt,
 		payload: approvalRow.payload,
-		reserveId,
+		reserve,
 	}
 }
 
@@ -1622,7 +1631,7 @@ agentRoutes.post('/swap', async (c) => {
 		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, wallet_address)
 		if (outcome.kind === 'response') return outcome.response
 
-		const { freshQuote, isSolana, decidedBy, decidedAt, payload, reserveId } = outcome
+		const { freshQuote, isSolana, decidedBy, decidedAt, payload, reserve } = outcome
 
 		// Build the transaction. Only flip the approval to 'consumed' AFTER a
 		// successful build — a Jupiter/RPC failure here must not burn the
@@ -1637,7 +1646,7 @@ agentRoutes.post('/swap', async (c) => {
 				eventType: 'approval.execution_failed',
 				details: { approvalId: approval_id, httpStatus: response.status },
 			})
-			await releaseApprovalReserve(reserveId)
+			await releaseApprovalReserve(reserve)
 			return response
 		}
 
@@ -1659,7 +1668,7 @@ agentRoutes.post('/swap', async (c) => {
 				eventType: 'approval.consume_race_lost',
 				details: { approvalId: approval_id },
 			})
-			await releaseApprovalReserve(reserveId)
+			await releaseApprovalReserve(reserve)
 			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
 		}
 
@@ -2466,6 +2475,20 @@ agentRoutes.post('/swap/execute', async (c) => {
 		})
 	}
 
+	// Validate the Idempotency-Key FORMAT up front — before the approval_id
+	// branch below can finalizeConsume() + reserve a cap allowance. A
+	// malformed header is a pure request-validation failure that never
+	// executes anything, so it must be rejected before any approval/cap state
+	// is mutated, not after (a prior version returned this 400 post-consume,
+	// silently burning the single-use approval on a client typo).
+	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
+	if (clientIdempotencyKey && !/^[A-Za-z0-9_.:-]{1,64}$/.test(clientIdempotencyKey)) {
+		await refundSwapExecuteCharge(c, agent, 'invalid Idempotency-Key')
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid Idempotency-Key', {
+			hint: 'Use 1-64 characters from A-Za-z0-9_.:-',
+		})
+	}
+
 	// quote / isSolana / fromDecimals / toDecimals are populated by whichever
 	// branch below resolves them (fresh quote_id lookup vs. approval_id resubmit).
 	// Typed `any` (matching CachedQuote.quote) since the quote_data ternary below
@@ -2478,7 +2501,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	let toDecimals: number | undefined
 	// Set only on the approval_id resubmit path — the caller MUST finalize (or
 	// release, on failure) the approval + cap reservation this holds.
-	let approvalToFinalize: { id: string; reserveId: number | null } | null = null
+	let approvalToFinalize: { id: string; reserve: ApprovalReserve } | null = null
 
 	if (approval_id) {
 		// --- Resubmission of a previously deferred (require_approval) execute call ---
@@ -2513,14 +2536,14 @@ agentRoutes.post('/swap/execute', async (c) => {
 				eventType: 'approval.consume_race_lost',
 				details: { approvalId: approval_id },
 			})
-			await releaseApprovalReserve(outcome.reserveId)
+			await releaseApprovalReserve(outcome.reserve)
 			await refundSwapExecuteCharge(c, agent, 'approval already consumed by a concurrent request')
 			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
 		}
 
 		quote = outcome.freshQuote
 		isSolana = outcome.isSolana
-		approvalToFinalize = { id: approval_id, reserveId: outcome.reserveId }
+		approvalToFinalize = { id: approval_id, reserve: outcome.reserve }
 		;({ fromDecimals, toDecimals } = resolveSwapExecuteDecimals({ quote, isSolana }))
 	} else {
 		if (!quote_id) {
@@ -2568,7 +2591,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// pipeline's pre-swap balance guard relies on (bot/utils/quote_validator.py).
 	if (fromDecimals === undefined) {
 		await refundSwapExecuteCharge(c, agent, 'unresolvable quote decimals')
-		if (approvalToFinalize) await releaseApprovalReserve(approvalToFinalize.reserveId)
+		if (approvalToFinalize) await releaseApprovalReserve(approvalToFinalize.reserve)
 		return agentError(
 			c,
 			422,
@@ -2627,14 +2650,8 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// The key embeds a fingerprint of the request (quote_id + route + amounts) so
 	// reusing the same key with a DIFFERENT quote can never return a stale swap's
 	// result as if it were this request's success — a mismatched reuse executes as
-	// a new swap instead of silently misreporting.
-	const clientIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
-	if (clientIdempotencyKey && !/^[A-Za-z0-9_.:-]{1,64}$/.test(clientIdempotencyKey)) {
-		await refundSwapExecuteCharge(c, agent, 'invalid Idempotency-Key')
-		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid Idempotency-Key', {
-			hint: 'Use 1-64 characters from A-Za-z0-9_.:-',
-		})
-	}
+	// a new swap instead of silently misreporting. Format already validated above,
+	// before the approval/cap-mutating branch.
 	const requestFingerprint = crypto
 		.createHash('sha256')
 		.update(
@@ -2755,7 +2772,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 			// pre-submit rejection burning the approval is the accepted tradeoff
 			// for that race-safety, and the agent can request a fresh approval.
 			if (approvalToFinalize) {
-				await releaseApprovalReserve(approvalToFinalize.reserveId)
+				await releaseApprovalReserve(approvalToFinalize.reserve)
 				writeAuditLog({
 					userId: 0,
 					orgId,

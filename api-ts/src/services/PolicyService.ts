@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
+import { approvalRequests } from '../db/schema/approvals'
 import { DatabaseError } from '../errors'
 import { logger } from '../lib/logger'
 import {
@@ -52,9 +53,12 @@ export interface PolicyDecisionResult {
 	id?: number
 }
 
-/** Result of reserveApprovalAllowance: either the reserved decision row id, or
- * a fresh block (a concurrent reservation used up the cap first). */
-export type ReserveResult = { id: number } | { blocked: true; reason: string }
+/** Result of reserveApprovalAllowance: either the reserved decision row id
+ * (with `created` telling the caller whether THIS call inserted it — false
+ * means a prior call already reserved it, e.g. a retried resubmit; only the
+ * call that actually created the row may ever release/delete it), or a fresh
+ * block (a concurrent reservation used up the cap first). */
+export type ReserveResult = { id: number; created: boolean } | { blocked: true; reason: string }
 
 export interface PolicyServiceInterface {
 	readonly evaluate: (
@@ -77,11 +81,19 @@ export interface PolicyServiceInterface {
 		approvalId: string,
 	) => Effect.Effect<ReserveResult, DatabaseError, DrizzleService>
 
-	/** Compensating rollback for reserveApprovalAllowance when the build that
+	/**
+	 * Compensating rollback for reserveApprovalAllowance when the build that
 	 * followed it failed — deletes the reserved row so it never counts toward
-	 * caps for a trade that never executed. */
+	 * caps for a trade that never executed. Callers MUST only call this when
+	 * `created === true` from the matching reserveApprovalAllowance() result —
+	 * releasing a row this call didn't create could delete a concurrent
+	 * winner's reservation for an executed trade. As a second safety net, this
+	 * refuses to delete when the approval itself is already 'consumed' (i.e.
+	 * the trade did in fact execute), even if the caller mistakenly asks.
+	 */
 	readonly releaseApprovalAllowance: (
 		id: number,
+		approvalId: string,
 	) => Effect.Effect<void, DatabaseError, DrizzleService>
 }
 
@@ -272,6 +284,15 @@ export const PolicyServiceLive = Layer.succeed(
 				//    prior ALLOWED decisions. NOTE: build-gate proxy — counts allowed
 				//    /build decisions, not confirmed on-chain executions. Reconcile with
 				//    swapTransactions in a later pass for exact spend.
+				//
+				// The cap read + the decision-log insert below run inside ONE DB
+				// transaction, serialized by the SAME per-org pg_advisory_xact_lock
+				// reserveApprovalAllowance() takes. Without this, a plain execute
+				// hitting this cap-check-then-insert path concurrently with an
+				// approval resubmit's reservation could each read a cap sum that
+				// doesn't yet include the other's pending insert, and jointly exceed
+				// the cap (the same TOCTOU class as the approval-resubmit fix, just
+				// via a different caller).
 				const now = Date.now()
 				const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
 				const hourAgo = new Date(now - 60 * 60 * 1000)
@@ -284,59 +305,86 @@ export const PolicyServiceLive = Layer.succeed(
 					? eq(policyDecisions.agentId, intent.agentId)
 					: eq(policyDecisions.organizationId, orgId)
 
-				if (needsDaily || needsSession || needsVelocity) {
-					const [agg] = yield* Effect.tryPromise({
-						try: () =>
-							db
-								.select({
-									daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then 1 else 0 end), 0)`,
+				const capChecked = yield* Effect.tryPromise({
+					try: () =>
+						db.transaction(async (tx) => {
+							await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId})::bigint)`)
+
+							let verdict: PolicyDecisionResult = pendingApproval ?? { decision: 'allow' }
+
+							if (needsDaily || needsSession || needsVelocity) {
+								const [agg] = await tx
+									.select({
+										daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
+										hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
+										hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then 1 else 0 end), 0)`,
+									})
+									.from(policyDecisions)
+									.where(
+										and(
+											agentFilter,
+											eq(policyDecisions.decision, 'allow'),
+											gte(policyDecisions.createdAt, dayAgo),
+										),
+									)
+								const daySum = Number(agg?.daySum ?? 0)
+								const hourSum = Number(agg?.hourSum ?? 0)
+								const hourCount = Number(agg?.hourCount ?? 0)
+
+								for (const p of rows) {
+									if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
+										verdict = {
+											decision: 'block',
+											reason: `daily cap $${p.dailyCapUsd} would be exceeded ($${daySum.toFixed(2)} used)`,
+											matchedPolicyId: p.id,
+										}
+										break
+									}
+									if (p.sessionCapUsd != null && hourSum + intent.valueUsd > p.sessionCapUsd) {
+										verdict = {
+											decision: 'block',
+											reason: `session cap $${p.sessionCapUsd} would be exceeded ($${hourSum.toFixed(2)} used)`,
+											matchedPolicyId: p.id,
+										}
+										break
+									}
+									if (p.maxTxPerHour != null && hourCount + 1 > p.maxTxPerHour) {
+										verdict = {
+											decision: 'block',
+											reason: `velocity limit ${p.maxTxPerHour}/hr exceeded`,
+											matchedPolicyId: p.id,
+										}
+										break
+									}
+								}
+							}
+
+							const inserted = await tx
+								.insert(policyDecisions)
+								.values({
+									organizationId: orgId,
+									agentId: intent.agentId ?? null,
+									decision: verdict.decision,
+									reason: verdict.reason?.slice(0, 300) ?? null,
+									matchedPolicyId: verdict.matchedPolicyId ?? null,
+									intent: intent as unknown as Record<string, unknown>,
+									valueUsd: intent.valueUsd,
 								})
-								.from(policyDecisions)
-								.where(
-									and(
-										agentFilter,
-										eq(policyDecisions.decision, 'allow'),
-										gte(policyDecisions.createdAt, dayAgo),
-									),
-								),
-						catch: (e) =>
-							new DatabaseError({ message: `spend aggregate failed: ${e}`, cause: e }),
-					})
-					const daySum = Number(agg?.daySum ?? 0)
-					const hourSum = Number(agg?.hourSum ?? 0)
-					const hourCount = Number(agg?.hourCount ?? 0)
+								.returning({ id: policyDecisions.id })
 
-					for (const p of rows) {
-						if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
-							return yield* log({
-								decision: 'block',
-								reason: `daily cap $${p.dailyCapUsd} would be exceeded ($${daySum.toFixed(2)} used)`,
-								matchedPolicyId: p.id,
-							})
-						}
-						if (p.sessionCapUsd != null && hourSum + intent.valueUsd > p.sessionCapUsd) {
-							return yield* log({
-								decision: 'block',
-								reason: `session cap $${p.sessionCapUsd} would be exceeded ($${hourSum.toFixed(2)} used)`,
-								matchedPolicyId: p.id,
-							})
-						}
-						if (p.maxTxPerHour != null && hourCount + 1 > p.maxTxPerHour) {
-							return yield* log({
-								decision: 'block',
-								reason: `velocity limit ${p.maxTxPerHour}/hr exceeded`,
-								matchedPolicyId: p.id,
-							})
-						}
-					}
-				}
+							return { ...verdict, id: inserted[0]?.id }
+						}),
+					catch: (e) => new DatabaseError({ message: `cap check + decision log failed: ${e}`, cause: e }),
+				})
+				// Unlike log()'s internal catchAll (which swallows a logging failure so
+				// evaluate() still returns a decision), a failure here surfaces as a
+				// DatabaseError/Left. Every caller of evaluate() already treats Left as
+				// fail-open (logs 'policy.eval_error' and proceeds as allow), so the
+				// net behavior on a write failure is the same either way — this is
+				// simpler than duplicating log()'s swallow-and-continue inside a
+				// transaction that must not partially commit.
 
-				if (pendingApproval) {
-					return yield* log(pendingApproval)
-				}
-				return yield* log({ decision: 'allow' })
+				return capChecked
 			}),
 
 		reserveApprovalAllowance: (intent, approvalId) =>
@@ -436,28 +484,52 @@ export const PolicyServiceLive = Layer.succeed(
 							// onConflictDoNothing means a re-entrant reservation for the same
 							// approvalId (partial unique index) returns no row rather than a
 							// duplicate — treat that as an already-reserved success rather
-							// than a fresh insert, so a retried resubmit doesn't spuriously block.
+							// than a fresh insert, so a retried resubmit doesn't spuriously
+							// block. created=false here so the caller knows this call did NOT
+							// mint the row and must never delete it — otherwise two concurrent
+							// resubmits could share one reserved id and the loser's cleanup
+							// would delete the winner's already-executed trade's cap row.
 							if (!inserted[0]) {
 								const existing = await tx
 									.select({ id: policyDecisions.id })
 									.from(policyDecisions)
 									.where(eq(policyDecisions.approvalId, approvalId))
 									.limit(1)
-								return { id: existing[0]?.id ?? -1 }
+								return { id: existing[0]?.id ?? -1, created: false }
 							}
-							return { id: inserted[0].id }
+							return { id: inserted[0].id, created: true }
 						}),
 					catch: (e) =>
 						new DatabaseError({ message: `reserveApprovalAllowance failed: ${e}`, cause: e }),
 				})
 			}),
 
-		releaseApprovalAllowance: (id) =>
+		releaseApprovalAllowance: (id, approvalId) =>
 			Effect.gen(function* () {
 				if (id < 0) return
 				const db = yield* requireDb
+				// Audit-trail note (PR #617 review): this hard-deletes an append-only
+				// decision row. A softer alternative — insert a compensating
+				// decision='released' row and exclude released/reserved pairs from the
+				// cap sums in evaluate() — would preserve the full history, but ripples
+				// into every cap aggregate query. Keeping the DELETE for now; revisit
+				// if the decision log needs to be provably append-only for compliance.
 				yield* Effect.tryPromise({
-					try: () => db.delete(policyDecisions).where(eq(policyDecisions.id, id)),
+					try: async () => {
+						// Belt-and-braces: only delete when the approval is NOT already
+						// 'consumed' — a consumed approval means the trade executed, so
+						// its cap-accounting row must never be released even if a caller
+						// mistakenly asks (created=true calls should never legitimately
+						// be consumed+released, but this guards the invariant at the DB
+						// layer rather than trusting every call site to get it right).
+						const approvalRows = await db
+							.select({ status: approvalRequests.status })
+							.from(approvalRequests)
+							.where(eq(approvalRequests.id, approvalId))
+							.limit(1)
+						if (approvalRows[0]?.status === 'consumed') return
+						await db.delete(policyDecisions).where(eq(policyDecisions.id, id))
+					},
 					catch: (e) => new DatabaseError({ message: `releaseApprovalAllowance failed: ${e}`, cause: e }),
 				})
 			}),

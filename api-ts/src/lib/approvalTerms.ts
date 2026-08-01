@@ -65,16 +65,22 @@ export function termsFromSolanaQuote(
 
 /**
  * Parses an EVM quote's USD value, returning null when it can't be priced
- * (missing or non-finite fromAmountUsd). Callers MUST refuse the approval
- * flow on null rather than defaulting to 0 — a $0 valueUsd would silently
- * bypass daily/session/velocity USD caps for a trade that may be worth real
- * money (mirrors the Solana refusal in agent.ts, which has the same problem
- * for a different reason: no USD pricing at that layer at all).
+ * (missing, non-finite, or <= 0 fromAmountUsd). Callers MUST refuse the
+ * approval flow on null rather than defaulting to 0 — a $0 valueUsd would
+ * silently bypass daily/session/velocity USD caps for a trade that may be
+ * worth real money (mirrors the Solana refusal in agent.ts, which has the
+ * same problem for a different reason: no USD pricing at that layer at all).
+ *
+ * <= 0 is treated as unpriced, not just missing/non-finite: SwapService's
+ * Li.Fi quote mapping always emits `fromUsd.toFixed(2)` (see SwapService.ts),
+ * so a token LI.FI can't price comes through as the finite string "0.00"
+ * rather than absent — a bare null/NaN check alone would miss it and let a
+ * genuinely unpriceable trade through with valueUsd 0.
  */
 export function evmQuoteUsdValue(fromAmountUsd: string | undefined): number | null {
 	if (fromAmountUsd == null) return null
 	const n = parseFloat(fromAmountUsd)
-	return Number.isFinite(n) ? n : null
+	return Number.isFinite(n) && n > 0 ? n : null
 }
 
 export function termsFromEvmQuote(
