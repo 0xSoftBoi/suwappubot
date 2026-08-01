@@ -571,6 +571,37 @@ class SwapEngine:
             return int(swap_amount)
         return MAX_UINT256
 
+    @staticmethod
+    def _assert_fresh_min_out_acceptable(
+        approved_quote: "SwapQuote", fresh_to_amount_min: str, provider_name: str
+    ) -> None:
+        """Abort the swap if the execution-time re-quote's min-out is worse than
+        what the user actually approved on the displayed/confirmed quote.
+
+        The executors below always re-quote at execution time (routes/prices move
+        between quote and broadcast), but that re-quote must not silently
+        authorize a worse minimum than the one the user saw and confirmed —
+        otherwise a stale or manipulated re-quote could sign a transaction that
+        accepts materially less output than what was approved.
+        """
+        try:
+            approved_min = int(approved_quote.to_amount_min)
+            fresh_min = int(fresh_to_amount_min)
+        except (TypeError, ValueError):
+            # Can't compare -- fail closed rather than sign against an
+            # unverifiable min-out.
+            raise SwapError(
+                f"{provider_name}: could not validate re-quoted min-out against "
+                "the approved quote -- aborting for safety."
+            )
+        if fresh_min < approved_min:
+            raise SwapError(
+                f"{provider_name}: execution re-quote min-out ({fresh_min}) is "
+                f"worse than the approved min-out ({approved_min}). Aborting to "
+                "protect against slippage/price movement beyond what you approved. "
+                "Please request a fresh quote and try again."
+            )
+
     async def _send_reset_approval_if_needed(
         self,
         *,
@@ -1812,6 +1843,7 @@ class SwapEngine:
                 "okx_quote": quote.raw_response,
                 "tx_data": quote.tx_data,
                 "chain_id": chain_id,
+                "slippage": slippage,
             },
             platform_fee_bps=platform_fee_bps,
         )
@@ -1892,6 +1924,7 @@ class SwapEngine:
                 "oneinch_quote": quote.raw_response,
                 "tx_data": quote.tx_data,
                 "chain_id": chain_id,
+                "slippage": slippage,
             },
         )
 
@@ -1971,6 +2004,7 @@ class SwapEngine:
                 "zerox_quote": quote.raw_response,
                 "tx_data": quote.tx_data,
                 "chain_id": chain_id,
+                "slippage": slippage,
             },
         )
 
@@ -2043,6 +2077,7 @@ class SwapEngine:
             raw_quote={
                 "kyberswap_quote": quote.raw_response,
                 "chain_slug": chain_slug,
+                "slippage": slippage,
             },
         )
 
@@ -5177,15 +5212,17 @@ class SwapEngine:
             from_token_address = get_token_address(quote.from_token, quote.from_chain)
             to_token_address = get_token_address(quote.to_token, quote.to_chain)
 
+            swap_slippage = quote.raw_quote.get("slippage", 0.5) if quote.raw_quote else 0.5
             swap_result = await self.okx_dex.get_swap(
                 chain_id=chain_id,
                 from_token=from_token_address,
                 to_token=to_token_address,
                 amount=quote.from_amount,
                 user_address=wallet_data["address"],
-                slippage=0.5,
+                slippage=swap_slippage,
                 platform_fee_bps=quote.platform_fee_bps,
             )
+            self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "OKX DEX")
             tx_data = swap_result.tx_data
 
         if not tx_data:
@@ -5355,15 +5392,17 @@ class SwapEngine:
         to_token_address = get_token_address(quote.to_token, quote.to_chain)
 
         # Always fetch fresh tx calldata at execution time (the race used /quote only).
+        swap_slippage = quote.raw_quote.get("slippage", 0.5) if quote.raw_quote else 0.5
         swap_result = await self.oneinch.get_swap(
             chain_id=chain_id,
             from_token=self._to_1inch_token(from_token_address),
             to_token=self._to_1inch_token(to_token_address),
             amount=quote.from_amount,
             user_address=wallet_data["address"],
-            slippage=0.5,
+            slippage=swap_slippage,
             platform_fee_bps=quote.platform_fee_bps,
         )
+        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "1inch")
         tx_data = swap_result.tx_data
         if not tx_data:
             raise SwapError("1inch did not return transaction data")
@@ -5495,15 +5534,17 @@ class SwapEngine:
         to_token_address = get_token_address(quote.to_token, quote.to_chain)
 
         # Always fetch fresh tx calldata at execution time (the race used /price only).
+        swap_slippage = quote.raw_quote.get("slippage", 0.5) if quote.raw_quote else 0.5
         swap_result = await self.zerox.get_swap(
             chain_id=chain_id,
             from_token=self._to_0x_token(from_token_address),
             to_token=self._to_0x_token(to_token_address),
             amount=quote.from_amount,
             user_address=wallet_data["address"],
-            slippage=0.5,
+            slippage=swap_slippage,
             platform_fee_bps=quote.platform_fee_bps,
         )
+        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "0x")
         tx_data = swap_result.tx_data
         if not tx_data:
             raise SwapError("0x did not return transaction data")
@@ -5648,15 +5689,17 @@ class SwapEngine:
         to_token_address = get_token_address(quote.to_token, quote.to_chain)
 
         # Re-fetch a fresh route + build tx calldata (routes expire).
+        swap_slippage = quote.raw_quote.get("slippage", 0.5) if quote.raw_quote else 0.5
         swap_result = await self.kyberswap.get_swap(
             chain_slug=chain_slug,
             from_token=self._to_kyber_token(from_token_address),
             to_token=self._to_kyber_token(to_token_address),
             amount=quote.from_amount,
             user_address=wallet_data["address"],
-            slippage=0.5,
+            slippage=swap_slippage,
             platform_fee_bps=quote.platform_fee_bps,
         )
+        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "KyberSwap")
         tx_data = swap_result.tx_data
         if not tx_data:
             raise SwapError("KyberSwap did not return transaction data")
