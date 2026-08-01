@@ -127,6 +127,7 @@ from bot.handlers.admin import (
     set_region_handler,
 )
 from bot.handlers.digest import digest_handler
+from bot.handlers.approvals import approval_decision_handler, approvals_command_handler
 from bot.handlers.quickswap import (
     quickswap_handler,
     quickswap_confirm_callback,
@@ -389,6 +390,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(vip_handler)  # /vip (cross-line VIP status)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
     application.add_handler(digest_handler)  # /digest
+    application.add_handler(approvals_command_handler)  # /approvals (agent control-plane, SUW-204)
+    application.add_handler(approval_decision_handler)  # apprv:<id>:yes|no callback
 
     # Perps Trading
     # Note: perps_conversation_handler added below with other conversation handlers

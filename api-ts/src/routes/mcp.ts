@@ -27,7 +27,8 @@ import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } fr
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
-import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { fetchTokenPrices, fetchMintPriceUsd, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { enforcePolicyForTool, hasUsdPolicyRules, type PolicyGateIntent } from '../services/policyGate'
 import openApiSpec from '../../openapi-agent.json'
 import { requireDb, swapTransactions } from '../db'
 import type { Agent } from '../db'
@@ -140,6 +141,7 @@ const TOOLS = [
 				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
 				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
 				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
+				approval_id: { type: 'string', description: 'Optional previously-approved human-in-the-loop approval id, to bypass a require_approval policy verdict for this exact intent.' },
 			},
 			required: ['quote_id', 'wallet_address'],
 		},
@@ -915,10 +917,11 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
 	// to whichever submission path they use.
-	const { quote_id, wallet_address, idempotency_key } = args as {
+	const { quote_id, wallet_address, idempotency_key, approval_id } = args as {
 		quote_id: string
 		wallet_address: string
 		idempotency_key?: string
+		approval_id?: string
 	}
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
@@ -928,6 +931,55 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 		return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first.' }] }
 
 	const quote = cached.quote
+
+	// --- Institutional policy gate ---
+	// MCP has no org API-key auth path (plain agent bearer only), so this evaluates
+	// org-less per-agent policy rows + kill switches. tools/call already refunds the
+	// charged credit whenever a handler returns isError:true (see the dispatcher),
+	// so returning the gate's isError envelope here is sufficient — no separate
+	// refund call needed.
+	{
+		let priceUnavailableReason: string | undefined
+		const valueUsd = cached.isSolana
+			? await (async () => {
+					const inputMint = quote.inputMint as string | undefined
+					const priceUsd = inputMint ? await fetchMintPriceUsd(inputMint) : null
+					if (priceUsd == null) {
+						// Fail closed if the agent has any USD-denominated policy rule;
+						// otherwise proceed at $0 as before (mirrors agent.ts /swap).
+						const agentIdStr = agent.uuid ?? String(agent.id)
+						const usdRulesApply = await hasUsdPolicyRules(null, agentIdStr)
+						if (usdRulesApply) {
+							priceUnavailableReason = `Solana mint price unavailable for ${inputMint ?? 'unknown mint'} — USD-denominated policy rules apply, cannot evaluate at $0`
+						}
+						return 0
+					}
+					const decimals = cached.fromDecimals ?? 9
+					const humanAmount = parseFloat(quote.inAmount ?? '0') / 10 ** decimals
+					return humanAmount * priceUsd
+				})()
+			: parseFloat(quote.fromAmountUsd ?? '0') || 0
+
+		const gateIntent: PolicyGateIntent = cached.isSolana
+			? {
+					chain: 'solana',
+					fromToken: quote.inputMint ?? null,
+					toToken: quote.outputMint ?? null,
+					valueUsd,
+				}
+			: {
+					chain: String(quote.fromChain),
+					fromToken: quote.fromToken?.address ?? null,
+					toToken: quote.toToken?.address ?? null,
+					contractAddress: quote.transactionRequest?.to ?? null,
+					valueUsd,
+					gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
+				}
+
+		const gateResult = await enforcePolicyForTool(agent, gateIntent, approval_id, priceUnavailableReason)
+		if (gateResult) return gateResult
+	}
+
 	if (cached.isSolana) {
 		const result = await runEffectEither(
 			Effect.gen(function* () {

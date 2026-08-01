@@ -496,6 +496,9 @@ def _ensure_schema(db_engine) -> None:
     _create_swap_execution_marks_table(db_engine, inspector, is_sqlite)
     _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite)
 
+    # --- agent control-plane approvals (SUW-204) ---
+    _create_agent_approvals_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -3227,6 +3230,100 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
         )
 
     logger.info("Created swap_execution_marks table")
+
+
+def _create_agent_approvals_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the agent_approvals table idempotently (SUW-204).
+
+    This table is SHARED with api-ts: api-ts (agent-control-plane) is the
+    primary writer of new pending-approval rows, and this Python bot is the
+    primary writer of decisions (approve/deny via Telegram) plus the
+    notified_at/notify_* bookkeeping columns used to fan a DM out exactly
+    once. Both sides must tolerate the table not existing yet — this function
+    is defensive (CREATE TABLE IF NOT EXISTS) so either service booting first
+    is safe, and neither side should assume it "owns" table creation.
+
+    id is a text/uuid primary key (not autoincrement) because api-ts assigns
+    uuids on insert.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "agent_approvals" in tables:
+        _add_agent_approvals_consumed_at_column(db_engine, inspector, is_sqlite)
+        return
+
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    numeric_type = "REAL" if is_sqlite else "NUMERIC"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS agent_approvals (
+                    id VARCHAR(36) PRIMARY KEY,
+                    org_id VARCHAR(36),
+                    agent_id TEXT NOT NULL,
+                    agent_name TEXT,
+                    user_telegram_id BIGINT,
+                    intent_json {json_type},
+                    intent_hash VARCHAR(128),
+                    value_usd {numeric_type},
+                    chain VARCHAR(50),
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    channel VARCHAR(20),
+                    decided_by VARCHAR(64),
+                    decided_at TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    notified_at TIMESTAMP,
+                    notify_chat_id BIGINT,
+                    notify_message_id INTEGER,
+                    consumed_at TIMESTAMP NULL
+                )
+                """))
+
+        for idx, cols in (
+            ("ix_agent_approvals_status_expires", "status, expires_at"),
+            ("ix_agent_approvals_telegram_status", "user_telegram_id, status"),
+            ("ix_agent_approvals_notified_at", "notified_at"),
+            ("ix_agent_approvals_created_at", "created_at"),
+        ):
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_approvals ({cols})"))
+
+    logger.info("Created agent_approvals table")
+
+
+def _add_agent_approvals_consumed_at_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive migration: add consumed_at to a pre-existing agent_approvals table.
+
+    The original CREATE TABLE (above) omitted this column and early-returns
+    when the table already exists, so any deployment that created the table
+    before consumed_at was added would never get it. This guard runs on every
+    boot regardless of table age and is idempotent.
+    """
+    try:
+        columns = {c["name"] for c in inspector.get_columns("agent_approvals")}
+    except Exception:
+        return
+
+    if "consumed_at" in columns:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                conn.execute(text("ALTER TABLE agent_approvals ADD COLUMN consumed_at TIMESTAMP"))
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_approvals "
+                        "ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMP NULL"
+                    )
+                )
+        logger.info("Added consumed_at column to agent_approvals")
+    except Exception as e:
+        logger.warning("Failed to add consumed_at column to agent_approvals: %s", e)
 
 
 def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool) -> None:

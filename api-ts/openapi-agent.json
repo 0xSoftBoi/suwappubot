@@ -3863,6 +3863,9 @@
             "type": "number",
             "minimum": 0,
             "maximum": 1
+          },
+          "approval_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -4091,6 +4094,9 @@
             "minLength": 1,
             "description": "A quote_id from POST /quote.",
             "example": "lifi_0x8453_4f3a2b1c9d8e"
+          },
+          "approval_id": {
+            "type": "string"
           }
         },
         "required": [

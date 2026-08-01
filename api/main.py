@@ -57,6 +57,7 @@ from bot.services.tx_poller import tx_poller
 from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
+from bot.services.approval_notifier import approval_notifier
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
@@ -316,6 +317,10 @@ async def lifespan(app: FastAPI):
         await cctp_relayer.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
         await digest_service.start(bot=bot_app.bot if bot_initialized else None)
+        # Agent control-plane approvals (SUW-204): DMs Approve/Deny for pending
+        # agent_approvals rows written by api-ts. No-op unless
+        # AGENT_APPROVALS_ENABLED=true (start() itself checks the flag).
+        await approval_notifier.start(bot=bot_app.bot if bot_initialized else None)
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             await asyncio.sleep(2)
             from bot.services.btc_bridge_poller import btc_bridge_poller
@@ -428,6 +433,7 @@ async def lifespan(app: FastAPI):
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
         await hl_ws_alerts.stop()
+        await approval_notifier.stop()
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 

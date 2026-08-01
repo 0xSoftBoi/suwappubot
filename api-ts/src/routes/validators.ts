@@ -111,6 +111,9 @@ export const SwapRequestSchema = z.object({
 	chain: z.string().optional(),
 	wallet_address: z.string().min(1, 'wallet_address is required'),
 	slippage: z.number().min(0).max(1).optional(),
+	// SUW-204: a previously-approved human-in-the-loop approval id, presented to
+	// bypass a require_approval verdict for this exact (re-evaluated) intent.
+	approval_id: z.string().optional(),
 })
 
 export const ExecuteCommandSchema = z.object({
@@ -149,6 +152,8 @@ export const CreatePolicySchema = z.object({
 /** Format Zod errors into a flat field map */
 export const ExecuteSwapSchema = z.object({
 	quote_id: z.string().min(1, 'quote_id is required'),
+	// SUW-204: see SwapRequestSchema.approval_id.
+	approval_id: z.string().optional(),
 })
 
 export const SwapStatusQuerySchema = z.object({

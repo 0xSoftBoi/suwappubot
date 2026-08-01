@@ -65,6 +65,12 @@ export const EnvSchema = Schema.Struct({
 	MPP_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	MPP_SWAP_PRICE_USD: Schema.optionalWith(Schema.String, { default: () => '0.001' }),
 
+	// Agent human-in-the-loop approval flow (SUW-204). Default OFF — mirrors
+	// Python's settings.agent_approvals_enabled (AGENT_APPROVALS_ENABLED). When
+	// off, enforcePolicy/enforcePolicyForTool behave exactly as before (no
+	// approval-row creation, no new response fields).
+	AGENT_APPROVALS_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),

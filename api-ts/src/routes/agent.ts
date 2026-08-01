@@ -7,7 +7,7 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentApprovals, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -26,8 +26,9 @@ import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
+import { fetchMintPriceUsd } from '../lib/prices'
+import { enforcePolicy, hasUsdPolicyRules, type PolicyGateIntent } from '../services/policyGate'
 import { writeAuditLog } from '../services/audit'
-import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -36,7 +37,6 @@ import {
 	COMMON_TOKENS,
 	JupiterService,
 	type JupiterQuote,
-	PolicyService,
 	type QuoteParams,
 	SOLANA_TOKENS,
 	SwapService,
@@ -72,6 +72,21 @@ type AgentContext = {
 }
 
 const agentRoutes = new Hono<AgentContext>()
+
+// Refund a pay-per-call charge when a request fails before (or without) actually
+// executing a swap — e.g. blocked/require_approval from the policy gate. Mirrors
+// the MCP tool-dispatch refund guard in mcp.ts (refundChargedCall call sites
+// there): only refund when the charge actually deducted prepaid credits
+// (kind === 'ok'); a facilitator-settled on-chain payment ('settled') is never
+// refunded here, matching that guard. Shared across /swap, /execute, and
+// /swap/execute so a block/require_approval verdict never leaves credits
+// charged with nothing delivered.
+async function refundMeteredCharge(c: Context<AgentContext>, agent: Agent, reason: string): Promise<void> {
+	const charge = c.get('meterCharge')
+	if (charge?.kind === 'ok') {
+		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason })
+	}
+}
 
 // Quote cache is shared with the MCP surface (lib/quoteCache) so a quote fetched
 // via POST /v1/agent/quote can be executed through mcp.ts's execute_swap tool and
@@ -499,6 +514,7 @@ agentRoutes.use('/wallet/policies', agentFlexAuth())
 agentRoutes.use('/billing', agentFlexAuth())
 agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
+agentRoutes.use('/approvals/*', agentFlexAuth())
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -522,6 +538,7 @@ agentRoutes.use('/wallet/policies', rateLimit())
 agentRoutes.use('/billing', rateLimit())
 agentRoutes.use('/billing/*', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
+agentRoutes.use('/approvals/*', rateLimit())
 
 // ===========================================
 // PAY-PER-CALL METERING (x402 prepaid credits)
@@ -963,7 +980,7 @@ agentRoutes.post('/swap', async (c) => {
 		)
 	}
 
-	const { quote_id, wallet_address } = parsed.data
+	const { quote_id, wallet_address, approval_id } = parsed.data
 
 	// Track swap attempt
 	await runEffectEither(
@@ -995,78 +1012,63 @@ agentRoutes.post('/swap', async (c) => {
 		const quote = cached.quote
 
 		// --- Institutional policy gate ---
-		// Evaluate the trade intent against the org's policy rules + this agent's
-		// spend profile + kill switches BEFORE returning a signable tx. Org context
-		// comes from the API-key auth (apiKeyAuth sets orgId); plain agent-token
-		// requests are un-orged and pass through (PolicyService allows when no org).
-		// Enforcement is hard for Suwappu-issued-key / custodial flows; advisory for
-		// a self-signing EOA that could bypass this API entirely.
-		const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
-		if (apiKeyCtx?.orgId) {
-			const policyIntent: PolicyIntent = cached.isSolana
-				? {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
-						chain: 'solana',
-						fromToken: quote.inputMint ?? null,
-						toToken: quote.outputMint ?? null,
-						// TODO: Solana quote carries no USD value; USD-based caps are
-						// skipped until we price the input mint. Chain/token rules apply.
-						valueUsd: 0,
-					}
-				: {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agent.uuid ?? String(agent.id),
-						chain: String(quote.fromChain),
-						fromToken: quote.fromToken?.address ?? null,
-						toToken: quote.toToken?.address ?? null,
-						valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
-						gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
-					}
-
-			const verdict = await runEffectEither(
-				Effect.gen(function* () {
-					const policy = yield* PolicyService
-					return yield* policy.evaluate(policyIntent)
-				}),
-			)
-
-			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
-				const { decision, reason, matchedPolicyId } = verdict.right
-				writeAuditLog({
-					userId: 0,
-					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
-					eventType: `policy.${decision}`,
-					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
-				})
-				const status = decision === 'require_approval' ? 202 : 403
-				return c.json(
-					{
-						success: false,
-						status: decision,
-						error:
-							decision === 'require_approval'
-								? 'Transaction requires approval under org policy'
-								: 'Transaction blocked by org policy',
-						error_code: 'POLICY_VIOLATION',
-						reason: reason ?? null,
-					},
-					status,
-				)
+		// Evaluate the trade intent against the org's/agent's policy rules + spend
+		// profile + kill switches BEFORE returning a signable tx. Enforcement is
+		// hard for Suwappu-issued-key / custodial flows; advisory for a
+		// self-signing EOA that could bypass this API entirely. Gated for BOTH
+		// org API-key auth (apiKeyAuth) and plain agent-token auth (org-less
+		// per-agent policy rows) — see PolicyService/policyGate.
+		let solanaValueUsd = 0
+		let priceUnavailableReason: string | undefined
+		if (cached.isSolana) {
+			const inputMint = quote.inputMint as string | undefined
+			const priceUsd = inputMint ? await fetchMintPriceUsd(inputMint) : null
+			if (priceUsd != null) {
+				const decimals = cached.fromDecimals ?? 9
+				const humanAmount = parseFloat(quote.inAmount ?? '0') / 10 ** decimals
+				solanaValueUsd = humanAmount * priceUsd
+			} else {
+				// Price unresolvable — fail closed if the agent has ANY USD-denominated
+				// policy rule (maxTxUsd/dailyCapUsd/sessionCapUsd/requireApprovalAboveUsd)
+				// configured; otherwise (no USD rules to bypass) proceed at $0 as before.
+				const orgId = (c.get('apiKeyAuth') as { orgId: string } | undefined)?.orgId ?? null
+				const agentIdStr = agent.uuid ?? String(agent.id)
+				const usdRulesApply = await hasUsdPolicyRules(orgId, agentIdStr)
+				if (usdRulesApply) {
+					priceUnavailableReason = `Solana mint price unavailable for ${inputMint ?? 'unknown mint'} — USD-denominated policy rules apply, cannot evaluate at $0`
+				} else {
+					writeAuditLog({
+						userId: 0,
+						agentId: agentIdStr,
+						eventType: 'policy.solana_price_unavailable',
+						details: { inputMint: inputMint ?? null, note: 'valueUsd defaulted to 0 for policy eval — no USD rules configured' },
+					})
+				}
 			}
-			// If the policy query itself errored (Left), fail open but log it — never
-			// block legitimate trades on an infra hiccup. The decision log captures
-			// successful evaluations; this branch is the rare DB-down case.
-			if (Either.isLeft(verdict)) {
-				writeAuditLog({
-					userId: 0,
-					orgId: apiKeyCtx.orgId,
-					agentId: agent.uuid ?? String(agent.id),
-					eventType: 'policy.eval_error',
-					details: { error: String(verdict.left) },
-				})
-			}
+		}
+
+		const gateIntent: PolicyGateIntent = cached.isSolana
+			? {
+					chain: 'solana',
+					fromToken: quote.inputMint ?? null,
+					toToken: quote.outputMint ?? null,
+					valueUsd: solanaValueUsd,
+					walletAddress: wallet_address ?? null,
+				}
+			: {
+					chain: String(quote.fromChain),
+					fromToken: quote.fromToken?.address ?? null,
+					toToken: quote.toToken?.address ?? null,
+					contractAddress: quote.transactionRequest?.to ?? null,
+					valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
+					gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
+					walletAddress: wallet_address ?? null,
+				}
+
+		const policyResponse = await enforcePolicy(c, agent, gateIntent, approval_id, priceUnavailableReason)
+		if (policyResponse) {
+			await refundMeteredCharge(c, agent, 'blocked by policy gate')
+			return policyResponse
 		}
 
 		// Handle Solana swaps
@@ -1600,6 +1602,7 @@ agentRoutes.post('/execute', async (c) => {
 					chain_id: chainInfo.id,
 					exchange_rate: quote.exchangeRate,
 					gas_usd: quote.estimatedGasUsd,
+					value_usd: quote.fromAmountUsd,
 					route: quote.route,
 					has_transaction: !!wallet_address,
 					transaction: wallet_address
@@ -1625,6 +1628,53 @@ agentRoutes.post('/execute', async (c) => {
 		if (Either.isLeft(result)) {
 			const { status, body } = mapErrorToResponse(result.left)
 			return c.json({ success: false, ...body }, status)
+		}
+
+		// Gate BEFORE returning a signable transaction. No wallet_address means no
+		// transaction is returned (has_transaction: false), so nothing to gate.
+		if (wallet_address) {
+			// This NL-command path resolves the SAME quote shape /swap uses, which
+			// does carry a USD value (quote.fromAmountUsd, surfaced above as
+			// result.right.value_usd) — use it. If it's genuinely unresolvable, do
+			// NOT silently gate at $0: check whether the agent/org has any
+			// USD-denominated policy rule and force require_approval instead.
+			const parsedValueUsd = parseFloat(result.right.value_usd ?? '')
+			let valueUsd = 0
+			let priceUnavailableReason: string | undefined
+			if (Number.isFinite(parsedValueUsd)) {
+				valueUsd = parsedValueUsd
+			} else {
+				const orgId = (c.get('apiKeyAuth') as { orgId: string } | undefined)?.orgId ?? null
+				const agentIdStr = agent.uuid ?? String(agent.id)
+				const usdRulesApply = await hasUsdPolicyRules(orgId, agentIdStr)
+				if (usdRulesApply) {
+					priceUnavailableReason =
+						'USD value unresolvable for this NL command quote — USD-denominated policy rules apply, cannot evaluate at $0'
+				} else {
+					writeAuditLog({
+						userId: 0,
+						agentId: agentIdStr,
+						eventType: 'policy.price_unavailable',
+						details: { note: 'valueUsd defaulted to 0 for /execute policy eval — no USD rules configured' },
+					})
+				}
+			}
+			const policyResponse = await enforcePolicy(
+				c,
+				agent,
+				{
+					chain: String(chain || 'ethereum'),
+					valueUsd,
+					gasUsd: parseFloat(result.right.gas_usd || '0') || 0,
+					walletAddress: wallet_address ?? null,
+				},
+				undefined,
+				priceUnavailableReason,
+			)
+			if (policyResponse) {
+				await refundMeteredCharge(c, agent, 'blocked by policy gate')
+				return policyResponse
+			}
 		}
 
 		return c.json({
@@ -1868,17 +1918,10 @@ agentRoutes.post('/wallets', async (c) => {
 	)
 })
 
-// Refund a pay-per-call charge for POST /v1/agent/swap/execute when the request
-// fails before (or without) actually executing a swap. Mirrors the MCP tool-dispatch
-// refund guard in mcp.ts (refundChargedCall call sites there) — only refund when the
-// charge actually deducted prepaid credits (kind === 'ok'); a facilitator-settled
-// on-chain payment ('settled') is never refunded here, matching that guard.
-async function refundSwapExecuteCharge(c: Context<AgentContext>, agent: Agent, reason: string): Promise<void> {
-	const charge = c.get('meterCharge')
-	if (charge?.kind === 'ok') {
-		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason })
-	}
-}
+// Back-compat alias — /swap/execute's call sites below were written against this
+// name; behavior is identical to refundMeteredCharge (defined once, near the top
+// of this file, and shared with /swap and /execute).
+const refundSwapExecuteCharge = refundMeteredCharge
 
 // POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
 agentRoutes.post('/swap/execute', async (c) => {
@@ -1906,7 +1949,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
-	const { quote_id } = parsed.data
+	const { quote_id, approval_id } = parsed.data
 
 	// Check agent has a Turnkey wallet with internal IDs
 	const metadata = (agent.metadata as Record<string, unknown>) || {}
@@ -1990,6 +2033,65 @@ agentRoutes.post('/swap/execute', async (c) => {
 				exchange_rate: parseFloat(quote.exchangeRate || '0'),
 				raw_quote: quote,
 			}
+
+	// --- Institutional policy gate ---
+	// This is the ACTUAL execution path (broadcasts on-chain via the internal
+	// Python endpoint below) — gate it same as /swap, using the built quoteData
+	// for chain/token/USD context. Credits were already charged before this
+	// handler ran (meteredPayment middleware), so a block/approval verdict must
+	// refund the charge, same as every other rejection path in this handler.
+	{
+		let priceUnavailableReason: string | undefined
+		const valueUsd = cached.isSolana
+			? await (async () => {
+					const inputMint = quote.inputMint as string | undefined
+					const priceUsd = inputMint ? await fetchMintPriceUsd(inputMint) : null
+					if (priceUsd == null) {
+						// Fail closed if any USD-denominated policy rule applies to this
+						// agent/org; otherwise proceed at $0 as before (no rule to bypass).
+						const orgId = (c.get('apiKeyAuth') as { orgId: string } | undefined)?.orgId ?? null
+						const agentIdStr = agent.uuid ?? String(agent.id)
+						const usdRulesApply = await hasUsdPolicyRules(orgId, agentIdStr)
+						if (usdRulesApply) {
+							priceUnavailableReason = `Solana mint price unavailable for ${inputMint ?? 'unknown mint'} — USD-denominated policy rules apply, cannot evaluate at $0`
+						} else {
+							writeAuditLog({
+								userId: 0,
+								agentId: agentIdStr,
+								eventType: 'policy.solana_price_unavailable',
+								details: { inputMint: inputMint ?? null, note: 'valueUsd defaulted to 0 for policy eval — no USD rules configured' },
+							})
+						}
+						return 0
+					}
+					return (quoteData.from_amount_human as number) * priceUsd
+				})()
+			: parseFloat(quote.fromAmountUsd ?? '0') || 0
+
+		const gateIntent: PolicyGateIntent = cached.isSolana
+			? {
+					chain: 'solana',
+					fromToken: quote.inputMint ?? null,
+					toToken: quote.outputMint ?? null,
+					valueUsd,
+					walletAddress: walletAddress ?? null,
+				}
+			: {
+					chain: String(quote.fromChain),
+					fromToken: quote.fromToken?.address ?? null,
+					toToken: quote.toToken?.address ?? null,
+					contractAddress: quote.transactionRequest?.to ?? null,
+					valueUsd,
+					gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
+					walletAddress: walletAddress ?? null,
+				}
+
+		const policyResponse = await enforcePolicy(c, agent, gateIntent, approval_id, priceUnavailableReason)
+		if (policyResponse) {
+			await refundSwapExecuteCharge(c, agent, 'blocked by policy gate')
+			return policyResponse
+		}
+	}
 
 	// Prefer a client-supplied Idempotency-Key (scoped per agent so agents can't
 	// collide on each other's keys) over the derived quote_id key. This lets a
@@ -2134,6 +2236,68 @@ agentRoutes.post('/swap/execute', async (c) => {
 				? 'You will receive webhook notifications at your callback_url'
 				: 'Set callback_url via PATCH /v1/agent/me to receive webhook notifications',
 		},
+	})
+})
+
+// GET /v1/agent/approvals/:id - Poll a human-in-the-loop approval (SUW-204).
+// The Python side owns approve/deny (Telegram) and DDL; this only reads +
+// lazily expires. Minimal response — intent_json is deliberately withheld to
+// avoid widening the replay surface for a leaked approval id.
+agentRoutes.get('/approvals/:id', async (c) => {
+	const agent = c.get('agent')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () => db.select().from(agentApprovals).where(eq(agentApprovals.id, id)).limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			return rows[0] ?? null
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', 'Failed to load approval')
+	}
+	const row = result.right
+	if (!row) {
+		return agentError(c, 404, 'NOT_FOUND', 'Approval not found')
+	}
+	// Never leak whether an approval belongs to another agent — same 403 either
+	// way, no distinguishing detail.
+	if (row.agentId !== (agent.uuid ?? String(agent.id))) {
+		return agentError(c, 403, 'UNAUTHORIZED', 'Approval does not belong to this agent')
+	}
+
+	let status = row.status
+	let expiresAt = row.expiresAt
+	if (status === 'pending' && expiresAt && expiresAt.getTime() < Date.now()) {
+		status = 'expired'
+		await runEffectEither(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agentApprovals)
+							.set({ status: 'expired' })
+							.where(and(eq(agentApprovals.id, id), eq(agentApprovals.status, 'pending'))),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+			}),
+		)
+	}
+
+	return c.json({
+		success: true,
+		id: row.id,
+		status,
+		chain: row.chain,
+		value_usd: row.valueUsd,
+		created_at: row.createdAt,
+		expires_at: expiresAt,
 	})
 })
 

@@ -62,3 +62,37 @@ export async function fetchTokenPrices(symbols: string[]): Promise<Record<string
 
 	return result
 }
+
+// --- Solana mint pricing (Jupiter Price API) ---
+// Used to fill PolicyIntent.valueUsd for Solana swaps, whose quotes carry no USD
+// value (see agent.ts /swap policy gate). Short timeout + fail-to-null so a
+// pricing hiccup never blocks/delays the swap path itself — callers treat null
+// as "unpriced" and, when the agent has no USD-denominated policy rule, fall
+// back to $0 with an audit note (fail-open is safe there); when a USD rule DOES
+// apply, callers must force require_approval instead of ever gating at a fake
+// $0 (see policyGate/agent.ts — this module only fetches the price, callers own
+// the fail-open-vs-fail-closed decision).
+//
+// NOTE: api.jup.ag/price/v2 is DEAD (verified 404, Jul 2026) — Jupiter migrated
+// to lite-api.jup.ag/price/v3, whose response shape is a flat
+// `{ [mint]: { usdPrice: number } }` map (no nested `.price` string).
+const mintPriceCache = new TTLCache<number>(30_000) // 30s TTL
+
+export async function fetchMintPriceUsd(mint: string): Promise<number | null> {
+	const cached = mintPriceCache.get(mint)
+	if (cached !== null) return cached
+
+	try {
+		const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${encodeURIComponent(mint)}`, {
+			signal: AbortSignal.timeout(4000),
+		})
+		if (!res.ok) return null
+		const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
+		const price = data?.[mint]?.usdPrice
+		if (price == null || !Number.isFinite(price)) return null
+		mintPriceCache.set(mint, price)
+		return price
+	} catch {
+		return null
+	}
+}

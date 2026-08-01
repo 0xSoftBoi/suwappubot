@@ -1200,6 +1200,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Agent control-plane approvals (SUW-204): DM the owning Telegram user an
+    # Approve/Deny prompt for pending agent_approvals rows. Defaults off so
+    # this is a no-op until the shared agent_approvals table + api-ts writer
+    # are actually live; the notifier/handlers are defensive either way.
+    agent_approvals_enabled: bool = Field(
+        default=False,
+        description="Enable the agent-approval Telegram notifier + /approvals command",
+    )
+
     def monitor_expected_sources_list(self) -> List[str]:
         """Parse `monitor_expected_sources` into a clean list of source names."""
         return [s.strip() for s in (self.monitor_expected_sources or "").split(",") if s.strip()]
