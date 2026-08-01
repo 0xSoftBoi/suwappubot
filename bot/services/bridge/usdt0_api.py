@@ -34,6 +34,7 @@ quote-capable, but the provider stays disabled until explicitly flipped on
 by whoever owns the rollout.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -396,7 +397,14 @@ class USDT0Bridge(BridgeProvider):
                 address=Web3.to_checksum_address(src["oft"]),
                 abi=OFT_ABI,
             )
-            fee = oft.functions.quoteSend(send_param, False).call()
+            # web3.py's .call() is synchronous. Running it inline would block
+            # the whole event loop for the duration of the RPC round-trip —
+            # tolerable against a fast endpoint, fatal against a slow one.
+            # Observed on dev: an ethereum quote stalled the API long enough
+            # for health checks to fail and the service to be restarted, while
+            # the same code against arbitrum looked fine. Mocked tests cannot
+            # catch this because the mock returns instantly.
+            fee = await asyncio.to_thread(lambda: oft.functions.quoteSend(send_param, False).call())
             native_fee = int(fee[0])
         except Exception as e:
             # Fail closed: never guess a messaging fee. A wrong/low fee
