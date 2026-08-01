@@ -166,6 +166,22 @@ pip install -r requirements.txt && uvicorn api.main:app --reload
 docker-compose -f docker-compose.local.yml up
 ```
 
+### Tests
+
+```bash
+pytest tests/                     # full suite — 1381 tests, ~5 min
+pytest tests/test_wallet.py -v    # single file
+pytest tests/ --cov=bot --cov=api # with coverage
+```
+
+`requirements.txt` includes `pytest-asyncio`, which the suite requires: `pyproject.toml` sets
+`asyncio_mode = "auto"` with `--strict-markers`, so without that package ~25 files fail at
+*collection* rather than reporting a normal failure. If you see
+`Failed: 'asyncio' not found in markers configuration`, reinstall requirements.
+
+See [`docs/development/testing.md`](./docs/development/testing.md) for the import-order gotcha
+that makes some tests pass alone but fail in the full suite.
+
 ---
 
 ## Swap Routing
@@ -253,7 +269,6 @@ suwappubot/
 ├── webapp/             # Telegram Mini App (React + Vite) — 18 pages, 95+ components
 ├── terminal/           # Web Trading Terminal — 15+ panels, TradingView charts
 ├── showcase/           # Marketing site (Next.js + GSAP + Three.js)
-├── mobile/             # iOS/Android app (Expo) — 49 screens
 ├── packages/
 │   ├── shared/         # Shared TypeScript types (10 modules)
 │   ├── sdk/            # @suwappu/sdk (npm, published)
@@ -270,6 +285,11 @@ suwappubot/
 ├── tests/              # Python tests
 └── .github/workflows/  # CI/CD (4 deploy + CI + rollback)
 ```
+
+> **Not in this tree:** the Expo mobile app (`mobile/`) lives on `dev` and feature branches, not
+> on `main`. Its backend (`api/routes/mobile.py`, mounted at `/v1/mobile`) *is* on `main` and
+> deployed, so the two can drift — see [`docs/development/testing.md`](./docs/development/testing.md)
+> before changing either side.
 
 ---
 

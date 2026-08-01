@@ -21,9 +21,16 @@ You usually do NOT need to run anything — merge the PR and Railway rebuilds.
 | `terminal` (live Telegram Mini App — `app.suwappu.bot` + `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | `terminal/**`, `packages/design-tokens/**` |
 | `api-ts` | `api-ts/railway.json` | `api-ts/Dockerfile` | (root) |
 | `showcase` (`www.suwappu.bot`) | `showcase/railway.json` | `showcase/Dockerfile` | (root) |
+| `webapp` (Telegram Mini App, React + Vite) | `railway.webapp.json` | `webapp/Dockerfile` | `webapp/**`, `packages/design-tokens/**` |
 
 Other services in the project: `suwappu-bridge`, `suwappu-relayer`, `Postgres`, `Redis`.
-**`webapp/` is DEAD** — no Railway config, deployed nowhere. The live Mini App is `terminal/`.
+
+**`webapp/` is a real deployable service** — this file previously claimed it was dead with no
+Railway config. That was wrong: `railway.webapp.json` exists (Dockerfile build, `/health`
+healthcheck, `numReplicas: 1`), `webapp` is one of the `deploy-railway.yml` service options,
+and the workflow auto-selects it when `webapp/**` or `packages/design-tokens/**` changes.
+Do not skip or delete it on the assumption that it is dead. `terminal/` is also a live Mini App
+(`app.suwappu.bot` + `terminal.suwappu.bot`) — the two coexist.
 
 Project: `suwappu` (id `428680a3-dd24-4f7c-8349-e66d791b5104`), workspace "Eric Manganaro's Projects",
 env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
