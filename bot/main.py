@@ -76,6 +76,7 @@ from bot.handlers.history import (
     history_callback,
     history_menu_callback,
     history_page_handler,
+    history_stats_handler,
     share_pnl_handler,
 )
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
@@ -119,6 +120,7 @@ from bot.handlers.settings import (
 )
 from bot.handlers.admin import (
     status_handler,
+    admin_status_handler,
     clear_cache_handler,
     broadcast_handler,
     hl_builder_handler,
@@ -146,6 +148,7 @@ from bot.handlers.admin_custodial import (
     create_sol_wallet,
     gas_config,
     configure_gas_chain,
+    admin_import_wallet_callback,
 )
 from bot.handlers.admin_fees import (
     fees_handler,
@@ -416,6 +419,7 @@ def add_handlers(application: Application) -> None:
 
     # Admin commands
     application.add_handler(status_handler)  # /status
+    application.add_handler(admin_status_handler)  # admin_status refresh button
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
@@ -550,6 +554,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(history_callback)
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
+    application.add_handler(history_stats_handler)
 
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -603,6 +608,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(create_sol_wallet, pattern="^admin_create_sol$"))
     application.add_handler(CallbackQueryHandler(gas_config, pattern="^admin_gas_config$"))
     application.add_handler(CallbackQueryHandler(configure_gas_chain, pattern="^admin_gas_"))
+    application.add_handler(
+        CallbackQueryHandler(admin_import_wallet_callback, pattern="^admin_import_wallet$")
+    )
 
     # Fees admin
     application.add_handler(CallbackQueryHandler(set_fee_callback, pattern="^set_fee_"))

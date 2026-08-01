@@ -755,6 +755,21 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return SELECT_ACTION
 
 
+async def watch_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Add Token' tap on the watchlist screen.
+
+    Manually adding a token to the watchlist isn't implemented yet — there is
+    no service that inserts WatchedToken rows outside of automatic detection.
+    Answer honestly instead of leaving the button dead.
+    """
+    query = update.callback_query
+    await query.answer(
+        "Manual watchlist add is coming soon. Tokens appear here automatically once detected.",
+        show_alert=True,
+    )
+    return SELECT_ACTION
+
+
 # ============ SNIPE HISTORY ============
 
 
@@ -1186,6 +1201,7 @@ snipe_conversation_handler = ConversationHandler(
             CallbackQueryHandler(snipe_token_callback, pattern="^snipe_token$"),
             CallbackQueryHandler(launches_callback, pattern="^snipe_launches$"),
             CallbackQueryHandler(watchlist_callback, pattern="^snipe_watchlist$"),
+            CallbackQueryHandler(watch_add_callback, pattern="^snipe_watch_add$"),
             CallbackQueryHandler(history_callback, pattern="^snipe_history$"),
             CallbackQueryHandler(auto_snipe_callback, pattern="^snipe_auto$"),
             CallbackQueryHandler(auto_snipe_toggle_callback, pattern=r"^snipe_auto_toggle_\d+$"),

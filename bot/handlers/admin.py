@@ -3,7 +3,8 @@
 import asyncio
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.error import BadRequest
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
@@ -25,16 +26,8 @@ def is_admin(user_id: int) -> bool:
     return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - show system health status."""
-    user = update.effective_user
-
-    if not is_admin(user.id):
-        await update.message.reply_text("❌ This command is for admins only.")
-        return
-
-    loading_msg = await update.message.reply_text("🔍 Checking system status...")
-
+async def _render_status_message() -> tuple[str, InlineKeyboardMarkup]:
+    """Build the system status text + keyboard shared by /st and its refresh button."""
     # Check RPC endpoints
     rpc_status = await _check_rpc_endpoints()
 
@@ -85,11 +78,52 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="admin_status")]]
 
+    return "\n".join(lines), InlineKeyboardMarkup(keyboard)
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /status command - show system health status."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    loading_msg = await update.message.reply_text("🔍 Checking system status...")
+
+    text, reply_markup = await _render_status_message()
+
     await loading_msg.edit_text(
-        "\n".join(lines),
+        text,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=reply_markup,
     )
+
+
+async def admin_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the 'Refresh' button on the /st dashboard by re-rendering it in place."""
+    query = update.callback_query
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await query.answer("❌ Admins only.", show_alert=True)
+        return
+
+    await query.answer()
+
+    text, reply_markup = await _render_status_message()
+
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=reply_markup,
+        )
+    except BadRequest as e:
+        # Telegram raises this when the refreshed content is identical to
+        # the current message — harmless, nothing changed since last check.
+        if "not modified" not in str(e).lower():
+            raise
 
 
 async def _check_rpc_endpoints() -> dict:
@@ -412,6 +446,7 @@ async def set_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # Create handlers
 status_handler = CommandHandler("st", status_command)
+admin_status_handler = CallbackQueryHandler(admin_status_callback, pattern="^admin_status$")
 clear_cache_handler = CommandHandler("cc", clear_cache_command)
 broadcast_handler = CommandHandler("bc", broadcast_command)
 hl_builder_handler = CommandHandler("hlbuilder", hl_builder_command)

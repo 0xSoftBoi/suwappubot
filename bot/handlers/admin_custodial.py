@@ -23,7 +23,11 @@ from database.db import get_session
 logger = logging.getLogger(__name__)
 
 # Admin user IDs from settings, fail-closed if not configured
-ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
+ADMIN_IDS = (
+    [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()]
+    if settings.admin_telegram_ids
+    else []
+)
 
 
 def is_admin(user_id: int) -> bool:
@@ -38,14 +42,14 @@ ENTER_PRIVATE_KEY = 0
 async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to manage hot wallets."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ Admin access required.")
         return
-    
+
     with get_session() as session:
         wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
-        
+
         wallet_data = [
             {
                 "id": w.id,
@@ -57,9 +61,9 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             }
             for w in wallets
         ]
-    
+
     lines = ["🔑 *Hot Wallet Management*\n"]
-    
+
     if wallet_data:
         for w in wallet_data:
             role = []
@@ -67,7 +71,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 role.append("📥 Deposit")
             if w["is_gas_payer"]:
                 role.append("⛽ Gas Payer")
-            
+
             lines.append(
                 f"*{w['name']}* ({w['chain_type'].upper()})\n"
                 f"`{w['address'][:20]}...`\n"
@@ -75,7 +79,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
     else:
         lines.append("_No hot wallets configured._\n")
-    
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Create EVM Wallet", callback_data="admin_create_evm"),
@@ -84,7 +88,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         [InlineKeyboardButton("📥 Import Wallet", callback_data="admin_import_wallet")],
         [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
     ]
-    
+
     await update.message.reply_text(
         "\n".join(lines),
         parse_mode="Markdown",
@@ -96,12 +100,12 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Create a new EVM hot wallet."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not is_admin(user.id):
         await query.edit_message_text("❌ Admin access required.")
         return
-    
+
     try:
         wallet = await hot_wallet_service.create_hot_wallet(
             name="EVM Hot Wallet",
@@ -109,15 +113,15 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             is_deposit_wallet=True,
             is_gas_payer=True,
         )
-        
+
         await query.edit_message_text(
             f"✅ *EVM Hot Wallet Created\\!*\n\n"
             f"Address:\n`{wallet.address}`\n\n"
             f"⚠️ *Important:* Fund this wallet with ETH/native tokens for gas\\!",
             parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("« Back", callback_data="admin_wallets")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back", callback_data="admin_wallets")]]
+            ),
         )
     except Exception as e:
         logger.error(f"Error in create_evm_wallet: {e}", exc_info=True)
@@ -128,12 +132,12 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Create a new SOL hot wallet."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not is_admin(user.id):
         await query.edit_message_text("❌ Admin access required.")
         return
-    
+
     try:
         wallet = await hot_wallet_service.create_hot_wallet(
             name="SOL Hot Wallet",
@@ -141,15 +145,15 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             is_deposit_wallet=True,
             is_gas_payer=True,
         )
-        
+
         await query.edit_message_text(
             f"✅ *SOL Hot Wallet Created\\!*\n\n"
             f"Address:\n`{wallet.address}`\n\n"
             f"⚠️ *Important:* Fund this wallet with SOL for transaction fees\\!",
             parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("« Back", callback_data="admin_wallets")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back", callback_data="admin_wallets")]]
+            ),
         )
     except Exception as e:
         logger.error(f"Error in create_sol_wallet: {e}", exc_info=True)
@@ -160,18 +164,18 @@ async def gas_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """Show gas sponsorship configuration."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not is_admin(user.id):
         await query.edit_message_text("❌ Admin access required.")
         return
-    
+
     lines = ["⛽ *Gas Sponsorship Config*\n"]
-    
+
     # Get config for each chain
     for chain_name, chain in CHAINS.items():
         config = paymaster_service.get_sponsorship_config(chain_name)
-        
+
         if config:
             status = "✅ Enabled" if config.is_enabled else "❌ Disabled"
             lines.append(
@@ -182,18 +186,19 @@ async def gas_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             )
         else:
             lines.append(f"*{chain.display_name}*: Not configured\n")
-    
+
     keyboard = []
     for chain_name in ["ethereum", "arbitrum", "optimism", "base", "polygon", "bsc"]:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"⚙️ Configure {chain_name.title()}",
-                callback_data=f"admin_gas_{chain_name}"
-            )
-        ])
-    
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"⚙️ Configure {chain_name.title()}", callback_data=f"admin_gas_{chain_name}"
+                )
+            ]
+        )
+
     keyboard.append([InlineKeyboardButton("« Back", callback_data="admin_wallets")])
-    
+
     await query.edit_message_text(
         "\n".join(lines),
         parse_mode="Markdown",
@@ -205,14 +210,14 @@ async def configure_gas_chain(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Configure gas sponsorship for a chain."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not is_admin(user.id):
         await query.edit_message_text("❌ Admin access required.")
         return
-    
+
     chain = query.data.replace("admin_gas_", "")
-    
+
     # Enable sponsorship with default settings
     config = paymaster_service.set_sponsorship_config(
         chain=chain,
@@ -220,16 +225,18 @@ async def configure_gas_chain(update: Update, context: ContextTypes.DEFAULT_TYPE
         max_gas_per_tx_usd=5.0,
         max_gas_per_user_daily_usd=20.0,
     )
-    
+
     await query.edit_message_text(
         f"✅ Gas sponsorship enabled for {chain.title()}\\!\n\n"
         f"• Max per transaction: $5\\.00\n"
         f"• Daily limit per user: $20\\.00\n",
         parse_mode="MarkdownV2",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
-            [InlineKeyboardButton("« Back", callback_data="admin_wallets")]
-        ])
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
+                [InlineKeyboardButton("« Back", callback_data="admin_wallets")],
+            ]
+        ),
     )
 
 
@@ -237,12 +244,12 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
     """Callback for admin wallets menu."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not is_admin(user.id):
         await query.edit_message_text("❌ Admin access required.")
         return
-    
+
     with get_session() as session:
         wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
         wallet_data = [
@@ -255,9 +262,9 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
             }
             for w in wallets
         ]
-    
+
     lines = ["🔑 *Hot Wallet Management*\n"]
-    
+
     if wallet_data:
         for w in wallet_data:
             role = []
@@ -265,14 +272,14 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
                 role.append("📥")
             if w["is_gas_payer"]:
                 role.append("⛽")
-            
+
             lines.append(
                 f"*{w['name']}* ({w['chain_type'].upper()}) {' '.join(role)}\n"
                 f"`{w['address'][:20]}...`\n"
             )
     else:
         lines.append("_No hot wallets configured._\n")
-    
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Create EVM", callback_data="admin_create_evm"),
@@ -280,7 +287,7 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
         ],
         [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
     ]
-    
+
     await query.edit_message_text(
         "\n".join(lines),
         parse_mode="Markdown",
@@ -288,6 +295,29 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
+async def admin_import_wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle 'Import Wallet' tap on the hot wallet dashboard.
+
+    NOT IMPLEMENTED ON PURPOSE: wiring this up means accepting a raw private
+    key as Telegram message text (see hot_wallet_service.import_hot_wallet),
+    which has no safe path to redact/delete from Telegram's own servers and
+    needs a deliberate money-path design + security review before it exists
+    as a bot flow. Answer honestly instead of half-wiring a key-entry path.
+    """
+    query = update.callback_query
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await query.answer("❌ Admin access required.", show_alert=True)
+        return
+
+    await query.answer(
+        "Wallet import isn't available via chat yet — pasting a private key into "
+        "Telegram has no safe redaction path and needs a security review first. "
+        "Use the ops runbook for now.",
+        show_alert=True,
+    )
+
+
 # Create handlers
 admin_hot_wallets_handler = CommandHandler("hw", admin_hot_wallets)
-
