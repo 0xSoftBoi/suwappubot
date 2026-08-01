@@ -46,6 +46,30 @@ def _require_db():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
+_LEVEL_ORDER = ["bronze", "silver", "gold", "platinum", "diamond"]
+
+
+def _next_level_name(level: str) -> Optional[str]:
+    """Mirror points_service.format_stats_message's next-level lookup."""
+    try:
+        idx = _LEVEL_ORDER.index(level)
+    except ValueError:
+        idx = 0
+    if idx >= len(_LEVEL_ORDER) - 1:
+        return None
+    return _LEVEL_ORDER[idx + 1]
+
+
+def _can_checkin_today(last_checkin) -> bool:
+    """Mirror points_service.daily_checkin's own 'already checked in today' guard."""
+    from datetime import timezone as _tz
+
+    if not last_checkin:
+        return True
+    today = datetime.now(_tz.utc).date()
+    return last_checkin.date() != today
+
+
 # ── request / response models ────────────────────────────────────────
 
 
@@ -621,18 +645,18 @@ async def get_points(request: Request):
             }
 
         return {
-            "points": up.points,
-            "spendablePoints": up.spendable_points,
+            "points": up.current_points,
+            "spendablePoints": up.current_points,
             "xp": up.xp,
             "level": up.level,
-            "levelEmoji": up.level_emoji,
-            "feeDiscount": up.fee_discount,
-            "nextLevel": up.next_level,
-            "xpToNextLevel": up.xp_to_next_level,
+            "levelEmoji": up.get_level_info()["emoji"],
+            "feeDiscount": up.get_fee_discount(),
+            "nextLevel": _next_level_name(up.level),
+            "xpToNextLevel": up.xp_to_next_level(),
             "dailyStreak": up.daily_streak,
             "longestStreak": up.longest_streak,
-            "lastCheckinAt": up.last_checkin_at.isoformat() if up.last_checkin_at else None,
-            "canCheckin": up.can_checkin if hasattr(up, "can_checkin") else True,
+            "lastCheckinAt": up.last_checkin.isoformat() if up.last_checkin else None,
+            "canCheckin": _can_checkin_today(up.last_checkin),
         }
 
 
@@ -709,7 +733,7 @@ async def get_rewards(request: Request):
                 "id": r.id,
                 "name": r.name,
                 "description": r.description,
-                "cost": r.cost,
+                "cost": r.points_cost,
                 "rewardType": r.reward_type,
                 "rewardValue": r.reward_value,
                 "isAvailable": r.is_available if hasattr(r, "is_available") else True,
@@ -816,7 +840,7 @@ async def get_leaderboard(request: Request, limit: int = Query(default=50, le=10
                 "displayName": u.first_name or u.username,
                 "xp": up.xp,
                 "level": up.level,
-                "levelEmoji": up.level_emoji,
+                "levelEmoji": up.get_level_info()["emoji"],
             }
             for i, (up, u) in enumerate(rows)
         ]
@@ -1012,13 +1036,13 @@ async def get_trader_leaderboard(request: Request, limit: int = Query(default=50
                 "userId": t.user_id,
                 "displayName": t.display_name,
                 "bio": t.bio,
-                "emoji": t.emoji,
+                "emoji": t.avatar_emoji,
                 "isPublic": t.is_public,
                 "totalTrades": t.total_trades,
                 "winRate": t.win_rate,
-                "totalPnl": float(t.total_pnl or 0),
-                "bestTrade": float(t.best_trade or 0),
-                "worstTrade": float(t.worst_trade or 0),
+                "totalPnl": float(t.total_pnl_usd or 0),
+                "bestTrade": float(t.best_trade_pnl_usd or 0),
+                "worstTrade": float(t.worst_trade_pnl_usd or 0),
                 "followerCount": t.follower_count,
                 "timesCopied": t.times_copied,
                 "rankScore": float(t.rank_score or 0),
@@ -1044,13 +1068,13 @@ async def get_trader_profile(request: Request, trader_id: int):
             "userId": t.user_id,
             "displayName": t.display_name,
             "bio": t.bio,
-            "emoji": t.emoji,
+            "emoji": t.avatar_emoji,
             "isPublic": t.is_public,
             "totalTrades": t.total_trades,
             "winRate": t.win_rate,
-            "totalPnl": float(t.total_pnl or 0),
-            "bestTrade": float(t.best_trade or 0),
-            "worstTrade": float(t.worst_trade or 0),
+            "totalPnl": float(t.total_pnl_usd or 0),
+            "bestTrade": float(t.best_trade_pnl_usd or 0),
+            "worstTrade": float(t.worst_trade_pnl_usd or 0),
             "followerCount": t.follower_count,
             "timesCopied": t.times_copied,
             "rankScore": float(t.rank_score or 0),
@@ -1157,12 +1181,12 @@ async def get_my_follows(request: Request):
                 "traderName": t.display_name,
                 "copyMode": f.copy_mode,
                 "copyType": f.copy_type,
-                "copyAmount": f.copy_amount,
+                "copyAmount": f.copy_amount_usd,
                 "copyPercentage": f.copy_percentage,
-                "maxPerTrade": f.max_per_trade,
-                "dailyLimit": f.daily_limit,
-                "totalCopied": f.total_copied or 0,
-                "totalPnl": float(f.total_pnl or 0),
+                "maxPerTrade": f.max_trade_usd,
+                "dailyLimit": f.daily_limit_usd,
+                "totalCopied": f.total_copied_trades or 0,
+                "totalPnl": float(f.total_copy_pnl or 0),
                 "isActive": f.is_active,
                 "createdAt": f.created_at.isoformat() if f.created_at else None,
             }
@@ -1175,13 +1199,17 @@ async def get_copy_trades(request: Request, limit: int = Query(default=50, le=20
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.models.copy_trading import CopyTrade
+    from bot.models.copy_trading import CopyTrade, TraderProfile
 
     with get_session() as session:
-        trades = (
-            session.query(CopyTrade)
+        rows = (
+            session.query(CopyTrade, TraderProfile)
+            .outerjoin(
+                TraderProfile,
+                CopyTrade.trader_id == TraderProfile.user_id,
+            )
             .filter(
-                CopyTrade.follower_id == payload["user_id"],
+                CopyTrade.copier_id == payload["user_id"],
             )
             .order_by(CopyTrade.created_at.desc())
             .limit(limit)
@@ -1192,17 +1220,17 @@ async def get_copy_trades(request: Request, limit: int = Query(default=50, le=20
             {
                 "id": ct.id,
                 "traderId": ct.trader_id,
-                "traderName": getattr(ct, "trader_name", None),
+                "traderName": tp.display_name if tp else None,
                 "fromToken": ct.from_token,
                 "toToken": ct.to_token,
                 "fromChain": ct.from_chain,
-                "fromAmount": ct.from_amount,
-                "toAmount": ct.to_amount,
-                "pnl": float(ct.pnl) if ct.pnl else None,
+                "fromAmount": ct.trader_amount_usd,
+                "toAmount": ct.copy_amount_usd,
+                "pnl": float(ct.pnl_usd) if ct.pnl_usd else None,
                 "status": ct.status,
                 "createdAt": ct.created_at.isoformat() if ct.created_at else None,
             }
-            for ct in trades
+            for ct, tp in rows
         ]
 
 
