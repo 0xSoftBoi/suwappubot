@@ -25,6 +25,17 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
+# Fire-and-forget webhook tasks must be held here — otherwise asyncio only
+# holds a weak reference via the event loop and the task can be garbage
+# collected mid-flight before the HTTP call completes.
+_background_tasks: set = set()
+
+
+def _spawn_webhook_task(approval_id: str, status: str, intent_hash) -> None:
+    task = asyncio.create_task(notify_approval_decided(approval_id, status, intent_hash))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 def _table_missing(e: Exception) -> bool:
     msg = str(e).lower()
@@ -101,7 +112,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
     if decided_now:
         # Fire-and-forget: never await the network call inline so a slow/dead
         # callback_url can't delay the human's Telegram confirmation.
-        asyncio.create_task(notify_approval_decided(approval_id, new_status, intent_hash))
+        _spawn_webhook_task(approval_id, new_status, intent_hash)
 
     if not decided_now and status == "pending" and owner_telegram_id != tapper_id:
         # Row is still pending but the tapper isn't the owner (or the row has

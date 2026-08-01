@@ -3369,9 +3369,9 @@ def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> Non
                     id SERIAL PRIMARY KEY,
                     agent_id INTEGER NOT NULL,
                     code_hash VARCHAR(64) NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    used_at TIMESTAMP,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )

@@ -128,7 +128,7 @@ from bot.handlers.admin import (
 )
 from bot.handlers.digest import digest_handler
 from bot.handlers.approvals import approval_decision_handler, approvals_command_handler
-from bot.handlers.claim_agent import claim_agent_handler
+from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.quickswap import (
     quickswap_handler,
     quickswap_confirm_callback,
@@ -395,6 +395,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(approvals_command_handler)  # /approvals (agent control-plane, SUW-204)
     application.add_handler(approval_decision_handler)  # apprv:<id>:yes|no callback
     application.add_handler(claim_agent_handler)  # /claim <code> (agent control-plane linking)
+    application.add_handler(unlink_agent_handler)  # /unlink (agent control-plane unlinking)
 
     # Perps Trading
     # Note: perps_conversation_handler added below with other conversation handlers

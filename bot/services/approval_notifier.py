@@ -31,6 +31,17 @@ logger = logging.getLogger(__name__)
 
 CHECK_INTERVAL_SECONDS = 15
 
+# Fire-and-forget webhook tasks must be held here — otherwise asyncio only
+# holds a weak reference via the event loop and the task can be garbage
+# collected mid-flight before the HTTP call completes.
+_background_tasks: set = set()
+
+
+def _spawn_webhook_task(approval_id: str, status: str, intent_hash) -> None:
+    task = asyncio.create_task(notify_approval_decided(approval_id, status, intent_hash))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 def _fmt_expiry(expires_at) -> str:
     if not expires_at:
@@ -173,7 +184,7 @@ class ApprovalNotifier:
         for row_id, chat_id, message_id, intent_hash in rows:
             # Fire-and-forget the agent's decision webhook regardless of
             # whether we also have a Telegram message to edit.
-            asyncio.create_task(notify_approval_decided(row_id, "expired", intent_hash))
+            _spawn_webhook_task(row_id, "expired", intent_hash)
 
             if self._bot is None or not (chat_id and message_id):
                 continue

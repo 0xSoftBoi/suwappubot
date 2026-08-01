@@ -28,19 +28,25 @@ decide/expire path.
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import time
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from bot.config.settings import settings
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
 WEBHOOK_TIMEOUT_SECONDS = 5.0
+
+_METADATA_IP = "169.254.169.254"
 
 
 def sign_payload(raw_body: bytes, api_key_hash: str, timestamp: str) -> str:
@@ -50,12 +56,88 @@ def sign_payload(raw_body: bytes, api_key_hash: str, timestamp: str) -> str:
     agent's API key (i.e. ``agents.api_key_hash``), matching what the agent
     itself can compute from the key it was issued. Kept as a standalone pure
     function (no I/O) so it's unit-testable without a DB or network.
+
+    Raises ``ValueError`` if ``api_key_hash`` isn't valid hex — silently
+    falling back to signing with the raw utf-8 bytes would produce a
+    signature the agent (which always hashes with hex) could never
+    reproduce, defeating the point of signing without anyone noticing.
     """
-    key_bytes = (
-        bytes.fromhex(api_key_hash) if _is_hex(api_key_hash) else api_key_hash.encode("utf-8")
-    )
+    if not _is_hex(api_key_hash):
+        raise ValueError("api_key_hash must be a valid hex string (sha256 hex digest)")
+    key_bytes = bytes.fromhex(api_key_hash)
     message = f"{timestamp}.".encode("utf-8") + raw_body
     return hmac.new(key_bytes, message, hashlib.sha256).hexdigest()
+
+
+def _is_local_environment() -> bool:
+    return settings.sentry_environment.lower() not in ("production", "prod")
+
+
+def _is_disallowed_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True  # unparsable → reject closed
+    if ip_str == _METADATA_IP:
+        return True
+    return bool(
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    )
+
+
+def is_callback_url_safe(callback_url: str) -> bool:
+    """SSRF guard for outbound webhook callback_urls.
+
+    Requires https, except http is allowed for localhost-ish hosts when
+    running outside production (local dev). Resolves the hostname and
+    rejects if ANY resolved address is private/loopback/link-local/reserved
+    or the cloud metadata IP (169.254.169.254) — defends against DNS
+    rebinding to internal infra.
+    """
+    try:
+        parsed = urlsplit(callback_url)
+    except ValueError:
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme == "https":
+        pass
+    elif (
+        scheme == "http"
+        and _is_local_environment()
+        and hostname
+        in (
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        )
+    ):
+        pass
+    else:
+        logger.warning("Rejecting callback_url with disallowed scheme: %s", callback_url)
+        return False
+
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        logger.warning("Could not resolve callback_url host %s: %s", hostname, e)
+        return False
+
+    resolved_ips = {info[4][0] for info in addrinfo}
+    for ip_str in resolved_ips:
+        if _is_disallowed_ip(ip_str):
+            logger.warning(
+                "Rejecting callback_url %s — resolved to disallowed IP %s",
+                callback_url,
+                ip_str,
+            )
+            return False
+
+    return True
 
 
 def _is_hex(value: str) -> bool:
@@ -80,11 +162,17 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
     """
     try:
         with get_session() as session:
+            # Postgres has no uuid = text operator, so agents.uuid (native
+            # uuid column there) must be cast to text before comparing
+            # against agent_approvals.agent_id (a text column). CAST(...AS
+            # TEXT) is portable — it works identically on sqlite (where
+            # uuid is already stored as TEXT) — so we always use it rather
+            # than dialect-branching on ``::text`` vs CAST.
             row = session.execute(
                 text(
                     "SELECT a.callback_url, a.api_key_hash "
                     "FROM agent_approvals ap "
-                    "JOIN agents a ON a.uuid = ap.agent_id "
+                    "JOIN agents a ON CAST(a.uuid AS TEXT) = ap.agent_id "
                     "WHERE ap.id = :approval_id"
                 ),
                 {"approval_id": approval_id},
@@ -104,6 +192,14 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
     if not callback_url or not api_key_hash:
         return
 
+    if not is_callback_url_safe(callback_url):
+        logger.warning(
+            "approval webhook for %s skipped — callback_url failed SSRF check: %s",
+            approval_id,
+            callback_url,
+        )
+        return
+
     body_dict = {
         "event": "approval.decided",
         "approval_id": approval_id,
@@ -113,7 +209,11 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
     }
     raw_body = json.dumps(body_dict, separators=(",", ":")).encode("utf-8")
     timestamp = str(int(time.time()))
-    signature = sign_payload(raw_body, api_key_hash, timestamp)
+    try:
+        signature = sign_payload(raw_body, api_key_hash, timestamp)
+    except ValueError as e:
+        logger.warning("approval webhook for %s has invalid api_key_hash: %s", approval_id, e)
+        return
 
     headers = {
         "Content-Type": "application/json",
