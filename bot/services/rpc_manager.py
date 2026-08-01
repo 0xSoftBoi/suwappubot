@@ -618,11 +618,52 @@ class RPCManager:
                         if "error" in data:
                             ep.record_failure(f"rpc_error: {str(data['error'])[:80]}")
                             return
-                        ep.record_success(latency)
+
+                    # eth_blockNumber alone is not enough to call an endpoint
+                    # healthy. Some free providers serve it but reject
+                    # eth_call ("The method eth_call is not supported"), which
+                    # passes this check and then breaks every contract READ we
+                    # do — quotes, allowances, balances. Observed on dev, where
+                    # a USDT0 quoteSend failed against an endpoint this probe
+                    # had marked healthy.
+                    #
+                    # to=0x0 with empty data is chain-agnostic and trivial for
+                    # the node: any compliant EVM endpoint answers "0x".
+                    if not await self._supports_eth_call(session, ep):
+                        return
+
+                    ep.record_success(latency)
             except asyncio.TimeoutError:
                 ep.record_failure("timeout")
             except Exception as e:
                 ep.record_failure(str(e)[:80])
+
+    async def _supports_eth_call(self, session, ep: RPCEndpoint) -> bool:
+        """Probe eth_call; record a failure and return False if unsupported."""
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": "0x" + "00" * 20, "data": "0x"}, "latest"],
+            "id": 2,
+        }
+        try:
+            async with session.post(
+                ep.url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    ep.record_failure(f"eth_call http_{resp.status}")
+                    return False
+                data = await resp.json()
+                if "error" in data:
+                    ep.record_failure(f"eth_call unsupported: {str(data['error'])[:60]}")
+                    return False
+                return True
+        except asyncio.TimeoutError:
+            ep.record_failure("eth_call timeout")
+            return False
+        except Exception as e:
+            ep.record_failure(f"eth_call {str(e)[:60]}")
+            return False
 
     def _decay_all_stats(self):
         for endpoints in self._endpoints.values():
