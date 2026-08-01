@@ -3,7 +3,7 @@ import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
-import SectionField from '@/components/SectionField';
+import SectionFieldGL from '@/components/SectionFieldGL';
 import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
@@ -166,7 +166,7 @@ export default async function Home() {
               ))}
             </ol>
             <div className="sw__band">
-              <SectionField motif="race" className="sw__band-canvas" />
+              <SectionFieldGL motif="race" className="sw__band-canvas" />
             </div>
           </Reveal>
         </section>
@@ -201,7 +201,7 @@ export default async function Home() {
               stake HYPE and earn in vaults. No bridging tabs, no address pasting.
             </p>
             <div className="sw__band sw__band--tall">
-              <SectionField motif="markets" className="sw__band-canvas" />
+              <SectionFieldGL motif="markets" className="sw__band-canvas" />
             </div>
             <dl className="sw__cmds">
               {PERPS.map((p) => (
@@ -224,14 +224,14 @@ export default async function Home() {
               swap if sponsorship is unavailable, so nothing ever blocks.
             </p>
             <div className="sw__band">
-              <SectionField motif="sponsor" className="sw__band-canvas" />
+              <SectionFieldGL motif="sponsor" className="sw__band-canvas" />
             </div>
           </Reveal>
         </section>
 
         {/* ── Agents ───────────────────────────────────────────── */}
         <section id="agents" className="sw__sec" aria-label="Built for agents">
-          <SectionField motif="tools" className="sw__field sw__field--top" />
+          <SectionFieldGL motif="tools" className="sw__field sw__field--top" />
           <Reveal>
             <p className="sw__eyebrow">Built for the agentic era</p>
             <h2 className="sw__h2">Hand your trading layer to an agent.</h2>

@@ -658,3 +658,10 @@
    the inner canvases at the 300x150 default. */
 .csgl.sw__band-canvas,
 .csgl.sw__figure-canvas { display: block; position: relative; }
+
+/* .csgl sets display:block, which was overriding the mobile rule that hides
+   margin figures below 1024px, so the agents object reappeared at 390px and
+   sat on the copy. Restore the hide with matching specificity. */
+@media (max-width: 1024px) {
+  .csgl.sw__field:not(.sw__field--hero) { display: none; }
+}

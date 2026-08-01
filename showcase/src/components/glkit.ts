@@ -154,10 +154,106 @@ export class LineBatch {
   }
 }
 
+
+/* ── Thick, anti-aliased, glowing lines ───────────────────────────────
+   GL_LINES is locked to 1px: ALIASED_LINE_WIDTH_RANGE reports [1,1] on
+   every modern driver. The fix is to stop using the line primitive and
+   expand each segment into a quad in the vertex shader, which is what
+   three.js ships Line2/MeshLine to do. Width becomes arbitrary, and the
+   fragment shader gets a coordinate across the stroke, which buys both
+   anti-aliasing and a soft glow falloff for free.
+
+   Instanced: one unit quad, one draw call, N segments. */
+
+export const RIBBON_VERT = `#version 300 es
+precision highp float;
+
+in vec2  aCorner;   // x: 0..1 along segment, y: -1..1 across
+in vec4  aSeg;      // p0.xy, p1.xy   (per instance)
+in vec3  aStyle;    // width, b0, b1  (per instance)
+
+uniform vec2  uViewport;
+uniform float uDpr;
+
+out float vAcross;
+out float vBright;
+
+void main() {
+  vec2 p0 = aSeg.xy, p1 = aSeg.zw;
+  vec2 d = p1 - p0;
+  float len = max(length(d), 0.0001);
+  vec2 dir = d / len;
+  vec2 nrm = vec2(-dir.y, dir.x);
+
+  // Extend the ends by half a width so joins do not show gaps.
+  vec2 along = dir * (aCorner.x * len + (aCorner.x * 2.0 - 1.0) * aStyle.x * 0.5);
+  vec2 pos = p0 + along + nrm * aCorner.y * aStyle.x * 0.5;
+
+  vec2 clip = ((pos * uDpr) / uViewport) * 2.0 - 1.0;
+  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+
+  vAcross = aCorner.y;
+  vBright = mix(aStyle.y, aStyle.z, aCorner.x);
+}`;
+
+export const RIBBON_FRAG = `#version 300 es
+precision highp float;
+
+in float vAcross;
+in float vBright;
+uniform vec3 uAccent;
+out vec4 outColor;
+
+float dither(vec2 p) {
+  return fract(sin(dot(floor(p), vec2(12.9898, 78.233))) * 43758.5453) / 320.0;
+}
+
+void main() {
+  float edge = 1.0 - abs(vAcross);
+  // A crisp core with a soft halo: the core reads as the stroke, the halo
+  // as the glow once blended additively.
+  float core = smoothstep(0.0, 0.55, edge);
+  float halo = pow(edge, 2.4);
+  float a = vBright * (core * 0.72 + halo * 0.55);
+  if (a <= 0.002) discard;
+  outColor = vec4(uAccent * a + dither(gl_FragCoord.xy), a);
+}`;
+
+/** Per-instance segment buffer: p0.xy, p1.xy, width, b0, b1. */
+export class RibbonBatch {
+  data: Float32Array;
+  count = 0;
+  constructor(public max: number) {
+    this.data = new Float32Array(max * 7);
+  }
+  reset() { this.count = 0; }
+  seg(x0: number, y0: number, x1: number, y1: number, width: number, b0: number, b1 = b0) {
+    if (this.count >= this.max) return;
+    const o = this.count * 7;
+    const d = this.data;
+    d[o] = x0; d[o + 1] = y0; d[o + 2] = x1; d[o + 3] = y1;
+    d[o + 4] = width; d[o + 5] = b0; d[o + 6] = b1;
+    this.count++;
+  }
+  /** Polyline from sampled points, width and brightness ramped along it. */
+  path(
+    pts: Array<{ x: number; y: number }>,
+    width: number, b0: number, b1 = b0
+  ) {
+    const n = pts.length - 1;
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 1) / n;
+      this.seg(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, width,
+               b0 + (b1 - b0) * t0, b0 + (b1 - b0) * t1);
+    }
+  }
+}
+
 export type GLPoints = {
   gl: WebGL2RenderingContext;
   draw: (batch: PointBatch, viewportW: number, viewportH: number, dpr: number) => void;
   drawLines: (batch: LineBatch, viewportW: number, viewportH: number, dpr: number, width?: number) => void;
+  drawRibbons: (batch: RibbonBatch, viewportW: number, viewportH: number, dpr: number) => void;
   dispose: () => void;
 };
 
@@ -223,6 +319,36 @@ export function initPoints(
   gl.enableVertexAttribArray(lb);
   gl.vertexAttribPointer(lb, 1, gl.FLOAT, false, lstride, 8);
   gl.bindVertexArray(null);
+  // Quad-expanded lines: the pipeline that actually gives thick strokes.
+  let rprog: WebGLProgram;
+  try { rprog = makeProgram(gl, RIBBON_VERT, RIBBON_FRAG); } catch { return null; }
+  const rvao = gl.createVertexArray();
+  gl.bindVertexArray(rvao);
+  const cbuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cbuf);
+  gl.bufferData(gl.ARRAY_BUFFER,
+    new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+  const rc = gl.getAttribLocation(rprog, 'aCorner');
+  gl.enableVertexAttribArray(rc);
+  gl.vertexAttribPointer(rc, 2, gl.FLOAT, false, 0, 0);
+
+  const rbuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, rbuf);
+  gl.bufferData(gl.ARRAY_BUFFER, maxPoints * 7 * 4, gl.DYNAMIC_DRAW);
+  const rstride = 7 * 4;
+  const rs = gl.getAttribLocation(rprog, 'aSeg');
+  gl.enableVertexAttribArray(rs);
+  gl.vertexAttribPointer(rs, 4, gl.FLOAT, false, rstride, 0);
+  gl.vertexAttribDivisor(rs, 1);
+  const rst = gl.getAttribLocation(rprog, 'aStyle');
+  gl.enableVertexAttribArray(rst);
+  gl.vertexAttribPointer(rst, 3, gl.FLOAT, false, rstride, 16);
+  gl.vertexAttribDivisor(rst, 1);
+  gl.bindVertexArray(null);
+  const ruViewport = gl.getUniformLocation(rprog, 'uViewport');
+  const ruDpr = gl.getUniformLocation(rprog, 'uDpr');
+  const ruAccent = gl.getUniformLocation(rprog, 'uAccent');
+
   const luViewport = gl.getUniformLocation(lprog, 'uViewport');
   const luDpr = gl.getUniformLocation(lprog, 'uDpr');
   const luAccent = gl.getUniformLocation(lprog, 'uAccent');
@@ -256,6 +382,24 @@ export function initPoints(
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, batch.data.subarray(0, batch.count * 3));
       gl.drawArrays(gl.LINES, 0, batch.count);
       gl.bindVertexArray(null);
+    },
+    drawRibbons(batch, vw, vh, dpr) {
+      if (!batch.count) return;
+      // MAX, not ADD. Segments are extended by half a width so joins do not
+      // gap, which means adjacent quads overlap; under additive blending that
+      // overlap accumulates and the whole stroke saturates to white. MAX
+      // takes the brighter of source and destination, so overlap is free.
+      gl.blendEquation(gl.MAX);
+      gl.useProgram(rprog);
+      gl.uniform2f(ruViewport, vw, vh);
+      gl.uniform1f(ruDpr, dpr);
+      gl.uniform3fv(ruAccent, accent);
+      gl.bindVertexArray(rvao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, rbuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, batch.data.subarray(0, batch.count * 7));
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, batch.count);
+      gl.bindVertexArray(null);
+      gl.blendEquation(gl.FUNC_ADD);   // restore for the glow pass
     },
     dispose() {
       gl.getExtension('WEBGL_lose_context')?.loseContext();

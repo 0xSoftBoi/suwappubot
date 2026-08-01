@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { initPoints, PointBatch, LineBatch, type GLPoints } from './glkit';
+import { initPoints, PointBatch, RibbonBatch, type GLPoints } from './glkit';
 import productStats from '@/data/stats.generated.json';
 
 /**
@@ -55,7 +55,7 @@ export default function SectionFieldGL({
     const MAX = 24000;
     const points: GLPoints | null = initPoints(glc, ACCENT, MAX);
     const batch = new PointBatch(MAX);
-    const lines = new LineBatch(MAX);
+    const lines = new RibbonBatch(MAX);
 
     const A = (o: number) => `rgba(246,169,60,${o})`;
     const D = (o: number) => `rgba(255,255,255,${o})`;
@@ -108,20 +108,20 @@ export default function SectionFieldGL({
         const won = st.i === 0 && p >= 1;
 
         // The whole strand as a polyline: continuous by construction.
-        const SEG = 80;
+        const SEG = 160;
         const whole = [];
         for (let k = 0; k <= SEG; k++) whole.push(pt(k / SEG));
-        lines.path(whole, won ? 0.5 : near ? 0.16 : 0.07);
+        lines.path(whole, won ? 2.6 : 1.6, won ? 0.9 : near ? 0.42 : 0.2);
 
         // The travelled head, brighter, with a tail that fades in.
         const from = Math.max(0, p - 0.3);
         const tail = [];
-        for (let k = 0; k <= 40; k++) tail.push(pt(from + (p - from) * (k / 40)));
-        lines.path(tail, 0.02, won ? 1.0 : near ? 0.75 : 0.4);
+        for (let k = 0; k <= 120; k++) tail.push(pt(from + (p - from) * (k / 120)));
+        lines.path(tail, won ? 3.2 : 2.2, 0.0, won ? 1.0 : near ? 0.8 : 0.45);
         // A soft point run over the tail turns the line into a glow.
-        for (let k = 0; k <= 40; k++) {
-          const q = tail[k], fade = k / 40;
-          batch.push(q.x, q.y, (won ? 7 : 5) * q.k, (won ? 0.34 : 0.2) * fade);
+        for (let k = 0; k <= 120; k++) {
+          const q = tail[k], fade = k / 120;
+          if (k % 4 === 0) batch.push(q.x, q.y, (won ? 10 : 7) * q.k, (won ? 0.13 : 0.06) * fade);
         }
         const head = pt(p);
         for (let g = 0; g < 5; g++) {
@@ -179,14 +179,14 @@ export default function SectionFieldGL({
       for (const k of lanes) {
         const z = narrow ? 0 : -0.55 + k * 0.55;
         const near = k === 0;
-        const SEG = 120;
+        const SEG = 220;
         const ribbon = [];
         for (let i = 0; i <= SEG; i++) {
           const u = i / SEG;
           ribbon.push(proj(x0 + u * span, series(u * 64, k) * 0.26, z));
         }
-        lines.path(ribbon, near ? 0.62 : 0.2);
-        if (near) for (const q of ribbon) batch.push(q.x, q.y, 6 * q.k, 0.12);
+        lines.path(ribbon, near ? 2.2 : 1.5, near ? 0.85 : 0.28);
+        if (near) for (let i = 0; i < ribbon.length; i += 5) batch.push(ribbon[i].x, ribbon[i].y, 8 * ribbon[i].k, 0.07);
         const head = proj(x0, series(0, k) * 0.26, z);
         ctx.textAlign = 'left';
         ctx.fillStyle = near ? A(0.9) : D(0.26);
@@ -209,7 +209,7 @@ export default function SectionFieldGL({
           const size = 0.1 + ((i * 7) % 5) * 0.052;
           const r0 = proj(0.76, f * 0.44, 0.55);
           const r1 = proj(0.76, f * 0.44, 0.55 - size);
-          lines.seg(r0.x, r0.y, r1.x, r1.y, f < 0 ? 0.6 : 0.2);
+          lines.seg(r0.x, r0.y, r1.x, r1.y, 3.0, f < 0 ? 0.75 : 0.24);
           batch.push((r0.x+r1.x)/2, (r0.y+r1.y)/2, 7, f < 0 ? 0.14 : 0.05);
         }
         const bt = proj(0.76, 0.32, 0.55);
@@ -241,7 +241,7 @@ export default function SectionFieldGL({
       };
 
       const a0 = proj(-0.82, 0, 0), b0 = proj(0.82, 0, 0);
-      lines.seg(a0.x, a0.y, b0.x, b0.y, 0.1);
+      lines.seg(a0.x, a0.y, b0.x, b0.y, 1.4, 0.16);
 
       // Gate: a dense ring, brighter while a transaction crosses.
       const packets = Array.from({ length: 6 }, (_, i) => {
@@ -274,12 +274,12 @@ export default function SectionFieldGL({
         for (let g = 0; g < 5; g++) batch.push(q.x, q.y, 8 - g, 0.7);
         // Trail behind each transaction.
         const trail = [];
-        for (let s2 = 0; s2 <= 26; s2++) {
-          trail.push(proj(Math.max(-0.82, pk.x - s2 * 0.009), pk.y, pk.z));
+        for (let s2 = 0; s2 <= 70; s2++) {
+          trail.push(proj(Math.max(-0.82, pk.x - s2 * 0.0034), pk.y, pk.z));
         }
-        lines.path(trail, 0.55, 0.0);
-        for (let s2 = 0; s2 <= 26; s2++) {
-          batch.push(trail[s2].x, trail[s2].y, 5 * trail[s2].k, 0.24 * (1 - s2 / 26));
+        lines.path(trail, 2.6, 0.8, 0.0);
+        for (let s2 = 0; s2 <= 70; s2 += 3) {
+          batch.push(trail[s2].x, trail[s2].y, 6 * trail[s2].k, 0.2 * (1 - s2 / 70));
         }
         if (pk.i === lead) {
           ctx.textAlign = 'center';
@@ -326,11 +326,11 @@ export default function SectionFieldGL({
 
       // Dense orbit path.
       const orbit = [];
-      for (let i = 0; i <= 120; i++) {
-        const a2 = (i / 120) * 6.284;
+      for (let i = 0; i <= 220; i++) {
+        const a2 = (i / 220) * 6.284;
         orbit.push(proj(Math.cos(a2), 0, Math.sin(a2)));
       }
-      lines.path(orbit, 0.12);
+      lines.path(orbit, 1.4, 0.2);
 
       const agent = proj(0, 0, 0);
       const nodes = TOOLS.map((name, i) => {
@@ -342,19 +342,19 @@ export default function SectionFieldGL({
 
       for (const n of nodes) {
         const near = n.z > 0;
-        lines.seg(agent.x, agent.y, n.x, n.y, near ? 0.16 : 0.07);
+        lines.seg(agent.x, agent.y, n.x, n.y, 1.3, near ? 0.22 : 0.1);
         const out = n.raw < 0.5;
         const u = out ? n.raw * 2 : (1 - n.raw) * 2;
         const live = u > 0.55;
         for (let g = 0; g < 4; g++) batch.push(n.x, n.y, (live ? 8 : 5) - g, live ? 0.85 : near ? 0.45 : 0.2);
         // Comet trail on the call.
         const ct = [];
-        for (let s2 = 0; s2 <= 22; s2++) {
-          const uu = Math.max(0, u - s2 * 0.014);
+        for (let s2 = 0; s2 <= 60; s2++) {
+          const uu = Math.max(0, u - s2 * 0.005);
           ct.push({ x: agent.x + (n.x - agent.x) * uu, y: agent.y + (n.y - agent.y) * uu });
         }
-        lines.path(ct, 0.7, 0.0);
-        for (let s2 = 0; s2 <= 22; s2++) batch.push(ct[s2].x, ct[s2].y, 5, 0.22 * (1 - s2 / 22));
+        lines.path(ct, 2.4, 0.9, 0.0);
+        for (let s2 = 0; s2 <= 60; s2 += 3) batch.push(ct[s2].x, ct[s2].y, 6, 0.18 * (1 - s2 / 60));
         const dirx = n.x - agent.x;
         ctx.textAlign = dirx < -6 ? 'right' : dirx > 6 ? 'left' : 'center';
         const lx = n.x + (dirx < -6 ? -9 : dirx > 6 ? 9 : 0);
@@ -379,7 +379,7 @@ export default function SectionFieldGL({
       MOTIFS[motif](t);
       // Lines first (structure), then points on top (glow and packets).
       points?.draw(batch, glc.width, glc.height, dpr);
-      points?.drawLines(lines, glc.width, glc.height, dpr);
+      points?.drawRibbons(lines, glc.width, glc.height, dpr);
       if (running && !reduce) raf = requestAnimationFrame(draw);
     };
 
