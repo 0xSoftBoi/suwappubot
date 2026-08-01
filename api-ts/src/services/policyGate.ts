@@ -226,10 +226,11 @@ export function isWithinValueBand(oldValueUsd: number, newValueUsd: number, band
  *   2. Fallback: organizations.ownerId -> users.telegramId (only resolvable
  *      when the intent carries an organizationId — the Hono `/v1/agent/*`
  *      surface authenticated via an org API key; see enforcePolicy's
- *      apiKeyCtx.orgId). MCP tool calls have no org context
- *      (enforcePolicyForTool always passes organizationId: null), so before
- *      owner-linking this fallback could never resolve anything on that
- *      surface — owner-linking closes that gap.
+ *      apiKeyCtx.orgId). MCP tool calls resolve organizationId from the
+ *      agent's own agents.organizationId column when set (enforcePolicyForTool),
+ *      otherwise pass organizationId: null — so before owner-linking (and for
+ *      agents with no organizationId set), this fallback could never resolve
+ *      anything on that surface — owner-linking closes that gap.
  * Null-safe throughout: returns null when neither path resolves a telegramId.
  */
 async function resolveUserTelegramId(
@@ -513,37 +514,33 @@ export async function enforcePolicy(
  * the tool handler when non-null.
  */
 export async function enforcePolicyForTool(
-	agent: { id: number; uuid?: string | null },
+	agent: { id: number; uuid?: string | null; organizationId?: string | null },
 	intent: PolicyGateIntent,
 	approvalId?: string,
 	forceRequireApprovalReason?: string,
 ): Promise<{ isError: true; content: Array<{ type: string; text: string }> } | null> {
-	// PRODUCT CONSTRAINT: MCP tool calls authenticate via plain agent bearer
-	// tokens only (no org API-key path), and the `agents` table has no owner/org
-	// FK to an organization — there is currently NO deterministic agent→org
-	// mapping this surface can resolve. Every MCP-gated call is therefore
-	// evaluated against org-less per-agent policy rows only; any org-scoped
-	// policy (e.g. an org-wide kill switch or cap) is invisible to this surface.
-	// NOTE: this is no longer a dead end for HUMAN NOTIFICATION — once an agent
-	// is owner-linked via POST /v1/agent/link/code + /claim <code>,
-	// resolveUserTelegramId resolves agents.ownerUserId -> users.telegramId
-	// directly, with no org context required, so approvals raised on this
-	// surface can still reach a human. What remains genuinely unresolved here
-	// is org-level POLICY (caps/kill-switches), not notification. Logged loudly
-	// (once per call, not just once globally) so monitoring can page on it
-	// rather than this silently drifting further from the Hono /v1/agent/*
-	// surface's org-aware gate.
-	console.error('[POLICY-MCP-NO-ORG-CONTEXT] enforcePolicyForTool has no org mapping for agent', agentIdOf(agent))
-	writeAuditLog({
-		userId: 0,
-		orgId: null,
-		agentId: agentIdOf(agent),
-		eventType: 'policy.mcp_no_org_context',
-		details: { note: 'MCP tool-auth surface has no agent->org mapping for policy scoping (owner-link still resolves human notification when linked); evaluated org-less' },
-	})
+	// MCP tool calls authenticate via plain agent bearer tokens only (no org
+	// API-key path). agents.organizationId (additive/nullable) is the only
+	// agent->org mapping this surface can resolve — populated nothing
+	// automatically, set out-of-band (enterprise provisioning). When set, org-
+	// scoped policies + org kill switches now apply here exactly as they do on
+	// the Hono /v1/agent/* org-API-key surface. When absent, this remains an
+	// org-less per-agent-policy-rows evaluation — logged loudly (once per call)
+	// so monitoring can page on the gap rather than it silently drifting.
+	const organizationId = agent.organizationId ?? null
+	if (!organizationId) {
+		console.error('[POLICY-MCP-NO-ORG-CONTEXT] enforcePolicyForTool has no org mapping for agent', agentIdOf(agent))
+		writeAuditLog({
+			userId: 0,
+			orgId: null,
+			agentId: agentIdOf(agent),
+			eventType: 'policy.mcp_no_org_context',
+			details: { note: 'agent has no agents.organization_id set — MCP tool-auth surface evaluated org-less (owner-link still resolves human notification when linked)' },
+		})
+	}
 
 	const fullIntent: PolicyIntent = {
-		organizationId: null,
+		organizationId,
 		agentId: agentIdOf(agent),
 		...intent,
 	}

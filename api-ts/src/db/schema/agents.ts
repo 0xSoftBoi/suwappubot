@@ -11,6 +11,7 @@ import {
 	varchar,
 } from 'drizzle-orm/pg-core'
 import { users } from './users'
+import { organizations } from './organizations'
 
 /**
  * AI Agents table - External agents that can use the Suwappu API
@@ -57,6 +58,13 @@ export const agents = pgTable('agents', {
 	// POST /v1/agent/link/code + /claim <code> in the Telegram bot.
 	ownerUserId: integer('owner_user_id').references(() => users.id),
 
+	// Org context for the MCP tool-auth surface (agent bearer token, no org
+	// API-key). Nullable/additive, populated nothing automatically — when set,
+	// enforcePolicyForTool (policyGate.ts) resolves it so org-scoped policies
+	// and org kill switches apply to MCP calls the same way they already do on
+	// the Hono /v1/agent/* org-API-key surface.
+	organizationId: uuid('organization_id').references(() => organizations.id),
+
 	// Timestamps
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -64,6 +72,7 @@ export const agents = pgTable('agents', {
 }, (table) => ({
 	isActiveIdx: index('ix_agents_is_active').on(table.isActive),
 	ownerUserIdIdx: index('ix_agents_owner_user_id').on(table.ownerUserId),
+	organizationIdIdx: index('ix_agents_organization_id').on(table.organizationId),
 }))
 
 export type Agent = typeof agents.$inferSelect

@@ -595,6 +595,7 @@ agentRoutes.get('/me', async (c) => {
 			created_at: agent.createdAt,
 			last_active_at: agent.lastActiveAt,
 			owner_linked: agent.ownerUserId != null,
+			org_linked: agent.organizationId != null,
 		},
 	})
 })
@@ -1654,30 +1655,51 @@ agentRoutes.post('/execute', async (c) => {
 		if (wallet_address) {
 			// This NL-command path resolves the SAME quote shape /swap uses, which
 			// does carry a USD value (quote.fromAmountUsd, surfaced above as
-			// result.right.value_usd) — use it. If it's genuinely unresolvable, do
-			// NOT silently gate at $0: check whether the agent/org has any
-			// USD-denominated policy rule and force require_approval instead.
+			// result.right.value_usd) — use it. If it's genuinely unresolvable
+			// (e.g. Li.Fi didn't report a USD notional for this route), fall back
+			// to the shared price-fetch lib (same CoinGecko lookup /tokens.ts uses)
+			// keyed off the parsed from-token symbol and amount. Only if BOTH fail
+			// do we check whether the agent/org has any USD-denominated policy
+			// rule and force require_approval instead of silently gating at $0.
 			const parsedValueUsd = parseFloat(result.right.value_usd ?? '')
 			let valueUsd = 0
 			let priceUnavailableReason: string | undefined
+			const agentIdStr = agent.uuid ?? String(agent.id)
+			let valueSource: 'quote' | 'price_api' | 'unresolved' = 'unresolved'
 			if (Number.isFinite(parsedValueUsd)) {
 				valueUsd = parsedValueUsd
+				valueSource = 'quote'
 			} else {
-				const orgId = (c.get('apiKeyAuth') as { orgId: string } | undefined)?.orgId ?? null
-				const agentIdStr = agent.uuid ?? String(agent.id)
-				const usdRulesApply = await hasUsdPolicyRules(orgId, agentIdStr)
-				if (usdRulesApply) {
-					priceUnavailableReason =
-						'USD value unresolvable for this NL command quote — USD-denominated policy rules apply, cannot evaluate at $0'
+				// Quote carried no USD notional — try resolving a price directly off
+				// the parsed from-token symbol + amount before giving up.
+				const prices = await fetchTokenPrices([fromToken])
+				const priceEntry = prices[fromToken.toUpperCase()]
+				const parsedAmount = parseFloat(amount)
+				if (priceEntry?.usd != null && Number.isFinite(parsedAmount)) {
+					valueUsd = priceEntry.usd * parsedAmount
+					valueSource = 'price_api'
 				} else {
-					writeAuditLog({
-						userId: 0,
-						agentId: agentIdStr,
-						eventType: 'policy.price_unavailable',
-						details: { note: 'valueUsd defaulted to 0 for /execute policy eval — no USD rules configured' },
-					})
+					const orgId = (c.get('apiKeyAuth') as { orgId: string } | undefined)?.orgId ?? null
+					const usdRulesApply = await hasUsdPolicyRules(orgId, agentIdStr)
+					if (usdRulesApply) {
+						priceUnavailableReason =
+							'USD value unresolvable for this NL command quote — USD-denominated policy rules apply, cannot evaluate at $0'
+					} else {
+						writeAuditLog({
+							userId: 0,
+							agentId: agentIdStr,
+							eventType: 'policy.price_unavailable',
+							details: { note: 'valueUsd defaulted to 0 for /execute policy eval — no USD rules configured' },
+						})
+					}
 				}
 			}
+			writeAuditLog({
+				userId: 0,
+				agentId: agentIdStr,
+				eventType: 'policy.execute_value_resolved',
+				details: { source: valueSource, valueUsd, fromToken, chain: chain || 'ethereum' },
+			})
 			const policyResponse = await enforcePolicy(
 				c,
 				agent,
