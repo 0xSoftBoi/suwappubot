@@ -140,6 +140,84 @@ export const auditLog = (event: AuditEvent) =>
 		),
 	)
 
+export interface AuditVerifyResult {
+	valid: boolean
+	checked: number
+	firstBreakId?: number
+}
+
+/**
+ * Walk a hash chain (scoped by orgId, or the org-less/global chain when
+ * `orgId` is null) and confirm every row's `entryHash` matches
+ * `computeEntryHash` of its own fields chained to the previous row's
+ * `entryHash`. Shared by every audit-verify surface (agent-facing
+ * `/v1/agent/audit/verify` and the user-facing `/webapp/audit/verify`) so the
+ * walk logic — and its "skip rows written before the hash-chain migration"
+ * behavior — lives in exactly one place.
+ */
+export const verifyAuditChain = (orgId: string | null, limit: number) =>
+	Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({
+						id: auditLogs.id,
+						userId: auditLogs.userId,
+						orgId: auditLogs.orgId,
+						agentId: auditLogs.agentId,
+						eventType: auditLogs.eventType,
+						details: auditLogs.details,
+						createdAt: auditLogs.createdAt,
+						prevHash: auditLogs.prevHash,
+						entryHash: auditLogs.entryHash,
+					})
+					.from(auditLogs)
+					.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
+					.orderBy(desc(auditLogs.id))
+					.limit(limit),
+			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+		})
+
+		let valid = true
+		let firstBreakId: number | undefined
+		// Rows are newest-first; walk oldest->newest logically by iterating in
+		// reverse so each row's expected prevHash is the previous row's entryHash.
+		let expectedPrevHash: string | null = null
+		const oldestFirst = [...rows].reverse()
+		for (const row of oldestFirst) {
+			// Rows written before this migration have null hashes — skip them
+			// (chain starts fresh at the first hashed row) rather than flagging a
+			// false break.
+			if (row.entryHash == null && row.prevHash == null) {
+				expectedPrevHash = null
+				continue
+			}
+			if (row.prevHash !== expectedPrevHash) {
+				valid = false
+				firstBreakId = row.id
+				break
+			}
+			const recomputed = computeEntryHash({
+				userId: row.userId,
+				orgId: row.orgId,
+				agentId: row.agentId,
+				eventType: row.eventType,
+				details: row.details,
+				ts: row.createdAt ? new Date(row.createdAt).toISOString() : '',
+				prevHash: row.prevHash,
+			})
+			if (recomputed !== row.entryHash) {
+				valid = false
+				firstBreakId = row.id
+				break
+			}
+			expectedPrevHash = row.entryHash
+		}
+
+		return { valid, checked: rows.length, firstBreakId } as AuditVerifyResult
+	})
+
 /**
  * Fire-and-forget audit write for plain async (non-Effect) call sites such as
  * Hono middleware. Does not block or throw.

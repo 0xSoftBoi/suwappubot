@@ -1,15 +1,18 @@
-import { and, eq, gte, sql as drizzleSql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { and, desc, eq, gte, sql as drizzleSql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
-import { pointRedemptions, rewards, swapTransactions } from '../db/schema'
+import { agentApprovals, agents, pointRedemptions, rewards, swapTransactions } from '../db/schema'
 import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
+import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
+import { auditLog } from '../services/audit'
 import { getVipStatusRaw } from '../services/VipService'
 import {
 	BalanceService,
@@ -1833,6 +1836,298 @@ protectedWebapp.delete('/alerts/wallet-track/:id', async (c) => {
 	}
 
 	return c.json({ success: true, id: result.right.id })
+})
+
+// === Agent approvals (human-in-the-loop decisions, terminal/webapp surface) ===
+//
+// USER-authenticated (flexAuth: Telegram init-data or the JWT this webapp
+// issues) — NOT agent bearer auth. Ownership is enforced exactly like the
+// Telegram bot's inline-button handler (bot/handlers/approvals.py): an
+// atomic conditional UPDATE keyed on `status = 'pending' AND
+// user_telegram_id = <caller>`, so a double-submit or a race with lazy
+// expiry can only ever decide a row once, and a request for someone else's
+// approval id can never flip (or reveal the existence of) it.
+
+const APPROVAL_STATUSES = ['pending', 'approved', 'denied', 'expired'] as const
+type ApprovalStatus = (typeof APPROVAL_STATUSES)[number]
+
+type AgentApprovalRow = typeof agentApprovals.$inferSelect
+
+/** Safe, allow-listed subset of intent_json — never forward raw internals
+ * (contractAddress, agentId, etc.) to the terminal UI. */
+function safeIntentSubset(intentJson: unknown): Record<string, unknown> | null {
+	if (!intentJson || typeof intentJson !== 'object') return null
+	const src = intentJson as Record<string, unknown>
+	const subset: Record<string, unknown> = {}
+	if (typeof src.fromToken === 'string') subset.fromToken = src.fromToken
+	if (typeof src.toToken === 'string') subset.toToken = src.toToken
+	if (src.fromAmount != null) subset.fromAmount = src.fromAmount
+	return Object.keys(subset).length > 0 ? subset : null
+}
+
+/**
+ * Enqueue a durable webhook-delivery row for a web-decided approval, so the
+ * owning agent gets notified the same way it would for a Telegram decision.
+ *
+ * api-ts cannot call the Python bot process directly, so this writes
+ * directly into `agent_webhook_deliveries` — the exact table
+ * bot/services/webhook_dispatcher.py polls (status='pending', ordered by
+ * created_at) and bot/services/approval_webhook.py's `enqueue_delivery`
+ * creates. Column shape must match database/db.py's
+ * `_create_agent_webhook_deliveries_table` precisely: (id, approval_id,
+ * agent_id, url, payload_json, signature_ts, status, attempts). No Drizzle
+ * schema exists for this table (it's intentionally Python-owned — see the
+ * comment on that function), so this is a raw parameterized INSERT rather
+ * than a `db.insert(...)` call.
+ *
+ * Signing is intentionally NOT done here: webhook_dispatcher re-fetches
+ * `agents.api_key_hash` and re-signs at delivery time (see its
+ * `_attempt_one`), so `signature_ts` written here is informational only.
+ * If the agent has no `callback_url` set, nothing is enqueued — mirrors
+ * approval_webhook.py's own early-return in that case.
+ */
+async function enqueueApprovalWebhookDelivery(row: AgentApprovalRow): Promise<void> {
+	if (!row.agentId) return
+	await runEffect(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const agentRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ callbackUrl: agents.callbackUrl })
+						.from(agents)
+						.where(eq(agents.uuid, row.agentId as string))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const callbackUrl = agentRows[0]?.callbackUrl
+			if (!callbackUrl) return
+
+			const payload = {
+				event: 'approval.decided',
+				approval_id: row.id,
+				status: row.status,
+				decided_at: new Date().toISOString(),
+				intent_hash: row.intentHash ?? null,
+			}
+			const deliveryId = randomUUID()
+			const signatureTs = String(Math.floor(Date.now() / 1000))
+			yield* Effect.tryPromise({
+				try: () =>
+					db.execute(drizzleSql`
+						INSERT INTO agent_webhook_deliveries
+							(id, approval_id, agent_id, url, payload_json, signature_ts, status, attempts)
+						VALUES (
+							${deliveryId}, ${row.id}, ${row.agentId}, ${callbackUrl},
+							${JSON.stringify(payload)}::jsonb, ${signatureTs}, 'pending', 0
+						)
+					`),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	).catch((e) => {
+		logger.warn({ err: e }, 'Failed to enqueue approval webhook delivery')
+	})
+}
+
+// GET /webapp/approvals - list the caller's own agent-approval requests
+webappRoutes.get('/approvals', flexAuth(), async (c) => {
+	const authUser = c.get('authUser') as AuthUser
+	const statusParam = c.req.query('status') ?? 'pending'
+	const status: ApprovalStatus = (APPROVAL_STATUSES as readonly string[]).includes(statusParam)
+		? (statusParam as ApprovalStatus)
+		: 'pending'
+	const limitParam = parseInt(c.req.query('limit') ?? '50', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 50, 1), 200)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserById(authUser.userId).pipe(
+				Effect.catchAll(() => Effect.succeed(Option.none())),
+			)
+			if (Option.isNone(userOption) || userOption.value.telegramId == null) {
+				return [] as AgentApprovalRow[]
+			}
+			const telegramId = userOption.value.telegramId
+
+			// Lazy expiry: flip any of the caller's own still-"pending" rows past
+			// expires_at before reading, so a stale row is never listed as
+			// pending (and can never be decided post-expiry — see the /decide
+			// route's own conditional-update guard for the enforcement side).
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agentApprovals)
+						.set({ status: 'expired' })
+						.where(
+							and(
+								eq(agentApprovals.userTelegramId, telegramId),
+								eq(agentApprovals.status, 'pending'),
+								drizzleSql`${agentApprovals.expiresAt} IS NOT NULL AND ${agentApprovals.expiresAt} <= now()`,
+							),
+						),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(agentApprovals)
+						.where(
+							and(
+								eq(agentApprovals.userTelegramId, telegramId),
+								eq(agentApprovals.status, status),
+							),
+						)
+						.orderBy(desc(agentApprovals.createdAt))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to list agent approvals')
+		return c.json({ error: 'Failed to load approvals' }, 500)
+	}
+
+	const approvals = result.right.map((row) => ({
+		id: row.id,
+		agent_name: row.agentName,
+		chain: row.chain,
+		value_usd: row.valueUsd,
+		status: row.status,
+		created_at: row.createdAt,
+		expires_at: row.expiresAt,
+		intent: safeIntentSubset(row.intentJson),
+	}))
+
+	return c.json({ approvals })
+})
+
+type DecideOutcome =
+	| { outcome: 'decided'; row: AgentApprovalRow }
+	| { outcome: 'not_found' }
+	| { outcome: 'expired' }
+	| { outcome: 'already_decided'; status: string }
+
+// POST /webapp/approvals/:id/decide - approve or deny a pending approval
+webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
+	const authUser = c.get('authUser') as AuthUser
+	const approvalId = c.req.param('id')
+	const body = await c.req.json().catch(() => ({}) as Record<string, unknown>)
+	const decision = (body as { decision?: unknown }).decision
+	if (decision !== 'approve' && decision !== 'deny') {
+		return c.json({ error: "decision must be 'approve' or 'deny'" }, 400)
+	}
+	const newStatus = decision === 'approve' ? 'approved' : 'denied'
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserById(authUser.userId).pipe(
+				Effect.catchAll(() => Effect.succeed(Option.none())),
+			)
+			if (Option.isNone(userOption) || userOption.value.telegramId == null) {
+				return { outcome: 'not_found' } as DecideOutcome
+			}
+			const telegramId = userOption.value.telegramId
+			const decidedBy = `web:${authUser.userId}`
+
+			// Atomic guarded UPDATE — mirrors bot/handlers/approvals.py's Telegram
+			// callback handler: only flips a row that is STILL pending, owned by
+			// the caller, and not past its expiry, in one statement so a
+			// double-submit or a race with the expiry sweep can decide it only
+			// once.
+			const updated = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agentApprovals)
+						.set({ status: newStatus, decidedBy, decidedAt: new Date(), channel: 'web' })
+						.where(
+							and(
+								eq(agentApprovals.id, approvalId),
+								eq(agentApprovals.status, 'pending'),
+								eq(agentApprovals.userTelegramId, telegramId),
+								drizzleSql`(${agentApprovals.expiresAt} IS NULL OR ${agentApprovals.expiresAt} > now())`,
+							),
+						)
+						.returning(),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			if (updated.length > 0) {
+				return { outcome: 'decided', row: updated[0] as AgentApprovalRow } as DecideOutcome
+			}
+
+			// Nothing flipped — determine why WITHOUT leaking whether a row
+			// belonging to someone else exists: not-found and not-yours report
+			// identically.
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db.select().from(agentApprovals).where(eq(agentApprovals.id, approvalId)).limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const row = existing[0]
+			if (!row || row.userTelegramId !== telegramId) {
+				return { outcome: 'not_found' } as DecideOutcome
+			}
+			if (row.status === 'pending') {
+				// Only reason a same-owner pending row's conditional update could
+				// have missed it: it's past expiry. Lazily flip it now (still
+				// guarded on status='pending' to avoid a double-flip race).
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agentApprovals)
+							.set({ status: 'expired' })
+							.where(and(eq(agentApprovals.id, approvalId), eq(agentApprovals.status, 'pending'))),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+				return { outcome: 'expired' } as DecideOutcome
+			}
+			return { outcome: 'already_decided', status: row.status } as DecideOutcome
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to decide agent approval')
+		return c.json({ error: 'Failed to record decision' }, 500)
+	}
+
+	const outcome = result.right
+	if (outcome.outcome === 'not_found') {
+		return c.json({ error: 'Approval not found' }, 404)
+	}
+	if (outcome.outcome === 'expired') {
+		return c.json({ error: 'Approval expired', status: 'expired' }, 409)
+	}
+	if (outcome.outcome === 'already_decided') {
+		return c.json({ error: 'Approval already decided', status: outcome.status }, 409)
+	}
+
+	const row = outcome.row
+
+	// Append-only audit trail — fire-and-forget, never blocks the response.
+	void runEffect(
+		auditLog({
+			userId: authUser.userId,
+			agentId: row.agentId,
+			orgId: row.orgId,
+			eventType: 'approval.decided_web',
+			details: { approvalId: row.id, status: row.status, decidedBy: row.decidedBy },
+		}),
+	)
+
+	// Notify the agent via the same durable delivery path Telegram decisions
+	// use — see enqueueApprovalWebhookDelivery's doc comment.
+	void enqueueApprovalWebhookDelivery(row)
+
+	return c.json({ success: true, id: row.id, status: row.status })
 })
 
 // Mount protected routes at both /me and /users/me for backward compatibility

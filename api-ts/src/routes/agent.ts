@@ -29,7 +29,7 @@ import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchMintPriceUsd } from '../lib/prices'
 import { enforcePolicy, hasUsdPolicyRules, type PolicyGateIntent } from '../services/policyGate'
-import { auditLog, computeEntryHash, writeAuditLog } from '../services/audit'
+import { auditLog, computeEntryHash, verifyAuditChain, writeAuditLog } from '../services/audit'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -3815,73 +3815,13 @@ agentRoutes.get('/audit/verify', async (c) => {
 	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
 	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
 
-	const result = await runEffectEither(
-		Effect.gen(function* () {
-			const db = yield* requireDb
-			return yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select({
-							id: auditLogs.id,
-							userId: auditLogs.userId,
-							orgId: auditLogs.orgId,
-							agentId: auditLogs.agentId,
-							eventType: auditLogs.eventType,
-							details: auditLogs.details,
-							createdAt: auditLogs.createdAt,
-							prevHash: auditLogs.prevHash,
-							entryHash: auditLogs.entryHash,
-						})
-						.from(auditLogs)
-						.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
-						.orderBy(desc(auditLogs.id))
-						.limit(limit),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
-		}),
-	)
+	const result = await runEffectEither(verifyAuditChain(orgId, limit))
 
 	if (Either.isLeft(result)) {
 		return agentError(c, 500, 'INTERNAL', result.left.message)
 	}
 
-	const rows = result.right
-	let valid = true
-	let firstBreakId: number | undefined
-	// Rows are newest-first; walk oldest->newest logically by iterating in
-	// reverse so each row's expected prevHash is the previous row's entryHash.
-	let expectedPrevHash: string | null = null
-	const oldestFirst = [...rows].reverse()
-	for (const row of oldestFirst) {
-		// Rows written before this migration have null hashes — skip them (chain
-		// starts fresh at the first hashed row) rather than flagging a false break.
-		if (row.entryHash == null && row.prevHash == null) {
-			expectedPrevHash = null
-			continue
-		}
-		if (row.prevHash !== expectedPrevHash) {
-			valid = false
-			firstBreakId = row.id
-			break
-		}
-		const recomputed = computeEntryHash({
-			userId: row.userId,
-			orgId: row.orgId,
-			agentId: row.agentId,
-			eventType: row.eventType,
-			details: row.details,
-			ts: row.createdAt ? new Date(row.createdAt).toISOString() : '',
-			prevHash: row.prevHash,
-		})
-		if (recomputed !== row.entryHash) {
-			valid = false
-			firstBreakId = row.id
-			break
-		}
-		expectedPrevHash = row.entryHash
-	}
-
-	return c.json({ success: true, valid, checked: rows.length, firstBreakId })
+	return c.json({ success: true, ...result.right })
 })
 
 // ===========================================
