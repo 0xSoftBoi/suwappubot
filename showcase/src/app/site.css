@@ -665,3 +665,54 @@
 @media (max-width: 1024px) {
   .csgl.sw__field:not(.sw__field--hero) { display: none; }
 }
+
+/* ── Proof shots ─────────────────────────────────────────────────
+   Real product captures replacing the old abstract canvas bands.
+   The frame is deliberately quiet: a hairline and a soft lift, so the
+   screenshot itself is the thing being looked at, not the chrome. */
+.proof {
+  margin: 40px 0 0;
+}
+
+.proof__frame {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0a0a0b;
+  /* Tinted to the page ground rather than pure black. */
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 24px 60px -24px rgba(0, 0, 0, 0.9);
+}
+
+.proof__img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.proof__cap {
+  margin-top: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.34);
+}
+
+@media (max-width: 760px) {
+  .proof { margin-top: 28px; }
+  .proof__frame { border-radius: 9px; }
+  .proof__cap { font-size: 10px; }
+}
+
+/* A section that carries no figure: tighter, so the absence of a visual
+   reads as a deliberate pause between two dense ones, not a gap. */
+.sw__sec--quiet {
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+@media (max-width: 760px) {
+  .sw__sec--quiet { padding-top: 48px; padding-bottom: 48px; }
+}

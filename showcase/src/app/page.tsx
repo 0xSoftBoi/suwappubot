@@ -3,7 +3,7 @@ import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
-import SectionFieldGL from '@/components/SectionFieldGL';
+import ProofShot from '@/components/ProofShot';
 import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
@@ -165,9 +165,13 @@ export default async function Home() {
                 </li>
               ))}
             </ol>
-            <div className="sw__band">
-              <SectionFieldGL motif="race" className="sw__band-canvas" />
-            </div>
+            <ProofShot
+              src="/proof/spot-desk.png"
+              width={3160}
+              height={940}
+              alt="The Suwappu terminal: an ETH/USDC candlestick chart, a live order book with bid and ask depth, and the swap ticket showing a 90/100 token trust score from GoPlus."
+              caption="Live Suwappu Terminal · captured 31 Jul 2026"
+            />
           </Reveal>
         </section>
 
@@ -200,9 +204,13 @@ export default async function Home() {
               The full ecosystem from inside the bot. Fund from any chain, trade up to 20x,
               stake HYPE and earn in vaults. No bridging tabs, no address pasting.
             </p>
-            <div className="sw__band sw__band--tall">
-              <SectionFieldGL motif="markets" className="sw__band-canvas" />
-            </div>
+            <ProofShot
+              src="/proof/perps-desk.png"
+              width={3160}
+              height={720}
+              alt="The perps desk: a markets table listing BTC, ETH, SOL and more with mark price, open interest, funding and max leverage, beside the order ticket with cross or isolated margin, leverage and take-profit and stop-loss fields."
+              caption="Live perps desk, via HyperLiquid · captured 31 Jul 2026"
+            />
             <dl className="sw__cmds">
               {PERPS.map((p) => (
                 <div key={p.c}>
@@ -215,7 +223,7 @@ export default async function Home() {
         </section>
 
         {/* ── Tempo ────────────────────────────────────────────── */}
-        <section id="tempo" className="sw__sec sw__sec--wide" aria-label="Gasless swaps on Tempo">
+        <section id="tempo" className="sw__sec sw__sec--quiet" aria-label="Gasless swaps on Tempo">
           <Reveal>
             <h2 className="sw__h2">Trade without holding gas tokens.</h2>
             <p className="sw__lead">
@@ -223,15 +231,11 @@ export default async function Home() {
               for about a tenth of a cent while we cover the rest. It falls back to a normal
               swap if sponsorship is unavailable, so nothing ever blocks.
             </p>
-            <div className="sw__band">
-              <SectionFieldGL motif="sponsor" className="sw__band-canvas" />
-            </div>
           </Reveal>
         </section>
 
         {/* ── Agents ───────────────────────────────────────────── */}
         <section id="agents" className="sw__sec" aria-label="Built for agents">
-          <SectionFieldGL motif="tools" className="sw__field sw__field--top" />
           <Reveal>
             <p className="sw__eyebrow">Built for the agentic era</p>
             <h2 className="sw__h2">Hand your trading layer to an agent.</h2>
