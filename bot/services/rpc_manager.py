@@ -261,10 +261,23 @@ class RPCEndpoint:
         self.consecutive_failures = 0
         self.circuit_open_until = 0.0
 
-    def record_failure(self, error: str):
+    def record_failure(self, error: str, fatal: bool = False):
+        """Record a failed probe/request.
+
+        `fatal=True` opens the circuit on the FIRST occurrence, for failures
+        that are a property of the endpoint rather than a transient blip —
+        "the method eth_call is not supported" will be just as true on the next
+        attempt. Waiting for three of those keeps a known-broken endpoint in
+        rotation for minutes, which is how a chainlist-discovered node that
+        rejects eth_call ended up serving contract reads on dev.
+        """
         self.total_requests += 1
         self.last_error = error
         self.consecutive_failures += 1
+        if fatal:
+            self.circuit_open_until = time.monotonic() + 600
+            logger.warning(f"RPC circuit OPEN (fatal) {self.url[:60]}... (600s, reason={error})")
+            return
         if self.consecutive_failures >= 3:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
@@ -299,9 +312,16 @@ class RPCManager:
     async def start(self):
         """Initialize endpoints and start background health checker."""
         self._load_configured_endpoints()
-        # Fetch chainlist in background — don't block startup
+        # Fetch chainlist in background — don't block startup. The fetch probes
+        # whatever it adds before those endpoints can be selected.
         asyncio.create_task(self._fetch_chainlist_endpoints())
         self._running = True
+        # Probe immediately rather than waiting for the first background cycle.
+        # Until an endpoint has been probed it has no latency sample, so every
+        # endpoint scores near-identically and selection is effectively a coin
+        # flip — which on a cold deploy is exactly when a broken endpoint gets
+        # picked. Kicked off as a task so startup is not blocked on the sweep.
+        asyncio.create_task(self._health_check_all())
         self._bg_task = asyncio.create_task(self._background_loop())
         total = sum(len(v) for v in self._endpoints.values())
         logger.info(f"RPCManager started: {total} endpoints across {len(self._endpoints)} chains")
@@ -372,6 +392,9 @@ class RPCManager:
 
     async def _fetch_chainlist_endpoints(self):
         """Fetch additional RPCs from chainlist.org (graceful failure)."""
+        # Declared outside the try so the probe below still runs if the fetch
+        # raises partway through having already appended some endpoints.
+        newly_added: List[RPCEndpoint] = []
         try:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
             async with aiohttp.ClientSession(connector=connector) as session:
@@ -423,13 +446,13 @@ class RPCManager:
                         logger.debug(f"Chainlist: rejected untrusted RPC {rpc_url[:80]}")
                         continue
 
-                    self._endpoints.setdefault(chain_name, []).append(
-                        RPCEndpoint(
-                            url=rpc_url,
-                            chain=chain_name,
-                            tier=RPCTier.DISCOVERED,
-                        )
+                    discovered = RPCEndpoint(
+                        url=rpc_url,
+                        chain=chain_name,
+                        tier=RPCTier.DISCOVERED,
                     )
+                    self._endpoints.setdefault(chain_name, []).append(discovered)
+                    newly_added.append(discovered)
                     existing_urls.add(rpc_url)
                     added += 1
 
@@ -439,6 +462,18 @@ class RPCManager:
 
         except Exception as e:
             logger.warning(f"Chainlist fetch failed (using defaults): {e}")
+
+        # Probe what was just added, before it can be selected. These arrive
+        # after startup's sweep, so without this they sit unprobed — and an
+        # unprobed endpoint is indistinguishable from a good one at selection
+        # time. This is the path that put an eth_call-rejecting node into
+        # rotation on dev.
+        if newly_added:
+            sem = asyncio.Semaphore(20)
+            await asyncio.gather(
+                *(self._health_check_one(sem, ep) for ep in newly_added),
+                return_exceptions=True,
+            )
 
     # === SELECTION ===
 
@@ -655,7 +690,13 @@ class RPCManager:
                     return False
                 data = await resp.json()
                 if "error" in data:
-                    ep.record_failure(f"eth_call unsupported: {str(data['error'])[:60]}")
+                    # A node either implements eth_call or it does not; this
+                    # will not come good on retry, so quarantine it now rather
+                    # than after three sweeps (six minutes) of serving broken
+                    # contract reads.
+                    ep.record_failure(
+                        f"eth_call unsupported: {str(data['error'])[:60]}", fatal=True
+                    )
                     return False
                 return True
         except asyncio.TimeoutError:
