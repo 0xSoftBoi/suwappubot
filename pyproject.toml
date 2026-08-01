@@ -6,6 +6,9 @@ addopts = "--strict-markers -v --tb=short"
 # (bot, api, database). The project is not pip-installed, so without this pytest
 # can't resolve `from bot...` / `from api...` imports.
 pythonpath = ["."]
+markers = [
+    "integration: requires a real Postgres instance (see tests/integration/conftest.py); skipped automatically if unreachable",
+]
 
 [tool.coverage.run]
 source = ["bot", "api"]
