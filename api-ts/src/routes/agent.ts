@@ -1666,7 +1666,9 @@ agentRoutes.post('/execute', async (c) => {
 			let priceUnavailableReason: string | undefined
 			const agentIdStr = agent.uuid ?? String(agent.id)
 			let valueSource: 'quote' | 'price_api' | 'unresolved' = 'unresolved'
-			if (Number.isFinite(parsedValueUsd)) {
+			// Must be strictly positive: a 0/negative notional would evaluate real
+			// trades against USD caps as $0 and skip the fail-closed path below.
+			if (Number.isFinite(parsedValueUsd) && parsedValueUsd > 0) {
 				valueUsd = parsedValueUsd
 				valueSource = 'quote'
 			} else {
@@ -1675,7 +1677,12 @@ agentRoutes.post('/execute', async (c) => {
 				const prices = await fetchTokenPrices([fromToken])
 				const priceEntry = prices[fromToken.toUpperCase()]
 				const parsedAmount = parseFloat(amount)
-				if (priceEntry?.usd != null && Number.isFinite(parsedAmount)) {
+				if (
+					priceEntry?.usd != null &&
+					priceEntry.usd > 0 &&
+					Number.isFinite(parsedAmount) &&
+					parsedAmount > 0
+				) {
 					valueUsd = priceEntry.usd * parsedAmount
 					valueSource = 'price_api'
 				} else {

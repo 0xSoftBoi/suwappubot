@@ -31,10 +31,10 @@ export const ALLOWED_JWT_ALGORITHMS: readonly jwt.Algorithm[] = ['HS256']
 export function verifyAuthJwt(
 	token: string,
 	jwtSecret: string,
-): { userId: number; walletAddress?: string } {
+): { userId: number; walletAddress?: string; src?: string } {
 	return jwt.verify(token, jwtSecret, {
 		algorithms: [...ALLOWED_JWT_ALGORITHMS],
-	}) as { userId: number; walletAddress?: string }
+	}) as { userId: number; walletAddress?: string; src?: string }
 }
 
 declare module 'hono' {
@@ -136,6 +136,128 @@ export function flexAuth() {
 		}
 
 		// 3. No auth provided
+		throw new HTTPException(401, { message: 'Authentication required' })
+	}
+}
+
+/**
+ * Stricter variant of flexAuth() for endpoints that authorize spend-affecting
+ * actions: agent-approval decisions and the audit trail that records them
+ * (webapp.ts POST /approvals/:id/decide, GET /approvals, GET /audit,
+ * GET /audit/verify).
+ *
+ * Background: POST /public/swap/auth (src/routes/publicSwap.ts) mints a
+ * 7-day JWT from a bare `{subOrgId, walletAddress}` request body with NO
+ * proof of possession — anyone who knows a victim's wallet address can mint
+ * a valid token for that victim. flexAuth() accepts any JWT signed with our
+ * secret, which means that forgeable token would be enough to approve or
+ * deny a victim's pending agent-spend approval. Fixing publicSwap's /auth
+ * itself is out of scope here (separate pre-existing vuln, separate blast
+ * radius) — instead this guard narrows what the approvals/audit surface will
+ * accept.
+ *
+ * Accepted credentials (both are genuine proof-of-possession):
+ * 1. X-Telegram-Init-Data — verified via TelegramAuthService (Telegram's
+ *    HMAC signature over the initData payload).
+ * 2. Authorization: Bearer <jwt> WHERE the decoded token carries
+ *    `src: 'telegram'`. That claim is only ever set by
+ *    POST /webapp/telegram/auth (webapp.ts), which is itself gated on a
+ *    verified Telegram initData signature. Tokens minted by
+ *    POST /public/swap/auth never carry this claim (they only ever contain
+ *    {userId, walletAddress}), so they are rejected here even though they
+ *    verify fine against the shared JWT secret.
+ *
+ * Anything else — including a structurally valid, correctly-signed JWT that
+ * simply lacks `src: 'telegram'` — is treated as insufficient and rejected
+ * with 403 (not 401), since the caller may be "authenticated" for other
+ * surfaces but is not authorized for this one.
+ */
+export function requireProofOfPossession() {
+	return async (c: Context, next: Next) => {
+		// 1. Telegram init-data — verified HMAC signature, always sufficient.
+		const initData = c.req.header('X-Telegram-Init-Data')
+		if (initData) {
+			const result = await runEffectEither(
+				Effect.gen(function* () {
+					const authService = yield* TelegramAuthService
+					const userService = yield* UserService
+					const walletService = yield* WalletService
+
+					const telegramUserOption = yield* authService.validateInitData(initData)
+					if (Option.isNone(telegramUserOption)) {
+						return yield* Effect.fail(new Error('Invalid Telegram authentication'))
+					}
+
+					const telegramUser = telegramUserOption.value
+
+					const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+					if (Option.isNone(userOption)) {
+						return yield* Effect.fail(new Error('User not found'))
+					}
+
+					const user = userOption.value
+					let walletAddress: string | null = null
+
+					const wallets = yield* walletService.getActiveWallets(user.id)
+					const primaryWallet = wallets[0]
+					if (primaryWallet) {
+						walletAddress = primaryWallet.address
+					}
+
+					return { userId: user.id, walletAddress } as AuthUser
+				}),
+			)
+
+			if (Either.isRight(result)) {
+				c.set('authUser', result.right)
+				await next()
+				return
+			}
+			// Fall through to try JWT.
+		}
+
+		// 2. JWT Bearer auth — must carry the telegram-backed `src` claim.
+		const authHeader = c.req.header('Authorization')
+		if (authHeader?.startsWith('Bearer ')) {
+			const token = authHeader.slice(7)
+
+			const result = await runEffectEither(
+				Effect.gen(function* () {
+					const env = yield* EnvService
+					if (!env.JWT_SECRET) {
+						return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+					}
+					const jwtSecret = env.JWT_SECRET
+
+					const decoded = yield* Effect.try({
+						try: () => verifyAuthJwt(token, jwtSecret),
+						catch: () => new Error('Invalid JWT token'),
+					})
+
+					if (decoded.src !== 'telegram') {
+						return yield* Effect.fail(new Error('Insufficient credential'))
+					}
+
+					return {
+						userId: decoded.userId,
+						walletAddress: decoded.walletAddress || null,
+					} as AuthUser
+				}),
+			)
+
+			if (Either.isRight(result)) {
+				c.set('authUser', result.right)
+				await next()
+				return
+			}
+
+			throw new HTTPException(403, {
+				message:
+					'Insufficient credentials for this action. This endpoint requires a proof-of-possession session (Telegram login), not a wallet-address token.',
+			})
+		}
+
+		// 3. No auth provided at all.
 		throw new HTTPException(401, { message: 'Authentication required' })
 	}
 }

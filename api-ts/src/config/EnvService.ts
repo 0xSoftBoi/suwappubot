@@ -71,6 +71,14 @@ export const EnvSchema = Schema.Struct({
 	// approval-row creation, no new response fields).
 	AGENT_APPROVALS_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 
+	// Step-up re-confirmation for POST /webapp/approvals/:id/decide (approve
+	// only). This is an INTERIM server-issued single-use short-TTL nonce —
+	// NOT real WebAuthn/passkey cryptographic proof (no WebAuthn library is
+	// present in this repo). Default OFF so deploying this never blocks
+	// existing approve flows. See src/db/schema/approvalStepUpChallenges.ts
+	// for the upgrade path to real passkey step-up.
+	APPROVAL_STEP_UP_REQUIRED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),

@@ -1,6 +1,6 @@
 {
-  "id": "38db6b68-714e-4cc6-a231-a04a9b3a4088",
-  "prevId": "5ee0d729-11b4-47f5-977a-86d24899cc92",
+  "id": "0caee30b-dc50-4949-b9bb-0c003ad3d1f2",
+  "prevId": "7ae05c23-82ec-4db4-ad71-286dc7587d84",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -350,6 +350,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -401,6 +407,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ix_agents_organization_id": {
+          "name": "ix_agents_organization_id",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -410,6 +431,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agents_organization_id_organizations_id_fk": {
+          "name": "agents_organization_id_organizations_id_fk",
+          "tableFrom": "agents",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
           ],
           "columnsTo": [
             "id"
@@ -569,6 +603,92 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.approval_step_up_challenges": {
+      "name": "approval_step_up_challenges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_telegram_id": {
+          "name": "user_telegram_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "approval_id": {
+          "name": "approval_id",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "challenge": {
+          "name": "challenge",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ix_approval_step_up_challenges_approval_id": {
+          "name": "ix_approval_step_up_challenges_approval_id",
+          "columns": [
+            {
+              "expression": "approval_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "approval_step_up_challenges_approval_id_agent_approvals_id_fk": {
+          "name": "approval_step_up_challenges_approval_id_agent_approvals_id_fk",
+          "tableFrom": "approval_step_up_challenges",
+          "tableTo": "agent_approvals",
+          "columnsFrom": [
+            "approval_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1889,7 +2009,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": false,
-          "default": "'\ud83e\udd8a'"
+          "default": "'🦊'"
         },
         "total_trades": {
           "name": "total_trades",
@@ -6115,7 +6235,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'\ud83c\udfc6'"
+          "default": "'🏆'"
         },
         "requirement_type": {
           "name": "requirement_type",
@@ -6458,7 +6578,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'\ud83c\udf81'"
+          "default": "'🎁'"
         },
         "points_cost": {
           "name": "points_cost",

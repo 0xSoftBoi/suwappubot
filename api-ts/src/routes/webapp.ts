@@ -8,6 +8,7 @@ import { requireDb } from '../db'
 import {
 	agentApprovals,
 	agents,
+	approvalStepUpChallenges,
 	auditLogs,
 	organizations,
 	pointRedemptions,
@@ -17,7 +18,7 @@ import {
 import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
-import { type AuthUser, flexAuth } from '../middleware/flexAuth'
+import { type AuthUser, flexAuth, requireProofOfPossession } from '../middleware/flexAuth'
 import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
 import { auditLog, verifyAuditChain } from '../services/audit'
@@ -137,11 +138,21 @@ webappRoutes.post('/telegram/auth', async (c) => {
 			if (!jwtSecret) {
 				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
 			}
+			// `src: 'telegram'` marks this token as backed by a verified Telegram
+			// initData signature (proof of possession of the Telegram session).
+			// This is the claim that distinguishes it from the JWT minted by
+			// POST /public/swap/auth (src/routes/publicSwap.ts), which trusts a
+			// bare `{subOrgId, walletAddress}` body with NO proof of possession —
+			// any known wallet address mints a valid 7-day token for that
+			// wallet's victim there. Endpoints that authorize spend-affecting
+			// actions (agent approvals, audit) must require this claim; see
+			// requireProofOfPossession() in middleware/flexAuth.ts.
 			const token = jwt.sign(
 				{
 					userId: user.id,
 					telegramId: telegramUser.id,
 					walletAddress,
+					src: 'telegram',
 				},
 				jwtSecret,
 				{ expiresIn: '7d' },
@@ -1939,7 +1950,7 @@ async function enqueueApprovalWebhookDelivery(row: AgentApprovalRow): Promise<vo
 }
 
 // GET /webapp/approvals - list the caller's own agent-approval requests
-webappRoutes.get('/approvals', flexAuth(), async (c) => {
+webappRoutes.get('/approvals', requireProofOfPossession(), async (c) => {
 	const authUser = c.get('authUser') as AuthUser
 	const statusParam = c.req.query('status') ?? 'pending'
 	const status: ApprovalStatus = (APPROVAL_STATUSES as readonly string[]).includes(statusParam)
@@ -2016,14 +2027,125 @@ webappRoutes.get('/approvals', flexAuth(), async (c) => {
 	return c.json({ approvals })
 })
 
+/**
+ * Pure predicate mirroring the atomic conditional UPDATE used to consume a
+ * step-up challenge: single-use (usedAt gate), short-TTL (expiresAt gate),
+ * and bound to the specific approval it was issued for. The real
+ * double-consume race is closed by the SQL WHERE clause in the route
+ * handler (this is a plain object check for unit testing that logic in
+ * isolation, not the source of truth for concurrency safety).
+ *
+ * Reiterating: this whole mechanism is an INTERIM server-issued nonce, not
+ * real WebAuthn/passkey step-up.
+ */
+export function isChallengeConsumable(
+	challenge: { usedAt: Date | null; expiresAt: Date; approvalId: string },
+	requestedApprovalId: string,
+	now: Date,
+): boolean {
+	if (challenge.usedAt !== null) return false
+	if (challenge.approvalId !== requestedApprovalId) return false
+	if (challenge.expiresAt.getTime() <= now.getTime()) return false
+	return true
+}
+
+const STEP_UP_TTL_MS = 2 * 60 * 1000
+
+// POST /webapp/approvals/:id/step-up/challenge - mint an interim step-up
+// nonce for a pending approval, required before /decide when
+// APPROVAL_STEP_UP_REQUIRED is on. NOT real WebAuthn/passkey — see
+// approvalStepUpChallenges schema doc comment for the upgrade path.
+// Same proof-of-possession requirement as /decide — a challenge minted for a
+// forgeable wallet-address token would be a step toward approving someone
+// else's spend, even though /decide independently rejects that credential.
+webappRoutes.post('/approvals/:id/step-up/challenge', requireProofOfPossession(), async (c) => {
+	const authUser = c.get('authUser') as AuthUser
+	const approvalId = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserById(authUser.userId).pipe(
+				Effect.catchAll(() => Effect.succeed(Option.none())),
+			)
+			if (Option.isNone(userOption) || userOption.value.telegramId == null) {
+				return { outcome: 'not_found' } as const
+			}
+			const telegramId = userOption.value.telegramId
+
+			// Mirror /decide's ownership/not-found handling exactly — same
+			// status/message shape so we never leak whether someone else's
+			// approval row exists.
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db.select().from(agentApprovals).where(eq(agentApprovals.id, approvalId)).limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const row = existing[0]
+			if (!row || row.userTelegramId !== telegramId) {
+				return { outcome: 'not_found' } as const
+			}
+			if (row.status !== 'pending') {
+				return { outcome: 'not_pending', status: row.status } as const
+			}
+
+			const challenge = randomUUID()
+			const now = new Date()
+			const expiresAt = new Date(now.getTime() + STEP_UP_TTL_MS)
+
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(approvalStepUpChallenges)
+						.values({
+							userTelegramId: telegramId,
+							approvalId,
+							challenge,
+							expiresAt,
+						})
+						.returning(),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			return { outcome: 'issued', challenge, expiresAt } as const
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to issue approval step-up challenge')
+		return c.json({ error: 'Failed to issue step-up challenge' }, 500)
+	}
+
+	const outcome = result.right
+	if (outcome.outcome === 'not_found') {
+		return c.json({ error: 'Approval not found' }, 404)
+	}
+	if (outcome.outcome === 'not_pending') {
+		return c.json({ error: 'Approval already decided', status: outcome.status }, 409)
+	}
+
+	// Fire-and-forget audit trail, mirroring /decide's pattern.
+	void runEffect(
+		auditLog({
+			userId: authUser.userId,
+			eventType: 'approval.step_up_issued',
+			details: { approvalId, challengeId: outcome.challenge },
+		}),
+	)
+
+	return c.json({ challenge: outcome.challenge, expires_at: outcome.expiresAt })
+})
+
 type DecideOutcome =
-	| { outcome: 'decided'; row: AgentApprovalRow }
+	| { outcome: 'decided'; row: AgentApprovalRow; consumedChallengeId?: number }
 	| { outcome: 'not_found' }
 	| { outcome: 'expired' }
 	| { outcome: 'already_decided'; status: string }
+	| { outcome: 'step_up_required' }
 
 // POST /webapp/approvals/:id/decide - approve or deny a pending approval
-webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
+webappRoutes.post('/approvals/:id/decide', requireProofOfPossession(), async (c) => {
 	const authUser = c.get('authUser') as AuthUser
 	const approvalId = c.req.param('id')
 	const body = await c.req.json().catch(() => ({}) as Record<string, unknown>)
@@ -2032,9 +2154,16 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 		return c.json({ error: "decision must be 'approve' or 'deny'" }, 400)
 	}
 	const newStatus = decision === 'approve' ? 'approved' : 'denied'
+	const stepUpChallengeToken =
+		typeof (body as { step_up_challenge?: unknown }).step_up_challenge === 'string'
+			? ((body as { step_up_challenge?: string }).step_up_challenge as string)
+			: typeof (body as { stepUpChallenge?: unknown }).stepUpChallenge === 'string'
+				? ((body as { stepUpChallenge?: string }).stepUpChallenge as string)
+				: undefined
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const env = yield* EnvService
 			const db = yield* requireDb
 			const userService = yield* UserService
 			const userOption = yield* userService.getUserById(authUser.userId).pipe(
@@ -2045,6 +2174,40 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 			}
 			const telegramId = userOption.value.telegramId
 			const decidedBy = `web:${authUser.userId}`
+
+			// Step-up re-confirmation (interim nonce, NOT WebAuthn/passkey) —
+			// approve only, and only when the flag is on. Deny is always
+			// untouched.
+			const stepUpRequired = decision === 'approve' && env.APPROVAL_STEP_UP_REQUIRED === 'true'
+			let consumedChallengeId: number | undefined
+			if (stepUpRequired) {
+				if (!stepUpChallengeToken) {
+					return { outcome: 'step_up_required' } as DecideOutcome
+				}
+				// Atomically consume the challenge: single-use, unexpired, and
+				// bound to this approval — mirrors the atomic guarded UPDATE
+				// pattern used below for the approval row itself.
+				const consumed = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(approvalStepUpChallenges)
+							.set({ usedAt: new Date() })
+							.where(
+								and(
+									eq(approvalStepUpChallenges.approvalId, approvalId),
+									eq(approvalStepUpChallenges.challenge, stepUpChallengeToken),
+									isNull(approvalStepUpChallenges.usedAt),
+									drizzleSql`${approvalStepUpChallenges.expiresAt} > now()`,
+								),
+							)
+							.returning(),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+				if (consumed.length === 0) {
+					return { outcome: 'step_up_required' } as DecideOutcome
+				}
+				consumedChallengeId = consumed[0].id
+			}
 
 			// Atomic guarded UPDATE — mirrors bot/handlers/approvals.py's Telegram
 			// callback handler: only flips a row that is STILL pending, owned by
@@ -2069,7 +2232,11 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 			})
 
 			if (updated.length > 0) {
-				return { outcome: 'decided', row: updated[0] as AgentApprovalRow } as DecideOutcome
+				return {
+					outcome: 'decided',
+					row: updated[0] as AgentApprovalRow,
+					consumedChallengeId,
+				} as DecideOutcome
 			}
 
 			// Nothing flipped — determine why WITHOUT leaking whether a row
@@ -2117,6 +2284,15 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 	if (outcome.outcome === 'already_decided') {
 		return c.json({ error: 'Approval already decided', status: outcome.status }, 409)
 	}
+	if (outcome.outcome === 'step_up_required') {
+		// Interim step-up nonce missing/invalid/expired — do NOT proceed to
+		// decide the approval. Not real WebAuthn/passkey proof; see
+		// approvalStepUpChallenges schema comment for the upgrade path.
+		return c.json(
+			{ error: 'Step-up re-confirmation required or expired', code: 'STEP_UP_REQUIRED' },
+			400,
+		)
+	}
 
 	const row = outcome.row
 
@@ -2130,6 +2306,18 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 			details: { approvalId: row.id, status: row.status, decidedBy: row.decidedBy },
 		}),
 	)
+
+	if (outcome.consumedChallengeId != null) {
+		void runEffect(
+			auditLog({
+				userId: authUser.userId,
+				agentId: row.agentId,
+				orgId: row.orgId,
+				eventType: 'approval.step_up_verified',
+				details: { approvalId: row.id, challengeId: outcome.consumedChallengeId },
+			}),
+		)
+	}
 
 	// Notify the agent via the same durable delivery path Telegram decisions
 	// use — see enqueueApprovalWebhookDelivery's doc comment.
@@ -2182,7 +2370,7 @@ function resolveWebappAuditScope(authUser: AuthUser) {
 
 // GET /webapp/audit - audit events visible to the authenticated user (their
 // own agents' rows plus their org's rows, if they own one).
-webappRoutes.get('/audit', flexAuth(), async (c) => {
+webappRoutes.get('/audit', requireProofOfPossession(), async (c) => {
 	const authUser = c.get('authUser') as AuthUser
 	const eventType = c.req.query('event_type')
 	const since = c.req.query('since')
@@ -2245,7 +2433,7 @@ webappRoutes.get('/audit', flexAuth(), async (c) => {
 // org's chain is a well-defined `verifyAuditChain` walk today; a caller with
 // no org (even if they own agents on the shared global chain) gets a no-op
 // valid result rather than us inventing a new agent-filtered walk here.
-webappRoutes.get('/audit/verify', flexAuth(), async (c) => {
+webappRoutes.get('/audit/verify', requireProofOfPossession(), async (c) => {
 	const authUser = c.get('authUser') as AuthUser
 	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
 	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
