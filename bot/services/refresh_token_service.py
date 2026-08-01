@@ -40,9 +40,14 @@ def issue_refresh_token(
     address: Optional[str] = None,
     client: Optional[str] = None,
     family_id: Optional[str] = None,
+    src: Optional[str] = None,
 ) -> Tuple[str, datetime]:
     """Mint a fresh refresh token (new family unless ``family_id`` is given). Returns
-    ``(opaque_token, expires_at)``."""
+    ``(opaque_token, expires_at)``.
+
+    ``src`` records the auth provenance of the session that minted this token
+    (siwe/passkey/telegram/weak) so a later rotation can re-stamp the access
+    JWT with the same strength instead of downgrading to 'weak'."""
     token = secrets.token_urlsafe(48)
     expires_at = _utcnow() + timedelta(days=REFRESH_TTL_DAYS)
     with get_session() as session:
@@ -53,6 +58,7 @@ def issue_refresh_token(
                 family_id=family_id or str(uuid.uuid4()),
                 address=address,
                 client=client,
+                src=src,
                 issued_at=_utcnow(),
                 expires_at=expires_at,
             )
@@ -62,12 +68,15 @@ def issue_refresh_token(
 
 def rotate_refresh_token(
     token: str, client: Optional[str] = None
-) -> Optional[Tuple[int, Optional[str], str, datetime]]:
+) -> Optional[Tuple[int, Optional[str], str, datetime, Optional[str]]]:
     """Validate + rotate a refresh token.
 
-    Returns ``(user_id, address, new_token, new_expires_at)`` on success, or ``None``
-    when the token is unknown, expired, or already-used (reuse → the whole family is
-    revoked as a theft response).
+    Returns ``(user_id, address, new_token, new_expires_at, src)`` on success, or
+    ``None`` when the token is unknown, expired, or already-used (reuse → the
+    whole family is revoked as a theft response). ``src`` is the auth
+    provenance carried forward from the original mint; it is ``None`` for rows
+    written before the ``src`` column existed — callers must treat that as
+    'weak'.
     """
     token_hash = _hash(token)
     with get_session() as session:
@@ -88,6 +97,7 @@ def rotate_refresh_token(
         user_id = row.user_id
         address = row.address
         family_id = row.family_id
+        src = row.src
 
         new_token = secrets.token_urlsafe(48)
         new_hash = _hash(new_token)
@@ -99,13 +109,14 @@ def rotate_refresh_token(
                 family_id=family_id,
                 address=address,
                 client=client or row.client,
+                src=src,
                 issued_at=_utcnow(),
                 expires_at=new_expires,
             )
         )
         row.revoked_at = _utcnow()
         row.replaced_by = new_hash
-        return user_id, address, new_token, new_expires
+        return user_id, address, new_token, new_expires, src
 
 
 def revoke_refresh_token(token: str) -> bool:

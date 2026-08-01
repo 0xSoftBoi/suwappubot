@@ -52,6 +52,14 @@ CHECK_INTERVAL_SECONDS = 15
 BACKOFF_SCHEDULE_SECONDS = [30, 120, 480, 1800, 7200]
 MAX_ATTEMPTS = len(BACKOFF_SCHEDULE_SECONDS)
 
+# If the process dies between _claim() flipping a row to 'sending' and the
+# terminal _mark()/_record_failure() call (SIGKILL, OOM, Railway redeploy
+# mid-POST), the row would otherwise be stranded at status='sending' forever
+# — the poll only ever selects 'pending' rows. WEBHOOK_TIMEOUT_SECONDS bounds
+# how long any single in-flight attempt can legitimately take, so a cutoff
+# several times larger safely distinguishes "still in flight" from "orphaned".
+STALE_SENDING_RECLAIM_SECONDS = 300
+
 
 def _table_missing(e: Exception) -> bool:
     msg = str(e).lower()
@@ -99,11 +107,22 @@ class WebhookDispatcher:
     async def _process_due(self) -> None:
         try:
             with get_session() as session:
+                stale_cutoff_sql = (
+                    "CURRENT_TIMESTAMP - INTERVAL '{0} seconds'".format(
+                        STALE_SENDING_RECLAIM_SECONDS
+                    )
+                    if _is_postgres()
+                    else "datetime(CURRENT_TIMESTAMP, '-{0} seconds')".format(
+                        STALE_SENDING_RECLAIM_SECONDS
+                    )
+                )
                 candidate_ids = session.execute(
                     text(
                         "SELECT id FROM agent_webhook_deliveries "
-                        "WHERE status = 'pending' "
-                        "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) "
+                        "WHERE (status = 'pending' "
+                        "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)) "
+                        "OR (status = 'sending' "
+                        f"AND (claimed_at IS NULL OR claimed_at < {stale_cutoff_sql})) "
                         "ORDER BY created_at ASC LIMIT 20"
                     )
                 ).fetchall()
@@ -133,19 +152,34 @@ class WebhookDispatcher:
             )
 
     def _claim(self, delivery_id: str) -> dict | None:
-        """Atomically flip a still-pending row to 'sending' before attempting it.
+        """Atomically flip a pending (or stale-'sending') row to 'sending' before attempting it.
 
         Prevents two racing pollers (multi-replica, or this loop racing the
         inline attempt in ``approval_webhook.notify_approval_decided``) from
-        both POSTing the same delivery. Returns the claimed row's fields, or
-        None if another actor claimed/finished it first.
+        both POSTing the same delivery. Also re-stamps ``claimed_at`` when
+        reclaiming a row stranded in ``status='sending'`` (process died
+        mid-POST) — the WHERE clause mirrors ``_process_due``'s selection so
+        a row can only be reclaimed here if it was actually eligible there,
+        closing the race where two pollers both see the same stale-'sending'
+        candidate. Returns the claimed row's fields, or None if another actor
+        claimed/finished it first.
         """
+        stale_cutoff_sql = (
+            "CURRENT_TIMESTAMP - INTERVAL '{0} seconds'".format(STALE_SENDING_RECLAIM_SECONDS)
+            if _is_postgres()
+            else "datetime(CURRENT_TIMESTAMP, '-{0} seconds')".format(STALE_SENDING_RECLAIM_SECONDS)
+        )
         try:
             with get_session() as session:
                 row = session.execute(
                     text(
-                        "UPDATE agent_webhook_deliveries SET status = 'sending' "
-                        "WHERE id = :id AND status = 'pending' "
+                        "UPDATE agent_webhook_deliveries "
+                        "SET status = 'sending', claimed_at = CURRENT_TIMESTAMP "
+                        "WHERE id = :id AND ("
+                        "status = 'pending' "
+                        "OR (status = 'sending' "
+                        f"AND (claimed_at IS NULL OR claimed_at < {stale_cutoff_sql}))"
+                        ") "
                         "RETURNING id, approval_id, agent_id, url, payload_json, "
                         "signature_ts, attempts"
                     ),

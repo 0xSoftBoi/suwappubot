@@ -504,8 +504,14 @@ def _ensure_schema(db_engine) -> None:
         _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
     _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
 
+    # --- agent_approvals.expiry_notified_at: atomic claim for expiry webhook ---
+    _add_agent_approvals_expiry_notified_column(db_engine, inspector, is_sqlite)
+
     # --- durable approval-decision webhook delivery (retry + dead-letter) ---
     _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
+
+    # --- agent_webhook_deliveries.claimed_at: reclaim stranded 'sending' rows ---
+    _add_agent_webhook_deliveries_claimed_at_column(db_engine, inspector, is_sqlite)
 
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
@@ -562,6 +568,7 @@ def _ensure_schema(db_engine) -> None:
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
+    _add_auth_refresh_token_src_column(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite)
     _add_btc_swap_dst_chain_column(db_engine, inspector, is_sqlite)
@@ -844,6 +851,29 @@ def _add_auth_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info(f"Created {RefreshToken.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create auth_refresh_tokens table: {e}")
+
+
+def _add_auth_refresh_token_src_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add auth_refresh_tokens.src (nullable) so refreshed sessions can carry
+    forward the original auth provenance (siwe/passkey/telegram/weak) instead of
+    always downgrading to 'weak' on rotation. NULL means the row predates this
+    migration; callers must treat NULL as 'weak'."""
+    table_name = "auth_refresh_tokens"
+    try:
+        if not inspector.has_table(table_name):
+            return
+        cols = {c["name"] for c in inspector.get_columns(table_name)}
+        if "src" in cols:
+            return
+        if is_sqlite:
+            ddl = f"ALTER TABLE {table_name} ADD COLUMN src VARCHAR(16) DEFAULT NULL"
+        else:
+            ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS src VARCHAR(16) DEFAULT NULL"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+        logger.info(f"Added {table_name}.src")
+    except Exception as e:
+        logger.warning(f"Failed to add {table_name}.src column: {e}")
 
 
 def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
@@ -3525,3 +3555,89 @@ def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool
             )
 
     logger.info("Created agent_webhook_deliveries table")
+
+
+def _add_agent_approvals_expiry_notified_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive migration: agent_approvals.expiry_notified_at (money-path fix).
+
+    Replaces the ``agent_webhook_deliveries`` NOT EXISTS check that
+    ``_catch_web_expired`` used as an idempotency guard: that check treated
+    "no delivery row yet" as "not yet handled", but ``notify_approval_decided``
+    early-returns WITHOUT enqueueing a delivery row when the agent has no
+    ``callback_url`` — so those rows were never claimed, respawned a webhook
+    task + Telegram edit every 15s cycle forever, and (LIMIT 20, oldest-first)
+    could wedge the whole catch-up window head-of-line style.
+
+    This column is the single atomic ledger for "have we run the expiry
+    webhook path for this approval" regardless of whether a delivery row
+    ends up existing. Claimed via
+    ``UPDATE ... WHERE expiry_notified_at IS NULL RETURNING id`` so a row is
+    claimed exactly once even across ``_expire_stale`` and
+    ``_catch_web_expired`` racing in the same or adjacent poll cycles.
+    """
+    try:
+        columns = {c["name"] for c in inspector.get_columns("agent_approvals")}
+    except Exception:
+        return
+
+    if "expiry_notified_at" in columns:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                conn.execute(
+                    text("ALTER TABLE agent_approvals ADD COLUMN expiry_notified_at TIMESTAMP")
+                )
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_approvals "
+                        "ADD COLUMN IF NOT EXISTS expiry_notified_at TIMESTAMPTZ NULL"
+                    )
+                )
+        logger.info("Added expiry_notified_at column to agent_approvals")
+    except Exception as e:
+        logger.warning("Failed to add expiry_notified_at column to agent_approvals: %s", e)
+
+
+def _add_agent_webhook_deliveries_claimed_at_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive migration: agent_webhook_deliveries.claimed_at (money-path fix).
+
+    ``WebhookDispatcher._claim`` flips a row from 'pending' to 'sending'
+    before attempting the HTTP POST. If the process dies between that claim
+    and the terminal ``_mark``/``_record_failure`` call (SIGKILL, OOM,
+    Railway redeploy mid-request), the row is stranded at ``status='sending'``
+    forever — the poll loop only ever selects ``status='pending'`` rows, so
+    the agent never learns the approval decision.
+
+    ``claimed_at`` lets the poll additionally reclaim rows that have been
+    sitting in 'sending' past a staleness cutoff, on the assumption that any
+    in-flight HTTP attempt would have completed (or timed out via
+    ``WEBHOOK_TIMEOUT_SECONDS``, which is well under 5 minutes) long before
+    that.
+    """
+    try:
+        columns = {c["name"] for c in inspector.get_columns("agent_webhook_deliveries")}
+    except Exception:
+        return
+
+    if "claimed_at" in columns:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                conn.execute(
+                    text("ALTER TABLE agent_webhook_deliveries ADD COLUMN claimed_at DATETIME")
+                )
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_webhook_deliveries "
+                        "ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NULL"
+                    )
+                )
+        logger.info("Added claimed_at column to agent_webhook_deliveries")
+    except Exception as e:
+        logger.warning("Failed to add claimed_at column to agent_webhook_deliveries: %s", e)

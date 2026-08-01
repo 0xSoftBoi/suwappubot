@@ -846,13 +846,22 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 
-def create_jwt_token(address: str, user_id: int) -> str:
-    """Create a JWT token for authenticated user."""
+def create_jwt_token(address: str, user_id: int, src: str) -> str:
+    """Create a JWT token for authenticated user.
+
+    ``src`` records what this session actually proved possession of, so
+    downstream consumers (e.g. api-ts's requireProofOfPossession guard on the
+    agent-approvals surface) can distinguish strong wallet/account proofs
+    ('siwe', 'passkey', 'telegram') from sessions that didn't prove wallet
+    possession at all ('weak'). No default is provided — every call site must
+    state its provenance explicitly.
+    """
     payload = {
         "address": address.lower(),
         "user_id": user_id,
         # camelCase alias so api-ts (which reads `userId`) accepts Python-issued tokens.
         "userId": user_id,
+        "src": src,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -1168,8 +1177,9 @@ async def auth_verify(
         db.add(wallet)
         db.commit()
 
-    # Create JWT token
-    token = create_jwt_token(address, user.id)
+    # Create JWT token. Verified above via `verify_auth_signature` (EIP-191 SIWE
+    # signature over the server-issued nonce) — proves possession of the EVM wallet.
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     # Set secure HTTP-only cookie
@@ -1270,7 +1280,9 @@ async def auth_solana_verify(
         db.add(wallet)
         db.commit()
 
-    token = create_jwt_token(address, user.id)
+    # Verified above via `verify_solana_auth_signature` — proves possession of
+    # the Solana wallet's private key over the server-issued nonce.
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1427,9 +1439,11 @@ async def auth_telegram(
             except Exception as e:
                 logger.error(f"auth/telegram: failed to provision wallet for user {user.id}: {e}")
 
-    # Mint the same session JWT the passkey/oauth flows mint.
+    # Mint the same session JWT the passkey/oauth flows mint. Verified above via
+    # `validate_telegram_init_data` (HMAC over Telegram's WebApp initData) —
+    # proves possession of the Telegram account, not the wallet directly.
     session_address = wallet_address or f"telegram:{telegram_id}"
-    token = create_jwt_token(address=session_address, user_id=user.id)
+    token = create_jwt_token(address=session_address, user_id=user.id, src="telegram")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1506,8 +1520,13 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
         response.delete_cookie(REFRESH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user_id, address, new_refresh, _expires = rotated
-    access_token = create_jwt_token(address or "", user_id)
+    user_id, address, new_refresh, _expires, rotated_src = rotated
+    # Carry forward the provenance recorded when this refresh token's family
+    # was first minted (siwe/passkey/telegram/weak), so routine session
+    # refresh doesn't silently strip agent-approval rights mid-session. Rows
+    # written before RefreshToken.src existed have NULL here — those can't
+    # honestly assert a strong proof, so they fall back to 'weak'.
+    access_token = create_jwt_token(address or "", user_id, src=rotated_src or "weak")
     _set_session_cookies(response, access_token, new_refresh)
     return {"success": True, "token": access_token, "refresh_token": new_refresh}
 
@@ -1785,9 +1804,12 @@ async def passkey_register_complete(
         existing_user.last_active_at = datetime.utcnow()
         db.commit()
 
+        # Verified above via `_verify_passkey_challenge` (WebAuthn assertion
+        # against the stored challenge) — proves possession of the passkey.
         token = create_jwt_token(
             address=wallet_address or f"passkey:{request.credentialId[:16]}",
             user_id=existing_user.id,
+            src="passkey",
         )
         expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
         response.set_cookie(
@@ -1843,10 +1865,13 @@ async def passkey_register_complete(
         logger.error(f"Failed to provision wallet for passkey user {user.id}: {e}")
         # Continue without wallet
 
-    # Create JWT token
+    # Create JWT token. Verified above via `_verify_passkey_challenge`
+    # (WebAuthn assertion against the stored challenge) — proves possession of
+    # the passkey.
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
@@ -1946,10 +1971,13 @@ async def passkey_auth_complete(
     if wallet:
         wallet_address = wallet.address
 
-    # Create JWT token
+    # Create JWT token. Verified above via `_verify_passkey_challenge`
+    # (WebAuthn assertion against the stored challenge) — proves possession of
+    # the passkey.
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 

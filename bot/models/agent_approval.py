@@ -92,6 +92,15 @@ class AgentApproval(Base):
     # distinguish "decided" from "decided and acted on". NULL until consumed.
     consumed_at = Column(DateTime, nullable=True)
 
+    # Atomic claim ledger for the approval.expired webhook path (money-path
+    # fix): NULL means "expiry webhook not yet handled" regardless of whether
+    # a delivery row was ever enqueued (an agent with no callback_url never
+    # gets one). Claimed via an atomic
+    # ``UPDATE ... WHERE expiry_notified_at IS NULL`` so
+    # ``_expire_stale``/``_catch_web_expired`` can never both fire for the
+    # same row. See bot/services/approval_notifier.py.
+    expiry_notified_at = Column(DateTime, nullable=True)
+
     __table_args__ = (
         Index("ix_agent_approvals_status_expires", "status", "expires_at"),
         Index("ix_agent_approvals_telegram_status", "user_telegram_id", "status"),

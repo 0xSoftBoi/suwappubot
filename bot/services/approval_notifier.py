@@ -154,7 +154,17 @@ class ApprovalNotifier:
         return "does not exist" in msg or "no such table" in msg
 
     async def _expire_stale(self) -> None:
-        """Flip pending-but-past-expiry rows to 'expired' and edit their DMs."""
+        """Flip pending-but-past-expiry rows to 'expired' and edit their DMs.
+
+        Also stamps ``expiry_notified_at`` in the SAME UPDATE that flips
+        ``status`` so ``_catch_web_expired``'s claim can never re-select a row
+        this method already handled — without that, the fully-synchronous
+        UPDATE here (status flips to 'expired' before the fire-and-forget
+        webhook task set up below has even run) races
+        ``_catch_web_expired``'s query later in the same loop iteration and
+        both would fire an ``approval.expired`` webhook + message edit for
+        the same row.
+        """
         try:
             with get_session() as session:
                 rows = session.execute(
@@ -169,7 +179,8 @@ class ApprovalNotifier:
                     return
                 ids = [r[0] for r in rows]
                 stmt = text(
-                    "UPDATE agent_approvals SET status = 'expired' WHERE id IN :ids"
+                    "UPDATE agent_approvals SET status = 'expired', "
+                    "expiry_notified_at = CURRENT_TIMESTAMP WHERE id IN :ids"
                 ).bindparams(bindparam("ids", expanding=True))
                 session.execute(stmt, {"ids": ids})
                 session.commit()
@@ -210,40 +221,51 @@ class ApprovalNotifier:
         the owning agent never gets an ``approval.expired`` webhook and just
         hangs until its own client-side timeout.
 
-        This scans already-``expired`` rows with no corresponding
-        ``agent_webhook_deliveries`` row yet and enqueues the expiry webhook
-        for them. The ``NOT EXISTS`` guard is what keeps this idempotent —
-        including against a race with ``_expire_stale`` itself, which also
-        enqueues via ``notify_approval_decided`` -> ``enqueue_delivery``
-        before this method would ever see the row again.
+        This scans already-``expired`` rows with ``expiry_notified_at IS
+        NULL`` and atomically claims each one (``UPDATE ... WHERE
+        expiry_notified_at IS NULL RETURNING id``) before enqueueing its
+        webhook. ``expiry_notified_at`` — not "does a delivery row exist" —
+        is the idempotency ledger: an agent with no ``callback_url`` never
+        gets a delivery row from ``notify_approval_decided``, so the old
+        NOT-EXISTS-on-``agent_webhook_deliveries`` guard treated such rows as
+        perpetually unhandled, respawning a webhook task + Telegram edit
+        every cycle forever and — with LIMIT 20 oldest-first — starving real
+        web-expired rows out of the window. The atomic claim here also means
+        ``_expire_stale`` (which stamps ``expiry_notified_at`` in the same
+        UPDATE that flips status) can never be double-notified by this pass,
+        even when both run in the same loop iteration.
         """
         try:
             with get_session() as session:
-                rows = session.execute(
+                candidate_ids = session.execute(
                     text(
-                        "SELECT ap.id, ap.notify_chat_id, ap.notify_message_id, ap.intent_hash "
-                        "FROM agent_approvals ap "
-                        "WHERE ap.status = 'expired' "
-                        "AND NOT EXISTS ("
-                        "SELECT 1 FROM agent_webhook_deliveries d "
-                        "WHERE d.approval_id = ap.id"
-                        ") "
-                        "ORDER BY ap.created_at ASC LIMIT 20"
+                        "SELECT id FROM agent_approvals "
+                        "WHERE status = 'expired' AND expiry_notified_at IS NULL "
+                        "ORDER BY created_at ASC LIMIT 20"
                     )
                 ).fetchall()
         except SQLAlchemyError as e:
             if self._table_missing(e):
                 if not self._table_missing_logged:
-                    logger.info(
-                        "agent_approvals/agent_webhook_deliveries not present yet; "
-                        "web-expiry catch-up idling"
-                    )
+                    logger.info("agent_approvals not present yet; web-expiry catch-up idling")
                     self._table_missing_logged = True
                 return
             logger.error("Failed to scan web-expired agent_approvals: %s", e)
             return
 
-        for row_id, chat_id, message_id, intent_hash in rows:
+        for (candidate_id,) in candidate_ids:
+            claimed = self._claim_expiry_notification(candidate_id)
+            if claimed is None:
+                # Lost the race (another poller, or _expire_stale already
+                # claimed it in this same cycle) — skip, don't double-notify.
+                continue
+
+            row_id, chat_id, message_id, intent_hash = (
+                claimed["id"],
+                claimed["notify_chat_id"],
+                claimed["notify_message_id"],
+                claimed["intent_hash"],
+            )
             _spawn_webhook_task(row_id, "expired", intent_hash)
 
             if self._bot is None or not (chat_id and message_id):
@@ -257,6 +279,36 @@ class ApprovalNotifier:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug("Could not edit web-expired approval message %s: %s", row_id, e)
+
+    def _claim_expiry_notification(self, approval_id: str) -> dict | None:
+        """Atomically claim an already-expired row for the expiry webhook path.
+
+        Returns the claimed row's notification fields, or None if another
+        actor (another replica, or ``_expire_stale`` in this same cycle)
+        already claimed it.
+        """
+        try:
+            with get_session() as session:
+                row = session.execute(
+                    text(
+                        "UPDATE agent_approvals SET expiry_notified_at = CURRENT_TIMESTAMP "
+                        "WHERE id = :id AND status = 'expired' AND expiry_notified_at IS NULL "
+                        "RETURNING id, notify_chat_id, notify_message_id, intent_hash"
+                    ),
+                    {"id": approval_id},
+                ).fetchone()
+                session.commit()
+        except SQLAlchemyError as e:
+            logger.warning("Failed to claim expiry notification for %s: %s", approval_id, e)
+            return None
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "notify_chat_id": row[1],
+            "notify_message_id": row[2],
+            "intent_hash": row[3],
+        }
 
     async def _process_pending(self) -> None:
         try:

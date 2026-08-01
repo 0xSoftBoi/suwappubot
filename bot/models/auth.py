@@ -30,6 +30,10 @@ class RefreshToken(Base):
     address = Column(String(64), nullable=True)
     # Origin surface: webapp | terminal | oauth | wallet | passkey | ...
     client = Column(String(32), nullable=True)
+    # Auth provenance of the session that minted this token: siwe | passkey |
+    # telegram | weak. NULL on rows written before this column existed — treat
+    # NULL as 'weak' (no strong wallet/account proof can be assumed).
+    src = Column(String(16), nullable=True)
     issued_at = Column(DateTime, default=_utcnow)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)

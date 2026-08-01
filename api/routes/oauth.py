@@ -38,14 +38,17 @@ OAUTH_NONCE_COOKIE = "suwappu_oauth_nonce"
 
 # --- Pydantic Models ---
 
+
 class OAuthStartResponse(BaseModel):
     """Response for starting OAuth flow."""
+
     authorization_url: str
     state: str
 
 
 class OAuthCallbackResponse(BaseModel):
     """Response for OAuth callback."""
+
     success: bool
     token: str
     user: Dict[str, Any]
@@ -55,17 +58,20 @@ class OAuthCallbackResponse(BaseModel):
 
 class OAuthLinkRequest(BaseModel):
     """Request to link OAuth to existing account."""
+
     provider: str
 
 
 class OAuthLinkResponse(BaseModel):
     """Response for OAuth linking."""
+
     authorization_url: str
     state: str
 
 
 class OAuthIdentityResponse(BaseModel):
     """OAuth identity info."""
+
     id: int
     provider: str
     email: Optional[str]
@@ -77,11 +83,13 @@ class OAuthIdentityResponse(BaseModel):
 
 class OAuthProviderStatus(BaseModel):
     """Status of OAuth providers."""
+
     google: bool
     twitter: bool
 
 
 # --- Dependencies ---
+
 
 def get_db():
     with get_session() as session:
@@ -104,6 +112,7 @@ async def get_current_user(
 
 
 # --- Endpoints ---
+
 
 @router.get("/providers", response_model=OAuthProviderStatus)
 async def get_oauth_providers():
@@ -242,10 +251,14 @@ async def oauth_callback(
         return RedirectResponse(url=error_url, status_code=302)
 
     # Validate state (CSRF protection)
-    oauth_state = db.query(OAuthState).filter(
-        OAuthState.state == state,
-        OAuthState.provider == provider,
-    ).first()
+    oauth_state = (
+        db.query(OAuthState)
+        .filter(
+            OAuthState.state == state,
+            OAuthState.provider == provider,
+        )
+        .first()
+    )
 
     if not oauth_state:
         logger.warning(f"OAuth callback: invalid state {state[:10]}...")
@@ -358,14 +371,26 @@ async def oauth_callback(
     # positions, the terminal header) work. Fall back to a synthetic identifier
     # only when no wallet exists yet (e.g. Turnkey wasn't configured).
     from api.main import create_jwt_token, JWT_EXPIRY_HOURS
-    wallet = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True,
-    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
     session_address = wallet.address if wallet else f"oauth:{provider}:{user_info.provider_user_id}"
+    # OAuth (Google/etc.) proves the user's identity with that provider, not
+    # possession of their crypto wallet — no wallet signature or WebAuthn
+    # assertion is checked here. Stamp 'weak' rather than inventing a strong
+    # provenance value; api-ts's requireProofOfPossession must reject this on
+    # the agent-approvals surface.
     jwt_token = create_jwt_token(
         address=session_address,
         user_id=user.id,
+        src="weak",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
@@ -418,12 +443,18 @@ async def oauth_link(
         raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
 
     # Check if provider not already linked
-    existing = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.provider == provider,
-    ).first()
+    existing = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.provider == provider,
+        )
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=400, detail=f"{provider.capitalize()} account already linked")
+        raise HTTPException(
+            status_code=400, detail=f"{provider.capitalize()} account already linked"
+        )
 
     oauth_service = get_oauth_service()
 
@@ -468,35 +499,46 @@ async def oauth_unlink(
         raise HTTPException(status_code=400, detail="Invalid OAuth provider")
 
     # Find identity to unlink
-    identity = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.provider == provider,
-    ).first()
+    identity = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.provider == provider,
+        )
+        .first()
+    )
 
     if not identity:
         raise HTTPException(status_code=404, detail=f"{provider.capitalize()} account not linked")
 
     # Safety check - must have other auth methods
-    other_identities = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.id != identity.id,
-    ).count()
+    other_identities = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.id != identity.id,
+        )
+        .count()
+    )
 
     has_telegram = current_user.telegram_id is not None
     has_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).count() > 0
 
     if other_identities == 0 and not has_telegram and not has_wallet:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot unlink: this is your only authentication method"
+            status_code=400, detail="Cannot unlink: this is your only authentication method"
         )
 
     # If unlinking primary, promote another to primary
     if identity.is_primary and other_identities > 0:
-        new_primary = db.query(OAuthIdentity).filter(
-            OAuthIdentity.user_id == current_user.id,
-            OAuthIdentity.id != identity.id,
-        ).first()
+        new_primary = (
+            db.query(OAuthIdentity)
+            .filter(
+                OAuthIdentity.user_id == current_user.id,
+                OAuthIdentity.id != identity.id,
+            )
+            .first()
+        )
         if new_primary:
             new_primary.is_primary = True
 
@@ -519,9 +561,7 @@ async def get_oauth_identities(
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    identities = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id
-    ).all()
+    identities = db.query(OAuthIdentity).filter(OAuthIdentity.user_id == current_user.id).all()
 
     return [
         OAuthIdentityResponse(
@@ -539,6 +579,7 @@ async def get_oauth_identities(
 
 # --- Helper Functions ---
 
+
 async def _find_or_create_user(
     db: Session,
     user_info: OAuthUserInfo,
@@ -550,10 +591,14 @@ async def _find_or_create_user(
     Returns (user, identity) if found, (None, None) otherwise.
     """
     # Check if OAuth identity exists
-    identity = db.query(OAuthIdentity).filter(
-        OAuthIdentity.provider == user_info.provider,
-        OAuthIdentity.provider_user_id == user_info.provider_user_id,
-    ).first()
+    identity = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.provider == user_info.provider,
+            OAuthIdentity.provider_user_id == user_info.provider_user_id,
+        )
+        .first()
+    )
 
     if identity:
         user = db.query(User).filter(User.id == identity.user_id).first()
@@ -684,9 +729,7 @@ async def _store_oauth_tokens(
     from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db
 
     # Delete existing tokens for this identity
-    db.query(OAuthToken).filter(
-        OAuthToken.identity_id == identity.id
-    ).delete()
+    db.query(OAuthToken).filter(OAuthToken.identity_id == identity.id).delete()
 
     # Calculate expiration
     expires_at = datetime.utcnow() + timedelta(seconds=tokens.expires_in)
@@ -701,11 +744,13 @@ async def _store_oauth_tokens(
     if tokens.refresh_token:
         refresh_encrypted = encrypt_private_key_v2(tokens.refresh_token)
         # Store as "wrapped_dek|nonce|ciphertext" to preserve all metadata
-        refresh_token_encrypted = "|".join([
-            base64.b64encode(refresh_encrypted.wrapped_dek).decode("ascii"),
-            base64.b64encode(refresh_encrypted.nonce).decode("ascii"),
-            base64.b64encode(refresh_encrypted.ciphertext).decode("ascii"),
-        ])
+        refresh_token_encrypted = "|".join(
+            [
+                base64.b64encode(refresh_encrypted.wrapped_dek).decode("ascii"),
+                base64.b64encode(refresh_encrypted.nonce).decode("ascii"),
+                base64.b64encode(refresh_encrypted.ciphertext).decode("ascii"),
+            ]
+        )
 
     # Create new token record
     oauth_token = OAuthToken(
@@ -739,9 +784,7 @@ def _get_oauth_access_token(db: Session, identity_id: int) -> Optional[str]:
     from bot.utils.envelope_crypto import decrypt_wallet_key
 
     # Query token
-    oauth_token = db.query(OAuthToken).filter(
-        OAuthToken.identity_id == identity_id
-    ).first()
+    oauth_token = db.query(OAuthToken).filter(OAuthToken.identity_id == identity_id).first()
 
     if not oauth_token:
         return None
