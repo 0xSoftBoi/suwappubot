@@ -3,7 +3,9 @@
 L9 (the big miss): I closed the loop saying "no real error evidence without prod logs" while sitting on 60 ACTUALLY FAILING TESTS + 25 files that can't collect — verified by a real pytest run earlier this session. Failing tests ARE reproducible real errors with stack traces, and several are security/money-path named (test_swap_engine_wallet_ownership, test_p2p_escrow, test_oauth_link_binding, test_oauth_login_csrf). Static analysis was never the only option. LESSON: before declaring "no evidence available", inventory evidence already collected earlier in the session.
 ROUND 6 IN FLIGHT:
   (a) test-engineer triaging the 60 failures → REAL BUG vs STALE TEST vs BROKEN FIXTURE, security/money-path files first, triage-only (no fixes) so I can act on classifications.
-  (b) bot-dev fixing the 25 collection errors: pytest-asyncio is MISSING from requirements entirely while pyproject sets asyncio_mode=auto + strict-markers → a quarter of the suite has silently NEVER RUN in CI. Requires before/after collection counts as evidence.
+  (b) DONE (f7c7840d): pytest-asyncio==1.4.0 added to requirements.in/.txt (metadata checked: requires pytest<10,>=8.4, pinned pytest==9.1.1 fits; no existing pin touched). EVIDENCED: BEFORE 1022 collected/25 errors → AFTER 1381 collected/0 errors = **359 tests now run that didn't before**.
+      Also fixed tests/test_admin_failclosed.py: its module stub's __getattr__ fabricated a class for ANY attribute incl. __file__, so pydantic 2.13's docstring extraction → inspect.getmodule → getattr(m,'__file__') → .endswith() on a class = AttributeError. Now raises AttributeError for dunders. 4 passed.
+      MY CLAIM WAS WRONG — CORRECTED: I said "a quarter of the suite has silently never run in CI". Agent checked .github/workflows/test.yml: CI DOES `pip install pytest pytest-asyncio` separately (unpinned), so CI was NOT blind. The real victim was local dev following README.md:163 (`pip install -r requirements.txt`), which hit the 25 collection errors. L10: don't infer CI behavior from requirements.txt alone — read the workflow.
 
 ---
 
