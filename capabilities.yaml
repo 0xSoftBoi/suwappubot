@@ -1,0 +1,381 @@
+# ============================================================================
+# capabilities.yaml — manifest of OPTIONAL, env-gated capabilities.
+#
+# Hand-maintained (unlike .env.schema, which is generated), but every entry
+# below is required to cite the code that gates it — see the `evidence` field.
+# Only capabilities with a real if/switch in code are listed; nothing here is
+# aspirational. Consumed by `scripts/doctor.py` to report SET/UNSET per var
+# and a best-effort enabled/disabled guess per capability.
+#
+# Schema per entry:
+#   name:          short slug (unique)
+#   description:   what it does, one or two sentences
+#   service:       python-bot | api-ts | webapp
+#   env_vars:      list of {name, required_to_enable: bool}
+#   enabled_when:  human-readable rule for "this is live"
+#   evidence:      file:line (or file) where the gate lives
+#   verify:        a command or endpoint that proves it live
+# ============================================================================
+
+capabilities:
+  - name: wallet_kms_encryption
+    description: >
+      Envelope encryption for custodial wallet private keys. Default scheme
+      is kms_aesgcm_v2 (AWS/GCP/local KEK-wrapped DEKs); legacy_fernet_v1
+      wallets auto-migrate on first use.
+    service: python-bot
+    env_vars:
+      - name: KMS_PROVIDER
+        required_to_enable: false
+      - name: WALLET_ENCRYPTION_SCHEME
+        required_to_enable: false
+      - name: KMS_KEY_ID
+        required_to_enable: true   # only when KMS_PROVIDER=aws|gcp
+      - name: KMS_REGION
+        required_to_enable: true   # only when KMS_PROVIDER=aws
+      - name: GCP_PROJECT_ID
+        required_to_enable: true   # only when KMS_PROVIDER=gcp
+      - name: GCP_KMS_LOCATION
+        required_to_enable: false
+      - name: GCP_KMS_KEYRING
+        required_to_enable: false
+      - name: WALLET_MASTER_KEK
+        required_to_enable: true   # only when KMS_PROVIDER=local
+    enabled_when: >
+      KMS_PROVIDER in {aws, gcp} requires KMS_KEY_ID (+ KMS_REGION for aws,
+      GCP_PROJECT_ID for gcp) or get_settings() raises at boot. KMS_PROVIDER=local
+      uses WALLET_MASTER_KEK. KMS_PROVIDER=dev is a local mock, not for prod.
+    evidence: bot/config/settings.py get_settings() (raises ValueError on missing KMS_KEY_ID/KMS_REGION/GCP_PROJECT_ID)
+    verify: "python3 -c \"from bot.config.settings import get_settings; s=get_settings(); print(s.kms_provider, s.wallet_encryption_scheme)\""
+
+  - name: turnkey_wallets
+    description: >
+      TEE-backed (Turnkey) wallet signing as an alternative to local encrypted
+      wallets, with automatic circuit-breaker fallback to local signing.
+    service: python-bot
+    env_vars:
+      - name: WALLET_PROVIDER
+        required_to_enable: false
+      - name: TURNKEY_ORGANIZATION_ID
+        required_to_enable: true
+      - name: TURNKEY_API_PUBLIC_KEY
+        required_to_enable: true
+      - name: TURNKEY_API_PRIVATE_KEY
+        required_to_enable: true
+      - name: TURNKEY_BASE_URL
+        required_to_enable: false
+    enabled_when: "WALLET_PROVIDER=turnkey and all three TURNKEY_* credentials are set."
+    evidence: bot/config/settings.py (wallet_provider, turnkey_organization_id, turnkey_api_public_key, turnkey_api_private_key fields)
+    verify: "python3 -c \"from bot.config.settings import get_settings; s=get_settings(); print(s.wallet_provider)\""
+
+  - name: telegram_webhook_mode
+    description: >
+      Switches the Telegram bot from long-polling (single instance only) to
+      webhook delivery (safe for multiple replicas).
+    service: python-bot
+    env_vars:
+      - name: USE_WEBHOOK
+        required_to_enable: true
+      - name: WEBHOOK_URL
+        required_to_enable: true
+      - name: WEBHOOK_SECRET_TOKEN
+        required_to_enable: false
+    enabled_when: "USE_WEBHOOK=true and WEBHOOK_URL is set (checked together, api/main.py:192)."
+    evidence: "api/main.py:192 (if settings.use_webhook and settings.webhook_url)"
+    verify: "curl -s https://<python-api-host>/health/ready | python3 -m json.tool  # checks.bot == \"webhook\" or \"polling\""
+
+  - name: whatsapp_channel
+    description: >
+      WhatsApp Business Cloud API channel — inbound webhook + outbound
+      messages, mirroring the Telegram bot's swap/wallet/alerts flows.
+    service: python-bot
+    env_vars:
+      - name: WHATSAPP_PHONE_NUMBER_ID
+        required_to_enable: true
+      - name: WHATSAPP_ACCESS_TOKEN
+        required_to_enable: true
+      - name: WHATSAPP_VERIFY_TOKEN
+        required_to_enable: true
+      - name: WHATSAPP_APP_SECRET
+        required_to_enable: false  # optional but strongly recommended: fail-open without it
+    enabled_when: >
+      WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_ACCESS_TOKEN + WHATSAPP_VERIFY_TOKEN set. Without
+      WHATSAPP_APP_SECRET, inbound webhook signature checks are skipped (fail-open, logged).
+    evidence: "api/main.py:2539 (GET /webhook verify), api/main.py:2561 (signature check skipped if unset)"
+    verify: "curl -s 'https://<python-api-host>/webhook?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=1234'"
+
+  - name: background_services
+    description: >
+      Master switch for the async background task set started in the bot/API
+      lifespan: fee_sweeper, alert_service, order_service, tx_poller,
+      health_monitor, launch_detector (sniping), rug_service, support_notifier,
+      battle_monitor.
+    service: python-bot
+    env_vars:
+      - name: ENABLE_BACKGROUND_SERVICES
+        required_to_enable: false  # defaults true; set false to disable
+    enabled_when: "ENABLE_BACKGROUND_SERVICES is not explicitly 'false' (default true)."
+    evidence: "bot/main.py:832 (if not settings.enable_background_services: skip); api/main.py:264-312 (mirrors this for the API-only process)"
+    verify: "curl -s https://<python-api-host>/health/ready | python3 -m json.tool  # checks.background_services.*"
+
+  - name: hyperliquid_ws_alerts
+    description: >
+      Real-time HyperLiquid WebSocket alert feed (per-user fills/liquidations/
+      funding) and separate whale-trade alerts for large single trades.
+    service: python-bot
+    env_vars:
+      - name: HL_WS_ALERTS_ENABLED
+        required_to_enable: false
+      - name: HL_WHALE_ALERTS_ENABLED
+        required_to_enable: false
+      - name: HL_WHALE_ALERT_THRESHOLD_USD
+        required_to_enable: false
+      - name: HL_WHALE_ALERT_COINS
+        required_to_enable: false
+    enabled_when: "HL_WS_ALERTS_ENABLED=true (default true) — also gated behind ENABLE_BACKGROUND_SERVICES."
+    evidence: "bot/main.py:868 (if settings.hl_ws_alerts_enabled); api/main.py:1066 (health/ready watches hl_ws_alerts heartbeat when either flag is true)"
+    verify: "curl -s https://<python-api-host>/health/ready | python3 -m json.tool  # checks.background_services.hl_ws_alerts"
+
+  - name: tempo_fee_sponsorship
+    description: >
+      Gasless (fee-payer) Tempo swaps — the bot counter-signs Tempo type-0x76
+      swaps as fee payer so users pay no gas. Two independent flags exist in
+      code for two separate sponsorship paths (swap fee-payer vs new-user gas
+      credits); both default off.
+    service: python-bot
+    env_vars:
+      - name: TEMPO_FEE_SPONSOR_ENABLED
+        required_to_enable: true
+      - name: TEMPO_FEE_SPONSOR_WALLET_NAME
+        required_to_enable: false
+      - name: TEMPO_FEE_SPONSORSHIP_ENABLED
+        required_to_enable: true
+      - name: TEMPO_SPONSOR_ADDRESS
+        required_to_enable: true   # required when TEMPO_FEE_SPONSORSHIP_ENABLED=true
+      - name: TEMPO_SPONSOR_MAX_TXS
+        required_to_enable: false
+      - name: TEMPO_SPONSOR_DAILY_BUDGET_USD
+        required_to_enable: false
+    enabled_when: "TEMPO_FEE_SPONSOR_ENABLED=true AND a sponsor wallet is configured (swap fee-payer path); or TEMPO_FEE_SPONSORSHIP_ENABLED=true with TEMPO_SPONSOR_ADDRESS set (new-user gas-credit path)."
+    evidence: bot/config/settings.py (tempo_fee_sponsor_enabled, tempo_fee_sponsorship_enabled field docstrings); bot/services/tempo_fee_sponsor.py
+    verify: "python3 -c \"from bot.config.settings import get_settings; s=get_settings(); print(s.tempo_fee_sponsor_enabled, s.tempo_fee_sponsorship_enabled)\""
+
+  - name: nl_trade_intent
+    description: >
+      Natural-language trade intent parsing (chat message -> structured
+      TradeIntent, never executes directly — always hands off into the
+      existing confirm/2FA swap flow).
+    service: python-bot
+    env_vars:
+      - name: NL_TRADING_ENABLED
+        required_to_enable: true
+      - name: NL_TRADING_PROVIDER
+        required_to_enable: false
+      - name: ANTHROPIC_API_KEY
+        required_to_enable: true   # when NL_TRADING_PROVIDER=anthropic (default)
+      - name: OPENAI_API_KEY
+        required_to_enable: false  # only if NL_TRADING_PROVIDER=openai
+      - name: DEEPSEEK_API_KEY
+        required_to_enable: false  # only if NL_TRADING_PROVIDER=deepseek
+      - name: GROQ_API_KEY
+        required_to_enable: false  # only if NL_TRADING_PROVIDER=groq
+    enabled_when: "NL_TRADING_ENABLED=true (default false) and the matching provider API key for NL_TRADING_PROVIDER is set."
+    evidence: bot/services/nl_intent_service.py, bot/handlers/nl_trade.py; bot/config/settings.py (NL_TRADING_ENABLED default False)
+    verify: "python3 -c \"from bot.config.settings import get_settings; s=get_settings(); print(s.NL_TRADING_ENABLED, s.NL_TRADING_PROVIDER)\""
+
+  - name: sentry_error_tracking_bot
+    description: Sentry error tracking for the python-bot process. No-op (never initialized) unless SENTRY_DSN is set.
+    service: python-bot
+    env_vars:
+      - name: SENTRY_DSN
+        required_to_enable: true
+      - name: SENTRY_ENVIRONMENT
+        required_to_enable: false
+      - name: SENTRY_RELEASE
+        required_to_enable: false
+    enabled_when: "SENTRY_DSN is set."
+    evidence: bot/config/settings.py (sentry_dsn field docstring "If unset, Sentry is never initialized")
+    verify: "python3 -c \"from bot.config.settings import get_settings; print(bool(get_settings().sentry_dsn))\""
+
+  - name: dead_mans_switch_heartbeat
+    description: >
+      POST /internal/monitor-heartbeat endpoint used by external uptime
+      probes; fails closed (rejects all requests) if the shared secret is unset.
+    service: python-bot
+    env_vars:
+      - name: MONITOR_HEARTBEAT_SECRET
+        required_to_enable: true
+      - name: MONITOR_HEARTBEAT_MAX_AGE_MINUTES
+        required_to_enable: false
+      - name: MONITOR_EXPECTED_SOURCES
+        required_to_enable: false
+    enabled_when: "MONITOR_HEARTBEAT_SECRET is set (unset = endpoint always rejects)."
+    evidence: "bot/config/settings.py (monitor_heartbeat_secret: \"If unset, the endpoint fails closed\"); api/main.py:2704 (POST /internal/monitor-heartbeat)"
+    verify: "curl -s -X POST 'https://<python-api-host>/internal/monitor-heartbeat?token=<secret>&source=manual-check'"
+
+  - name: compliance_screening
+    description: >
+      Screens swap recipient/router/token addresses against a blocklist/
+      allowlist before signing (UBS x Nethermind PoC model). Off by default.
+    service: python-bot
+    env_vars:
+      - name: COMPLIANCE_MODE
+        required_to_enable: true
+      - name: COMPLIANCE_POLICY
+        required_to_enable: false
+      - name: COMPLIANCE_BLOCKLIST
+        required_to_enable: false
+      - name: COMPLIANCE_ALLOWLIST
+        required_to_enable: false
+      - name: COMPLIANCE_OFAC_LIST_PATH
+        required_to_enable: false
+    enabled_when: "COMPLIANCE_MODE != 'disabled' (default 'disabled'): 'monitor' logs violations, 'enforce' blocks non-compliant swaps."
+    evidence: bot/config/settings.py (compliance_mode field docstring)
+    verify: "python3 -c \"from bot.config.settings import get_settings; print(get_settings().compliance_mode)\""
+
+  - name: compliance_private_routing
+    description: >
+      Routes screened same-chain EVM swaps privately via a Flashbots-
+      compatible relay instead of the public mempool. Falls back to public
+      RPC on any relay error.
+    service: python-bot
+    env_vars:
+      - name: COMPLIANCE_ROUTING_ENABLED
+        required_to_enable: true
+      - name: FLASHBOTS_RELAY_URL
+        required_to_enable: false
+      - name: FLASHBOTS_SIGNER_KEY
+        required_to_enable: false
+      - name: COMPLIANCE_ROUTING_CHAIN_IDS
+        required_to_enable: false
+      - name: FLASHBOTS_MAX_BLOCK_OFFSET
+        required_to_enable: false
+    enabled_when: "COMPLIANCE_ROUTING_ENABLED=true (default false)."
+    evidence: bot/config/settings.py (compliance_routing_enabled field docstring)
+    verify: "python3 -c \"from bot.config.settings import get_settings; print(get_settings().compliance_routing_enabled)\""
+
+  - name: cctp_generic_relayer
+    description: >
+      Completes generic-rail CCTP burns (mint on destination chain) via a
+      background relayer. Two independent kill switches: one gates swap
+      execution offering the rail, the other gates the relayer loop.
+    service: python-bot
+    env_vars:
+      - name: CCTP_GENERIC_RAIL_ENABLED
+        required_to_enable: true
+      - name: CCTP_GENERIC_RELAYER_ENABLED
+        required_to_enable: true
+      - name: CCTP_RELAYER_PRIVATE_KEY
+        required_to_enable: true
+      - name: CCTP_GENERIC_RELAYER_MIN_NATIVE_ALERT
+        required_to_enable: false
+    enabled_when: "CCTP_GENERIC_RAIL_ENABLED=true (offer the rail) and CCTP_GENERIC_RELAYER_ENABLED=true (run the completion relayer), both default false; CCTP_RELAYER_PRIVATE_KEY must be funded with native gas on every destination chain."
+    evidence: bot/config/settings.py (cctp_generic_rail_enabled, cctp_generic_relayer_enabled field docstrings); bot/services/cctp_generic_relayer.py
+    verify: "python3 -c \"from bot.config.settings import get_settings; s=get_settings(); print(s.cctp_generic_rail_enabled, s.cctp_generic_relayer_enabled)\""
+
+  - name: cctp_hypercore_relayer
+    description: >
+      Completes CCTP burns that deposit into a user's HyperLiquid HyperCore
+      account (relayer pays destination-chain HYPE gas + a small gas-drop).
+    service: python-bot
+    env_vars:
+      - name: CCTP_RELAYER_ENABLED
+        required_to_enable: true
+      - name: CCTP_RELAYER_PRIVATE_KEY
+        required_to_enable: true
+      - name: CCTP_RELAYER_GAS_DROP_HYPE
+        required_to_enable: false
+      - name: CCTP_RELAYER_MIN_HYPE_ALERT
+        required_to_enable: false
+    enabled_when: "CCTP_RELAYER_ENABLED=true (default false) with a HYPE-funded relayer wallet."
+    evidence: bot/config/settings.py (cctp_relayer_enabled field docstring)
+    verify: "python3 -c \"from bot.config.settings import get_settings; print(get_settings().cctp_relayer_enabled)\""
+
+  - name: x402_facilitator
+    description: >
+      Direct on-chain settlement of a single API call via the X-PAYMENT
+      header (x402 protocol), as an alternative to prepaid credits.
+    service: api-ts
+    env_vars:
+      - name: X402_FACILITATOR_ENABLED
+        required_to_enable: true
+      - name: X402_FACILITATOR_URL
+        required_to_enable: false
+      - name: X402_FACILITATOR_API_KEY
+        required_to_enable: false
+    enabled_when: "X402_FACILITATOR_ENABLED=true (default false); when off only prepaid credits + subscriptions are paid paths."
+    evidence: "api-ts/src/config/EnvService.ts:80-91"
+    verify: "curl -s https://<api-ts-host>/health"
+
+  - name: agent_metering
+    description: Pay-per-call metering for agent API access via prepaid x402 credits.
+    service: api-ts
+    env_vars:
+      - name: AGENT_METERING_ENABLED
+        required_to_enable: true
+      - name: AGENT_METERING_COLLECTOR_ADDRESS
+        required_to_enable: false  # falls back to FEE_WALLET_EVM
+      - name: AGENT_METERING_NETWORK
+        required_to_enable: false
+      - name: AGENT_METERING_USDC_ADDRESS
+        required_to_enable: false
+    enabled_when: "AGENT_METERING_ENABLED=true (default false)."
+    evidence: "api-ts/src/config/EnvService.ts:68-77"
+    verify: "curl -s https://<api-ts-host>/health"
+
+  - name: recurring_billing
+    description: >
+      Recurring crypto billing via Base Spend Permissions (true auto-renew
+      subscriptions). Requires a funded operator key that submits
+      approveWithSignature + spend() transactions.
+    service: api-ts
+    env_vars:
+      - name: RECURRING_BILLING_ENABLED
+        required_to_enable: true
+      - name: SPEND_OPERATOR_PK
+        required_to_enable: true
+      - name: SPEND_PERMISSION_MANAGER_ADDRESS
+        required_to_enable: false
+    enabled_when: "RECURRING_BILLING_ENABLED=true (default false) with SPEND_OPERATOR_PK funded on Base."
+    evidence: "api-ts/src/config/EnvService.ts:93-101"
+    verify: "curl -s https://<api-ts-host>/health"
+
+  - name: smart_accounts_erc4337
+    description: >
+      ERC-4337 smart accounts (Kernel v0.3.1 via permissionless.js/viem).
+      Address prediction always works; submitting UserOperations needs a
+      configured bundler.
+    service: api-ts
+    env_vars:
+      - name: SMART_ACCOUNT_ENABLED
+        required_to_enable: true
+      - name: BUNDLER_RPC_URL
+        required_to_enable: true
+    enabled_when: "SMART_ACCOUNT_ENABLED=true (default false) with BUNDLER_RPC_URL set."
+    evidence: "api-ts/src/config/EnvService.ts:122-127"
+    verify: "curl -s https://<api-ts-host>/health"
+
+  - name: onchain_rewards_distributor
+    description: >
+      Reads live isClaimed() state from the audited SuwappuRewardsDistributor
+      contract on Base for fee-cashback rewards. Without it, the rewards API
+      still serves balances/proofs, just not live on-chain claim state.
+    service: api-ts
+    env_vars:
+      - name: REWARDS_DISTRIBUTOR_ADDRESS
+        required_to_enable: true
+      - name: REWARDS_RPC_URL
+        required_to_enable: true
+    enabled_when: "Both REWARDS_DISTRIBUTOR_ADDRESS and REWARDS_RPC_URL are set."
+    evidence: "api-ts/src/config/EnvService.ts:129-133"
+    verify: "curl -s https://<api-ts-host>/health"
+
+  - name: sentry_error_tracking_api_ts
+    description: Sentry error tracking for the api-ts service. Optional, no-op unless SENTRY_DSN is set.
+    service: api-ts
+    env_vars:
+      - name: SENTRY_DSN
+        required_to_enable: true
+    enabled_when: "SENTRY_DSN is set."
+    evidence: "api-ts/src/config/EnvService.ts:55-58"
+    verify: "curl -s https://<api-ts-host>/health"
