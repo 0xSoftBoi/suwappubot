@@ -6839,3 +6839,14 @@ a.summer-button:active,
   .sw-rise { animation: none; }
   .nav__link::after { transition: none; }
 }
+
+/* Account entry in the nav. Styled as a link, not a third CTA: "Open Bot" is
+   an acquisition action, and an existing customer hunting for their billing
+   should not have to disambiguate two buttons that both read as signup. */
+.nav__link--account {
+  font-weight: 700;
+}
+
+.nav__link--account::after {
+  content: '';
+}

@@ -793,6 +793,40 @@ class AuthVerifyResponse(BaseModel):
     expiresAt: datetime
 
 
+# ---------------------------------------------------------------------------
+# Session cookie domain
+#
+# Set to the PARENT domain (e.g. ".suwappu.bot") so one session cookie reaches
+# both the site and the API subdomain as a same-site request. Without it the
+# cookie is host-only, which is why the web dashboard had no working sign-in:
+# it fell back to sending a bearer token to routes that only accepted Telegram
+# initData, and every request 401'd.
+#
+# SECURITY: a parent-domain cookie is readable by EVERY subdomain, so it must
+# only be widened to a domain whose subdomains are all trusted. Left unset it
+# stays host-only, which is the safe default — the widening is opt-in via
+# SESSION_COOKIE_DOMAIN rather than hardcoded.
+# ---------------------------------------------------------------------------
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN") or None
+
+
+def _session_cookie_kwargs() -> Dict[str, Any]:
+    """Shared attributes for every session cookie we set.
+
+    Centralised because the attributes were duplicated across four call sites;
+    a domain added to three of four would produce an intermittently broken
+    session that is painful to diagnose.
+    """
+    kwargs: Dict[str, Any] = {
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+    }
+    if SESSION_COOKIE_DOMAIN:
+        kwargs["domain"] = SESSION_COOKIE_DOMAIN
+    return kwargs
+
+
 class AuthMeResponse(BaseModel):
     authenticated: bool
     address: Optional[str] = None
@@ -1102,10 +1136,8 @@ async def auth_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1202,10 +1234,8 @@ async def auth_solana_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1345,10 +1375,8 @@ async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, 
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1490,21 +1518,17 @@ def _set_session_cookies(
     response.set_cookie(
         key="suwappu_auth",
         value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
         path="/",
+        **_session_cookie_kwargs(),
     )
     if refresh_token is not None:
         response.set_cookie(
             key=REFRESH_COOKIE,
             value=refresh_token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=REFRESH_TTL_SECONDS,
             path="/",
+            **_session_cookie_kwargs(),
         )
 
 
@@ -1530,7 +1554,9 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
     rotated = rotate_refresh_token(token, client="refresh")
     if rotated is None:
         # Clear stale cookies so the client falls back to a fresh login.
-        response.delete_cookie(REFRESH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        # Domain must match the one used when setting, or the browser keeps
+        # the cookie and "logout" silently leaves a live session behind.
+        response.delete_cookie(REFRESH_COOKIE, path="/", **_session_cookie_kwargs())
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user_id, address, new_refresh, _expires = rotated
@@ -1553,7 +1579,10 @@ async def auth_logout(request: Request, response: Response, body: Optional[Refre
         except Exception as e:
             logger.warning(f"Refresh-token revoke on logout failed: {e}")
     for key in ("suwappu_auth", REFRESH_COOKIE):
-        response.delete_cookie(key=key, path="/", secure=True, httponly=True, samesite="lax")
+        # Same attributes as when set — crucially the domain. A delete that
+        # omits it does not match a parent-domain cookie, so logout would
+        # appear to succeed while leaving the session valid.
+        response.delete_cookie(key=key, path="/", **_session_cookie_kwargs())
     return {"success": True, "message": "Logged out successfully"}
 
 
@@ -1820,11 +1849,9 @@ async def passkey_register_complete(
         response.set_cookie(
             key="suwappu_auth",
             value=token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=JWT_EXPIRY_HOURS * 3600,
             path="/",
+            **_session_cookie_kwargs(),
         )
         return PasskeyRegisterCompleteResponse(
             success=True,
@@ -1881,10 +1908,8 @@ async def passkey_register_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1984,10 +2009,8 @@ async def passkey_auth_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 

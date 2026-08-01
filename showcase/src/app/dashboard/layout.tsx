@@ -2,12 +2,15 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
-import { TELEGRAM_URL, API_BASE_URL } from '@/lib/links';
+import { TELEGRAM_URL, API_BASE_URL, PYTHON_API_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
+
+/** Marks "authenticated by cookie" — there is no token to store. */
+const SESSION_SENTINEL = 'cookie-session';
 
 // ── Login screen ────────────────────────────────────────────────────────────
 
@@ -58,8 +61,25 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           and handle billing.
         </p>
 
-        {/* Real browser sign-in. Previously this was a link that sent the
-            user to the bot to fetch a token by hand. */}
+        {/* Google is the primary path: python-api's OAuth flow is already
+            live in production (GET /auth/oauth/providers -> {"google":true})
+            and provisions a Turnkey wallet on first sign-in. It leaves an
+            HttpOnly session cookie, so there is no token for this page to
+            hold — the dashboard probes the session on load. */}
+        <a
+          className="summer-button summer-button--primary"
+          style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
+          href={`${PYTHON_API_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(
+            typeof window !== 'undefined'
+              ? `${window.location.origin}/dashboard`
+              : 'https://suwappu.bot/dashboard',
+          )}`}
+        >
+          Continue with Google
+        </a>
+
+        <div className={styles.loginDivider}>or</div>
+
         <TelegramLoginButton onToken={onToken} onError={setErr} />
 
         <a
@@ -118,8 +138,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY) ?? '';
-    setToken(stored);
-    setReady(true);
+    if (stored) {
+      setToken(stored);
+      setReady(true);
+      return;
+    }
+    // No pasted token — probe for a parent-domain cookie session. This is the
+    // normal path now: Google OAuth and Telegram both leave an HttpOnly cookie
+    // that the browser sends to api-ts automatically, so there is nothing for
+    // the page to store. Previously the absence of a token meant "logged out",
+    // which is why an OAuth round-trip could not sign anyone in.
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include' })
+      .then((r) => {
+        if (cancelled) return;
+        // Any non-401 means the cookie authenticated us. SESSION is a sentinel:
+        // there is no token to hold, and holding one would defeat HttpOnly.
+        setToken(r.status === 401 ? '' : SESSION_SENTINEL);
+      })
+      .catch(() => {
+        if (!cancelled) setToken('');
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleToken = useCallback((t: string) => {
@@ -130,6 +175,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const clearToken = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken('');
+    // Also end the server session, or a cookie-authenticated user would be
+    // signed straight back in by the probe above on the next page load.
+    fetch(`${PYTHON_API_BASE_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => {});
   }, []);
 
   // SSR / hydration guard

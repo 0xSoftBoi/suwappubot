@@ -154,9 +154,15 @@ function useApiFetch(token: string, clearToken: () => void) {
     async (path: string, opts: RequestInit = {}): Promise<Response> => {
       const res = await fetch(`${API_BASE_URL}${path}`, {
         ...opts,
+        // Send the parent-domain session cookie. This is now the primary
+        // credential: the cookie is minted by python-api on every auth flow
+        // (Google OAuth, Telegram, passkey) and scoped to .suwappu.bot, so it
+        // reaches api-ts as a same-site request and never has to be held in JS.
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          // Only sent when a token was pasted manually — the legacy fallback.
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(opts.headers ?? {}),
         },
       });

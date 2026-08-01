@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { telegramAuth, requireTier } from '../middleware'
+import { flexAuth, telegramAuth, requireTier } from '../middleware'
 import { apiKeyAuth } from '../middleware/apiKeyAuth'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
@@ -14,8 +14,19 @@ export const enterpriseRoutes = new Hono()
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/** Resolve the caller's internal user id from telegramUser context. */
+/** Resolve the caller's internal user id from whichever auth succeeded.
+ *
+ * flexAuth sets `authUser` (already carrying the internal userId) for JWT and
+ * cookie sessions; telegramAuth sets `telegramUser`, which needs a lookup.
+ * Preferring authUser avoids a needless query and lets a browser session that
+ * never touched Telegram authenticate at all — previously impossible, since
+ * these routes required X-Telegram-Init-Data and the dashboard sent a bearer
+ * token, so every request 401'd.
+ */
 async function resolveUserId(c: any): Promise<number | null> {
+	const authUser = c.get('authUser')
+	if (authUser?.userId) return authUser.userId
+
 	const telegramUser = c.get('telegramUser')
 	if (!telegramUser) return null
 
@@ -68,7 +79,10 @@ async function resolveMembership(
 
 // ─── all enterprise routes require telegram auth + enterprise tier ───────────
 
-enterpriseRoutes.use('*', telegramAuth())
+// flexAuth, not telegramAuth: accepts Telegram initData, a bearer JWT, OR the
+// parent-domain session cookie. telegramAuth() accepted ONLY initData, which
+// is why the web dashboard could never authenticate.
+enterpriseRoutes.use('*', flexAuth())
 enterpriseRoutes.use('*', requireTier('enterprise'))
 
 // ─── POST /enterprise/orgs ───────────────────────────────────────────────────
