@@ -1,18 +1,26 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, gte, sql as drizzleSql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql as drizzleSql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
-import { agentApprovals, agents, pointRedemptions, rewards, swapTransactions } from '../db/schema'
+import {
+	agentApprovals,
+	agents,
+	auditLogs,
+	organizations,
+	pointRedemptions,
+	rewards,
+	swapTransactions,
+} from '../db/schema'
 import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
-import { auditLog } from '../services/audit'
+import { auditLog, verifyAuditChain } from '../services/audit'
 import { getVipStatusRaw } from '../services/VipService'
 import {
 	BalanceService,
@@ -2128,6 +2136,136 @@ webappRoutes.post('/approvals/:id/decide', flexAuth(), async (c) => {
 	void enqueueApprovalWebhookDelivery(row)
 
 	return c.json({ success: true, id: row.id, status: row.status })
+})
+
+// === Audit trail (user-facing, terminal AuditLogPanel) ===
+//
+// The agent-facing /v1/agent/audit* routes require an AGENT bearer token or
+// org API key. The terminal only holds the user's JWT, so these mirror those
+// handlers exactly (same response shape) but resolve visibility from the
+// caller's OWN ownership graph instead of an API-key context:
+//   - any agent the caller owns (agents.ownerUserId = caller) -> that
+//     agent's rows on the global/org-less chain, matched by uuid
+//   - an org the caller owns (organizations.ownerId = caller) -> that org's
+//     entire chain (orgId match)
+// A caller with neither owns nothing to see and gets an empty/valid result
+// rather than falling through to any broader chain.
+
+/** Resolve the webapp caller's audit visibility: owned agent uuids + owned org id. */
+function resolveWebappAuditScope(authUser: AuthUser) {
+	return Effect.gen(function* () {
+		const db = yield* requireDb
+		const [ownedAgents, ownedOrgs] = yield* Effect.all([
+			Effect.tryPromise({
+				try: () =>
+					db
+						.select({ uuid: agents.uuid })
+						.from(agents)
+						.where(eq(agents.ownerUserId, authUser.userId)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			}),
+			Effect.tryPromise({
+				try: () =>
+					db
+						.select({ id: organizations.id })
+						.from(organizations)
+						.where(eq(organizations.ownerId, authUser.userId)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			}),
+		])
+		return {
+			agentIds: ownedAgents.map((a) => a.uuid),
+			orgId: ownedOrgs[0]?.id ?? null,
+		}
+	})
+}
+
+// GET /webapp/audit - audit events visible to the authenticated user (their
+// own agents' rows plus their org's rows, if they own one).
+webappRoutes.get('/audit', flexAuth(), async (c) => {
+	const authUser = c.get('authUser') as AuthUser
+	const eventType = c.req.query('event_type')
+	const since = c.req.query('since')
+	const limitParam = parseInt(c.req.query('limit') ?? '100', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 100, 1), 500)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const { agentIds, orgId } = yield* resolveWebappAuditScope(authUser)
+
+			if (!orgId && agentIds.length === 0) {
+				return [] as Array<typeof auditLogs.$inferSelect>
+			}
+
+			const scopeConditions = []
+			if (orgId) scopeConditions.push(eq(auditLogs.orgId, orgId))
+			if (agentIds.length > 0) {
+				scopeConditions.push(and(isNull(auditLogs.orgId), inArray(auditLogs.agentId, agentIds)))
+			}
+			const scopeFilter =
+				scopeConditions.length === 1 ? scopeConditions[0] : drizzleSql.join(scopeConditions, drizzleSql` OR `)
+
+			const conditions = [drizzleSql`(${scopeFilter})`]
+			if (eventType) conditions.push(eq(auditLogs.eventType, eventType))
+			if (since) {
+				const sinceDate = new Date(since)
+				if (!Number.isNaN(sinceDate.getTime())) conditions.push(gte(auditLogs.createdAt, sinceDate))
+			}
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							eventType: auditLogs.eventType,
+							agentId: auditLogs.agentId,
+							orgId: auditLogs.orgId,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(and(...conditions))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to list user-visible audit events')
+		return c.json({ success: false, error: 'Failed to load audit events' }, 500)
+	}
+
+	return c.json({ success: true, events: result.right, count: result.right.length })
+})
+
+// GET /webapp/audit/verify - walk the hash chain the caller can see. Only an
+// org's chain is a well-defined `verifyAuditChain` walk today; a caller with
+// no org (even if they own agents on the shared global chain) gets a no-op
+// valid result rather than us inventing a new agent-filtered walk here.
+webappRoutes.get('/audit/verify', flexAuth(), async (c) => {
+	const authUser = c.get('authUser') as AuthUser
+	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const { orgId } = yield* resolveWebappAuditScope(authUser)
+			if (!orgId) {
+				return { valid: true, checked: 0, note: 'no org chain' } as const
+			}
+			return yield* verifyAuditChain(orgId, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to verify user-visible audit chain')
+		return c.json({ success: false, error: 'Failed to verify audit chain' }, 500)
+	}
+
+	return c.json({ success: true, ...result.right })
 })
 
 // Mount protected routes at both /me and /users/me for backward compatibility
