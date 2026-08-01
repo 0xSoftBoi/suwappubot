@@ -370,6 +370,7 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
 history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
+history_stats_handler = CallbackQueryHandler(history_stats_callback, pattern="^history_stats$")
 share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern=r"^pnl_share_\d+$")
 
 # Create handlers
