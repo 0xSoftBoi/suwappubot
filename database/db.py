@@ -504,6 +504,9 @@ def _ensure_schema(db_engine) -> None:
         _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
     _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
 
+    # --- durable approval-decision webhook delivery (retry + dead-letter) ---
+    _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -3468,3 +3471,57 @@ def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool
             logger.info(f"Set DB default on {table}.{column}")
         except Exception as e:
             logger.warning(f"Could not set default on {table}.{column}: {e}")
+
+
+def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_webhook_deliveries idempotently (durable approval-decision webhooks).
+
+    Python-only table (unlike agent_approvals / agent_link_codes, which are
+    shared with api-ts). api-ts already owns a similarly-shaped
+    ``webhook_events`` table (api-ts/src/db/schema/webhookEvents.ts), but its
+    ``agent_id`` column is an INTEGER FK to ``agents.id`` and it has no
+    ``approval_id`` column — reusing it would require altering an api-ts-owned
+    column's type (int -> text/uuid) and adding a new NOT-owned column, which
+    risks breaking api-ts's own writers. A dedicated table avoids any
+    cross-service column ownership conflict.
+
+    ``id`` is a text/uuid primary key assigned by this bot on enqueue (not
+    autoincrement) so a delivery row can be created in the same transaction
+    as the approval decision without a round-trip to read back an identity
+    value.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_webhook_deliveries" in tables:
+        return
+
+    json_type = "TEXT" if is_sqlite else "JSONB"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
+                    id VARCHAR(36) PRIMARY KEY,
+                    approval_id VARCHAR(36) NOT NULL,
+                    agent_id TEXT,
+                    url VARCHAR(1024) NOT NULL,
+                    payload_json {json_type} NOT NULL,
+                    signature_ts VARCHAR(32),
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    delivered_at TIMESTAMP
+                )
+                """))
+        for idx, cols in (
+            ("ix_agent_webhook_deliveries_status_next", "status, next_attempt_at"),
+            ("ix_agent_webhook_deliveries_approval_id", "approval_id"),
+        ):
+            conn.execute(
+                text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_webhook_deliveries ({cols})")
+            )
+
+    logger.info("Created agent_webhook_deliveries table")

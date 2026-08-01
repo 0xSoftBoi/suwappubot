@@ -33,6 +33,7 @@ import json
 import logging
 import socket
 import time
+import uuid
 from urllib.parse import urlsplit
 
 import httpx
@@ -153,12 +154,32 @@ def _table_missing(e: Exception) -> bool:
     return "does not exist" in msg or "no such table" in msg or "no such column" in msg
 
 
+def build_signed_request(callback_url: str, api_key_hash: str, body_dict: dict):
+    """Build (raw_body, headers) for a signed webhook POST. Pure, no I/O.
+
+    Raises ``ValueError`` if ``api_key_hash`` isn't valid hex (see
+    ``sign_payload``).
+    """
+    raw_body = json.dumps(body_dict, separators=(",", ":")).encode("utf-8")
+    timestamp = str(int(time.time()))
+    signature = sign_payload(raw_body, api_key_hash, timestamp)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Suwappu-Timestamp": timestamp,
+        "X-Suwappu-Signature": signature,
+    }
+    return raw_body, headers, timestamp
+
+
 async def notify_approval_decided(approval_id: str, status: str, intent_hash) -> None:
-    """Best-effort POST to the owning agent's callback_url, if any is set.
+    """Enqueue a durable delivery row, then best-effort attempt immediate delivery.
 
     Looks up the agent via ``agent_approvals.agent_id = agents.uuid`` (the
     same string agent_id already stored on the approval row — no extra
-    lookup needed elsewhere). Never raises.
+    lookup needed elsewhere). Never raises — a delivery row is enqueued
+    first so ``webhook_dispatcher``'s background poller can retry even if
+    the immediate attempt below fails or this whole function errors before
+    reaching the POST.
     """
     try:
         with get_session() as session:
@@ -170,7 +191,7 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
             # than dialect-branching on ``::text`` vs CAST.
             row = session.execute(
                 text(
-                    "SELECT a.callback_url, a.api_key_hash "
+                    "SELECT a.callback_url, a.api_key_hash, ap.agent_id "
                     "FROM agent_approvals ap "
                     "JOIN agents a ON CAST(a.uuid AS TEXT) = ap.agent_id "
                     "WHERE ap.id = :approval_id"
@@ -188,7 +209,7 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
 
     if not row:
         return
-    callback_url, api_key_hash = row
+    callback_url, api_key_hash, agent_id = row
     if not callback_url or not api_key_hash:
         return
 
@@ -207,20 +228,33 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
         "decided_at": _now_iso(),
         "intent_hash": intent_hash,
     }
-    raw_body = json.dumps(body_dict, separators=(",", ":")).encode("utf-8")
-    timestamp = str(int(time.time()))
+
     try:
-        signature = sign_payload(raw_body, api_key_hash, timestamp)
+        raw_body, headers, timestamp = build_signed_request(callback_url, api_key_hash, body_dict)
     except ValueError as e:
         logger.warning("approval webhook for %s has invalid api_key_hash: %s", approval_id, e)
         return
 
-    headers = {
-        "Content-Type": "application/json",
-        "X-Suwappu-Timestamp": timestamp,
-        "X-Suwappu-Signature": signature,
-    }
+    delivery_id = enqueue_delivery(
+        approval_id=approval_id,
+        agent_id=agent_id,
+        url=callback_url,
+        payload_json=body_dict,
+        signature_ts=timestamp,
+    )
+    if delivery_id is None:
+        # Enqueue itself failed (e.g. table missing on a partial deploy) —
+        # nothing further we can durably retry, so fall back to the old
+        # single-shot behavior rather than silently dropping the decision.
+        await _post_once(callback_url, raw_body, headers, approval_id)
+        return
 
+    delivered = await _post_once(callback_url, raw_body, headers, approval_id)
+    _mark_delivery_result(delivery_id, delivered)
+
+
+async def _post_once(callback_url: str, raw_body: bytes, headers: dict, approval_id: str) -> bool:
+    """Single best-effort POST attempt. Returns True on 2xx/3xx, never raises."""
     try:
         async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT_SECONDS) as client:
             resp = await client.post(callback_url, content=raw_body, headers=headers)
@@ -231,15 +265,91 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash) ->
                     approval_id,
                     resp.status_code,
                 )
-            else:
-                logger.info(
-                    "approval webhook delivered for %s -> %s (%s)",
-                    approval_id,
-                    callback_url,
-                    resp.status_code,
-                )
-    except Exception as e:  # noqa: BLE001 — fire-and-forget, one attempt only
+                return False
+            logger.info(
+                "approval webhook delivered for %s -> %s (%s)",
+                approval_id,
+                callback_url,
+                resp.status_code,
+            )
+            return True
+    except Exception as e:  # noqa: BLE001 — caller (dispatcher/notifier) handles retry
         logger.warning("approval webhook delivery failed for %s: %s", approval_id, e)
+        return False
+
+
+def enqueue_delivery(
+    *, approval_id: str, agent_id, url: str, payload_json: dict, signature_ts: str
+) -> str | None:
+    """Insert a pending ``agent_webhook_deliveries`` row. Returns the new id, or None on failure.
+
+    Called both from the immediate-attempt path above and can be called
+    standalone by any other decision path (e.g. future channels) that wants
+    durable delivery without an inline POST attempt.
+    """
+    delivery_id = str(uuid.uuid4())
+    try:
+        with get_session() as session:
+            session.execute(
+                text(
+                    "INSERT INTO agent_webhook_deliveries "
+                    "(id, approval_id, agent_id, url, payload_json, signature_ts, status, attempts) "
+                    "VALUES (:id, :approval_id, :agent_id, :url, :payload_json, :signature_ts, "
+                    "'pending', 0)"
+                ),
+                {
+                    "id": delivery_id,
+                    "approval_id": approval_id,
+                    "agent_id": agent_id,
+                    "url": url,
+                    "payload_json": json.dumps(payload_json, separators=(",", ":")),
+                    "signature_ts": signature_ts,
+                },
+            )
+            session.commit()
+        return delivery_id
+    except SQLAlchemyError as e:
+        if _table_missing(e):
+            logger.info(
+                "agent_webhook_deliveries table not present yet; skipping durable enqueue for %s",
+                approval_id,
+            )
+            return None
+        logger.warning("Failed to enqueue webhook delivery for %s: %s", approval_id, e)
+        return None
+    except Exception as e:  # noqa: BLE001 — never raise out of a notify path
+        logger.warning("Failed to enqueue webhook delivery for %s: %s", approval_id, e)
+        return None
+
+
+def _mark_delivery_result(delivery_id: str, delivered: bool) -> None:
+    """Mark the immediate-attempt outcome.
+
+    This immediate attempt is deliberately NOT counted against
+    ``attempts`` — attempt/backoff accounting belongs solely to
+    ``webhook_dispatcher`` so its schedule (30s, 2m, 8m, 30m, 2h; 5-attempt
+    cap) starts cleanly at the first *dispatcher* attempt regardless of
+    whether this inline try happened. On failure the row is simply left
+    'pending' with no next_attempt_at, so the dispatcher's very next poll
+    picks it up immediately as attempt #1.
+    """
+    try:
+        with get_session() as session:
+            if delivered:
+                session.execute(
+                    text(
+                        "UPDATE agent_webhook_deliveries SET status = 'delivered', "
+                        "delivered_at = CURRENT_TIMESTAMP "
+                        "WHERE id = :id"
+                    ),
+                    {"id": delivery_id},
+                )
+                session.commit()
+            # On failure: intentionally no-op. Row stays pending/attempts=0/
+            # next_attempt_at=NULL, which the dispatcher's WHERE clause
+            # treats as immediately due.
+    except Exception as e:  # noqa: BLE001 — dispatcher will still pick this row up eventually
+        logger.warning("Failed to record immediate-attempt result for %s: %s", delivery_id, e)
 
 
 def _now_iso() -> str:
