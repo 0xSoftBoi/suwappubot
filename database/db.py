@@ -547,6 +547,8 @@ def _ensure_schema(db_engine) -> None:
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
+    _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite)
+    _add_bridge_transfer_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
@@ -867,15 +869,90 @@ def _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite: bool) -> 
 
 
 def _add_cctp_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create the CCTP deposit-relay table idempotently."""
-    try:
-        from bot.models.cctp import CctpDeposit
+    """Create the CCTP deposit-relay tables idempotently.
 
-        if not inspector.has_table(CctpDeposit.__tablename__):
-            CctpDeposit.__table__.create(bind=db_engine)
-            logger.info(f"Created {CctpDeposit.__tablename__} table")
+    Money-path note: bot.models.cctp.CctpGenericDeposit was previously ONLY
+    ever created as a side effect of api/main.py importing
+    bot.services.cctp_generic_relayer before init_db ran. Any entrypoint that
+    calls init_db without that import (bot-only process, worker, script,
+    test bootstrap) silently skipped this table -- and record_burn() would
+    then raise "relation does not exist" on a burn that already landed
+    on-chain, i.e. an unrecoverable burn. Both models are now created here
+    explicitly, and a creation failure is logged loudly (not swallowed to a
+    generic warning) because that failure mode is unmintable USDC.
+    """
+    from bot.models.cctp import CctpDeposit, CctpGenericDeposit
+
+    for model in (CctpDeposit, CctpGenericDeposit):
+        try:
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+        except Exception as e:
+            logger.error(
+                f"CRITICAL: failed to create {model.__tablename__} table -- CCTP burns "
+                f"recorded against this table will raise and cannot be relayed until this "
+                f"is fixed: {e}"
+            )
+
+
+def _add_bridge_transfer_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the user-facing bridge_transfers table idempotently.
+
+    Same reasoning as _add_cctp_tables: the row is created before the user
+    signs anything, so if the table is missing the build call fails and no
+    transaction is broadcast. That is the safe direction, but it is a hard
+    outage for the bridge flow, so log a creation failure loudly rather than
+    letting it pass as a warning.
+    """
+    from bot.models.bridge import BridgeTransfer
+
+    try:
+        if not inspector.has_table(BridgeTransfer.__tablename__):
+            BridgeTransfer.__table__.create(bind=db_engine)
+            logger.info(f"Created {BridgeTransfer.__tablename__} table")
     except Exception as e:
-        logger.warning(f"Failed to create CCTP tables: {e}")
+        logger.error(
+            f"CRITICAL: failed to create {BridgeTransfer.__tablename__} table -- the bridge "
+            f"flow cannot record transfers and will refuse to build them until this is "
+            f"fixed: {e}"
+        )
+
+
+def _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive columns for the generic-rail relayer's claim/lease + stall tracking.
+
+    stall_count: transient/insufficient-gas errors (never terminal by count alone).
+    claimed_at/claimed_by: lease so two relayer replicas never both broadcast the
+        same receiveMessage (SELECT ... FOR UPDATE SKIP LOCKED claim, see
+        CctpGenericRelayer._pending).
+    """
+    table = "cctp_generic_deposits"
+    if not inspector.has_table(table):
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        additions = [
+            ("stall_count", "INTEGER DEFAULT 0"),
+            ("claimed_at", "TIMESTAMP"),
+            ("claimed_by", "VARCHAR(120)"),
+        ]
+        with db_engine.begin() as conn:
+            for name, coltype in additions:
+                if name in cols:
+                    continue
+                if is_sqlite:
+                    ddl = f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"
+                else:
+                    ddl = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {coltype}"
+                conn.execute(text(ddl))
+                logger.info(f"Added {table}.{name}")
+    except Exception as e:
+        logger.error(
+            f"CRITICAL: failed to add claim/stall columns to {table}: {e} -- the generic "
+            "CCTP relayer's replica-safety and backoff logic will not work correctly until "
+            "this is fixed."
+        )
 
 
 def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:

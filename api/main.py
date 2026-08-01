@@ -63,6 +63,7 @@ from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
 from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.predict_monitor import predict_monitor
 from bot.services.cctp_relayer import cctp_relayer
+from bot.services.cctp_generic_relayer import cctp_generic_relayer
 from bot.services.event_bus import event_bus
 from bot.services.digest_service import digest_service
 from bot.services.api_client import api_client
@@ -315,6 +316,10 @@ async def lifespan(app: FastAPI):
         # CCTP -> HyperCore deposit relayer (no-op unless cctp_relayer_enabled).
         await cctp_relayer.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # CCTP generic-rail completion relayer (no-op unless
+        # cctp_generic_relayer_enabled; independent of cctp_generic_rail_enabled).
+        await cctp_generic_relayer.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         await digest_service.start(bot=bot_app.bot if bot_initialized else None)
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             await asyncio.sleep(2)
@@ -428,6 +433,7 @@ async def lifespan(app: FastAPI):
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
         await hl_ws_alerts.stop()
+        await cctp_generic_relayer.stop()
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 

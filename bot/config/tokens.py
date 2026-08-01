@@ -44,6 +44,27 @@ TOKENS: dict[str, TokenConfig] = {
         },
         logo_emoji="💵",
     ),
+    # USDT0 — LayerZero-OFT canonical USDT (verified on-chain 2026-07-30, see
+    # bot/services/bridge/usdt0_api.py OFT_ADDRESSES for the OFT contract
+    # addresses/EIDs; these are the plain ERC-20 token addresses only).
+    # Kept as a separate registry entry (not folded into "USDT" above) since
+    # USDT0 is a distinct token contract from native USDT on chains where
+    # both exist, and Plasma/HyperEVM have no native USDT deployment at all.
+    "USDT0": TokenConfig(
+        symbol="USDT0",
+        name="USDT0",
+        decimals=6,
+        addresses={
+            "arbitrum": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+            "plasma": "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb",
+            "hyperevm": "0xB8CE59FC3717ada4c02eaDF9682a9e934F625ebb",
+            "ink": "0x0200C29006150606B650577BBE7B6248F58470c1",
+            "unichain": "0x9151434b16b9763660705744891fA906F660EcC5",
+            "berachain": "0x779Ded0c9e1022225f8E0630b35a9b54bE713736",
+            "flare": "0xe7cd86e13AC4309349F30B3435a9d337750fC82D",
+        },
+        logo_emoji="💵",
+    ),
     "USDC": TokenConfig(
         symbol="USDC",
         name="USD Coin",

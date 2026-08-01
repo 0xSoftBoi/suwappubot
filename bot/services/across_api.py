@@ -594,7 +594,7 @@ class AcrossAPI:
         exclusive_relayer = quote.raw_quote.get("exclusiveRelayer", "0x0000000000000000000000000000000000000000")
         
         data = spoke_pool.encode_abi(
-            fn_name="depositV3",
+            "depositV3",
             args=[
                 Web3.to_checksum_address(from_address),
                 Web3.to_checksum_address(to_address),
