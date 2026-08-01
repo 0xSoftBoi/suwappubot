@@ -616,7 +616,7 @@ async def test_dispatcher_backoff_progression_and_dead_letter_real_pg(pg_session
 
     dispatcher = WebhookDispatcher()
 
-    for expected_attempt_index in range(MAX_ATTEMPTS - 1):
+    for expected_attempt_index in range(MAX_ATTEMPTS):
         await dispatcher._process_due()
         status, attempts, next_attempt_at, last_error = _delivery_row(pg_session, delivery_id)
         assert status == "pending"
@@ -624,8 +624,13 @@ async def test_dispatcher_backoff_progression_and_dead_letter_real_pg(pg_session
         # Real Postgres timestamptz arithmetic: the ::interval branch must
         # have actually computed a future timestamp, not raised/no-op'd.
         assert next_attempt_at is not None
+        # The claim step flips status to 'sending' mid-attempt; a retryable
+        # failure must reset it back to 'pending' or the row would wedge.
         pg_session.execute(
-            text("UPDATE agent_webhook_deliveries SET next_attempt_at = NULL WHERE id = :id"),
+            text(
+                "UPDATE agent_webhook_deliveries SET next_attempt_at = NULL, "
+                "status = 'pending' WHERE id = :id"
+            ),
             {"id": delivery_id},
         )
         pg_session.commit()
@@ -633,7 +638,7 @@ async def test_dispatcher_backoff_progression_and_dead_letter_real_pg(pg_session
     await dispatcher._process_due()
     status, attempts, next_attempt_at, last_error = _delivery_row(pg_session, delivery_id)
     assert status == "failed"
-    assert attempts == MAX_ATTEMPTS
+    assert attempts == MAX_ATTEMPTS + 1
     assert BACKOFF_SCHEDULE_SECONDS == [30, 120, 480, 1800, 7200]
 
 

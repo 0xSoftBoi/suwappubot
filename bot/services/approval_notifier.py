@@ -143,6 +143,7 @@ class ApprovalNotifier:
         while self._running:
             try:
                 await self._expire_stale()
+                await self._catch_web_expired()
                 await self._process_pending()
             except Exception as e:  # noqa: BLE001 — one bad cycle must not kill the loop
                 logger.error("Agent approval notifier loop error: %s", e, exc_info=True)
@@ -197,6 +198,65 @@ class ApprovalNotifier:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug("Could not edit expired approval message %s: %s", row_id, e)
+
+    async def _catch_web_expired(self) -> None:
+        """Pick up rows already flipped to 'expired' by api-ts's lazy web-path expiry.
+
+        api-ts's GET /webapp/approvals and POST /decide both lazily flip
+        stale ``status='pending'`` rows straight to ``status='expired'`` on
+        read (see api-ts/src/routes/webapp.ts). ``_expire_stale`` above only
+        selects rows still ``status='pending'`` — once the web path beats it
+        to the flip, that row is invisible to ``_expire_stale`` forever, so
+        the owning agent never gets an ``approval.expired`` webhook and just
+        hangs until its own client-side timeout.
+
+        This scans already-``expired`` rows with no corresponding
+        ``agent_webhook_deliveries`` row yet and enqueues the expiry webhook
+        for them. The ``NOT EXISTS`` guard is what keeps this idempotent —
+        including against a race with ``_expire_stale`` itself, which also
+        enqueues via ``notify_approval_decided`` -> ``enqueue_delivery``
+        before this method would ever see the row again.
+        """
+        try:
+            with get_session() as session:
+                rows = session.execute(
+                    text(
+                        "SELECT ap.id, ap.notify_chat_id, ap.notify_message_id, ap.intent_hash "
+                        "FROM agent_approvals ap "
+                        "WHERE ap.status = 'expired' "
+                        "AND NOT EXISTS ("
+                        "SELECT 1 FROM agent_webhook_deliveries d "
+                        "WHERE d.approval_id = ap.id"
+                        ") "
+                        "ORDER BY ap.created_at ASC LIMIT 20"
+                    )
+                ).fetchall()
+        except SQLAlchemyError as e:
+            if self._table_missing(e):
+                if not self._table_missing_logged:
+                    logger.info(
+                        "agent_approvals/agent_webhook_deliveries not present yet; "
+                        "web-expiry catch-up idling"
+                    )
+                    self._table_missing_logged = True
+                return
+            logger.error("Failed to scan web-expired agent_approvals: %s", e)
+            return
+
+        for row_id, chat_id, message_id, intent_hash in rows:
+            _spawn_webhook_task(row_id, "expired", intent_hash)
+
+            if self._bot is None or not (chat_id and message_id):
+                continue
+            try:
+                await self._bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text="⌛ This agent approval request expired.",
+                    parse_mode="Markdown",
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Could not edit web-expired approval message %s: %s", row_id, e)
 
     async def _process_pending(self) -> None:
         try:

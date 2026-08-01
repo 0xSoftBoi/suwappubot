@@ -15,7 +15,8 @@ Backoff schedule (indexed by attempt number, 1-based, after increment):
     attempt 2 fails -> wait 2m
     attempt 3 fails -> wait 8m
     attempt 4 fails -> wait 30m
-    attempt 5 fails -> dead-letter (no further retry)
+    attempt 5 fails -> wait 2h
+    attempt 6 fails -> dead-letter (no further retry)
 
 Mirrors the poll-loop shape of ``bot/services/approval_notifier.py``: must
 tolerate the table not existing yet, must never raise out of the loop, and
@@ -45,8 +46,9 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL_SECONDS = 15
 
 # Backoff in seconds, indexed by (attempts_after_increment - 1). 5 entries =
-# 5 allowed attempts; the 5th failure dead-letters instead of scheduling
-# another retry.
+# 5 retry delays; the 6th attempt's failure dead-letters instead of
+# scheduling another retry (MAX_ATTEMPTS is the count of *retryable*
+# failures — total attempts made is MAX_ATTEMPTS + 1).
 BACKOFF_SCHEDULE_SECONDS = [30, 120, 480, 1800, 7200]
 MAX_ATTEMPTS = len(BACKOFF_SCHEDULE_SECONDS)
 
@@ -97,10 +99,9 @@ class WebhookDispatcher:
     async def _process_due(self) -> None:
         try:
             with get_session() as session:
-                rows = session.execute(
+                candidate_ids = session.execute(
                     text(
-                        "SELECT id, approval_id, agent_id, url, payload_json, signature_ts, "
-                        "attempts FROM agent_webhook_deliveries "
+                        "SELECT id FROM agent_webhook_deliveries "
                         "WHERE status = 'pending' "
                         "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) "
                         "ORDER BY created_at ASC LIMIT 20"
@@ -115,16 +116,56 @@ class WebhookDispatcher:
             logger.error("Failed to poll agent_webhook_deliveries: %s", e)
             return
 
-        for r in rows:
+        for (candidate_id,) in candidate_ids:
+            claimed = self._claim(candidate_id)
+            if claimed is None:
+                # Lost the race (another replica/the inline post already
+                # claimed or finished it) — skip, don't double-deliver.
+                continue
             await self._attempt_one(
-                delivery_id=r[0],
-                approval_id=r[1],
-                agent_id=r[2],
-                url=r[3],
-                payload_json=r[4],
-                signature_ts=r[5],
-                attempts=r[6] or 0,
+                delivery_id=claimed["id"],
+                approval_id=claimed["approval_id"],
+                agent_id=claimed["agent_id"],
+                url=claimed["url"],
+                payload_json=claimed["payload_json"],
+                signature_ts=claimed["signature_ts"],
+                attempts=claimed["attempts"] or 0,
             )
+
+    def _claim(self, delivery_id: str) -> dict | None:
+        """Atomically flip a still-pending row to 'sending' before attempting it.
+
+        Prevents two racing pollers (multi-replica, or this loop racing the
+        inline attempt in ``approval_webhook.notify_approval_decided``) from
+        both POSTing the same delivery. Returns the claimed row's fields, or
+        None if another actor claimed/finished it first.
+        """
+        try:
+            with get_session() as session:
+                row = session.execute(
+                    text(
+                        "UPDATE agent_webhook_deliveries SET status = 'sending' "
+                        "WHERE id = :id AND status = 'pending' "
+                        "RETURNING id, approval_id, agent_id, url, payload_json, "
+                        "signature_ts, attempts"
+                    ),
+                    {"id": delivery_id},
+                ).fetchone()
+                session.commit()
+        except Exception as e:  # noqa: BLE001 — treat as lost race, retried next poll
+            logger.warning("Failed to claim webhook delivery %s: %s", delivery_id, e)
+            return None
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "approval_id": row[1],
+            "agent_id": row[2],
+            "url": row[3],
+            "payload_json": row[4],
+            "signature_ts": row[5],
+            "attempts": row[6],
+        }
 
     async def _attempt_one(
         self,
@@ -148,7 +189,11 @@ class WebhookDispatcher:
             self._mark(delivery_id, status="failed", attempts=attempts, last_error="unsafe url")
             return
 
-        body_dict = payload_json if isinstance(payload_json, dict) else json.loads(payload_json)
+        try:
+            body_dict = payload_json if isinstance(payload_json, dict) else json.loads(payload_json)
+        except Exception as e:  # noqa: BLE001 — a poison row must back off, not wedge the queue
+            self._record_failure(delivery_id, attempts, f"bad payload: {e}")
+            return
 
         try:
             # Re-sign per attempt: signatures are timestamp-bound, so a stale
@@ -192,7 +237,7 @@ class WebhookDispatcher:
 
     def _record_failure(self, delivery_id: str, attempts: int, error_str) -> None:
         new_attempts = attempts + 1
-        if new_attempts >= MAX_ATTEMPTS:
+        if new_attempts > MAX_ATTEMPTS:
             logger.error(
                 "webhook delivery %s dead-lettered after %d attempts: %s",
                 delivery_id,
@@ -215,14 +260,16 @@ class WebhookDispatcher:
                 session.execute(
                     (
                         text(
-                            "UPDATE agent_webhook_deliveries SET attempts = :attempts, "
+                            "UPDATE agent_webhook_deliveries SET status = 'pending', "
+                            "attempts = :attempts, "
                             "last_error = :last_error, "
                             "next_attempt_at = CURRENT_TIMESTAMP + (:delay || ' seconds')::interval "
                             "WHERE id = :id"
                         )
                         if _is_postgres()
                         else text(
-                            "UPDATE agent_webhook_deliveries SET attempts = :attempts, "
+                            "UPDATE agent_webhook_deliveries SET status = 'pending', "
+                            "attempts = :attempts, "
                             "last_error = :last_error, "
                             "next_attempt_at = datetime(CURRENT_TIMESTAMP, :delay_sqlite) "
                             "WHERE id = :id"

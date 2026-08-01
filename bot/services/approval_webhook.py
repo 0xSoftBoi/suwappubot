@@ -290,12 +290,24 @@ def enqueue_delivery(
     delivery_id = str(uuid.uuid4())
     try:
         with get_session() as session:
+            is_sqlite = session.get_bind().dialect.name == "sqlite"
+            next_attempt_at_expr = (
+                "datetime(CURRENT_TIMESTAMP, '+60 seconds')"
+                if is_sqlite
+                else "CURRENT_TIMESTAMP + interval '60 seconds'"
+            )
+            # next_attempt_at is set 60s out (not NULL) so the caller's own
+            # inline _post_once attempt below owns the first delivery
+            # window uncontested — otherwise a dispatcher poll landing in
+            # that same window would treat the still-'pending' row as due
+            # and fire a second, concurrent POST to the agent's callback_url.
             session.execute(
                 text(
                     "INSERT INTO agent_webhook_deliveries "
-                    "(id, approval_id, agent_id, url, payload_json, signature_ts, status, attempts) "
+                    "(id, approval_id, agent_id, url, payload_json, signature_ts, status, "
+                    "attempts, next_attempt_at) "
                     "VALUES (:id, :approval_id, :agent_id, :url, :payload_json, :signature_ts, "
-                    "'pending', 0)"
+                    f"'pending', 0, {next_attempt_at_expr})"
                 ),
                 {
                     "id": delivery_id,
@@ -345,9 +357,10 @@ def _mark_delivery_result(delivery_id: str, delivered: bool) -> None:
                     {"id": delivery_id},
                 )
                 session.commit()
-            # On failure: intentionally no-op. Row stays pending/attempts=0/
-            # next_attempt_at=NULL, which the dispatcher's WHERE clause
-            # treats as immediately due.
+            # On failure: intentionally no-op. Row stays pending/attempts=0
+            # with next_attempt_at ~60s out (set at enqueue time), which the
+            # dispatcher's WHERE clause will pick up as due shortly after
+            # this inline attempt's own window has passed.
     except Exception as e:  # noqa: BLE001 — dispatcher will still pick this row up eventually
         logger.warning("Failed to record immediate-attempt result for %s: %s", delivery_id, e)
 
