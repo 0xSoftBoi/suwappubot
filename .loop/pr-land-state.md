@@ -1,3 +1,13 @@
+# LOOP MISSION (updated): fix broken routes one by one
+
+New goal: find real broken routes and fix them one at a time with verification.
+CONSTRAINT: no Railway CLI/token in sandbox → cannot pull prod logs directly. Unauth probes return 401 (route mounted) not 500, so post-auth code bugs don't show via curl. Substitute = STATIC provably-broken detection (attr/method mismatches vs models, async/sync, imports) — same method that found the mobile points 500s. Runtime-only errors needing prod logs get flagged for the user to paste a log tail.
+Known-broken already (issue #670): GET /v1/mobile/points (up.points/up.spendable_points/... don't exist on UserPoints), GET /v1/mobile/points/rewards (r.cost vs points_cost).
+Discovery IN FLIGHT: scout audit of Python routes (api/routes, api/main, api/webapp, bot/handlers) + scout audit of api-ts routes (+bun check). Fix loop: audit → fix one → ast/black or bun check → next.
+Also open from PR loop: #531 turnkey review, #641 overlap review (may surface more broken paths).
+
+---
+
 # PR landing loop — state
 
 Goal: land all open PRs oldest→newest: review → fix → clean merge → deploy Railway → live-test → iterate.
