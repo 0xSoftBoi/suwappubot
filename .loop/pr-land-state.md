@@ -1,4 +1,13 @@
-# LOOP CLOSED — final state (2026-08-01)
+# LOOP REOPENED — better evidence source found (2026-08-01)
+
+L9 (the big miss): I closed the loop saying "no real error evidence without prod logs" while sitting on 60 ACTUALLY FAILING TESTS + 25 files that can't collect — verified by a real pytest run earlier this session. Failing tests ARE reproducible real errors with stack traces, and several are security/money-path named (test_swap_engine_wallet_ownership, test_p2p_escrow, test_oauth_link_binding, test_oauth_login_csrf). Static analysis was never the only option. LESSON: before declaring "no evidence available", inventory evidence already collected earlier in the session.
+ROUND 6 IN FLIGHT:
+  (a) test-engineer triaging the 60 failures → REAL BUG vs STALE TEST vs BROKEN FIXTURE, security/money-path files first, triage-only (no fixes) so I can act on classifications.
+  (b) bot-dev fixing the 25 collection errors: pytest-asyncio is MISSING from requirements entirely while pyproject sets asyncio_mode=auto + strict-markers → a quarter of the suite has silently NEVER RUN in CI. Requires before/after collection counts as evidence.
+
+---
+
+# LOOP (earlier close-out) — final state (2026-08-01)
 
 ## Verdict: static surface EXHAUSTED and converging clean. Further static rounds ≈ no progress.
 FIXED + PUSHED (branch claude/pr-review-deploy-loop-zidvbq):
