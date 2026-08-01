@@ -1042,3 +1042,98 @@
 .loginAdvancedToggle:hover {
   color: #0b789a;
 }
+
+/* ── KPI hierarchy ──────────────────────────────────────────────────────────
+   Two tiers instead of six equal tiles. The primary pair carries the numbers
+   that change behaviour; the compact row is supporting context and is
+   deliberately quieter — smaller type, no card chrome, no shadow. */
+
+.kpiPrimary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.kpiHero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 24px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 252, 0.72));
+  box-shadow: 0 14px 30px rgba(33, 88, 110, 0.08);
+}
+
+.kpiHeroValue {
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 2.45rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.kpiHeroMeta {
+  color: rgba(33, 88, 110, 0.62);
+  font-size: 0.82rem;
+}
+
+/* Inline status dot — used ONLY on metrics that carry a live signal. */
+.kpiDotInline {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.kpiSecondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.kpiCompact {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 15px;
+  border: 1px solid rgba(207, 227, 234, 0.75);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kpiCompactLabel {
+  color: rgba(33, 88, 110, 0.62);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kpiCompactValue {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.kpiUnit {
+  color: rgba(33, 88, 110, 0.55);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .kpiPrimary {
+    grid-template-columns: 1fr;
+  }
+  .kpiHeroValue {
+    font-size: 2.1rem;
+  }
+}

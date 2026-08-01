@@ -470,59 +470,74 @@ export default function DashboardPage() {
       </nav>
 
       {tab === 'overview' && (<>
-      {/* ── 6-tile KPI strip ── */}
-      <div className={styles.kpiRow} aria-label="Key performance indicators">
+      {/* ── KPI hierarchy ──
+          Was six identical tiles in a six-column grid, which gave calls,
+          errors, latency, team size and key count all the same weight — so
+          nothing read as important. Two problems fixed:
 
-        {/* 1 — API Calls Today */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>API Calls Today</p>
-          <span className={styles.kpiValue}>{fmtNumber(usage.callsToday)}</span>
+          1. Hierarchy. The two numbers that change behaviour lead at full
+             size: spend-driving volume, and the error rate that decides
+             whether the integration is trusted. Latency and today's calls
+             are supporting context, so they are compact.
+          2. Team size and key count are gone from here entirely. They are
+             not performance indicators, and they now have their own tab one
+             click away — duplicating them as tiles diluted the strip.
+
+          Status dots appear ONLY where they encode a signal. Four of the six
+          tiles previously carried a static #8eb6c5 dot that looked identical
+          to the live health colour used for errors and latency, so a
+          decoration read as a status light. */}
+      <div className={styles.kpiPrimary}>
+        <div className={styles.kpiHero}>
+          <p className={styles.kpiLabel}>API calls this month</p>
+          <span className={styles.kpiHeroValue}>{fmtNumber(usage.callsThisMonth)}</span>
+          <span className={styles.kpiHeroMeta}>
+            {fmtNumber(usage.callsToday)} today
+          </span>
         </div>
 
-        {/* 2 — API Calls This Month */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>API Calls This Month</p>
-          <span className={styles.kpiValue}>{fmtNumber(usage.callsThisMonth)}</span>
+        <div className={styles.kpiHero}>
+          <p className={styles.kpiLabel}>
+            Error rate
+            <span
+              className={styles.kpiDotInline}
+              style={SIGNAL_DOT[errorRateColor(usage.errorRate)]}
+              aria-label={`Status: ${errorRateColor(usage.errorRate)}`}
+            />
+          </p>
+          <span className={styles.kpiHeroValue}>{usage.errorRate.toFixed(2)}%</span>
+          <span className={styles.kpiHeroMeta}>
+            {usage.rateLimitHits > 0
+              ? `${fmtNumber(usage.rateLimitHits)} rate-limit hits`
+              : 'No rate-limit hits'}
+          </span>
+        </div>
+      </div>
+
+      <div className={styles.kpiSecondary}>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>
+            Avg response
+            <span
+              className={styles.kpiDotInline}
+              style={SIGNAL_DOT[latencyColor(usage.avgDurationMs)]}
+              aria-label={`Status: ${latencyColor(usage.avgDurationMs)}`}
+            />
+          </span>
+          <span className={styles.kpiCompactValue}>{fmtMs(usage.avgDurationMs)}</span>
         </div>
 
-        {/* 3 — Error Rate */}
-        <div className={styles.kpiCard}>
-          <div
-            className={styles.kpiDot}
-            style={SIGNAL_DOT[errorRateColor(usage.errorRate)]}
-            aria-label={`Status: ${errorRateColor(usage.errorRate)}`}
-          />
-          <p className={styles.kpiLabel}>Error Rate</p>
-          <span className={styles.kpiValue}>{usage.errorRate.toFixed(2)}%</span>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>Plan</span>
+          <span className={styles.kpiCompactValue}>{(org.tier ?? 'free').toUpperCase()}</span>
         </div>
 
-        {/* 4 — Avg Response Time */}
-        <div className={styles.kpiCard}>
-          <div
-            className={styles.kpiDot}
-            style={SIGNAL_DOT[latencyColor(usage.avgDurationMs)]}
-            aria-label={`Status: ${latencyColor(usage.avgDurationMs)}`}
-          />
-          <p className={styles.kpiLabel}>Avg Response Time</p>
-          <span className={styles.kpiValue}>{fmtMs(usage.avgDurationMs)}</span>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>Rate limit</span>
+          <span className={styles.kpiCompactValue}>
+            {rateLimit.toLocaleString()}<span className={styles.kpiUnit}> req/min</span>
+          </span>
         </div>
-
-        {/* 5 — Team Members */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>Team Members</p>
-          <span className={styles.kpiValue}>{fmtNumber(members.length)}</span>
-        </div>
-
-        {/* 6 — Active API Keys */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>Active API Keys</p>
-          <span className={styles.kpiValue}>{fmtNumber(activeKeys.length)}</span>
-        </div>
-
       </div>
 
       {/* ── Usage chart ── */}
