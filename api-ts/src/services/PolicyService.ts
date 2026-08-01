@@ -305,6 +305,11 @@ export const PolicyServiceLive = Layer.succeed(
 					? eq(policyDecisions.agentId, intent.agentId)
 					: eq(policyDecisions.organizationId, orgId)
 
+				// Captured from inside the transaction so a write failure AFTER the
+				// verdict is computed can fail closed (return the computed block with
+				// only the decision-log row lost) instead of surfacing Left, which
+				// every caller treats as fail-open (PR #617 review, round 3 M2).
+				let computedVerdict: PolicyDecisionResult | null = null
 				const capChecked = yield* Effect.tryPromise({
 					try: () =>
 						db.transaction(async (tx) => {
@@ -359,6 +364,8 @@ export const PolicyServiceLive = Layer.succeed(
 								}
 							}
 
+							computedVerdict = verdict
+
 							const inserted = await tx
 								.insert(policyDecisions)
 								.values({
@@ -375,14 +382,13 @@ export const PolicyServiceLive = Layer.succeed(
 							return { ...verdict, id: inserted[0]?.id }
 						}),
 					catch: (e) => new DatabaseError({ message: `cap check + decision log failed: ${e}`, cause: e }),
-				})
-				// Unlike log()'s internal catchAll (which swallows a logging failure so
-				// evaluate() still returns a decision), a failure here surfaces as a
-				// DatabaseError/Left. Every caller of evaluate() already treats Left as
-				// fail-open (logs 'policy.eval_error' and proceeds as allow), so the
-				// net behavior on a write failure is the same either way — this is
-				// simpler than duplicating log()'s swallow-and-continue inside a
-				// transaction that must not partially commit.
+				}).pipe(
+					Effect.catchAll((e) =>
+						computedVerdict !== null
+							? Effect.succeed(computedVerdict)
+							: Effect.fail(e),
+					),
+				)
 
 				return capChecked
 			}),
@@ -516,18 +522,13 @@ export const PolicyServiceLive = Layer.succeed(
 				// if the decision log needs to be provably append-only for compliance.
 				yield* Effect.tryPromise({
 					try: async () => {
-						// Belt-and-braces: only delete when the approval is NOT already
-						// 'consumed' — a consumed approval means the trade executed, so
-						// its cap-accounting row must never be released even if a caller
-						// mistakenly asks (created=true calls should never legitimately
-						// be consumed+released, but this guards the invariant at the DB
-						// layer rather than trusting every call site to get it right).
-						const approvalRows = await db
-							.select({ status: approvalRequests.status })
-							.from(approvalRequests)
-							.where(eq(approvalRequests.id, approvalId))
-							.limit(1)
-						if (approvalRows[0]?.status === 'consumed') return
+						// Provenance is the gate: callers only release reservations they
+						// minted (created === true). /swap/execute consumes BEFORE the
+						// internal broadcast, so a status check here would silently skip
+						// every legitimate post-consume release on that route and leak
+						// cap budget (PR #617 review, round 3 M1). approvalId is kept in
+						// the signature for auditability/logging.
+						void approvalId
 						await db.delete(policyDecisions).where(eq(policyDecisions.id, id))
 					},
 					catch: (e) => new DatabaseError({ message: `releaseApprovalAllowance failed: ${e}`, cause: e }),
