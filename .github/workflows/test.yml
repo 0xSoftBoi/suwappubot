@@ -44,6 +44,9 @@ jobs:
         run: flake8 bot/ api/ tests/ --max-line-length=100 --extend-ignore=E501,W503
         continue-on-error: true   # advisory by choice — flake8 findings are informational, not blocking
 
+      - name: Env contract drift check (.env.schema)
+        run: python3 scripts/check_env_schema.py
+
       - name: Run tests with coverage
         run: |
           pytest tests/ \
@@ -83,6 +86,9 @@ jobs:
 
       - name: Type-check (tsc --noEmit)
         run: bun run check
+
+      - name: OpenAPI spec drift check
+        run: bun run check:openapi
 
       - name: Run TypeScript tests
         run: bun run test
