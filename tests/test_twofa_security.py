@@ -7,6 +7,7 @@ covered here.
 
 import asyncio
 import os
+import time
 
 import pytest
 
@@ -35,6 +36,22 @@ def _stored_secret(user_id: int) -> str:
         return session.query(User).filter(User.id == user_id).first().totp_secret
 
 
+def _fresh_totp_code(secret: str) -> str:
+    """A TOTP code with a full step ahead of it.
+
+    TwoFactorService.verify_totp calls totp.verify(code) with no valid_window, so
+    a code minted in the dying moments of a 30s step is already invalid by the time
+    it is checked. That race made these tests fail intermittently in CI (one run
+    went red, the identical commit passed on re-run). Wait out a nearly-expired
+    step instead of racing it.
+    """
+    totp = pyotp.TOTP(secret)
+    remaining = totp.interval - (time.time() % totp.interval)
+    if remaining < 2:
+        time.sleep(remaining + 0.1)
+    return totp.now()
+
+
 # --- Encryption at rest ---------------------------------------------------
 
 
@@ -49,14 +66,14 @@ def test_setup_2fa_stores_ciphertext_not_plaintext(sqlite_db):
 
 def test_verify_transaction_roundtrip(sqlite_db):
     secret, _ = twofa_service.setup_2fa(1)
-    code = pyotp.TOTP(secret).now()
+    code = _fresh_totp_code(secret)
     assert twofa_service.verify_transaction(1, code) is True
     assert twofa_service.verify_transaction(1, "000000") is False
 
 
 def test_disable_2fa_with_encrypted_secret(sqlite_db):
     secret, _ = twofa_service.setup_2fa(1)
-    code = pyotp.TOTP(secret).now()
+    code = _fresh_totp_code(secret)
     assert twofa_service.disable_2fa(1, code) is True
     assert _stored_secret(1) is None
 
@@ -71,7 +88,7 @@ def test_legacy_plaintext_secret_is_healed_on_read(sqlite_db):
         user.totp_secret = secret
         user.two_fa_enabled = True
 
-    code = pyotp.TOTP(secret).now()
+    code = _fresh_totp_code(secret)
     assert twofa_service.verify_transaction(2, code) is True  # plaintext still works
     healed = _stored_secret(2)
     assert healed != secret, "plaintext row should be re-encrypted in place"
@@ -171,7 +188,7 @@ def test_begin_enrollment_does_not_enable_until_confirmed(sqlite_db):
     assert twofa_service.confirm_enrollment(1, "000000") is False
     assert twofa_service.is_2fa_enabled(1) is False
 
-    code = pyotp.TOTP(secret).now()
+    code = _fresh_totp_code(secret)
     assert twofa_service.confirm_enrollment(1, code) is True
     assert twofa_service.is_2fa_enabled(1) is True
 

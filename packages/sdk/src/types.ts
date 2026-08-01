@@ -22,6 +22,8 @@ export interface Quote {
   toToken: string;
   fromAmount: string;
   toAmount: string;
+  /** Worst-case amount the caller will receive after slippage — surface this to end users. */
+  amountOutMin: string;
   route: string;
   gas: string;
   fee: string;
@@ -31,13 +33,18 @@ export interface Quote {
   priceImpact: string;
   slippage: string;
   estimatedTimeSeconds: number;
+  /** Seconds until this quote id expires and must be re-fetched before executing. */
+  expiresInSeconds: number;
   dex: string;
 }
 
 export interface SwapResult {
-  txHash: string;
+  /** Numeric id of the swap_transactions row; poll GET /v1/agent/swap/status/:swapId. */
+  swapId: number;
+  txHash: string | null;
   status: "confirmed" | "pending" | "failed" | "ready" | string;
-  chain: string;
+  /** e.g. `/v1/agent/swap/status/42`. */
+  pollUrl?: string;
 }
 
 export interface TokenBalance {
@@ -208,30 +215,17 @@ export interface LendingMarketDetail extends LendingMarket {
 }
 
 // --- Agent account (register / me / billing / swap status) ---
+// NOTE: `AgentProfile` and `RegisterAgentArgs` are defined once, further
+// down in the "Agent lifecycle" section, and reused by both the top-level
+// convenience methods (register/me) and the richer `agent.*` namespace.
 
-export interface RegisterAgentArgs {
-  name: string;
-  description?: string;
-  callbackUrl?: string;
-}
-
+/** @deprecated kept for callers that used the old flat register() shape; prefer `RegisterAgentResult`. */
 export interface RegisterResult {
   id: string;
   name: string;
   /** Returned once at registration time — the API never re-exposes it. */
   apiKey: string;
   createdAt: string;
-}
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  description: string | null;
-  rateLimitTier: string;
-  totalRequests: number;
-  totalSwaps: number;
-  createdAt: string;
-  lastActiveAt: string | null;
 }
 
 export interface BillingCredits {
@@ -307,4 +301,109 @@ export interface PerpQuoteArgs {
 export interface PredictListArgs {
   query?: string;
   limit?: number;
+}
+
+// --- Agent lifecycle ---
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description?: string | null;
+  callbackUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+  rateLimitTier?: string;
+  stats?: { totalRequests: number; totalSwaps: number };
+  createdAt?: string;
+  lastActiveAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface RegisterAgentArgs {
+  name: string;
+  description?: string;
+  callbackUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RegisterAgentResult {
+  agent: AgentProfile & { apiKey: string };
+  message: string;
+  important: string;
+}
+
+export interface UpdateAgentArgs {
+  description?: string;
+  callbackUrl?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RotateKeysResult {
+  apiKey: string;
+  message: string;
+}
+
+// --- Wallet policies ---
+
+export interface CreatePolicyArgs {
+  type: "spending_limit" | "whitelist";
+  params: {
+    maxAmountWei?: string;
+    timeWindowSeconds?: number;
+    allowedAddresses?: string[];
+  };
+}
+
+export type WalletPolicy = Record<string, unknown>;
+
+// --- Webhooks ---
+
+export interface WebhookEvent {
+  id: string | number;
+  eventType: string;
+  status: string;
+  attempts: number;
+  lastError?: string | null;
+  responseStatus?: number | null;
+  callbackUrl: string;
+  createdAt: string;
+  deliveredAt?: string | null;
+}
+
+export interface WebhookEventsResult {
+  events: WebhookEvent[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+}
+
+export interface WebhookTestResult {
+  success: boolean;
+  callbackUrl: string;
+  statusCode?: number;
+  responseTimeMs: number;
+  error?: string;
+}
+
+// --- Billing ---
+
+export interface BillingCheckoutResult {
+  url: string;
+}
+
+export interface BillingCryptoArgs {
+  txHash: string;
+  chain?: string;
+  amount: number;
+  tier: "pro" | "premium" | "enterprise";
+}
+
+export interface BillingStatus {
+  tier: string;
+  feeRatePercent: number;
+  expiresAt: string | null;
+  active: boolean;
+}
+
+export interface AgentTopupArgs {
+  txHash: string;
+  chain?: string;
+  amount: number | string;
 }

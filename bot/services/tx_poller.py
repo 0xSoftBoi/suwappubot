@@ -72,7 +72,7 @@ class TransactionPoller:
             has_recent_pending = False
             try:
                 has_recent_pending = await self._check_pending_transactions()
-                await redis_cache.set("service:tx_poller:heartbeat", time.time(), ttl_seconds=60)
+                await redis_cache.set("service:tx_poller:heartbeat", time.time(), ttl_seconds=90)
             except Exception as e:
                 logger.error(f"Transaction poll error: {e}")
 

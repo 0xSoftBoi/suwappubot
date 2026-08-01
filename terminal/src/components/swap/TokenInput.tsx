@@ -56,7 +56,7 @@ export function TokenInput({
             onClick={() => onAmountChange?.(token.balance!)}
             className="text-xs text-terminal-text-secondary hover:text-sakura-400 transition-colors"
           >
-            Balance: <span className="font-mono">{parseFloat(token.balance).toFixed(4)}</span>
+            Balance: <span className="tnum font-mono">{parseFloat(token.balance).toFixed(4)}</span>
           </button>
         )}
       </div>
@@ -70,7 +70,7 @@ export function TokenInput({
           placeholder="0.0"
           readOnly={readOnly}
           aria-label={`${label} amount`}
-          className="flex-1 bg-transparent text-xl font-mono text-terminal-text
+          className="tnum flex-1 bg-transparent text-xl font-mono text-terminal-text
                      placeholder-terminal-text-muted outline-none"
         />
 
@@ -89,7 +89,7 @@ export function TokenInput({
                 {token.logoUrl ? (
                   <img src={token.logoUrl} alt="" className="w-5 h-5 rounded-full" />
                 ) : (
-                  <div className="w-5 h-5 rounded-full bg-terminal-border flex items-center justify-center text-[10px] font-bold">
+                  <div className="w-5 h-5 rounded-full bg-terminal-border flex items-center justify-center text-[10px] font-semibold">
                     {token.symbol[0]}
                   </div>
                 )}
@@ -104,7 +104,7 @@ export function TokenInput({
           </button>
 
           {selectorOpen && (
-            <div className="absolute right-0 top-full mt-1 w-64 bg-terminal-bg-secondary border border-terminal-border rounded shadow-lg z-50">
+            <div className="terminal-theme-overlay absolute right-0 top-full mt-1 w-64 rounded z-50">
               <div className="p-2 border-b border-terminal-border">
                 <input
                   type="search"

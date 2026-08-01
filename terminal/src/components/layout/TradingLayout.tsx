@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { PriceChart } from '../chart/PriceChart'
@@ -20,6 +20,7 @@ import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
 import { RewardsPanel } from '../rewards/RewardsPanel'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -41,6 +42,15 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
+
+// Lets components outside this file (e.g. the onboarding FirstRunChecklist)
+// request a switch of the mobile bottom-nav tab, which is otherwise local
+// state to `MobileLayout`. Mirrors the `openCommandPalette` custom-event
+// pattern already used by CommandPalette.
+const REQUEST_MOBILE_TAB_EVENT = 'suwappu:request-mobile-tab'
+export function requestMobileTab(tab: MobileTab) {
+  window.dispatchEvent(new CustomEvent<MobileTab>(REQUEST_MOBILE_TAB_EVENT, { detail: tab }))
+}
 
 const MOBILE_NAV_TABS: { id: MobileTab; label: string; icon: JSX.Element }[] = [
   {
@@ -76,6 +86,15 @@ function MobileLayout() {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chart')
   const { activeTab: bottomTab, setActiveTab: setBottomTab } = useBottomTab()
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<MobileTab>).detail
+      if (detail) setMobileTab(detail)
+    }
+    window.addEventListener(REQUEST_MOBILE_TAB_EVENT, handler)
+    return () => window.removeEventListener(REQUEST_MOBILE_TAB_EVENT, handler)
+  }, [])
+
   return (
     <div className="flex flex-col h-full">
       <MarketInfoBar />
@@ -83,7 +102,9 @@ function MobileLayout() {
       <div className="flex-1 overflow-hidden">
         {mobileTab === 'chart' && (
           <div className="h-full terminal-panel">
-            <PriceChart />
+            <ErrorBoundary label="Chart">
+              <PriceChart />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -110,9 +131,17 @@ function MobileLayout() {
 
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
-              {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'portfolio' && (
+                <ErrorBoundary label="Portfolio">
+                  <PortfolioPanel />
+                </ErrorBoundary>
+              )}
               {bottomTab === 'signals' && <SignalsFeed />}
-              {bottomTab === 'discovery' && <DiscoveryPanel />}
+              {bottomTab === 'discovery' && (
+                <ErrorBoundary label="Discovery">
+                  <DiscoveryPanel />
+                </ErrorBoundary>
+              )}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
               {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
@@ -163,7 +192,9 @@ function DesktopLayout() {
     return (
       <div className="h-full relative">
         <div className="h-full terminal-panel">
-          <PriceChart />
+          <ErrorBoundary label="Chart">
+            <PriceChart />
+          </ErrorBoundary>
         </div>
         <button
           onClick={toggleChartFullscreen}
@@ -190,7 +221,9 @@ function DesktopLayout() {
           {/* Chart area */}
           <Allotment.Pane preferredSize={sizes.chart} minSize={300}>
             <div className="h-full terminal-panel">
-              <PriceChart />
+              <ErrorBoundary label="Chart">
+                <PriceChart />
+              </ErrorBoundary>
             </div>
           </Allotment.Pane>
 
@@ -199,10 +232,14 @@ function DesktopLayout() {
             <div className="h-full terminal-panel flex flex-col">
               <Allotment vertical>
                 <Allotment.Pane preferredSize="60%">
-                  <OrderBookPanel />
+                  <ErrorBoundary label="Order Book">
+                    <OrderBookPanel />
+                  </ErrorBoundary>
                 </Allotment.Pane>
                 <Allotment.Pane preferredSize="40%">
-                  <RecentTradesPanel />
+                  <ErrorBoundary label="Recent Trades">
+                    <RecentTradesPanel />
+                  </ErrorBoundary>
                 </Allotment.Pane>
               </Allotment>
             </div>
@@ -235,9 +272,17 @@ function DesktopLayout() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {bottomTab === 'portfolio' && <PortfolioPanel />}
+            {bottomTab === 'portfolio' && (
+              <ErrorBoundary label="Portfolio">
+                <PortfolioPanel />
+              </ErrorBoundary>
+            )}
               {bottomTab === 'signals' && <SignalsFeed />}
-            {bottomTab === 'discovery' && <DiscoveryPanel />}
+            {bottomTab === 'discovery' && (
+              <ErrorBoundary label="Discovery">
+                <DiscoveryPanel />
+              </ErrorBoundary>
+            )}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
             {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
@@ -270,14 +315,18 @@ export function TradingLayout() {
   if (tradingMode === 'perps') {
     return (
       <div className="h-full">
-        <PerpsWorkspace />
+        <ErrorBoundary label="Perps">
+          <PerpsWorkspace />
+        </ErrorBoundary>
       </div>
     )
   }
   if (tradingMode === 'predict') {
     return (
       <div className="h-full">
-        <PredictWorkspace />
+        <ErrorBoundary label="Predict">
+          <PredictWorkspace />
+        </ErrorBoundary>
       </div>
     )
   }

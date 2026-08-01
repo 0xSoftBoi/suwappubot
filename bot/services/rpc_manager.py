@@ -122,16 +122,36 @@ TRUSTED_RPC_DOMAINS = frozenset(
         "publicnode.com",
         "1rpc.io",
         "drpc.org",
-        "llamarpc.com",
         "blockpi.network",
         "alchemy.com",
         "infura.io",
-        "ankr.com",
+        # NOTE: llamarpc.com is deliberately absent, for the same reason as
+        # ankr.com below. Its unauthenticated public endpoints no longer serve:
+        # `eth.llamarpc.com` answers HTTP 403 and `polygon.llamarpc.com` does not
+        # resolve at all (measured). Because it was trusted, chainlist discovery
+        # kept selecting it and a USDT0 quoteSend on ethereum failed with a bare
+        # 403 — the provider failed closed correctly, but the route was silently
+        # unavailable until the circuit breaker rotated away. Trusting the domain
+        # only gates the UNTRUSTED chainlist feed; an authenticated LlamaNodes URL
+        # in settings.py still bypasses this list.
+        # NOTE: ankr.com is deliberately absent. Ankr retired its unauthenticated
+        # public endpoints, so every chainlist-discovered `rpc.ankr.com/<chain>`
+        # answers `-32000 Unauthorized` and does nothing but trip the circuit
+        # breaker on repeat (observed continuously on polygon + gnosis in prod).
+        # Trusting the domain here only gates the UNTRUSTED chainlist feed — an
+        # authenticated Ankr URL configured in settings.py still bypasses this
+        # list, so re-adding it is not needed to use a paid Ankr key.
         "blastapi.io",
         "nodereal.io",
         "meowrpc.com",
         "tenderly.co",
         # Chain-native / first-party RPC domains
+        # plasma.to is Plasma's own RPC (rpc.plasma.to, verified serving chainId
+        # 0x2611 = 9745). Without it Plasma had NO endpoints at all, which meant
+        # the arbitrum<->plasma USDT0 corridor could never be quoted — and that
+        # corridor is the reason USDT0 matters for Plasma in the first place,
+        # since Plasma has no native USDT deployment.
+        "plasma.to",
         "binance.org",
         "bnbchain.org",
         "arbitrum.io",
@@ -166,6 +186,26 @@ TRUSTED_RPC_DOMAINS = frozenset(
         "flare.network",
     }
 )
+
+
+def _is_method_unsupported(error) -> bool:
+    """True only when a JSON-RPC error means the method itself is missing.
+
+    Deliberately narrow. An execution error ("invalid: failed transaction",
+    "execution reverted") proves the opposite — the node ran the call. Treating
+    those as unsupported evicts healthy endpoints, which is what happened to
+    Flow's node the first time this check shipped.
+    """
+    if not isinstance(error, dict):
+        return False
+    # -32601 is JSON-RPC's standard "Method not found".
+    if error.get("code") == -32601:
+        return True
+    message = str(error.get("message", "")).lower()
+    return any(
+        phrase in message
+        for phrase in ("not supported", "method not found", "unsupported method", "not available")
+    )
 
 
 def _is_trusted_rpc_url(url: str) -> bool:
@@ -241,10 +281,23 @@ class RPCEndpoint:
         self.consecutive_failures = 0
         self.circuit_open_until = 0.0
 
-    def record_failure(self, error: str):
+    def record_failure(self, error: str, fatal: bool = False):
+        """Record a failed probe/request.
+
+        `fatal=True` opens the circuit on the FIRST occurrence, for failures
+        that are a property of the endpoint rather than a transient blip —
+        "the method eth_call is not supported" will be just as true on the next
+        attempt. Waiting for three of those keeps a known-broken endpoint in
+        rotation for minutes, which is how a chainlist-discovered node that
+        rejects eth_call ended up serving contract reads on dev.
+        """
         self.total_requests += 1
         self.last_error = error
         self.consecutive_failures += 1
+        if fatal:
+            self.circuit_open_until = time.monotonic() + 600
+            logger.warning(f"RPC circuit OPEN (fatal) {self.url[:60]}... (600s, reason={error})")
+            return
         if self.consecutive_failures >= 3:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
@@ -279,9 +332,16 @@ class RPCManager:
     async def start(self):
         """Initialize endpoints and start background health checker."""
         self._load_configured_endpoints()
-        # Fetch chainlist in background — don't block startup
+        # Fetch chainlist in background — don't block startup. The fetch probes
+        # whatever it adds before those endpoints can be selected.
         asyncio.create_task(self._fetch_chainlist_endpoints())
         self._running = True
+        # Probe immediately rather than waiting for the first background cycle.
+        # Until an endpoint has been probed it has no latency sample, so every
+        # endpoint scores near-identically and selection is effectively a coin
+        # flip — which on a cold deploy is exactly when a broken endpoint gets
+        # picked. Kicked off as a task so startup is not blocked on the sweep.
+        asyncio.create_task(self._health_check_all())
         self._bg_task = asyncio.create_task(self._background_loop())
         total = sum(len(v) for v in self._endpoints.values())
         logger.info(f"RPCManager started: {total} endpoints across {len(self._endpoints)} chains")
@@ -300,8 +360,11 @@ class RPCManager:
     def _load_configured_endpoints(self):
         """Load endpoints from settings.py — Infura, Alchemy, and public defaults."""
         all_chains = list(CHAINLIST_IDS.keys())
-        # Also add non-chainlist chains (tempo, solana, tron)
-        for extra in ("tempo", "solana", "tron"):
+        # Also add chains absent from CHAINLIST_IDS, which would otherwise get no
+        # endpoints at all — not even their configured default — and raise
+        # "No RPC endpoints for <chain>" on first use. plasma was in exactly that
+        # state, which made the arbitrum<->plasma USDT0 corridor unquotable.
+        for extra in ("tempo", "solana", "tron", "plasma"):
             if extra not in all_chains:
                 all_chains.append(extra)
 
@@ -349,6 +412,9 @@ class RPCManager:
 
     async def _fetch_chainlist_endpoints(self):
         """Fetch additional RPCs from chainlist.org (graceful failure)."""
+        # Declared outside the try so the probe below still runs if the fetch
+        # raises partway through having already appended some endpoints.
+        newly_added: List[RPCEndpoint] = []
         try:
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
             async with aiohttp.ClientSession(connector=connector) as session:
@@ -400,13 +466,13 @@ class RPCManager:
                         logger.debug(f"Chainlist: rejected untrusted RPC {rpc_url[:80]}")
                         continue
 
-                    self._endpoints.setdefault(chain_name, []).append(
-                        RPCEndpoint(
-                            url=rpc_url,
-                            chain=chain_name,
-                            tier=RPCTier.DISCOVERED,
-                        )
+                    discovered = RPCEndpoint(
+                        url=rpc_url,
+                        chain=chain_name,
+                        tier=RPCTier.DISCOVERED,
                     )
+                    self._endpoints.setdefault(chain_name, []).append(discovered)
+                    newly_added.append(discovered)
                     existing_urls.add(rpc_url)
                     added += 1
 
@@ -416,6 +482,18 @@ class RPCManager:
 
         except Exception as e:
             logger.warning(f"Chainlist fetch failed (using defaults): {e}")
+
+        # Probe what was just added, before it can be selected. These arrive
+        # after startup's sweep, so without this they sit unprobed — and an
+        # unprobed endpoint is indistinguishable from a good one at selection
+        # time. This is the path that put an eth_call-rejecting node into
+        # rotation on dev.
+        if newly_added:
+            sem = asyncio.Semaphore(20)
+            await asyncio.gather(
+                *(self._health_check_one(sem, ep) for ep in newly_added),
+                return_exceptions=True,
+            )
 
     # === SELECTION ===
 
@@ -452,6 +530,20 @@ class RPCManager:
             if r <= cumulative:
                 return ep
         return available[-1]
+
+    def chain_all_circuits_open(self, chain_name: str) -> bool:
+        """True if the chain has endpoints and every one is circuit-open.
+
+        Lets hot callers skip a fully-down chain instead of firing doomed
+        requests at it — each doomed request opens a socket, and under a
+        sustained outage that fd churn is what previously crashed the worker.
+        Returns False for an unknown chain so callers fall back to normal
+        selection (which raises a clear error) rather than silently skipping.
+        """
+        endpoints = self._endpoints.get(chain_name.lower())
+        if not endpoints:
+            return False
+        return all(ep.is_circuit_open for ep in endpoints)
 
     # === PUBLIC API ===
 
@@ -595,11 +687,66 @@ class RPCManager:
                         if "error" in data:
                             ep.record_failure(f"rpc_error: {str(data['error'])[:80]}")
                             return
-                        ep.record_success(latency)
+
+                    # eth_blockNumber alone is not enough to call an endpoint
+                    # healthy. Some free providers serve it but reject
+                    # eth_call ("The method eth_call is not supported"), which
+                    # passes this check and then breaks every contract READ we
+                    # do — quotes, allowances, balances. Observed on dev, where
+                    # a USDT0 quoteSend failed against an endpoint this probe
+                    # had marked healthy.
+                    #
+                    # to=0x0 with empty data is chain-agnostic and trivial for
+                    # the node: any compliant EVM endpoint answers "0x".
+                    if not await self._supports_eth_call(session, ep):
+                        return
+
+                    ep.record_success(latency)
             except asyncio.TimeoutError:
                 ep.record_failure("timeout")
             except Exception as e:
                 ep.record_failure(str(e)[:80])
+
+    async def _supports_eth_call(self, session, ep: RPCEndpoint) -> bool:
+        """Probe whether the endpoint implements eth_call at all.
+
+        The distinction that matters is capability, not outcome. If the node
+        *executes* the probe and complains about it, eth_call works and the
+        endpoint is fine — some chains reject the synthetic to=0x0 payload
+        (Flow answers "invalid: failed transaction"), and quarantining those
+        would evict perfectly healthy nodes. Only a genuine method-not-found
+        means contract reads are impossible here.
+        """
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": "0x" + "00" * 20, "data": "0x"}, "latest"],
+            "id": 2,
+        }
+        try:
+            async with session.post(
+                ep.url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    ep.record_failure(f"eth_call http_{resp.status}")
+                    return False
+                data = await resp.json()
+                error = data.get("error")
+                if error and _is_method_unsupported(error):
+                    # Not transient: a node either implements the method or it
+                    # does not. Quarantine now rather than after three sweeps
+                    # (six minutes) of serving broken contract reads.
+                    ep.record_failure(f"eth_call unsupported: {str(error)[:60]}", fatal=True)
+                    return False
+                # Any other error means the call was executed and rejected —
+                # the capability is present, which is all this probe asks.
+                return True
+        except asyncio.TimeoutError:
+            ep.record_failure("eth_call timeout")
+            return False
+        except Exception as e:
+            ep.record_failure(f"eth_call {str(e)[:60]}")
+            return False
 
     def _decay_all_stats(self):
         for endpoints in self._endpoints.values():

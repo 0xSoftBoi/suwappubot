@@ -114,6 +114,7 @@ export {
 	CHAINS,
 	type ChainInfo,
 	COMMON_TOKENS,
+	TEMPO_TOKEN_DECIMALS,
 	type TokenInfo,
 	TokenService,
 	TokenServiceLive,

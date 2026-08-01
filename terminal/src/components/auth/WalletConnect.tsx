@@ -13,6 +13,7 @@ export function WalletConnect() {
     signInWithGoogle,
     isLoading,
     isHardwareWallet,
+    isWalletConnecting,
   } = useAuth()
 
   return (
@@ -25,22 +26,27 @@ export function WalletConnect() {
               <button
                 onClick={openConnectModal}
                 type="button"
-                className="w-full py-3 text-base font-semibold rounded transition-colors
-                           bg-sakura-600 hover:bg-sakura-500 text-white"
+                className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
+                           bg-sakura-500 hover:bg-sakura-600 text-terminal-on-accent"
               >
                 Connect Wallet
               </button>
             )
           }
+          // AuthContext auto-fires the SIWE signature the moment the wallet
+          // connects (see the auto sign-in effect there), so this button is
+          // mainly the fallback for a rejected/failed auto-attempt — clicking it
+          // re-runs the same signInWithWallet round-trip.
+          const signing = isLoading || isWalletConnecting
           return (
             <button
               onClick={() => void signInWithWallet()}
-              disabled={isLoading}
+              disabled={signing}
               type="button"
-              className="w-full py-3 text-base font-semibold rounded transition-colors
-                         bg-sakura-600 hover:bg-sakura-500 text-white disabled:opacity-50"
+              className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
+                         bg-sakura-500 hover:bg-sakura-600 text-terminal-on-accent disabled:opacity-50"
             >
-              {isLoading
+              {signing
                 ? isHardwareWallet
                   ? 'Confirm on your Ledger…'
                   : 'Check your wallet…'
@@ -54,8 +60,9 @@ export function WalletConnect() {
         onClick={() => void signInWithPhantom()}
         disabled={isLoading}
         type="button"
-        className="w-full py-3 text-base font-semibold rounded transition-colors
-                   bg-[#ab9ff2] hover:bg-[#9a8ce8] text-black disabled:opacity-50"
+        className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
+                   bg-transparent hover:bg-terminal-bg-tertiary text-terminal-text
+                   border hairline-strong disabled:opacity-50"
       >
         {isPhantomAvailable ? 'Connect Phantom (Solana)' : 'Get Phantom for Solana'}
       </button>
@@ -63,7 +70,7 @@ export function WalletConnect() {
       <button
         onClick={signInWithGoogle}
         type="button"
-        className="text-xs text-terminal-text-secondary hover:text-terminal-text-primary
+        className="text-xs text-terminal-text-secondary hover:text-terminal-text
                    transition-colors text-center"
       >
         or continue with Google

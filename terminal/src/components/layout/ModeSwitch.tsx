@@ -16,7 +16,7 @@ export function ModeSwitch({ className = '' }: { className?: string }) {
     <div
       role="tablist"
       aria-label="Trading mode"
-      className={`terminal-theme-control flex items-center gap-0.5 rounded-[8px] p-0.5 ${className}`}
+      className={`terminal-theme-inset flex items-center gap-0.5 rounded-[8px] p-0.5 ${className}`}
     >
       {MODES.map((mode) => {
         const active = tradingMode === mode.id
@@ -27,11 +27,11 @@ export function ModeSwitch({ className = '' }: { className?: string }) {
             aria-selected={active}
             onClick={() => setTradingMode(mode.id)}
             title={mode.hint}
-            className={`rounded-[6px] px-3 py-1 text-xs font-semibold transition-all
+            className={`terminal-theme-control rounded-[6px] px-3 py-1 text-xs transition-colors
               ${
                 active
-                  ? 'bg-sakura-500 text-white shadow-[0_2px_8px_rgba(229,141,43,0.28)]'
-                  : 'text-terminal-text-secondary hover:text-terminal-text'
+                  ? 'terminal-theme-control-active accent-wash font-semibold text-terminal-text'
+                  : 'font-medium text-terminal-text-secondary hover:text-terminal-text'
               }`}
           >
             {mode.label}

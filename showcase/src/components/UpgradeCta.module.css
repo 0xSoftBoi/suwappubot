@@ -1,0 +1,50 @@
+/*
+ * UpgradeCta — loading and error affordances only. The button itself keeps the
+ * global .summer-button classes the pricing page passes in, so this file adds
+ * nothing to the CTA's own appearance.
+ */
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Reuses the global `sw-spin` keyframe defined in globals.css (WS-A). */
+.spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(23, 50, 74, 0.28);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: sw-spin 0.7s linear infinite;
+}
+
+/* Failure is spoken, not silent: a dead click on a paid CTA is the worst thing
+   this component can do, so the message names the failure and offers a way out. */
+.error {
+  display: block;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid rgba(191, 84, 47, 0.34);
+  border-radius: var(--sw-r-sm);
+  background: rgba(191, 84, 47, 0.06);
+  color: #8f3f1f;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.error a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-top-color: rgba(23, 50, 74, 0.28);
+  }
+}

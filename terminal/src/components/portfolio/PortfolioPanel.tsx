@@ -7,6 +7,7 @@ import { EquityCurve } from './EquityCurve'
 import { PerpsPositions } from '../perps/PositionsTable'
 import { WalletModal } from '../wallet/WalletModal'
 import { useAuth } from '../../contexts/AuthContext'
+import { TerminalEmptyState } from '../foundation'
 
 type Tab = 'holdings' | 'orders' | 'history' | 'positions'
 
@@ -57,8 +58,12 @@ export function PortfolioPanel() {
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
         {!isAuthenticated ? (
-          <div className="flex items-center justify-center h-full text-terminal-text-muted text-sm">
-            Create a Turnkey wallet to view portfolio
+          <div className="flex items-center justify-center h-full">
+            <TerminalEmptyState
+              kicker="Portfolio"
+              title="Your positions live here"
+              description="Connect a wallet from the header to see balances, PnL and trade history across every chain you trade — plus perps positions and open orders."
+            />
           </div>
         ) : (
           <>

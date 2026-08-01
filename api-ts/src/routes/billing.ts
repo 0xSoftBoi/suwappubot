@@ -1,11 +1,25 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import type Stripe from 'stripe'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { EnvService } from '../config/EnvService'
-import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
-import { requireDb, subscriptions, wallets, x402Payments } from '../db'
+import {
+	CREDIT_PACKS,
+	getCreditPack,
+	PURCHASABLE_TIERS,
+	SUBSCRIPTION_PERIOD_DAYS,
+	TIER_PRICES_USD,
+} from '../config/constants'
+import {
+	apiCredits,
+	consumedPayments,
+	requireDb,
+	subscriptions,
+	wallets,
+	webCheckouts,
+	x402Payments,
+} from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
@@ -17,6 +31,28 @@ import { UserService } from '../services'
 import { auditLog } from '../services/audit'
 
 export const billingRoutes = new Hono()
+
+// Process-global (all-IPs) sliding-window cap on web-checkout session
+// creation. ipRateLimit() below already bounds any single IP, but a
+// distributed client (botnet / rotating proxies) could still fan out across
+// many IPs and hammer Stripe session creation. This is a coarse circuit
+// breaker on top, env-tunable, reset per minute.
+const WEB_CHECKOUT_GLOBAL_LIMIT_PER_MIN = Math.max(
+	1,
+	Number(process.env.WEB_CHECKOUT_GLOBAL_LIMIT_PER_MIN) || 60,
+)
+let webCheckoutGlobalWindowStart = Date.now()
+let webCheckoutGlobalCount = 0
+
+function checkWebCheckoutGlobalCap(): boolean {
+	const now = Date.now()
+	if (now - webCheckoutGlobalWindowStart >= 60_000) {
+		webCheckoutGlobalWindowStart = now
+		webCheckoutGlobalCount = 0
+	}
+	webCheckoutGlobalCount += 1
+	return webCheckoutGlobalCount <= WEB_CHECKOUT_GLOBAL_LIMIT_PER_MIN
+}
 
 const FEE_RATES: Record<string, number> = {
 	free: 1.0,
@@ -79,6 +115,87 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 	return c.redirect(result.right.url)
 })
 
+// GET /billing/checkout-web?tier=pro|premium[&format=json]
+// Public (no telegram/webapp auth) checkout entry point for anonymous
+// showcase visitors — used by the pricing page CTA. Stripe collects the
+// email on its hosted page; we never see the visitor's identity up front.
+// NOTE (account-linking gap): the resulting subscription is recorded in
+// `web_checkouts` keyed by Stripe customer/email, NOT in `subscriptions`
+// (whose user_id is NOT NULL/unique and has no value for an anonymous
+// visitor). Promoting a web_checkouts row into a real subscriptions row
+// once the visitor creates/links a Suwappu account is NOT built yet — see
+// db/schema/webCheckouts.ts for the intended flow.
+billingRoutes.get('/stripe/checkout-web', ipRateLimit(10), async (c) => {
+	// Browsers/link-unfurlers may speculatively prefetch this GET (rel=prefetch,
+	// Chrome's Speculation Rules, etc.) — since the request has a real side
+	// effect (a Stripe checkout session), reject obvious prefetch requests
+	// instead of silently creating throwaway sessions.
+	const purpose = c.req.header('sec-purpose') ?? c.req.header('purpose') ?? ''
+	if (purpose.toLowerCase().includes('prefetch')) {
+		return c.body(null, 204)
+	}
+
+	if (!checkWebCheckoutGlobalCap()) {
+		return c.json(
+			{ error: 'Checkout is temporarily rate-limited globally. Please try again shortly.' },
+			429,
+		)
+	}
+
+	const tier = c.req.query('tier') as 'pro' | 'premium'
+	if (!['pro', 'premium'].includes(tier)) {
+		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
+	}
+
+	const wantsJson =
+		c.req.query('format') === 'json' ||
+		(c.req.header('accept') ?? '').includes('application/json')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const db = yield* requireDb
+
+			const showcaseBaseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
+
+			const session = yield* stripeService.createWebCheckoutSession({
+				tier,
+				successUrl: `${showcaseBaseUrl}/pricing?checkout=success&tier=${tier}`,
+				cancelUrl: `${showcaseBaseUrl}/pricing?checkout=cancel`,
+			})
+
+			// Best-effort pre-insert so the row exists before the visitor even
+			// reaches Stripe. NOT relied upon as the source of truth — the
+			// webhook below upserts (insert ... onConflictDoUpdate) on
+			// stripeSessionId, so a missed/failed insert here self-heals when
+			// Stripe delivers checkout.session.completed.
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(webCheckouts)
+						.values({
+							stripeSessionId: session.sessionId,
+							tier,
+							status: 'pending',
+						})
+						.onConflictDoNothing({ target: webCheckouts.stripeSessionId }),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			return { url: session.url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	if (wantsJson) return c.json({ url: result.right.url })
+	return c.redirect(result.right.url)
+})
+
 // POST /billing/stripe/webhook
 // Stripe sends payment events here — upgrades the user's tier on success
 billingRoutes.post('/stripe/webhook', async (c) => {
@@ -119,9 +236,182 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 
 			if (event.type === 'checkout.session.completed') {
 				const session = event.data.object as {
-					metadata?: { telegram_id?: string; user_id?: string; tier?: string }
+					id: string
+					customer?: string | null
+					customer_email?: string | null
+					customer_details?: { email?: string | null } | null
+					metadata?: {
+						telegram_id?: string
+						user_id?: string
+						tier?: string
+						source?: string
+						kind?: string
+						pack_id?: string
+						credit_usd?: string
+					}
 				}
-				const { user_id, tier } = session.metadata ?? {}
+				const { user_id, tier, source, kind } = session.metadata ?? {}
+
+				// ── Prepaid API credit top-up (mode: 'payment') ────────────────────
+				// MONEY-PATH: idempotent on the Stripe session id via the shared
+				// consumed_payments ledger. The insert-guard runs inside the same
+				// transaction as the balance increment, so a redelivered webhook
+				// (Stripe retries aggressively) loses the unique-constraint race
+				// instead of granting credits twice.
+				//
+				// `api_credits.balance` is USD-denominated (shared with the python
+				// x402 path) — the grant is a USD figure, NOT a credit-unit count.
+				if (kind === 'credits' && user_id) {
+					const dbUserId = parseInt(user_id, 10)
+					const creditsToGrant = Number(session.metadata?.credit_usd ?? 0)
+
+					if (!Number.isFinite(creditsToGrant) || creditsToGrant <= 0) {
+						yield* Effect.logError(
+							`credit checkout webhook: session ${session.id} has invalid credit_usd metadata (${session.metadata?.credit_usd}) — refusing to grant`,
+						)
+					} else {
+						const granted = yield* Effect.tryPromise({
+							try: () =>
+								db.transaction(async (tx) => {
+									const claimed = await tx
+										.insert(consumedPayments)
+										.values({
+											chain: 'stripe',
+											txHash: session.id,
+											purpose: 'stripe_credits',
+											consumedBy: String(dbUserId),
+										})
+										.onConflictDoNothing()
+										.returning({ id: consumedPayments.id })
+
+									// Already consumed by a prior delivery — no-op.
+									if (claimed.length === 0) return false
+
+									await tx
+										.insert(apiCredits)
+										.values({
+											userId: dbUserId,
+											balance: creditsToGrant,
+											lifetimePurchased: creditsToGrant,
+										})
+										.onConflictDoUpdate({
+											target: apiCredits.userId,
+											set: {
+												balance: sql`${apiCredits.balance} + ${creditsToGrant}`,
+												lifetimePurchased: sql`${apiCredits.lifetimePurchased} + ${creditsToGrant}`,
+												updatedAt: new Date(),
+											},
+										})
+
+									// Stamp the customer id so the dashboard can open the
+									// billing portal even for a credits-only customer. A user
+									// who has only ever bought credits may have NO subscriptions
+									// row, in which case the UPDATE matches nothing — insert a
+									// free-tier row so the id has somewhere to live. tier 'free'
+									// grants no entitlement, so this is safe.
+									if (session.customer) {
+										await tx
+											.insert(subscriptions)
+											.values({
+												userId: dbUserId,
+												tier: 'free',
+												stripeCustomerId: session.customer,
+											})
+											.onConflictDoUpdate({
+												target: subscriptions.userId,
+												set: {
+													stripeCustomerId: session.customer,
+													updatedAt: new Date(),
+												},
+											})
+									}
+
+									return true
+								}),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						})
+
+						yield* auditLog({
+							userId: dbUserId,
+							eventType: granted
+								? 'billing.credits_purchased'
+								: 'billing.credits_duplicate_ignored',
+							details: {
+								creditUsd: creditsToGrant,
+								packId: session.metadata?.pack_id ?? null,
+								source: 'stripe',
+								eventId: event.id,
+								sessionId: session.id,
+							},
+						})
+					}
+				}
+
+				// Anonymous web-visitor checkout (no Suwappu account yet). Record it
+				// in web_checkouts keyed by the Stripe session, and stamp whatever
+				// email/customer id Stripe collected. This is intentionally NOT
+				// written into `subscriptions` — see the account-linking gap noted
+				// in db/schema/webCheckouts.ts.
+				if (source === 'web' && tier) {
+					const email = session.customer_email ?? session.customer_details?.email ?? null
+					const tierValue = tier as 'pro' | 'premium'
+
+					// Check first so we can log loudly if the pre-checkout insert
+					// (in GET /stripe/checkout-web) never landed — that's the
+					// "expected" row this webhook should just be updating.
+					const existing = yield* Effect.tryPromise({
+						try: () =>
+							db
+								.select({ id: webCheckouts.id })
+								.from(webCheckouts)
+								.where(eq(webCheckouts.stripeSessionId, session.id))
+								.limit(1),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+
+					if (!existing[0]) {
+						yield* Effect.logWarning(
+							`web checkout webhook: no pre-checkout row for session ${session.id} (tier=${tierValue}) — the GET /stripe/checkout-web insert was missing or failed; webhook is creating it now`,
+						)
+					}
+
+					// Upsert keyed on stripeSessionId — the webhook is the source of
+					// truth regardless of whether the pre-checkout insert landed.
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.insert(webCheckouts)
+								.values({
+									stripeSessionId: session.id,
+									tier: tierValue,
+									status: 'active',
+									stripeCustomerId: session.customer ?? null,
+									customerEmail: email,
+								})
+								.onConflictDoUpdate({
+									target: webCheckouts.stripeSessionId,
+									set: {
+										status: 'active',
+										stripeCustomerId: session.customer ?? null,
+										customerEmail: email,
+										updatedAt: new Date(),
+									},
+								}),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+
+					yield* auditLog({
+						userId: 0,
+						eventType: 'subscription.web_checkout_completed',
+						details: {
+							tier,
+							source: 'stripe_web',
+							eventId: event.id,
+							sessionId: session.id,
+							stripeCustomerId: session.customer ?? null,
+						},
+					})
+				}
 
 				if (user_id && tier) {
 					const expiresAt = new Date()
@@ -136,6 +426,7 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 									tier,
 									startedAt: new Date(),
 									expiresAt,
+									stripeCustomerId: session.customer ?? null,
 								})
 								.onConflictDoUpdate({
 									target: subscriptions.userId,
@@ -144,6 +435,11 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 										startedAt: new Date(),
 										expiresAt,
 										updatedAt: new Date(),
+										// Never null out a previously-captured customer id
+										// (a later event may omit it).
+										...(session.customer
+											? { stripeCustomerId: session.customer }
+											: {}),
 									},
 								}),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -452,6 +748,197 @@ billingRoutes.get('/status', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		return c.json({ tier: 'free', fee_rate_percent: 1.0, active: true })
+	}
+	return c.json(result.right)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dashboard billing surface
+//
+// These back the web dashboard's Billing panel (showcase/src/app/dashboard).
+// Until now a paying customer had no way to see a balance, buy credits, read an
+// invoice, or change a card outside Telegram — checkout was the only Stripe
+// surface that existed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resolve the caller's internal DB user id from telegramAuth context. */
+const resolveDbUserId = (telegramId: number) =>
+	Effect.gen(function* () {
+		const userService = yield* UserService
+		const userOption = yield* userService.getUserByTelegramId(telegramId)
+		if (Option.isNone(userOption)) {
+			return yield* Effect.fail(new ValidationError({ message: 'User not found' }))
+		}
+		return userOption.value.id
+	})
+
+/** Read the stored Stripe customer id for a user (null if never charged). */
+const resolveStripeCustomerId = (dbUserId: number) =>
+	Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ stripeCustomerId: subscriptions.stripeCustomerId })
+					.from(subscriptions)
+					.where(eq(subscriptions.userId, dbUserId))
+					.limit(1),
+			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+		})
+		return rows[0]?.stripeCustomerId ?? null
+	})
+
+// GET /billing/credits — prepaid API credit balance for the caller.
+billingRoutes.get('/credits', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+
+			const [row] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(apiCredits)
+						.where(eq(apiCredits.userId, dbUserId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			// All three figures are USD — `api_credits` is a USD-denominated
+			// balance shared with the python x402 path.
+			return {
+				balance_usd: row?.balance ?? 0,
+				lifetime_purchased_usd: row?.lifetimePurchased ?? 0,
+				lifetime_used_usd: row?.lifetimeUsed ?? 0,
+				packs: CREDIT_PACKS,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// POST /billing/credits/checkout — Stripe checkout for a prepaid credit pack.
+// Body: { packId }. Returns { url } for the client to open.
+const CreditCheckoutSchema = z.object({
+	packId: z.string().min(1).max(32),
+})
+
+billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const parsed = CreditCheckoutSchema.safeParse(await c.req.json().catch(() => ({})))
+	if (!parsed.success) {
+		return c.json({ error: 'Invalid body — expected { packId }' }, 400)
+	}
+
+	// Pack pricing is resolved server-side; the client only names a pack.
+	const pack = getCreditPack(parsed.data.packId)
+	if (!pack) {
+		return c.json(
+			{
+				error: `Unknown credit pack. Valid packs: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,
+			},
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			const baseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
+
+			const url = yield* stripeService.createCreditCheckoutSession({
+				packId: pack.id,
+				chargeUsd: pack.chargeUsd,
+				balanceUsd: pack.balanceUsd,
+				userId: dbUserId,
+				telegramId: String(telegramUser.id),
+				customerId,
+				successUrl: `${baseUrl}/dashboard?topup=success&pack=${pack.id}`,
+				cancelUrl: `${baseUrl}/dashboard?topup=cancel`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// POST /billing/portal — Stripe-hosted billing portal (invoices, cards, cancel).
+billingRoutes.post('/portal', ipRateLimit(10), telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			if (!customerId) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'No Stripe customer on file — complete a card purchase first.',
+					}),
+				)
+			}
+
+			const baseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
+			const url = yield* stripeService.createBillingPortalSession({
+				customerId,
+				returnUrl: `${baseUrl}/dashboard`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// GET /billing/invoices — recent Stripe invoices for the caller.
+// Returns an empty list (not an error) for a customer who has never been
+// charged by card, so the dashboard can render an empty state.
+billingRoutes.get('/invoices', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			if (!customerId) return { invoices: [], has_customer: false }
+
+			const invoices = yield* stripeService.listInvoices({ customerId, limit: 12 })
+			return { invoices, has_customer: true }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
 	}
 	return c.json(result.right)
 })

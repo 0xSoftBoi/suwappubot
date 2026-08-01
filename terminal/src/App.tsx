@@ -8,10 +8,11 @@ import { PointsDashboard } from './components/points/PointsDashboard'
 import { HotkeysHelpOverlay } from './components/hotkeys/HotkeysHelpOverlay'
 import { SuwappuBotSiteReplacement } from './components/templates/SuwappuBotSiteReplacement'
 import { TerminalSiteReplacement } from './components/templates/TerminalSiteReplacement'
-import { PersimmonStemMotif, SakuraBloomMotif } from './components/brand/PersimmonLogo'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
 import { OAuthCallback } from './components/auth/OAuthCallback'
 import { AlertSwap } from './routes/AlertSwap'
+import { BridgeRoute } from './routes/BridgeRoute'
+import { FirstRunChecklist } from './components/onboarding/FirstRunChecklist'
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
@@ -29,19 +30,12 @@ function isTerminalHost() {
 }
 
 function TradingWorkspace() {
+  // Institutional dark register is now the default theme mode (WS-A). No
+  // explicit `mode` prop here — passing "summer-breeze" would override the
+  // default and re-light the whole workspace.
   return (
-    <TerminalThemeScope mode="summer-breeze">
+    <TerminalThemeScope>
       <div className="terminal-theme-page relative h-screen overflow-hidden p-1.5 text-terminal-text font-sans md:p-2">
-        <div className="pointer-events-none fixed -left-24 top-16 hidden opacity-[0.08] md:block">
-          <PersimmonStemMotif size={280} palette="butter" rotation={-18} />
-        </div>
-        <div className="pointer-events-none fixed right-[-58px] top-20 hidden opacity-[0.1] md:block">
-          <SakuraBloomMotif size={190} tone="mist" rotation={24} />
-        </div>
-        <div className="pointer-events-none fixed bottom-[-96px] right-[20%] hidden opacity-[0.08] md:block">
-          <PersimmonStemMotif size={320} palette="butter" rotation={24} flipX />
-        </div>
-
         <div className="relative z-10 mx-auto flex h-full max-w-[1800px] flex-col gap-1.5 md:gap-2">
           <Header />
           <CommandPalette />
@@ -50,6 +44,15 @@ function TradingWorkspace() {
             <Routes>
               <Route path="/points" element={<PointsDashboard />} />
               <Route path="points" element={<PointsDashboard />} />
+              {/* Bridge gets its own route rather than a swap-panel tab: it is
+                  a different job (moving one token between chains) with a
+                  different thing to watch (an in-flight custody window), and
+                  folding it into swap is what left it invisible before. Mounted
+                  on both the terminal host path and the "/terminal/*" proxy
+                  mount, matching the alert-swap deep link above. */}
+              <Route path="/bridge" element={<BridgeRoute />} />
+              <Route path="bridge" element={<BridgeRoute />} />
+              <Route path="/terminal/bridge" element={<BridgeRoute />} />
               {/* Price-alert deep link (?alertId=&token=&chain=&side=&amount=&ref=alert).
                   Covers both the primary terminal.suwappu.bot host (pathname
                   "/alert-swap") and the "/terminal/*" dev/proxy mount (pathname
@@ -61,6 +64,7 @@ function TradingWorkspace() {
             </Routes>
           </main>
         </div>
+        <FirstRunChecklist />
       </div>
     </TerminalThemeScope>
   )
@@ -96,9 +100,9 @@ export function App() {
         position="bottom-right"
         toastOptions={{
           style: {
-            background: '#1a1a2e',
-            color: '#e2e2f0',
-            border: '1px solid #1e1e30',
+            background: 'rgb(var(--terminal-c-panel))',
+            color: 'rgb(var(--terminal-c-text))',
+            border: '1px solid var(--terminal-hairline-strong)',
           },
         }}
       />

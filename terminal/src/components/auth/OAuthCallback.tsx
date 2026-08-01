@@ -38,8 +38,11 @@ export function OAuthCallback() {
   }, [provider])
 
   return (
-    <div className="flex h-screen items-center justify-center bg-terminal-bg text-terminal-text">
-      <div className="text-sm text-terminal-text-muted">Completing sign-in…</div>
+    <div className="flex h-screen items-center justify-center bg-terminal-canvas text-terminal-text">
+      <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-terminal-text-muted">
+        <span aria-hidden className="pulse-live h-1.5 w-1.5 rounded-full bg-terminal-accent" />
+        Completing sign-in…
+      </div>
     </div>
   )
 }

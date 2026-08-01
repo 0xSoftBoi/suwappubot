@@ -1,0 +1,139 @@
+/*
+ * Solutions — page-scoped styles (WS-C). The four rows used to share one
+ * 1.2fr / 0.8fr card, which made the page read as a template rather than four
+ * distinct jobs. Here: hairline-separated rows instead of boxed cards, a
+ * full-width terminal treatment on the lead row, and alternating code
+ * placement for the rest so the eye has a reason to keep moving.
+ */
+
+.rows {
+  display: grid;
+  gap: 0;
+  margin-top: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.row {
+  padding-block: clamp(2.5rem, 5vw, 4rem);
+  scroll-margin-top: 6rem;
+}
+
+.row + .row {
+  border-top: 1px solid var(--sw-hairline);
+}
+
+.copy {
+  min-width: 0;
+}
+
+.title {
+  margin: 12px 0 0;
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+.body {
+  margin: 14px 0 0;
+  max-width: var(--type-measure);
+  color: var(--sw-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.cta {
+  margin-top: 22px;
+}
+
+/* ── Lead row: copy and flow side by side, terminal full width beneath ──── */
+
+.rowLead {
+  display: grid;
+  gap: clamp(24px, 3vw, 36px);
+}
+
+.leadHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(24px, 4vw, 56px);
+  align-items: end;
+}
+
+.rowLead .codeShell :global(.summer-code) pre {
+  padding: 24px;
+  font-size: 0.92rem;
+}
+
+/* ── Rows 2–4: alternating split ────────────────────────────────────────── */
+
+.rowSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: center;
+}
+
+.rowSplit .copy {
+  order: 1;
+}
+
+.rowSplit .codeShell {
+  order: 2;
+}
+
+/* Code on the left, copy on the right — flips every other row. */
+.codeFirst .copy {
+  order: 2;
+}
+
+.codeFirst .codeShell {
+  order: 1;
+}
+
+/* ── Code block, dark register ──────────────────────────────────────────── */
+
+.codeShell {
+  min-width: 0;
+}
+
+.codeShell :global(.summer-code) {
+  margin: 0;
+  overflow: hidden;
+}
+
+.codeShell :global(.summer-code__bar) {
+  border-bottom-color: var(--sw-hairline-dark);
+  background: linear-gradient(180deg, rgba(232, 238, 246, 0.07), rgba(232, 238, 246, 0.02));
+}
+
+.codeShell :global(.summer-code__bar b) {
+  color: var(--sw-cosmic-muted);
+}
+
+.codeShell :global(.summer-code) pre {
+  color: #cfe0f2;
+}
+
+/* Prompt/comment markers stay the one accent, brightened for the dark card. */
+.codeShell :global(.summer-code) code span {
+  color: var(--sw-accent-bright);
+}
+
+@media (max-width: 900px) {
+  .leadHead,
+  .rowSplit {
+    grid-template-columns: 1fr;
+  }
+  /* On one column the copy always leads — a code block above its own
+     explanation reads as an error, not as rhythm. */
+  .rowSplit .copy,
+  .codeFirst .copy {
+    order: 1;
+  }
+  .rowSplit .codeShell,
+  .codeFirst .codeShell {
+    order: 2;
+  }
+}

@@ -38,6 +38,11 @@ export const EnvSchema = Schema.Struct({
 			'https://app.suwappu.bot,https://terminal.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
+	// Showcase site base URL — used for web checkout success/cancel redirects
+	SHOWCASE_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://suwappu.bot',
+	}),
+
 	// Internal Python API
 	INTERNAL_API_KEY: Schema.optional(Schema.String),
 	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {
@@ -46,6 +51,11 @@ export const EnvSchema = Schema.Struct({
 
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
+
+	// Sentry error tracking — fully optional. Unset = no-op (no init, no latency,
+	// no behavior change). Never required in production; only wire it up when
+	// operators provide a DSN.
+	SENTRY_DSN: Schema.optional(Schema.String),
 
 	// Sponge Gateway
 	SPONGE_API_KEY: Schema.optional(Schema.String),

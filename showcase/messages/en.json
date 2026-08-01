@@ -11,15 +11,18 @@
     "compare": "Compare",
     "forAgents": "For Agents",
     "status": "Status",
+    "signIn": "Sign in",
+    "dashboard": "Dashboard",
     "openBot": "Open Bot",
+    "talkToSales": "Talk to sales",
     "openTerminal": "Open Terminal",
     "whatsapp": "WhatsApp"
   },
   "hero": {
-    "kicker": "Now in open beta · 40+ chains",
+    "kicker": "Now in open beta · 41 chains",
     "h1": "Trade anything.",
     "h1_accent": "No limits.",
-    "lead": "Suwappu routes your trades across 40+ chains and 9 liquidity networks — finding the best price, every time. Non-custodial, no KYC for basic swaps. Start in 30 seconds.",
+    "lead": "Suwappu routes your trades across 41 chains and 18 liquidity networks — finding the best price, every time. Non-custodial, no KYC for basic swaps. Start in 30 seconds.",
     "cta_bot": "Start trading free",
     "cta_terminal": "Open Terminal",
     "byline_pre": "Built by the author of",
@@ -30,7 +33,7 @@
   "cta": {
     "kicker": "Start free",
     "heading": "Your first trade takes 30 seconds.",
-    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 40+ chains — no wallet setup required.",
+    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 41 chains — no wallet setup required.",
     "open_bot": "Start trading free",
     "whatsapp": "Chat on WhatsApp",
     "docs": "Read the docs"

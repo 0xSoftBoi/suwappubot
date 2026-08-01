@@ -23,7 +23,7 @@ export function XPBar({ xp, level, currentLevelXp, nextLevelXp }: XPBarProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-terminal-text-secondary uppercase tracking-wider">Level</span>
-          <span className="font-mono text-lg font-bold text-sakura-400">{level}</span>
+          <span className="font-mono text-lg font-semibold text-sakura-400">{level}</span>
         </div>
         <span className="font-mono text-xs text-terminal-text-secondary">
           {xp.toLocaleString()} / {nextLevelXp.toLocaleString()} XP

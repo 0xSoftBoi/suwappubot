@@ -1,0 +1,148 @@
+/* Homepage-scoped styles. Consumes the shared foundation utilities and tokens
+   (.sw-*, --sw-*) — it never redefines them.
+   Several selectors below are deliberately compound: the premium polish layer
+   in globals.css matches these same elements up to four classes deep, and
+   globals.css is not editable from here, so the institutional register has to
+   match or exceed that weight to land. */
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+
+/* Outranks `.summer-hero .summer-hero__h1` (2 classes) so display-1 applies. */
+.heroTitle.heroTitle.heroTitle {
+  font-size: var(--type-display-1-size);
+  line-height: var(--type-display-1-lh);
+  letter-spacing: var(--type-display-1-ls);
+  font-weight: 600;
+}
+
+/* `.summer-hero` already owns ::after (the watermark logo) and .sw-grain also
+   needs ::after, so the grain rides on a dedicated overlay child instead. */
+.heroGrain.heroGrain {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-bg);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* ── Hero terminal frame ──────────────────────────────────────────────── */
+
+/* .sw-card-dark ships the inset glow only; the hero terminal also needs its
+   ambient throw so it still reads as a lifted product surface. */
+.termFrame.termFrame {
+  box-shadow: var(--sw-glow-inset), 0 24px 48px -20px rgba(6, 10, 20, 0.55);
+}
+
+/* ── Engine bento: the two wide cells flip to the dark product register ─── */
+
+/* The polish layer's bento rules are 4 classes deep and set background,
+   border and body colour on these cells, so .sw-card-dark alone cannot win. */
+:global(.summer-page--cosmic .summer-features__grid) .bentoLarge.bentoLarge.bentoLarge {
+  border-color: var(--sw-hairline-dark);
+  background:
+    radial-gradient(120% 120% at 100% 0%, var(--sw-accent-wash), transparent 52%),
+    linear-gradient(180deg, var(--sw-cosmic-1) 0%, var(--sw-cosmic-0) 100%);
+  box-shadow: var(--sw-glow-inset), 0 18px 40px -22px rgba(6, 10, 20, 0.6);
+}
+
+:global(.summer-page--cosmic .summer-features__grid) .bentoLarge.bentoLarge.bentoLarge:hover {
+  border-color: var(--sw-accent-glow);
+  box-shadow: var(--sw-glow-inset), 0 26px 56px -24px rgba(6, 10, 20, 0.7);
+}
+
+:global(.summer-page--cosmic .summer-features__grid) .bentoLarge.bentoLarge.bentoLarge h3 {
+  color: var(--sw-cosmic-ink);
+}
+
+:global(.summer-page--cosmic .summer-features__grid) .bentoLarge.bentoLarge.bentoLarge p {
+  color: var(--sw-cosmic-muted);
+}
+
+/* ── Section heads the polish layer does not already scale ─────────────── */
+.h2Scale.h2Scale {
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+/* ── Staggered reveals: keep the hover grammar alive ───────────────────── */
+
+/* .sw-rise fills `transform` forwards once a card has entered, and a filling
+   animation outranks the polish layer's hover translateY. `translate` is a
+   separate property, so it composes with the fill and the lift survives.
+   Gated to exactly the conditions under which .sw-rise is active.
+   `.shell` is a scope anchor only — CSS Modules rejects pure-:global rules. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .shell :global(.sw-rise) {
+      transition: translate 0.28s var(--sw-ease);
+    }
+
+    .shell :global(.summer-feature.sw-rise:hover),
+    .shell :global(.summer-module.sw-rise:hover),
+    .shell :global(.summer-hub__card.sw-rise:hover),
+    .shell :global(.summer-agents__card.sw-rise:hover) {
+      translate: 0 -6px;
+    }
+
+    .shell :global(.summer-stat.sw-rise:hover) {
+      translate: 0 -4px;
+    }
+  }
+}
+
+/* ── MarketProof skeleton (streamed fallback for the live-price fetch) ──── */
+.proofSkeleton {
+  display: grid;
+  gap: 14px;
+  margin-top: clamp(60px, 8vw, 104px);
+  padding: 26px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--sw-shadow-sm);
+}
+
+.proofSkeletonKicker {
+  width: 128px;
+  height: 12px;
+}
+
+.proofSkeletonHead {
+  width: min(440px, 72%);
+  height: 34px;
+}
+
+.proofSkeletonRows {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.proofSkeletonRow {
+  height: 18px;
+}
+
+.shimmer {
+  border-radius: var(--sw-r-xs);
+  background: linear-gradient(
+    90deg,
+    rgba(23, 50, 74, 0.06) 0%,
+    rgba(23, 50, 74, 0.13) 50%,
+    rgba(23, 50, 74, 0.06) 100%
+  );
+  background-size: 200% 100%;
+}
+
+@keyframes proof-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .shimmer {
+    animation: proof-shimmer 1.4s linear infinite;
+  }
+}

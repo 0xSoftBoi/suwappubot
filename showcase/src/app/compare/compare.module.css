@@ -1,0 +1,208 @@
+/*
+ * Compare — page-scoped styles (WS-C). The matrix keeps its global
+ * .compare-table markup (a11y semantics, legends, and the shared scroll
+ * region are already correct); this file only re-registers it: hairline rows
+ * instead of a boxed panel, a persimmon-washed and outlined Suwappu column,
+ * accent checkmarks, and muted — never red — absences.
+ *
+ * :global() is required because the underlying class names live in
+ * globals.css (WS-A owns that file; this workstream never edits it). The
+ * wrapper class supplies the extra specificity, so declaration order between
+ * the module and globals.css doesn't matter.
+ */
+
+.matrix :global(.compare-table) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.matrix :global(.compare-table thead th) {
+  border-bottom: 1px solid var(--sw-hairline-strong);
+  background: transparent;
+}
+
+/* Suwappu column: washed head with a hairline outline that runs the full
+   height of the column. Cell-level borders stack into one continuous edge
+   because the table uses border-collapse: separate. */
+.matrix :global(.compare-table__colhead--us) {
+  border-top: 1px solid var(--sw-hairline-strong);
+  border-left: 1px solid var(--sw-hairline-strong);
+  border-right: 1px solid var(--sw-hairline-strong);
+  border-radius: var(--sw-r-sm) var(--sw-r-sm) 0 0;
+  background: linear-gradient(180deg, var(--sw-accent-wash), transparent);
+  box-shadow: inset 0 -2px 0 var(--sw-accent);
+}
+
+.matrix :global(.compare-table__colhead--us .compare-table__colname) {
+  color: var(--sw-ink);
+}
+
+.matrix :global(.compare-table__colhead--us .compare-table__colsub) {
+  color: var(--sw-accent-deep);
+}
+
+.matrix :global(.compare-cell--us) {
+  border-left: 1px solid var(--sw-hairline-strong);
+  border-right: 1px solid var(--sw-hairline-strong);
+  background: var(--sw-accent-wash);
+}
+
+.matrix :global(.compare-table tbody tr:last-child .compare-cell--us) {
+  border-bottom: 1px solid var(--sw-hairline-strong);
+  border-radius: 0 0 var(--sw-r-sm) var(--sw-r-sm);
+}
+
+/* Row rhythm: one hairline per row, nothing else. */
+.matrix :global(.compare-cell),
+.matrix :global(.compare-table__rowhead) {
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+.matrix :global(.compare-table__rowhead) {
+  color: var(--sw-muted);
+  font-weight: 400;
+}
+
+.matrix :global(.compare-table__cat th) {
+  border-bottom: 1px solid var(--sw-hairline-strong);
+  background: transparent;
+  color: var(--sw-accent-deep);
+  font-family: var(--font-mono);
+  font-size: var(--type-kicker-size);
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls);
+  padding: 24px 18px 8px;
+}
+
+/* Present = accent. Partial = the same accent, hollow. Absent = muted grey —
+   a competitor gap is a fact, not an error, so nothing here goes red. */
+.matrix :global(.compare-cell--yes .compare-cell__glyph),
+.matrix :global(.compare-cell__glyph.compare-cell--yes) {
+  background: var(--sw-accent-wash);
+  color: var(--sw-accent-deep);
+}
+
+.matrix :global(.compare-cell--partial .compare-cell__glyph),
+.matrix :global(.compare-cell__glyph.compare-cell--partial) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--sw-accent-glow);
+  color: var(--sw-accent-deep);
+}
+
+.matrix :global(.compare-cell--no .compare-cell__glyph),
+.matrix :global(.compare-cell__glyph.compare-cell--no) {
+  background: rgba(23, 50, 74, 0.05);
+  color: rgba(79, 111, 127, 0.75);
+}
+
+.matrix :global(.compare-cell--unclear .compare-cell__glyph),
+.matrix :global(.compare-cell__glyph.compare-cell--unclear) {
+  background: rgba(23, 50, 74, 0.03);
+  color: rgba(79, 111, 127, 0.55);
+}
+
+/* ── Why-us cards: one argument leads, two support ──────────────────────── */
+
+.why {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sw-gap);
+  align-items: start;
+  margin-top: clamp(3rem, 6vw, 4.5rem);
+}
+
+.whyCard {
+  padding: 24px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: var(--sw-r-lg);
+  background: transparent;
+}
+
+.whyCard h3 {
+  margin: 12px 0 8px;
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: var(--type-h3-size);
+  line-height: var(--type-h3-lh);
+  letter-spacing: var(--type-h3-ls);
+  font-weight: 600;
+}
+
+.whyCard p {
+  margin: 0;
+  color: var(--sw-muted);
+  font-size: 0.9rem;
+  line-height: 1.62;
+}
+
+/* Lead card carries the thesis — the only elevated surface in this section. */
+.whyLead {
+  padding: clamp(28px, 3vw, 36px);
+  border-color: transparent;
+  background: linear-gradient(180deg, #ffffff 0%, var(--sw-panel) 100%);
+  box-shadow: var(--sw-shadow-md);
+}
+
+.whyLead h3 {
+  font-size: calc(var(--type-h3-size) * 1.14);
+}
+
+.whyLead p {
+  font-size: 0.98rem;
+}
+
+/* ── Closing band — same dark register as the pricing enterprise band ───── */
+
+.ctaBand {
+  margin-top: clamp(3.5rem, 7vw, 5rem);
+  padding: clamp(30px, 4vw, 52px);
+  border-radius: var(--sw-r-lg);
+  overflow: hidden;
+  text-align: center;
+}
+
+.ctaTitle {
+  margin: 14px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+.ctaBody {
+  max-width: 54ch;
+  margin: 14px auto 0;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.ctaBand :global(.summer-button--secondary) {
+  border-color: var(--sw-hairline-dark);
+  background: rgba(232, 238, 246, 0.06);
+  color: var(--sw-cosmic-ink);
+}
+
+.ctaBand :global(.summer-button--secondary:hover) {
+  background: rgba(232, 238, 246, 0.12);
+}
+
+/* The kicker on a dark band needs the bright accent to stay legible. */
+.ctaBand :global(.sw-kicker) {
+  color: var(--sw-accent-bright);
+}
+
+@media (max-width: 900px) {
+  .why {
+    grid-template-columns: 1fr;
+  }
+}

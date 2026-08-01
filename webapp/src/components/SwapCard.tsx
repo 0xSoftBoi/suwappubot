@@ -1,4 +1,5 @@
 import type { Swap } from '../types/api'
+import { getExplorerTxUrl } from '../lib/chains'
 
 interface SwapCardProps {
   swap: Swap
@@ -28,7 +29,7 @@ export function SwapCard({ swap }: SwapCardProps) {
   const fromChain = chainConfig[swap.fromChain.toLowerCase()] || swap.fromChain
   const toChain = chainConfig[swap.toChain.toLowerCase()] || swap.toChain
 
-  const explorerUrl = swap.txHash ? getExplorerUrl(swap.fromChain, swap.txHash) : null
+  const explorerUrl = swap.txHash ? getExplorerTxUrl(swap.fromChain, swap.txHash) : null
 
   return (
     <div className="bg-tg-secondary rounded-xl p-4">
@@ -79,21 +80,4 @@ export function SwapCard({ swap }: SwapCardProps) {
       )}
     </div>
   )
-}
-
-function getExplorerUrl(chain: string, txHash: string): string {
-  const explorers: Record<string, string> = {
-    ethereum: 'https://etherscan.io/tx/',
-    polygon: 'https://polygonscan.com/tx/',
-    arbitrum: 'https://arbiscan.io/tx/',
-    optimism: 'https://optimistic.etherscan.io/tx/',
-    base: 'https://basescan.org/tx/',
-    bsc: 'https://bscscan.com/tx/',
-    avalanche: 'https://snowtrace.io/tx/',
-    solana: 'https://solscan.io/tx/',
-    tempo: 'https://explore.tempo.xyz/tx/',
-  }
-
-  const baseUrl = explorers[chain.toLowerCase()] || 'https://etherscan.io/tx/'
-  return `${baseUrl}${txHash}`
 }

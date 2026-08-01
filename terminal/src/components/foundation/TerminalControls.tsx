@@ -17,10 +17,11 @@ const buttonSizeClasses: Record<ButtonSize, string> = {
 };
 
 const buttonVariantClasses: Record<ButtonVariant, string> = {
-  primary: "terminal-button text-white",
+  // Foreground comes from --terminal-button-foreground (dark ink on persimmon).
+  primary: "terminal-button",
   secondary: "terminal-button-secondary",
   ghost:
-    "rounded-[var(--terminal-radius-control)] border border-transparent bg-transparent text-terminal-text-secondary transition-colors hover:border-terminal-border hover:bg-terminal-bg-secondary hover:text-terminal-text active:scale-[0.98]",
+    "rounded-[var(--terminal-radius-control)] border border-transparent bg-transparent px-3 py-1.5 font-medium text-terminal-text-secondary transition-colors hover:border-terminal-border hover:bg-terminal-bg-secondary hover:text-terminal-text active:translate-y-px",
 };
 
 export function TerminalButton({
@@ -57,6 +58,15 @@ export function TerminalIconButton({
   label: string;
   active?: boolean;
 }) {
+  // A11y floor: icon-only buttons must be named. TypeScript already requires
+  // `label`, but JS call sites / spread props can still drop it.
+  if (import.meta.env.DEV && !label?.trim()) {
+    console.warn(
+      "[TerminalIconButton] missing `label` — icon-only buttons need an aria-label. " +
+        "Pass a short action phrase, e.g. label=\"Refresh quote\".",
+    );
+  }
+
   return (
     <button
       aria-label={label}
@@ -109,7 +119,7 @@ export function TerminalTextField({
         ) : null}
         <input
           className={joinClasses(
-            "min-w-0 flex-1 bg-transparent text-terminal-text placeholder-terminal-text-muted outline-none",
+            "tnum min-w-0 flex-1 bg-transparent text-terminal-text placeholder-terminal-text-muted outline-none",
             mono ? "font-mono text-[13px]" : "text-[13px]",
             className,
           )}
@@ -146,9 +156,9 @@ export function TerminalSegmentedTabs({
             key={option.id}
             onClick={() => onChange(option.id)}
             className={joinClasses(
-              "terminal-theme-control min-h-[36px] rounded-[var(--terminal-radius-card)] px-2.5 py-1 text-left transition-colors hover:translate-y-0 focus:translate-y-0",
+              "terminal-theme-control min-h-[32px] rounded-[var(--terminal-radius-card)] px-2.5 py-1 text-left transition-colors",
               active
-                ? "terminal-theme-control-active text-terminal-text"
+                ? "terminal-theme-control-active accent-wash text-terminal-text"
                 : "text-terminal-text-secondary hover:text-terminal-text",
             )}
           >
@@ -184,10 +194,10 @@ export function TerminalSelectPill({
     <button
       onClick={onClick}
       className={joinClasses(
-        "terminal-theme-pill inline-flex items-center gap-2 border px-2.5 py-1 text-left transition-colors active:scale-[0.98]",
+        "terminal-theme-pill inline-flex items-center gap-2 border px-2.5 py-1 text-left transition-colors active:translate-y-px",
         active
-          ? "border-terminal-border-active bg-white text-terminal-text [box-shadow:var(--terminal-shadow-raised)]"
-          : "border-terminal-border bg-terminal-bg-secondary text-terminal-text-secondary hover:bg-white hover:text-terminal-text",
+          ? "border-terminal-border-active accent-wash text-terminal-text"
+          : "border-terminal-border bg-terminal-bg-secondary text-terminal-text-secondary hover:bg-terminal-bg-tertiary hover:text-terminal-text",
       )}
     >
       {leading ? <span className="shrink-0">{leading}</span> : null}
@@ -219,6 +229,9 @@ export function TerminalTokenPill({
         ? "border-chain-solana/20 bg-chain-solana/5"
         : "border-terminal-border bg-terminal-bg-secondary";
 
+  const glyphClasses =
+    "inline-flex h-5 w-5 items-center justify-center rounded-full border border-terminal-hairline-strong bg-terminal-bg-tertiary font-mono text-[9px] font-semibold text-terminal-text";
+
   return (
     <span
       className={joinClasses(
@@ -226,9 +239,7 @@ export function TerminalTokenPill({
         toneClasses,
       )}
     >
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-white font-mono text-[9px] font-semibold text-terminal-text shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        {symbol.slice(0, 2)}
-      </span>
+      <span className={glyphClasses}>{symbol.slice(0, 2)}</span>
       <span>
         <span className="block text-[11px] font-semibold text-terminal-text">
           {symbol}

@@ -29,7 +29,12 @@ from bot.services.rpc_manager import _is_trusted_rpc_url
     "https://evilpublicnode.com/rpc",
     "https://publicnode.com.attacker.net/rpc",
     # userinfo trick — real host is evil.com
-    "https://eth.llamarpc.com@evil.com/rpc",
+    "https://eth.drpc.org@evil.com/rpc",
+    # llamarpc.com is no longer trusted: its unauthenticated public endpoints
+    # stopped serving (eth.llamarpc.com answers HTTP 403, polygon.llamarpc.com
+    # does not resolve), so trusting it only burned a failover slot and made
+    # Ethereum reads fail intermittently.
+    "https://eth.llamarpc.com",
     # malformed / empty
     "",
     "not-a-url",
@@ -43,14 +48,16 @@ def test_untrusted_urls_rejected(url):
     "https://ethereum-rpc.publicnode.com",
     "https://1rpc.io/eth",
     "https://eth.drpc.org",
-    "https://eth.llamarpc.com",
     "https://linea.blockpi.network/v1/rpc/public",
     "https://bsc-dataseed.binance.org",
     "https://arb1.arbitrum.io/rpc",
+    # Plasma's first-party RPC. Plasma previously had no endpoint from any
+    # source, which made the arbitrum<->plasma USDT0 corridor unquotable.
+    "https://rpc.plasma.to",
     # subdomain of a trusted domain, with a port
     "https://node.eth.drpc.org:443/v1",
     # case-insensitive host
-    "https://ETH.LlamaRPC.com",
+    "https://ETH.DRPC.org",
 ])
 def test_trusted_urls_accepted(url):
     assert _is_trusted_rpc_url(url) is True

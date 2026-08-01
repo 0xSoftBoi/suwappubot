@@ -1,0 +1,73 @@
+/* Agents page — institutional pass.
+   Consumes WS-A foundation tokens/utilities (sw-accent, sw-card-dark,
+   sw-shadow-md, sw-ease) via CSS Modules layered over the shared
+   .agents-* / .summer-code rules in globals.css. Never edits globals.css. */
+
+/* ── b. Capability grid: break the 6-identical-card pattern. The first
+   cell (the broadest claim — "N chains") becomes the primary cell, larger
+   and accent-tinted, so the grid reads as a hierarchy rather than a
+   uniform tile wall. Scoped to the capabilities section only — the
+   3-item "agentic payments" grid below keeps the plain layout. ── */
+.capsPrimary :global(.agents-cap:first-child) {
+  grid-column: span 2;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, var(--sw-accent-wash) 100%);
+  border-color: var(--sw-accent);
+}
+.capsPrimary :global(.agents-cap:first-child) h3 {
+  font-size: 1.15rem;
+}
+@media (max-width: 560px) {
+  /* Grid collapses to 1fr here anyway (globals.css); span reads as a no-op
+     but the accent tint still marks it as the lead capability. */
+  .capsPrimary :global(.agents-cap:first-child) {
+    grid-column: span 1;
+  }
+}
+
+/* ── Missing hover/focus affordances the audit flagged: neither
+   .agents-cap nor .agents-connect__item had any hover/focus state. ── */
+.capCard {
+  transition: transform 0.16s var(--sw-ease, ease), border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.capCard:hover,
+.capCard:focus-within {
+  transform: translateY(-4px);
+  border-color: var(--sw-accent);
+  box-shadow: var(--sw-shadow-md);
+}
+
+.connectItem {
+  transition: transform 0.16s var(--sw-ease, ease), border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.connectItem:hover,
+.connectItem:focus-within {
+  transform: translateY(-6px);
+  border-color: var(--sw-accent);
+  box-shadow: var(--sw-shadow-md);
+}
+
+/* ── c. Clerk pattern: the proof artifact is the code surface. Wraps the
+   existing .summer-code (bar + pre + code) markup in a dark register
+   instead of the light "summer breeze" card, matching the LiveTerminal
+   treatment used on the homepage. sw-card-dark supplies the border/inset
+   glow; the rules below re-tone the nested bar/pre/code for the dark bg. ── */
+.codeDark {
+  overflow: hidden;
+}
+.codeDark :global(.summer-code) {
+  border: none;
+  background: transparent;
+}
+.codeDark :global(.summer-code__bar) {
+  background: linear-gradient(180deg, var(--sw-cosmic-2) 0%, var(--sw-cosmic-1) 100%);
+  border-bottom-color: var(--sw-hairline-dark);
+}
+.codeDark :global(.summer-code__bar b) {
+  color: var(--sw-cosmic-muted);
+}
+.codeDark :global(.summer-code pre) {
+  color: var(--sw-cosmic-ink);
+}
+.codeDark :global(.summer-code code span) {
+  color: var(--sw-accent-bright);
+}

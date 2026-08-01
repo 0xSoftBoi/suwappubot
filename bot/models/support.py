@@ -44,8 +44,14 @@ class TicketKind:
     # form. Rides the same notified_at fan-out (admin DM + group + Linear) so a
     # lead reaches the team within the support_notifier poll interval.
     ENTERPRISE_LEAD = "enterprise_lead"
+    # Mobile app (iOS/Android + Suwappu Card by Rain) waitlist signup from the
+    # marketing site. Rides the same notified_at fan-out as enterprise leads.
+    MOBILE_WAITLIST = "mobile_waitlist"
+    # Newsletter/email-list signup from the marketing site. Rides the same
+    # notified_at fan-out as enterprise leads / mobile waitlist.
+    NEWSLETTER = "newsletter"
 
-    ALL = (SUPPORT, BUG, ENTERPRISE_LEAD)
+    ALL = (SUPPORT, BUG, ENTERPRISE_LEAD, MOBILE_WAITLIST, NEWSLETTER)
 
 
 class SupportTicket(Base):

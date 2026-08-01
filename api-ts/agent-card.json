@@ -69,7 +69,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "executeSwap",
+      "x-endpoint": "POST /v1/agent/swap"
     },
     {
       "id": "quote",
@@ -89,7 +91,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "getQuote",
+      "x-endpoint": "POST /v1/agent/quote"
     },
     {
       "id": "portfolio",
@@ -109,7 +113,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "getPortfolio",
+      "x-endpoint": "GET /v1/agent/portfolio"
     },
     {
       "id": "prices",
@@ -129,7 +135,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "getPrices",
+      "x-endpoint": "GET /v1/agent/prices"
     },
     {
       "id": "tokens",
@@ -149,7 +157,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "listTokens",
+      "x-endpoint": "GET /v1/agent/tokens"
     },
     {
       "id": "key-management",
@@ -167,7 +177,9 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "rotateApiKey",
+      "x-endpoint": "POST /v1/agent/rotate-key"
     },
     {
       "id": "webhook-management",
@@ -186,7 +198,119 @@
       ],
       "outputModes": [
         "text"
-      ]
+      ],
+      "operationId": "testWebhook",
+      "x-endpoint": "POST /v1/agent/webhooks/test"
+    },
+    {
+      "id": "swap-status",
+      "name": "Swap Status",
+      "description": "Get the status of a previously executed swap by ID",
+      "tags": [
+        "defi",
+        "swap",
+        "status"
+      ],
+      "examples": [
+        "check status of swap 123",
+        "did my swap complete?"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ],
+      "operationId": "getSwapStatus",
+      "x-endpoint": "GET /v1/agent/swap/status/{swapId}"
+    },
+    {
+      "id": "swap-history",
+      "name": "Swap History",
+      "description": "List paginated swap history for the authenticated agent",
+      "tags": [
+        "defi",
+        "swap",
+        "history"
+      ],
+      "examples": [
+        "list my recent swaps",
+        "show completed swaps"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ],
+      "operationId": "listSwaps",
+      "x-endpoint": "GET /v1/agent/swaps"
+    },
+    {
+      "id": "wallets",
+      "name": "Wallet Management",
+      "description": "List and create managed (Turnkey-custodied) agent wallets",
+      "tags": [
+        "wallet",
+        "custody"
+      ],
+      "examples": [
+        "list my wallets",
+        "create a new wallet"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ],
+      "operationId": "listWallets",
+      "x-endpoint": "GET /v1/agent/wallets",
+      "x-write-endpoint": "POST /v1/agent/wallets"
+    },
+    {
+      "id": "wallet-policies",
+      "name": "Wallet Policies",
+      "description": "List Turnkey spending/whitelist policies configured on the agent's managed wallet",
+      "tags": [
+        "wallet",
+        "security",
+        "policy"
+      ],
+      "examples": [
+        "show my wallet policies",
+        "what spending limits are set on my wallet?"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ],
+      "operationId": "getWalletPolicies",
+      "x-endpoint": "GET /v1/agent/wallet/policies"
+    },
+    {
+      "id": "billing",
+      "name": "Billing & Credits",
+      "description": "Get the authenticated agent's credit balance, subscription tier, and cost-per-call weights",
+      "tags": [
+        "billing",
+        "credits",
+        "subscription"
+      ],
+      "examples": [
+        "check my credit balance",
+        "what's my subscription tier?"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ],
+      "operationId": "getBilling",
+      "x-endpoint": "GET /v1/agent/billing"
     }
   ],
   "provider": {

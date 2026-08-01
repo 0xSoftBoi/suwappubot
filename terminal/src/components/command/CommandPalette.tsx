@@ -209,14 +209,14 @@ export function CommandPalette() {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-sm"
+      className="terminal-theme-scrim fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close()
       }}
     >
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-terminal-border bg-terminal-panel shadow-2xl">
+      <div className="terminal-theme-overlay w-full max-w-xl overflow-hidden">
         {/* Search input */}
-        <div className="flex items-center gap-2 border-b border-terminal-border px-4 py-3">
+        <div className="hairline-b flex items-center gap-2 px-4 py-3">
           <span className="text-terminal-text-muted">⌕</span>
           <input
             ref={inputRef}
@@ -224,7 +224,7 @@ export function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKey}
             placeholder="Search tokens, or jump to anything…"
-            className="flex-1 bg-transparent text-base text-terminal-text outline-none placeholder:text-terminal-text-muted"
+            className="flex-1 bg-transparent text-sm text-terminal-text outline-none placeholder:text-terminal-text-muted"
           />
           <kbd className="rounded bg-terminal-bg-tertiary px-1.5 py-0.5 text-[10px] text-terminal-text-muted">
             ESC
@@ -232,8 +232,8 @@ export function CommandPalette() {
         </div>
 
         {/* Chain filter chips */}
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-terminal-border px-4 py-2">
-          <span className="mr-1 text-[10px] uppercase tracking-wide text-terminal-text-muted">Chain</span>
+        <div className="hairline-b flex flex-wrap items-center gap-1.5 px-4 py-2">
+          <span className="terminal-theme-caption mr-1 text-[10px] uppercase">Chain</span>
           {CHAINS.map((c) => (
             <button
               key={c.id}
@@ -251,8 +251,8 @@ export function CommandPalette() {
 
         {/* Recent pairs — quick re-access (click-only chips, shown when idle) */}
         {!trimmed && recentPairs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-terminal-border px-4 py-2">
-            <span className="mr-1 text-[10px] uppercase tracking-wide text-terminal-text-muted">Recent</span>
+          <div className="hairline-b flex flex-wrap items-center gap-1.5 px-4 py-2">
+            <span className="terminal-theme-caption mr-1 text-[10px] uppercase">Recent</span>
             {recentPairs.slice(0, 6).map((p, i) =>
               p.base && p.quote ? (
                 <button
@@ -262,7 +262,7 @@ export function CommandPalette() {
                     setTradingMode('spot')
                     close()
                   }}
-                  className="rounded-full bg-terminal-bg-tertiary/70 px-2.5 py-0.5 font-mono text-[11px] text-terminal-text-secondary transition-colors hover:bg-sakura-500/15 hover:text-sakura-600"
+                  className="tnum rounded-full bg-terminal-bg-tertiary/70 px-2.5 py-0.5 font-mono text-[11px] text-terminal-text-secondary transition-colors hover:bg-sakura-500/15 hover:text-sakura-600"
                 >
                   {p.base.symbol}/{p.quote.symbol}
                 </button>
@@ -275,63 +275,67 @@ export function CommandPalette() {
         <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1.5">
           {matchedNav.length > 0 && (
             <div className="px-2 pb-1">
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-terminal-text-muted">
+              <div className="terminal-theme-caption px-2 py-1 text-[10px] uppercase">
                 Jump to
               </div>
-              {matchedNav.map((cmd) => {
-                rowIndex++
-                const idx = rowIndex
-                return (
-                  <button
-                    key={cmd.id}
-                    data-row={idx}
-                    onMouseEnter={() => setActive(idx)}
-                    onClick={() => activateRow({ kind: 'nav', cmd })}
-                    className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors ${
-                      active === idx ? 'bg-sakura-500/10' : 'hover:bg-terminal-bg-tertiary/50'
-                    }`}
-                  >
-                    <span className="text-base">{cmd.icon}</span>
-                    <span className="flex-1">
-                      <span className="text-sm font-medium text-terminal-text">{cmd.label}</span>
-                      <span className="ml-2 text-xs text-terminal-text-muted">{cmd.hint}</span>
-                    </span>
-                  </button>
-                )
-              })}
+              <div className="divide-y divide-terminal-hairline">
+                {matchedNav.map((cmd) => {
+                  rowIndex++
+                  const idx = rowIndex
+                  return (
+                    <button
+                      key={cmd.id}
+                      data-row={idx}
+                      onMouseEnter={() => setActive(idx)}
+                      onClick={() => activateRow({ kind: 'nav', cmd })}
+                      className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors ${
+                        active === idx ? 'accent-wash' : 'hover:bg-terminal-bg-tertiary/50'
+                      }`}
+                    >
+                      <span className="text-base">{cmd.icon}</span>
+                      <span className="flex-1">
+                        <span className="text-sm font-medium text-terminal-text">{cmd.label}</span>
+                        <span className="ml-2 text-xs text-terminal-text-muted">{cmd.hint}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           )}
 
           <div className="px-2 pt-1">
-            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-terminal-text-muted">
+            <div className="terminal-theme-caption px-2 py-1 text-[10px] uppercase">
               {trimmed ? 'Tokens' : 'Popular tokens'}
             </div>
             {tokens && tokens.length > 0 ? (
-              tokens.slice(0, 30).map((token) => {
-                rowIndex++
-                const idx = rowIndex
-                return (
-                  <button
-                    key={`${token.chain}-${token.address}`}
-                    data-row={idx}
-                    onMouseEnter={() => setActive(idx)}
-                    onClick={() => activateRow({ kind: 'token', token })}
-                    className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors ${
-                      active === idx ? 'bg-sakura-500/10' : 'hover:bg-terminal-bg-tertiary/50'
-                    }`}
-                  >
-                    <TokenLogo token={token} />
-                    <span className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-terminal-text">{token.symbol}</span>
-                      <span className="ml-2 truncate text-xs text-terminal-text-muted">{token.name}</span>
-                    </span>
-                    <span className="shrink-0 rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 text-[10px] uppercase text-terminal-text-muted">
-                      {token.chain}
-                    </span>
-                    <span className="shrink-0 text-[11px] font-medium text-sakura-600">Trade →</span>
-                  </button>
-                )
-              })
+              <div className="divide-y divide-terminal-hairline">
+                {tokens.slice(0, 30).map((token) => {
+                  rowIndex++
+                  const idx = rowIndex
+                  return (
+                    <button
+                      key={`${token.chain}-${token.address}`}
+                      data-row={idx}
+                      onMouseEnter={() => setActive(idx)}
+                      onClick={() => activateRow({ kind: 'token', token })}
+                      className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors ${
+                        active === idx ? 'accent-wash' : 'hover:bg-terminal-bg-tertiary/50'
+                      }`}
+                    >
+                      <TokenLogo token={token} />
+                      <span className="min-w-0 flex-1">
+                        <span className="text-sm font-semibold text-terminal-text">{token.symbol}</span>
+                        <span className="ml-2 truncate text-xs text-terminal-text-muted">{token.name}</span>
+                      </span>
+                      <span className="shrink-0 rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 text-[10px] uppercase text-terminal-text-muted">
+                        {token.chain}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-medium text-sakura-600">Trade →</span>
+                    </button>
+                  )
+                })}
+              </div>
             ) : (
               <div className="px-3 py-6 text-center text-sm text-terminal-text-muted">
                 {isFetching ? 'Searching…' : trimmed ? 'No tokens found' : 'No tokens'}
@@ -341,11 +345,11 @@ export function CommandPalette() {
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center gap-3 border-t border-terminal-border px-4 py-1.5 text-[10px] text-terminal-text-muted">
+        <div className="hairline-t flex items-center gap-3 px-4 py-1.5 text-[10px] text-terminal-text-muted">
           <span>↑↓ navigate</span>
           <span>↵ select</span>
           <span>esc close</span>
-          <span className="ml-auto">{navCount + (tokens?.length ?? 0)} results</span>
+          <span className="tnum ml-auto">{navCount + (tokens?.length ?? 0)} results</span>
         </div>
       </div>
     </div>,

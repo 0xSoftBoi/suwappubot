@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Single source of truth for what the uptime probes check.",
+    "Read by scripts/uptime_probe.py, which is run by BOTH the GitHub Actions",
+    "cron and the Railway cron service. Previously each tool kept its own",
+    "hardcoded list, which is how 'webapp' silently went unmonitored after it",
+    "was deployed as its own service. Add a service here and every probe picks",
+    "it up.",
+    "",
+    "`name` must match the Railway SERVICE name, so scripts/status.py can join",
+    "these probe targets onto the control-plane services it discovers and reuse",
+    "the URL from here instead of keeping a second per-service map.",
+    "",
+    "Services with no public URL (python-worker, suwappu-relayer) cannot be",
+    "probed over HTTP at all — they are covered by the Railway deploy webhook",
+    "and by `python3 scripts/status.py`, which reads the control plane."
+  ],
+  "prod": [
+    {
+      "name": "python-api",
+      "url": "https://python-api-production-8526.up.railway.app/health",
+      "deep": true
+    },
+    {
+      "name": "api-ts",
+      "url": "https://api.suwappu.bot/health",
+      "deep": true
+    },
+    {
+      "name": "terminal",
+      "url": "https://terminal-production-7906.up.railway.app/"
+    },
+    {
+      "name": "showcase",
+      "url": "https://showcase-production-6f89.up.railway.app/robots.txt"
+    },
+    {
+      "name": "suwappu-bridge",
+      "url": "https://suwappu-bridge-production.up.railway.app/"
+    },
+    {
+      "name": "webapp",
+      "url": "https://webapp-production-897e.up.railway.app/"
+    }
+  ],
+  "dev": [
+    {
+      "name": "python-api",
+      "url": "https://python-api-dev-456d.up.railway.app/health",
+      "deep": true
+    },
+    {
+      "name": "api-ts",
+      "url": "https://devapi.suwappu.bot/health",
+      "deep": true
+    }
+  ]
+}

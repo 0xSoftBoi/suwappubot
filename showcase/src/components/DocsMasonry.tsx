@@ -1,8 +1,9 @@
 'use client';
 
 import { useRef } from 'react';
-import { motion, useInView } from 'framer-motion';
+import { motion, useInView, type Variants } from 'framer-motion';
 import docsData from '../data/docs.json';
+import styles from './DocsMasonry.module.css';
 
 const SECTION_ICONS: Record<string, string> = {
   'quick-start': 'QS',
@@ -13,12 +14,12 @@ const SECTION_ICONS: Record<string, string> = {
   'guides': 'GD',
 };
 
-const staggerContainer = {
+const staggerContainer: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.08 } },
 };
 
-const staggerItem = {
+const staggerItem: Variants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] } },
 };
@@ -52,7 +53,7 @@ export default function DocsMasonry() {
           <motion.a
             key={section.id}
             href={`/docs#${section.id}`}
-            className="docs-masonry__card"
+            className={`docs-masonry__card ${styles.card}`}
             variants={staggerItem}
             whileHover={{ y: -4, borderColor: 'var(--suwappu-summer-accent)' }}
           >

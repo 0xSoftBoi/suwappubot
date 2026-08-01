@@ -35,24 +35,28 @@ export class ErrorBoundary extends React.Component<Props, State> {
       return (
         <div
           role="alert"
-          className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center"
+          className="flex h-full w-full flex-col items-center justify-center gap-2.5 p-6 text-center"
         >
-          <div className="font-mono text-xs uppercase tracking-wider text-red-400">
+          <div className="terminal-theme-caption font-mono text-[10px] uppercase text-bear">
             {this.props.label ? `${this.props.label} failed to render` : 'Something went wrong'}
           </div>
-          <p className="max-w-sm text-[11px] text-neutral-400">
+          <p className="max-w-sm text-[12px] leading-[1.5] text-terminal-text-secondary">
             {this.state.error.message || 'An unexpected error occurred.'}
           </p>
-          <div className="flex gap-2">
+          <p className="max-w-sm text-[11px] leading-[1.5] text-terminal-text-muted">
+            Retry re-renders this panel only; Reload restarts the terminal. Your
+            positions and orders are unaffected.
+          </p>
+          <div className="mt-1 flex gap-2">
             <button
               onClick={this.reset}
-              className="rounded border border-neutral-700 px-3 py-1 font-mono text-[11px] text-neutral-200 hover:bg-neutral-800"
+              className="terminal-button-secondary font-mono text-[11px]"
             >
               Retry
             </button>
             <button
               onClick={() => window.location.reload()}
-              className="rounded border border-neutral-700 px-3 py-1 font-mono text-[11px] text-neutral-200 hover:bg-neutral-800"
+              className="terminal-button-secondary font-mono text-[11px]"
             >
               Reload
             </button>

@@ -1,0 +1,8 @@
+/* Doc nav — page-level active state tied to the aria-current attribute
+   rather than a bespoke class, so the visual and the semantics can never
+   drift apart. */
+.nav :global(.docs-nav__link[aria-current='page']) {
+  color: var(--sw-accent);
+  background: var(--sw-accent-wash);
+  font-weight: 600;
+}

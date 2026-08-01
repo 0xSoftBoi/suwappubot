@@ -9,7 +9,7 @@ from suwappu import create_client
 from suwappu.client import SuwappuClient, SuwappuError
 from suwappu.types import (
     Chain, LendingMarket, PerpMarket, PerpQuote, PredictionMarket,
-    Quote, SwapResult, Token, TokenBalance, TokenPrice,
+    Quote, SwapResult, Token, TokenBalance, TokenPrice, TokenRef,
 )
 
 MOCK_BASE = "https://test.suwappu.bot"
@@ -62,17 +62,30 @@ class TestCreateClient:
 
 class TestGetQuote:
     @pytest.mark.asyncio
-    async def test_posts_to_correct_path(self, client: SuwappuClient) -> None:
+    async def test_posts_to_correct_path_evm(self, client: SuwappuClient) -> None:
+        # Real shape returned by api-ts agent.ts POST /v1/agent/quote (EVM/Li.Fi branch).
         mock_data = {
-            "id": "q1",
-            "fromToken": "ETH",
-            "toToken": "USDC",
-            "fromAmount": "1.0",
-            "toAmount": "2847.32",
+            "success": True,
+            "quote_id": "lifi_abc123",
+            "from_chain": "Arbitrum",
+            "from_chain_id": 42161,
+            "to_chain": "Arbitrum",
+            "to_chain_id": 42161,
+            "chain_type": "evm",
+            "from_token": {"symbol": "ETH", "address": "0xETH", "decimals": 18},
+            "to_token": {"symbol": "USDC", "address": "0xUSDC", "decimals": 6},
+            "amount_in": "1",
+            "amount_out": "2847.320000",
+            "amount_out_min": "2800.000000",
+            "exchange_rate": "2847.32",
+            "price_impact": "0.1%",
+            "estimated_gas_usd": "$1.20",
+            "bridge_fee_usd": "$0.00",
             "route": "uniswap",
-            "gas": "0.12",
-            "fee": "0.01",
-            "chain": "arbitrum",
+            "slippage": "3.0%",
+            "estimated_time_seconds": 30,
+            "expires_in_seconds": 60,
+            "dex": "Li.Fi",
         }
 
         with patch.object(
@@ -93,14 +106,70 @@ class TestGetQuote:
             },
         )
         assert isinstance(quote, Quote)
-        assert quote.id == "q1"
-        assert quote.to_amount == "2847.32"
+        assert quote.quote_id == "lifi_abc123"
+        assert quote.amount_out == "2847.320000"
+        assert quote.amount_out_min == "2800.000000"
+        assert isinstance(quote.from_token, TokenRef)
+        assert quote.from_token.symbol == "ETH"
+        assert quote.to_token.address == "0xUSDC"
+
+    @pytest.mark.asyncio
+    async def test_posts_to_correct_path_solana(self, client: SuwappuClient) -> None:
+        # Real shape returned by api-ts agent.ts POST /v1/agent/quote (Solana/Jupiter branch).
+        mock_data = {
+            "success": True,
+            "quote_id": "jupiter_abc123",
+            "chain": "Solana",
+            "chain_type": "solana",
+            "from_token": {"symbol": "SOL", "address": "So1...", "decimals": 9},
+            "to_token": {"symbol": "USDC", "address": "EPj...", "decimals": 6},
+            "amount_in": "1",
+            "amount_out": "150.000000",
+            "amount_out_min": "148.000000",
+            "exchange_rate": "150.0",
+            "price_impact": "0.05%",
+            "route": "Jupiter",
+            "slippage": "3.0%",
+            "expires_in_seconds": 60,
+            "dex": "Jupiter",
+            "requires_wallet": True,
+            "wallet_type": "solana",
+        }
+
+        with patch.object(
+            client._client, "request", new_callable=AsyncMock
+        ) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            quote = await client.get_quote("SOL", "USDC", 1.0, "solana")
+
+        assert quote.chain == "Solana"
+        assert quote.chain_type == "solana"
+        assert quote.amount_out_min == "148.000000"
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
+        with patch.object(
+            client._client, "request", new_callable=AsyncMock
+        ) as mock_req:
+            mock_req.return_value = _mock_response({"success": True, "id": "legacy-shape"})
+            with pytest.raises(SuwappuError):
+                await client.get_quote("ETH", "USDC", 1.0, "arbitrum")
 
 
 class TestExecuteSwap:
     @pytest.mark.asyncio
     async def test_posts_to_correct_path(self, client: SuwappuClient) -> None:
-        mock_data = {"txHash": "0xabc", "status": "confirmed", "chain": "arbitrum"}
+        # Real shape returned by api-ts agent.ts POST /v1/agent/swap/execute.
+        mock_data = {
+            "success": True,
+            "swap_id": 42,
+            "status": "pending",
+            "tx_hash": "0xabc",
+            "tracking": {
+                "poll_url": "/v1/agent/swap/status/42",
+                "webhook_note": "Set callback_url via PATCH /v1/agent/me",
+            },
+        }
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -110,20 +179,32 @@ class TestExecuteSwap:
 
         mock_req.assert_called_once_with(
             "POST",
-            "/v1/agent/swap",
+            "/v1/agent/swap/execute",
             params=None,
             json={"quote_id": "q1"},
         )
         assert isinstance(result, SwapResult)
         assert result.tx_hash == "0xabc"
-        assert result.status == "confirmed"
+        assert result.status == "pending"
+        assert result.swap_id == 42
+        assert result.poll_url == "/v1/agent/swap/status/42"
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
+        with patch.object(
+            client._client, "request", new_callable=AsyncMock
+        ) as mock_req:
+            mock_req.return_value = _mock_response({"success": True, "txHash": "0xabc"})
+            with pytest.raises(SuwappuError):
+                await client.execute_swap("q1")
 
 
 class TestGetPortfolio:
     @pytest.mark.asyncio
     async def test_gets_without_chain(self, client: SuwappuClient) -> None:
+        # Real shape returned by api-ts agent.ts GET /v1/agent/portfolio.
         mock_data = {"balances": [
-            {"token": "ETH", "balance": "1.5", "usdValue": "4270", "chain": "arbitrum"}
+            {"symbol": "ETH", "name": "Ethereum", "chain": "arbitrum", "balance": "1.5", "usd_value": "4270.00"}
         ]}
 
         with patch.object(
@@ -137,7 +218,8 @@ class TestGetPortfolio:
         )
         assert len(portfolio) == 1
         assert isinstance(portfolio[0], TokenBalance)
-        assert portfolio[0].token == "ETH"
+        assert portfolio[0].symbol == "ETH"
+        assert portfolio[0].usd_value == "4270.00"
 
     @pytest.mark.asyncio
     async def test_gets_with_chain_filter(self, client: SuwappuClient) -> None:
@@ -150,6 +232,15 @@ class TestGetPortfolio:
         mock_req.assert_called_once_with(
             "GET", "/v1/agent/portfolio", params={"wallet_address": "0xabc123", "chain": "solana"}, json=None
         )
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
+        with patch.object(
+            client._client, "request", new_callable=AsyncMock
+        ) as mock_req:
+            mock_req.return_value = _mock_response({"balances": [{"token": "ETH"}]})
+            with pytest.raises(SuwappuError):
+                await client.get_portfolio("0xabc123")
 
 
 class TestGetPrices:
@@ -211,9 +302,13 @@ class TestListChains:
 class TestListTokens:
     @pytest.mark.asyncio
     async def test_gets_with_chain_param(self, client: SuwappuClient) -> None:
-        mock_data = [
-            {"symbol": "USDC", "address": "0x123", "decimals": 6, "chain": "arbitrum"}
-        ]
+        # Real shape returned by api-ts agent.ts GET /v1/agent/tokens?chain=...
+        mock_data = {
+            "success": True,
+            "chain": "Arbitrum",
+            "chain_id": 42161,
+            "tokens": [{"symbol": "USDC", "address": "0x123", "decimals": 6}],
+        }
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -227,6 +322,15 @@ class TestListTokens:
         assert len(tokens) == 1
         assert isinstance(tokens[0], Token)
         assert tokens[0].symbol == "USDC"
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
+        with patch.object(
+            client._client, "request", new_callable=AsyncMock
+        ) as mock_req:
+            mock_req.return_value = _mock_response([{"symbol": "USDC"}])
+            with pytest.raises(SuwappuError):
+                await client.list_tokens("arbitrum")
 
 
 class TestErrorHandling:
@@ -254,14 +358,17 @@ class TestContextManager:
 class TestTypes:
     def test_quote_model(self) -> None:
         q = Quote(
-            id="1", from_token="ETH", to_token="USDC",
-            from_amount="1", to_amount="2847",
-            route="uni", gas="0.1", fee="0.01", chain="arb",
+            quote_id="1",
+            from_token=TokenRef(symbol="ETH", address="0xETH", decimals=18),
+            to_token=TokenRef(symbol="USDC", address="0xUSDC", decimals=6),
+            amount_in="1", amount_out="2847",
+            route="uni",
         )
-        assert q.id == "1"
+        assert q.quote_id == "1"
+        assert q.from_token.symbol == "ETH"
 
     def test_swap_result_model(self) -> None:
-        s = SwapResult(tx_hash="0x1", status="confirmed", chain="arb")
+        s = SwapResult(swap_id=1, tx_hash="0x1", status="confirmed")
         assert s.status == "confirmed"
 
     def test_chain_model(self) -> None:
@@ -269,7 +376,7 @@ class TestTypes:
         assert c.id == 42161
 
     def test_token_model(self) -> None:
-        t = Token(symbol="ETH", address="0x0", decimals=18, chain="arb")
+        t = Token(symbol="ETH", address="0x0", decimals=18)
         assert t.decimals == 18
 
 

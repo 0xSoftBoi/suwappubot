@@ -608,6 +608,35 @@ def get_chain_by_name(name: str) -> Optional[ChainConfig]:
     return CHAINS.get(name.lower())
 
 
+# Common short/alternate spellings a user might type that are NOT exact
+# canonical CHAINS keys (e.g. "eth" for "ethereum", "matic" for "polygon").
+# Shared by nl_deterministic_parser.py and bot/handlers/nl_trade.py so free-text
+# chain resolution is consistent everywhere instead of only matching the
+# canonical dict keys.
+CHAIN_NAME_ALIASES: dict[str, str] = {
+    "eth": "ethereum",
+    "sol": "solana",
+    "bnb": "bsc",
+    "avax": "avalanche",
+    "matic": "polygon",
+    "poly": "polygon",
+    "op": "optimism",
+    "arb": "arbitrum",
+}
+
+
+def resolve_chain_name(name: str) -> Optional[str]:
+    """Resolve free-text chain name (canonical key OR known alias) to the
+    canonical chain key, e.g. "eth" -> "ethereum". Returns None if unresolved.
+    """
+    if not name:
+        return None
+    lowered = name.strip().lower()
+    if lowered in CHAINS:
+        return lowered
+    return CHAIN_NAME_ALIASES.get(lowered)
+
+
 def get_evm_chains(include_testnet: bool = False) -> list[ChainConfig]:
     """Get all EVM chain configurations (mainnet only unless include_testnet)."""
     return [

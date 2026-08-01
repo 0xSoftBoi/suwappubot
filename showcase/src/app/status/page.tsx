@@ -3,6 +3,7 @@ import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import StatusBoard from './StatusBoard';
 import { TELEGRAM_URL } from '@/lib/links';
+import styles from './status.module.css';
 
 export const metadata: Metadata = {
   title: 'Status — Suwappu',
@@ -61,19 +62,30 @@ export default function StatusPage() {
 
         <section className="status-surfaces" aria-label="Surfaces">
           <h2 className="mkt-h2">Surfaces</h2>
-          <div className="status-surfaces__grid">
-            {SURFACES.map((s) => (
-              <a
-                className="status-surface"
-                href={s.href}
-                key={s.name}
-                target={s.href.startsWith('http') ? '_blank' : undefined}
-                rel={s.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-              >
-                <h3>{s.name}</h3>
-                <p>{s.desc}</p>
-              </a>
-            ))}
+          <div className={`sw-rows ${styles.surfaces}`}>
+            {SURFACES.map((s) => {
+              const external = s.href.startsWith('http');
+              return (
+                <a
+                  className={`sw-row ${styles.row}`}
+                  href={s.href}
+                  key={s.name}
+                  target={external ? '_blank' : undefined}
+                  rel={external ? 'noopener noreferrer' : undefined}
+                >
+                  <h3>
+                    {s.name}
+                    {external && (
+                      <>
+                        <span className={styles.external} aria-hidden="true"> ↗</span>
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      </>
+                    )}
+                  </h3>
+                  <p>{s.desc}</p>
+                </a>
+              );
+            })}
           </div>
         </section>
       </div>

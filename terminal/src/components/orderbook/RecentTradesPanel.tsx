@@ -21,7 +21,11 @@ export function RecentTradesPanel() {
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-terminal-border shrink-0">
         <span className="text-xs font-medium text-terminal-text-secondary">Recent Trades</span>
-        <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-bull' : 'bg-bear'}`} />
+        <span
+          role="status"
+          aria-label={isConnected ? 'Live feed connected' : 'Feed disconnected'}
+          className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-bull pulse-live' : 'bg-bear'}`}
+        />
       </div>
 
       {/* Column headers */}
@@ -43,19 +47,20 @@ export function RecentTradesPanel() {
         )}
         {trades.map(trade => (
           <div
+            // Keyed by trade id, so a genuinely new trade is a new DOM node —
+            // that remount is what lets `.flash-up`/`.flash-down` replay their
+            // animation per row (re-rendering an existing node would not).
             key={trade.id}
-            className={`grid grid-cols-3 px-2 transition-colors duration-300 ${
-              trade.isNew ? (trade.side === 'buy' ? 'bg-bull/15' : 'bg-bear/15') : ''
-            }`}
+            className={`grid grid-cols-3 px-2 ${trade.isNew ? (trade.side === 'buy' ? 'flash-up' : 'flash-down') : ''}`}
             data-testid="trade-row"
           >
-            <span className={trade.side === 'buy' ? 'text-bull' : 'text-bear'}>
-              {trade.price.toFixed(2)}
+            <span className={`tnum ${trade.side === 'buy' ? 'text-bull' : 'text-bear'}`}>
+              {trade.side === 'buy' ? '▲' : '▼'} {trade.price.toFixed(2)}
             </span>
-            <span className="text-right text-terminal-text-secondary">
+            <span className="tnum text-right text-terminal-text-secondary">
               {trade.size.toFixed(4)}
             </span>
-            <span className="text-right text-terminal-text-muted">
+            <span className="tnum text-right text-terminal-text-muted">
               {formatTime(trade.time)}
             </span>
           </div>

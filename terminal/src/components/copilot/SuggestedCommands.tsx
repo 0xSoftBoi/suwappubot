@@ -20,9 +20,9 @@ export function SuggestedCommands({ onSelect }: SuggestedCommandsProps) {
         <button
           key={cmd}
           onClick={() => onSelect(cmd)}
-          className="terminal-theme-control terminal-theme-pill shrink-0 px-2.5 py-1 text-[11px]
+          className="hairline rounded-terminal-pill shrink-0 px-2.5 py-1 text-[11px]
                      text-terminal-text-secondary transition-colors whitespace-nowrap
-                     hover:translate-y-0 focus:translate-y-0 hover:text-terminal-text active:scale-[0.98]"
+                     hover:bg-terminal-bg-tertiary/40 hover:text-terminal-text active:translate-y-px"
         >
           {cmd}
         </button>

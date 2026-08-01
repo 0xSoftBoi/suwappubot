@@ -49,5 +49,12 @@ export default defineConfig({
 		// api-ts-exclusive human-in-the-loop approval queue (approvals.ts) — no
 		// python owner.
 		'approval_requests',
+		// api-ts-exclusive anti-farm guard for the starter-credit grant
+		// (payments.ts) — no python owner.
+		'agent_registration_grants',
+		// api-ts-exclusive anonymous web-checkout tracking (webCheckouts.ts) — no
+		// python owner; records Stripe sessions started by showcase visitors with
+		// no Suwappu account.
+		'web_checkouts',
 	],
 })

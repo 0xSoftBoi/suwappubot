@@ -6,6 +6,10 @@ from typing import Any
 import httpx
 
 from suwappu.types import (
+    AgentErrorCode,
+    AgentProfile,
+    BillingCheckoutResult,
+    BillingStatus,
     Chain,
     LendingMarket,
     LendingMarketDetail,
@@ -15,21 +19,54 @@ from suwappu.types import (
     PredictionMarket,
     PredictionMarketDetail,
     Quote,
+    RegisterAgentResult,
+    RotateKeysResult,
     SuwappuConfig,
     SwapResult,
     Token,
     TokenBalance,
     TokenPrice,
+    TokenRef,
+    WalletPolicy,
+    WebhookEvent,
+    WebhookEventsResult,
+    WebhookPagination,
+    WebhookTestResult,
 )
 
 DEFAULT_BASE_URL = "https://api.suwappu.bot"
 
 
 class SuwappuError(Exception):
+    """Base error for the Suwappu SDK. Kept for backwards compatibility."""
+
     def __init__(self, status: int, body: str) -> None:
         self.status = status
         self.body = body
         super().__init__(f"Suwappu API error {status}: {body}")
+
+
+class SuwappuApiError(SuwappuError):
+    """Raised for structured (JSON) API error responses.
+
+    Carries the stable `error_code` (see AgentErrorCode) alongside the raw
+    HTTP status and response body, so callers can branch on error type
+    without parsing message strings.
+    """
+
+    def __init__(
+        self,
+        status: int,
+        body: str,
+        *,
+        code: AgentErrorCode | str | None = None,
+        message: str | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(status, body)
+        if message:
+            self.args = (f"Suwappu API error {status} [{code}]: {message}",)
 
 
 class SuwappuClient:
@@ -59,10 +96,20 @@ class SuwappuClient:
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
     ) -> Any:
-        response = await self._client.request(
-            method, path, params=params, json=json
-        )
+        response = await self._client.request(method, path, params=params, json=json)
         if response.status_code >= 400:
+            code: str | None = None
+            message: str | None = None
+            try:
+                error_body = response.json()
+                code = error_body.get("error_code")
+                message = error_body.get("message") or error_body.get("error")
+            except Exception:
+                pass
+            if code:
+                raise SuwappuApiError(
+                    response.status_code, response.text, code=code, message=message
+                )
             raise SuwappuError(response.status_code, response.text)
         return response.json()
 
@@ -83,48 +130,78 @@ class SuwappuClient:
                 "chain": chain,
             },
         )
-        return Quote(
-            id=data["id"],
-            from_token=data.get("fromToken", ""),
-            to_token=data.get("toToken", ""),
-            from_amount=data.get("fromAmount", ""),
-            to_amount=data.get("toAmount", ""),
-            route=data.get("route", ""),
-            gas=data.get("gas", ""),
-            fee=data.get("fee", ""),
-            chain=data.get("chain", ""),
-        )
+        try:
+            return Quote(
+                quote_id=data["quote_id"],
+                chain_type=data.get("chain_type", ""),
+                from_token=TokenRef(**data["from_token"]),
+                to_token=TokenRef(**data["to_token"]),
+                amount_in=data["amount_in"],
+                amount_out=data["amount_out"],
+                amount_out_min=data.get("amount_out_min", ""),
+                exchange_rate=str(data.get("exchange_rate", "")),
+                price_impact=data.get("price_impact", ""),
+                route=data.get("route", ""),
+                slippage=data.get("slippage", ""),
+                dex=data.get("dex", ""),
+                expires_in_seconds=data.get("expires_in_seconds", 60),
+                chain=data.get("chain"),
+                from_chain=data.get("from_chain"),
+                to_chain=data.get("to_chain"),
+                estimated_gas_usd=data.get("estimated_gas_usd"),
+                bridge_fee_usd=data.get("bridge_fee_usd"),
+                estimated_time_seconds=data.get("estimated_time_seconds"),
+            )
+        except KeyError as e:
+            raise SuwappuError(200, f"Malformed quote response from /v1/agent/quote: missing {e}") from e
 
     async def execute_swap(self, quote_id: str) -> SwapResult:
         data = await self._request(
             "POST",
-            "/v1/agent/swap",
+            "/v1/agent/swap/execute",
             json={"quote_id": quote_id},
         )
-        return SwapResult(
-            tx_hash=data.get("txHash", ""),
-            status=data.get("status", "pending"),
-            chain=data.get("chain", ""),
-        )
+        try:
+            tracking = data.get("tracking") or {}
+            return SwapResult(
+                swap_id=data["swap_id"],
+                status=data["status"],
+                tx_hash=data.get("tx_hash"),
+                poll_url=tracking.get("poll_url"),
+            )
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed swap response from /v1/agent/swap/execute: missing {e}"
+            ) from e
 
-    async def get_portfolio(self, wallet_address: str, chain: str | None = None) -> list[TokenBalance]:
+    async def get_portfolio(
+        self, wallet_address: str, chain: str | None = None
+    ) -> list[TokenBalance]:
         params: dict[str, str] = {"wallet_address": wallet_address}
         if chain:
             params["chain"] = chain
         data = await self._request("GET", "/v1/agent/portfolio", params=params)
-        return [
-            TokenBalance(
-                token=b.get("token", ""),
-                balance=b.get("balance", ""),
-                usd_value=b.get("usdValue", ""),
-                chain=b.get("chain", ""),
+        if "balances" not in data:
+            raise SuwappuError(
+                200, "Malformed portfolio response from /v1/agent/portfolio: missing 'balances'"
             )
-            for b in data.get("balances", [])
-        ]
+        try:
+            return [
+                TokenBalance(
+                    symbol=b["symbol"],
+                    name=b.get("name", ""),
+                    balance=b["balance"],
+                    usd_value=b["usd_value"],
+                    chain=b["chain"],
+                )
+                for b in data["balances"]
+            ]
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed portfolio balance entry from /v1/agent/portfolio: missing {e}"
+            ) from e
 
-    async def get_prices(
-        self, symbols: str, chain: str | None = None
-    ) -> list[TokenPrice]:
+    async def get_prices(self, symbols: str, chain: str | None = None) -> list[TokenPrice]:
         params: dict[str, str] = {"symbols": symbols}
         if chain:
             params["chain"] = chain
@@ -152,18 +229,24 @@ class SuwappuClient:
         ]
 
     async def list_tokens(self, chain: str) -> list[Token]:
-        data = await self._request(
-            "GET", "/v1/agent/tokens", params={"chain": chain}
-        )
-        return [
-            Token(
-                symbol=t.get("symbol", ""),
-                address=t.get("address", ""),
-                decimals=t.get("decimals", 0),
-                chain=t.get("chain", ""),
+        data = await self._request("GET", "/v1/agent/tokens", params={"chain": chain})
+        if "tokens" not in data:
+            raise SuwappuError(
+                200, "Malformed tokens response from /v1/agent/tokens: missing 'tokens'"
             )
-            for t in data
-        ]
+        try:
+            return [
+                Token(
+                    symbol=t["symbol"],
+                    address=t["address"],
+                    decimals=t.get("decimals", 0),
+                )
+                for t in data["tokens"]
+            ]
+        except KeyError as e:
+            raise SuwappuError(
+                200, f"Malformed token entry from /v1/agent/tokens: missing {e}"
+            ) from e
 
     # --- Perps (Hyperliquid) ---
 
@@ -182,6 +265,18 @@ class SuwappuClient:
     @property
     def lend(self) -> _LendNamespace:
         return _LendNamespace(self)
+
+    # --- Agent account management ---
+
+    @property
+    def agent(self) -> _AgentNamespace:
+        return _AgentNamespace(self)
+
+    # --- Billing (Telegram Mini App auth, not agent API key) ---
+
+    @property
+    def billing(self) -> _BillingNamespace:
+        return _BillingNamespace(self)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -211,9 +306,7 @@ class _PerpsNamespace:
             for m in data.get("markets", [])
         ]
 
-    async def quote(
-        self, market: str, side: str, size: float, leverage: float
-    ) -> PerpQuote:
+    async def quote(self, market: str, side: str, size: float, leverage: float) -> PerpQuote:
         data = await self._c._request(
             "POST",
             "/v1/agent/perps/quote",
@@ -265,9 +358,7 @@ class _PredictNamespace:
             params["query"] = query
         if limit:
             params["limit"] = str(limit)
-        data = await self._c._request(
-            "GET", "/v1/agent/predict/markets", params=params or None
-        )
+        data = await self._c._request("GET", "/v1/agent/predict/markets", params=params or None)
         return [
             PredictionMarket(
                 id=m.get("id", ""),
@@ -300,6 +391,69 @@ class _PredictNamespace:
             resolved_outcome=data.get("resolvedOutcome"),
         )
 
+    async def events(
+        self, query: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if query:
+            params["query"] = query
+        if limit:
+            params["limit"] = str(limit)
+        data = await self._c._request("GET", "/v1/agent/predict/events", params=params or None)
+        return data.get("events", [])
+
+    async def book(self, market_id: str) -> dict[str, Any]:
+        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/book")
+
+    async def price(self, market_id: str) -> dict[str, Any]:
+        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/price")
+
+    async def trades(self, market_id: str, limit: int | None = 20) -> dict[str, Any]:
+        params: dict[str, str] = {}
+        if limit:
+            params["limit"] = str(limit)
+        return await self._c._request(
+            "GET", f"/v1/agent/predict/market/{market_id}/trades", params=params or None
+        )
+
+    async def order(
+        self,
+        *,
+        token_id: str,
+        price: str,
+        size: str,
+        side: str,
+        expiration: int | None = None,
+        fee_rate_bps: int | None = None,
+    ) -> dict[str, Any]:
+        data = await self._c._request(
+            "POST",
+            "/v1/agent/predict/order",
+            json={
+                "tokenId": token_id,
+                "price": price,
+                "size": size,
+                "side": side,
+                "expiration": expiration,
+                "feeRateBps": fee_rate_bps,
+            },
+        )
+        return data.get("order", {})
+
+    async def cancel_order(self, order_id: str) -> dict[str, Any]:
+        return await self._c._request("DELETE", f"/v1/agent/predict/order/{order_id}")
+
+    async def positions(self) -> list[dict[str, Any]]:
+        data = await self._c._request("GET", "/v1/agent/predict/positions")
+        return data.get("positions", [])
+
+    async def orders(self, status: str | None = None) -> list[dict[str, Any]]:
+        params = {"status": status} if status else None
+        data = await self._c._request("GET", "/v1/agent/predict/orders", params=params)
+        if isinstance(data, list):
+            return data
+        return data.get("orders", [])
+
 
 class _LendNamespace:
     def __init__(self, client: SuwappuClient) -> None:
@@ -307,9 +461,7 @@ class _LendNamespace:
 
     async def markets(self, chain_id: int | None = None) -> list[LendingMarket]:
         params = {"chainId": str(chain_id)} if chain_id else None
-        data = await self._c._request(
-            "GET", "/v1/agent/lend/markets", params=params
-        )
+        data = await self._c._request("GET", "/v1/agent/lend/markets", params=params)
         return [
             LendingMarket(
                 id=m.get("id", ""),
@@ -343,6 +495,171 @@ class _LendNamespace:
             irm=data.get("irm", ""),
             created_at=data.get("createdAt", ""),
         )
+
+
+def _to_agent_profile(data: dict[str, Any]) -> AgentProfile:
+    return AgentProfile(
+        id=data.get("id", ""),
+        name=data.get("name", ""),
+        description=data.get("description"),
+        callback_url=data.get("callback_url"),
+        metadata=data.get("metadata"),
+        active=data.get("active", True),
+        created_at=data.get("created_at"),
+    )
+
+
+class _AgentNamespace:
+    """Agent account management: registration, profile, keys, wallet
+    policies, webhooks, and billing top-ups. Mirrors the /v1/agent/* routes
+    used by the TypeScript SDK's `client.agent` namespace.
+    """
+
+    def __init__(self, client: SuwappuClient) -> None:
+        self._c = client
+
+    async def register(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        callback_url: str | None = None,
+        metadata: dict | None = None,
+    ) -> RegisterAgentResult:
+        data = await self._c._request(
+            "POST",
+            "/v1/agent/register",
+            json={
+                "name": name,
+                "description": description,
+                "callback_url": callback_url,
+                "metadata": metadata,
+            },
+        )
+        agent_data = data.get("agent", {})
+        return RegisterAgentResult(
+            agent=_to_agent_profile(agent_data),
+            api_key=agent_data.get("api_key", ""),
+            message=data.get("message"),
+            important=data.get("important"),
+        )
+
+    async def get_me(self) -> AgentProfile:
+        data = await self._c._request("GET", "/v1/agent/me")
+        return _to_agent_profile(data.get("agent", {}))
+
+    async def update_me(
+        self,
+        *,
+        description: str | None = None,
+        callback_url: str | None = None,
+        metadata: dict | None = None,
+    ) -> AgentProfile:
+        data = await self._c._request(
+            "PATCH",
+            "/v1/agent/me",
+            json={
+                "description": description,
+                "callback_url": callback_url,
+                "metadata": metadata,
+            },
+        )
+        return _to_agent_profile(data.get("agent", {}))
+
+    async def deactivate(self) -> dict[str, Any]:
+        return await self._c._request("POST", "/v1/agent/me/deactivate")
+
+    async def reactivate(self) -> dict[str, Any]:
+        return await self._c._request("POST", "/v1/agent/reactivate")
+
+    async def rotate_keys(self) -> RotateKeysResult:
+        data = await self._c._request("POST", "/v1/agent/keys/rotate")
+        return RotateKeysResult(api_key=data.get("api_key", ""), message=data.get("message"))
+
+    async def topup(self, *, tx_hash: str, chain: str, amount: str | None = None) -> dict[str, Any]:
+        return await self._c._request(
+            "POST",
+            "/v1/agent/billing/topup",
+            json={"txHash": tx_hash, "chain": chain, "amount": amount},
+        )
+
+    async def create_policy(self, **kwargs: Any) -> WalletPolicy:
+        data = await self._c._request("POST", "/v1/agent/wallet/policy", json=kwargs)
+        return WalletPolicy.model_validate(data.get("policy", {}))
+
+    async def list_policies(self) -> list[WalletPolicy]:
+        data = await self._c._request("GET", "/v1/agent/wallet/policies")
+        return [WalletPolicy.model_validate(p) for p in data.get("policies", [])]
+
+    async def delete_policy(self, policy_id: str) -> dict[str, Any]:
+        return await self._c._request("DELETE", f"/v1/agent/wallet/policy/{policy_id}")
+
+    async def list_webhooks(
+        self,
+        *,
+        status: str | None = None,
+        event_type: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> WebhookEventsResult:
+        params: dict[str, str] = {}
+        if status:
+            params["status"] = status
+        if event_type:
+            params["event_type"] = event_type
+        if limit is not None:
+            params["limit"] = str(limit)
+        if offset is not None:
+            params["offset"] = str(offset)
+        data = await self._c._request("GET", "/v1/agent/webhooks", params=params or None)
+        pagination = data.get("pagination", {})
+        return WebhookEventsResult(
+            events=[WebhookEvent.model_validate(e) for e in data.get("events", [])],
+            pagination=WebhookPagination(
+                total=pagination.get("total", 0),
+                limit=pagination.get("limit", 0),
+                offset=pagination.get("offset", 0),
+                has_more=pagination.get("has_more", False),
+            ),
+        )
+
+    async def test_webhook(self) -> WebhookTestResult:
+        data = await self._c._request("POST", "/v1/agent/webhooks/test")
+        return WebhookTestResult(
+            success=data.get("success", False),
+            callback_url=data.get("callback_url"),
+            status_code=data.get("status_code"),
+            response_time_ms=data.get("response_time_ms"),
+            error=data.get("error"),
+        )
+
+
+class _BillingNamespace:
+    """Subscription billing. Authenticates via Telegram Mini App auth
+    (telegramAuth), not the agent API key — included for SDK completeness.
+    """
+
+    def __init__(self, client: SuwappuClient) -> None:
+        self._c = client
+
+    async def stripe_checkout(self, tier: str, *, format: str = "json") -> BillingCheckoutResult:
+        data = await self._c._request(
+            "GET", "/billing/stripe/checkout", params={"tier": tier, "format": format}
+        )
+        return BillingCheckoutResult(url=data.get("url", ""))
+
+    async def pay_crypto(
+        self, *, tx_hash: str, amount: float, tier: str, chain: str = "base"
+    ) -> dict[str, Any]:
+        return await self._c._request(
+            "POST",
+            "/billing/crypto",
+            json={"txHash": tx_hash, "chain": chain, "amount": amount, "tier": tier},
+        )
+
+    async def status(self) -> BillingStatus:
+        data = await self._c._request("GET", "/billing/status")
+        return BillingStatus.model_validate(data)
 
 
 def create_client(

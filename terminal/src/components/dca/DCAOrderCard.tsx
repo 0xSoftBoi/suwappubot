@@ -34,7 +34,7 @@ export function DCAOrderCard({ order, onPause, onCancel }: Props) {
           <span className="text-sm font-semibold text-terminal-text">
             {order.fromToken} → {order.toToken}
           </span>
-          <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-sakura/15 text-sakura border border-sakura/30">
+          <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-terminal-accent/15 text-terminal-accent border border-terminal-accent/30">
             {frequencyLabels[order.frequency] || order.frequency}
           </span>
         </div>
@@ -50,7 +50,7 @@ export function DCAOrderCard({ order, onPause, onCancel }: Props) {
         </div>
         <div className="h-1.5 bg-terminal-border rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-sakura to-sakura-light transition-all"
+            className="h-full rounded-full bg-terminal-accent transition-all"
             style={{ width: `${progress}%` }}
           />
         </div>

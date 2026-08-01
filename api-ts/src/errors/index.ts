@@ -1,5 +1,6 @@
 import { Data, Match } from 'effect'
 import { getErrorGuidance } from '../utils/errorGuidance'
+import type { AgentErrorCode } from '../lib/agentError'
 
 export class ValidationError extends Data.TaggedError('ValidationError')<{
 	readonly message: string
@@ -59,6 +60,21 @@ export interface ErrorResponseBody {
 	requestId?: string
 	timestamp?: string
 	error_guidance?: string
+	error_code?: AgentErrorCode
+}
+
+/**
+ * Derive a stable AgentErrorCode for a NotFoundError based on its `resource`
+ * hint (best-effort — falls back to the generic NOT_FOUND code).
+ */
+const notFoundCode = (resource?: string): AgentErrorCode => {
+	const r = (resource ?? '').toLowerCase()
+	if (r.includes('quote')) return 'QUOTE_NOT_FOUND'
+	if (r.includes('wallet')) return 'WALLET_NOT_FOUND'
+	if (r.includes('market')) return 'MARKET_NOT_FOUND'
+	if (r.includes('chain')) return 'CHAIN_UNSUPPORTED'
+	if (r.includes('token')) return 'TOKEN_UNKNOWN'
+	return 'NOT_FOUND'
 }
 
 interface ErrorResponse {
@@ -72,7 +88,12 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 		const message = error instanceof Error ? error.message : 'Unknown error'
 		return {
 			status: 500,
-			body: { error: 'Internal Error', message, error_guidance: getErrorGuidance('server_error', message) },
+			body: {
+				error: 'Internal Error',
+				message,
+				error_guidance: getErrorGuidance('server_error', message),
+				error_code: 'INTERNAL',
+			},
 		}
 	}
 
@@ -85,22 +106,30 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				message: e.message,
 				...(e.fields && { fields: e.fields }),
 				error_guidance: getErrorGuidance('validation_error', e.message),
+				error_code: 'VALIDATION_ERROR' as const,
 			},
 		})),
-		Match.tag('UnauthorizedError', (e) => ({
-			status: e.status,
-			body: {
-				error: 'Unauthorized',
-				...(e.message && { message: e.message }),
-				error_guidance: getErrorGuidance('unauthorized', e.message),
-			},
-		})),
+		Match.tag('UnauthorizedError', (e) => {
+			const unauthorizedCode: AgentErrorCode = /api.?key/i.test(e.message ?? '')
+				? 'INVALID_API_KEY'
+				: 'UNAUTHORIZED'
+			return {
+				status: e.status,
+				body: {
+					error: 'Unauthorized',
+					...(e.message && { message: e.message }),
+					error_guidance: getErrorGuidance('unauthorized', e.message),
+					error_code: unauthorizedCode,
+				},
+			}
+		}),
 		Match.tag('ForbiddenError', (e) => ({
 			status: e.status,
 			body: {
 				error: 'Forbidden',
 				...(e.message && { message: e.message }),
 				error_guidance: getErrorGuidance('forbidden', e.message),
+				error_code: 'POLICY_VIOLATION' as const,
 			},
 		})),
 		Match.tag('NotFoundError', (e) => ({
@@ -110,6 +139,7 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				...(e.message && { message: e.message }),
 				...(e.resource && { resource: e.resource }),
 				error_guidance: getErrorGuidance('not_found', e.message),
+				error_code: notFoundCode(e.resource),
 			},
 		})),
 		Match.tag('DatabaseError', (e) => ({
@@ -118,6 +148,7 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				error: 'Database Error',
 				message: e.message,
 				error_guidance: getErrorGuidance('server_error', e.message),
+				error_code: 'INTERNAL' as const,
 			},
 		})),
 		Match.tag('ExternalServiceError', (e) => ({
@@ -127,6 +158,7 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				message: e.message,
 				...(e.service && { service: e.service }),
 				error_guidance: getErrorGuidance('external_service', e.message),
+				error_code: 'UPSTREAM_ERROR' as const,
 			},
 		})),
 		Match.exhaustive,

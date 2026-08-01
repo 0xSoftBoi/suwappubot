@@ -6,6 +6,7 @@ import {
   type TelegramWebApp,
   type TelegramUser
 } from '../lib/telegram'
+import a11yToast from '../lib/a11yToast'
 
 interface UseTelegramReturn {
   webApp: TelegramWebApp | null
@@ -97,7 +98,7 @@ export function useTelegram(): UseTelegramReturn {
       if (webApp?.showAlert) {
         webApp.showAlert(message, resolve)
       } else {
-        alert(message)
+        a11yToast.info(message)
         resolve()
       }
     })

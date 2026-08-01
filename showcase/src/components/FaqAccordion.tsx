@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import styles from './FaqAccordion.module.css';
 
 export type FaqItem = { q: string; a: string };
 
@@ -15,7 +16,7 @@ export default function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <div className="faq-accordion">
+    <div className={`faq-accordion ${styles.wrap}`}>
       {items.map((item, i) => {
         const isOpen = openIndex === i;
         const panelId = `faq-panel-${i}`;

@@ -769,3 +769,371 @@
     margin-left: 0;
   }
 }
+
+/* ── Billing panel (components/BillingPanel.tsx) ───────────────────────────── */
+
+.billingBlock {
+  padding: 18px 0;
+  border-top: 1px solid rgba(207, 227, 234, 0.7);
+}
+
+.billingBlock:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.billingBlockTitle {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(33, 88, 110, 0.72);
+}
+
+.billingNotice,
+.billingError {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.billingNotice {
+  border: 1px solid rgba(126, 178, 196, 0.55);
+  background: rgba(207, 233, 241, 0.42);
+  color: #1d5a70;
+}
+
+.billingError {
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+}
+
+/* Pack / plan cards */
+
+.packGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.packCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 15px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.packCard:hover {
+  border-color: rgba(142, 182, 197, 0.95);
+  box-shadow: 0 10px 22px rgba(33, 88, 110, 0.08);
+  transform: translateY(-1px);
+}
+
+.packCard[data-current] {
+  border-color: rgba(126, 178, 196, 0.95);
+  background: rgba(226, 241, 246, 0.6);
+}
+
+.packHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.packName {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1d4f63;
+}
+
+.packPrice {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.88rem;
+  color: rgba(33, 88, 110, 0.85);
+}
+
+.packBlurb {
+  margin: 0;
+  flex: 1;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(33, 88, 110, 0.68);
+}
+
+/* Credit balance summary */
+
+.creditSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 11px;
+  background: rgba(240, 249, 252, 0.7);
+}
+
+.creditBalance {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.creditBalanceLabel {
+  font-size: 0.74rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(33, 88, 110, 0.62);
+}
+
+.creditBalanceValue {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 1.85rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #17475a;
+}
+
+.creditBalanceUsd {
+  font-size: 0.8rem;
+  color: rgba(33, 88, 110, 0.66);
+}
+
+.creditStats {
+  display: flex;
+  gap: 26px;
+}
+
+.creditStats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.invoiceLink {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #1d6d88;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(29, 109, 136, 0.35);
+}
+
+.invoiceLink:hover {
+  border-bottom-color: rgba(29, 109, 136, 0.85);
+}
+
+@media (max-width: 640px) {
+  .creditSummary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ── Tab navigation ─────────────────────────────────────────────────────────
+   Replaces a seven-card vertical scroll. Underline-style rather than pill
+   buttons so the nav reads as navigation, not as seven more actions
+   competing with the page's real CTAs. */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+}
+
+.tab {
+  position: relative;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: rgba(33, 88, 110, 0.66);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.tab:hover {
+  color: #1d5a70;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background 140ms ease;
+}
+
+.tab[data-active] {
+  color: #17475a;
+}
+
+.tab[data-active]::after {
+  background: linear-gradient(90deg, #7eb2c4, #0b789a);
+}
+
+.tab:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.6);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* Plan limits — sit under the plan cards they describe. */
+.planLimits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.planLimit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+@media (max-width: 640px) {
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: 0 0 auto;
+  }
+}
+
+/* Token entry is a fallback, so it reads as a quiet disclosure rather than a
+   second primary action. */
+.loginAdvancedToggle {
+  margin-top: 16px;
+  border: 0;
+  background: none;
+  color: rgba(33, 88, 110, 0.7);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.loginAdvancedToggle:hover {
+  color: #0b789a;
+}
+
+/* ── KPI hierarchy ──────────────────────────────────────────────────────────
+   Two tiers instead of six equal tiles. The primary pair carries the numbers
+   that change behaviour; the compact row is supporting context and is
+   deliberately quieter — smaller type, no card chrome, no shadow. */
+
+.kpiPrimary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.kpiHero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 24px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 252, 0.72));
+  box-shadow: 0 14px 30px rgba(33, 88, 110, 0.08);
+}
+
+.kpiHeroValue {
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 2.45rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.kpiHeroMeta {
+  color: rgba(33, 88, 110, 0.62);
+  font-size: 0.82rem;
+}
+
+/* Inline status dot — used ONLY on metrics that carry a live signal. */
+.kpiDotInline {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.kpiSecondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.kpiCompact {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 15px;
+  border: 1px solid rgba(207, 227, 234, 0.75);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kpiCompactLabel {
+  color: rgba(33, 88, 110, 0.62);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kpiCompactValue {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.kpiUnit {
+  color: rgba(33, 88, 110, 0.55);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .kpiPrimary {
+    grid-template-columns: 1fr;
+  }
+  .kpiHeroValue {
+    font-size: 2.1rem;
+  }
+}

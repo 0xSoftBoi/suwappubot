@@ -47,6 +47,8 @@ export function ChartToolbar({
       <div className="flex items-center gap-1">
         <button
           onClick={() => onChartTypeChange("candle")}
+          aria-label="Candlestick chart"
+          aria-pressed={chartType === "candle"}
           className={joinClasses(
             "terminal-theme-control inline-flex h-7 w-7 items-center justify-center transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
             chartType === "candle"
@@ -63,6 +65,8 @@ export function ChartToolbar({
         </button>
         <button
           onClick={() => onChartTypeChange("line")}
+          aria-label="Line chart"
+          aria-pressed={chartType === "line"}
           className={joinClasses(
             "terminal-theme-control inline-flex h-7 w-7 items-center justify-center transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
             chartType === "line"

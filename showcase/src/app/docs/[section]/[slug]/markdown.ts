@@ -160,6 +160,20 @@ export function markdownToHtml(md: string): string {
   // Inline code (after code blocks)
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
+  // Images → figure/figcaption. Must run before links, or the trailing
+  // "[alt](src)" of an image would be consumed as a link and leave a stray "!".
+  // Syntax: ![alt text](/path.svg "Optional caption")
+  // alt carries the description for screen readers; the caption carries the
+  // analytic point, so the two are deliberately not the same string.
+  html = html.replace(
+    /!\[([^\]]*)]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
+    (_m, alt: string, src: string, caption?: string) =>
+      `<figure class="research-figure">` +
+      `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" />` +
+      (caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : '') +
+      `</figure>`,
+  );
+
   // Links
   html = html.replace(/\[([^\]]+)]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 

@@ -89,11 +89,11 @@ export function CopilotPanel() {
 
         {/* Typing indicator */}
         {isTyping && (
-          <div className="flex justify-start mb-3">
-            <div className="bg-terminal-bg-tertiary border border-terminal-border rounded-lg px-3 py-2 flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted animate-pulse" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted animate-pulse" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+          <div role="status" aria-label="Co-pilot is typing" className="flex justify-start mb-3">
+            <div className="terminal-theme-control rounded-lg px-3 py-2 flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted pulse-live" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted pulse-live" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted pulse-live" style={{ animationDelay: '300ms' }} />
             </div>
           </div>
         )}

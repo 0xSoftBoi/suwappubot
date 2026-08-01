@@ -1,0 +1,88 @@
+/* Research index — editorial pass: hairline rows instead of boxed cards
+   (brief: "no cards"). Each entry is a real <article>; the title carries
+   the actual link, stretched via ::after so the whole row still reads as
+   clickable (standard "stretched link" pattern) — fixes the audit's
+   "links as containers" semantic flag in the same move, since :hover
+   bubbles to the article ancestor regardless of which descendant the
+   cursor is actually over. Composes with the shared .sw-rows / .sw-row
+   utilities rather than redeclaring their padding/gap/hairline. */
+.list {
+  margin-top: 1.5rem;
+}
+
+.row {
+  position: relative;
+  grid-template-columns: 170px 1fr;
+  transition: background 0.16s ease;
+}
+.row:hover {
+  background: var(--sw-accent-wash);
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--sw-muted);
+}
+
+.date {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.readMins {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--sw-muted);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--sw-ink);
+}
+.row--featured .title {
+  font-size: 1.5rem;
+}
+.row:not(.row--featured) .title {
+  font-size: 1.1rem;
+}
+
+.title a {
+  color: inherit;
+  text-decoration: none;
+}
+/* Stretched link: makes the whole row the click target without wrapping
+   the entire row markup in an <a>. */
+.title a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.dek {
+  margin: 6px 0 0;
+  max-width: 60ch;
+  color: var(--sw-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.more {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--sw-accent-deep);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}

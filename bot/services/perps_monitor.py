@@ -47,10 +47,13 @@ class PerpsMonitor:
         """Main monitoring loop."""
         import time as _time
         from bot.utils.redis_cache import redis_cache
+
         while self._running:
             try:
                 await self._sync_all_positions()
-                await redis_cache.set("service:perps_monitor:heartbeat", _time.time(), ttl_seconds=60)
+                await redis_cache.set(
+                    "service:perps_monitor:heartbeat", _time.time(), ttl_seconds=90
+                )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -79,9 +82,9 @@ class PerpsMonitor:
     async def _sync_user_positions(self, user_id: int):
         """Sync positions for a single user."""
         with get_session() as session:
-            account = session.query(HyperLiquidAccount).filter_by(
-                user_id=user_id, is_active=True
-            ).first()
+            account = (
+                session.query(HyperLiquidAccount).filter_by(user_id=user_id, is_active=True).first()
+            )
 
             if not account or not account.hl_address:
                 return
@@ -92,13 +95,17 @@ class PerpsMonitor:
         hl_positions = await hyperliquid_client.get_open_positions(hl_address)
 
         with get_session() as session:
-            local_positions = session.query(PerpPosition).filter_by(
-                user_id=user_id, status="open"
-            ).all()
+            local_positions = (
+                session.query(PerpPosition).filter_by(user_id=user_id, status="open").all()
+            )
 
             for local_pos in local_positions:
                 hl_match = next(
-                    (p for p in hl_positions if p["market"] == local_pos.market and p["side"] == local_pos.side),
+                    (
+                        p
+                        for p in hl_positions
+                        if p["market"] == local_pos.market and p["side"] == local_pos.side
+                    ),
                     None,
                 )
 
@@ -116,22 +123,24 @@ class PerpsMonitor:
                     mark = float(local_pos.mark_price or 0)
                     if local_pos.tp_price and mark > 0:
                         tp = float(local_pos.tp_price)
-                        if (local_pos.side == "long" and mark >= tp) or \
-                           (local_pos.side == "short" and mark <= tp):
+                        if (local_pos.side == "long" and mark >= tp) or (
+                            local_pos.side == "short" and mark <= tp
+                        ):
                             await self._notify_user(
                                 user_id,
                                 f"Take profit triggered for {local_pos.market} {local_pos.side}! "
-                                f"Mark: ${mark:,.2f}, TP: ${tp:,.2f}"
+                                f"Mark: ${mark:,.2f}, TP: ${tp:,.2f}",
                             )
 
                     if local_pos.sl_price and mark > 0:
                         sl = float(local_pos.sl_price)
-                        if (local_pos.side == "long" and mark <= sl) or \
-                           (local_pos.side == "short" and mark >= sl):
+                        if (local_pos.side == "long" and mark <= sl) or (
+                            local_pos.side == "short" and mark >= sl
+                        ):
                             await self._notify_user(
                                 user_id,
                                 f"Stop loss triggered for {local_pos.market} {local_pos.side}! "
-                                f"Mark: ${mark:,.2f}, SL: ${sl:,.2f}"
+                                f"Mark: ${mark:,.2f}, SL: ${sl:,.2f}",
                             )
 
                 else:
@@ -141,7 +150,7 @@ class PerpsMonitor:
 
                     await self._notify_user(
                         user_id,
-                        f"Position {local_pos.market} {local_pos.side} has been liquidated/closed on HyperLiquid."
+                        f"Position {local_pos.market} {local_pos.side} has been liquidated/closed on HyperLiquid.",
                     )
 
     async def _notify_user(self, user_id: int, message: str):
@@ -151,6 +160,7 @@ class PerpsMonitor:
 
         try:
             from bot.models.user import User
+
             with get_session() as session:
                 user = session.query(User).get(user_id)
                 if user and user.telegram_id:

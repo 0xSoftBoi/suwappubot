@@ -1,6 +1,6 @@
 {
-  "id": "36d43395-632c-4e83-bdd5-a090b7597538",
-  "prevId": "9104ee4c-a4da-4216-a3a5-a551b25fc8cb",
+  "id": "0d94067e-bd3e-4648-abd0-b4a0751eb5a0",
+  "prevId": "a9ca05b4-79a6-4e91-8c1c-7a67ea823177",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -312,222 +312,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.approval_requests": {
-      "name": "approval_requests",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "action_type": {
-          "name": "action_type",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payload": {
-          "name": "payload",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payload_hash": {
-          "name": "payload_hash",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "policy_decision_id": {
-          "name": "policy_decision_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "varchar(300)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "decided_by": {
-          "name": "decided_by",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "consumed_at": {
-          "name": "consumed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "approval_requests_agent_idx": {
-          "name": "approval_requests_agent_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "approval_requests_org_status_idx": {
-          "name": "approval_requests_org_status_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "approval_requests_user_idx": {
-          "name": "approval_requests_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "approval_requests_organization_id_organizations_id_fk": {
-          "name": "approval_requests_organization_id_organizations_id_fk",
-          "tableFrom": "approval_requests",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "approval_requests_user_id_users_id_fk": {
-          "name": "approval_requests_user_id_users_id_fk",
-          "tableFrom": "approval_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "approval_requests_decided_by_users_id_fk": {
-          "name": "approval_requests_decided_by_users_id_fk",
-          "tableFrom": "approval_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "decided_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -4575,6 +4359,80 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.agent_registration_grants": {
+      "name": "agent_registration_grants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ip": {
+          "name": "ip",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_agent_registration_grants_ip_day": {
+          "name": "uq_agent_registration_grants_ip_day",
+          "columns": [
+            {
+              "expression": "ip",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.agent_subscriptions": {
       "name": "agent_subscriptions",
       "schema": "",
@@ -5340,12 +5198,6 @@
         "value_usd": {
           "name": "value_usd",
           "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approval_id": {
-          "name": "approval_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -10802,6 +10654,116 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.web_checkouts": {
+      "name": "web_checkouts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "stripe_session_id": {
+          "name": "stripe_session_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stripe_customer_id": {
+          "name": "stripe_customer_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_email": {
+          "name": "customer_email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "web_checkout_tier",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "web_checkout_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "linked_user_id": {
+          "name": "linked_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "web_checkouts_customer_email_idx": {
+          "name": "web_checkouts_customer_email_idx",
+          "columns": [
+            {
+              "expression": "customer_email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "web_checkouts_linked_user_id_users_id_fk": {
+          "name": "web_checkouts_linked_user_id_users_id_fk",
+          "tableFrom": "web_checkouts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "linked_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "web_checkouts_stripe_session_id_unique": {
+          "name": "web_checkouts_stripe_session_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_session_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.webhook_events": {
       "name": "webhook_events",
       "schema": "",
@@ -10921,6 +10883,24 @@
         "cancelled",
         "expired",
         "failed"
+      ]
+    },
+    "public.web_checkout_status": {
+      "name": "web_checkout_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "active",
+        "linked",
+        "canceled"
+      ]
+    },
+    "public.web_checkout_tier": {
+      "name": "web_checkout_tier",
+      "schema": "public",
+      "values": [
+        "pro",
+        "premium"
       ]
     }
   },
