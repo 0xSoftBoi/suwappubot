@@ -386,6 +386,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reward_type = reward.reward_type
         reward_value = reward.reward_value
         reward_category = getattr(reward, "reward_category", None) or "own_product"
+        reward_duration_days = reward.duration_days
 
     from bot.services.reward_providers import ASYNC_CATEGORIES
 
@@ -450,6 +451,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount=reward_cost,
             reward_type=reward_type,
             reward_value=reward_value,
+            duration_days=reward_duration_days,
         )
         # fee-discount / gas-rebate EFFECTS now auto-apply at swap time:
         #  • fee_discount — subtracted from your tier fee on every swap until it

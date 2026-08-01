@@ -104,8 +104,16 @@ class PointsService:
             active_season_id = None
 
         with get_session() as session:
-            # Get or create account
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Get or create account. Lock the row for the duration of this
+            # transaction (with_for_update) so two concurrent awards to the
+            # same account can't both read the same pre-credit balance and
+            # both apply their delta on top of it (lost update).
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 account = UserPoints(user_id=user_id)
@@ -227,8 +235,28 @@ class PointsService:
         Returns:
             Tuple of (points_earned, current_streak, streak_continued, new_level)
         """
+        # Resolve the active season id once to stamp on the transaction (audit),
+        # mirroring award_points — done outside the lock since it's read-only.
+        active_season_id = None
+        try:
+            from bot.services.seasons_service import seasons_service
+
+            active_season_id = seasons_service.get_active_season_id()
+        except Exception:
+            active_season_id = None
+
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Lock the row for the duration of this transaction so two
+            # concurrent check-ins can't both pass the "already checked in
+            # today" guard and both mint points. The credit below happens in
+            # this SAME locked transaction (not via a second award_points
+            # session) so the guard and the credit are atomic together.
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 account = UserPoints(user_id=user_id)
@@ -256,24 +284,56 @@ class PointsService:
 
             account.last_checkin = datetime.now(timezone.utc)
 
-        # Calculate points (base + streak bonus)
-        base_points = POINT_ACTIONS["checkin"]["points"]
-        streak_bonus = account.daily_streak * POINT_ACTIONS["streak_bonus"]["points"]
-        total_points = base_points + streak_bonus
+            # Calculate points (base + streak bonus)
+            base_points = POINT_ACTIONS["checkin"]["points"]
+            streak_bonus = account.daily_streak * POINT_ACTIONS["streak_bonus"]["points"]
+            total_points = base_points + streak_bonus
 
-        # Award points
-        _, new_level = self.award_points(
-            user_id=user_id,
-            action="checkin",
-            amount=total_points,
-            description=f"Day {account.daily_streak} check-in",
-            metadata={"streak": account.daily_streak},
-        )
+            # Credit points directly on the locked account (mirrors
+            # award_points) instead of calling award_points, which would open
+            # a second session/transaction outside this lock and reintroduce
+            # the race between the guard and the credit.
+            account.total_points_earned += total_points
+            account.current_points += total_points
+            account.xp += total_points
+
+            new_level = account.check_level_up()
+
+            tx = PointTransaction(
+                user_id=user_id,
+                amount=total_points,
+                action="checkin",
+                description=f"Day {account.daily_streak} check-in",
+                extra_data={"streak": account.daily_streak},
+                season_id=active_season_id,
+            )
+            session.add(tx)
+
+            current_streak = account.daily_streak
+
+        logger.info(f"Awarded {total_points} points to user {user_id} for checkin")
+        if new_level:
+            logger.info(f"User {user_id} leveled up to {new_level}!")
+
+        # Accrue convertible season points (best-effort, mirrors award_points —
+        # never fails the check-in path).
+        try:
+            from bot.services.seasons_service import seasons_service
+
+            seasons_service.accrue_season_points(
+                user_id,
+                "checkin",
+                total_points,
+                swap_amount_usd=None,
+                fee_usd=None,
+            )
+        except Exception as e:
+            logger.warning(f"Season accrual hook failed for user {user_id} (checkin): {e}")
 
         # Check streak milestones
         self._check_milestones(user_id)
 
-        return total_points, account.daily_streak, streak_continued, new_level
+        return total_points, current_streak, streak_continued, new_level
 
     def award_referral_points(
         self,
@@ -305,15 +365,33 @@ class PointsService:
         amount: int,
         reward_type: str,
         reward_value: str,
+        duration_days: Optional[int] = None,
     ) -> Tuple[bool, str]:
         """
         Spend points on a reward.
 
+        ``duration_days``, when provided (e.g. a ``fee_discount`` reward's
+        ``Reward.duration_days``), sets ``PointRedemption.expires_at`` so
+        time-bound rewards actually expire — otherwise ``get_active_fee_discount``
+        treats a NULL ``expires_at`` as "never expires".
+
         Returns:
             Tuple of (success, message)
         """
+        if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
+            return False, "That reward isn't available — partner redemptions aren't live yet."
+
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Lock the row for the duration of this transaction so two concurrent
+            # redemptions on the same account can't both read the same pre-debit
+            # balance and both succeed (double-spend). SQLite (tests) ignores
+            # FOR UPDATE harmlessly.
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 return False, "No points account found"
@@ -325,6 +403,10 @@ class PointsService:
             account.current_points -= amount
             account.points_spent += amount
 
+            expires_at = None
+            if duration_days is not None:
+                expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
+
             # Record redemption
             redemption = PointRedemption(
                 user_id=user_id,
@@ -333,6 +415,7 @@ class PointsService:
                 reward_value=reward_value,
                 status="completed",
                 completed_at=datetime.now(timezone.utc),
+                expires_at=expires_at,
             )
             session.add(redemption)
 
@@ -518,7 +601,14 @@ class PointsService:
                 if target_tier is None or target_tier == SubscriptionTier.FREE:
                     return False, "Unknown subscription tier.", None
 
-                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                # Lock the row so a concurrent redemption on the same account can't
+                # read the same pre-debit balance (double-spend race).
+                account = (
+                    session.query(UserPoints)
+                    .filter(UserPoints.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -645,7 +735,14 @@ class PointsService:
                 reward_name = reward.name
                 reward_value = reward.reward_value
 
-                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                # Lock the row so a concurrent redemption on the same account can't
+                # read the same pre-debit balance (double-spend race).
+                account = (
+                    session.query(UserPoints)
+                    .filter(UserPoints.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (

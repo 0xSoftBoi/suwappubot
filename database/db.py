@@ -233,6 +233,22 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             TreasuryPosition,
         )
 
+        # Support/bug ticket model — new table, create_all picks it up once imported.
+        from bot.models.support import SupportTicket
+
+        # Custodial balances/hot wallets, favorites/settings, and Tempo access keys —
+        # queried at runtime (bot/services/hot_wallet.py, favorites.py, tempo_keychain.py)
+        # but never previously imported here, so create_all never created their tables.
+        from bot.models.custodial import (
+            CustodialBalance,
+            CustodialTransaction,
+            HotWallet,
+            GasSponsorshipConfig,
+            UserGasUsage,
+        )
+        from bot.models.favorites import FavoriteSwapPair, PriceAlert, UserSettings
+        from bot.models.tempo_access_key import TempoAccessKey
+
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
         # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns
