@@ -19,7 +19,7 @@ export default function TermsPage() {
           <span className="doc-breadcrumb__sep">/</span>
           <span>Terms of Service</span>
         </nav>
-        <article className="legal-page">
+        <article className="legal-page sw-measure">
         <div className="legal-page__card">
           <p className="summer-kicker">Legal</p>
           <h1>Terms of Service</h1>

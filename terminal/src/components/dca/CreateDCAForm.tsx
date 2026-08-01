@@ -111,7 +111,7 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
               onClick={() => setFrequency(f.value)}
               className={`flex-1 px-2 py-1.5 text-[11px] rounded transition-colors ${
                 frequency === f.value
-                  ? 'bg-sakura/20 text-sakura border border-sakura/40'
+                  ? 'bg-terminal-accent/20 text-terminal-accent border border-terminal-accent/40'
                   : 'bg-terminal-bg text-terminal-text-muted border border-terminal-border hover:border-terminal-border-active'
               }`}
             >

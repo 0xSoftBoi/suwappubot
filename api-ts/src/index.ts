@@ -2,6 +2,7 @@ import { Effect } from 'effect'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
 import { logger } from './lib/logger'
+import { initSentry } from './lib/sentry'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { runEffect, shutdownRuntime } from './runtime'
@@ -13,6 +14,11 @@ async function main() {
 			return yield* EnvService
 		}),
 	)
+
+	// Initialize Sentry as early as possible — before app/route construction,
+	// so any error during startup or the first request is captured. No-op
+	// when SENTRY_DSN is unset; never throws (see src/lib/sentry.ts).
+	initSentry(env.SENTRY_DSN, env.NODE_ENV)
 
 	// Create app with config
 	const app = createApp({

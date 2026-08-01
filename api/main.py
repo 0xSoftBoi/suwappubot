@@ -11,6 +11,7 @@ try:
 except ImportError:
     pass
 
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -39,6 +40,7 @@ import secrets
 import json
 import jwt
 import hashlib
+import hmac
 import base64
 
 # Add project root to path to import bot modules
@@ -53,6 +55,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
+from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
@@ -61,6 +64,7 @@ from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
 from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.predict_monitor import predict_monitor
 from bot.services.cctp_relayer import cctp_relayer
+from bot.services.cctp_generic_relayer import cctp_generic_relayer
 from bot.services.event_bus import event_bus
 from bot.services.digest_service import digest_service
 from bot.services.api_client import api_client
@@ -88,6 +92,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
+
+    # 0. Error tracking (no-op unless SENTRY_DSN is set; never raises)
+    from bot.services.sentry_service import init_sentry
+
+    init_sentry()
 
     # 1. Initialize DB, Cache & Config
     preload_config()
@@ -257,6 +266,32 @@ async def lifespan(app: FastAPI):
     if not enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
     elif db_success:
+        # Publish this build's fingerprint so the worker is verifiable.
+        #
+        # python-worker has NO public URL, so /health cannot be probed and
+        # there was no way to answer "is the worker running my code?". That
+        # turned a stale worker deploy into hours of guesswork: the scorer was
+        # wired into this very block, deployed green repeatedly, and simply
+        # never appeared in the boot sequence — indistinguishable from a code
+        # bug. Redis is already the worker's channel for heartbeats, so it is
+        # the natural place to announce the build too; python-api surfaces it
+        # on /health/ready.
+        try:
+            from bot.utils.redis_cache import redis_cache
+
+            # 24h, not an hour: this answers "what build did the worker last
+            # boot with", so it must outlive a quiet period. A short TTL would
+            # expire on a perfectly healthy worker and report "unknown",
+            # recreating exactly the ambiguity this is meant to remove.
+            # Liveness is a separate question, already answered by the
+            # per-service heartbeats below.
+            await redis_cache.set(
+                "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
+            )
+            logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+        except Exception as e:
+            logger.warning(f"Could not publish worker fingerprint: {e}")
+
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
         await asyncio.sleep(2)
@@ -280,6 +315,11 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Post-trade execution scoring (execution intelligence, phase 2).
+        # Marks out completed swaps at fixed horizons so realized-vs-quoted
+        # (ours) can be separated from markout (the market's).
+        await execution_scorer.start()
+        await asyncio.sleep(2)
         # Perps position-sync loop (#248): previously implemented but never started.
         await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -302,6 +342,10 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         # CCTP -> HyperCore deposit relayer (no-op unless cctp_relayer_enabled).
         await cctp_relayer.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        # CCTP generic-rail completion relayer (no-op unless
+        # cctp_generic_relayer_enabled; independent of cctp_generic_rail_enabled).
+        await cctp_generic_relayer.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
         await digest_service.start(bot=bot_app.bot if bot_initialized else None)
         if getattr(settings, "starknet_btc_bridge_enabled", False):
@@ -411,10 +455,12 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
         await hl_ws_alerts.stop()
+        await cctp_generic_relayer.stop()
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 
@@ -764,6 +810,40 @@ class AuthVerifyResponse(BaseModel):
     expiresAt: datetime
 
 
+# ---------------------------------------------------------------------------
+# Session cookie domain
+#
+# Set to the PARENT domain (e.g. ".suwappu.bot") so one session cookie reaches
+# both the site and the API subdomain as a same-site request. Without it the
+# cookie is host-only, which is why the web dashboard had no working sign-in:
+# it fell back to sending a bearer token to routes that only accepted Telegram
+# initData, and every request 401'd.
+#
+# SECURITY: a parent-domain cookie is readable by EVERY subdomain, so it must
+# only be widened to a domain whose subdomains are all trusted. Left unset it
+# stays host-only, which is the safe default — the widening is opt-in via
+# SESSION_COOKIE_DOMAIN rather than hardcoded.
+# ---------------------------------------------------------------------------
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN") or None
+
+
+def _session_cookie_kwargs() -> Dict[str, Any]:
+    """Shared attributes for every session cookie we set.
+
+    Centralised because the attributes were duplicated across four call sites;
+    a domain added to three of four would produce an intermittently broken
+    session that is painful to diagnose.
+    """
+    kwargs: Dict[str, Any] = {
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+    }
+    if SESSION_COOKIE_DOMAIN:
+        kwargs["domain"] = SESSION_COOKIE_DOMAIN
+    return kwargs
+
+
 class AuthMeResponse(BaseModel):
     authenticated: bool
     address: Optional[str] = None
@@ -852,6 +932,71 @@ def get_db():
 
 # --- Health Checks ---
 
+# Max age of a background service's heartbeat before /health calls it "dead",
+# per service. Each value is roughly 3x that service's own loop cadence, so a
+# healthy-but-slow loop is never reported dead:
+#   tx_poller          poll_interval=15s (3s when txs are pending)
+#   perps_monitor      POLL_INTERVAL=10s
+#   withdraw_reconciler poll_interval=60s
+#   balance_refresher  refresh_interval=60s + a refresh pass over all wallets
+#   execution_scorer   interval=120s (post-trade marks)
+#   predict_monitor    POLL_INTERVAL=120s
+#   hl_ws_alerts       websocket refresh loop
+# Keep these in sync with each writer's ttl_seconds — the TTL must be >= the
+# threshold, or the key is evicted before it can ever be seen as stale.
+SERVICE_STALENESS_SECONDS: dict[str, int] = {
+    "tx_poller": 90,
+    "perps_monitor": 90,
+    "withdraw_reconciler": 180,
+    "balance_refresher": 300,
+    # interval=120s, ttl=300s -> threshold must sit between the two.
+    "execution_scorer": 300,
+    "predict_monitor": 360,
+    "hl_ws_alerts": 300,
+}
+DEFAULT_STALENESS_SECONDS = 90
+
+
+# ---------------------------------------------------------------------------
+# Build fingerprint
+#
+# A deploy that reports SUCCESS is NOT proof the new code is running: Railway
+# can keep an older container serving, and `railway redeploy` re-deploys a
+# PREVIOUS image rather than current source. That cost real debugging time —
+# a scorer was wired into the lifespan, deployed green, and simply was not in
+# the running build, with nothing to reveal the mismatch.
+#
+# So the app fingerprints its OWN source at import: hash every .py under the
+# application root. Compare the value in /health against the same hash
+# computed locally, and "did my deploy actually land?" becomes a one-line
+# check instead of an investigation. No build step, no env var, no git
+# metadata required — it works identically for `railway up`, GitHub builds
+# and local runs.
+# ---------------------------------------------------------------------------
+def _compute_source_fingerprint() -> str:
+    """SHA-256 over the app's own Python sources, truncated. Import-time only."""
+    import hashlib
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    digest = hashlib.sha256()
+    try:
+        for sub in ("api", "bot", "database"):
+            base = root / sub
+            if not base.is_dir():
+                continue
+            for path in sorted(base.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                digest.update(path.relative_to(root).as_posix().encode())
+                digest.update(path.read_bytes())
+    except Exception:  # pragma: no cover - never block startup on this
+        return "unavailable"
+    return digest.hexdigest()[:12]
+
+
+SOURCE_FINGERPRINT = _compute_source_fingerprint()
+
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
 async def health_live():
@@ -860,7 +1005,10 @@ async def health_live():
     Load balancers should use ``/health/ready`` to gate traffic;
     orchestrators use this to decide whether to restart the container.
     """
-    return {"status": "alive"}
+    # Fingerprint is included here too: /health/live answers even when the DB
+    # or Redis is down, so deploy verification never depends on dependencies
+    # being healthy.
+    return {"status": "alive", "source_fingerprint": SOURCE_FINGERPRINT}
 
 
 @app.get("/health/ready", tags=["Health"], summary="Readiness probe")
@@ -894,7 +1042,14 @@ async def health_ready():
     # Redis ping
     redis_ok = await redis_cache.ping()
 
-    # Background service heartbeats (TTL 60s; missing key = service dead)
+    # Background service heartbeats. A single global staleness threshold does not
+    # work here: these loops have cadences an order of magnitude apart, and each
+    # only beats once per cycle. The old flat 90s cutoff meant predict_monitor
+    # (POLL_INTERVAL=120) was reported "dead" for a chunk of every single cycle
+    # while perfectly healthy, and balance_refresher flapped whenever a refresh
+    # pass pushed its cycle past 90s. Allow ~3 cycles of slack per service, and
+    # keep each writer's Redis TTL >= its threshold so a stopped service reads
+    # "dead" (stale beat) rather than "unknown" (key already evicted).
     now = time.time()
     svc_heartbeats: dict = {}
     watched_services = [
@@ -903,6 +1058,10 @@ async def health_ready():
         "balance_refresher",
         "perps_monitor",
         "predict_monitor",
+        # Post-trade execution scoring. Without this entry the service would
+        # run unmonitored — a silently dead scorer looks identical to one with
+        # no swaps to score.
+        "execution_scorer",
     ]
     if getattr(settings, "hl_ws_alerts_enabled", False) or getattr(
         settings, "hl_whale_alerts_enabled", False
@@ -912,10 +1071,15 @@ async def health_ready():
         last = await redis_cache.get(f"service:{svc}:heartbeat")
         if last is None:
             svc_heartbeats[svc] = "unknown"
-        elif now - float(last) > 90:
+        elif now - float(last) > SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS):
             svc_heartbeats[svc] = "dead"
         else:
             svc_heartbeats[svc] = "alive"
+
+    # The worker publishes its own fingerprint to Redis at startup (it has no
+    # public URL of its own). Reporting it here is the only way to verify a
+    # python-worker deploy actually landed.
+    worker_fingerprint = await redis_cache.get("service:worker:fingerprint")
 
     checks = {
         "database": DATABASE_AVAILABLE,
@@ -932,6 +1096,11 @@ async def health_ready():
         content={
             "ready": is_ready,
             "service": "suwappu-bot",
+            # Which build is actually serving this request. See
+            # _compute_source_fingerprint() — a green deploy is not proof the
+            # new code is live; this is.
+            "source_fingerprint": SOURCE_FINGERPRINT,
+            "worker_fingerprint": worker_fingerprint or "unknown",
             "checks": {
                 "database": "connected" if DATABASE_AVAILABLE else "disconnected",
                 "redis": "connected" if redis_ok else "memory-fallback",
@@ -1045,10 +1214,8 @@ async def auth_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1145,10 +1312,8 @@ async def auth_solana_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1212,34 +1377,18 @@ class TelegramAuthResponse(BaseModel):
     address: str
 
 
-@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
-async def auth_telegram(
-    request: Request,
-    response: Response,
-    body: Optional[TelegramAuthRequest] = None,
-    db: Session = Depends(get_db),
-):
+async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, db: Session):
+    """Resolve/create the user, ensure a wallet, mint the session JWT.
+
+    Shared by BOTH Telegram entry points so they cannot drift:
+      * /auth/telegram         — Mini App initData (inside Telegram)
+      * /auth/telegram/widget  — Login Widget (a normal web browser)
+
+    The two differ ONLY in how the payload is verified; everything after that
+    — user provisioning, wallet lookup, token minting, cookie attributes — is
+    identical and must stay identical, which is why it lives here rather than
+    being copied into the second endpoint.
     """
-    Authenticate a Telegram Mini App user via validated WebApp initData.
-
-    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
-    resolve (or create) the user by their telegram_id reusing the bot's wallet
-    provisioning, mint the same session JWT the other auth flows mint, set the
-    httponly 'suwappu_auth' cookie, and return the token + wallet address.
-    """
-    from api.webapp import validate_telegram_init_data
-
-    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
-    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
-    if not init_data:
-        raise HTTPException(status_code=401, detail="Missing Telegram initData")
-
-    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
-    if not tg_user or not tg_user.get("id"):
-        # Never log the raw initData.
-        logger.warning("auth/telegram: invalid or unverifiable initData")
-        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
-
     telegram_id = int(tg_user["id"])
 
     # Resolve or create the user by telegram_id (same shape the bot's /start uses).
@@ -1304,10 +1453,8 @@ async def auth_telegram(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1317,6 +1464,123 @@ async def auth_telegram(
         user={"id": user.id},
         address=wallet_address or "",
     )
+
+
+class TelegramWidgetAuthRequest(BaseModel):
+    """Payload produced by Telegram's Login Widget (a browser, not a Mini App)."""
+
+    id: int
+    auth_date: int
+    hash: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+def _verify_telegram_widget(payload: Dict[str, Any], bot_token: str) -> bool:
+    """Verify a Telegram Login Widget signature.
+
+    CAREFUL — this is NOT the Mini App scheme. The two derive the secret key
+    differently and are not interchangeable:
+
+        Login Widget : secret = SHA256(bot_token)
+        Mini App     : secret = HMAC_SHA256("WebAppData", bot_token)
+
+    Using the Mini App derivation here silently rejects every valid browser
+    login; using this one for initData would accept nothing. See
+    https://core.telegram.org/widgets/login#checking-authorization
+
+    Returns True only for a signature match on a fresh payload.
+    """
+    received_hash = payload.get("hash")
+    if not received_hash or not bot_token:
+        return False
+
+    # Every field EXCEPT hash, sorted, as "key=value" joined by newlines.
+    # None values are omitted — Telegram does not send absent optional fields,
+    # so including them as empty strings would break the digest.
+    pairs = sorted(f"{k}={v}" for k, v in payload.items() if k != "hash" and v is not None)
+    data_check_string = "\n".join(pairs)
+
+    secret_key = hashlib.sha256(bot_token.encode("utf-8")).digest()
+    calculated = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(calculated, str(received_hash)):
+        return False
+
+    # Replay protection: the signature is valid forever on its own, so a
+    # captured payload could be reused indefinitely without a freshness check.
+    try:
+        auth_date = int(payload.get("auth_date", 0))
+    except (TypeError, ValueError):
+        return False
+    age = datetime.now(timezone.utc).timestamp() - auth_date
+    return 0 <= age <= 86400
+
+
+@app.post("/auth/telegram/widget", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram_widget(
+    body: TelegramWidgetAuthRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Sign in from a normal web browser via the Telegram Login Widget.
+
+    The dashboard previously had no browser sign-in at all: users were told to
+    open the bot, obtain a token and paste it into a password field. That is
+    not something an enterprise buyer gets past, and it trains people to
+    handle bearer tokens by hand.
+
+    This mints the SAME session JWT as every other auth flow by delegating to
+    _complete_telegram_login, so nothing about sessions, wallets or cookies
+    diverges between entry points.
+    """
+    payload = body.model_dump(exclude_none=True)
+
+    if not _verify_telegram_widget(payload, settings.telegram_bot_token):
+        # Never log the payload itself.
+        logger.warning("auth/telegram/widget: invalid or stale login payload")
+        raise HTTPException(status_code=401, detail="Invalid Telegram login")
+
+    tg_user = {
+        "id": body.id,
+        "username": body.username,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+    }
+    return await _complete_telegram_login(tg_user, response, db)
+
+
+@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram(
+    request: Request,
+    response: Response,
+    body: Optional[TelegramAuthRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Authenticate a Telegram Mini App user via validated WebApp initData.
+
+    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
+    resolve (or create) the user by their telegram_id reusing the bot's wallet
+    provisioning, mint the same session JWT the other auth flows mint, set the
+    httponly 'suwappu_auth' cookie, and return the token + wallet address.
+    """
+    from api.webapp import validate_telegram_init_data
+
+    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
+    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Missing Telegram initData")
+
+    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
+    if not tg_user or not tg_user.get("id"):
+        # Never log the raw initData.
+        logger.warning("auth/telegram: invalid or unverifiable initData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
+
+    return await _complete_telegram_login(tg_user, response, db)
 
 
 # --- Refresh tokens (H13): short-lived access JWT + rotating refresh token ---
@@ -1332,21 +1596,17 @@ def _set_session_cookies(
     response.set_cookie(
         key="suwappu_auth",
         value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
         path="/",
+        **_session_cookie_kwargs(),
     )
     if refresh_token is not None:
         response.set_cookie(
             key=REFRESH_COOKIE,
             value=refresh_token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=REFRESH_TTL_SECONDS,
             path="/",
+            **_session_cookie_kwargs(),
         )
 
 
@@ -1372,7 +1632,9 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
     rotated = rotate_refresh_token(token, client="refresh")
     if rotated is None:
         # Clear stale cookies so the client falls back to a fresh login.
-        response.delete_cookie(REFRESH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        # Domain must match the one used when setting, or the browser keeps
+        # the cookie and "logout" silently leaves a live session behind.
+        response.delete_cookie(REFRESH_COOKIE, path="/", **_session_cookie_kwargs())
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user_id, address, new_refresh, _expires = rotated
@@ -1395,7 +1657,10 @@ async def auth_logout(request: Request, response: Response, body: Optional[Refre
         except Exception as e:
             logger.warning(f"Refresh-token revoke on logout failed: {e}")
     for key in ("suwappu_auth", REFRESH_COOKIE):
-        response.delete_cookie(key=key, path="/", secure=True, httponly=True, samesite="lax")
+        # Same attributes as when set — crucially the domain. A delete that
+        # omits it does not match a parent-domain cookie, so logout would
+        # appear to succeed while leaving the session valid.
+        response.delete_cookie(key=key, path="/", **_session_cookie_kwargs())
     return {"success": True, "message": "Logged out successfully"}
 
 
@@ -1662,11 +1927,9 @@ async def passkey_register_complete(
         response.set_cookie(
             key="suwappu_auth",
             value=token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=JWT_EXPIRY_HOURS * 3600,
             path="/",
+            **_session_cookie_kwargs(),
         )
         return PasskeyRegisterCompleteResponse(
             success=True,
@@ -1723,10 +1986,8 @@ async def passkey_register_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1826,10 +2087,8 @@ async def passkey_auth_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -2436,6 +2695,71 @@ async def railway_webhook(request: Request):
         logger.error("Failed to fan out Railway webhook alert: %s", e)
 
     return {"status": "alerted", "deploy_status": status}
+
+
+_MONITOR_SOURCE_RE = re.compile(r"[^a-zA-Z0-9_-]")
+_MONITOR_SOURCE_MAX_LEN = 40
+
+
+@app.post("/internal/monitor-heartbeat", include_in_schema=False)
+async def monitor_heartbeat(request: Request):
+    """Receive uptime-probe heartbeats and record them so the dead-man's switch
+    (bot/services/health_monitor.py) can notice when probing itself goes quiet.
+
+    Auth is a shared secret passed as ``?token=`` (same convention as
+    ``/internal/railway-webhook`` — external cron schedulers can't send custom
+    auth headers). Fails CLOSED: if the secret isn't configured, every request
+    is rejected so an unconfigured deploy can never be pinged by anyone.
+    """
+    import hmac
+
+    expected = settings.monitor_heartbeat_secret
+    provided = request.query_params.get("token") or ""
+    # Compare bytes, not str: hmac.compare_digest raises TypeError on non-ASCII
+    # strings, so `?token=é` turned an auth failure into an unauthenticated 500
+    # (a free error-quota generator, and one that echoes the URL into Sentry).
+    if not expected or not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+        logger.warning("Monitor heartbeat hit with missing/invalid token")
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    raw_source = request.query_params.get("source") or "unknown"
+    source = _MONITOR_SOURCE_RE.sub("", raw_source)[:_MONITOR_SOURCE_MAX_LEN] or "unknown"
+    # Allow-list: only the sources the dead-man's switch actually tracks may
+    # write a heartbeat key. This bounds the set of `monitor:heartbeat:*`
+    # Redis keys a token holder can mint and keeps the checker's per-source
+    # scan (bot/services/health_monitor.py) from being unbounded.
+    if source not in settings.monitor_expected_sources_list():
+        source = "unknown"
+    ok = request.query_params.get("ok", "1") != "0"
+
+    try:
+        from bot.utils.redis_cache import redis_cache
+
+        key = f"monitor:heartbeat:{source}"
+        fail_since = None
+        if not ok:
+            try:
+                existing = await redis_cache.get(key)
+            except Exception:
+                existing = None
+            if isinstance(existing, dict) and existing.get("fail_since"):
+                fail_since = existing["fail_since"]
+            else:
+                fail_since = datetime.now(timezone.utc).isoformat()
+
+        await redis_cache.set(
+            key,
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "ok": ok,
+                "fail_since": fail_since,
+            },
+            ttl_seconds=24 * 60 * 60,
+        )
+    except Exception as e:  # noqa: BLE001 — never let a bad heartbeat write 500 the endpoint
+        logger.error("Failed to record monitor heartbeat from %s: %s", source, e)
+
+    return {"status": "ok"}
 
 
 @app.get("/", include_in_schema=False)

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TerminalSkeleton } from "./TerminalSkeleton";
 
 function joinClasses(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -30,7 +31,7 @@ export function TerminalChainBadge({ chain }: { chain: string }) {
   return (
     <span
       className={joinClasses(
-        "terminal-theme-pill terminal-theme-caption inline-flex px-2 py-1 text-[10px] font-bold uppercase",
+        "terminal-theme-pill terminal-theme-caption inline-flex px-2 py-1 font-mono text-[10px] font-semibold uppercase",
         meta.className,
       )}
     >
@@ -49,9 +50,7 @@ export function TerminalDeltaText({
   align?: "left" | "right";
 }) {
   if (loading) {
-    return (
-      <span className="inline-block h-3 w-12 rounded bg-terminal-bg-tertiary animate-shimmer" />
-    );
+    return <TerminalSkeleton width={48} height={12} className="inline-block" />;
   }
 
   if (value === null) {
@@ -62,11 +61,13 @@ export function TerminalDeltaText({
   return (
     <span
       className={joinClasses(
-        "font-mono text-xs",
+        "tnum font-mono text-xs",
         align === "right" ? "text-right" : "",
         positive ? "text-bull" : "text-bear",
       )}
     >
+      {/* Direction is never colour-only (a11y + colour-blind safety). */}
+      <span aria-hidden="true">{positive ? "▲" : "▼"}</span>{" "}
       {formatPercent(value)}
     </span>
   );
@@ -93,7 +94,7 @@ export function TerminalKeyValueRow({
           </div>
         ) : null}
       </div>
-      <div className="text-[13px] font-semibold leading-none text-terminal-text">
+      <div className="tnum text-[13px] font-semibold leading-none text-terminal-text">
         {value}
       </div>
     </div>

@@ -19,8 +19,18 @@ import { useQuery } from '@tanstack/react-query'
 import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
 import { getSolanaPriorityFees } from '../../lib/helius'
 import toast from 'react-hot-toast'
+import { TerminalSkeletonText, TerminalStatusPill } from '../foundation'
 
 type OrderTab = 'swap' | 'limit' | 'dca'
+
+// Real Suwappu fee ladder (matches the published showcase /pricing page):
+// Published plan rates (matches showcase pricing). The terminal has no tier
+// awareness and quote.fromAmountUsd historically holds token amounts, not USD
+// (see bot/models/security.py) — so the pitch line below states the plan
+// ladder without asserting this user's rate or fabricating a $ figure.
+const STANDARD_FEE_RATE = 0.01
+const PRO_FEE_RATE = 0.005
+const PRICING_URL = 'https://suwappu.bot/pricing'
 
 export function SwapPanel() {
   const { isAuthenticated, isExternalWallet, externalChain } = useAuth()
@@ -32,9 +42,6 @@ export function SwapPanel() {
   // Solana priority-fee tier — only affects the non-custodial Phantom path,
   // so it's surfaced (below) only for Solana tokens.
   const [priorityTier, setPriorityTier] = useState<SolanaPriorityTier>('normal')
-  const [showTpSl, setShowTpSl] = useState(false)
-  const [tpPrice, setTpPrice] = useState('')
-  const [slPrice, setSlPrice] = useState('')
 
   // Single source of truth: the from/to tokens are *derived* from the active
   // pair + side, so switching the pair anywhere (header search, watchlist,
@@ -110,6 +117,37 @@ export function SwapPanel() {
         ? err.message
         : fallback
 
+  // Fix-oriented copy (§3.5): map the failures traders hit most often — bad
+  // balance, blown slippage, a wallet rejection, a slow RPC — to a cause +
+  // one-tap remedy instead of a bare "failed". Copy only: the underlying
+  // error and the execution flow are untouched.
+  const swapErrorCopy = (err: unknown, fallback = 'Swap failed') => {
+    const raw = errMessage(err, fallback)
+    const lower = raw.toLowerCase()
+    // Gas-specific first: EVM's "insufficient funds for gas * price + value"
+    // means the NATIVE token is short, not the sell token — a different remedy.
+    if (lower.includes('insufficient') && lower.includes('gas')) {
+      return raw.includes('You need at least')
+        ? raw
+        : 'Not enough of the native gas token to cover this transaction — top it up and retry.'
+    }
+    if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('funds'))) {
+      return 'Insufficient balance for this swap — lower the amount or add funds to your wallet.'
+    }
+    if (lower.includes('slippage') || lower.includes('min received') || lower.includes('minimum received')) {
+      return 'Slippage exceeded — the price moved past your tolerance. Retry with slippage raised a notch.'
+    }
+    // Only wallet-rejection phrasing — never claim on-chain state from a
+    // string match ("cancelled" from a router can mean a broadcast tx).
+    if (lower.includes('user reject') || lower.includes('user denied') || lower.includes('user cancel') || lower.includes('rejected in wallet')) {
+      return "Request declined in your wallet. Retry when you're ready."
+    }
+    if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('rpc') || lower.includes('network error')) {
+      return 'Network timed out reaching the chain — check your connection and retry.'
+    }
+    return raw
+  }
+
   const handleSwap = () => {
     // Non-custodial: the connected external wallet signs + broadcasts client-side.
     // We re-build a fresh unsigned tx (server holds no key) rather than reusing the
@@ -132,7 +170,7 @@ export function SwapPanel() {
         setAmount('')
       }
       const onError = (err: unknown) =>
-        toast.error(errMessage(err, 'Wallet rejected or swap failed'))
+        toast.error(swapErrorCopy(err, 'Wallet rejected or swap failed'))
 
       if (tokenIsSolana) {
         executeSolanaSwap(
@@ -176,7 +214,7 @@ export function SwapPanel() {
           toast.success(`Swap ${result.status}: ${result.swap.fromAmount} ${result.swap.fromToken} → ${result.swap.expectedToAmount} ${result.swap.toToken}`)
           setAmount('')
         },
-        onError: (err: unknown) => toast.error(errMessage(err)),
+        onError: (err: unknown) => toast.error(swapErrorCopy(err)),
       }
     )
   }
@@ -342,76 +380,28 @@ export function SwapPanel() {
         </div>
       )}
 
-      {/* TP/SL — Coming soon: backend execute endpoint only accepts quoteId */}
-      <div>
-        <button
-          onClick={() => setShowTpSl(prev => !prev)}
-          className="text-xs text-terminal-text-secondary hover:text-terminal-text-primary transition-colors"
-        >
-          TP/SL {showTpSl ? '▴' : '▾'}
-          <span className="ml-1.5 text-[10px] text-terminal-text-muted italic">Coming soon</span>
-        </button>
-        {showTpSl && (
-          <div className="mt-2 flex flex-col gap-2 opacity-50 pointer-events-none select-none">
-            <div>
-              <label className="text-xs text-terminal-text-secondary mb-1 block">Take Profit</label>
-              <input
-                type="text"
-                value={tpPrice}
-                onChange={e => setTpPrice(e.target.value)}
-                placeholder="TP price"
-                disabled
-                className="terminal-input w-full font-mono text-sm"
-              />
-              <div className="flex gap-1 mt-1">
-                {['+5%', '+10%', '+20%'].map(pct => (
-                  <button
-                    key={pct}
-                    disabled
-                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary"
-                  >
-                    {pct}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-terminal-text-secondary mb-1 block">Stop Loss</label>
-              <input
-                type="text"
-                value={slPrice}
-                onChange={e => setSlPrice(e.target.value)}
-                placeholder="SL price"
-                disabled
-                className="terminal-input w-full font-mono text-sm"
-              />
-              <div className="flex gap-1 mt-1">
-                {['-5%', '-10%', '-20%'].map(pct => (
-                  <button
-                    key={pct}
-                    disabled
-                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary"
-                  >
-                    {pct}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+      {/* TP/SL — coming soon (§3.6): a single quiet chip, not a toggleable
+          ghost form. The execute endpoint only accepts quoteId today. */}
+      <div className="flex justify-start">
+        <TerminalStatusPill tone="neutral">TP / SL — coming soon</TerminalStatusPill>
       </div>
 
-      {/* Quote details */}
+      {/* Quote details — skeleton while the route is in flight, then the
+          real comparison rows. */}
+      {quoteLoading && !quote && (
+        <TerminalSkeletonText lines={3} label="Loading quote" />
+      )}
       {quote && <QuoteComparison quote={quote} />}
 
       {/* Quote error */}
       {quoteError && (
-        <div role="alert" aria-live="assertive" className="text-sm text-red-400 bg-bear-dim rounded px-3 py-2">
-          {(quoteError as { detail?: string }).detail || 'Failed to get quote'}
+        <div role="alert" aria-live="assertive" className="rounded bg-bear-dim px-3 py-2 text-sm text-bear">
+          {swapErrorCopy(quoteError, 'Failed to get quote — check the amount and try again.')}
         </div>
       )}
 
-      {/* Execute button (or connect/sign-in when not authenticated) */}
+      {/* Execute button (or connect/sign-in when not authenticated). Buy =
+          up-fill, Sell = down-fill, dark ink text (AA-safe on both). */}
       {!isAuthenticated ? (
         <WalletConnect />
       ) : (
@@ -420,10 +410,10 @@ export function SwapPanel() {
           disabled={!isQuoteStale && (!quote || executingAny)}
           className={`w-full py-3 text-base font-semibold rounded transition-colors disabled:opacity-50 ${
             isQuoteStale
-              ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/40 hover:bg-yellow-600/30'
+              ? 'bg-terminal-warn/20 text-terminal-warn border border-terminal-warn/40 hover:bg-terminal-warn/30'
               : side === 'buy'
-                ? 'bg-bull hover:bg-bull/80 text-white disabled:bg-bull/30'
-                : 'bg-bear hover:bg-bear/80 text-white disabled:bg-bear/30'
+                ? 'bg-bull hover:bg-bull/80 text-terminal-on-accent disabled:bg-bull/30'
+                : 'bg-bear hover:bg-bear/80 text-terminal-on-accent disabled:bg-bear/30'
           }`}
         >
           {isQuoteStale
@@ -441,12 +431,29 @@ export function SwapPanel() {
         </button>
       )}
 
-      {/* Fee estimate */}
-      <div className="text-xs text-terminal-text-muted text-center">
-        {quote
-          ? `Est. fee: ~$${quote.gasUsd.toFixed(2)}`
-          : 'Enter amount for fee estimate'
-        }
+      {/* Fee summary — extends the one fee row (no second fee source of
+          truth): network estimate, plus the Pro savings pitch once a real
+          USD notional exists. */}
+      <div className="hairline-t pt-2 text-center text-xs tnum text-terminal-text-muted">
+        <div>
+          {quote
+            ? `Est. network fee: ~$${quote.gasUsd.toFixed(2)}`
+            : 'Enter amount for fee estimate'}
+        </div>
+        {quote && (
+          <div className="mt-1 text-[11px] text-terminal-text-secondary">
+            Swap fee by plan: Free {(STANDARD_FEE_RATE * 100).toFixed(2)}% · Pro{' '}
+            {(PRO_FEE_RATE * 100).toFixed(2)}% ·{' '}
+            <a
+              href={PRICING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-terminal-accent underline-offset-2 transition-colors hover:text-terminal-accent-bright hover:underline"
+            >
+              See pricing
+            </a>
+          </div>
+        )}
       </div>
     </div>
   )

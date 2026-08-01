@@ -1,0 +1,247 @@
+/*
+ * FeeCalculator — styled from the existing token set (--summer-*, --pp-*) so it
+ * reads as part of the site rather than a bolted-on widget. Depth comes from the
+ * layered --pp-shadow system, not a flat bordered box; the accent is persimmon,
+ * used once, on the winning row. Everything else stays quiet so the one thing
+ * you look at is which tier is cheapest.
+ */
+
+.calc {
+  margin: clamp(3rem, 7vw, 5.5rem) 0;
+  padding: clamp(1.5rem, 4vw, 2.75rem);
+  border: 1px solid var(--pp-border);
+  border-radius: 22px;
+  background: var(--summer-panel);
+  box-shadow: var(--pp-shadow);
+}
+
+.head {
+  max-width: 46ch;
+}
+
+.lead {
+  margin-top: 0.75rem;
+  color: var(--summer-muted);
+  line-height: 1.6;
+}
+
+/* --- input ------------------------------------------------------------- */
+
+.controls {
+  margin: clamp(1.5rem, 3vw, 2.25rem) 0 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--summer-ink);
+  margin-bottom: 0.4rem;
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 12px;
+  background: var(--summer-panel-strong);
+  transition: border-color 160ms var(--pp-ease, ease);
+}
+
+.inputRow:focus-within {
+  border-color: var(--summer-persimmon);
+}
+
+.currency {
+  color: var(--summer-muted);
+  font-weight: 600;
+}
+
+.input {
+  width: 9ch;
+  border: 0;
+  background: transparent;
+  color: var(--summer-ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  font-size: 1.05rem;
+}
+
+.input:focus {
+  outline: none; /* ring lives on .inputRow so the whole control reads as focused */
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.preset {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--summer-muted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 160ms var(--pp-ease, ease), color 160ms var(--pp-ease, ease);
+}
+
+.preset:hover {
+  border-color: var(--pp-border-hover);
+  color: var(--summer-ink);
+}
+
+.preset[aria-pressed='true'] {
+  border-color: var(--summer-persimmon);
+  color: var(--summer-ink);
+  font-weight: 600;
+}
+
+/* --- comparison rows --------------------------------------------------- */
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 14rem) 1fr auto;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.rowBest {
+  border-color: var(--summer-persimmon);
+  background: var(--summer-panel-strong);
+}
+
+.tier {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--summer-ink);
+}
+
+.bestTag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--summer-persimmon);
+}
+
+.bar {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--summer-line);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--summer-sky-deep);
+  transition: width 320ms var(--pp-ease, ease);
+}
+
+.rowBest .barFill {
+  background: var(--summer-persimmon);
+}
+
+.total {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--summer-ink);
+  white-space: nowrap;
+}
+
+.per {
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: var(--summer-muted);
+  margin-left: 0.15rem;
+}
+
+/* --- verdict ----------------------------------------------------------- */
+
+.verdict {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--pp-border);
+  color: var(--summer-ink);
+  line-height: 1.6;
+}
+
+.footnote {
+  margin-top: 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--summer-muted);
+  line-height: 1.55;
+}
+
+.footnote a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Bars carry no information the numbers don't; drop them on small screens
+   rather than squeezing three columns into 360px. */
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .bar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barFill,
+  .preset,
+  .inputRow {
+    transition: none;
+  }
+}
+
+/* Enterprise prompt — appears only when its fee advantage is material, so it reads
+   as a relevant fact at high volume rather than a permanent upsell. */
+.enterprise {
+  margin-top: 0.85rem;
+  padding: 0.8rem 1rem;
+  border: 1px dashed var(--pp-border-hover);
+  border-radius: 12px;
+  color: var(--summer-ink);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+.enterprise a {
+  color: var(--summer-persimmon);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

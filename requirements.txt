@@ -29,6 +29,7 @@ anyio==4.12.1
     #   anthropic
     #   httpx
     #   httpx2
+    #   openai
     #   starlette
     #   watchfiles
 asgiref==3.11.1
@@ -49,6 +50,7 @@ certifi==2026.6.17
     #   httpcore
     #   httpx
     #   requests
+    #   sentry-sdk
 cffi==2.0.0
     # via cryptography
 charset-normalizer==3.4.7
@@ -65,14 +67,16 @@ construct-typing==0.7.0
     # via solana
 crypto-cpp-py==2.0.0
     # via starknet-py
-cryptography==48.0.1
+cryptography==49.0.0
     # via -r requirements.in
 cytoolz==1.1.0
     # via eth-utils
 discord-py==2.7.1
     # via -r requirements.in
 distro==1.9.0
-    # via anthropic
+    # via
+    #   anthropic
+    #   openai
 dnspython==2.8.0
     # via -r requirements.in
 docstring-parser==0.18.0
@@ -130,7 +134,9 @@ eth-utils==5.3.1
     #   rlp
     #   web3
 fastapi==0.138.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   sentry-sdk
 frozenlist==1.8.0
     # via
     #   aiohttp
@@ -163,6 +169,7 @@ httpx[http2]==0.28.1
     # via
     #   -r requirements.in
     #   anthropic
+    #   openai
     #   py-clob-client
     #   python-telegram-bot
     #   tronpy
@@ -184,7 +191,9 @@ idna==3.18
 iniconfig==2.3.0
     # via pytest
 jiter==0.16.0
-    # via anthropic
+    # via
+    #   anthropic
+    #   openai
 jsonalias==0.1.1
     # via solders
 lark==1.3.1
@@ -210,7 +219,7 @@ multidict==6.7.1
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
-openai==1.109.1
+openai==2.48.0
     # via -r requirements.in
 orjson==3.11.9
     # via -r requirements.in
@@ -258,6 +267,7 @@ pydantic==2.13.4
     #   eth-account
     #   eth-utils
     #   fastapi
+    #   openai
     #   pydantic-settings
     #   solana
     #   web3
@@ -291,7 +301,7 @@ pyyaml==6.0.3
     # via uvicorn
 qrcode==8.2
     # via -r requirements.in
-redis==7.0.1
+redis==8.0.1
     # via -r requirements.in
 regex==2026.1.15
     # via parsimonious
@@ -309,10 +319,14 @@ rlp==4.1.0
     #   pytempo
 semver==3.0.4
     # via starknet-py
+sentry-sdk[fastapi]==2.28.0
+    # via -r requirements.in
 six==1.17.0
     # via ecdsa
 sniffio==1.3.1
-    # via anthropic
+    # via
+    #   anthropic
+    #   openai
 solana==0.40.0
     # via -r requirements.in
 solders==0.27.1
@@ -329,6 +343,8 @@ sympy==1.14.0
     # via crypto-cpp-py
 toolz==1.1.0
     # via cytoolz
+tqdm==4.69.1
+    # via openai
 tronpy==0.6.2
     # via -r requirements.in
 truststore==0.10.4
@@ -349,6 +365,7 @@ typing-extensions==4.15.0
     #   eth-typing
     #   fastapi
     #   httpx2
+    #   openai
     #   pydantic
     #   pydantic-core
     #   solana
@@ -371,6 +388,7 @@ urllib3==2.7.0
     # via
     #   -r requirements.in
     #   requests
+    #   sentry-sdk
     #   types-requests
 uvicorn[standard]==0.49.0
     # via -r requirements.in

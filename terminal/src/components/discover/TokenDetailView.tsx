@@ -6,6 +6,7 @@ import { QuickBuyButton } from './QuickBuyButton'
 interface TokenDetailViewProps {
   token: PulseToken
   onBack: () => void
+  onBuy?: (amount: number, tokenAddress: string) => void
 }
 
 function formatNum(value: number): string {
@@ -16,7 +17,7 @@ function formatNum(value: number): string {
   return `$${value.toFixed(6)}`
 }
 
-export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
+export function TokenDetailView({ token, onBack, onBuy }: TokenDetailViewProps) {
   const [copied, setCopied] = useState(false)
   const otherPercent = Math.max(0, 100 - token.topHolderPercent - token.devPercent)
 
@@ -60,7 +61,7 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
             </div>
           </div>
           <div className="text-right">
-            <div className="font-mono text-sm text-terminal-text">{formatNum(token.priceUsd)}</div>
+            <div className="font-mono tnum text-sm text-terminal-text">{formatNum(token.priceUsd)}</div>
             <div className="text-[10px] text-terminal-text-muted uppercase">{token.chain}</div>
           </div>
         </div>
@@ -68,7 +69,7 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
         {/* Contract address */}
         <div className="flex items-center gap-2 bg-terminal-bg-secondary rounded px-2 py-1.5 border border-terminal-border">
           <span className="text-[10px] text-terminal-text-muted shrink-0">CA:</span>
-          <span className="text-[10px] font-mono text-terminal-text truncate">{token.address}</span>
+          <span className="text-[10px] font-mono tnum text-terminal-text truncate">{token.address}</span>
           <button
             onClick={handleCopy}
             className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-muted hover:text-terminal-text border border-terminal-border transition-colors"
@@ -87,7 +88,7 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
           ].map(stat => (
             <div key={stat.label} className="bg-terminal-bg-secondary rounded px-2 py-1.5 border border-terminal-border">
               <div className="text-[9px] text-terminal-text-muted">{stat.label}</div>
-              <div className="text-xs font-mono text-terminal-text">{stat.value}</div>
+              <div className="text-xs font-mono tnum text-terminal-text">{stat.value}</div>
             </div>
           ))}
         </div>
@@ -153,6 +154,7 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
           <QuickBuyButton
             tokenSymbol={token.symbol}
             tokenAddress={token.address}
+            onBuy={onBuy}
             glowOnHover
           />
         </div>

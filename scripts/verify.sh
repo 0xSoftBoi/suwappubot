@@ -30,4 +30,23 @@ if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then
   echo "✓ Python API healthy"
 fi
 
+# Cross-chain constants (CCTP contracts + domain ids, USDT0 token/OFT pairs,
+# LayerZero EIDs) checked against the live chains. Deliberately NOT part of
+# "all": it hits ~8 public RPC endpoints, which rate-limit and intermittently
+# fail individual methods, so folding it into the general gate would make
+# verify.sh flaky for reasons unrelated to the change under test. Run it
+# explicitly before shipping anything that touches a bridge address, a CCTP
+# domain, or a LayerZero endpoint id.
+if [[ "$MODE" == "onchain" ]]; then
+  echo "=== On-chain constants ==="
+  python3.12 scripts/verify_onchain_constants.py
+  echo "✓ On-chain constants verified"
+fi
+
 echo "All checks passed ✓"
+
+if [[ "$MODE" == "all" ]]; then
+  echo
+  echo "Note: on-chain constant verification is not included in 'all'."
+  echo "  Run: bash scripts/verify.sh onchain"
+fi

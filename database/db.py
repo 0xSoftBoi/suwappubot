@@ -507,6 +507,11 @@ def _ensure_schema(db_engine) -> None:
     # --- recurring crypto subscriptions (Base Spend Permissions) ---
     _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
 
+    # --- execution intelligence: swap_route_candidates + swap_execution_marks ---
+    _create_swap_route_candidates_table(db_engine, inspector, is_sqlite)
+    _create_swap_execution_marks_table(db_engine, inspector, is_sqlite)
+    _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -542,6 +547,7 @@ def _ensure_schema(db_engine) -> None:
     # --- subscriptions: started_at column ---
     if "subscriptions" in tables:
         _add_subscription_started_at(db_engine, inspector, is_sqlite)
+        _add_subscription_stripe_customer_id(db_engine, inspector, is_sqlite)
 
     # --- audit_logs: org_id / agent_id columns (org-scoped audit trail) ---
     if "audit_logs" in tables:
@@ -558,6 +564,8 @@ def _ensure_schema(db_engine) -> None:
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
+    _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite)
+    _add_bridge_transfer_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
@@ -878,15 +886,90 @@ def _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite: bool) -> 
 
 
 def _add_cctp_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create the CCTP deposit-relay table idempotently."""
-    try:
-        from bot.models.cctp import CctpDeposit
+    """Create the CCTP deposit-relay tables idempotently.
 
-        if not inspector.has_table(CctpDeposit.__tablename__):
-            CctpDeposit.__table__.create(bind=db_engine)
-            logger.info(f"Created {CctpDeposit.__tablename__} table")
+    Money-path note: bot.models.cctp.CctpGenericDeposit was previously ONLY
+    ever created as a side effect of api/main.py importing
+    bot.services.cctp_generic_relayer before init_db ran. Any entrypoint that
+    calls init_db without that import (bot-only process, worker, script,
+    test bootstrap) silently skipped this table -- and record_burn() would
+    then raise "relation does not exist" on a burn that already landed
+    on-chain, i.e. an unrecoverable burn. Both models are now created here
+    explicitly, and a creation failure is logged loudly (not swallowed to a
+    generic warning) because that failure mode is unmintable USDC.
+    """
+    from bot.models.cctp import CctpDeposit, CctpGenericDeposit
+
+    for model in (CctpDeposit, CctpGenericDeposit):
+        try:
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+        except Exception as e:
+            logger.error(
+                f"CRITICAL: failed to create {model.__tablename__} table -- CCTP burns "
+                f"recorded against this table will raise and cannot be relayed until this "
+                f"is fixed: {e}"
+            )
+
+
+def _add_bridge_transfer_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the user-facing bridge_transfers table idempotently.
+
+    Same reasoning as _add_cctp_tables: the row is created before the user
+    signs anything, so if the table is missing the build call fails and no
+    transaction is broadcast. That is the safe direction, but it is a hard
+    outage for the bridge flow, so log a creation failure loudly rather than
+    letting it pass as a warning.
+    """
+    from bot.models.bridge import BridgeTransfer
+
+    try:
+        if not inspector.has_table(BridgeTransfer.__tablename__):
+            BridgeTransfer.__table__.create(bind=db_engine)
+            logger.info(f"Created {BridgeTransfer.__tablename__} table")
     except Exception as e:
-        logger.warning(f"Failed to create CCTP tables: {e}")
+        logger.error(
+            f"CRITICAL: failed to create {BridgeTransfer.__tablename__} table -- the bridge "
+            f"flow cannot record transfers and will refuse to build them until this is "
+            f"fixed: {e}"
+        )
+
+
+def _add_cctp_generic_deposit_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive columns for the generic-rail relayer's claim/lease + stall tracking.
+
+    stall_count: transient/insufficient-gas errors (never terminal by count alone).
+    claimed_at/claimed_by: lease so two relayer replicas never both broadcast the
+        same receiveMessage (SELECT ... FOR UPDATE SKIP LOCKED claim, see
+        CctpGenericRelayer._pending).
+    """
+    table = "cctp_generic_deposits"
+    if not inspector.has_table(table):
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        additions = [
+            ("stall_count", "INTEGER DEFAULT 0"),
+            ("claimed_at", "TIMESTAMP"),
+            ("claimed_by", "VARCHAR(120)"),
+        ]
+        with db_engine.begin() as conn:
+            for name, coltype in additions:
+                if name in cols:
+                    continue
+                if is_sqlite:
+                    ddl = f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"
+                else:
+                    ddl = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {coltype}"
+                conn.execute(text(ddl))
+                logger.info(f"Added {table}.{name}")
+    except Exception as e:
+        logger.error(
+            f"CRITICAL: failed to add claim/stall columns to {table}: {e} -- the generic "
+            "CCTP relayer's replica-safety and backoff logic will not work correctly until "
+            "this is fixed."
+        )
 
 
 def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1130,6 +1213,32 @@ def _add_subscription_started_at(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_subscription_stripe_customer_id(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add stripe_customer_id to subscriptions idempotently.
+
+    api-ts stamps this from the Stripe checkout webhook so the web dashboard can
+    open a Stripe billing portal session (invoices, payment methods, cancel).
+    `subscriptions` is python-owned, so the column is added here rather than by
+    drizzle-kit.
+    """
+    cols = {c["name"] for c in inspector.get_columns("subscriptions")}
+    if "stripe_customer_id" in cols:
+        return
+
+    if is_sqlite:
+        ddl = "ALTER TABLE subscriptions ADD COLUMN stripe_customer_id VARCHAR(64)"
+    else:
+        ddl = "ALTER TABLE subscriptions " "ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64)"
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_subscriptions_stripe_customer_id "
+                "ON subscriptions (stripe_customer_id)"
+            )
+        )
 
 
 def _add_audit_org_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -3111,3 +3220,176 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_reward_epochs_status" " ON reward_epochs(status)")
         )
+
+
+def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the swap_route_candidates table idempotently.
+
+    EXECUTION INTELLIGENCE: stores every route the aggregator offered for a
+    quote, not just the one executed. The rejected alternatives are the only
+    basis on which a routing decision can be evaluated after the fact, and
+    they were previously discarded at quote time (api-ts persisted just
+    ``JSON.stringify(quote._rawQuote)`` for the chosen route).
+
+    Written by BOTH stacks — api-ts (SwapService quote path) and the python
+    bot (socket_api route list) — so the table is created here, which is the
+    authoritative shared-DB path. Additive and idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "swap_route_candidates" in tables:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    bool_default = "0" if is_sqlite else "FALSE"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS swap_route_candidates (
+                    {pk},
+                    quote_id VARCHAR(128) NOT NULL,
+                    swap_id INTEGER,
+                    user_id INTEGER,
+                    agent_id INTEGER,
+                    from_chain VARCHAR(50) NOT NULL,
+                    to_chain VARCHAR(50) NOT NULL,
+                    from_token VARCHAR(40) NOT NULL,
+                    to_token VARCHAR(40) NOT NULL,
+                    from_amount_usd DOUBLE PRECISION,
+                    provider VARCHAR(50),
+                    tool VARCHAR(80),
+                    quoted_to_amount VARCHAR(78),
+                    quoted_to_amount_usd DOUBLE PRECISION,
+                    quoted_gas_usd DOUBLE PRECISION,
+                    quoted_fee_usd DOUBLE PRECISION,
+                    quoted_duration_s INTEGER,
+                    rank INTEGER,
+                    was_selected BOOLEAN NOT NULL DEFAULT {bool_default},
+                    route_hash VARCHAR(64),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    -- Mirror the model's ForeignKeys (see note above).
+                    FOREIGN KEY (swap_id) REFERENCES swap_transactions (id),
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+                """.replace("DOUBLE PRECISION", "REAL" if is_sqlite else "DOUBLE PRECISION")))
+
+        for idx, cols in (
+            ("ix_swap_route_candidates_quote_id", "quote_id"),
+            ("ix_swap_route_candidates_swap_id", "swap_id"),
+            ("ix_swap_route_candidates_user_id", "user_id"),
+            ("ix_swap_route_candidates_agent_id", "agent_id"),
+            ("ix_swap_route_candidates_created_at", "created_at"),
+            ("ix_swap_route_candidates_route_hash", "route_hash"),
+            # Cohort lookups for the execution-percentile benchmark.
+            (
+                "ix_swap_route_candidates_shape",
+                "from_chain, to_chain, from_token, to_token",
+            ),
+        ):
+            conn.execute(
+                text(f"CREATE INDEX IF NOT EXISTS {idx} " f"ON swap_route_candidates ({cols})")
+            )
+
+    logger.info("Created swap_route_candidates table")
+
+
+def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the swap_execution_marks table idempotently.
+
+    EXECUTION INTELLIGENCE (phase 2): post-trade price marks for completed
+    swaps, written by the ``execution_scorer`` background service. Splits
+    execution quality into realized-vs-quoted (our slippage accuracy, known at
+    fill) and markout (price drift after the fill, only knowable later).
+
+    UNIQUE(swap_id, horizon) is what makes the scorer idempotent — a restart or
+    an overlapping pass re-inserts nothing rather than double-writing.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "swap_execution_marks" in tables:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    float_type = "REAL" if is_sqlite else "DOUBLE PRECISION"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS swap_execution_marks (
+                    {pk},
+                    swap_id INTEGER NOT NULL,
+                    horizon VARCHAR(8) NOT NULL,
+                    to_token_price_usd {float_type},
+                    fill_price_usd {float_type},
+                    realized_vs_quoted_bps {float_type},
+                    markout_bps {float_type},
+                    scored_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uq_swap_execution_marks_swap_horizon
+                        UNIQUE (swap_id, horizon),
+                    -- Mirrors SwapExecutionMark.swap_id's ForeignKey. Without
+                    -- it the two creation paths diverge: create_all() runs
+                    -- BEFORE _ensure_schema() and builds the FK version, so on
+                    -- a real boot this DDL never runs — but on any path where
+                    -- it does, the schema would silently lack the constraint.
+                    FOREIGN KEY (swap_id) REFERENCES swap_transactions (id)
+                )
+                """))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_swap_execution_marks_swap_id "
+                "ON swap_execution_marks (swap_id)"
+            )
+        )
+
+    logger.info("Created swap_execution_marks table")
+
+
+def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add DB-level defaults to execution-intelligence timestamp columns.
+
+    SQLAlchemy's ``default=`` is applied in PYTHON, not by the database, so a
+    table built by ``create_all()`` gets ``NOT NULL`` with NO ``DEFAULT``
+    clause. api-ts/Drizzle declares ``.defaultNow()``, assumes a DB default
+    exists, and emits ``default`` in its INSERT — which resolves to NULL and
+    violates NOT NULL.
+
+    This bit production: every counterfactual-capture insert failed with the
+    table already created, so no ALTER of the model alone can fix existing
+    deployments. Idempotent; Postgres only (SQLite tables are created fresh
+    from the DDL above, which already carries the default).
+    """
+    if is_sqlite:
+        return
+
+    targets = [
+        ("swap_route_candidates", "created_at"),
+        ("swap_execution_marks", "scored_at"),
+    ]
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    for table, column in targets:
+        if table not in tables:
+            continue
+        try:
+            cols = {c["name"]: c for c in inspector.get_columns(table)}
+            col = cols.get(column)
+            if col is None or col.get("default") is not None:
+                continue
+            with db_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} "
+                        f"ALTER COLUMN {column} SET DEFAULT CURRENT_TIMESTAMP"
+                    )
+                )
+            logger.info(f"Set DB default on {table}.{column}")
+        except Exception as e:
+            logger.warning(f"Could not set default on {table}.{column}: {e}")

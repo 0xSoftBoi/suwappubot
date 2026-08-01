@@ -509,7 +509,7 @@ class WormholeAPI:
         nonce = random.randint(0, 2**32 - 1)
         
         data = token_bridge.encode_abi(
-            fn_name="transferTokens",
+            "transferTokens",
             args=[
                 Web3.to_checksum_address(quote.source_token_address),
                 int(quote.from_amount),
@@ -557,7 +557,7 @@ class WormholeAPI:
         )
         
         data = token_bridge.encode_abi(
-            fn_name="completeTransfer",
+            "completeTransfer",
             args=[Web3.to_bytes(hexstr=vaa.vaa_bytes)]
         )
         

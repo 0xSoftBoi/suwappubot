@@ -1,0 +1,39 @@
+/* Status page — Surfaces section: pure data register, hairline rows
+   instead of bordered cards. External links get a subtle ↗ indicator. */
+.surfaces {
+  margin-top: 1rem;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: var(--sw-gap);
+  align-items: baseline;
+  text-decoration: none;
+  transition: background 0.16s ease;
+}
+.row:hover {
+  background: var(--sw-accent-wash);
+}
+.row h3 {
+  margin: 0;
+  color: var(--sw-ink);
+  font-size: 1rem;
+  font-weight: 600;
+}
+.row p {
+  margin: 0;
+  color: var(--sw-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.external {
+  margin-left: 4px;
+  color: var(--sw-muted);
+  font-size: 0.8em;
+}
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

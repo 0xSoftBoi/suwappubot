@@ -10,6 +10,7 @@ export interface Token {
   balance: string
   usdValue: number
   logoUrl?: string
+  decimals?: number
 }
 
 export interface Portfolio {

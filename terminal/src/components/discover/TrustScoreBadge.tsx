@@ -6,16 +6,18 @@ interface TrustScoreBadgeProps {
 export function TrustScoreBadge({ score, level }: TrustScoreBadgeProps) {
   if (score === undefined) return null;
 
+  // Neutral by default; green only for a genuinely "safe" verdict.
   const colorClass =
     level === "safe" || (!level && score >= 80)
-      ? "bg-[#e6f4f0] text-[#1d6b57] border-[#a8d1c0]"
+      ? "bg-bull/10 text-bull border-bull/30"
       : level === "caution" || (!level && score >= 50)
-        ? "bg-[#fff2da] text-[#9c6220] border-[#efc98a]"
-        : "bg-[#ffe8e4] text-[#b44232] border-[#f0b3a9]";
+        ? "bg-terminal-warn/10 text-terminal-warn border-terminal-warn/30"
+        : "bg-bear/10 text-bear border-bear/30";
 
   return (
     <span
-      className={`inline-block text-[10px] px-1.5 py-0.5 rounded font-mono border ${colorClass}`}
+      className={`inline-block text-[10px] px-1.5 py-0.5 rounded font-mono tnum border ${colorClass}`}
+      aria-label={`Trust score ${score}`}
     >
       {score}
     </span>

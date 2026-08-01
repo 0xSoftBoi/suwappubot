@@ -8,12 +8,14 @@ function formatUsd(n: number) {
 }
 
 // Fear & Greed → color + plain-language regime. 0 = extreme fear, 100 = greed.
+// Collapsed to the app's three semantic tones (down/warn/up) instead of an
+// arbitrary 5-hex ladder — green/red discipline (brief §3.1).
 function fngTone(v: number) {
-  if (v <= 24) return { color: '#ef4444', label: 'Extreme Fear' }
-  if (v <= 44) return { color: '#f97316', label: 'Fear' }
-  if (v <= 55) return { color: '#eab308', label: 'Neutral' }
-  if (v <= 75) return { color: '#22c55e', label: 'Greed' }
-  return { color: '#16a34a', label: 'Extreme Greed' }
+  if (v <= 24) return { color: 'rgb(var(--terminal-c-down))', label: 'Extreme Fear' }
+  if (v <= 44) return { color: 'rgb(var(--terminal-c-down))', label: 'Fear' }
+  if (v <= 55) return { color: 'rgb(var(--terminal-c-warn))', label: 'Neutral' }
+  if (v <= 75) return { color: 'rgb(var(--terminal-c-up))', label: 'Greed' }
+  return { color: 'rgb(var(--terminal-c-up))', label: 'Extreme Greed' }
 }
 
 // One tile: tiny uppercase label over a mono value.
@@ -26,10 +28,10 @@ function Tile({
 }) {
   return (
     <div className="flex shrink-0 items-baseline gap-1.5">
-      <span className="text-[9px] font-medium uppercase tracking-wide text-terminal-text-muted">
+      <span className="terminal-theme-caption text-[10px] uppercase">
         {label}
       </span>
-      <span className="font-mono text-[12px] tabular-nums leading-none">{children}</span>
+      <span className="tnum font-mono text-[12px] leading-none">{children}</span>
     </div>
   )
 }
@@ -51,11 +53,11 @@ export function MarketRegimeStrip() {
     <div className="terminal-theme-inset flex items-center gap-x-4 gap-y-1 overflow-x-auto rounded-[8px] px-3 py-1.5 text-terminal-text">
       {fng && tone && (
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="text-[9px] font-medium uppercase tracking-wide text-terminal-text-muted">
+          <span className="terminal-theme-caption text-[10px] uppercase">
             Fear / Greed
           </span>
           <span
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white"
+            className="tnum inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold text-terminal-on-accent"
             style={{ backgroundColor: tone.color }}
             title={`${fng.value} — ${tone.label}`}
           >
@@ -93,7 +95,7 @@ export function MarketRegimeStrip() {
               altSeason ? 'bg-bull-dim text-bull' : 'bg-terminal-bg-tertiary/70 text-terminal-text-muted'
             }`}
           >
-            {altSeason ? 'Alt season' : 'BTC-led'}
+            {altSeason ? '▲ Alt season' : 'BTC-led'}
           </span>
         </Tile>
       )}

@@ -4,17 +4,20 @@ import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import DemoCallCta from '@/components/DemoCallCta';
+import stats from '@/data/stats.generated.json';
+import styles from './agents.module.css';
 
 export const metadata: Metadata = {
   title: 'Agents — Suwappu API, MCP & A2A for AI agents',
   description:
-    'Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across 15+ chains. Self-serve registration, pay-per-call with x402, no signup required.',
+    `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, pay-per-call with x402, no signup required.`,
 };
 
 // ── b. Capability grid ──────────────────────────────────────────────
 const CAPABILITIES = [
   {
-    title: '15+ chains',
+    title: `${stats.agentApiChains} chains`,
     body: 'EVM (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo — one API, one bearer token.',
   },
   {
@@ -93,7 +96,7 @@ const FAQS = [
   },
   {
     q: 'Which chains are supported?',
-    a: '15+ chains through one API, including EVM networks (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo. Call GET /v1/agent/chains for the authoritative, current list rather than hardcoding it.',
+    a: `${stats.agentApiChains} chains through one API, including EVM networks (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo. Call GET /v1/agent/chains for the authoritative, current list rather than hardcoding it.`,
   },
   {
     q: 'What does it cost?',
@@ -123,7 +126,7 @@ export default function AgentsPage() {
           <p className="summer-kicker">Built for AI agents</p>
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
-            Quote, swap, and manage a portfolio across 15+ chains from a REST API, an MCP
+            Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
             server, or the A2A protocol — self-serve registration, no signup required, and
             pay only for the calls you make.
           </p>
@@ -138,11 +141,11 @@ export default function AgentsPage() {
         </header>
 
         {/* ── b. CAPABILITIES ── */}
-        <section className="agents-caps" aria-label="Capabilities">
+        <section className={`agents-caps ${styles.capsPrimary}`} aria-label="Capabilities">
           <h2 className="mkt-h2">Everything your agent needs to transact onchain.</h2>
           <div className="agents-caps__grid">
             {CAPABILITIES.map((cap) => (
-              <article className="agents-cap" key={cap.title}>
+              <article className={`agents-cap ${styles.capCard}`} key={cap.title}>
                 <h3>{cap.title}</h3>
                 <p>{cap.body}</p>
               </article>
@@ -156,30 +159,32 @@ export default function AgentsPage() {
           <h2 className="mkt-h2">Three calls from zero to a settled swap.</h2>
 
           <div className="agents-connect">
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">1</div>
               <h2>Register an agent — no signup</h2>
               <p>
                 POST your agent&apos;s name and get an API key back in the same response. No
                 email, no approval queue, no human in the loop.
               </p>
-              <div className="summer-code" aria-label="register.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>register.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/register \\
+              <div className={`${styles.codeDark} sw-card-dark`}>
+                <div className="summer-code" aria-label="register.sh">
+                  <div className="summer-code__bar">
+                    <span />
+                    <span />
+                    <span />
+                    <b>register.sh</b>
+                  </div>
+                  <pre>
+                    <code>{`curl -X POST https://api.suwappu.bot/v1/agent/register \\
   -H "Content-Type: application/json" \\
   -d '{"name": "my-agent"}'
 # { "success": true, "api_key": "suwappu_sk_..." }`}</code>
-                </pre>
+                  </pre>
+                </div>
               </div>
             </article>
 
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">2</div>
               <h2>Add your key to MCP or an SDK</h2>
               <p>
@@ -189,22 +194,23 @@ export default function AgentsPage() {
               <AgentQuickstart />
             </article>
 
-            <article className="agents-connect__item">
+            <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">3</div>
               <h2>Get a quote, then swap</h2>
               <p>
                 Every swap is two calls: a quote, then an execute against your managed
                 wallet — or request an unsigned transaction to sign yourself.
               </p>
-              <div className="summer-code" aria-label="quote-and-swap.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>quote-and-swap.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
+              <div className={`${styles.codeDark} sw-card-dark`}>
+                <div className="summer-code" aria-label="quote-and-swap.sh">
+                  <div className="summer-code__bar">
+                    <span />
+                    <span />
+                    <span />
+                    <b>quote-and-swap.sh</b>
+                  </div>
+                  <pre>
+                    <code>{`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"from_token":"USDC","to_token":"ETH","chain":"base","amount":"100"}'
@@ -214,7 +220,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"quote_id": "q_abc123"}'`}</code>
-                </pre>
+                  </pre>
+                </div>
               </div>
             </article>
           </div>
@@ -294,7 +301,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
           <h2 className="mkt-h2">Pay however your agent transacts.</h2>
           <div className="agents-caps__grid">
             {PAYMENT_MODES.map((p) => (
-              <article className="agents-cap" key={p.title}>
+              <article className={`agents-cap ${styles.capCard}`} key={p.title}>
                 <h3>{p.title}</h3>
                 <p>{p.body}</p>
               </article>
@@ -320,9 +327,14 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             multi-user org accounts with RBAC, scoped programmatic API keys, higher per-org rate
             limits, and a dedicated support SLA.
           </p>
-          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
-            Talk to Sales
-          </a>
+          <div className="summer-actions">
+            <DemoCallCta source="agents_page_callout" className="summer-button summer-button--primary">
+              Schedule a demo
+            </DemoCallCta>
+            <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+              Or send us a note
+            </a>
+          </div>
         </section>
       </div>
       <SummerFooter />

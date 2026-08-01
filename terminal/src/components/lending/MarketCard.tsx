@@ -12,9 +12,9 @@ function formatCompact(value: number): string {
 }
 
 function getUtilizationColor(pct: number): string {
-  if (pct <= 60) return 'from-[#22c55e] to-[#22c55e]'
-  if (pct <= 80) return 'from-[#22c55e] to-[#eab308]'
-  return 'from-[#eab308] to-[#ef4444]'
+  if (pct <= 60) return 'bg-bull'
+  if (pct <= 80) return 'bg-terminal-warn'
+  return 'bg-bear'
 }
 
 export function MarketCard({ market }: Props) {
@@ -26,7 +26,7 @@ export function MarketCard({ market }: Props) {
       data-testid="lending-market-card"
     >
       <div className="flex items-center gap-2 mb-2">
-        <div className="w-6 h-6 rounded-full bg-terminal-border flex items-center justify-center text-[10px] font-bold text-terminal-text-muted">
+        <div className="w-6 h-6 rounded-full bg-terminal-bg-tertiary flex items-center justify-center text-[10px] font-semibold text-terminal-text-muted">
           {market.asset.slice(0, 2)}
         </div>
         <span className="text-sm font-semibold text-terminal-text">{market.asset}</span>
@@ -36,13 +36,13 @@ export function MarketCard({ market }: Props) {
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-2 text-xs">
         <div>
           <span className="text-terminal-text-muted">Supply APY</span>
-          <div className="font-mono font-semibold text-[#22c55e]">
+          <div className="font-mono tnum font-semibold text-bull">
             {(market.supplyAPY * 100).toFixed(2)}%
           </div>
         </div>
         <div>
           <span className="text-terminal-text-muted">Borrow APY</span>
-          <div className="font-mono font-semibold text-terminal-text">
+          <div className="font-mono tnum font-semibold text-terminal-text">
             {(market.borrowAPY * 100).toFixed(2)}%
           </div>
         </div>
@@ -51,11 +51,11 @@ export function MarketCard({ market }: Props) {
       <div className="mb-2">
         <div className="flex justify-between text-[10px] text-terminal-text-muted mb-0.5">
           <span>Utilization</span>
-          <span className="font-mono">{utilPct.toFixed(1)}%</span>
+          <span className="font-mono tnum">{utilPct.toFixed(1)}%</span>
         </div>
-        <div className="h-1.5 bg-terminal-border rounded-full overflow-hidden">
+        <div className="h-1.5 bg-terminal-bg-tertiary rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full bg-gradient-to-r ${getUtilizationColor(utilPct)} transition-all`}
+            className={`h-full rounded-full transition-all ${getUtilizationColor(utilPct)}`}
             style={{ width: `${utilPct}%` }}
           />
         </div>
@@ -64,15 +64,15 @@ export function MarketCard({ market }: Props) {
       <div className="grid grid-cols-3 gap-1 text-[10px]">
         <div>
           <span className="text-terminal-text-muted">Supplied</span>
-          <div className="font-mono text-terminal-text">{formatCompact(market.totalSupplied)}</div>
+          <div className="font-mono tnum text-terminal-text">{formatCompact(market.totalSupplied)}</div>
         </div>
         <div>
           <span className="text-terminal-text-muted">Borrowed</span>
-          <div className="font-mono text-terminal-text">{formatCompact(market.totalBorrowed)}</div>
+          <div className="font-mono tnum text-terminal-text">{formatCompact(market.totalBorrowed)}</div>
         </div>
         <div>
           <span className="text-terminal-text-muted">LLTV</span>
-          <div className="font-mono text-terminal-text">{(market.lltv * 100).toFixed(0)}%</div>
+          <div className="font-mono tnum text-terminal-text">{(market.lltv * 100).toFixed(0)}%</div>
         </div>
       </div>
     </div>

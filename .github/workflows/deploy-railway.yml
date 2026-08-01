@@ -22,7 +22,7 @@ on:
         description: Which service(s) to deploy
         type: choice
         default: all
-        options: [all, python-api, api-ts, terminal, showcase]
+        options: [all, python-api, api-ts, terminal, webapp, showcase]
       environment:
         description: Target environment (auto = from branch)
         type: choice
@@ -67,7 +67,7 @@ jobs:
           echo "gh_env=${ENV}" >> "$GITHUB_OUTPUT"
 
           # ---- services ----
-          ALL='["python-api","api-ts","terminal","showcase"]'
+          ALL='["python-api","api-ts","terminal","webapp","showcase"]'
           if [ "${EVENT}" = "workflow_dispatch" ]; then
             if [ "${INPUT_SVC:-all}" = "all" ]; then
               SVCS="${ALL}"
@@ -84,6 +84,7 @@ jobs:
               echo "${CHANGED}" | grep -qE '^(api/|bot/|database/|requirements\.txt)' && sel+=('"python-api"') || true
               echo "${CHANGED}" | grep -qE '^api-ts/'                                && sel+=('"api-ts"')     || true
               echo "${CHANGED}" | grep -qE '^(terminal/|packages/design-tokens/)'    && sel+=('"terminal"')   || true
+              echo "${CHANGED}" | grep -qE '^(webapp/|packages/design-tokens/)'      && sel+=('"webapp"')     || true
               echo "${CHANGED}" | grep -qE '^showcase/'                              && sel+=('"showcase"')   || true
               if [ "${#sel[@]}" -eq 0 ]; then
                 SVCS="[]"
@@ -129,8 +130,8 @@ jobs:
           # railway.json + Dockerfile in its own folder. Upload that folder as the
           # archive root (--path-as-root) so Railway builds it via its Dockerfile
           # instead of detecting the repo root as a Python app (root pyproject.toml).
-          # python-api and terminal deploy from the repo root and use their dashboard
-          # Config path (railway.<svc>.json).
+          # python-api, terminal, and webapp deploy from the repo root and use their
+          # dashboard Config path (railway.<svc>.json).
           case "$svc" in
             api-ts)   railway up ./api-ts   --path-as-root --ci --service "$svc" ;;
             showcase) railway up ./showcase --path-as-root --ci --service "$svc" ;;

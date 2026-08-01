@@ -3,10 +3,13 @@ import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
+import type { AgentErrorCode } from './lib/agentError'
+import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
+import { ipRateLimit } from './middleware/ipRateLimit'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -16,6 +19,7 @@ import {
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
+	MCP_TOOLS,
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
@@ -28,6 +32,25 @@ import {
 	tokenRoutes,
 	webappRoutes,
 } from './routes'
+
+/**
+ * Best-effort mapping from a thrown HTTPException (status + message) to the
+ * stable 17-code contract (see lib/agentError.ts) for agent-facing surfaces
+ * (/v1/agent/*, /mcp). HTTPExceptions thrown directly by middleware (e.g.
+ * agentBearerAuth) don't carry a structured code, so this is deduced from
+ * status + message text.
+ */
+function httpExceptionCode(status: number, message: string): AgentErrorCode {
+	if (status === 401) {
+		return /api.?key/i.test(message) ? 'INVALID_API_KEY' : 'UNAUTHORIZED'
+	}
+	if (status === 402) return 'PAYMENT_REQUIRED'
+	if (status === 403) return 'INSUFFICIENT_SCOPE'
+	if (status === 429) return 'RATE_LIMITED'
+	if (status === 400) return 'VALIDATION_ERROR'
+	if (status === 404) return 'NOT_FOUND'
+	return 'INTERNAL'
+}
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -71,13 +94,33 @@ export function createApp(config: AppConfig) {
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
-			return c.json(
-				{ error: err.message, requestId, timestamp },
-				err.status,
-			)
+			// Only report unexpected 5xx HTTPExceptions to Sentry. Expected 4xx
+			// (validation, auth failures, 402 billing challenges) are normal
+			// traffic, not incidents — capturing them would flood the quota.
+			if (err.status >= 500) {
+				captureServerError(err, {
+					path: c.req.path,
+					method: c.req.method,
+					requestId,
+					status: err.status,
+				})
+			}
+
+			const isAgentSurface = c.req.path.startsWith('/v1/agent') || c.req.path.startsWith('/mcp')
+			const cause = err.cause as { hint?: string } | undefined
+			const body: Record<string, unknown> = { error: err.message, requestId, timestamp }
+
+			if (isAgentSurface) {
+				body.error_code = httpExceptionCode(err.status, err.message)
+				if (cause?.hint) body.hint = cause.hint
+				else if (err.status === 401) body.hint = 'Register at POST /v1/agent/register to get an API key'
+			}
+
+			return c.json(body, err.status)
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
+		captureServerError(err, { path: c.req.path, method: c.req.method, requestId })
 		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 
@@ -127,6 +170,10 @@ export function createApp(config: AppConfig) {
 	app.route('/a2a', a2aRoutes)
 
 	// MCP endpoint for OpenClaw and other MCP-compatible agents
+	// Generous IP rate limit — public methods (initialize, tools/list, etc.) are
+	// unauthenticated, so this is the only throttle protecting them from abuse.
+	app.use('/mcp', ipRateLimit(60))
+	app.use('/mcp/*', ipRateLimit(60))
 	app.route('/mcp', mcpRoutes)
 
 	// Agent card for A2A discovery (spec-compliant + legacy paths)
@@ -160,6 +207,10 @@ export function createApp(config: AppConfig) {
 
 	// llms.txt — machine-readable API summary for LLM/agent discovery
 	app.get('/llms.txt', (c) => {
+		// Generated from mcp.ts's TOOLS constant (the single source of truth for the
+		// MCP surface) so this line can't silently drift out of sync when a new tool
+		// is added — a hand-written list here previously went stale.
+		const mcpToolNames = MCP_TOOLS.map((t) => t.name).join(', ')
 		return c.text(`# Suwappu API
 
 > Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.
@@ -172,10 +223,16 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`
 Get key: POST /register (no auth needed)
 
 ## Quick Start
-1. POST /register {"name":"my-agent"} → get api_key
-2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id
-3. POST /swap/execute {"quote_id":"..."} → swap executed
-4. GET /swap/status/{id} → check result
+1. POST /register {"name":"my-agent"} → get api_key + 100 free starter credits
+2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id (1 credit)
+3. POST /swap/execute {"quote_id":"..."} → swap executed (5 credits)
+4. GET /swap/status/{id} — check result
+
+## Credits & billing
+New agents get 100 free credits (1 credit ≈ $0.001 USD) on registration. GET /tokens and
+GET /chains are always free (0 credits). Metered calls 402 with a structured payment
+challenge once your balance runs out — top up via POST /billing/topup {txHash, chain, amount}
+or subscribe via POST /billing/subscribe for unmetered access.
 
 ## Endpoints
 
@@ -223,7 +280,7 @@ Get key: POST /register (no auth needed)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
-- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market; resources + prompts supported)
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: ${mcpToolNames}; resources + prompts supported)
 - A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi

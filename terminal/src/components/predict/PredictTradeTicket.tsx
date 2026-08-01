@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import type { PredictionMarket } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { usePlacePredictionOrder } from '../../hooks/useTerminalPredict'
+import { TerminalEmptyState } from '../foundation'
 
 // Order ticket for a single prediction market. Pick an outcome, enter a USDC
 // amount, buy at the current market price. Posts to /terminal/predict/order,
@@ -56,20 +57,45 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
 
   if (!market) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-sm text-terminal-text-muted">
-        Select a market to trade
-      </div>
+      <TerminalEmptyState
+        className="h-full"
+        kicker="Predictions"
+        title="Select a market to trade"
+        description="Pick a market on the left to see its odds history and buy shares of an outcome. Each share pays $1 if it resolves true."
+      />
     )
   }
 
   return (
     <div className="flex flex-col gap-3 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-terminal-text leading-snug">{market.question}</h3>
+        <h3 className="text-sm font-semibold leading-snug text-terminal-text">{market.question}</h3>
         <p className="mt-1 text-[11px] text-terminal-text-muted">
           Buy shares of an outcome. Each share pays $1 if it resolves true.
         </p>
       </div>
+
+      {/* Hero probability for the selected outcome — the number a prediction
+          trader reads first. Derived from the same price used to price the
+          order; no separate source. */}
+      {price > 0 && (
+        <div className="hairline flex items-baseline justify-between rounded-terminal-inset bg-terminal-bg px-3 py-2.5">
+          <span className="flex flex-col gap-0.5">
+            <span className="terminal-theme-caption text-[10px] uppercase">Implied chance</span>
+            <span className="truncate text-[11px] text-terminal-text-secondary">
+              {tokens[outcomeIdx]?.outcome ?? 'Outcome'}
+            </span>
+          </span>
+          <span
+            className={`font-mono text-3xl font-semibold leading-none tnum ${
+              outcomeIdx === 0 ? 'text-bull' : 'text-bear'
+            }`}
+          >
+            {(price * 100).toFixed(0)}
+            <span className="text-base text-terminal-text-muted">%</span>
+          </span>
+        </div>
+      )}
 
       {/* Outcome selector — one button per tradeable token */}
       <div className="grid grid-cols-2 gap-2">
@@ -81,18 +107,25 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
             <button
               key={t.tokenId}
               onClick={() => setOutcomeIdx(i)}
-              className={`rounded-lg px-2 py-2 text-center transition-colors border
+              aria-pressed={active}
+              className={`rounded-terminal-control border px-2 py-2 text-center transition-colors
                 ${
                   active
                     ? bull
-                      ? 'bg-bull-dim border-bull'
-                      : 'bg-bear-dim border-bear'
-                    : 'bg-terminal-bg border-terminal-border hover:border-terminal-border-active'
+                      ? 'border-bull bg-bull text-terminal-on-accent'
+                      : 'border-bear bg-bear text-terminal-on-accent'
+                    : 'border-terminal-border bg-terminal-bg hover:border-terminal-border-active'
                 }`}
             >
-              <div className="text-xs text-terminal-text-secondary truncate">{t.outcome}</div>
               <div
-                className={`text-sm font-mono font-semibold ${bull ? 'text-bull' : 'text-bear'}`}
+                className={`truncate text-xs ${active ? 'text-terminal-on-accent' : 'text-terminal-text-secondary'}`}
+              >
+                <span aria-hidden="true">{bull ? '▲' : '▼'}</span> {t.outcome}
+              </div>
+              <div
+                className={`font-mono text-sm font-semibold tnum ${
+                  active ? 'text-terminal-on-accent' : bull ? 'text-bull' : 'text-bear'
+                }`}
               >
                 {(p * 100).toFixed(0)}¢
               </div>
@@ -103,31 +136,33 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
 
       {/* Amount */}
       <div>
-        <label className="mb-1 block text-xs text-terminal-text-secondary">Amount (USDC)</label>
+        <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">
+          Amount (USDC)
+        </label>
         <input
           type="text"
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="0.00"
-          className="terminal-input w-full font-mono"
+          className="terminal-input w-full font-mono tnum"
         />
       </div>
 
       {/* Summary */}
       {amountNum > 0 && price > 0 && (
-        <div className="space-y-1.5 rounded-lg bg-terminal-bg p-3 text-xs">
+        <div className="hairline space-y-1.5 rounded-terminal-inset bg-terminal-bg p-3 text-xs">
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Price</span>
-            <span className="font-mono">{(price * 100).toFixed(1)}¢</span>
+            <span className="font-mono tnum">{(price * 100).toFixed(1)}¢</span>
           </div>
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Est. shares</span>
-            <span className="font-mono">{shares.toFixed(1)}</span>
+            <span className="font-mono tnum">{shares.toFixed(1)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Max payout</span>
-            <span className="font-mono text-bull">${shares.toFixed(2)}</span>
+            <span className="font-mono tnum text-bull">${shares.toFixed(2)}</span>
           </div>
         </div>
       )}
@@ -138,11 +173,10 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
         <button
           onClick={buy}
           disabled={!canTrade}
-          className="w-full rounded py-3 text-sm font-semibold text-white transition-colors bg-sakura-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`w-full rounded-terminal-control py-3 text-sm font-semibold text-terminal-on-accent transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50
+            ${outcomeIdx === 0 ? 'bg-bull' : 'bg-bear'}`}
         >
-          {place.isPending
-            ? 'Placing…'
-            : `Buy ${tokens[outcomeIdx]?.outcome ?? 'outcome'}`}
+          {place.isPending ? 'Placing…' : `Buy ${tokens[outcomeIdx]?.outcome ?? 'outcome'}`}
         </button>
       )}
     </div>

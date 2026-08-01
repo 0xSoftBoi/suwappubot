@@ -11,7 +11,10 @@
     "compare": "Comparar",
     "forAgents": "Para Agentes",
     "status": "Estado",
+    "signIn": "Iniciar sesión",
+    "dashboard": "Panel",
     "openBot": "Abrir Bot",
+    "talkToSales": "Hablar con ventas",
     "openTerminal": "Abrir Terminal",
     "whatsapp": "WhatsApp"
   },

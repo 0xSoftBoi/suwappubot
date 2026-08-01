@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
 import { Fragment } from 'react';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
+import styles from './compare.module.css';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
@@ -30,11 +32,11 @@ const GROUPS: {
     category: 'Execution',
     rows: [
       {
-        label: 'Cross-chain spot swaps (40+ chains)',
+        label: `Cross-chain spot swaps (${stats.platformChains} chains)`,
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
-        label: 'Best-price routing across 9 aggregators',
+        label: `Best-price routing across ${stats.routerCount} providers`,
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
@@ -219,7 +221,7 @@ export default function ComparePage() {
           </p>
         </header>
 
-        <section className="compare" aria-labelledby="compare-matrix">
+        <section className={`compare ${styles.matrix}`} aria-labelledby="compare-matrix">
           <h2 id="compare-matrix" className="compare__title">
             Capability comparison
           </h2>
@@ -298,10 +300,15 @@ export default function ComparePage() {
           </p>
         </section>
 
-        <section className="compare-why">
-          {HIGHLIGHTS.map((h) => (
-            <div className="compare-why__card" key={h.title}>
-              <p className="summer-kicker">{h.eyebrow}</p>
+        {/* The first card is the argument; the other two are evidence. Giving
+            all three equal weight was what made this section read as filler. */}
+        <section className={styles.why} aria-label="Why Suwappu">
+          {HIGHLIGHTS.map((h, i) => (
+            <div
+              className={`${styles.whyCard}${i === 0 ? ` ${styles.whyLead}` : ''}`}
+              key={h.title}
+            >
+              <p className="sw-kicker">{h.eyebrow}</p>
               <h3>{h.title}</h3>
               <p>{h.body}</p>
             </div>
@@ -309,7 +316,7 @@ export default function ComparePage() {
         </section>
 
         {/* ── AGENT INFRASTRUCTURE COMPARISON — a second, distinct competitive set ── */}
-        <section className="compare" aria-labelledby="agent-compare-matrix">
+        <section className={`compare ${styles.matrix}`} aria-labelledby="agent-compare-matrix">
           <p className="summer-kicker">For builders</p>
           <h2 id="agent-compare-matrix" className="compare__title">
             Agent infrastructure comparison
@@ -400,9 +407,21 @@ export default function ComparePage() {
           </p>
         </section>
 
-        <section className="mkt-cta">
-          <h2>See it for yourself.</h2>
-          <div className="summer-actions summer-cta__actions">
+        {/* Closing band shares the dark register of the pricing enterprise band,
+            so the two commercial pages end on the same note. */}
+        <section
+          className={`${styles.ctaBand} sw-card-dark sw-grain sw-grain--dark`}
+          aria-labelledby="compare-cta"
+        >
+          <p className="sw-kicker">See it for yourself</p>
+          <h2 className={styles.ctaTitle} id="compare-cta">
+            A matrix is an argument. A fill is proof.
+          </h2>
+          <p className={styles.ctaBody}>
+            Quote a swap in the bot, open the terminal, or read the API reference — every column in
+            the table above is something you can check in the next five minutes.
+          </p>
+          <div className={styles.ctaActions}>
             <a
               className="summer-button summer-button--primary"
               href={TELEGRAM_URL}

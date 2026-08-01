@@ -23,6 +23,8 @@ export const CHAIN_DISPLAY: Record<string, ChainDisplay> = {
   plasma: { name: 'Plasma', icon: '⚡', explorerUrl: 'https://plasmascan.to' },
   starknet: { name: 'Starknet', icon: '\u{1F680}', explorerUrl: 'https://voyager.online' },
   goat: { name: 'GOAT Network', icon: '\u{1F410}', explorerUrl: 'https://explorer.goat.network' },
+  avalanche: { name: 'Avalanche', icon: '\u{1F53A}', explorerUrl: 'https://snowtrace.io' },
+  sepolia: { name: 'Sepolia', icon: '⟠', explorerUrl: 'https://sepolia.etherscan.io' },
 }
 
 /** Resolve display metadata for a chain key (case-insensitive); falls back to the raw key. */

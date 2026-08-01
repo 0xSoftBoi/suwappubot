@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { PredictionMarket } from '../../types/api'
 import { MarketCard } from './MarketCard'
+import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
 interface Props {
   selectedId?: string
@@ -24,8 +25,8 @@ export function PredictionPanel({ selectedId, onSelect }: Props) {
   return (
     <div className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Predictions</h3>
-        <span className="text-xs text-terminal-text-muted">via Polymarket</span>
+        <h3 className="text-sm font-semibold text-terminal-text">Predictions</h3>
+        <span className="terminal-theme-caption text-[10px] uppercase">via Polymarket</span>
       </div>
 
       <input
@@ -33,16 +34,23 @@ export function PredictionPanel({ selectedId, onSelect }: Props) {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search markets..."
+        aria-label="Search prediction markets"
         className="terminal-input text-sm"
       />
 
       <div className="flex-1 space-y-2 overflow-y-auto">
         {isLoading ? (
-          <div className="animate-pulse py-8 text-center text-sm text-terminal-text-muted">
-            Loading markets...
-          </div>
+          <TerminalSkeletonRows rows={6} columns={3} label="Loading prediction markets" />
         ) : markets?.length === 0 ? (
-          <div className="py-8 text-center text-sm text-terminal-text-muted">No markets found</div>
+          <TerminalEmptyState
+            kicker="Predictions"
+            title={search ? `Nothing matches “${search}”` : 'No markets found'}
+            description={
+              search
+                ? 'Try a shorter phrase — Polymarket titles are full questions, so single keywords match best.'
+                : 'Polymarket returned no open markets right now. This list refreshes on its own.'
+            }
+          />
         ) : (
           markets?.map((market) => (
             <MarketCard

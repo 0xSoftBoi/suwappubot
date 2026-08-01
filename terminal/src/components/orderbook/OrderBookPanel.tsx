@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useOrderBook, type OrderBookViewMode, type PrecisionStep } from '../../hooks/useOrderBook'
 
 const PRECISION_OPTIONS: PrecisionStep[] = [0.01, 0.1, 1, 10]
@@ -16,6 +16,13 @@ export function OrderBookPanel() {
   const [viewMode, setViewMode] = useState<OrderBookViewMode>('both')
   const [precision, setPrecision] = useState<PrecisionStep>(0.01)
   const { book, status, isConnected, maxTotal } = useOrderBook(precision)
+
+  // Direction for the mid-price tick flash — system/numeric state only, per
+  // the motion doctrine. Compares against the previous render's mid price.
+  const prevMidRef = useRef<number | null>(null)
+  const midDirection: 'up' | 'down' =
+    prevMidRef.current !== null && book.midPrice < prevMidRef.current ? 'down' : 'up'
+  prevMidRef.current = book.midPrice
 
   const showBids = viewMode === 'both' || viewMode === 'bids'
   const showAsks = viewMode === 'both' || viewMode === 'asks'
@@ -112,26 +119,30 @@ export function OrderBookPanel() {
             {[...book.asks].reverse().map((level, i) => (
               <div key={`ask-${i}`} className="grid grid-cols-3 px-2 relative">
                 <div
-                  className="absolute inset-0 bg-bear/10"
+                  className="absolute inset-0 down-wash"
                   style={{ width: `${maxTotal > 0 ? (level.total / maxTotal) * 100 : 0}%`, right: 0, left: 'auto' }}
                 />
-                <span className="text-bear relative z-10">{formatPrice(level.price, precision)}</span>
-                <span className="text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>
-                <span className="text-right text-terminal-text-muted relative z-10">{formatSize(level.total)}</span>
+                <span className="tnum text-bear relative z-10">{formatPrice(level.price, precision)}</span>
+                <span className="tnum text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>
+                <span className="tnum text-right text-terminal-text-muted relative z-10">{formatSize(level.total)}</span>
               </div>
             ))}
           </div>
         )}
 
-        {/* Spread */}
+        {/* Spread — remounted by key={book.midPrice} so `.flash-up`/`.flash-down`
+            replay on every genuine tick (re-rendering the same node would not). */}
         <div
           className="flex items-center justify-between px-2 py-1 bg-terminal-bg-secondary border-y border-terminal-border shrink-0"
           data-testid="spread-display"
         >
-          <span className="text-[11px] font-medium text-terminal-text">
+          <span
+            key={hasBook ? book.midPrice : 'no-book'}
+            className={`tnum text-[11px] font-medium text-terminal-text ${hasBook ? (midDirection === 'down' ? 'flash-down' : 'flash-up') : ''}`}
+          >
             {hasBook ? formatPrice(book.midPrice, precision) : '--'}
           </span>
-          <span className="text-[10px] text-terminal-text-muted">
+          <span className="tnum text-[10px] text-terminal-text-muted">
             {isConnected ? `Spread: ${book.spread.toFixed(2)} (${book.spreadPercent.toFixed(3)}%)` : '—'}
           </span>
         </div>
@@ -142,12 +153,12 @@ export function OrderBookPanel() {
             {book.bids.map((level, i) => (
               <div key={`bid-${i}`} className="grid grid-cols-3 px-2 relative">
                 <div
-                  className="absolute inset-0 bg-bull/10"
+                  className="absolute inset-0 up-wash"
                   style={{ width: `${maxTotal > 0 ? (level.total / maxTotal) * 100 : 0}%`, right: 0, left: 'auto' }}
                 />
-                <span className="text-bull relative z-10">{formatPrice(level.price, precision)}</span>
-                <span className="text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>
-                <span className="text-right text-terminal-text-muted relative z-10">{formatSize(level.total)}</span>
+                <span className="tnum text-bull relative z-10">{formatPrice(level.price, precision)}</span>
+                <span className="tnum text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>
+                <span className="tnum text-right text-terminal-text-muted relative z-10">{formatSize(level.total)}</span>
               </div>
             ))}
           </div>
@@ -157,27 +168,29 @@ export function OrderBookPanel() {
   )
 }
 
+// Icons inherit `currentColor` from the semantic text-bull/text-bear wrapper
+// on their button, so they retint with the theme instead of hardcoding hex.
 function ViewBothIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1" y="1" width="12" height="5" rx="1" fill="#ef4444" opacity="0.6" />
-      <rect x="1" y="8" width="12" height="5" rx="1" fill="#22c55e" opacity="0.6" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="12" height="5" rx="1" className="fill-bear" opacity="0.7" />
+      <rect x="1" y="8" width="12" height="5" rx="1" className="fill-bull" opacity="0.7" />
     </svg>
   )
 }
 
 function ViewBidsIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1" y="1" width="12" height="12" rx="1" fill="#22c55e" opacity="0.6" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="12" height="12" rx="1" className="fill-bull" opacity="0.7" />
     </svg>
   )
 }
 
 function ViewAsksIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1" y="1" width="12" height="12" rx="1" fill="#ef4444" opacity="0.6" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="12" height="12" rx="1" className="fill-bear" opacity="0.7" />
     </svg>
   )
 }

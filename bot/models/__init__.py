@@ -1,5 +1,5 @@
 from .user import User, Wallet
-from .swap import SwapTransaction, SwapStatus
+from .swap import SwapTransaction, SwapStatus, SwapRouteCandidate
 from .chain import Chain, Token
 from .favorites import FavoriteSwapPair, PriceAlert, UserSettings
 from .referral import Referral, ReferralCode, ReferralReward
@@ -53,6 +53,7 @@ __all__ = [
     "User",
     "Wallet",
     "SwapTransaction",
+    "SwapRouteCandidate",
     "SwapStatus",
     "Chain",
     "Token",

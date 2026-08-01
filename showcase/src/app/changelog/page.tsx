@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
+import styles from './changelog.module.css';
 
 export const metadata: Metadata = {
   title: 'Changelog — Suwappu',
@@ -110,9 +111,13 @@ export default function ChangelogPage() {
           </p>
         </header>
 
-        <div className="changelog">
-          {entries.map((e) => (
-            <article className="changelog-entry" key={e.date}>
+        <div className={`changelog ${styles.timeline}`}>
+          {entries.map((e, i) => (
+            <article
+              className={`changelog-entry ${styles.entry} sw-rise`}
+              key={`${e.date}-${e.title}`}
+              style={{ '--rise-i': Math.min(i, 5) } as React.CSSProperties}
+            >
               <div className="changelog-entry__rail">
                 <time>{fmtDate(e.date)}</time>
                 <span className={`changelog-tag changelog-tag--${e.tag.toLowerCase()}`}>{e.tag}</span>
@@ -120,8 +125,8 @@ export default function ChangelogPage() {
               <div className="changelog-entry__body">
                 <h2>{e.title}</h2>
                 <ul>
-                  {e.points.map((p, i) => (
-                    <li key={i}>{withCode(p)}</li>
+                  {e.points.map((p, pi) => (
+                    <li key={pi}>{withCode(p)}</li>
                   ))}
                 </ul>
               </div>

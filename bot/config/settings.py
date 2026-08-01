@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
+import os
 import random
 
 
@@ -192,8 +193,12 @@ class Settings(BaseSettings):
 
     # EVM RPC Endpoints — sourced from chainlist.org, no API keys needed
     # Infura/Alchemy are prepended automatically when keys are set
+    # eth.llamarpc.com removed: it answers HTTP 403 for unauthenticated callers
+    # (measured), so it only burned a failover slot and intermittently made
+    # Ethereum reads fail — a USDT0 quoteSend on ethereum returned no route
+    # because of it. See the matching note in rpc_manager.TRUSTED_RPC_DOMAINS.
     ethereum_rpc_url: str = Field(
-        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org,https://eth.llamarpc.com",
+        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org",
         description="Ethereum mainnet RPC URL(s)",
     )
     bsc_rpc_url: str = Field(
@@ -294,6 +299,15 @@ class Settings(BaseSettings):
     hyperevm_rpc_url: str = Field(
         default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC"
     )
+    # Plasma had NO endpoint from any source: chainlist discovery never offered
+    # one and there was no configured default, so rpc_manager raised
+    # "No RPC endpoints for plasma". That silently made the arbitrum<->plasma
+    # USDT0 corridor unquotable — the corridor USDT0 exists for on Plasma, which
+    # has no native USDT deployment. rpc.plasma.to verified serving chainId
+    # 0x2611 (9745), matching chains.py.
+    plasma_rpc_url: str = Field(
+        default="https://rpc.plasma.to", description="Plasma mainnet RPC URL(s)"
+    )
 
     # HyperLiquid builder codes — Suwappu earns a builder fee on perp orders routed
     # through it. The builder wallet must accrue $1k of trading volume before
@@ -334,6 +348,55 @@ class Settings(BaseSettings):
     across_integrator_id: Optional[str] = Field(
         default=None,
         description="Across integrator id for the Swap API (attribution). Unset = omitted.",
+    )
+    # NEAR Intents 1-Click API (https://1click.chaindefuser.com) — deposit-address/
+    # solver-filled bridge. Unset = provider disabled (enabled property returns False).
+    near_intents_api_key: Optional[str] = Field(
+        default=None,
+        description="NEAR Intents 1-Click API key. Unset = provider disabled.",
+    )
+    near_intents_fee_recipient: Optional[str] = Field(
+        default=None,
+        description="Address that receives NEAR Intents appFee referral cut, if configured.",
+    )
+    near_intents_fee_bps: int = Field(
+        default=0,
+        description="NEAR Intents appFee cut in basis points (0-100). Must be a NEAR-side "
+        "recipient account; appFees are skipped if near_intents_fee_recipient is not a "
+        "plausible NEAR account id.",
+    )
+    # Allbridge Core public REST API — no API key required. Still gated OFF by
+    # default until a live small-amount transfer has been verified end-to-end.
+    allbridge_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Allbridge Core bridge provider. Default OFF until a live "
+        "small-amount transfer is verified.",
+    )
+    symbiosis_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Symbiosis Finance bridge provider. Default OFF until a live "
+        "small-amount transfer is verified.",
+    )
+    arbitrum_native_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Arbitrum native canonical deposit bridge. Default OFF: "
+        "get_quote refuses to emit a quote until live L2 gas params (maxSubmissionCost/"
+        "maxGas/gasPriceBid via NodeInterface.estimateRetryableTicket) are wired in.",
+    )
+    # USDT0 (LayerZero OFT canonical USDT). Addresses/EIDs are verified on-chain
+    # (scripts/verify_onchain_constants.py) and both the quote path and the
+    # executor are wired, so flipping this is all that stands between here and a
+    # live transfer -- hence still OFF until one small transfer per direction has
+    # been run, including one through the Ethereum lockbox leg (the only leg with
+    # an ERC20 approve step).
+    usdt0_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the USDT0 (LayerZero OFT) bridge provider. Default OFF until a "
+        "live small-amount transfer is verified in both directions.",
+    )
+    allbridge_api_url: str = Field(
+        default="https://core.api.allbridgecoreapi.net",
+        description="Allbridge Core API base URL (public, no key required).",
     )
     across_api_key: Optional[str] = Field(
         default=None,
@@ -783,6 +846,15 @@ class Settings(BaseSettings):
         default=None, description="Linear team ID (UUID) that support-ticket issues are filed under"
     )
 
+    # Resend (transactional email — bot/services/waitlist_email.py)
+    resend_api_key: str = Field(
+        default="", description="Resend API key used to send waitlist confirmation emails"
+    )
+    waitlist_email_from: str = Field(
+        default="Suwappu <waitlist@suwappu.bot>",
+        description="From address used for mobile waitlist confirmation emails",
+    )
+
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
     discord_guild_ids: Optional[str] = Field(
@@ -1143,6 +1215,137 @@ class Settings(BaseSettings):
                 "A non-negative value can collide with a real users.id row."
             )
         return v
+
+    # Sentry error tracking (optional — no-op unless SENTRY_DSN is set)
+    sentry_dsn: Optional[str] = Field(
+        default=None,
+        description=(
+            "Sentry DSN for error tracking. If unset, Sentry is never initialized "
+            "(no-op, zero overhead) — safe for local dev, tests, and CI."
+        ),
+    )
+    sentry_environment: str = Field(
+        default_factory=lambda: os.environ.get("RAILWAY_ENVIRONMENT_NAME", "development"),
+        description=(
+            "Sentry environment tag (e.g. 'production', 'development'). "
+            "Defaults from RAILWAY_ENVIRONMENT_NAME when running on Railway."
+        ),
+    )
+    sentry_release: Optional[str] = Field(
+        default=None,
+        description="Sentry release identifier (e.g. git commit SHA). Optional.",
+    )
+
+    # Dead-man's switch — uptime probe heartbeats (env: MONITOR_HEARTBEAT_SECRET / _MAX_AGE_MINUTES)
+    monitor_heartbeat_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Shared secret for POST /internal/monitor-heartbeat (?token=). "
+            "If unset, the endpoint fails closed and rejects all requests."
+        ),
+    )
+    monitor_heartbeat_max_age_minutes: int = Field(
+        default=45,
+        description=(
+            "Alert admins if no monitor heartbeat has been seen in this many minutes. "
+            "Must stay well above the ~10-minute probe interval to avoid flapping."
+        ),
+    )
+    monitor_expected_sources: str = Field(
+        default="github-actions,railway-cron",
+        description=(
+            "Comma-separated list of uptime-probe source names the dead-man's switch "
+            "tracks individually, and the allow-list POST /internal/monitor-heartbeat "
+            "coerces unrecognized `source` values into 'unknown' against. Keeps one "
+            "healthy scheduler from masking another's failure, and bounds the set of "
+            "Redis keys a token holder can mint."
+        ),
+    )
+
+    def monitor_expected_sources_list(self) -> List[str]:
+        """Parse `monitor_expected_sources` into a clean list of source names."""
+        return [s.strip() for s in (self.monitor_expected_sources or "").split(",") if s.strip()]
+
+    # CCTP V2 (Circle's canonical version — V1 is deprecated). Controls the
+    # generic cctp_api.py client used by router/swap_engine. Fast Transfer is a
+    # PAID tier (a live Circle fee, capped by maxFee) that trades cost for speed
+    # via soft finality; Standard is free/gas-only hard finality. Default to
+    # Standard so we never silently start paying Fast fees.
+    cctp_v2_enabled: bool = Field(
+        default=True,
+        description=(
+            "Use CCTP V2 (TokenMessengerV2.depositForBurn, 7-arg signature) as the "
+            "default cctp_api.py code path. When False, falls back to the legacy V1 "
+            "4-arg depositForBurn call (kept intact for rollback only)."
+        ),
+    )
+    cctp_v2_default_mode: str = Field(
+        default="standard",
+        description=(
+            "Default CCTP V2 transfer mode: 'standard' (minFinalityThreshold=2000, "
+            "hard finality, gas-only) or 'fast' (minFinalityThreshold<=1000, soft "
+            "finality in ~8-20s, but charges a live Circle fee capped by maxFee). "
+            "Conservative default is 'standard'."
+        ),
+    )
+    cctp_v2_max_fast_fee_bps: int = Field(
+        default=0,
+        description=(
+            "Maximum acceptable Fast Transfer fee, in basis points of the burn amount. "
+            "Used to compute the bounded maxFee passed to depositForBurn. Must be set "
+            "to a positive value before Fast mode can be used — cctp_api.py refuses "
+            "(returns None / raises) any Fast-mode build with an unset or zero cap."
+        ),
+    )
+    cctp_generic_rail_enabled: bool = Field(
+        default=False,
+        description=(
+            "FAIL-CLOSED KILL SWITCH. The generic CCTP rail (bot/services/cctp_api.py + "
+            "swap_engine._execute_cctp_swap) now has a completion relayer wired "
+            "(bot/services/cctp_generic_relayer.py, unit-tested with mocked RPC/attestation "
+            "in tests/test_cctp_relayer_generic.py) that polls the v2 attestation and "
+            "submits receiveMessage on the destination chain. It is CODE-COMPLETE but NOT "
+            "yet LIVE-verified. Before flipping this to True: (1) run one real small-amount "
+            "burn -> attestation -> receiveMessage end-to-end on a single corridor (e.g. "
+            "Base -> Arbitrum testnet or a $1 mainnet transfer) and confirm the recipient "
+            "actually receives minted USDC; (2) fund settings.cctp_relayer_private_key's "
+            "wallet with native gas on EVERY destination chain in cctp_api.CCTP_DOMAINS "
+            "(ethereum/avalanche/optimism/arbitrum/base/polygon) -- the relayer surfaces and "
+            "alerts on a per-chain shortfall (does not silently drop the deposit) but cannot "
+            "complete a mint without gas; (3) set "
+            "settings.cctp_generic_relayer_enabled=True so the relayer loop actually runs. "
+            "Do NOT flip this flag as part of the relayer build/test work alone -- it "
+            "requires the live corridor test above. Does NOT affect the HyperCore CCTP path "
+            "(cctp_hypercore/cctp_relayer), which completes correctly and is unconditionally "
+            "available."
+        ),
+    )
+
+    # Generic-rail CCTP completion relayer (bot/services/cctp_generic_relayer.py).
+    # Separate switch from cctp_relayer_enabled (the HyperCore-only relayer) so
+    # enabling one never silently activates the other. Builds/tests this relayer
+    # do NOT themselves flip cctp_generic_rail_enabled -- see that field's
+    # docstring for the exact live-test bar that must be cleared first.
+    cctp_generic_relayer_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the generic-rail CCTP completion relayer background loop. Requires "
+            "cctp_relayer_private_key (same relayer EOA reused across chains) to be "
+            "funded with native gas on EVERY destination chain a generic CCTP burn can "
+            "target (see cctp_api.CCTP_DOMAINS). Independent of cctp_generic_rail_enabled "
+            "(the swap-execution kill switch) -- this only controls whether the relayer "
+            "processes already-recorded deposits."
+        ),
+    )
+    cctp_generic_relayer_min_native_alert: float = Field(
+        default=0.01,
+        description=(
+            "Alert admins once per chain when the relayer wallet's native-gas balance on "
+            "that destination chain drops below this (in the chain's native unit, e.g. "
+            "ETH/MATIC/AVAX). Deliberately conservative/uniform across chains -- top up "
+            "generously rather than tuning per-chain thresholds."
+        ),
+    )
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

@@ -1,0 +1,13 @@
+P1 max |closed-form - numeric| dissipation error: 0.000e+00
+P2 dissipation spread across 1000x cost range: 2.220e-16
+P3 n=   10 active=    5 dissipation=0.6653
+P3 n=   50 active=    7 dissipation=0.7347
+P3 n=  200 active=    5 dissipation=0.7865
+P3 n= 1000 active=    8 dissipation=0.8149
+P4 sybil neutrality max deviation (pro-rata): 0.000e+00
+P4 sybil gain with per-wallet bonus (k=1000 vs k=1): 1.209x
+P5 0.05 share -> revenue/pool = 0.050
+P5 0.50 share -> revenue/pool = 0.495
+P5 0.90 share -> revenue/pool = 0.891
+P5 0.97 share -> revenue/pool = 0.960
+wrote tullock_results.json + 3 figures

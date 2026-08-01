@@ -37,11 +37,15 @@ _KIND_EMOJI = {
     TicketKind.SUPPORT: "🆘",
     TicketKind.BUG: "🐞",
     TicketKind.ENTERPRISE_LEAD: "💼",
+    TicketKind.MOBILE_WAITLIST: "📱",
+    TicketKind.NEWSLETTER: "📰",
 }
 _KIND_NOUN = {
     TicketKind.SUPPORT: "support ticket",
     TicketKind.BUG: "bug report",
     TicketKind.ENTERPRISE_LEAD: "enterprise lead",
+    TicketKind.MOBILE_WAITLIST: "mobile waitlist signup",
+    TicketKind.NEWSLETTER: "newsletter signup",
 }
 
 

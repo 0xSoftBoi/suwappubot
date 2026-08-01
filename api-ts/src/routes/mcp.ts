@@ -9,8 +9,10 @@
  */
 
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
@@ -19,19 +21,33 @@ import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
+import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership } from './agent'
-import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
+import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import openApiSpec from '../../openapi-agent.json'
+import { requireDb, swapTransactions } from '../db'
 import type { Agent } from '../db'
 
 type McpContext = { Variables: { agent: Agent } }
 
 const mcpRoutes = new Hono<McpContext>()
-mcpRoutes.use('*', agentBearerAuth())
+
+// MCP handshake/discovery methods must work without auth (anonymous initialize is
+// part of the spec) — auth is enforced per-method inside the POST handler instead
+// of a blanket `use('*', ...)` gate so unhappy paths stay inside the JSON-RPC envelope.
+const PUBLIC_MCP_METHODS = new Set([
+	'initialize',
+	'tools/list',
+	'resources/list',
+	'resources/read',
+	'prompts/list',
+	'prompts/get',
+	'notifications/initialized',
+])
 
 // ---------------------------------------------------------------
 // Protocol version negotiation (MCP spec: lifecycle / initialize)
@@ -123,6 +139,7 @@ const TOOLS = [
 			properties: {
 				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
 				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
+				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
 			},
 			required: ['quote_id', 'wallet_address'],
 		},
@@ -239,6 +256,73 @@ const TOOLS = [
 			required: ['market_id'],
 		},
 	},
+	{
+		name: 'get_swap_status',
+		description: 'Get the status of a previously executed swap (pending, completed, failed) with tx hash and amounts.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				swap_id: { type: 'string', description: 'Swap ID returned by execute_swap or POST /v1/agent/swap/execute' },
+			},
+			required: ['swap_id'],
+		},
+	},
+	{
+		name: 'get_swap_history',
+		description: 'List paginated swap history for the authenticated agent, optionally filtered by status.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				status: { type: 'string', description: 'Filter by swap status (e.g. "pending", "completed", "failed"). Optional.' },
+				limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+				offset: { type: 'number', description: 'Pagination offset (default 0)' },
+			},
+		},
+	},
+	{
+		name: 'predict_book',
+		description: 'Get the live CLOB order book for every outcome of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'predict_price',
+		description: 'Get live CLOB midpoint prices for every outcome of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'predict_trades',
+		description: 'Get recent trades across all outcomes of a prediction market.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				limit: { type: 'number', description: 'Max trades to return (default 20)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'list_wallet_policies',
+		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				wallet_address: { type: 'string', description: 'Wallet address (optional — defaults to the authenticated agent\'s managed wallet).' },
+			},
+		},
+	},
 ]
 
 // ---------------------------------------------------------------
@@ -280,12 +364,44 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	get_swap_status: { title: 'Get Swap Status', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	get_swap_history: { title: 'Get Swap History', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	predict_book: { title: 'Prediction Market Order Book', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 }
 
 const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
 	...t,
 	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
 }))
+
+// Registered tool names, including legacy aliases handled in the tools/call switch
+// below. Used to reject unknown tool calls BEFORE any credit is charged.
+const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+
+// predict_market_detail is a legacy alias for predict_market's schema.
+function toolSchemaName(name: string): string {
+	return name === 'predict_market_detail' ? 'predict_market' : name
+}
+
+/**
+ * Minimal presence validation against a tool's declared `required` inputSchema
+ * fields. Runs BEFORE chargeAgentForCall so malformed calls never consume credits.
+ * Returns an error message, or null if valid.
+ */
+function validateToolArgs(name: string, args: Record<string, unknown>): string | null {
+	const tool = TOOLS.find((t) => t.name === toolSchemaName(name))
+	const required = (tool?.inputSchema as { required?: string[] } | undefined)?.required ?? []
+	for (const key of required) {
+		const v = args[key]
+		if (v === undefined || v === null || v === '') {
+			return `Missing required argument: ${key}`
+		}
+	}
+	return null
+}
 
 // ---------------------------------------------------------------
 // JSON-RPC helpers
@@ -295,8 +411,18 @@ function rpcOk(id: string | number | null, result: unknown) {
 	return { jsonrpc: '2.0' as const, id, result }
 }
 
-function rpcErr(id: string | number | null, code: number, message: string, data?: unknown) {
-	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(data !== undefined && { data }) } }
+function rpcErr(
+	id: string | number | null,
+	code: number,
+	message: string,
+	data?: unknown,
+	agentErrorCode?: AgentErrorCode,
+) {
+	const errData =
+		agentErrorCode !== undefined
+			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: agentErrorCode }
+			: data
+	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(errData !== undefined && { data: errData }) } }
 }
 
 // ---------------------------------------------------------------
@@ -358,8 +484,8 @@ const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
 	BetaUSD: 'Beta yield-bearing stablecoin',
 	ThetaUSD: 'Theta yield-bearing stablecoin',
 }
-// TIP-20 tokens on Tempo are 6-decimal USD-denominated stablecoins.
-const TEMPO_TOKEN_DECIMALS = 6
+// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService) — the authoritative source
+// is bot/config/tokens.py, which declares decimals=18 for all Tempo TIP-20 stablecoins.
 
 // Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
 // isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
@@ -375,7 +501,7 @@ function buildTempoTokens() {
 		symbol,
 		name: symbol,
 		address,
-		decimals: TEMPO_TOKEN_DECIMALS,
+		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 18,
 		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
 		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
 		currency: TEMPO_TIP20_CURRENCY,
@@ -467,7 +593,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromInfo.decimals,
+					toDecimals: toInfo.decimals,
+				})
 
 				const outHuman = parseFloat(quote.outAmount) / Math.pow(10, toInfo.decimals)
 				return {
@@ -509,6 +638,15 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			}
 			const quote = await res.json() as Record<string, unknown>
 			const quoteId = `tempo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+			// Deliberately cached WITHOUT decimals so /swap/execute refuses these with a
+			// 422. Supplying decimals would make the quote "executable", but that path
+			// builds Li.Fi-shaped quote_data from this Tempo dict (no fromChain/fromToken/
+			// fromAmount), producing from_amount_human: 0 — which disables the pre-swap
+			// balance guard and ships an ethereum-labelled request to swap_engine. The
+			// refusal is the safe behavior. To make Tempo executable, the Python
+			// /internal/tempo/quote endpoint must exist (it currently does NOT) and
+			// /swap/execute needs a provider: 'tempo' quote_data branch; only then
+			// populate decimals here from TEMPO_TOKEN_DECIMALS.
 			cacheAgentQuote(quoteId, quote, agent.id, false)
 			return {
 				content: [{
@@ -554,7 +692,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromInfo.decimals,
+				toDecimals: toInfo.decimals,
+			})
 			const outHuman = parseFloat(quote.toAmount) / Math.pow(10, toInfo.decimals)
 
 			return {
@@ -770,7 +911,15 @@ async function handleLendMarket(args: Record<string, unknown>) {
 }
 
 async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
-	const { quote_id, wallet_address } = args as { quote_id: string; wallet_address: string }
+	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
+	// tool only returns an unsigned transaction for client-side signing (no backend
+	// execute call to dedupe here) — it is echoed back so callers can carry it through
+	// to whichever submission path they use.
+	const { quote_id, wallet_address, idempotency_key } = args as {
+		quote_id: string
+		wallet_address: string
+		idempotency_key?: string
+	}
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
 	// hijacking) — same generic message so existence can't be probed. Webapp quotes
@@ -792,6 +941,7 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 		return { content: [{ type: 'text', text: JSON.stringify({
 			status: 'ready', chain: 'solana',
 			transaction: { type: 'solana', serialized_transaction: result.right.swapTransaction, last_valid_block_height: result.right.lastValidBlockHeight },
+			...(idempotency_key ? { idempotency_key } : {}),
 			instructions: 'Deserialize base64 transaction, sign with Solana wallet, submit to RPC',
 		}) }] }
 	}
@@ -803,8 +953,197 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 			value: quote.transactionRequest.value, data: quote.transactionRequest.data,
 			chain_id: quote.transactionRequest.chainId, gas_limit: quote.transactionRequest.gasLimit,
 		},
+		...(idempotency_key ? { idempotency_key } : {}),
 		instructions: 'Sign transaction with wallet and submit to chain RPC',
 	}) }] }
+}
+
+// Mirrors GET /v1/agent/swap/status/:swapId (src/routes/agent.ts)
+async function handleGetSwapStatus(args: Record<string, unknown>, agent: Agent) {
+	const swapId = parseInt(String(args.swap_id ?? ''), 10)
+	if (isNaN(swapId)) return { isError: true, content: [{ type: 'text', text: 'swap_id is required and must be numeric' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(eq(swapTransactions.id, swapId), eq(swapTransactions.agentId, agent.id)))
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			const s = rows[0]
+			if (!s) return yield* Effect.fail(new ValidationError({ message: 'Swap not found' }))
+			return {
+				swap_id: s.id, status: s.status, tx_hash: s.txHash,
+				from_chain: s.fromChain, to_chain: s.toChain,
+				from_token: s.fromToken, to_token: s.toToken,
+				from_amount: s.fromAmount, to_amount: s.toAmount,
+				error_message: s.errorMessage, created_at: s.createdAt, completed_at: s.completedAt,
+			}
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/swaps (src/routes/agent.ts)
+async function handleGetSwapHistory(args: Record<string, unknown>, agent: Agent) {
+	const statusFilter = args.status as string | undefined
+	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+	const offset = Math.max((args.offset as number) || 0, 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(swapTransactions.agentId, agent.id)]
+			if (statusFilter) conditions.push(eq(swapTransactions.status, statusFilter))
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(...conditions))
+						.orderBy(desc(swapTransactions.createdAt))
+						.limit(limit)
+						.offset(offset),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			return {
+				swaps: rows.map((s) => ({
+					swap_id: s.id, status: s.status, tx_hash: s.txHash,
+					from_chain: s.fromChain, to_chain: s.toChain,
+					from_token: s.fromToken, to_token: s.toToken,
+					from_amount: s.fromAmount, to_amount: s.toAmount,
+					created_at: s.createdAt, completed_at: s.completedAt,
+				})),
+			}
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/wallet/policies (src/routes/agent.ts)
+async function handleListWalletPolicies(args: Record<string, unknown>, agent: Agent) {
+	void args // wallet_address is accepted for parity but the agent's managed wallet is always used (matches REST route behavior)
+	const metadata = (agent.metadata || {}) as Record<string, unknown>
+	const subOrgId = metadata.wallet_sub_org_id as string | undefined
+	if (!subOrgId) return { isError: true, content: [{ type: 'text', text: 'No managed wallet found for this agent.' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+			return yield* turnkeyService.listPolicies(subOrgId)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ policies: result.right }) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/book (src/routes/predict.ts)
+async function handlePredictBook(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, outcomes: [] }
+			}
+
+			const books = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getOrderbook(t.tokenId), (book) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						...book,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId, question: market.question, outcomes: books }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/price (src/routes/predict.ts)
+async function handlePredictPrice(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, prices: [] }
+			}
+
+			const prices = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getMidpoint(t.tokenId), (midData) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						mid: midData.mid,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId, question: market.question, prices }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+// Mirrors GET /v1/agent/predict/market/:id/trades (src/routes/predict.ts)
+async function handlePredictTrades(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { marketId, question: market.question, trades: [] }
+			}
+
+			const allTrades = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getTrades(t.tokenId, limit), (trades) =>
+						trades.map((tr) => ({ ...tr, outcome: t.outcome, tokenId: t.tokenId }))
+					)
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			const merged = allTrades
+				.flat()
+				.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1))
+				.slice(0, limit)
+
+			return { marketId, question: market.question, trades: merged }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
 // Dry-run a swap: fetch/reuse a quote and return a safety report WITHOUT
@@ -887,7 +1226,10 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true)
+				cacheAgentQuote(quoteId, quote, agent.id, true, {
+					fromDecimals: fromInfo.decimals,
+					toDecimals: toInfo.decimals,
+				})
 				return { quoteId, quote }
 			})
 		)
@@ -931,7 +1273,10 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
 			} as QuoteParams).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+				fromDecimals: fromInfo.decimals,
+				toDecimals: toInfo.decimals,
+			})
 			return quote
 		})
 	)
@@ -1052,25 +1397,40 @@ const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]
 // ---------------------------------------------------------------
 
 mcpRoutes.post('/', async (c) => {
-	const agent = c.get('agent')
-
 	let body: unknown
 	try {
 		body = await c.req.json()
 	} catch {
-		return c.json(rpcErr(null, -32700, 'Parse error'), 200)
+		return c.json(rpcErr(null, -32700, 'Parse error', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
 	const req = body as { jsonrpc: string; id: string | number | null; method: string; params?: any }
 	if (!req || req.jsonrpc !== '2.0' || !req.method) {
-		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request'), 200)
+		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	// Track
-	await runEffectEither(Effect.gen(function* () {
-		const agentService = yield* AgentService
-		yield* agentService.incrementAgentStats(agent.id, 'request')
-	}))
+	// Only gate non-public methods on auth so anonymous MCP clients can complete the
+	// initialize/tools-list handshake before ever presenting an API key (spec compliance).
+	let agent: Agent | undefined
+	if (!PUBLIC_MCP_METHODS.has(req.method)) {
+		try {
+			await agentBearerAuth()(c, async () => {})
+		} catch (e) {
+			c.header('WWW-Authenticate', 'Bearer realm="suwappu", error="invalid_token"')
+			const message = e instanceof HTTPException ? e.message : 'Authentication required'
+			return c.json(
+				rpcErr(req.id, -32001, `${message}. Register an agent at https://suwappu.bot/agents to get an API key.`, undefined, 'UNAUTHORIZED'),
+				401,
+			)
+		}
+		agent = c.get('agent')
+
+		// Track
+		await runEffectEither(Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.incrementAgentStats(agent!.id, 'request')
+		}))
+	}
 
 	switch (req.method) {
 		case 'initialize':
@@ -1088,9 +1448,9 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'resources/read': {
 			const uri = (req.params || {}).uri as string | undefined
-			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri'), 200)
+			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri', undefined, 'VALIDATION_ERROR'), 200)
 			const res = readResource(uri)
-			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`), 200)
+			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`, undefined, 'NOT_FOUND'), 200)
 			return c.json(rpcOk(req.id, res), 200)
 		}
 
@@ -1101,11 +1461,11 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'prompts/get': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, string> }
-			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing prompt name'), 200)
+			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing prompt name', undefined, 'VALIDATION_ERROR'), 200)
 			const prompt = PROMPTS.find((p) => p.name === name)
-			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`), 200)
+			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`, undefined, 'NOT_FOUND'), 200)
 			const missing = prompt.arguments.filter((a) => a.required && !(args || {})[a.name]).map((a) => a.name)
-			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`), 200)
+			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`, undefined, 'VALIDATION_ERROR'), 200)
 			return c.json(rpcOk(req.id, {
 				description: prompt.description,
 				messages: [{ role: 'user', content: { type: 'text', text: prompt.build(args || {}) } }],
@@ -1114,13 +1474,26 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
-			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name'), 200)
+			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name', undefined, 'VALIDATION_ERROR'), 200)
+			// tools/call is not in PUBLIC_MCP_METHODS, so agent is always set here.
+			const callAgent = agent as Agent
+
+			// Validate the tool exists and its required args are present BEFORE any
+			// metering — nonexistent tools or malformed args must never consume credits.
+			if (!TOOL_NAMES.has(name)) {
+				return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+			}
+			const argsError = validateToolArgs(name, args || {})
+			if (argsError) {
+				return c.json(rpcErr(req.id, -32602, argsError, undefined, 'VALIDATION_ERROR'), 200)
+			}
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
-			// subscription tiers). On insufficient balance, return an HTTP 402
-			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			// subscription tiers). On insufficient balance, return a JSON-RPC error
+			// envelope carrying the x402 challenge so x402-aware MCP clients can settle
+			// and retry (raw HTTP 402 bodies break JSON-RPC framing for other clients).
 			const charge = await chargeAgentForCall({
-				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },
+				agent: { id: callAgent.id, rateLimitTier: callAgent.rateLimitTier },
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
@@ -1129,7 +1502,19 @@ mcpRoutes.post('/', async (c) => {
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
 				if (Either.isRight(cenv)) setX402Headers(c, cenv.right, charge.challenge)
-				return c.json(charge.challenge, 402)
+				// Content-negotiate: off-the-shelf x402 middleware (identified by an
+				// X-PAYMENT header on the request, or an Accept header naming the x402
+				// media type) expects the raw challenge at HTTP 402. Other MCP clients
+				// (JSON-RPC only, no x402 awareness) get a 200 + JSON-RPC error envelope
+				// carrying the challenge in `data`, since a raw 402 body breaks JSON-RPC
+				// framing for them.
+				const acceptsX402 =
+					Boolean(c.req.header('X-PAYMENT')) ||
+					(c.req.header('Accept') ?? '').includes('vnd.x402')
+				if (acceptsX402) {
+					return c.json(charge.challenge, 402)
+				}
+				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
 			}
 			if (charge.kind === 'ok') {
 				c.header('X-Metering-Cost', String(charge.cost))
@@ -1141,59 +1526,114 @@ mcpRoutes.post('/', async (c) => {
 			}
 
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
-			switch (name) {
-				case 'get_quote':
-					result = await handleGetQuote(args || {}, agent)
-					break
-				case 'get_portfolio':
-					result = await handleGetPortfolio(args || {}, agent)
-					break
-				case 'get_prices':
-					result = await handleGetPrices(args || {})
-					break
-				case 'list_chains':
-					result = handleListChains()
-					break
-				case 'list_tokens':
-					result = handleListTokens(args || {})
-					break
-				case 'execute_swap':
-					result = await handleExecuteSwap(args || {}, agent)
-					break
-				case 'simulate_swap':
-					result = await handleSimulateSwap(args || {}, agent)
-					break
-				case 'get_tempo_tokens':
-					result = handleGetTempoTokens(args || {})
-					break
-				case 'browse_mpp_directory':
-					result = await handleBrowseMppDirectory(args || {})
-					break
-				case 'predict_markets':
-					result = await handlePredictMarkets(args || {})
-					break
-				case 'predict_market':
-				// predict_market_detail: legacy alias kept for older clients
-				case 'predict_market_detail':
-					result = await handlePredictMarketDetail(args || {})
-					break
-				case 'perps_markets':
-					result = await handlePerpsMarkets()
-					break
-				case 'perps_quote':
-					result = await handlePerpsQuote(args || {})
-					break
-				case 'perps_positions':
-					result = await handlePerpsPositions(args || {}, agent)
-					break
-				case 'lend_markets':
-					result = await handleLendMarkets(args || {})
-					break
-				case 'lend_market':
-					result = await handleLendMarket(args || {})
-					break
-				default:
-					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`), 200)
+			// Wrap tool execution: a handler throw must not 500 with credits already
+			// deducted, and a result with isError:true must not silently consume
+			// credits either — refund in both cases. Only refund when the charge
+			// actually deducted prepaid credits (kind === 'ok'); 'skip' (free/bypass/
+			// disabled) never charged anything, and 'settled' (on-chain x402 payment)
+			// isn't a refundable credit balance.
+			try {
+				switch (name) {
+					case 'get_quote':
+						result = await handleGetQuote(args || {}, callAgent)
+						break
+					case 'get_portfolio':
+						result = await handleGetPortfolio(args || {}, callAgent)
+						break
+					case 'get_prices':
+						result = await handleGetPrices(args || {})
+						break
+					case 'list_chains':
+						result = handleListChains()
+						break
+					case 'list_tokens':
+						result = handleListTokens(args || {})
+						break
+					case 'execute_swap':
+						result = await handleExecuteSwap(args || {}, callAgent)
+						break
+					case 'simulate_swap':
+						result = await handleSimulateSwap(args || {}, callAgent)
+						break
+					case 'get_tempo_tokens':
+						result = handleGetTempoTokens(args || {})
+						break
+					case 'browse_mpp_directory':
+						result = await handleBrowseMppDirectory(args || {})
+						break
+					case 'predict_markets':
+						result = await handlePredictMarkets(args || {})
+						break
+					case 'predict_market':
+					// predict_market_detail: legacy alias kept for older clients
+					case 'predict_market_detail':
+						result = await handlePredictMarketDetail(args || {})
+						break
+					case 'perps_markets':
+						result = await handlePerpsMarkets()
+						break
+					case 'perps_quote':
+						result = await handlePerpsQuote(args || {})
+						break
+					case 'perps_positions':
+						result = await handlePerpsPositions(args || {}, callAgent)
+						break
+					case 'lend_markets':
+						result = await handleLendMarkets(args || {})
+						break
+					case 'lend_market':
+						result = await handleLendMarket(args || {})
+						break
+					case 'get_swap_status':
+						result = await handleGetSwapStatus(args || {}, callAgent)
+						break
+					case 'get_swap_history':
+						result = await handleGetSwapHistory(args || {}, callAgent)
+						break
+					case 'predict_book':
+						result = await handlePredictBook(args || {})
+						break
+					case 'predict_price':
+						result = await handlePredictPrice(args || {})
+						break
+					case 'predict_trades':
+						result = await handlePredictTrades(args || {})
+						break
+					case 'list_wallet_policies':
+						result = await handleListWalletPolicies(args || {}, callAgent)
+						break
+					default:
+						// Unreachable while TOOL_NAMES gates above, but if a tool is added to
+						// TOOLS without a case here, don't keep its charge.
+						if (charge.kind === 'ok') {
+							await refundChargedCall({
+								agentId: callAgent.id,
+								cost: charge.cost,
+								reason: `no handler for tool ${name}`,
+							})
+						}
+						return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+				}
+			} catch (e) {
+				if (charge.kind === 'ok') {
+					await refundChargedCall({
+						agentId: callAgent.id,
+						cost: charge.cost,
+						reason: `tool ${name} threw: ${e instanceof Error ? e.message : String(e)}`,
+					})
+				}
+				return c.json(
+					rpcErr(req.id, -32000, `Tool execution failed: ${e instanceof Error ? e.message : String(e)}`, undefined, 'UPSTREAM_ERROR'),
+					200,
+				)
+			}
+
+			if (result.isError && charge.kind === 'ok') {
+				await refundChargedCall({
+					agentId: callAgent.id,
+					cost: charge.cost,
+					reason: `tool ${name} returned isError`,
+				})
 			}
 
 			return c.json(rpcOk(req.id, result), 200)
@@ -1204,12 +1644,14 @@ mcpRoutes.post('/', async (c) => {
 			return c.body(null, 204)
 
 		default:
-			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`), 200)
+			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
 	}
 })
 
 export { mcpRoutes }
-// Exported for unit testing the static MCP surface (tools/resources/prompts).
-export { TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
+// Exported for unit testing the static MCP surface (tools/resources/prompts), and
+// for llms.txt (app.ts) to generate its MCP tool list from the single source of
+// truth instead of a hand-written list that can drift out of sync.
+export { TOOLS, TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
 // Exported for unit testing protocol version negotiation.
 export { SUPPORTED_MCP_VERSIONS, LATEST_MCP_VERSION, negotiateProtocolVersion }

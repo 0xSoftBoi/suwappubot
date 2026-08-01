@@ -90,16 +90,16 @@ export function NewPairsTable({ pools, securityMap, securityLoading, onBuy }: Ne
                     </span>
                   </div>
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text">
                   {formatUsd(pool.priceUsd)}
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text-secondary">
                   {formatUsd(pool.reserveUsd)}
                 </td>
-                <td className="py-1.5 px-2 text-right font-mono text-terminal-text-secondary">
+                <td className="py-1.5 px-2 text-right font-mono tnum text-terminal-text-secondary">
                   {formatUsd(pool.volumeH24)}
                 </td>
-                <td className={`py-1.5 px-2 text-right font-mono ${change.className}`}>
+                <td className={`py-1.5 px-2 text-right font-mono tnum ${change.className}`}>
                   {change.text}
                 </td>
                 <td className="py-1.5 px-2 text-center">

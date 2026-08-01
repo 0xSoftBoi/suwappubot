@@ -1,3 +1,5 @@
+import toast from 'react-hot-toast'
+
 const TOKEN_KEY = 'suwappu_terminal_token'
 const TOKEN_EXPIRY_KEY = 'suwappu_terminal_expiry'
 // Which path minted the active session ('wallet' | 'passkey' | 'telegram' |
@@ -13,6 +15,7 @@ export function setAuthToken(token: string, expiresAt: string): void {
     localStorage.setItem(TOKEN_EXPIRY_KEY, expiresAt)
   } catch (e) {
     console.error('Failed to store auth token:', e)
+    toast.error('Session could not be saved — you may need to sign in again')
   }
 }
 
@@ -38,6 +41,7 @@ export function clearAuthToken(): void {
     localStorage.removeItem(AUTH_METHOD_KEY)
   } catch (e) {
     console.error('Failed to clear auth token:', e)
+    toast.error('Sign-out may not have completed — refresh the page to be sure')
   }
 }
 

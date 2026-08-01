@@ -5,15 +5,15 @@ interface InsiderMetricsProps {
 }
 
 function getColor(value: number): string {
-  if (value < 20) return 'text-green-400'
-  if (value < 50) return 'text-yellow-400'
-  return 'text-red-400'
+  if (value < 20) return 'text-bull'
+  if (value < 50) return 'text-terminal-warn'
+  return 'text-bear'
 }
 
 function getBarColor(value: number): string {
-  if (value < 20) return 'bg-green-500'
-  if (value < 50) return 'bg-yellow-500'
-  return 'bg-red-500'
+  if (value < 20) return 'bg-bull'
+  if (value < 50) return 'bg-terminal-warn'
+  return 'bg-bear'
 }
 
 function MiniBar({ label, value }: { label: string; value: number }) {
@@ -27,7 +27,7 @@ function MiniBar({ label, value }: { label: string; value: number }) {
           style={{ width: `${clamped}%` }}
         />
       </div>
-      <span className={`text-[9px] font-mono w-7 text-right ${getColor(value)}`}>
+      <span className={`text-[9px] font-mono tnum w-7 text-right ${getColor(value)}`}>
         {value.toFixed(0)}%
       </span>
     </div>

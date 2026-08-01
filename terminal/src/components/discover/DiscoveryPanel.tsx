@@ -8,6 +8,7 @@ import { TokenDetailView } from './TokenDetailView'
 import { usePair } from '../../contexts/PairContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { pairFromToken } from '../../lib/quoteTokens'
+import { TerminalSkeletonRows } from '../foundation'
 
 type Tab = 'pulse' | 'new' | 'trending'
 
@@ -48,8 +49,20 @@ export function DiscoveryPanel() {
     setSelectedToken(token)
   }
 
-  const { data: newPools, isLoading: newLoading, dataUpdatedAt: newUpdated } = useNewPools(chain)
-  const { data: trendingPools, isLoading: trendingLoading, dataUpdatedAt: trendingUpdated } = useTrendingPools(chain)
+  const {
+    data: newPools,
+    isLoading: newLoading,
+    isError: newError,
+    dataUpdatedAt: newUpdated,
+    refetch: refetchNew,
+  } = useNewPools(chain)
+  const {
+    data: trendingPools,
+    isLoading: trendingLoading,
+    isError: trendingError,
+    dataUpdatedAt: trendingUpdated,
+    refetch: refetchTrending,
+  } = useTrendingPools(chain)
 
   // FIX 3: Quick-buy from Pulse/NewPairs — selects the token as the active pair
   // and pre-fills the swap amount so the user lands in SwapPanel ready to confirm.
@@ -70,6 +83,8 @@ export function DiscoveryPanel() {
   }
 
   const isLoading = activeTab === 'new' ? newLoading : trendingLoading
+  const isError = activeTab === 'new' ? newError : trendingError
+  const refetchActive = activeTab === 'new' ? refetchNew : refetchTrending
   const lastUpdated = activeTab === 'pulse' ? null : (activeTab === 'new' ? newUpdated : trendingUpdated)
 
   // Reset security cache when chain changes
@@ -125,12 +140,26 @@ export function DiscoveryPanel() {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {selectedToken ? (
-          <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} />
+          <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} onBuy={handleQuickBuy} />
         ) : activeTab === 'pulse' ? (
           <PulseTab onSelectToken={handleSelectToken} onBuy={handleQuickBuy} />
         ) : isLoading ? (
-          <div className="flex items-center justify-center h-32 text-terminal-text-muted text-sm animate-pulse">
-            Loading {activeTab === 'new' ? 'new pairs' : 'trending pools'}...
+          <TerminalSkeletonRows
+            rows={8}
+            columns={6}
+            className="p-3"
+            label={`Loading ${activeTab === 'new' ? 'new pairs' : 'trending pools'}`}
+          />
+        ) : isError ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-terminal-text-muted" role="status">
+            <span>Couldn't reach the {activeTab === 'new' ? 'new pairs' : 'trending pools'} feed.</span>
+            <button
+              type="button"
+              onClick={() => refetchActive()}
+              className="terminal-button-secondary px-3 py-1 text-xs"
+            >
+              Retry
+            </button>
           </div>
         ) : activeTab === 'new' ? (
           <NewPairsTable

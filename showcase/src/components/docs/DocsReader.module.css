@@ -1,0 +1,12 @@
+/* 68ch reading measure for long-form prose (docs pages + research articles
+   both render through this component). Tables and code get to be wider
+   than the measure — API reference tables shouldn't be squeezed to prose
+   width — so they scroll horizontally instead of wrapping/clipping. */
+.reader:global(.doc-reader) {
+  max-width: var(--type-measure-read);
+}
+.reader :global(table) {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}

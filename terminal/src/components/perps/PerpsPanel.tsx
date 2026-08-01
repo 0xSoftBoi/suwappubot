@@ -37,6 +37,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
   const market = markets?.find((m: HLMarket) => m.name === selectedMarket)
   const funding = usePerpsFunding(market)
+  const fundingUp = funding.hourlyRate >= 0
 
   const marginModes: { value: MarginMode; label: string }[] = [
     { value: 'cross', label: 'Cross' },
@@ -54,10 +55,25 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   // otherwise the live mark.
   const refPrice = isLimit && limitNum > 0 ? limitNum : market?.markPrice ?? 0
 
-  // Estimated liquidation for a FRESH ISOLATED position, excluding fees &
-  // funding. HyperLiquid's maintenance margin is half the initial margin at max
-  // leverage → maintenance-margin fraction = 1/(2·maxLeverage). Cross margin and
-  // existing positions move the real level, so this is labelled an estimate.
+  // DISPLAY-ONLY estimate. Never sent with the order; nothing below feeds
+  // submit().
+  //
+  // HyperLiquid's published liquidation formula is
+  //   liq = P − side · marginAvailable / size / (1 − mmf · side)
+  // with side = +1 long / −1 short and mmf = 1 / maintenanceLeverage, where
+  // maintenance leverage is 2× the market's max leverage (maintenance margin is
+  // half the initial margin at max leverage) → mmf = 1/(2·maxLeverage).
+  //
+  // For a FRESH ISOLATED position, marginAvailable = notional/L − mmf·notional,
+  // which reduces to the two closed forms below:
+  //   long  → P·(1 − 1/L) / (1 − mmf)
+  //   short → P·(1 + 1/L) / (1 + mmf)
+  //
+  // Assumptions (why it is labelled "Est. liq"): fresh isolated position, no
+  // existing exposure in the asset, fees and funding excluded, and for a market
+  // order the fill is assumed at the current mark. Cross margin and any open
+  // position move the real level. Inputs are all already on hand — `market`
+  // (maxLeverage, markPrice) from the markets query, plus ticket state.
   const mmf = market?.maxLeverage ? 1 / (2 * market.maxLeverage) : 0
   const liqPrice =
     refPrice > 0 && leverage > 0 && mmf > 0 && mmf < 1
@@ -114,8 +130,8 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   return (
     <div className="flex flex-col gap-3 p-4" data-testid="perps-panel">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Perpetuals</h3>
-        <span className="text-xs text-terminal-text-muted">via HyperLiquid</span>
+        <h3 className="text-sm font-semibold text-terminal-text">Perpetuals</h3>
+        <span className="terminal-theme-caption text-[10px] uppercase">via HyperLiquid</span>
       </div>
 
       {/* Order type — market fills now; limit rests until price is reached */}
@@ -127,11 +143,11 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
             role="radio"
             aria-checked={orderType === t}
             onClick={() => setOrderType(t)}
-            className={`py-1.5 rounded text-xs font-semibold capitalize transition-colors
+            className={`rounded-terminal-control border py-1.5 text-xs font-semibold capitalize transition-colors
               ${
                 orderType === t
-                  ? 'bg-terminal-bg-tertiary border border-sakura-500 text-terminal-text'
-                  : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                  ? 'accent-wash border-terminal-border-active text-terminal-text'
+                  : 'border-terminal-border text-terminal-text-secondary hover:text-terminal-text'
               }`}
           >
             {t}
@@ -141,7 +157,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
       {/* Market selector */}
       <div>
-        <label className="text-xs text-terminal-text-secondary mb-1 block">Market</label>
+        <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">Market</label>
         <select
           value={selectedMarket}
           onChange={(e) => onSelectMarket(e.target.value)}
@@ -157,13 +173,16 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
       {/* Live funding — real rate + next-funding countdown */}
       {market && (
-        <div className="flex items-center justify-between bg-terminal-bg rounded px-3 py-2 text-xs">
+        <div className="hairline flex items-center justify-between rounded-terminal-inset bg-terminal-bg px-3 py-2 text-xs">
           <span className="text-terminal-text-secondary">Funding / 1h</span>
-          <span className="flex items-center gap-2 font-mono">
-            <span className={funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}>
+          <span className="flex items-center gap-2 font-mono tnum">
+            <span className={fundingUp ? 'text-bull' : 'text-bear'}>
+              <span aria-hidden="true">{fundingUp ? '▲' : '▼'}</span>{' '}
               {formatFundingPct(funding.hourlyRate)}
             </span>
-            <span className="text-terminal-text-muted">·</span>
+            <span className="text-terminal-text-muted" aria-hidden="true">
+              ·
+            </span>
             <span
               className="text-terminal-text-muted"
               title="Time until the next hourly funding payment"
@@ -176,17 +195,17 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
       {/* Margin mode (saved locally as a preference; applies at order time) */}
       <div>
-        <label className="text-xs text-terminal-text-secondary mb-1 block">Margin mode</label>
+        <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">Margin mode</label>
         <div className="grid grid-cols-2 gap-1">
           {marginModes.map((m) => (
             <button
               key={m.value}
               onClick={() => setMarginMode(m.value)}
-              className={`py-1.5 rounded text-xs font-semibold transition-colors
+              className={`rounded-terminal-control border py-1.5 text-xs font-semibold transition-colors
                 ${
                   marginMode === m.value
-                    ? 'bg-terminal-bg-tertiary border border-sakura-500 text-terminal-text'
-                    : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                    ? 'accent-wash border-terminal-border-active text-terminal-text'
+                    : 'border-terminal-border text-terminal-text-secondary hover:text-terminal-text'
                 }`}
             >
               {m.label}
@@ -199,31 +218,31 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
       <div className="grid grid-cols-2 gap-1">
         <button
           onClick={() => setSide('long')}
-          className={`py-2 rounded text-sm font-semibold transition-colors
+          className={`rounded-terminal-control border py-2 text-sm font-semibold transition-colors
             ${
               side === 'long'
-                ? 'bg-bull text-white'
-                : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                ? 'border-bull bg-bull text-terminal-on-accent'
+                : 'border-terminal-border text-terminal-text-secondary hover:text-terminal-text'
             }`}
         >
-          Long
+          <span aria-hidden="true">▲</span> Long
         </button>
         <button
           onClick={() => setSide('short')}
-          className={`py-2 rounded text-sm font-semibold transition-colors
+          className={`rounded-terminal-control border py-2 text-sm font-semibold transition-colors
             ${
               side === 'short'
-                ? 'bg-bear text-white'
-                : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                ? 'border-bear bg-bear text-terminal-on-accent'
+                : 'border-terminal-border text-terminal-text-secondary hover:text-terminal-text'
             }`}
         >
-          Short
+          <span aria-hidden="true">▼</span> Short
         </button>
       </div>
 
       {/* Size */}
       <div>
-        <label className="text-xs text-terminal-text-secondary mb-1 block">
+        <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">
           Size ({market?.asset || '...'})
         </label>
         <input
@@ -232,14 +251,14 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
           value={size}
           onChange={(e) => setSize(numeric(e.target.value))}
           placeholder="0.0"
-          className="terminal-input w-full font-mono"
+          className="terminal-input w-full font-mono tnum"
         />
       </div>
 
       {/* Limit price — only for a limit order */}
       {isLimit && (
         <div>
-          <label className="text-xs text-terminal-text-secondary mb-1 block">
+          <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">
             Limit price (USD)
           </label>
           <input
@@ -248,16 +267,18 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
             value={limitPrice}
             onChange={(e) => setLimitPrice(numeric(e.target.value))}
             placeholder={market ? market.markPrice.toFixed(2) : '0.00'}
-            className="terminal-input w-full font-mono"
+            className="terminal-input w-full font-mono tnum"
           />
         </div>
       )}
 
       {/* Leverage slider */}
       <div>
-        <div className="flex justify-between items-center mb-1">
-          <label className="text-xs text-terminal-text-secondary">Leverage</label>
-          <span className="text-xs font-mono text-sakura-400">{leverage}x</span>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="terminal-theme-caption text-[10px] uppercase">Leverage</label>
+          <span className="accent-wash rounded-terminal-pill px-2 py-0.5 font-mono text-[11px] font-semibold tnum text-terminal-accent">
+            {leverage}×
+          </span>
         </div>
         <input
           type="range"
@@ -265,11 +286,12 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
           max={market?.maxLeverage || 20}
           value={leverage}
           onChange={(e) => setLeverage(parseInt(e.target.value))}
+          aria-label="Leverage"
           className="w-full accent-sakura-500"
         />
-        <div className="flex justify-between text-[10px] text-terminal-text-muted">
-          <span>1x</span>
-          <span>{market?.maxLeverage || 20}x</span>
+        <div className="flex justify-between font-mono text-[10px] tnum text-terminal-text-muted">
+          <span>1×</span>
+          <span>{market?.maxLeverage || 20}×</span>
         </div>
       </div>
 
@@ -278,7 +300,9 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
       {!isLimit && (
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs text-terminal-text-secondary mb-1 block">Take profit</label>
+            <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">
+              Take profit
+            </label>
             <input
               type="text"
               inputMode="decimal"
@@ -286,11 +310,13 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
               onChange={(e) => setTpPrice(numeric(e.target.value))}
               placeholder="Optional"
               aria-label="Take profit price"
-              className="terminal-input w-full font-mono"
+              className="terminal-input w-full font-mono tnum"
             />
           </div>
           <div>
-            <label className="text-xs text-terminal-text-secondary mb-1 block">Stop loss</label>
+            <label className="terminal-theme-caption mb-1 block text-[10px] uppercase">
+              Stop loss
+            </label>
             <input
               type="text"
               inputMode="decimal"
@@ -298,60 +324,74 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
               onChange={(e) => setSlPrice(numeric(e.target.value))}
               placeholder="Optional"
               aria-label="Stop loss price"
-              className="terminal-input w-full font-mono"
+              className="terminal-input w-full font-mono tnum"
             />
           </div>
         </div>
       )}
 
-      {/* Summary */}
+      {/* Order summary — margin, notional and the est. liq level. Every value
+          here is derived client-side from the ticket state + the live market;
+          nothing is submitted with the order. */}
       {sizeNum > 0 && market && refPrice > 0 && (
-        <div className="bg-terminal-bg rounded-lg p-3 space-y-1.5 text-xs">
-          <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">
-              {isLimit ? 'Limit Price' : 'Entry Price'}
-            </span>
-            <span className="font-mono">${refPrice.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
-            <span className="font-mono">${((sizeNum * refPrice) / leverage).toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Notional</span>
-            <span className="font-mono">${(sizeNum * refPrice).toFixed(2)}</span>
-          </div>
-          {maintMargin > 0 && (
-            <div className="flex justify-between">
-              <span className="text-terminal-text-secondary">Maint. margin</span>
-              <span className="font-mono">${maintMargin.toFixed(2)}</span>
-            </div>
-          )}
+        <div className="hairline rounded-terminal-inset bg-terminal-bg text-xs">
           {liqPrice > 0 && (
-            <div className="flex justify-between">
-              <span
-                className="text-terminal-text-secondary"
-                title="Estimated for an isolated position; excludes fees & funding. Cross margin and existing positions shift the real level."
-              >
-                Est. liq. price
-              </span>
-              <span className="font-mono text-bear">
-                ${liqPrice.toFixed(2)}
-                <span className="ml-1 text-terminal-text-muted">
-                  ({liqDistancePct.toFixed(1)}% away)
+            <div className="hairline-b flex items-baseline justify-between px-3 py-2.5">
+              <span className="flex flex-col gap-0.5">
+                <span
+                  className="terminal-theme-caption text-[10px] uppercase"
+                  title="Estimated for an isolated position; excludes fees & funding. Cross margin and existing positions shift the real level."
+                >
+                  Est. liq
+                </span>
+                <span className="font-mono text-[10px] tnum text-terminal-text-muted">
+                  {liqDistancePct.toFixed(1)}% from {isLimit ? 'limit' : 'mark'}
+                </span>
+                {/* The tooltip is invisible on touch — the core caveat must be
+                    visible text, since cross is the default margin mode. */}
+                <span className="text-[10px] text-terminal-text-muted">
+                  isolated est. · excl. fees
                 </span>
               </span>
+              <span className="font-mono text-lg font-semibold leading-none tnum text-bear">
+                <span aria-hidden="true">{side === 'long' ? '▼' : '▲'}</span> $
+                {liqPrice.toFixed(2)}
+              </span>
             </div>
           )}
+          <div className="space-y-1.5 px-3 py-2.5">
+            <div className="flex justify-between">
+              <span className="text-terminal-text-secondary">
+                {isLimit ? 'Limit price' : 'Entry price'}
+              </span>
+              <span className="font-mono tnum">${refPrice.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
+              <span className="font-mono tnum">
+                ${((sizeNum * refPrice) / leverage).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-terminal-text-secondary">Notional</span>
+              <span className="font-mono tnum">${(sizeNum * refPrice).toFixed(2)}</span>
+            </div>
+            {maintMargin > 0 && (
+              <div className="flex justify-between">
+                <span className="text-terminal-text-secondary">Maint. margin</span>
+                <span className="font-mono tnum">${maintMargin.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Live account health — maintenance margin ÷ equity, after this order */}
       {connected && marginRatioPct != null && (
-        <div className="bg-terminal-bg rounded-lg p-3 space-y-1.5 text-xs">
+        <div className="hairline space-y-1.5 rounded-terminal-inset bg-terminal-bg p-3 text-xs">
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Account equity</span>
-            <span className="font-mono">${(equity ?? 0).toFixed(2)}</span>
+            <span className="font-mono tnum">${(equity ?? 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span
@@ -360,7 +400,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
             >
               Margin ratio{maintMargin > 0 ? ' (after)' : ''}
             </span>
-            <span className="font-mono">{marginRatioPct.toFixed(1)}%</span>
+            <span className="font-mono tnum">{marginRatioPct.toFixed(1)}%</span>
           </div>
           <div
             className="h-1.5 w-full overflow-hidden rounded-full bg-terminal-bg-tertiary"
@@ -372,7 +412,11 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
           >
             <div
               className={`h-full transition-all ${
-                marginRatioPct < 50 ? 'bg-bull' : marginRatioPct < 80 ? 'bg-yellow-500' : 'bg-bear'
+                marginRatioPct < 50
+                  ? 'bg-bull'
+                  : marginRatioPct < 80
+                    ? 'bg-terminal-warn'
+                    : 'bg-bear'
               }`}
               style={{ width: `${Math.max(marginRatioPct, 2)}%` }}
             />
@@ -382,18 +426,16 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
       {/* Execute — gated behind sign-in + HyperLiquid connect */}
       {!isAuthenticated ? (
-        <p className="text-center text-xs text-terminal-text-muted py-2">
+        <p className="py-2 text-center text-xs text-terminal-text-muted">
           Sign in to trade perpetuals.
         </p>
       ) : !connected ? (
-        <div className="rounded-lg border border-terminal-border bg-terminal-bg">
-          <ConnectHyperliquid />
-        </div>
+        <ConnectHyperliquid />
       ) : (
         <button
           onClick={submit}
           disabled={!canSubmit}
-          className={`w-full py-3 rounded font-semibold text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50
+          className={`w-full rounded-terminal-control py-3 text-sm font-semibold text-terminal-on-accent transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50
             ${side === 'long' ? 'bg-bull' : 'bg-bear'}`}
         >
           {execute.isPending

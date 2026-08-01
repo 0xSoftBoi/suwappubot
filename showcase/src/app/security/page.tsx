@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
+import styles from './security.module.css';
 
 export const metadata: Metadata = {
   title: 'Security — Suwappu',
@@ -49,22 +51,22 @@ export default function SecurityPage() {
           <p className="summer-kicker">Security &amp; Trust</p>
           <h1>Built to move money safely.</h1>
           <p className="mkt-hero__lead">
-            Suwappu routes real funds across 40+ chains for humans and autonomous agents.
+            Suwappu routes real funds across {stats.platformChains} chains for humans and autonomous agents.
             Here is exactly how keys, funds, and data are protected — and what we have not
             yet certified.
           </p>
         </header>
 
-        <section className="security-grid" aria-label="Security practices">
+        <section className={styles.grid} aria-label="Security practices">
           {buckets.map((b) => (
-            <article className="security-card" key={b.title}>
+            <article className={styles.cell} key={b.title}>
               <h2>{b.title}</h2>
               <p>{b.body}</p>
             </article>
           ))}
         </section>
 
-        <section className="security-disclose" aria-label="Responsible disclosure">
+        <section className={styles.disclose} aria-label="Responsible disclosure">
           <div>
             <p className="summer-kicker">Responsible disclosure</p>
             <h2 className="mkt-h2">Found something? Tell us.</h2>
@@ -75,7 +77,7 @@ export default function SecurityPage() {
               pursue good-faith researchers.
             </p>
           </div>
-          <div className="security-disclose__honesty">
+          <div className={styles.honesty}>
             <h3>What we claim — and what we don&apos;t</h3>
             <ul>
               <li><b>Real today:</b> TEE-backed signing, KMS envelope encryption, self-custody option, spending limits, 2FA, per-tier rate limits, per-agent metering isolation, independent red-team review.</li>

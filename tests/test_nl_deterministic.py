@@ -120,6 +120,52 @@ def test_deterministic_unknown_chain_returns_none():
     assert parse_deterministic("swap 50 usdc for eth on marscoinchain", context={}) is None
 
 
+def test_deterministic_chain_mid_sentence_not_dropped():
+    # Regression: the chain-clause regex used to be end-anchored, so trailing
+    # filler after the chain clause ("right now") meant no match at all —
+    # the chain was silently dropped and confidence stayed 1.0. It must now
+    # be found anywhere in the message.
+    intent = parse_deterministic("swap 1 eth for usdc on base right now", context={})
+    assert intent is not None
+    assert intent.chain == "base"
+    assert intent.token_in == "ETH"
+    assert intent.token_out == "USDC"
+    assert intent.confidence == 1.0
+
+
+def test_deterministic_chain_mid_sentence_with_trailing_filler():
+    intent = parse_deterministic("swap 1 eth for usdc on arbitrum please", context={})
+    assert intent is not None
+    assert intent.chain == "arbitrum"
+
+
+def test_deterministic_unresolvable_mid_sentence_chain_defers_to_llm():
+    # "on" followed by a word that isn't a real chain must still defer to
+    # the LLM rather than silently emitting chain=None at confidence=1.0.
+    assert parse_deterministic("swap 1 eth for usdc on marscoinchain right now", context={}) is None
+
+
+@pytest.mark.parametrize(
+    "alias,canonical",
+    [
+        ("eth", "ethereum"),
+        ("sol", "solana"),
+        ("bnb", "bsc"),
+        ("avax", "avalanche"),
+        ("matic", "polygon"),
+        ("op", "optimism"),
+        ("arb", "arbitrum"),
+    ],
+)
+def test_deterministic_chain_alias_resolves_to_canonical(alias, canonical):
+    # "eth"/"sol"/"bnb"/"avax"/"matic"/"op"/"arb" aren't exact CHAINS keys —
+    # the alias map must resolve them via the shared chain-name resolver
+    # instead of silently dropping the chain or deferring to the LLM.
+    intent = parse_deterministic(f"swap 1 usdc for weth on {alias}", context={})
+    assert intent is not None
+    assert intent.chain == canonical
+
+
 # --- parse_trade_intent: deterministic-first wiring -------------------------
 
 

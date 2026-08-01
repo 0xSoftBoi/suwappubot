@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLendingMarkets } from '../../hooks/useLending'
 import { MarketCard } from './MarketCard'
+import { TerminalSkeletonText } from '../foundation'
 
 const chains = ['All', 'Ethereum', 'Base', 'Arbitrum', 'Optimism']
 
@@ -15,7 +16,7 @@ export function LendingPanel() {
   return (
     <div className="p-4 flex flex-col gap-3 h-full">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Morpho Blue Markets</h3>
+        <h3 className="text-sm font-semibold text-terminal-text">Morpho Blue Markets</h3>
         <select
           value={chainFilter}
           onChange={e => setChainFilter(e.target.value)}
@@ -30,8 +31,12 @@ export function LendingPanel() {
 
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="text-center text-terminal-text-muted text-sm animate-pulse py-8">
-            Loading markets...
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-lg border border-terminal-border bg-terminal-bg p-3">
+                <TerminalSkeletonText lines={3} label={i === 0 ? 'Loading lending markets' : undefined} />
+              </div>
+            ))}
           </div>
         ) : filtered?.length === 0 ? (
           <div className="text-center text-terminal-text-muted text-sm py-8">

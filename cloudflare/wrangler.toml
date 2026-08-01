@@ -8,7 +8,7 @@
 #
 # With custom_domain = true, `wrangler deploy` creates each Custom Domain and its
 # edge TLS cert automatically — no manual DNS records. Only hosts with a live
-# backend are listed; terminal/app/devapi are intentionally omitted (see README.md).
+# backend are listed (see README.md for per-hostname status).
 
 name = "suwappu-router"
 main = "suwappu-router.worker.js"
@@ -20,4 +20,5 @@ routes = [
   { pattern = "suwappu.bot",          custom_domain = true },
   { pattern = "terminal.suwappu.bot", custom_domain = true },
   { pattern = "app.suwappu.bot",      custom_domain = true },
+  { pattern = "devapi.suwappu.bot",   custom_domain = true },
 ]

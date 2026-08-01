@@ -16,7 +16,7 @@ parser. It never guesses.
 import re
 from typing import Any, Dict, Optional
 
-from bot.config.chains import get_chain_by_name
+from bot.config.chains import resolve_chain_name
 from bot.config.tokens import get_token_by_symbol
 from bot.services.nl_intent_service import TradeIntent
 
@@ -45,10 +45,17 @@ _ALL_VERBS.sort(key=len, reverse=True)
 _VERB_RE = re.compile(r"\b(" + "|".join(re.escape(v) for v in _ALL_VERBS) + r")\b", re.IGNORECASE)
 
 _TO_WORDS = r"(?:to|for|into|->|por|hacia|en|pour|vers|换成)"
-_ON_CHAIN_RE = re.compile(
-    r"\bon\s+([a-zA-Z0-9_-]+)\s*$|\ben\s+([a-zA-Z0-9_-]+)\s*$|\bsur\s+([a-zA-Z0-9_-]+)\s*$",
-    re.IGNORECASE,
-)
+# NOTE: this is intentionally NOT end-anchored. An end-anchored pattern only
+# catches a chain clause that is the very last thing in the message, so
+# trailing filler ("... on base right now") silently drops the chain instead
+# of matching it — the caller then emits chain=None at confidence=1.0, which
+# is worse than deferring to the LLM. Searching anywhere is safe because the
+# caller (`_extract_chain_suffix` / `parse_deterministic`) always resolves the
+# captured word against `get_chain_by_name` before trusting it, and defers to
+# the LLM (returns None) if it doesn't resolve — so a false-positive match on
+# a Spanish/French connector word ("en"/"sur" also mean "in"/"on" generically)
+# can never silently produce a wrong or fabricated chain.
+_ON_CHAIN_RE = re.compile(r"\b(?:on|en|sur)\s+([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
 
 _ALL_PERCENT_WORDS = {
     "half": 50.0,
@@ -115,10 +122,7 @@ def _resolve_token(symbol: str) -> Optional[str]:
 def _resolve_chain(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
-    chain = get_chain_by_name(name.lower())
-    if chain is None:
-        return None
-    return name.lower()
+    return resolve_chain_name(name)
 
 
 def _detect_verb_action(text: str) -> Optional[str]:
@@ -133,13 +137,19 @@ def _detect_verb_action(text: str) -> Optional[str]:
 
 
 def _extract_chain_suffix(text: str) -> tuple:
-    """Strip a trailing 'on/en/sur <chain>' clause off the text, returning
-    (remaining_text, chain_name_or_None)."""
+    """Find and strip an 'on/en/sur <chain>' clause anywhere in the text,
+    returning (remaining_text, chain_name_or_None).
+
+    The candidate word is NOT validated here — the caller is responsible for
+    resolving it via `get_chain_by_name` and deferring to the LLM (returning
+    None from `parse_deterministic`) if it doesn't resolve to a known chain.
+    """
     m = _ON_CHAIN_RE.search(text)
     if not m:
         return text, None
-    chain_raw = next((g for g in m.groups() if g), None)
-    remaining = text[: m.start()].strip()
+    chain_raw = m.group(1)
+    remaining = (text[: m.start()] + " " + text[m.end() :]).strip()
+    remaining = re.sub(r"\s+", " ", remaining)
     return remaining, chain_raw
 
 

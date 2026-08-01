@@ -1,10 +1,11 @@
 import { useSignals } from '../../hooks/useSignals'
 import type { MarketSignal } from '../../types/api'
+import { TerminalSkeletonRows } from '../foundation'
 
 const SEVERITY: Record<MarketSignal['severity'], { border: string; chip: string }> = {
   alert: { border: 'border-l-bear', chip: 'bg-bear-dim text-bear' },
-  warn: { border: 'border-l-[#f59e0b]', chip: 'bg-[#f59e0b]/15 text-[#b45309]' },
-  info: { border: 'border-l-sakura-500/60', chip: 'bg-sakura-500/12 text-sakura-600' },
+  warn: { border: 'border-l-terminal-warn', chip: 'bg-terminal-warn/15 text-terminal-warn' },
+  info: { border: 'border-l-terminal-accent/60', chip: 'accent-wash text-terminal-accent' },
 }
 
 const CATEGORY_LABEL: Record<MarketSignal['category'], string> = {
@@ -45,21 +46,26 @@ function SignalCard({ s }: { s: MarketSignal }) {
 // squeeze setups and the macro regime, scanned from HyperLiquid's all-markets
 // data + Fear & Greed. The terminal's living market monitor.
 export function SignalsFeed() {
-  const { data, isLoading } = useSignals()
+  const { data, isLoading, isError, refetch } = useSignals()
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-terminal-border px-3 py-2">
         <h3 className="text-sm font-semibold text-terminal-text">Signals</h3>
-        <span className="flex items-center gap-1 text-[10px] text-terminal-text-muted">
-          <span className="h-1.5 w-1.5 rounded-full bg-bull" /> live · cross-market
+        <span className="flex items-center gap-1 text-[10px] text-terminal-text-muted" role="status">
+          <span className="h-1.5 w-1.5 rounded-full bg-bull pulse-live" /> live · cross-market
         </span>
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {isLoading && !data ? (
-          <div className="py-8 text-center text-sm text-terminal-text-muted animate-pulse">
-            Scanning the market…
+          <TerminalSkeletonRows rows={4} columns={2} label="Scanning the market" />
+        ) : isError ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-terminal-text-muted">
+            <span>Couldn't reach the signals feed.</span>
+            <button type="button" onClick={() => refetch()} className="terminal-button-secondary px-3 py-1 text-xs">
+              Retry
+            </button>
           </div>
         ) : !data || data.length === 0 ? (
           <div className="py-8 text-center text-sm text-terminal-text-muted">
