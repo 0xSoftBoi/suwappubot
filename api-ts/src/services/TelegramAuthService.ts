@@ -45,16 +45,21 @@ export const TelegramAuthServiceLive = Layer.effect(
 						return Option.none<TelegramUser>()
 					}
 
-					// Validate auth_date is recent (±5 minutes) to reject replayed or
-					// fabricated init_data payloads.
+					// Validate auth_date is present AND recent (±5 minutes) to reject
+					// replayed or fabricated init_data payloads. An initData string
+					// missing auth_date entirely is rejected too — even though the
+					// HMAC covers whatever params ARE present, an absent auth_date
+					// would silently skip the freshness check (fail-open), so treat
+					// it the same as a stale one.
 					const authDate = params.get('auth_date')
-					if (authDate) {
-						const authTimestamp = parseInt(authDate, 10)
-						const nowSec = Math.floor(Date.now() / 1000)
-						const MAX_AGE_SEC = 300 // 5 minutes
-						if (isNaN(authTimestamp) || Math.abs(nowSec - authTimestamp) > MAX_AGE_SEC) {
-							return Option.none<TelegramUser>()
-						}
+					if (!authDate) {
+						return Option.none<TelegramUser>()
+					}
+					const authTimestamp = parseInt(authDate, 10)
+					const nowSec = Math.floor(Date.now() / 1000)
+					const MAX_AGE_SEC = 300 // 5 minutes
+					if (isNaN(authTimestamp) || Math.abs(nowSec - authTimestamp) > MAX_AGE_SEC) {
+						return Option.none<TelegramUser>()
 					}
 
 					// Remove hash for data_check_string

@@ -2094,7 +2094,7 @@ webappRoutes.post('/approvals/:id/step-up/challenge', requireProofOfPossession()
 			const now = new Date()
 			const expiresAt = new Date(now.getTime() + STEP_UP_TTL_MS)
 
-			yield* Effect.tryPromise({
+			const inserted = yield* Effect.tryPromise({
 				try: () =>
 					db
 						.insert(approvalStepUpChallenges)
@@ -2108,7 +2108,12 @@ webappRoutes.post('/approvals/:id/step-up/challenge', requireProofOfPossession()
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
-			return { outcome: 'issued', challenge, expiresAt } as const
+			return {
+				outcome: 'issued',
+				challenge,
+				expiresAt,
+				challengeRowId: inserted[0]?.id,
+			} as const
 		}),
 	)
 
@@ -2125,17 +2130,31 @@ webappRoutes.post('/approvals/:id/step-up/challenge', requireProofOfPossession()
 		return c.json({ error: 'Approval already decided', status: outcome.status }, 409)
 	}
 
-	// Fire-and-forget audit trail, mirroring /decide's pattern.
+	// Fire-and-forget audit trail, mirroring /decide's pattern. Log the
+	// inserted challenge row's serial id, NOT the raw nonce — the nonce is
+	// itself a live, single-use credential and shouldn't be written into the
+	// (append-only, longer-retained) audit trail.
 	void runEffect(
 		auditLog({
 			userId: authUser.userId,
 			eventType: 'approval.step_up_issued',
-			details: { approvalId, challengeId: outcome.challenge },
+			details: { approvalId, challengeId: outcome.challengeRowId },
 		}),
 	)
 
 	return c.json({ challenge: outcome.challenge, expires_at: outcome.expiresAt })
 })
+
+// Sentinel thrown inside the decide transaction when the step-up nonce
+// fails to consume AFTER the approval row already flipped, so the whole
+// transaction (approval flip included) rolls back — see the decide route
+// below for why the nonce is consumed after, not before, the flip.
+class StepUpInvalidError extends Error {
+	constructor() {
+		super('step_up_invalid')
+		this.name = 'StepUpInvalidError'
+	}
+}
 
 type DecideOutcome =
 	| { outcome: 'decided'; row: AgentApprovalRow; consumedChallengeId?: number }
@@ -2179,57 +2198,80 @@ webappRoutes.post('/approvals/:id/decide', requireProofOfPossession(), async (c)
 			// approve only, and only when the flag is on. Deny is always
 			// untouched.
 			const stepUpRequired = decision === 'approve' && env.APPROVAL_STEP_UP_REQUIRED === 'true'
-			let consumedChallengeId: number | undefined
-			if (stepUpRequired) {
-				if (!stepUpChallengeToken) {
-					return { outcome: 'step_up_required' } as DecideOutcome
-				}
-				// Atomically consume the challenge: single-use, unexpired, and
-				// bound to this approval — mirrors the atomic guarded UPDATE
-				// pattern used below for the approval row itself.
-				const consumed = yield* Effect.tryPromise({
-					try: () =>
-						db
-							.update(approvalStepUpChallenges)
-							.set({ usedAt: new Date() })
-							.where(
-								and(
-									eq(approvalStepUpChallenges.approvalId, approvalId),
-									eq(approvalStepUpChallenges.challenge, stepUpChallengeToken),
-									isNull(approvalStepUpChallenges.usedAt),
-									drizzleSql`${approvalStepUpChallenges.expiresAt} > now()`,
-								),
-							)
-							.returning(),
-					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-				})
-				if (consumed.length === 0) {
-					return { outcome: 'step_up_required' } as DecideOutcome
-				}
-				consumedChallengeId = consumed[0].id
+			if (stepUpRequired && !stepUpChallengeToken) {
+				return { outcome: 'step_up_required' } as DecideOutcome
 			}
 
-			// Atomic guarded UPDATE — mirrors bot/handlers/approvals.py's Telegram
-			// callback handler: only flips a row that is STILL pending, owned by
-			// the caller, and not past its expiry, in one statement so a
-			// double-submit or a race with the expiry sweep can decide it only
-			// once.
-			const updated = yield* Effect.tryPromise({
+			// The guarded approval UPDATE and the step-up nonce consumption run
+			// in a single DB transaction, and — critically — the nonce is only
+			// consumed AFTER the approval UPDATE has already flipped a row.
+			// Consuming the nonce first (the previous behavior) meant a
+			// transient failure, or a race that lost the guarded UPDATE (e.g.
+			// the approval was decided/expired between the check and the
+			// update), would burn the one-use nonce anyway and force the user
+			// to re-mint a fresh step-up challenge on a time-critical action.
+			let consumedChallengeId: number | undefined
+			const txResult = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.update(agentApprovals)
-						.set({ status: newStatus, decidedBy, decidedAt: new Date(), channel: 'web' })
-						.where(
-							and(
-								eq(agentApprovals.id, approvalId),
-								eq(agentApprovals.status, 'pending'),
-								eq(agentApprovals.userTelegramId, telegramId),
-								drizzleSql`(${agentApprovals.expiresAt} IS NULL OR ${agentApprovals.expiresAt} > now())`,
-							),
-						)
-						.returning(),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
+					db.transaction(async (tx) => {
+						// Atomic guarded UPDATE — mirrors bot/handlers/approvals.py's
+						// Telegram callback handler: only flips a row that is STILL
+						// pending, owned by the caller, and not past its expiry, in
+						// one statement so a double-submit or a race with the expiry
+						// sweep can decide it only once.
+						const rows = await tx
+							.update(agentApprovals)
+							.set({ status: newStatus, decidedBy, decidedAt: new Date(), channel: 'web' })
+							.where(
+								and(
+									eq(agentApprovals.id, approvalId),
+									eq(agentApprovals.status, 'pending'),
+									eq(agentApprovals.userTelegramId, telegramId),
+									drizzleSql`(${agentApprovals.expiresAt} IS NULL OR ${agentApprovals.expiresAt} > now())`,
+								),
+							)
+							.returning()
+
+						if (rows.length > 0 && stepUpRequired && stepUpChallengeToken) {
+							// Approval flip succeeded — now (and only now) consume the
+							// single-use, unexpired challenge bound to this approval.
+							const consumed = await tx
+								.update(approvalStepUpChallenges)
+								.set({ usedAt: new Date() })
+								.where(
+									and(
+										eq(approvalStepUpChallenges.approvalId, approvalId),
+										eq(approvalStepUpChallenges.challenge, stepUpChallengeToken),
+										isNull(approvalStepUpChallenges.usedAt),
+										drizzleSql`${approvalStepUpChallenges.expiresAt} > now()`,
+									),
+								)
+								.returning()
+							if (consumed.length === 0) {
+								// Challenge invalid/expired/already-used — roll back the
+								// approval flip too, so we never decide without proof.
+								throw new StepUpInvalidError()
+							}
+							consumedChallengeId = consumed[0].id
+						}
+
+						return rows
+					}),
+				catch: (e) =>
+					e instanceof StepUpInvalidError ? e : e instanceof Error ? e : new Error(String(e)),
+			}).pipe(
+				Effect.map((rows) => ({ ok: true as const, rows })),
+				Effect.catchAll((e) =>
+					e instanceof StepUpInvalidError
+						? Effect.succeed({ ok: false as const, rows: [] })
+						: Effect.fail(e),
+				),
+			)
+
+			if (!txResult.ok) {
+				return { outcome: 'step_up_required' } as DecideOutcome
+			}
+			const updated = txResult.rows
 
 			if (updated.length > 0) {
 				return {

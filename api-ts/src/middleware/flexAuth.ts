@@ -24,6 +24,26 @@ export interface AuthUser {
 export const ALLOWED_JWT_ALGORITHMS: readonly jwt.Algorithm[] = ['HS256']
 
 /**
+ * `src` claim values that prove the bearer actually possesses the
+ * credential the token represents (a verified login session), as opposed
+ * to merely presenting a token that decodes correctly.
+ *
+ * - 'telegram' — minted by POST /webapp/telegram/auth after verifying
+ *   Telegram's initData HMAC signature.
+ * - 'siwe'     — minted after a verified wallet-signature challenge
+ *   (turnkey/solana signature verification).
+ * - 'passkey'  — minted after a verified WebAuthn/passkey assertion.
+ *
+ * A token with `src === 'weak'`, or with NO `src` claim at all, is
+ * rejected by requireProofOfPossession(). Absent `src` is exactly the
+ * shape of the legacy forgeable token minted by POST /public/swap/auth
+ * (`{userId, walletAddress}`, no possession proof) — treat any future
+ * mint that omits `src` the same way unless it is added here deliberately.
+ */
+export const PROOF_OF_POSSESSION_SRCS = ['telegram', 'siwe', 'passkey'] as const
+export type ProofOfPossessionSrc = (typeof PROOF_OF_POSSESSION_SRCS)[number]
+
+/**
  * Verify a bearer JWT with an explicit algorithm allowlist. Extracted so the
  * hardening (algorithm pinning) is unit-testable independent of the Effect
  * runtime / service layer.
@@ -160,15 +180,17 @@ export function flexAuth() {
  * 1. X-Telegram-Init-Data — verified via TelegramAuthService (Telegram's
  *    HMAC signature over the initData payload).
  * 2. Authorization: Bearer <jwt> WHERE the decoded token carries
- *    `src: 'telegram'`. That claim is only ever set by
- *    POST /webapp/telegram/auth (webapp.ts), which is itself gated on a
- *    verified Telegram initData signature. Tokens minted by
- *    POST /public/swap/auth never carry this claim (they only ever contain
- *    {userId, walletAddress}), so they are rejected here even though they
- *    verify fine against the shared JWT secret.
+ *    `src` ∈ PROOF_OF_POSSESSION_SRCS ('telegram' | 'siwe' | 'passkey').
+ *    Those claims are only ever set after a verified possession check
+ *    (Telegram initData HMAC, wallet-signature challenge, or passkey
+ *    assertion respectively). Tokens minted by POST /public/swap/auth
+ *    never carry a `src` claim at all (they only ever contain
+ *    {userId, walletAddress}), and any mint explicitly tagged `src: 'weak'`
+ *    proves nothing — both are rejected here even though they verify fine
+ *    against the shared JWT secret.
  *
  * Anything else — including a structurally valid, correctly-signed JWT that
- * simply lacks `src: 'telegram'` — is treated as insufficient and rejected
+ * lacks an accepted `src` value — is treated as insufficient and rejected
  * with 403 (not 401), since the caller may be "authenticated" for other
  * surfaces but is not authorized for this one.
  */
@@ -216,7 +238,7 @@ export function requireProofOfPossession() {
 			// Fall through to try JWT.
 		}
 
-		// 2. JWT Bearer auth — must carry the telegram-backed `src` claim.
+		// 2. JWT Bearer auth — must carry a proof-of-possession `src` claim.
 		const authHeader = c.req.header('Authorization')
 		if (authHeader?.startsWith('Bearer ')) {
 			const token = authHeader.slice(7)
@@ -234,7 +256,10 @@ export function requireProofOfPossession() {
 						catch: () => new Error('Invalid JWT token'),
 					})
 
-					if (decoded.src !== 'telegram') {
+					if (
+						!decoded.src ||
+						!(PROOF_OF_POSSESSION_SRCS as readonly string[]).includes(decoded.src)
+					) {
 						return yield* Effect.fail(new Error('Insufficient credential'))
 					}
 
@@ -253,7 +278,7 @@ export function requireProofOfPossession() {
 
 			throw new HTTPException(403, {
 				message:
-					'Insufficient credentials for this action. This endpoint requires a proof-of-possession session (Telegram login), not a wallet-address token.',
+					'Insufficient credentials for this action. This endpoint requires a verified login session (wallet signature, passkey, or Telegram), not a wallet-address token.',
 			})
 		}
 
