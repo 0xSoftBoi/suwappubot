@@ -13,6 +13,7 @@ const TOKEN_KEY = 'suwappu_dashboard_token';
 function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [showToken, setShowToken] = useState(false);
 
   function handlePaste() {
     // Token pasted manually — validate minimally and store
@@ -50,9 +51,10 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           height={52}
           className={styles.loginLogo}
         />
-        <h1 className={styles.loginTitle}>Enterprise Dashboard</h1>
+        <h1 className={styles.loginTitle}>Sign in</h1>
         <p className={styles.loginLead}>
-          Sign in via the Suwappu Telegram bot to get your access token, or paste one directly.
+          Connect the account you use with Suwappu to see usage, manage API keys
+          and handle billing.
         </p>
 
         <a
@@ -65,8 +67,20 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           Connect via Telegram
         </a>
 
-        <div className={styles.loginDivider}>or paste a token</div>
+        {/* Token entry is a fallback, not a peer of the primary action.
+            Presenting "paste a Bearer token" as a co-equal sign-in option made
+            the first screen of a paid product read like a debug console, so it
+            is collapsed behind a disclosure. */}
+        <button
+          type="button"
+          className={styles.loginAdvancedToggle}
+          onClick={() => setShowToken((v) => !v)}
+          aria-expanded={showToken}
+        >
+          {showToken ? 'Hide' : 'Use an access token instead'}
+        </button>
 
+        {showToken && (<>
         <input
           className={styles.tokenInput}
           type="password"
@@ -80,6 +94,7 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
         <button className={styles.tokenSubmit} onClick={handlePaste}>
           Continue
         </button>
+        </>)}
 
         {err && (
           <p className={styles.loginError} role="alert">

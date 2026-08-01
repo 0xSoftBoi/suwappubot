@@ -288,6 +288,13 @@ export default function DashboardPage() {
   const [showNewKey, setShowNewKey] = useState(false);
 
   // Period for usage chart (7D | 30D)
+  // Tabs, not one long scroll. The page previously stacked seven equal cards
+  // — KPIs, chart, endpoints, team, keys, billing — so the thing a paying
+  // customer actually came for sat at the very bottom, below analytics they
+  // did not ask for. These three groups map to the three jobs people come
+  // here to do: monitor, administer, pay.
+  const [tab, setTab] = useState<'overview' | 'team' | 'billing'>('overview');
+
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
   const [periodUsage, setPeriodUsage] = useState<UsageData | null>(null);
   const [periodLoading, setPeriodLoading] = useState(false);
@@ -429,7 +436,9 @@ export default function DashboardPage() {
       {/* ── Header bar ── */}
       <header className={styles.header}>
         <h1 className={styles.orgName}>{org.name}</h1>
-        <span className={styles.tierBadge}>Enterprise</span>
+        {/* The real tier. This was hardcoded to "Enterprise", so every
+            customer saw a plan they might not be on — on a billing page. */}
+        <span className={styles.tierBadge}>{(org.tier ?? 'free').toUpperCase()}</span>
         <div className={styles.headerSep} />
         <div className={styles.userInfo}>
           <span className={styles.userName}>{members[0]?.name ?? 'You'}</span>
@@ -440,6 +449,27 @@ export default function DashboardPage() {
         <button className={styles.signOutBtn} onClick={clearToken}>Sign out</button>
       </header>
 
+      {/* ── Tab nav ── */}
+      <nav className={styles.tabs} aria-label="Dashboard sections">
+        {([
+          ['overview', 'Overview'],
+          ['team', 'Team & API keys'],
+          ['billing', 'Billing'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={styles.tab}
+            data-active={tab === id || undefined}
+            aria-current={tab === id ? 'page' : undefined}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'overview' && (<>
       {/* ── 6-tile KPI strip ── */}
       <div className={styles.kpiRow} aria-label="Key performance indicators">
 
@@ -562,24 +592,9 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ── Latency distribution (placeholder until endpoint returns buckets) ── */}
-      <section className={styles.card} aria-label="Latency distribution">
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>Latency Distribution</h2>
-        </div>
-        <div className={styles.latencyPlaceholder}>
-          <span className={styles.latencyPlaceholderIcon} aria-hidden="true">⏱</span>
-          <div>
-            <p className={styles.latencyPlaceholderTitle}>Latency breakdown coming soon</p>
-            <p className={styles.latencyPlaceholderSub}>
-              P50 / P95 / P99 buckets (&lt;100ms · 100–200ms · 200–500ms · 500ms–1s · &gt;1s)
-              will appear here once the usage endpoint returns per-bucket data.
-              Current average: <strong>{fmtMs(usage.avgDurationMs)}</strong>
-            </p>
-          </div>
-        </div>
-      </section>
+      </>)}
 
+      {tab === 'team' && (<>
       {/* ── Team table ── */}
       <section className={styles.card} aria-label="Team members">
         <div className={styles.cardHead}>
@@ -712,93 +727,25 @@ export default function DashboardPage() {
         </table>
       </section>
 
-      {/* ── Billing ── */}
-      <section className={styles.card} aria-label="Billing">
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>Billing</h2>
-        </div>
+      </>)}
 
-        {/* Plan row */}
-        <div className={styles.billingPlanRow}>
-          <div className={styles.billingPlan}>
-            <span className={styles.tierBadge}>Enterprise</span>
-            <span className={styles.billingPlanName}>{org.tier ?? 'Enterprise'} Plan</span>
-          </div>
-          {org.subscription?.renewsAt && (
-            <span className={styles.billingMeta}>
-              Renewal: {fmtDate(org.subscription.renewsAt)}
-            </span>
-          )}
-          <div className={styles.billingStatusPill} data-status={subStatus}>
-            <span className={styles.billingStatusDot} />
-            {subStatus.charAt(0).toUpperCase() + subStatus.slice(1)}
-          </div>
-          <div className={styles.billingLink}>
-            <Link
-              href="/pricing"
-              className={styles.actionBtn}
-              style={{
-                display: 'inline-flex', alignItems: 'center', textDecoration: 'none',
-                minHeight: 34, padding: '0 14px', borderRadius: 8,
-                border: '1px solid rgba(207,227,234,0.9)',
-              }}
-            >
-              Compare plans
-            </Link>
-          </div>
-        </div>
+      {tab === 'billing' && (<>
+      {/* ── Billing ──
+          Previously TWO stacked billing sections: this card and BillingPanel
+          directly below it, each showing the plan and each with its own
+          competing call to action. Now one. The plan limits that lived here
+          (rate limit, seat usage) move into the panel, where they sit next to
+          the plan they belong to. */}
+      <BillingPanel
+        apiFetch={apiFetch}
+        fallbackTier={org.tier}
+        renewsAt={org.subscription?.renewsAt}
+        rateLimitPerMin={rateLimit}
+        seatsUsed={seatUsed}
+        seatLimit={seatLimit}
+      />
 
-        {/* Usage meter */}
-        <div className={styles.billingMetrics}>
-
-          <div className={styles.billingMetric}>
-            <div className={styles.billingMetricLabel}>
-              <span>API Calls This Month</span>
-              <span className={styles.mono}>{totalCalls.toLocaleString()} / ∞</span>
-            </div>
-            <div className={styles.meterTrack} aria-label={`${totalCalls.toLocaleString()} API calls used`}>
-              <div className={styles.meterFill} style={{ width: `${usagePct}%` }} />
-            </div>
-            {totalCalls > ENTERPRISE_SOFT_WARN * 0.8 && (
-              <p className={styles.billingWarn}>
-                Heads up — approaching {(ENTERPRISE_SOFT_WARN / 1000).toFixed(0)}k soft monitoring threshold.
-                Contact your account manager to discuss capacity.
-              </p>
-            )}
-          </div>
-
-          <div className={styles.billingMetric}>
-            <div className={styles.billingMetricLabel}>
-              <span>Rate Limit</span>
-              <span className={styles.mono}>{rateLimit.toLocaleString()} req/min</span>
-            </div>
-          </div>
-
-          {seatLimit !== null && (
-            <div className={styles.billingMetric}>
-              <div className={styles.billingMetricLabel}>
-                <span>Seat Usage</span>
-                <span className={styles.mono}>{seatUsed} / {seatLimit} seats</span>
-              </div>
-              <div className={styles.meterTrack} aria-label={`${seatUsed} of ${seatLimit} seats used`}>
-                <div
-                  className={styles.meterFill}
-                  style={{
-                    width: `${Math.min((seatUsed / seatLimit) * 100, 100)}%`,
-                    background: seatUsed >= seatLimit
-                      ? 'linear-gradient(90deg, #c0392b, #e74c3c)'
-                      : undefined,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-        </div>
-      </section>
-
-      {/* ── Billing & credits (plan changes, top-ups, invoices, portal) ── */}
-      <BillingPanel apiFetch={apiFetch} fallbackTier={org.tier} />
+      </>)}
 
       {/* ── New key modal ── */}
       {showNewKey && (

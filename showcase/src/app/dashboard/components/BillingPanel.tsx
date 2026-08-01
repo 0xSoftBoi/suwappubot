@@ -65,6 +65,13 @@ interface BillingPanelProps {
   apiFetch: ApiFetch;
   /** Plan tier from the org record — used as a fallback if /billing/status 404s. */
   fallbackTier?: string;
+  /** Renewal date from the org subscription record. */
+  renewsAt?: string;
+  /** Plan limits. These describe what the plan buys, so they belong beside it
+      rather than in a separate card competing for the same attention. */
+  rateLimitPerMin?: number;
+  seatsUsed?: number;
+  seatLimit?: number | null;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -107,7 +114,14 @@ async function readError(res: Response, fallback: string): Promise<string> {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function BillingPanel({ apiFetch, fallbackTier }: BillingPanelProps) {
+export default function BillingPanel({
+  apiFetch,
+  fallbackTier,
+  renewsAt,
+  rateLimitPerMin,
+  seatsUsed,
+  seatLimit,
+}: BillingPanelProps) {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [credits, setCredits] = useState<CreditsResponse | null>(null);
   const [invoices, setInvoices] = useState<InvoicesResponse | null>(null);
@@ -236,8 +250,10 @@ export default function BillingPanel({ apiFetch, fallbackTier }: BillingPanelPro
               {status ? `${status.fee_rate_percent}% swap fee` : '—'}
             </span>
           </div>
-          {status?.expires_at && (
-            <span className={styles.billingMeta}>Renews {fmtDate(status.expires_at)}</span>
+          {(status?.expires_at || renewsAt) && (
+            <span className={styles.billingMeta}>
+              Renews {fmtDate(status?.expires_at ?? renewsAt)}
+            </span>
           )}
           <div className={styles.billingStatusPill} data-status={status?.active ? 'active' : 'past_due'}>
             <span className={styles.billingStatusDot} />
@@ -270,6 +286,26 @@ export default function BillingPanel({ apiFetch, fallbackTier }: BillingPanelPro
             );
           })}
         </div>
+
+        {/* Plan limits — what the tier above actually buys. */}
+        {(rateLimitPerMin !== undefined || seatLimit) && (
+          <div className={styles.planLimits}>
+            {rateLimitPerMin !== undefined && (
+              <div className={styles.planLimit}>
+                <span className={styles.billingMeta}>Rate limit</span>
+                <span className={styles.mono}>{rateLimitPerMin.toLocaleString()} req/min</span>
+              </div>
+            )}
+            {seatLimit ? (
+              <div className={styles.planLimit}>
+                <span className={styles.billingMeta}>Seats</span>
+                <span className={styles.mono}>
+                  {seatsUsed ?? 0} / {seatLimit}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* ── Credits ──────────────────────────────────────────────────────── */}

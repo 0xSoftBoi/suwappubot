@@ -939,3 +939,106 @@
     align-items: flex-start;
   }
 }
+
+/* ── Tab navigation ─────────────────────────────────────────────────────────
+   Replaces a seven-card vertical scroll. Underline-style rather than pill
+   buttons so the nav reads as navigation, not as seven more actions
+   competing with the page's real CTAs. */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+}
+
+.tab {
+  position: relative;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: rgba(33, 88, 110, 0.66);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.tab:hover {
+  color: #1d5a70;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background 140ms ease;
+}
+
+.tab[data-active] {
+  color: #17475a;
+}
+
+.tab[data-active]::after {
+  background: linear-gradient(90deg, #7eb2c4, #0b789a);
+}
+
+.tab:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.6);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* Plan limits — sit under the plan cards they describe. */
+.planLimits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.planLimit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+@media (max-width: 640px) {
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: 0 0 auto;
+  }
+}
+
+/* Token entry is a fallback, so it reads as a quiet disclosure rather than a
+   second primary action. */
+.loginAdvancedToggle {
+  margin-top: 16px;
+  border: 0;
+  background: none;
+  color: rgba(33, 88, 110, 0.7);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.loginAdvancedToggle:hover {
+  color: #0b789a;
+}
