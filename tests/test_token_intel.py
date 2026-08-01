@@ -160,10 +160,11 @@ async def test_evm_report_assembly_and_flags():
     assert len(report.top_holders) == 3
     assert report.top_holders[0].pct == pytest.approx(30.0)
 
-    # bundle: 3 distinct recipients in block 100
+    # bundle: 3 distinct recipients in block 100 (the earliest block)
     assert report.bundle_buyer_count == 3
-    # snipe: all 3 block-100 buys are within 60s of the earliest transfer
-    assert report.snipe_buyer_count == 3
+    # snipe: all 4 buys (incl. the block-101 latecomer at +30s) fall within
+    # the 60s snipe window — snipe count can exceed bundle count.
+    assert report.snipe_buyer_count == 4
 
     # cluster: H1 and H2 share a funder, H3 does not
     assert [sorted(g) for g in report.cluster_groups] == [sorted([H1, H2])]
@@ -283,6 +284,9 @@ def _make_update_and_context(telegram_id, args):
     return update, context
 
 
+DEPLOYER_HEX = "0x1234567890123456789012345678901234567890"
+
+
 @pytest.mark.asyncio
 async def test_devwatch_add_list_remove_roundtrip(tmp_db):
     from bot.handlers.intel import devwatch_command
@@ -296,7 +300,9 @@ async def test_devwatch_add_list_remove_roundtrip(tmp_db):
         s.commit()
 
     # add
-    update, context = _make_update_and_context(tg_id, ["add", DEPLOYER, "ethereum", "Sus", "Dev"])
+    update, context = _make_update_and_context(
+        tg_id, ["add", DEPLOYER_HEX, "ethereum", "Sus", "Dev"]
+    )
     await devwatch_command(update, context)
     update.message.reply_text.assert_awaited()
     assert "watching" in update.message.reply_text.call_args.args[0].lower()
@@ -304,12 +310,12 @@ async def test_devwatch_add_list_remove_roundtrip(tmp_db):
     with SessionLocal() as s:
         watches = s.query(DeployerWatch).all()
         assert len(watches) == 1
-        assert watches[0].deployer_address == DEPLOYER
+        assert watches[0].deployer_address == DEPLOYER_HEX
         assert watches[0].chain == "ethereum"
         assert watches[0].label == "Sus Dev"
 
     # duplicate add is a no-op, not a second row
-    update2, context2 = _make_update_and_context(tg_id, ["add", DEPLOYER, "ethereum"])
+    update2, context2 = _make_update_and_context(tg_id, ["add", DEPLOYER_HEX, "ethereum"])
     await devwatch_command(update2, context2)
     with SessionLocal() as s:
         assert s.query(DeployerWatch).count() == 1
@@ -319,7 +325,7 @@ async def test_devwatch_add_list_remove_roundtrip(tmp_db):
     await devwatch_command(update3, context3)
     listed_text = update3.message.reply_text.call_args.args[0]
     assert "Sus Dev" in listed_text
-    assert DEPLOYER[:6] in listed_text
+    assert DEPLOYER_HEX[:6] in listed_text
 
     # remove by index
     update4, context4 = _make_update_and_context(tg_id, ["rm", "1"])
@@ -388,13 +394,25 @@ async def test_evm_enrich_report_unknown_chain_notes_and_returns():
     assert any("no_blockscout_instance" in n for n in report.notes)
 
 
+class _RaisingPostCtx:
+    """Mimics aiohttp's ``session.post(...)`` async-context-manager shape, but
+    raises on entry — the way a real connection failure would surface.
+    """
+
+    async def __aenter__(self):
+        raise ConnectionError("rpc unreachable")
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_solana_source_never_raises_on_rpc_failure():
     """RPC errors must degrade per-field, never raise out of enrich_report."""
     from bot.services.token_intel import solana_source
 
-    session = AsyncMock()
-    session.post.side_effect = ConnectionError("rpc unreachable")
+    session = MagicMock()
+    session.post = MagicMock(return_value=_RaisingPostCtx())
 
     with (
         patch(
