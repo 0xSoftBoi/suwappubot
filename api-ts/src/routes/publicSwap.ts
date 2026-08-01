@@ -395,9 +395,19 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			const swapService = yield* SwapService
 			const redis = yield* RedisService
 
-			// Get user's wallet
+			// Get user's wallet. Select the wallet the quote was built for — the
+			// JWT's walletAddress — not just the first active row. Otherwise a
+			// multi-wallet user's receiver check (below) compares against the wrong
+			// wallet and their swap is wrongly blocked, and we could sign from a
+			// wallet the quote wasn't built for. EVM addresses compare
+			// case-insensitively; a JWT without walletAddress (non-showcase flows)
+			// keeps the prior first-wallet behavior.
 			const wallets = yield* walletService.getActiveWallets(authUser.userId)
-			const wallet = wallets[0]
+			const wallet = authUser.walletAddress
+				? wallets.find(
+						(w) => w.address.toLowerCase() === authUser.walletAddress!.toLowerCase(),
+					)
+				: wallets[0]
 			if (!wallet) {
 				return yield* Effect.fail(
 					new NotFoundError({ message: 'No wallet found', resource: 'wallet' }),
