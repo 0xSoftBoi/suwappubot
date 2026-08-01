@@ -48,13 +48,25 @@ class BalanceRefresher:
         """Main refresh loop."""
         import time as _time
         from bot.utils.redis_cache import redis_cache
+
         # Wait for services to fully initialize
         await asyncio.sleep(30)
 
         while self._running:
             try:
+                # Heartbeat BEFORE the work, with a TTL comfortably longer than one
+                # full cycle. A refresh pass costs roughly (wallets / BATCH_SIZE)
+                # seconds on top of _refresh_interval, so writing a 60s TTL after
+                # the work left the key expired for most of every cycle and /health
+                # reported this service as "unknown" (missing key) indefinitely.
+                # Front-loading it also keeps liveness honest when _refresh_all
+                # raises: the loop is alive, and a genuinely stuck loop still goes
+                # stale once the TTL lapses. Matches withdraw_reconciler /
+                # predict_monitor, which use 180s for the same reason.
+                await redis_cache.set(
+                    "service:balance_refresher:heartbeat", _time.time(), ttl_seconds=300
+                )
                 await self._refresh_all()
-                await redis_cache.set("service:balance_refresher:heartbeat", _time.time(), ttl_seconds=60)
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -70,6 +82,7 @@ class BalanceRefresher:
             return
 
         from bot.services.alchemy_client import alchemy_circuit
+
         if alchemy_circuit.is_open:
             logger.debug("Skipping balance refresh — Alchemy circuit breaker is open")
             return
@@ -79,9 +92,13 @@ class BalanceRefresher:
         targets: list[tuple[str, str]] = []
 
         with get_session() as session:
-            wallets = session.query(Wallet.address, Wallet.chain_type).filter(
-                Wallet.is_active == True,
-            ).all()
+            wallets = (
+                session.query(Wallet.address, Wallet.chain_type)
+                .filter(
+                    Wallet.is_active == True,
+                )
+                .all()
+            )
 
             for address, chain_type in wallets:
                 key = (address, chain_type)
@@ -99,7 +116,7 @@ class BalanceRefresher:
         for i in range(0, len(targets), BATCH_SIZE):
             if not self._running:
                 return
-            batch = targets[i:i + BATCH_SIZE]
+            batch = targets[i : i + BATCH_SIZE]
             tasks = []
             for address, chain_type in batch:
                 tasks.append(self._safe_refresh(address, chain_type))

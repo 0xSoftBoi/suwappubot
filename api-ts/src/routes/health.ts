@@ -6,6 +6,8 @@ import packageJson from '../../package.json'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
+import { sourceFingerprint } from '../lib/sourceFingerprint'
+
 const healthRoutes = new Hono()
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
@@ -45,6 +47,11 @@ healthRoutes.get('/health', async (c) => {
 			status: isHealthy ? 'ok' : 'degraded',
 			service: 'suwappu-api-ts',
 			version: packageJson.version,
+			// Which build is answering. A green Railway deploy is NOT proof the
+			// new code is live — verified painfully during the cookie-auth work,
+			// where a 401 could equally mean "wrong code" or "not deployed".
+			// Compare against scripts/verify_deploy.sh.
+			source_fingerprint: sourceFingerprint(),
 			timestamp: new Date().toISOString(),
 			...dbStatus,
 		},
@@ -144,7 +151,8 @@ healthRoutes.get('/tokens', async (c) => {
 		return c.json(responseData)
 	} catch (error) {
 		logger.error({ err: error }, '[Tokens] Failed to fetch')
-		return c.json({ error: 'Failed to fetch tokens' }, 500)
+		return c.json({
+ error: 'Failed to fetch tokens' }, 500)
 	}
 })
 

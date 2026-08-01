@@ -11,6 +11,7 @@ import { TerminalSiteReplacement } from './components/templates/TerminalSiteRepl
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
 import { OAuthCallback } from './components/auth/OAuthCallback'
 import { AlertSwap } from './routes/AlertSwap'
+import { BridgeRoute } from './routes/BridgeRoute'
 import { FirstRunChecklist } from './components/onboarding/FirstRunChecklist'
 
 function isTerminalHost() {
@@ -43,6 +44,15 @@ function TradingWorkspace() {
             <Routes>
               <Route path="/points" element={<PointsDashboard />} />
               <Route path="points" element={<PointsDashboard />} />
+              {/* Bridge gets its own route rather than a swap-panel tab: it is
+                  a different job (moving one token between chains) with a
+                  different thing to watch (an in-flight custody window), and
+                  folding it into swap is what left it invisible before. Mounted
+                  on both the terminal host path and the "/terminal/*" proxy
+                  mount, matching the alert-swap deep link above. */}
+              <Route path="/bridge" element={<BridgeRoute />} />
+              <Route path="bridge" element={<BridgeRoute />} />
+              <Route path="/terminal/bridge" element={<BridgeRoute />} />
               {/* Price-alert deep link (?alertId=&token=&chain=&side=&amount=&ref=alert).
                   Covers both the primary terminal.suwappu.bot host (pathname
                   "/alert-swap") and the "/terminal/*" dev/proxy mount (pathname

@@ -67,7 +67,7 @@ construct-typing==0.7.0
     # via solana
 crypto-cpp-py==2.0.0
     # via starknet-py
-cryptography==48.0.1
+cryptography==49.0.0
     # via -r requirements.in
 cytoolz==1.1.0
     # via eth-utils
@@ -219,7 +219,7 @@ multidict==6.7.1
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
-openai==1.109.1
+openai==2.48.0
     # via -r requirements.in
 orjson==3.11.9
     # via -r requirements.in
@@ -301,7 +301,7 @@ pyyaml==6.0.3
     # via uvicorn
 qrcode==8.2
     # via -r requirements.in
-redis==7.0.1
+redis==8.0.1
     # via -r requirements.in
 regex==2026.1.15
     # via parsimonious

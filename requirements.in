@@ -37,7 +37,7 @@ urllib3>=2.7.0
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
-openai==1.109.1
+openai==2.48.0
 
 # ---- Database ----
 SQLAlchemy==2.0.51
@@ -48,7 +48,7 @@ pydantic==2.13.4
 pydantic-settings==2.14.2
 
 # ---- Crypto / encryption ----
-cryptography==48.0.1
+cryptography==49.0.0
 dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
 PyJWT==2.13.0
 pyotp==2.10.0
@@ -84,7 +84,7 @@ qrcode>=7.4,<9.0
 Pillow>=12.3.0                          # imported as PIL
 
 # ---- Cache ----
-redis==7.0.1
+redis==8.0.1
 
 # ---- Serialization / misc ----
 orjson>=3.10

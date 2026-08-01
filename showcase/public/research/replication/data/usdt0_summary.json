@@ -1,0 +1,142 @@
+{
+  "observations_total": 183,
+  "observations_clean": 168,
+  "date_range": [
+    "2025-07-26",
+    "2026-07-25"
+  ],
+  "chains_measured": [
+    "Arbitrum",
+    "Berachain",
+    "Conflux",
+    "Flare",
+    "HyperEVM",
+    "Ink",
+    "Mantle",
+    "Monad",
+    "Morph",
+    "Optimism",
+    "Plasma",
+    "Polygon",
+    "Rootstock",
+    "Stable",
+    "Tempo",
+    "Unichain",
+    "XLayer"
+  ],
+  "latest": {
+    "date": "2026-07-25",
+    "collateral": 3383428555.426198,
+    "liabilities": 3378334407.014902,
+    "ratio": 1.0015078875556895,
+    "gap": 5094148.411295891,
+    "chains_live": 17
+  },
+  "ratio_stats": {
+    "min": 0.5134649670222075,
+    "max": 1.186561057163563,
+    "mean": 0.9845630071098503,
+    "median": 1.0255363322726652,
+    "std": 0.14090905806962464,
+    "frac_below_1": 0.09523809523809523,
+    "n_below_1": 16
+  },
+  "gap_stats_usd": {
+    "min": -1326719194.9121113,
+    "max": 760329016.4882617,
+    "mean": -11464582.740297135,
+    "median": 93816046.64090753
+  },
+  "latest_chain_breakdown": [
+    [
+      "Arbitrum",
+      884700972.502031,
+      "upgraded-in-place"
+    ],
+    [
+      "Polygon",
+      867193598.814407,
+      "upgraded-in-place"
+    ],
+    [
+      "Plasma",
+      734903632.059413,
+      "native-oft"
+    ],
+    [
+      "Mantle",
+      393348309.614824,
+      "native-oft"
+    ],
+    [
+      "XLayer",
+      112007714.756138,
+      "native-oft"
+    ],
+    [
+      "HyperEVM",
+      108241104.021013,
+      "native-oft"
+    ],
+    [
+      "Monad",
+      72089507.727789,
+      "native-oft"
+    ],
+    [
+      "Ink",
+      67053232.668865,
+      "native-oft"
+    ],
+    [
+      "Berachain",
+      38236354.554705,
+      "native-oft"
+    ],
+    [
+      "Stable",
+      29911386.322398,
+      "native-oft"
+    ],
+    [
+      "Flare",
+      23260857.702991,
+      "native-oft"
+    ],
+    [
+      "Conflux",
+      16071349.831713,
+      "native-oft"
+    ],
+    [
+      "Optimism",
+      9665372.294493,
+      "native-oft"
+    ],
+    [
+      "Tempo",
+      9276700.144211,
+      "native-oft"
+    ],
+    [
+      "Unichain",
+      5937095.821203,
+      "native-oft"
+    ],
+    [
+      "Morph",
+      4703405.65008,
+      "native-oft"
+    ],
+    [
+      "Rootstock",
+      1733812.528628,
+      "native-oft"
+    ]
+  ],
+  "legacy_escrow_latest": {
+    "Arbitrum_L1Gateway": 138794.985167,
+    "Optimism_L1Bridge": 214896797.793039,
+    "Polygon_ERC20Pred": 0.02
+  }
+}
