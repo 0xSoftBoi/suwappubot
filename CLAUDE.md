@@ -47,7 +47,8 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure for swapping token
 - **Python Monolith** (`api/` + `bot/`): FastAPI service running Telegram bot + legacy API
 - **TypeScript API** (`api-ts/`): Hono + Effect-TS API for agents and webapp
 - **Webapp** (`webapp/`): React + Vite Telegram Mini App
-- **Mobile** (`mobile/`): Expo iOS app
+- **Terminal** (`terminal/`): the other live Mini App (`app.suwappu.bot`, `terminal.suwappu.bot`)
+- **Mobile** (`mobile/`): Expo app — **not on `main`**, lives on `dev`/feature branches. Its backend (`api/routes/mobile.py` at `/v1/mobile`) *is* on `main`, so the two drift; check both branches when changing either side.
 - **Showcase** (`showcase/`): Next.js homepage
 
 Deploys to Railway. See `docs/deployment/` — and `docs/deployment/monitoring.md` for how we find out something is broken (which layer catches what, and what each one is blind to).
@@ -57,9 +58,13 @@ Deploys to Railway. See `docs/deployment/` — and `docs/deployment/monitoring.m
 ### Python Bot + API
 ```bash
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload  # Run monolith
-pytest tests/                                               # Run tests
+pytest tests/                                               # Run tests (1381, ~5 min — not hung)
 pytest tests/ --cov=bot --cov=api                           # Tests + coverage
 pytest tests/test_wallet.py::test_create_wallet -v          # Single test
+# Suite requires pytest-asyncio (in requirements.txt). Missing it = ~25 files fail at
+# COLLECTION with "'asyncio' not found in markers" — looks like mass failure, isn't.
+# Tests that pass alone but fail in-suite = import-order pollution, not a product bug.
+# See docs/development/testing.md
 docker-compose -f docker-compose.local.yml up               # Local (polling)
 docker-compose up                                           # Production (webhook)
 ```
@@ -85,7 +90,8 @@ npm run test:integration         # Integration tests
 npm run test:all                 # All tests
 ```
 
-### Mobile (Expo iOS)
+### Mobile (Expo)
+`mobile/` is **not on `main`** — check out `dev` (or the relevant feature branch) first.
 ```bash
 cd mobile && bun install && bun run ios
 ```
@@ -96,7 +102,7 @@ cd mobile && bun install && bun run ios
 - `USE_WEBHOOK=false` (default): Bot polls Telegram. **Single instance only** — multiple replicas = duplicate messages.
 - `USE_WEBHOOK=true`: Telegram pushes updates. Safe for multiple replicas.
 
-**No Alembic**: Runtime migrations in `database/db.py` via `_ensure_schema()`. All migrations are additive + idempotent. See `docs/development/migrations.md` or use `/migrations` skill.
+**No Alembic**: Runtime migrations in `database/db.py` via `_ensure_schema()`. All migrations are additive + idempotent. Use the `/migrations` skill.
 
 **Wallet Encryption**: Default `kms_aesgcm_v2` (envelope encryption with KMS). Legacy `legacy_fernet_v1` auto-migrates to v2.
 
@@ -121,8 +127,9 @@ cd mobile && bun install && bun run ios
 | `bot/utils/` | Encryption, rate limiting, formatters, caching |
 | `database/` | DB init, runtime schema migrations (`_ensure_schema()`) |
 | `packages/shared/` | Shared TypeScript types across api-ts, webapp, mobile |
-| `webapp/` | React + Vite Telegram Mini App |
-| `mobile/` | Expo iOS app |
+| `webapp/` | React + Vite Telegram Mini App (live Railway service — `railway.webapp.json`) |
+| `terminal/` | Web trading terminal / Mini App (`app.suwappu.bot`) |
+| `mobile/` | Expo app — **not on `main`**; on `dev`/feature branches |
 | `infra/` | AWS CDK infrastructure definitions |
 
 ## Code Changes
