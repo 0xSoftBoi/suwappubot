@@ -1,0 +1,143 @@
+{
+  "prize_V": 1000000.0,
+  "n_potential_entrants": 5000,
+  "draws_per_sigma": 500,
+  "seed": 20260726,
+  "results": [
+    {
+      "sigma": 0.2,
+      "active": [
+        18.0,
+        12.0,
+        24.0
+      ],
+      "dissipation": [
+        0.904883808588089,
+        0.8571329537904027,
+        0.9312708283740572
+      ],
+      "top1_share": [
+        0.1711888783871764,
+        0.11342841391824073,
+        0.25806026289233247
+      ],
+      "farmer_surplus": [
+        0.09511619141191108,
+        0.06872917162594296,
+        0.14286704620959723
+      ]
+    },
+    {
+      "sigma": 0.4,
+      "active": [
+        10.0,
+        6.950000000000003,
+        15.0
+      ],
+      "dissipation": [
+        0.8417698302474874,
+        0.7330386426711353,
+        0.8928307407909951
+      ],
+      "top1_share": [
+        0.258908241450043,
+        0.16170330512600892,
+        0.40173227234850645
+      ],
+      "farmer_surplus": [
+        0.15823016975251256,
+        0.10716925920900482,
+        0.26696135732886467
+      ]
+    },
+    {
+      "sigma": 0.6,
+      "active": [
+        8.0,
+        5.0,
+        11.0
+      ],
+      "dissipation": [
+        0.7918873183440678,
+        0.6636092357222881,
+        0.8640355729233273
+      ],
+      "top1_share": [
+        0.3107785880199804,
+        0.2018093726525739,
+        0.49285577899979877
+      ],
+      "farmer_surplus": [
+        0.20811268165593214,
+        0.1359644270766728,
+        0.33639076427771175
+      ]
+    },
+    {
+      "sigma": 1.0,
+      "active": [
+        5.0,
+        3.0,
+        8.0
+      ],
+      "dissipation": [
+        0.7022112063182605,
+        0.49128863277599516,
+        0.8171855780506293
+      ],
+      "top1_share": [
+        0.4080681316762689,
+        0.2547259594155646,
+        0.6601060177571689
+      ],
+      "farmer_surplus": [
+        0.2977887936817394,
+        0.1828144219493707,
+        0.5087113672240049
+      ]
+    }
+  ],
+  "monotone_in_sigma": {
+    "active_decreasing": true,
+    "dissipation_decreasing": true,
+    "top1_increasing": true,
+    "surplus_increasing": true
+  },
+  "sybil_sensitivity": {
+    "budget_usd": 100000.0,
+    "bonus": 0.25,
+    "bonus_cap_points": 5000.0,
+    "note": "gain from splitting a fixed budget across 1,000 wallets vs 1, under a per-wallet bonus; fee-denominated points are invariant at every level",
+    "rows": [
+      {
+        "competing_effort_points": 100000.0,
+        "gain_x": 1.104252400548697,
+        "fee_denominated_deviation": 0.0
+      },
+      {
+        "competing_effort_points": 500000.0,
+        "gain_x": 1.1876543209876542,
+        "fee_denominated_deviation": 0.0
+      },
+      {
+        "competing_effort_points": 1000000.0,
+        "gain_x": 1.2085048010973936,
+        "fee_denominated_deviation": 0.0
+      },
+      {
+        "competing_effort_points": 5000000.0,
+        "gain_x": 1.2288467329117736,
+        "fee_denominated_deviation": 0.0
+      },
+      {
+        "competing_effort_points": 20000000.0,
+        "gain_x": 1.2331109577486388,
+        "fee_denominated_deviation": 0.0
+      }
+    ]
+  },
+  "sybil_gain_range_x": [
+    1.104252400548697,
+    1.2331109577486388
+  ]
+}
