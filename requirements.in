@@ -12,12 +12,12 @@
 # transitive past its parent's constraint (see the #459 breakage).
 
 # ---- Web framework / server ----
-fastapi==0.138.2
-uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint
+fastapi==0.140.6
+uvicorn[standard]>=0.51.0,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
-sentry-sdk[fastapi]==2.28.0
+sentry-sdk[fastapi]==2.66.1
 
 # ---- Telegram bot ----
 python-telegram-bot[rate-limiter]==22.8
@@ -26,11 +26,11 @@ python-telegram-bot[rate-limiter]==22.8
 httpx==0.28.1
 httpx2                                # required by starlette>=1.x TestClient; test-only, app clients still use httpx
 requests==2.34.2
-aiohttp==3.14.1
+aiohttp==3.14.3
 websockets==15.0.1
 # certifi is transitive, but pinned deliberately for the aiohttp SSL health-check
 # fix (commit 32d0805) — keep a floor so pip-compile can't resolve below it.
-certifi>=2026.6.17
+certifi>=2026.7.22
 # urllib3 is transitive, but floored deliberately to pull in the patched
 # decompression-bomb + cross-origin-redirect-header advisories.
 urllib3>=2.7.0
@@ -61,8 +61,8 @@ eth-utils==5.3.1
 pytempo==0.5.1                        # Tempo type-0x76 gasless fee-payer SDK
 
 # ---- Solana ----
-solana==0.40.0
-solders==0.27.1
+solana==0.40.1
+solders==0.28.0
 base58==2.1.1
 
 # ---- Tron ----
@@ -81,7 +81,7 @@ discord.py>=2.3,<3.0
 
 # ---- Media / QR ----
 qrcode>=7.4,<9.0
-Pillow>=10.0                          # imported as PIL
+Pillow>=12.3.0                          # imported as PIL
 
 # ---- Cache ----
 redis==8.0.1
