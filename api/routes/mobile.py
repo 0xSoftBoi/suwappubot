@@ -46,18 +46,22 @@ def _require_db():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
-_LEVEL_ORDER = ["bronze", "silver", "gold", "platinum", "diamond"]
-
-
 def _next_level_name(level: str) -> Optional[str]:
-    """Mirror points_service.format_stats_message's next-level lookup."""
+    """Name of the level above ``level``, or None at the top.
+
+    Order is derived from LEVELS by xp threshold rather than hardcoded, so
+    adding a tier to the model can't silently desync this route.
+    """
+    from bot.models.points import LEVELS
+
+    order = sorted(LEVELS, key=lambda name: LEVELS[name]["xp"])
     try:
-        idx = _LEVEL_ORDER.index(level)
+        idx = order.index(level)
     except ValueError:
         idx = 0
-    if idx >= len(_LEVEL_ORDER) - 1:
+    if idx >= len(order) - 1:
         return None
-    return _LEVEL_ORDER[idx + 1]
+    return order[idx + 1]
 
 
 def _can_checkin_today(last_checkin) -> bool:
