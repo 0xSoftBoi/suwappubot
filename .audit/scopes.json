@@ -1,0 +1,80 @@
+{
+  "generated": "2026-08-01",
+  "focus": "agent money path: swap exec + router approvals, key/KMS custody, x402 metering + spend permissions, withdrawal/transfer paths, Banana Gun message-oracle class, agent/MCP authz+injection",
+  "note": "api-ts/src/routes/mcp.ts is EXCLUDED from this fleet — it is being actively rewritten by the MCP-artifact build and will get a dedicated money-path-reviewer pass on completion.",
+  "scopes": [
+    {
+      "name": "money-swap",
+      "backend": "python+ts",
+      "files": [
+        "bot/services/swap_engine.py",
+        "bot/services/fee_service.py",
+        "bot/services/fee_sweeper.py",
+        "bot/services/tempo_fee_sponsor.py",
+        "bot/handlers/swap.py",
+        "bot/handlers/bulk_swap.py",
+        "bot/handlers/quickswap.py",
+        "api-ts/src/services/SwapService.ts",
+        "api-ts/src/routes/swap.ts",
+        "api-ts/src/routes/publicSwap.ts"
+      ],
+      "entrypoint": "swap execute → router approval/allowance building and fee application; approval-exploit (Maestro/Unibot) bug class"
+    },
+    {
+      "name": "keys-custody",
+      "backend": "python+ts",
+      "files": [
+        "bot/utils/encryption.py",
+        "bot/utils/wallet_provider.py",
+        "bot/services/kms_client.py",
+        "bot/services/wallet.py",
+        "bot/services/hot_wallet.py",
+        "bot/services/wallet_recovery.py",
+        "api-ts/src/services/TurnkeyService.ts",
+        "api-ts/src/db/schema/wallets.ts"
+      ],
+      "entrypoint": "KMS envelope encrypt/decrypt + legacy Fernet migration + recovery flow; key exposure / downgrade"
+    },
+    {
+      "name": "x402-billing",
+      "backend": "ts",
+      "files": [
+        "api-ts/src/middleware/x402Payment.ts",
+        "api-ts/src/lib/x402Verify.ts",
+        "api-ts/src/lib/spendPermission.ts",
+        "api-ts/src/routes/billing.ts",
+        "api-ts/src/middleware/mppAuth.ts",
+        "api-ts/src/middleware/recordUsage.ts"
+      ],
+      "entrypoint": "meteredPayment verify/charge/refund + spend-permission authorization; payment replay / undercharge / spend-cap bypass"
+    },
+    {
+      "name": "webhooks-oracle",
+      "backend": "python",
+      "files": [
+        "api/main.py",
+        "api/webapp.py",
+        "api/routes/oauth.py",
+        "bot/handlers/nl_trade.py",
+        "bot/handlers/wallet.py",
+        "bot/handlers/snipe.py",
+        "bot/services/whatsapp_voice.py"
+      ],
+      "entrypoint": "inbound update/message → callback → fund movement; trusting message content as authz oracle (Banana Gun class); LLM intent → money without re-auth"
+    },
+    {
+      "name": "agent-mcp",
+      "backend": "ts",
+      "files": [
+        "api-ts/src/routes/agent.ts",
+        "api-ts/src/routes/a2a.ts",
+        "api-ts/src/services/AgentService.ts",
+        "api-ts/src/middleware/agentFlexAuth.ts",
+        "api-ts/src/middleware/agentOrMppAuth.ts",
+        "api-ts/src/middleware/apiKeyAuth.ts",
+        "api-ts/src/middleware/requireScope.ts"
+      ],
+      "entrypoint": "agent register/auth + A2A message parsing → swap; bearer/scope authz bypass, cross-agent wallet access, prompt/param injection"
+    }
+  ]
+}
