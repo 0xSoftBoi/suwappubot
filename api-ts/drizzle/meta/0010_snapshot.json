@@ -1,6 +1,6 @@
 {
-  "id": "9104ee4c-a4da-4216-a3a5-a551b25fc8cb",
-  "prevId": "0d94067e-bd3e-4648-abd0-b4a0751eb5a0",
+  "id": "36d43395-632c-4e83-bdd5-a090b7597538",
+  "prevId": "9104ee4c-a4da-4216-a3a5-a551b25fc8cb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1846,7 +1846,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": false,
-          "default": "'\ud83e\udd8a'"
+          "default": "'🦊'"
         },
         "total_trades": {
           "name": "total_trades",
@@ -5343,6 +5343,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "approval_id": {
+          "name": "approval_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -5964,7 +5970,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'\ud83c\udfc6'"
+          "default": "'🏆'"
         },
         "requirement_type": {
           "name": "requirement_type",
@@ -6307,7 +6313,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'\ud83c\udf81'"
+          "default": "'🎁'"
         },
         "points_cost": {
           "name": "points_cost",

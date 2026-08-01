@@ -110,7 +110,7 @@ export const policyDecisions = pgTable(
 		agentCreatedIdx: index('policy_decisions_agent_created_idx').on(t.agentId, t.createdAt),
 		// DB-level idempotency for the cap-accounting 'allow' override insert in
 		// agent.ts's approval-resubmit path — at most one decision row per
-		// approval_id (see migration 0008 for the rationale).
+		// approval_id (see migration 0011_silly_black_queen for the rationale).
 		approvalIdUniqueIdx: uniqueIndex('policy_decisions_approval_id_unique_idx')
 			.on(t.approvalId)
 			.where(sql`${t.approvalId} IS NOT NULL`),

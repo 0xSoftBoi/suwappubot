@@ -1,6 +1,6 @@
 {
-  "id": "7497ca5a-1415-48fe-b541-2b3ffaa2668e",
-  "prevId": "36d43395-632c-4e83-bdd5-a090b7597538",
+  "id": "9104ee4c-a4da-4216-a3a5-a551b25fc8cb",
+  "prevId": "0d94067e-bd3e-4648-abd0-b4a0751eb5a0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1846,7 +1846,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": false,
-          "default": "'🦊'"
+          "default": "'\ud83e\udd8a'"
         },
         "total_trades": {
           "name": "total_trades",
@@ -5343,12 +5343,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "approval_id": {
-          "name": "approval_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -5396,22 +5390,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "policy_decisions_approval_id_unique_idx": {
-          "name": "policy_decisions_approval_id_unique_idx",
-          "columns": [
-            {
-              "expression": "approval_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"policy_decisions\".\"approval_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5986,7 +5964,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'🏆'"
+          "default": "'\ud83c\udfc6'"
         },
         "requirement_type": {
           "name": "requirement_type",
@@ -6329,7 +6307,7 @@
           "type": "varchar(10)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'🎁'"
+          "default": "'\ud83c\udf81'"
         },
         "points_cost": {
           "name": "points_cost",

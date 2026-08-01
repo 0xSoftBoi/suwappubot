@@ -52,10 +52,37 @@ export interface PolicyDecisionResult {
 	id?: number
 }
 
+/** Result of reserveApprovalAllowance: either the reserved decision row id, or
+ * a fresh block (a concurrent reservation used up the cap first). */
+export type ReserveResult = { id: number } | { blocked: true; reason: string }
+
 export interface PolicyServiceInterface {
 	readonly evaluate: (
 		intent: PolicyIntent,
 	) => Effect.Effect<PolicyDecisionResult, DatabaseError, DrizzleService>
+
+	/**
+	 * Atomically re-checks daily/session/velocity caps AND inserts the
+	 * cap-accounting 'allow' row for an approved human-in-the-loop trade, all
+	 * inside one DB transaction serialized by a per-org advisory lock. This
+	 * MUST run BEFORE the transaction is built (see agent.ts's approval-resubmit
+	 * path) — it is the reservation that closes the TOCTOU where two concurrent
+	 * approved resubmits both read the pre-insert cap sum and jointly exceed it.
+	 * Callers MUST call releaseApprovalAllowance(id) if the build subsequently
+	 * fails, and rely on the partial unique index on
+	 * policy_decisions(approval_id) for at-most-once insertion either way.
+	 */
+	readonly reserveApprovalAllowance: (
+		intent: PolicyIntent,
+		approvalId: string,
+	) => Effect.Effect<ReserveResult, DatabaseError, DrizzleService>
+
+	/** Compensating rollback for reserveApprovalAllowance when the build that
+	 * followed it failed — deletes the reserved row so it never counts toward
+	 * caps for a trade that never executed. */
+	readonly releaseApprovalAllowance: (
+		id: number,
+	) => Effect.Effect<void, DatabaseError, DrizzleService>
 }
 
 export class PolicyService extends Context.Tag('PolicyService')<
@@ -310,6 +337,129 @@ export const PolicyServiceLive = Layer.succeed(
 					return yield* log(pendingApproval)
 				}
 				return yield* log({ decision: 'allow' })
+			}),
+
+		reserveApprovalAllowance: (intent, approvalId) =>
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const orgId = intent.organizationId
+				if (!orgId) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'reserveApprovalAllowance requires an organizationId' }),
+					)
+				}
+
+				return yield* Effect.tryPromise({
+					try: () =>
+						db.transaction(async (tx) => {
+							// Serialize concurrent reservations for the same org so the cap
+							// read below can never race another reservation's read — the tx
+							// that loses the lock blocks until the winner commits (or rolls
+							// back), then re-reads sums that already include it.
+							await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId})::bigint)`)
+
+							const rows = await tx
+								.select()
+								.from(policies)
+								.where(
+									and(
+										eq(policies.organizationId, orgId),
+										eq(policies.enabled, true),
+										intent.agentId
+											? or(isNull(policies.agentId), eq(policies.agentId, intent.agentId))
+											: isNull(policies.agentId),
+									),
+								)
+								.orderBy(policies.priority)
+
+							const now = Date.now()
+							const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
+							const hourAgo = new Date(now - 60 * 60 * 1000)
+							const agentFilter = intent.agentId
+								? eq(policyDecisions.agentId, intent.agentId)
+								: eq(policyDecisions.organizationId, orgId)
+
+							const [agg] = await tx
+								.select({
+									daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
+									hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
+									hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then 1 else 0 end), 0)`,
+								})
+								.from(policyDecisions)
+								.where(
+									and(
+										agentFilter,
+										eq(policyDecisions.decision, 'allow'),
+										gte(policyDecisions.createdAt, dayAgo),
+									),
+								)
+
+							const daySum = Number(agg?.daySum ?? 0)
+							const hourSum = Number(agg?.hourSum ?? 0)
+							const hourCount = Number(agg?.hourCount ?? 0)
+
+							for (const p of rows) {
+								if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
+									return {
+										blocked: true as const,
+										reason: `daily cap $${p.dailyCapUsd} would be exceeded ($${daySum.toFixed(2)} used)`,
+									}
+								}
+								if (p.sessionCapUsd != null && hourSum + intent.valueUsd > p.sessionCapUsd) {
+									return {
+										blocked: true as const,
+										reason: `session cap $${p.sessionCapUsd} would be exceeded ($${hourSum.toFixed(2)} used)`,
+									}
+								}
+								if (p.maxTxPerHour != null && hourCount + 1 > p.maxTxPerHour) {
+									return {
+										blocked: true as const,
+										reason: `velocity limit ${p.maxTxPerHour}/hr exceeded`,
+									}
+								}
+							}
+
+							const inserted = await tx
+								.insert(policyDecisions)
+								.values({
+									organizationId: orgId,
+									agentId: intent.agentId ?? null,
+									decision: 'allow',
+									reason: 'human-in-the-loop approval override',
+									intent: intent as unknown as Record<string, unknown>,
+									valueUsd: intent.valueUsd,
+									approvalId,
+								})
+								.onConflictDoNothing()
+								.returning({ id: policyDecisions.id })
+
+							// onConflictDoNothing means a re-entrant reservation for the same
+							// approvalId (partial unique index) returns no row rather than a
+							// duplicate — treat that as an already-reserved success rather
+							// than a fresh insert, so a retried resubmit doesn't spuriously block.
+							if (!inserted[0]) {
+								const existing = await tx
+									.select({ id: policyDecisions.id })
+									.from(policyDecisions)
+									.where(eq(policyDecisions.approvalId, approvalId))
+									.limit(1)
+								return { id: existing[0]?.id ?? -1 }
+							}
+							return { id: inserted[0].id }
+						}),
+					catch: (e) =>
+						new DatabaseError({ message: `reserveApprovalAllowance failed: ${e}`, cause: e }),
+				})
+			}),
+
+		releaseApprovalAllowance: (id) =>
+			Effect.gen(function* () {
+				if (id < 0) return
+				const db = yield* requireDb
+				yield* Effect.tryPromise({
+					try: () => db.delete(policyDecisions).where(eq(policyDecisions.id, id)),
+					catch: (e) => new DatabaseError({ message: `releaseApprovalAllowance failed: ${e}`, cause: e }),
+				})
 			}),
 	}),
 )

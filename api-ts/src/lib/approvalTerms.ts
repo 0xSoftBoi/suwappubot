@@ -63,6 +63,20 @@ export function termsFromSolanaQuote(
 	}
 }
 
+/**
+ * Parses an EVM quote's USD value, returning null when it can't be priced
+ * (missing or non-finite fromAmountUsd). Callers MUST refuse the approval
+ * flow on null rather than defaulting to 0 — a $0 valueUsd would silently
+ * bypass daily/session/velocity USD caps for a trade that may be worth real
+ * money (mirrors the Solana refusal in agent.ts, which has the same problem
+ * for a different reason: no USD pricing at that layer at all).
+ */
+export function evmQuoteUsdValue(fromAmountUsd: string | undefined): number | null {
+	if (fromAmountUsd == null) return null
+	const n = parseFloat(fromAmountUsd)
+	return Number.isFinite(n) ? n : null
+}
+
 export function termsFromEvmQuote(
 	quote: {
 		fromChain: string
@@ -75,7 +89,9 @@ export function termsFromEvmQuote(
 		fromAmountUsd?: string
 	},
 	walletAddress: string,
-): EconomicTerms {
+): EconomicTerms | null {
+	const valueUsd = evmQuoteUsdValue(quote.fromAmountUsd)
+	if (valueUsd == null) return null
 	return {
 		isSolana: false,
 		fromChain: String(quote.fromChain),
@@ -86,6 +102,6 @@ export function termsFromEvmQuote(
 		amountOutMin: quote.toAmountMin,
 		walletAddress,
 		slippage: quote.slippage,
-		valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
+		valueUsd,
 	}
 }

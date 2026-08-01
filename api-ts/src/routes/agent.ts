@@ -7,8 +7,8 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, organizations, policyDecisions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
-import { type EconomicTerms, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, organizations, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -1083,6 +1083,494 @@ async function buildSwapTxResponse(
 	})
 }
 
+/**
+ * Institutional policy gate for a freshly fetched (never before submitted)
+ * quote. Evaluates the trade intent against the org's policy rules + this
+ * agent's spend profile + kill switches. On 'block' or 'require_approval' it
+ * writes the audit trail and returns the Response the route should send
+ * immediately; on 'allow' (or an org-less/un-orged request, or a policy-eval
+ * infra error — fail open, logged) it returns null and the caller proceeds
+ * to build the transaction.
+ *
+ * Shared by POST /swap (quote_id path) and POST /swap/execute (custodial
+ * sign+broadcast path) — both are the SAME swap-execution action and MUST be
+ * gated identically. /swap/execute forwarding straight to the internal
+ * signer with no gate here was the money-path bypass this closes.
+ */
+async function enforcePolicyGateForFreshQuote(
+	c: Context,
+	agentIdentifier: string,
+	orgId: string | null,
+	quote: JupiterQuote | SwapQuote,
+	isSolana: boolean,
+	walletAddress: string,
+): Promise<Response | null> {
+	if (!orgId) return null
+
+	let policyIntent: PolicyIntent
+	if (isSolana) {
+		const jq = quote as JupiterQuote
+		policyIntent = {
+			organizationId: orgId,
+			agentId: agentIdentifier,
+			chain: 'solana',
+			fromToken: jq.inputMint ?? null,
+			toToken: jq.outputMint ?? null,
+			// TODO: Solana quote carries no USD value; USD-based caps are
+			// skipped until we price the input mint. Chain/token rules apply.
+			valueUsd: 0,
+		}
+	} else {
+		const evmQuote = quote as SwapQuote
+		const valueUsd = evmQuoteUsdValue(evmQuote.fromAmountUsd)
+		if (valueUsd == null) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'policy.unpriced_quote',
+				details: { reason: 'fromAmountUsd missing on EVM quote' },
+			})
+			return c.json(
+				{
+					success: false,
+					status: 'block',
+					error:
+						'Unable to price this trade in USD (fromAmountUsd missing from the quote) — refusing rather than silently bypassing USD-based policy caps.',
+				},
+				400,
+			)
+		}
+		policyIntent = {
+			organizationId: orgId,
+			agentId: agentIdentifier,
+			chain: String(evmQuote.fromChain),
+			fromToken: evmQuote.fromToken?.address ?? null,
+			toToken: evmQuote.toToken?.address ?? null,
+			valueUsd,
+			gasUsd: parseFloat(evmQuote.estimatedGasUsd ?? '0') || 0,
+		}
+	}
+
+	const verdict = await runEffectEither(
+		Effect.gen(function* () {
+			const policy = yield* PolicyService
+			return yield* policy.evaluate(policyIntent)
+		}),
+	)
+
+	// If the policy query itself errored, fail open but log it — never block
+	// legitimate trades on an infra hiccup.
+	if (Either.isLeft(verdict)) {
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'policy.eval_error',
+			details: { error: String(verdict.left) },
+		})
+		return null
+	}
+
+	if (verdict.right.decision === 'allow') return null
+
+	const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
+	writeAuditLog({
+		userId: 0,
+		orgId,
+		agentId: agentIdentifier,
+		eventType: `policy.${decision}`,
+		details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
+	})
+
+	if (decision === 'require_approval') {
+		// Solana quotes carry no USD value at this layer (termsFromSolanaQuote
+		// hard-codes valueUsd=0), so an approved Solana trade would silently
+		// bypass daily/session USD caps. Refuse rather than write a $0 cap row.
+		if (isSolana) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.unsupported_chain',
+				details: { chain: 'solana', reason },
+			})
+			return c.json(
+				{
+					success: false,
+					status: 'block',
+					error:
+						'This trade requires org approval, but Solana approvals are not yet supported (no USD pricing at this layer) — blocking rather than silently bypassing USD caps.',
+					reason: reason ?? null,
+				},
+				403,
+			)
+		}
+
+		// Persist the RE-QUOTABLE economic terms (not quote_id — the 60s quote
+		// cache TTL is far shorter than the approval window, and is per-process
+		// so it wouldn't survive a multi-replica deploy either).
+		const economicTerms = termsFromEvmQuote(quote as SwapQuote, walletAddress)
+		if (!economicTerms) {
+			// Defensive — evmQuoteUsdValue() already refused above for this case.
+			return c.json({ success: false, error: 'Unable to price this trade in USD' }, 400)
+		}
+
+		const created = await runEffectEither(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const orgOwnerRows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ ownerId: organizations.ownerId })
+							.from(organizations)
+							.where(eq(organizations.id, orgId))
+							.limit(1),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+				const approvals = yield* ApprovalService
+				return yield* approvals.create({
+					agentId: agentIdentifier,
+					organizationId: orgId,
+					userId: orgOwnerRows[0]?.ownerId ?? null,
+					actionType: 'swap_execute',
+					payload: economicTerms,
+					policyDecisionId: policyDecisionId ?? null,
+					reason: reason ?? null,
+				})
+			}),
+		)
+
+		if (Either.isLeft(created)) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.create_failed',
+				details: { error: String(created.left) },
+			})
+			return c.json({ success: false, error: 'Failed to create approval request' }, 500)
+		}
+
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.created',
+			details: { approvalId: created.right.id, reason, policyDecisionId },
+		})
+
+		return c.json(
+			{
+				success: false,
+				status: 'pending',
+				error: 'Transaction requires approval under org policy',
+				reason: reason ?? null,
+				approval_id: created.right.id,
+				expires_at: created.right.expiresAt.toISOString(),
+				hint: 'Poll GET /v1/agent/approvals/:id until status is "approved", then re-submit with approval_id set (quote_id not required — the trade is re-quoted server-side).',
+			},
+			202,
+		)
+	}
+
+	// decision === 'block'
+	return c.json(
+		{
+			success: false,
+			status: decision,
+			error: 'Transaction blocked by org policy',
+			error_code: 'POLICY_VIOLATION',
+			reason: reason ?? null,
+		},
+		403,
+	)
+}
+
+/** Release a cap-accounting reservation made by resolveApprovalResubmit()
+ * when the build that followed it failed — see PolicyService.releaseApprovalAllowance. */
+async function releaseApprovalReserve(reserveId: number | null): Promise<void> {
+	if (reserveId == null) return
+	await runEffectEither(
+		Effect.gen(function* () {
+			const policy = yield* PolicyService
+			yield* policy.releaseApprovalAllowance(reserveId)
+		}),
+	)
+}
+
+/**
+ * Resubmission of a previously deferred (require_approval) execute call. The
+ * agent polled GET /v1/agent/approvals/:id until status flipped to
+ * 'approved', then re-submits with approval_id set (quote_id is NOT required —
+ * the original cached quote is long expired by the time a human approves).
+ * Re-quotes server-side from the approval's stored economic terms, validates
+ * the fresh terms match (same chain/tokens/amount_in/wallet) and the fresh
+ * amount_out_min is >= the approved minimum (never a worse price), THEN
+ * re-runs PolicyService.evaluate() — a valid approval only satisfies a
+ * require_approval verdict; a block (incl. kill switches) still 403s.
+ *
+ * Shared by POST /swap and POST /swap/execute — the caller is responsible for
+ * actually building the transaction (unsigned tx vs. custodial sign+broadcast)
+ * and MUST call releaseApprovalReserve(reserveId) if that build fails.
+ */
+async function resolveApprovalResubmit(
+	c: Context,
+	agentIdentifier: string,
+	orgId: string | null,
+	approvalId: string,
+	walletAddress: string,
+): Promise<
+	| { kind: 'response'; response: Response }
+	| {
+			kind: 'ready'
+			freshQuote: JupiterQuote | SwapQuote
+			isSolana: boolean
+			decidedBy: number | null
+			decidedAt: Date | null
+			payload: unknown
+			reserveId: number | null
+	  }
+> {
+	const loaded = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.getForAgent(approvalId, agentIdentifier)
+		}),
+	)
+	if (Either.isLeft(loaded)) {
+		const { status, body: errBody } = mapErrorToResponse(loaded.left)
+		return { kind: 'response', response: c.json({ success: false, ...errBody }, status) }
+	}
+	const approvalRow = loaded.right
+	if (approvalRow.status !== 'approved') {
+		return {
+			kind: 'response',
+			response: c.json(
+				{
+					success: false,
+					error: `Approval request is '${approvalRow.status}', not 'approved'`,
+					status: approvalRow.status,
+				},
+				approvalRow.status === 'pending' ? 202 : 400,
+			),
+		}
+	}
+
+	const storedTerms = approvalRow.payload as unknown as EconomicTerms
+
+	// Re-quote server-side from the stored terms — NEVER trust a client-supplied quote here.
+	const requoted = await runEffectEither(
+		Effect.gen(function* () {
+			if (storedTerms.isSolana) {
+				const jupiterService = yield* JupiterService
+				const quote = yield* jupiterService
+					.getQuote({
+						inputMint: storedTerms.fromToken,
+						outputMint: storedTerms.toToken,
+						amount: storedTerms.amountIn,
+						slippageBps: storedTerms.slippageBps ?? 300,
+					})
+					.pipe(
+						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+					)
+				return { quote, isSolana: true as const }
+			}
+			const swapService = yield* SwapService
+			const quote = yield* swapService
+				.getQuote({
+					fromChain: storedTerms.fromChain,
+					toChain: storedTerms.toChain,
+					fromToken: storedTerms.fromToken,
+					toToken: storedTerms.toToken,
+					fromAmount: storedTerms.amountIn,
+					fromAddress: storedTerms.walletAddress,
+					slippage: storedTerms.slippage ?? 0.03,
+					order: 'RECOMMENDED',
+					integrator: 'suwappu-agent',
+				})
+				.pipe(
+					Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+				)
+			return { quote, isSolana: false as const }
+		}),
+	)
+
+	if (Either.isLeft(requoted)) {
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.requote_failed',
+			details: { approvalId, error: requoted.left.message },
+		})
+		return {
+			kind: 'response',
+			response: c.json(
+				{ success: false, error: 'Failed to re-quote approved trade', details: requoted.left.message },
+				400,
+			),
+		}
+	}
+
+	const { quote: freshQuote, isSolana } = requoted.right
+	const freshTerms = isSolana
+		? termsFromSolanaQuote(freshQuote as JupiterQuote, walletAddress)
+		: termsFromEvmQuote(freshQuote as SwapQuote, walletAddress)
+
+	if (!freshTerms) {
+		// EVM re-quote can't be priced — refuse rather than validate/consume
+		// against a $0 valueUsd (mirrors the Solana refusal elsewhere in this flow).
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.unpriced_quote',
+			details: { approvalId },
+		})
+		return {
+			kind: 'response',
+			response: c.json(
+				{
+					success: false,
+					error:
+						'Unable to price the re-quoted trade in USD (fromAmountUsd missing) — refusing rather than bypassing USD caps',
+				},
+				400,
+			),
+		}
+	}
+
+	const validated = await runEffectEither(
+		Effect.gen(function* () {
+			const approvals = yield* ApprovalService
+			return yield* approvals.validateForExecution(approvalId, agentIdentifier, orgId, freshTerms)
+		}),
+	)
+
+	if (Either.isLeft(validated)) {
+		const { status, body: errBody } = mapErrorToResponse(validated.left)
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.validation_failed',
+			details: { approvalId, error: errBody.message ?? errBody.error },
+		})
+		return { kind: 'response', response: c.json({ success: false, ...errBody }, status) }
+	}
+
+	// Always re-run the policy gate (kill switches / block rules still apply).
+	// A valid, price-checked approval only satisfies a 'require_approval'
+	// verdict — 'block' still 403s even with an approved approval_id.
+	let reserveId: number | null = null
+	if (orgId) {
+		const freshGasUsd = isSolana
+			? undefined
+			: parseFloat((freshQuote as SwapQuote).estimatedGasUsd ?? '0') || 0
+		const policyIntent: PolicyIntent = {
+			organizationId: orgId,
+			agentId: agentIdentifier,
+			chain: freshTerms.fromChain,
+			fromToken: freshTerms.fromToken,
+			toToken: freshTerms.toToken,
+			valueUsd: freshTerms.valueUsd,
+			gasUsd: freshGasUsd,
+		}
+		const verdict = await runEffectEither(
+			Effect.gen(function* () {
+				const policy = yield* PolicyService
+				return yield* policy.evaluate(policyIntent)
+			}),
+		)
+
+		if (Either.isRight(verdict) && verdict.right.decision === 'block') {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.blocked_on_resubmit',
+				details: { approvalId, reason: verdict.right.reason },
+			})
+			return {
+				kind: 'response',
+				response: c.json(
+					{
+						success: false,
+						status: 'block',
+						error: 'Transaction blocked by org policy',
+						reason: verdict.right.reason ?? null,
+					},
+					403,
+				),
+			}
+		}
+
+		if (Either.isRight(verdict) && verdict.right.decision === 'require_approval') {
+			// Reserve the cap-accounting 'allow' row NOW — atomically with the cap
+			// read, inside PolicyService.reserveApprovalAllowance's transaction —
+			// BEFORE the caller builds/broadcasts the transaction. This closes the
+			// TOCTOU where two concurrent approved resubmits both read the
+			// pre-insert cap sum and jointly exceed it. The caller MUST release
+			// this reservation if the build subsequently fails.
+			const reserved = await runEffectEither(
+				Effect.gen(function* () {
+					const policy = yield* PolicyService
+					return yield* policy.reserveApprovalAllowance(policyIntent, approvalId)
+				}),
+			)
+
+			if (Either.isLeft(reserved)) {
+				writeAuditLog({
+					userId: 0,
+					orgId,
+					agentId: agentIdentifier,
+					eventType: 'approval.reserve_failed',
+					details: { approvalId, error: String(reserved.left) },
+				})
+				return {
+					kind: 'response',
+					response: c.json({ success: false, error: 'Failed to reserve cap allowance' }, 500),
+				}
+			}
+
+			if ('blocked' in reserved.right) {
+				writeAuditLog({
+					userId: 0,
+					orgId,
+					agentId: agentIdentifier,
+					eventType: 'approval.blocked_on_resubmit',
+					details: { approvalId, reason: reserved.right.reason },
+				})
+				return {
+					kind: 'response',
+					response: c.json(
+						{
+							success: false,
+							status: 'block',
+							error: 'Transaction blocked by org policy',
+							reason: reserved.right.reason,
+						},
+						403,
+					),
+				}
+			}
+
+			reserveId = reserved.right.id
+		}
+	}
+
+	return {
+		kind: 'ready',
+		freshQuote,
+		isSolana,
+		decidedBy: approvalRow.decidedBy,
+		decidedAt: approvalRow.decidedAt,
+		payload: approvalRow.payload,
+		reserveId,
+	}
+}
+
 // POST /v1/agent/swap - Execute a swap (returns unsigned transaction)
 agentRoutes.post('/swap', async (c) => {
 	const agent = c.get('agent')
@@ -1131,158 +1619,10 @@ agentRoutes.post('/swap', async (c) => {
 	if (approval_id) {
 		const orgId = apiKeyCtx?.orgId ?? null
 
-		const loaded = await runEffectEither(
-			Effect.gen(function* () {
-				const approvals = yield* ApprovalService
-				return yield* approvals.getForAgent(approval_id, agentIdentifier)
-			}),
-		)
-		if (Either.isLeft(loaded)) {
-			const { status, body: errBody } = mapErrorToResponse(loaded.left)
-			return c.json({ success: false, ...errBody }, status)
-		}
-		const approvalRow = loaded.right
-		if (approvalRow.status !== 'approved') {
-			return c.json(
-				{
-					success: false,
-					error: `Approval request is '${approvalRow.status}', not 'approved'`,
-					status: approvalRow.status,
-				},
-				approvalRow.status === 'pending' ? 202 : 400,
-			)
-		}
+		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, wallet_address)
+		if (outcome.kind === 'response') return outcome.response
 
-		const storedTerms = approvalRow.payload as unknown as EconomicTerms
-
-		// Re-quote server-side from the stored terms — NEVER trust a client-supplied quote here.
-		const requoted = await runEffectEither(
-			Effect.gen(function* () {
-				if (storedTerms.isSolana) {
-					const jupiterService = yield* JupiterService
-					const quote = yield* jupiterService
-						.getQuote({
-							inputMint: storedTerms.fromToken,
-							outputMint: storedTerms.toToken,
-							amount: storedTerms.amountIn,
-							slippageBps: storedTerms.slippageBps ?? 300,
-						})
-						.pipe(
-							Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
-						)
-					return { quote, isSolana: true as const }
-				}
-				const swapService = yield* SwapService
-				const quote = yield* swapService
-					.getQuote({
-						fromChain: storedTerms.fromChain,
-						toChain: storedTerms.toChain,
-						fromToken: storedTerms.fromToken,
-						toToken: storedTerms.toToken,
-						fromAmount: storedTerms.amountIn,
-						fromAddress: storedTerms.walletAddress,
-						slippage: storedTerms.slippage ?? 0.03,
-						order: 'RECOMMENDED',
-						integrator: 'suwappu-agent',
-					})
-					.pipe(
-						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
-					)
-				return { quote, isSolana: false as const }
-			}),
-		)
-
-		if (Either.isLeft(requoted)) {
-			writeAuditLog({
-				userId: 0,
-				orgId,
-				agentId: agentIdentifier,
-				eventType: 'approval.requote_failed',
-				details: { approvalId: approval_id, error: requoted.left.message },
-			})
-			return c.json({ success: false, error: 'Failed to re-quote approved trade', details: requoted.left.message }, 400)
-		}
-
-		const { quote: freshQuote, isSolana } = requoted.right
-		const freshTerms = isSolana
-			? termsFromSolanaQuote(freshQuote as JupiterQuote, wallet_address)
-			: termsFromEvmQuote(freshQuote as SwapQuote, wallet_address)
-
-		const validated = await runEffectEither(
-			Effect.gen(function* () {
-				const approvals = yield* ApprovalService
-				return yield* approvals.validateForExecution(approval_id, agentIdentifier, orgId, freshTerms)
-			}),
-		)
-
-		if (Either.isLeft(validated)) {
-			const { status, body: errBody } = mapErrorToResponse(validated.left)
-			writeAuditLog({
-				userId: 0,
-				orgId,
-				agentId: agentIdentifier,
-				eventType: 'approval.validation_failed',
-				details: { approvalId: approval_id, error: errBody.message ?? errBody.error },
-			})
-			return c.json({ success: false, ...errBody }, status)
-		}
-
-		// Always re-run the policy gate (kill switches / block rules still apply).
-		// A valid, price-checked approval only satisfies a 'require_approval'
-		// verdict — 'block' still 403s even with an approved approval_id.
-		let requiresAllowOverride = false
-		let policyIntentForOverride: PolicyIntent | null = null
-		if (orgId) {
-			const freshGasUsd = isSolana
-				? undefined
-				: parseFloat((freshQuote as SwapQuote).estimatedGasUsd ?? '0') || 0
-			const policyIntent: PolicyIntent = {
-				organizationId: orgId,
-				agentId: agentIdentifier,
-				chain: freshTerms.fromChain,
-				fromToken: freshTerms.fromToken,
-				toToken: freshTerms.toToken,
-				valueUsd: freshTerms.valueUsd,
-				gasUsd: freshGasUsd,
-			}
-			const verdict = await runEffectEither(
-				Effect.gen(function* () {
-					const policy = yield* PolicyService
-					return yield* policy.evaluate(policyIntent)
-				}),
-			)
-
-			if (Either.isRight(verdict) && verdict.right.decision === 'block') {
-				writeAuditLog({
-					userId: 0,
-					orgId,
-					agentId: agentIdentifier,
-					eventType: 'approval.blocked_on_resubmit',
-					details: { approvalId: approval_id, reason: verdict.right.reason },
-				})
-				return c.json(
-					{
-						success: false,
-						status: 'block',
-						error: 'Transaction blocked by org policy',
-						reason: verdict.right.reason ?? null,
-					},
-					403,
-				)
-			}
-
-			if (Either.isRight(verdict) && verdict.right.decision === 'require_approval') {
-				// evaluate() logs its own 'require_approval' row (not counted toward
-				// daily/session/velocity caps by design). Since the human already
-				// approved this exact, price-checked trade, we'll write an explicit
-				// 'allow' row linked to the approval — but only AFTER the transaction
-				// is actually built and the approval is durably consumed, so a failed
-				// build or a lost finalize race can never leave a phantom 'allow' row
-				// burning the org's daily/session cap for a trade that never executed.
-				requiresAllowOverride = true
-				policyIntentForOverride = policyIntent
-			}
-		}
+		const { freshQuote, isSolana, decidedBy, decidedAt, payload, reserveId } = outcome
 
 		// Build the transaction. Only flip the approval to 'consumed' AFTER a
 		// successful build — a Jupiter/RPC failure here must not burn the
@@ -1297,6 +1637,7 @@ agentRoutes.post('/swap', async (c) => {
 				eventType: 'approval.execution_failed',
 				details: { approvalId: approval_id, httpStatus: response.status },
 			})
+			await releaseApprovalReserve(reserveId)
 			return response
 		}
 
@@ -1310,9 +1651,7 @@ agentRoutes.post('/swap', async (c) => {
 		if (Either.isLeft(finalized)) {
 			// Build succeeded but the single-use flip lost a race (e.g. a duplicate
 			// concurrent resubmit consumed it first). Surface as a conflict rather
-			// than silently returning a tx tied to an already-consumed approval, and
-			// deliberately skip the allow-override insert below — the trade this
-			// response describes was never actually finalized under our lock.
+			// than silently returning a tx tied to an already-consumed approval.
 			writeAuditLog({
 				userId: 0,
 				orgId,
@@ -1320,35 +1659,8 @@ agentRoutes.post('/swap', async (c) => {
 				eventType: 'approval.consume_race_lost',
 				details: { approvalId: approval_id },
 			})
+			await releaseApprovalReserve(reserveId)
 			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
-		}
-
-		// Only now — with a built transaction AND a durably 'consumed' approval —
-		// record the cap-accounting 'allow' override. A partial unique index on
-		// policy_decisions(approval_id) (migration 0008) makes a second insert for
-		// the same approval a DB-level no-op even if this path is ever re-entered.
-		if (requiresAllowOverride && orgId && policyIntentForOverride) {
-			await runEffectEither(
-				Effect.gen(function* () {
-					const db = yield* requireDb
-					yield* Effect.tryPromise({
-						try: () =>
-							db
-								.insert(policyDecisions)
-								.values({
-									organizationId: orgId,
-									agentId: agentIdentifier,
-									decision: 'allow',
-									reason: 'human-in-the-loop approval override',
-									intent: policyIntentForOverride as unknown as Record<string, unknown>,
-									valueUsd: freshTerms.valueUsd,
-									approvalId: approval_id,
-								})
-								.onConflictDoNothing(),
-						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-					})
-				}),
-			)
 		}
 
 		writeAuditLog({
@@ -1358,9 +1670,9 @@ agentRoutes.post('/swap', async (c) => {
 			eventType: 'approval.consumed',
 			details: {
 				approvalId: approval_id,
-				approvedBy: approvalRow.decidedBy,
-				approvedAt: approvalRow.decidedAt,
-				payload: storedTerms,
+				approvedBy: decidedBy,
+				approvedAt: decidedAt,
+				payload,
 			},
 		})
 
@@ -1394,165 +1706,17 @@ agentRoutes.post('/swap', async (c) => {
 		// comes from the API-key auth (apiKeyAuth sets orgId); plain agent-token
 		// requests are un-orged and pass through (PolicyService allows when no org).
 		// Enforcement is hard for Suwappu-issued-key / custodial flows; advisory for
-		// a self-signing EOA that could bypass this API entirely.
-		if (apiKeyCtx?.orgId) {
-			const policyIntent: PolicyIntent = cached.isSolana
-				? {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agentIdentifier,
-						chain: 'solana',
-						fromToken: quote.inputMint ?? null,
-						toToken: quote.outputMint ?? null,
-						// TODO: Solana quote carries no USD value; USD-based caps are
-						// skipped until we price the input mint. Chain/token rules apply.
-						valueUsd: 0,
-					}
-				: {
-						organizationId: apiKeyCtx.orgId,
-						agentId: agentIdentifier,
-						chain: String(quote.fromChain),
-						fromToken: quote.fromToken?.address ?? null,
-						toToken: quote.toToken?.address ?? null,
-						valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
-						gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
-					}
-
-			const verdict = await runEffectEither(
-				Effect.gen(function* () {
-					const policy = yield* PolicyService
-					return yield* policy.evaluate(policyIntent)
-				}),
-			)
-
-			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
-				const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
-				writeAuditLog({
-					userId: 0,
-					orgId: apiKeyCtx.orgId,
-					agentId: agentIdentifier,
-					eventType: `policy.${decision}`,
-					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
-				})
-
-				if (decision === 'require_approval') {
-					// Solana quotes carry no USD value at this layer (termsFromSolanaQuote
-					// hard-codes valueUsd=0), so an approved Solana trade would silently
-					// bypass daily/session USD caps (an org policy would have to have
-					// matched on chain/token rules alone to get here). Rather than write
-					// a $0 cap row for a trade that may be worth real money, refuse the
-					// approval flow for Solana until it's priced.
-					if (cached.isSolana) {
-						writeAuditLog({
-							userId: 0,
-							orgId: apiKeyCtx.orgId,
-							agentId: agentIdentifier,
-							eventType: 'approval.unsupported_chain',
-							details: { chain: 'solana', reason },
-						})
-						return c.json(
-							{
-								success: false,
-								status: 'block',
-								error:
-									'This trade requires org approval, but Solana approvals are not yet supported (no USD pricing at this layer) — blocking rather than silently bypassing USD caps.',
-								reason: reason ?? null,
-							},
-							403,
-						)
-					}
-
-					// Persist the RE-QUOTABLE economic terms (not quote_id — the 60s
-					// quote cache TTL is far shorter than the approval window, and is
-					// per-process so it wouldn't survive a multi-replica deploy either).
-					const economicTerms = termsFromEvmQuote(quote as SwapQuote, wallet_address)
-
-					const created = await runEffectEither(
-						Effect.gen(function* () {
-							const db = yield* requireDb
-							const orgOwnerRows = yield* Effect.tryPromise({
-								try: () =>
-									db
-										.select({ ownerId: organizations.ownerId })
-										.from(organizations)
-										.where(eq(organizations.id, apiKeyCtx.orgId))
-										.limit(1),
-								catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-							})
-							const approvals = yield* ApprovalService
-							return yield* approvals.create({
-								agentId: agentIdentifier,
-								organizationId: apiKeyCtx.orgId,
-								userId: orgOwnerRows[0]?.ownerId ?? null,
-								actionType: 'swap_execute',
-								payload: economicTerms,
-								policyDecisionId: policyDecisionId ?? null,
-								reason: reason ?? null,
-							})
-						}),
-					)
-
-					if (Either.isLeft(created)) {
-						writeAuditLog({
-							userId: 0,
-							orgId: apiKeyCtx.orgId,
-							agentId: agentIdentifier,
-							eventType: 'approval.create_failed',
-							details: { error: String(created.left) },
-						})
-						return c.json(
-							{ success: false, error: 'Failed to create approval request' },
-							500,
-						)
-					}
-
-					writeAuditLog({
-						userId: 0,
-						orgId: apiKeyCtx.orgId,
-						agentId: agentIdentifier,
-						eventType: 'approval.created',
-						details: { approvalId: created.right.id, reason, policyDecisionId },
-					})
-
-					return c.json(
-						{
-							success: false,
-							status: 'pending',
-							error: 'Transaction requires approval under org policy',
-							reason: reason ?? null,
-							approval_id: created.right.id,
-							expires_at: created.right.expiresAt.toISOString(),
-							hint: 'Poll GET /v1/agent/approvals/:id until status is "approved", then re-submit POST /v1/agent/swap with approval_id set (quote_id not required — the trade is re-quoted server-side).',
-						},
-						202,
-					)
-				}
-
-				return c.json(
-					{
-						success: false,
-						status: decision,
-						// decision === 'require_approval' is handled above (and returns
-						// early), so this branch only ever sees 'block'.
-						error: 'Transaction blocked by org policy',
-						error_code: 'POLICY_VIOLATION',
-						reason: reason ?? null,
-					},
-					403,
-				)
-			}
-			// If the policy query itself errored (Left), fail open but log it — never
-			// block legitimate trades on an infra hiccup. The decision log captures
-			// successful evaluations; this branch is the rare DB-down case.
-			if (Either.isLeft(verdict)) {
-				writeAuditLog({
-					userId: 0,
-					orgId: apiKeyCtx.orgId,
-					agentId: agentIdentifier,
-					eventType: 'policy.eval_error',
-					details: { error: String(verdict.left) },
-				})
-			}
-		}
+		// a self-signing EOA that could bypass this API entirely. Shared with
+		// POST /swap/execute — see enforcePolicyGateForFreshQuote.
+		const gateResponse = await enforcePolicyGateForFreshQuote(
+			c,
+			agentIdentifier,
+			apiKeyCtx?.orgId ?? null,
+			quote,
+			!!cached.isSolana,
+			wallet_address,
+		)
+		if (gateResponse) return gateResponse
 
 		return buildSwapTxResponse(c, agent, quote, !!cached.isSolana, wallet_address, quote_id)
 	}
@@ -2261,6 +2425,9 @@ async function refundSwapExecuteCharge(c: Context<AgentContext>, agent: Agent, r
 // POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
 agentRoutes.post('/swap/execute', async (c) => {
 	const agent = c.get('agent')
+	const agentIdentifier = agentIdentifierOf(agent)
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	const orgId = apiKeyCtx?.orgId ?? null
 
 	let body: unknown
 	try {
@@ -2284,7 +2451,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
-	const { quote_id } = parsed.data
+	const { quote_id, approval_id } = parsed.data
 
 	// Check agent has a Turnkey wallet with internal IDs
 	const metadata = (agent.metadata as Record<string, unknown>) || {}
@@ -2299,25 +2466,109 @@ agentRoutes.post('/swap/execute', async (c) => {
 		})
 	}
 
-	// Look up cached quote (getCachedQuote returns null once the TTL has elapsed).
-	// Reject a missing/expired quote OR one created by a different agent — same generic
-	// message so cross-agent quote hijacking can't be probed.
-	const cached = getCachedQuote(quote_id)
-	if (!cached || cached.agentId !== agent.id) {
-		await refundSwapExecuteCharge(c, agent, 'QUOTE_NOT_FOUND')
-		return agentError(c, 400, 'QUOTE_NOT_FOUND', 'Quote expired or not found', {
-			hint: 'Request a new quote using POST /v1/agent/quote',
-		})
-	}
+	// quote / isSolana / fromDecimals / toDecimals are populated by whichever
+	// branch below resolves them (fresh quote_id lookup vs. approval_id resubmit).
+	// Typed `any` (matching CachedQuote.quote) since the quote_data ternary below
+	// accesses shape-specific fields (Jupiter vs. Li.Fi) keyed on the isSolana
+	// runtime flag rather than a type-level discriminant.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let quote: any
+	let isSolana: boolean
+	let fromDecimals: number | undefined
+	let toDecimals: number | undefined
+	// Set only on the approval_id resubmit path — the caller MUST finalize (or
+	// release, on failure) the approval + cap reservation this holds.
+	let approvalToFinalize: { id: string; reserveId: number | null } | null = null
 
-	const quote = cached.quote
+	if (approval_id) {
+		// --- Resubmission of a previously deferred (require_approval) execute call ---
+		// Same re-quote + validate + policy-recheck + cap-reservation flow as
+		// POST /swap (see resolveApprovalResubmit) — this is the SAME gate the
+		// custodial execute path was previously missing entirely (money-path fix).
+		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, walletAddress)
+		if (outcome.kind === 'response') {
+			await refundSwapExecuteCharge(c, agent, 'approval resubmit failed')
+			return outcome.response
+		}
+
+		// Unlike POST /swap (which only returns an UNSIGNED tx from "build" — no
+		// funds move, so it's safe to consume the approval after build), this
+		// route's "build" step immediately signs AND broadcasts through the
+		// internal Python pipeline. Consuming the single-use approval must
+		// therefore happen BEFORE that call, not after, or two concurrent
+		// resubmits could both pass validation and both broadcast the same
+		// approved trade before either flips the approval to 'consumed'.
+		const finalized = await runEffectEither(
+			Effect.gen(function* () {
+				const approvals = yield* ApprovalService
+				return yield* approvals.finalizeConsume(approval_id)
+			}),
+		)
+
+		if (Either.isLeft(finalized)) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'approval.consume_race_lost',
+				details: { approvalId: approval_id },
+			})
+			await releaseApprovalReserve(outcome.reserveId)
+			await refundSwapExecuteCharge(c, agent, 'approval already consumed by a concurrent request')
+			return c.json({ success: false, error: 'Approval was already consumed by a concurrent request' }, 409)
+		}
+
+		quote = outcome.freshQuote
+		isSolana = outcome.isSolana
+		approvalToFinalize = { id: approval_id, reserveId: outcome.reserveId }
+		;({ fromDecimals, toDecimals } = resolveSwapExecuteDecimals({ quote, isSolana }))
+	} else {
+		if (!quote_id) {
+			await refundSwapExecuteCharge(c, agent, 'quote_id or approval_id required')
+			return agentError(c, 400, 'VALIDATION_ERROR', 'quote_id or approval_id required', {
+				hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here — or resubmit with approval_id after a require_approval response.',
+			})
+		}
+
+		// Look up cached quote (getCachedQuote returns null once the TTL has elapsed).
+		// Reject a missing/expired quote OR one created by a different agent — same generic
+		// message so cross-agent quote hijacking can't be probed.
+		const cached = getCachedQuote(quote_id)
+		if (!cached || cached.agentId !== agent.id) {
+			await refundSwapExecuteCharge(c, agent, 'QUOTE_NOT_FOUND')
+			return agentError(c, 400, 'QUOTE_NOT_FOUND', 'Quote expired or not found', {
+				hint: 'Request a new quote using POST /v1/agent/quote',
+			})
+		}
+
+		// --- Institutional policy gate ---
+		// This is the SAME gate POST /swap enforces on its quote_id path — this
+		// custodial route signs + broadcasts via the internal pipeline with no
+		// client-side signing step, so the gate here is hard enforcement, not
+		// advisory. See enforcePolicyGateForFreshQuote.
+		const gateResponse = await enforcePolicyGateForFreshQuote(
+			c,
+			agentIdentifier,
+			orgId,
+			cached.quote,
+			!!cached.isSolana,
+			walletAddress,
+		)
+		if (gateResponse) {
+			await refundSwapExecuteCharge(c, agent, 'blocked or deferred by org policy')
+			return gateResponse
+		}
+
+		quote = cached.quote
+		isSolana = !!cached.isSolana
+		;({ fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached))
+	}
 
 	// Resolve decimals used to build the human-readable amounts that the Python
 	// pipeline's pre-swap balance guard relies on (bot/utils/quote_validator.py).
-	const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
-
 	if (fromDecimals === undefined) {
 		await refundSwapExecuteCharge(c, agent, 'unresolvable quote decimals')
+		if (approvalToFinalize) await releaseApprovalReserve(approvalToFinalize.reserveId)
 		return agentError(
 			c,
 			422,
@@ -2328,7 +2579,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 	}
 
 	// Build quote_data for the Python endpoint
-	const quoteData: Record<string, unknown> = cached.isSolana
+	const quoteData: Record<string, unknown> = isSolana
 		? {
 				provider: 'jupiter',
 				from_chain: 'solana',
@@ -2398,7 +2649,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		.slice(0, 12)
 	const idempotencyKey = clientIdempotencyKey
 		? `agent_${agent.id}_${clientIdempotencyKey}_${requestFingerprint}`
-		: `agent_${agent.id}_${quote_id}`
+		: `agent_${agent.id}_${quote_id ?? approval_id}`
 
 	// Set when a failure leaves the swap's on-chain outcome UNKNOWN (the request may
 	// have been received and broadcast). Such failures must NOT be refunded.
@@ -2430,7 +2681,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 							wallet_address: walletAddress,
 							internal_user_id: internalUserId,
 							internal_wallet_id: internalWalletId,
-							chain_type: cached.isSolana ? 'solana' : 'evm',
+							chain_type: isSolana ? 'solana' : 'evm',
 							idempotency_key: idempotencyKey,
 							quote_data: quoteData,
 						}),
@@ -2488,18 +2739,47 @@ agentRoutes.post('/swap/execute', async (c) => {
 			console.warn(
 				`[swap/execute] outcome unknown for agent=${agent.id} idempotency_key=${idempotencyKey}: ${result.left.message} — charge retained, needs reconciliation`,
 			)
+			// Ambiguous outcome: the trade may have actually broadcast, so keep the
+			// cap-accounting reservation counted rather than freeing capacity for a
+			// trade that might have executed. The approval itself was already
+			// consumed above (before this call), which is intentional here.
 		} else {
 			await refundSwapExecuteCharge(
 				c,
 				agent,
 				`internal execute-swap call failed pre-submit: ${result.left.message}`,
 			)
+			// Provable pre-submit rejection — the trade never executed, so release
+			// the cap reservation. The approval stays 'consumed' (it was flipped
+			// before this call to prevent a concurrent-broadcast race); a clean
+			// pre-submit rejection burning the approval is the accepted tradeoff
+			// for that race-safety, and the agent can request a fresh approval.
+			if (approvalToFinalize) {
+				await releaseApprovalReserve(approvalToFinalize.reserveId)
+				writeAuditLog({
+					userId: 0,
+					orgId,
+					agentId: agentIdentifier,
+					eventType: 'approval.execution_failed',
+					details: { approvalId: approvalToFinalize.id, error: result.left.message },
+				})
+			}
 		}
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status)
 	}
 
 	const swapResult = result.right
+
+	if (approvalToFinalize) {
+		writeAuditLog({
+			userId: 0,
+			orgId,
+			agentId: agentIdentifier,
+			eventType: 'approval.consumed',
+			details: { approvalId: approvalToFinalize.id, swapId: swapResult.swap_id },
+		})
+	}
 
 	return c.json({
 		success: true,

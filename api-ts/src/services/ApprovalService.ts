@@ -165,7 +165,13 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			if (status) {
 				conditions.push(eq(approvalRequests.status, status))
 				if (status === 'pending') {
-					conditions.push(gt(approvalRequests.expiresAt, sql`now()`))
+					// expiresAt is a naive `timestamp` column storing UTC wall-clock
+					// values (from JS Date.now() + APPROVAL_TTL_MS). Bare `now()` is a
+					// timestamptz that gets cast to `timestamp` using the DB session's
+					// configured timezone, not necessarily UTC — comparing against it
+					// directly can silently misjudge expiry on a non-UTC session. Force
+					// the UTC wall-clock reading so it matches how expiresAt was written.
+					conditions.push(gt(approvalRequests.expiresAt, sql`(now() at time zone 'utc')`))
 				}
 			}
 			const rows = yield* Effect.tryPromise({
@@ -230,7 +236,9 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 							and(
 								eq(approvalRequests.id, id),
 								eq(approvalRequests.status, 'pending'),
-								sql`${approvalRequests.expiresAt} > now()`,
+								// See listForOwner for why this is `now() at time zone 'utc'`
+								// rather than bare `now()` against a naive timestamp column.
+								sql`${approvalRequests.expiresAt} > (now() at time zone 'utc')`,
 							),
 						)
 						.returning(),
