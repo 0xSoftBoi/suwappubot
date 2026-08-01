@@ -15,11 +15,16 @@ set -euo pipefail
 # python-api from /health/live. Both hash their own sources the same way, so
 # one script covers either.
 SERVICE="${1:-python-api}"
+FIELD="source_fingerprint"
 case "$SERVICE" in
   python-api) URL="https://python-api-production-8526.up.railway.app"; PATH_="/health/live"; DIRS="api bot database"; ROOT="." ;;
   api-ts)     URL="https://api.suwappu.bot";                            PATH_="/health";      DIRS="src";              ROOT="api-ts" ;;
+  # python-worker has no public URL. It publishes its fingerprint to Redis at
+  # startup and python-api surfaces it, which is the only way to verify a
+  # worker deploy landed.
+  python-worker) URL="https://python-api-production-8526.up.railway.app";  PATH_="/health/ready"; DIRS="api bot database"; ROOT="."; FIELD="worker_fingerprint" ;;
   http*)      URL="$SERVICE";                                           PATH_="/health/live"; DIRS="api bot database"; ROOT="." ;;
-  *) echo "usage: $0 [python-api|api-ts|<url>]"; exit 2 ;;
+  *) echo "usage: $0 [python-api|api-ts|python-worker|<url>]"; exit 2 ;;
 esac
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -49,7 +54,7 @@ PY
 )"
 
 remote_fp="$(curl -fsS --max-time 20 "$URL$PATH_" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_fingerprint","missing"))')"
+  | FIELD="$FIELD" python3 -c 'import json,os,sys; print(json.load(sys.stdin).get(os.environ["FIELD"],"missing"))')"
 
 echo "service: $SERVICE"
 echo "local:  $local_fp"

@@ -265,6 +265,32 @@ async def lifespan(app: FastAPI):
     if not enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
     elif db_success:
+        # Publish this build's fingerprint so the worker is verifiable.
+        #
+        # python-worker has NO public URL, so /health cannot be probed and
+        # there was no way to answer "is the worker running my code?". That
+        # turned a stale worker deploy into hours of guesswork: the scorer was
+        # wired into this very block, deployed green repeatedly, and simply
+        # never appeared in the boot sequence — indistinguishable from a code
+        # bug. Redis is already the worker's channel for heartbeats, so it is
+        # the natural place to announce the build too; python-api surfaces it
+        # on /health/ready.
+        try:
+            from bot.utils.redis_cache import redis_cache
+
+            # 24h, not an hour: this answers "what build did the worker last
+            # boot with", so it must outlive a quiet period. A short TTL would
+            # expire on a perfectly healthy worker and report "unknown",
+            # recreating exactly the ambiguity this is meant to remove.
+            # Liveness is a separate question, already answered by the
+            # per-service heartbeats below.
+            await redis_cache.set(
+                "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
+            )
+            logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+        except Exception as e:
+            logger.warning(f"Could not publish worker fingerprint: {e}")
+
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
         await asyncio.sleep(2)
@@ -1066,6 +1092,11 @@ async def health_ready():
         else:
             svc_heartbeats[svc] = "alive"
 
+    # The worker publishes its own fingerprint to Redis at startup (it has no
+    # public URL of its own). Reporting it here is the only way to verify a
+    # python-worker deploy actually landed.
+    worker_fingerprint = await redis_cache.get("service:worker:fingerprint")
+
     checks = {
         "database": DATABASE_AVAILABLE,
         "redis": redis_ok,
@@ -1085,6 +1116,7 @@ async def health_ready():
             # _compute_source_fingerprint() — a green deploy is not proof the
             # new code is live; this is.
             "source_fingerprint": SOURCE_FINGERPRINT,
+            "worker_fingerprint": worker_fingerprint or "unknown",
             "checks": {
                 "database": "connected" if DATABASE_AVAILABLE else "disconnected",
                 "redis": "connected" if redis_ok else "memory-fallback",
