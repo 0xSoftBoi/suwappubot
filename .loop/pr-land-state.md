@@ -8,7 +8,8 @@ Also open from PR loop: #531 turnkey review, #641 overlap review (may surface mo
 
 ## Broken-route findings (round 1)
 PYTHON: scout found 24 broken attr/method refs ALL in api/routes/mobile.py → 5 routes 500: get_points, get_rewards(/points/rewards), get_leaderboard, get_trader_leaderboard, get_trader_profile, get_copy_trades, get_my_follows. Root cause: reads fields that don't exist on UserPoints/Reward/TraderProfile/CopyTrade/CopyFollow (renamed columns + methods-called-as-props). Other python route files CLEAN.
-FIX IN FLIGHT: bot-dev fixing all of mobile.py on branch claude/pr-review-deploy-loop-zidvbq (verify each real attr vs model first). Read-only display routes → not money-path.
+ROUND 1 DONE (dbd2ed09): mobile.py fully fixed — all 24 refs + 4 EXTRA broken CopyFollow fields (copy_amount→copy_amount_usd, max_per_trade→max_trade_usd, daily_limit→daily_limit_usd, total_copied→total_copied_trades) that scout missed. trader_name upgraded to a real TraderProfile join. Every attr verified vs model. ast/black clean, grep-zero bad refs. Read-only GETs → not money-path. NOT pytest-verified (no sqlalchemy/fastapi in sandbox) — code-complete + static-verified.
+ROUND 2 IN FLIGHT: dead-button/callback audit across bot/handlers (buttons whose callback_data has no registered handler = broken bot "routes").
 API-TS: CLEAN — bun run check passes, all mounted routes (perps/p2p/predict/tokens/health/lend/rewards/smartAccount/staking/publicSwap) have verified DI services + schema cols. No broken api-ts routes. So breakage = the mobile.py python cluster only (this round).
 DEPLOY CAVEAT: fixes land on my branch; getting them LIVE still needs user to unblock Railway (Actions billing / token) — sandbox can't deploy.
 
