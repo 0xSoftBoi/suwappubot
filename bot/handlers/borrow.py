@@ -7,7 +7,7 @@ confirm-before-execute money-path screens, and recovery keyboards on errors.
 All on-chain work happens in MorphoAPI (blocking web3); handlers offload those
 calls with asyncio.to_thread so the event loop stays responsive.
 
-Money-path UX invariants (see docs/plans/btcfi-expansion-plan.md §P2):
+Money-path UX invariants (see docs/internal/plans/btcfi-expansion-plan.md §P2):
 - every borrow confirm screen shows the liquidation price;
 - LTV choices are capped at MAX_LTV (64.5%) — never the protocol's 86% LLTV;
 - collateral withdrawals that would drop HF below MIN_WITHDRAW_HF are blocked

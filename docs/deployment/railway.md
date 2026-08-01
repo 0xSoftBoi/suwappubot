@@ -147,8 +147,9 @@ Directory + `railway.json`, so it runs from the repo root for every service.
 
 ## Provisioned this session (CLI)
 
-Workspace **Eric Manganaro's Projects** (= Superposition), project **suwappu**
-(`428680a3-dd24-4f7c-8349-e66d791b5104`), environment **production**:
+Project **suwappu**, environment **production**. Run `railway status` in a linked
+worktree to see the workspace, project id and service ids — they are intentionally
+not written down in this repository:
 - Services created: **Postgres**, **Redis**, **python-api**, **api-ts**, **terminal**,
   **showcase** (the four app services are empty — no source connected yet, so nothing
   has built).

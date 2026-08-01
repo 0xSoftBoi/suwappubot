@@ -1,7 +1,7 @@
 # BTCFi Expansion — Implementation Plan
 
 > Researched 2026-06-12. All addresses verified on-chain (Blockscout/explorers) or via live API
-> calls unless marked otherwise. Companion: docs/plans/starknet-btc-neobank-plan.md (shipped),
+> calls unless marked otherwise. Companion: docs/internal/plans/starknet-btc-neobank-plan.md (shipped),
 > memory btcfi-landscape-2026-06. Honest-yield principle carries over: display live rates only.
 
 ## Scope

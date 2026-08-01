@@ -1,7 +1,7 @@
 """Starknet mainnet contract addresses — all on-chain verified 2026-06-10.
 
 Verified via starknet_getClassHashAt against Starknet mainnet RPC (see
-docs/plans/starknet-btc-neobank-plan.md). Phase 1 uses the AVNU exchange,
+docs/internal/plans/starknet-btc-neobank-plan.md). Phase 1 uses the AVNU exchange,
 core tokens, and the Argent v0.4.0 class hash; Vesu/Endur entries are
 included for later phases (3-4).
 """

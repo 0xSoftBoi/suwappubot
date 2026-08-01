@@ -1,0 +1,17 @@
+# Default owner for everything in the repo.
+*                           @0xSoftBoi
+
+# Money path — swap execution, wallets, keys, encryption, billing, fees, points.
+# Changes here require an explicit maintainer review.
+/bot/services/swap*         @0xSoftBoi
+/bot/services/wallet*       @0xSoftBoi
+/bot/utils/encryption*      @0xSoftBoi
+/bot/services/fee*          @0xSoftBoi
+/bot/services/seasons*      @0xSoftBoi
+/api-ts/src/services/       @0xSoftBoi
+/contracts/                 @0xSoftBoi
+
+# Security, CI and release surface.
+/SECURITY.md                @0xSoftBoi
+/.github/                   @0xSoftBoi
+/scripts/                   @0xSoftBoi

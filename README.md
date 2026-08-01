@@ -2,11 +2,11 @@
 
 Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
-[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
-[![Chains](https://img.shields.io/badge/Chains-14-green)]()
-[![Providers](https://img.shields.io/badge/Swap_Providers-10+-orange)]()
+[![npm](https://img.shields.io/npm/v/@suwappu/sdk?label=%40suwappu%2Fsdk)](https://www.npmjs.com/package/@suwappu/sdk)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 
 ## Overview
 
@@ -17,7 +17,7 @@ Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 1
 | **Chains** | 12 EVM (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll) + Solana + TRON |
 | **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero/Stargate, Chainlink CCIP |
 | **Agent Protocols** | REST API (50+ endpoints) · MCP (8 tools) · A2A (JSON-RPC) |
-| **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Mobile (iOS) |
+| **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Telegram Mini App |
 | **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
 
 ---
@@ -32,12 +32,11 @@ flowchart LR
         DC["Discord"]
         AI["AI Agents\nMCP + A2A + REST"]
         Web["Webapp + Terminal"]
-        Mob["Mobile (iOS)"]
     end
 
     subgraph Backend["Backend"]
-        Bot["Python Monolith\nSwap Engine · 27 Handlers\n56 Services"]
-        API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
+        Bot["Python Monolith\nFastAPI · SQLAlchemy\nSwap engine, wallets, orders"]
+        API["TypeScript API\nHono · Effect-TS · Drizzle\nAgent + webapp surface"]
     end
 
     subgraph Providers["10+ Swap Providers"]
@@ -47,7 +46,7 @@ flowchart LR
     end
 
     TG & WA & DC --> Bot
-    AI & Web & Mob --> API
+    AI & Web --> API
     Bot --> API
     API --> EVM & SOL & TRON
     Bot --> EVM & SOL & TRON
@@ -107,8 +106,7 @@ See [docs/features/openclaw_integration.md](docs/features/openclaw_integration.m
 | **Telegram** | Full feature set — 27 commands, Mini App, inline keyboards |
 | **WhatsApp** | Swaps, orders, DCA, alerts, voice messages, conversation flows |
 | **Discord** | Whale alerts, trending tokens, leaderboard, analysis forum |
-| **Web Terminal** | TradingView charts, order book, 15+ panels, keyboard shortcuts |
-| **Mobile (iOS)** | 49 screens, 5 tabs — swap, portfolio, copy trading, sniping, points |
+| **Web Terminal** | TradingView charts, order book, keyboard-driven trading |
 
 ---
 
@@ -149,22 +147,39 @@ curl -X POST https://api.suwappu.bot/a2a \
   -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
 ```
 
-### Local Development
+### Run your own instance
+
+Two things are required: a Telegram bot token from [@BotFather](https://t.me/BotFather)
+and an encryption key. Everything else has a working default — a fresh checkout runs
+against SQLite and public RPC endpoints.
 
 ```bash
-# TypeScript API
-cd api-ts && bun install && cp .env.example .env && bun run dev
+git clone https://github.com/0xSoftBoi/suwappubot.git
+cd suwappubot
+cp .env.example .env
 
-# Webapp
-cd webapp && npm install && npm run dev
+# generate ENCRYPTION_KEY, then add it and your bot token to .env
+python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
 
-# Bot (Python)
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt && uvicorn api.main:app --reload
-
-# Full stack
-docker-compose -f docker-compose.local.yml up
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
 ```
+
+```bash
+curl http://localhost:8000/health   # then message your bot on Telegram
+```
+
+The other services run independently — start only the one you're working on:
+
+```bash
+cd api-ts   && bun install && cp .env.example .env && bun run dev
+cd webapp   && npm install && npm run dev
+cd terminal && npm install && npm run dev
+cd showcase && npm install && npm run dev
+```
+
+Full setup notes, test commands and code style are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -242,33 +257,34 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 suwappubot/
 ├── api-ts/             # TypeScript API (Hono + Effect-TS + Drizzle)
 │   └── src/
-│       ├── routes/     # 15 route modules, 50+ endpoints
-│       ├── services/   # 22 services (swap, agent, perps, lending, etc.)
-│       └── middleware/  # Auth (bearer, telegram, flex, admin, internal)
+│       ├── routes/     # Agent, webapp, swap and A2A route modules
+│       ├── services/   # Swap, agent, perps, lending, billing
+│       └── middleware/ # Auth (bearer, telegram, flex, admin, internal)
 ├── bot/                # Python Telegram bot
-│   ├── handlers/       # 27 command handlers
-│   ├── services/       # 56 services (swap engine, sniping, copy, security)
+│   ├── handlers/       # Command handlers
+│   ├── services/       # Swap engine, sniping, copy trading, security
+│   ├── models/         # SQLAlchemy models
 │   └── config/         # Chain configs, token configs, settings
 ├── api/                # Python FastAPI (webhook handlers)
-├── webapp/             # Telegram Mini App (React + Vite) — 18 pages, 95+ components
-├── terminal/           # Web Trading Terminal — 15+ panels, TradingView charts
-├── showcase/           # Marketing site (Next.js + GSAP + Three.js)
-├── mobile/             # iOS/Android app (Expo) — 49 screens
-├── packages/
-│   ├── shared/         # Shared TypeScript types (10 modules)
-│   ├── sdk/            # @suwappu/sdk (npm, published)
-│   ├── mcp-server/     # @suwappu/mcp-server (npm, published)
-│   ├── openclaw/       # @suwappu/openclaw (npm, published)
-│   └── sdk-python/     # Python SDK (development)
-├── examples/           # Working examples (swap-agent, perps-trader, yield-farmer, prediction-bot)
-├── gitbook/            # API documentation (33 files)
-├── infra/              # AWS CDK infrastructure
 ├── database/           # DB init + runtime migrations
-├── cpp/                # C++ core (crypto, math, validation)
-├── tui/                # Terminal monitoring dashboard (Ink)
-├── docs/               # Architecture docs
+├── webapp/             # Telegram Mini App (React + Vite)
+├── terminal/           # Web trading terminal — TradingView charts, order book
+├── showcase/           # Marketing site (Next.js)
+├── extension/          # Browser extension
+├── contracts/          # Solidity contracts
+├── packages/
+│   ├── sdk/            # @suwappu/sdk (published to npm)
+│   ├── openclaw/       # @suwappu/openclaw (published to npm)
+│   ├── sdk-python/     # Python SDK
+│   └── design-tokens/  # Shared design tokens
+├── gitbook/            # API reference
+├── docs/               # Architecture, deployment and development docs
+├── cloudflare/         # Worker that routes the public domains
+├── monitoring/         # Monitoring service
+├── scripts/            # Operational and verification scripts
+├── infra/              # Legacy AWS CDK — not used for app deploys
 ├── tests/              # Python tests
-└── .github/workflows/  # CI/CD (4 deploy + CI + rollback)
+└── .github/workflows/  # CI + deploy pipelines
 ```
 
 ---
@@ -304,14 +320,16 @@ suwappubot/
 
 ## Deployment
 
-All services on AWS ECS Fargate (us-east-1) with circuit breaker + rollback.
+Services deploy to [Railway](https://railway.app), each with its own `railway.*.json`
+config at the repository root.
 
-| Environment | API | Webapp | Bot | Showcase | Branch |
-|-------------|-----|--------|-----|----------|--------|
-| **Production** | api.suwappu.bot | app.suwappu.bot | bot.suwappu.bot | www.suwappu.bot | `main` |
-| **Development** | devapi.suwappu.bot | devfront.suwappu.bot | devbot.suwappu.bot | — | `dev` |
+| Environment | API | Webapp | Showcase | Branch |
+|-------------|-----|--------|----------|--------|
+| **Production** | api.suwappu.bot | app.suwappu.bot | www.suwappu.bot | `main` |
+| **Development** | devapi.suwappu.bot | devfront.suwappu.bot | — | `dev` |
 
-CI/CD: Push to `main`/`dev` → Docker build → Trivy scan → ECR push → DB backup → ECS deploy → health check.
+See [docs/deployment/railway.md](docs/deployment/railway.md). The `infra/` directory
+contains legacy AWS CDK definitions that are no longer used for application deploys.
 
 ---
 
@@ -377,11 +395,13 @@ checked-in Software Bill of Materials (SBOM).
 
 | Resource | Description |
 |----------|-------------|
-| [GitBook API Docs](gitbook/) | Full API reference (33 files) |
-| [Agent Integration](docs/features/agent_integration.md) | MCP, A2A, REST setup |
-| [Examples](examples/) | Working examples: swap-agent, perps-trader, yield-farmer, prediction-bot |
-| [Deployment](docs/deployment/) | AWS, CI/CD, releases |
-| [Development](docs/development/) | Local setup, debugging, migrations |
+| [Documentation index](docs/) | Everything below, organised |
+| [API reference](gitbook/) | Full REST reference |
+| [Agent clients](docs/agent-clients.md) | MCP, A2A and REST setup for agents |
+| [Contributing](CONTRIBUTING.md) | Local setup, tests, code style |
+| [Migrations](docs/development/migrations.md) | The dual-ORM schema rules |
+| [Deployment](docs/deployment/railway.md) | Railway deploys, monitoring |
+| [Architecture notes](CLAUDE.md) | Service layout and build gotchas |
 
 ---
 
@@ -392,3 +412,22 @@ checked-in Software Bill of Materials (SBOM).
 - **Showcase:** https://www.suwappu.bot
 - **Telegram Bot:** [@SuwappuBot](https://t.me/SuwappuBot)
 - **Agent Card:** https://api.suwappu.bot/.well-known/agent.json
+
+---
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for the
+repository map, local setup, testing commands and code style, and
+[CLAUDE.md](./CLAUDE.md) for architecture and build gotchas.
+
+- Good places to start: issues labelled [`good first issue`](https://github.com/0xSoftBoi/suwappubot/labels/good%20first%20issue)
+- All participants are expected to follow our [Code of Conduct](./CODE_OF_CONDUCT.md)
+- Security vulnerabilities go to **security@suwappu.bot**, never a public issue — see [SECURITY.md](./SECURITY.md)
+
+**Never commit secrets.** Real keys, bot tokens, seed phrases and database URLs do not
+belong in the repo. A gitleaks scan runs on every push and pull request.
+
+## License
+
+Licensed under the [Apache License 2.0](./LICENSE).

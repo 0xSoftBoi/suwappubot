@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/0xSoftBoi/suwappubot/security/policy
+    about: Do not open a public issue. Report privately — see our security policy.
+  - name: Documentation
+    url: https://github.com/0xSoftBoi/suwappubot/tree/main/docs
+    about: Setup, deployment, architecture and feature docs.
+  - name: Agent / API integration
+    url: https://github.com/0xSoftBoi/suwappubot/blob/main/docs/features/agent_integration.md
+    about: Using Suwappu over REST, MCP or A2A from your agent.

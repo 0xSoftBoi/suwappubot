@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in Suwappu is broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security vulnerabilities here.** Email security@suwappu.bot instead — see [SECURITY.md](../../SECURITY.md).
+
+        Never paste private keys, seed phrases, API keys, or bot tokens into an issue.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Telegram bot (bot/)
+        - Python API (api/)
+        - TypeScript API (api-ts/)
+        - Webapp / Telegram Mini App (webapp/)
+        - Web terminal (terminal/)
+        - Showcase site (showcase/)
+        - Mobile (mobile/)
+        - SDK / MCP server (packages/)
+        - Smart contracts (contracts/)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `...`
+        2. Send `/swap 0.1 ETH USDC`
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: chain
+    attributes:
+      label: Chain / token (if swap-related)
+      placeholder: "base — ETH → USDC"
+  - type: input
+    id: tx
+    attributes:
+      label: Transaction hash (if any)
+      placeholder: "0x..."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Redact any keys or tokens before pasting.
+      render: shell
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        OS: macOS 15
+        Python: 3.12.3 / Bun: 1.1.x / Node: 20.x
+        Deployment: local docker-compose / self-hosted / hosted suwappu.bot
