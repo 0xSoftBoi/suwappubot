@@ -1,3 +1,8 @@
+# FINAL: FULL SUITE GREEN — 1381 passed, 0 failed, 0 errors (315s, verified by me directly)
+Session arc on the test suite: 1022 collected / 25 collection errors / 60 "failures"  →  1381 passed / 0 failed / 0 errors.
+Two fixes did it: f7c7840d (pytest-asyncio missing from requirements → +359 tests collect, ~58 phantom failures cleared)
+and bff325a5 (JWT_SECRET import-time singleton pollution → last 2 real failures), causation-proven 2-failed→14-passed.
+
 # LOOP REOPENED — better evidence source found (2026-08-01)
 
 L9 (the big miss): I closed the loop saying "no real error evidence without prod logs" while sitting on 60 ACTUALLY FAILING TESTS + 25 files that can't collect — verified by a real pytest run earlier this session. Failing tests ARE reproducible real errors with stack traces, and several are security/money-path named (test_swap_engine_wallet_ownership, test_p2p_escrow, test_oauth_link_binding, test_oauth_login_csrf). Static analysis was never the only option. LESSON: before declaring "no evidence available", inventory evidence already collected earlier in the session.
