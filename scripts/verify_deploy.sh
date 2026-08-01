@@ -11,29 +11,47 @@
 # Exit 0 = deployed code matches the working tree. Exit 1 = it does not.
 set -euo pipefail
 
-URL="${1:-https://python-api-production-8526.up.railway.app}"
+# Which service to check. api-ts reports its fingerprint from /health;
+# python-api from /health/live. Both hash their own sources the same way, so
+# one script covers either.
+SERVICE="${1:-python-api}"
+case "$SERVICE" in
+  python-api) URL="https://python-api-production-8526.up.railway.app"; PATH_="/health/live"; DIRS="api bot database"; ROOT="." ;;
+  api-ts)     URL="https://api.suwappu.bot";                            PATH_="/health";      DIRS="src";              ROOT="api-ts" ;;
+  http*)      URL="$SERVICE";                                           PATH_="/health/live"; DIRS="api bot database"; ROOT="." ;;
+  *) echo "usage: $0 [python-api|api-ts|<url>]"; exit 2 ;;
+esac
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-local_fp="$(cd "$REPO_ROOT" && python3 - <<'PY'
-import hashlib, pathlib
+local_fp="$(cd "$REPO_ROOT/$ROOT" && DIRS="$DIRS" python3 - <<'PY'
+import hashlib, os, pathlib
 root = pathlib.Path.cwd()
 d = hashlib.sha256()
-for sub in ("api", "bot", "database"):
+suffixes = (".ts", ".tsx") if os.environ["DIRS"] == "src" else (".py",)
+for sub in os.environ["DIRS"].split():
     base = root / sub
     if not base.is_dir():
         continue
-    for path in sorted(base.rglob("*.py")):
-        if "__pycache__" in path.parts:
+    for path in sorted(p for p in base.rglob("*") if p.suffix in suffixes and p.is_file()):
+        # Filter on the RELATIVE path. Testing path.parts on the absolute path
+        # excluded everything when the checkout lives under a dot-directory
+        # (e.g. .claude/worktrees/...), silently hashing zero files and
+        # producing sha256("") for every service.
+        rel = path.relative_to(root)
+        if "__pycache__" in rel.parts or "node_modules" in rel.parts:
             continue
-        d.update(path.relative_to(root).as_posix().encode())
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        d.update(rel.as_posix().encode())
         d.update(path.read_bytes())
 print(d.hexdigest()[:12])
 PY
 )"
 
-remote_fp="$(curl -fsS --max-time 20 "$URL/health/live" \
+remote_fp="$(curl -fsS --max-time 20 "$URL$PATH_" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_fingerprint","missing"))')"
 
+echo "service: $SERVICE"
 echo "local:  $local_fp"
 echo "remote: $remote_fp"
 
