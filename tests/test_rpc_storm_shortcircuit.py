@@ -33,18 +33,26 @@ def _mgr(endpoints_by_chain) -> RPCManager:
 
 
 def test_all_circuits_open_true_when_every_endpoint_open():
-    mgr = _mgr({"tempo": [
-        _ep("https://a.example/rpc", "tempo", open_for=60),
-        _ep("https://b.example/rpc", "tempo", open_for=60),
-    ]})
+    mgr = _mgr(
+        {
+            "tempo": [
+                _ep("https://a.example/rpc", "tempo", open_for=60),
+                _ep("https://b.example/rpc", "tempo", open_for=60),
+            ]
+        }
+    )
     assert mgr.chain_all_circuits_open("tempo") is True
 
 
 def test_all_circuits_open_false_when_one_endpoint_healthy():
-    mgr = _mgr({"eth": [
-        _ep("https://a.example/rpc", "eth", open_for=60),
-        _ep("https://b.example/rpc", "eth"),  # healthy
-    ]})
+    mgr = _mgr(
+        {
+            "eth": [
+                _ep("https://a.example/rpc", "eth", open_for=60),
+                _ep("https://b.example/rpc", "eth"),  # healthy
+            ]
+        }
+    )
     assert mgr.chain_all_circuits_open("eth") is False
 
 
@@ -72,9 +80,7 @@ async def test_evm_rpc_call_skips_network_when_all_circuits_open(monkeypatch):
     """_evm_rpc_call must raise BEFORE opening any aiohttp session."""
     from bot.services import wallet as wallet_mod
 
-    monkeypatch.setattr(
-        wallet_mod.rpc_manager, "chain_all_circuits_open", lambda chain: True
-    )
+    monkeypatch.setattr(wallet_mod.rpc_manager, "chain_all_circuits_open", lambda chain: True)
 
     def _boom():
         raise AssertionError("a session was opened for a fully circuit-open chain")
