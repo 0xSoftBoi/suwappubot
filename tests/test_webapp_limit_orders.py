@@ -14,13 +14,23 @@ from database.db import get_session, init_db
 from bot.models.advanced import LimitOrder, OrderStatus
 from bot.models.user import User, Wallet
 
+_SECRET = "test-secret"
+
 
 def auth_headers(user_id: int = 1):
-    token = jwt.encode({"user_id": user_id}, "test-secret", algorithm="HS256")
+    token = jwt.encode({"user_id": user_id}, _SECRET, algorithm="HS256")
     return {"Authorization": f"Bearer {token}"}
 
 
-def app_client():
+def app_client(monkeypatch):
+    # api.main bakes JWT_SECRET at import time, so the SECRET_KEY env set at the
+    # top of this file only wins if nothing imported api.main first. Under the
+    # full suite something already has, leaving an ephemeral random secret that
+    # rejects our tokens — so pin it here, as test_webapp_referrals.py does.
+    import api.main as main_mod
+
+    monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
+
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
@@ -28,20 +38,22 @@ def app_client():
 
 def seed_user_wallet():
     with get_session() as session:
-        session.add_all([
-            User(id=1, username="terminal-user"),
-            Wallet(
-                id=1,
-                user_id=1,
-                address="0xlimitwallet",
-                chain_type="evm",
-                wallet_provider="turnkey",
-                turnkey_wallet_id="wallet-id",
-                turnkey_account_id="account-id",
-                is_active=True,
-                is_default=True,
-            ),
-        ])
+        session.add_all(
+            [
+                User(id=1, username="terminal-user"),
+                Wallet(
+                    id=1,
+                    user_id=1,
+                    address="0xlimitwallet",
+                    chain_type="evm",
+                    wallet_provider="turnkey",
+                    turnkey_wallet_id="wallet-id",
+                    turnkey_account_id="account-id",
+                    is_active=True,
+                    is_default=True,
+                ),
+            ]
+        )
 
 
 def test_webapp_limit_order_create_list_cancel(tmp_path, monkeypatch):
@@ -53,7 +65,7 @@ def test_webapp_limit_order_create_list_cancel(tmp_path, monkeypatch):
 
     monkeypatch.setattr("bot.services.price_service.price_service.get_price", fake_get_price)
 
-    client = app_client()
+    client = app_client(monkeypatch)
     create = client.post(
         "/webapp/limit-orders",
         headers=auth_headers(),
@@ -96,7 +108,7 @@ def test_webapp_limit_order_rejects_sell_below_market(tmp_path, monkeypatch):
 
     monkeypatch.setattr("bot.services.price_service.price_service.get_price", fake_get_price)
 
-    client = app_client()
+    client = app_client(monkeypatch)
     response = client.post(
         "/webapp/limit-orders",
         headers=auth_headers(),
