@@ -650,3 +650,11 @@
   display: block;
 }
 .csgl__overlay { pointer-events: none; }
+
+/* The GL objects render two stacked canvases inside a wrapper, so the sizing
+   that used to sit on a bare <canvas> now applies to the wrapper. Do NOT set
+   position here: .sw__field and .sw__field--top position themselves
+   absolutely, and overriding that collapsed the wrapper to 0x0, which left
+   the inner canvases at the 300x150 default. */
+.csgl.sw__band-canvas,
+.csgl.sw__figure-canvas { display: block; position: relative; }
