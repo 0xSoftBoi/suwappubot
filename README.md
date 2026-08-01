@@ -2,7 +2,7 @@
 
 Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
@@ -36,7 +36,7 @@ flowchart LR
     end
 
     subgraph Backend["Backend"]
-        Bot["Python Monolith\nSwap Engine · 27 Handlers\n56 Services"]
+        Bot["Python Monolith\nSwap Engine · 60 Handlers\n120 Services"]
         API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
@@ -258,15 +258,15 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 suwappubot/
 ├── api-ts/             # TypeScript API (Hono + Effect-TS + Drizzle)
 │   └── src/
-│       ├── routes/     # 15 route modules, 50+ endpoints
-│       ├── services/   # 22 services (swap, agent, perps, lending, etc.)
+│       ├── routes/     # 22 route modules
+│       ├── services/   # 36 services (swap, agent, perps, lending, etc.)
 │       └── middleware/  # Auth (bearer, telegram, flex, admin, internal)
 ├── bot/                # Python Telegram bot
-│   ├── handlers/       # 27 command handlers
-│   ├── services/       # 56 services (swap engine, sniping, copy, security)
+│   ├── handlers/       # 60 handler modules
+│   ├── services/       # 120 services (swap engine, sniping, copy, security)
 │   └── config/         # Chain configs, token configs, settings
 ├── api/                # Python FastAPI (webhook handlers)
-├── webapp/             # Telegram Mini App (React + Vite) — 18 pages, 95+ components
+├── webapp/             # Telegram Mini App (React + Vite) — 28 pages, 85 components
 ├── terminal/           # Web Trading Terminal — 15+ panels, TradingView charts
 ├── showcase/           # Marketing site (Next.js + GSAP + Three.js)
 ├── packages/
@@ -275,12 +275,9 @@ suwappubot/
 │   ├── mcp-server/     # @suwappu/mcp-server (npm, published)
 │   ├── openclaw/       # @suwappu/openclaw (npm, published)
 │   └── sdk-python/     # Python SDK (development)
-├── examples/           # Working examples (swap-agent, perps-trader, yield-farmer, prediction-bot)
-├── gitbook/            # API documentation (33 files)
+├── gitbook/            # API documentation (53 files)
 ├── infra/              # AWS CDK infrastructure
 ├── database/           # DB init + runtime migrations
-├── cpp/                # C++ core (crypto, math, validation)
-├── tui/                # Terminal monitoring dashboard (Ink)
 ├── docs/               # Architecture docs
 ├── tests/              # Python tests
 └── .github/workflows/  # CI/CD (4 deploy + CI + rollback)
@@ -324,14 +321,28 @@ suwappubot/
 
 ## Deployment
 
-All services on AWS ECS Fargate (us-east-1) with circuit breaker + rollback.
+**Deploy target is Railway, not AWS.** Each service has a `railway.*.json` (or a `railway.json`
+in its own directory) declaring its Dockerfile and `watchPatterns`; merging to `main` auto-deploys
+any service whose watched paths changed, via `.github/workflows/deploy-railway.yml`.
 
-| Environment | API | Webapp | Bot | Showcase | Branch |
-|-------------|-----|--------|-----|----------|--------|
-| **Production** | api.suwappu.bot | app.suwappu.bot | bot.suwappu.bot | www.suwappu.bot | `main` |
-| **Development** | devapi.suwappu.bot | devfront.suwappu.bot | devbot.suwappu.bot | — | `dev` |
+| Service | Config | Watches |
+|---------|--------|---------|
+| `python-api` (bot + FastAPI) | `railway.python-api.json` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
+| `python-worker` (background tasks) | `railway.python-worker.json` | same as python-api |
+| `terminal` (Mini App) | `railway.terminal.json` | `terminal/**`, `packages/design-tokens/**` |
+| `webapp` (Mini App) | `railway.webapp.json` | `webapp/**`, `packages/design-tokens/**` |
+| `api-ts` | `api-ts/railway.json` | (subdirectory service) |
+| `showcase` | `showcase/railway.json` | (subdirectory service) |
 
-CI/CD: Push to `main`/`dev` → Docker build → Trivy scan → ECR push → DB backup → ECS deploy → health check.
+| Environment | Branch | Notes |
+|-------------|--------|-------|
+| **Production** | `main` | `api.suwappu.bot` serves **api-ts**, not the Python bot — the Python service has no custom prod domain, so use its `railway.app` host for deep health checks. `www.suwappu.bot` = showcase, `app.suwappu.bot` = terminal. |
+| **Development** | `dev` | `devapi.suwappu.bot` |
+
+The `infra/` directory contains AWS CDK definitions that are **legacy and unused** for app
+deploys — it predates the Railway migration. Wallet encryption does still use AWS KMS.
+
+See [`docs/deployment/railway.md`](./docs/deployment/railway.md) and the `/deploy` skill.
 
 ---
 
@@ -397,11 +408,10 @@ checked-in Software Bill of Materials (SBOM).
 
 | Resource | Description |
 |----------|-------------|
-| [GitBook API Docs](gitbook/) | Full API reference (33 files) |
-| [Agent Integration](docs/features/agent_integration.md) | MCP, A2A, REST setup |
-| [Examples](examples/) | Working examples: swap-agent, perps-trader, yield-farmer, prediction-bot |
-| [Deployment](docs/deployment/) | AWS, CI/CD, releases |
-| [Development](docs/development/) | Local setup, debugging, migrations |
+| [GitBook API Docs](gitbook/) | Full API reference (53 files) |
+| [Agent Integration](docs/agent-clients.md) | MCP, A2A, REST setup |
+| [Deployment](docs/deployment/) | Railway deploys, monitoring, runbooks |
+| [Development](docs/development/) | Testing, suite gotchas, local setup |
 
 ---
 
