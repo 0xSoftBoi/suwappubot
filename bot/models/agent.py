@@ -5,6 +5,7 @@ from database.db import Base
 
 class RegisteredAgent(Base):
     """External A2A agent registered via the public registration endpoint."""
+
     __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True)
@@ -17,8 +18,17 @@ class RegisteredAgent(Base):
     last_seen_at = Column(DateTime, nullable=True)
     uuid = Column(String(36), unique=True, nullable=True)
     api_key_hash = Column(String(128), nullable=True)
-    agent_metadata = Column("metadata", Text, nullable=True)  # JSON — "metadata" is reserved by SQLAlchemy
+    agent_metadata = Column(
+        "metadata", Text, nullable=True
+    )  # JSON — "metadata" is reserved by SQLAlchemy
     rate_limit_tier = Column(String(20), default="free")
     total_requests = Column(Integer, default=0)
     total_swaps = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # Telegram owner binding (agent control-plane /claim, SUW-204 follow-up).
+    # Nullable FK to users.id; NULL until a human links to this agent via
+    # /claim <code>. Shared cross-stack — see database/db.py's
+    # _add_agents_owner_user_id_column for the additive migration and
+    # bot/handlers/claim_agent.py for the write path.
+    owner_user_id = Column(Integer, nullable=True, index=True)

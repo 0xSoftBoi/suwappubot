@@ -11,6 +11,7 @@ The ``agent_approvals`` table is shared with api-ts (agent-control-plane
 writes new rows); every query here tolerates the table not existing yet.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from bot.services.approval_webhook import notify_approval_decided
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -76,8 +78,8 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
             # Re-read the row's current status (whatever decided it) for the reply.
             row = session.execute(
                 text(
-                    "SELECT status, decided_by, agent_name, agent_id, user_telegram_id "
-                    "FROM agent_approvals WHERE id = :id"
+                    "SELECT status, decided_by, agent_name, agent_id, user_telegram_id, "
+                    "intent_hash FROM agent_approvals WHERE id = :id"
                 ),
                 {"id": approval_id},
             ).fetchone()
@@ -93,8 +95,13 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("This approval request no longer exists.")
         return
 
-    status, existing_decided_by, agent_name, agent_id, owner_telegram_id = row
+    status, existing_decided_by, agent_name, agent_id, owner_telegram_id, intent_hash = row
     label = agent_name or agent_id
+
+    if decided_now:
+        # Fire-and-forget: never await the network call inline so a slow/dead
+        # callback_url can't delay the human's Telegram confirmation.
+        asyncio.create_task(notify_approval_decided(approval_id, new_status, intent_hash))
 
     if not decided_now and status == "pending" and owner_telegram_id != tapper_id:
         # Row is still pending but the tapper isn't the owner (or the row has

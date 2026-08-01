@@ -24,6 +24,7 @@ from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
 
 from bot.config.settings import settings
+from bot.services.approval_webhook import notify_approval_decided
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,8 @@ class ApprovalNotifier:
             with get_session() as session:
                 rows = session.execute(
                     text(
-                        "SELECT id, notify_chat_id, notify_message_id FROM agent_approvals "
+                        "SELECT id, notify_chat_id, notify_message_id, intent_hash "
+                        "FROM agent_approvals "
                         "WHERE status = 'pending' AND expires_at IS NOT NULL "
                         "AND expires_at < CURRENT_TIMESTAMP"
                     )
@@ -168,10 +170,12 @@ class ApprovalNotifier:
             logger.error("Failed to expire stale agent approvals: %s", e)
             return
 
-        if self._bot is None:
-            return
-        for row_id, chat_id, message_id in rows:
-            if not (chat_id and message_id):
+        for row_id, chat_id, message_id, intent_hash in rows:
+            # Fire-and-forget the agent's decision webhook regardless of
+            # whether we also have a Telegram message to edit.
+            asyncio.create_task(notify_approval_decided(row_id, "expired", intent_hash))
+
+            if self._bot is None or not (chat_id and message_id):
                 continue
             try:
                 await self._bot.edit_message_text(

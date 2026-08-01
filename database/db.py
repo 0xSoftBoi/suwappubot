@@ -499,6 +499,11 @@ def _ensure_schema(db_engine) -> None:
     # --- agent control-plane approvals (SUW-204) ---
     _create_agent_approvals_table(db_engine, inspector, is_sqlite)
 
+    # --- agent control-plane claim/link (owner_user_id + agent_link_codes) ---
+    if "agents" in tables:
+        _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
+    _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -3292,6 +3297,99 @@ def _create_agent_approvals_table(db_engine, inspector, is_sqlite: bool) -> None
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_approvals ({cols})"))
 
     logger.info("Created agent_approvals table")
+
+
+def _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Additive migration: agents.owner_user_id (agent-claim, /claim command).
+
+    Shared with api-ts, which is concurrently adding this same column via its
+    own migration path — both sides must tolerate the other creating it
+    first, hence a column-existence check rather than assuming ownership.
+
+    Nullable int FK to users.id: NULL means "not yet claimed by a Telegram
+    user" (the pre-/claim state every registered agent starts in).
+    """
+    try:
+        cols = {c["name"] for c in inspector.get_columns("agents")}
+    except Exception:
+        return
+    if "owner_user_id" in cols:
+        return
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN owner_user_id INTEGER"))
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_agents_owner_user_id ON agents (owner_user_id)")
+            )
+        logger.info("Added agents.owner_user_id column")
+    except Exception as e:
+        logger.warning("Could not add agents.owner_user_id column: %s", e)
+
+
+def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_link_codes idempotently (agent-claim, /claim command).
+
+    Shared with api-ts: api-ts mints a short-lived one-time code (stored here
+    only as its sha256 hex digest — the plaintext code is shown to the human
+    once and never persisted) when a user wants to bind a Telegram identity
+    to an already-registered agent. The bot's /claim <code> handler hashes
+    the code the user pastes in and looks up a still-valid, still-unused row.
+
+    ``agent_id`` is an INTEGER FK to ``agents.id`` (matches api-ts's shipped
+    schema in api-ts/src/db/schema/agentLinkCodes.ts) — NOT the agents.uuid
+    string used by agent_approvals.agent_id. Don't conflate the two.
+
+    Either service may boot first, so this mirrors the ``agent_approvals``
+    pattern: ``CREATE TABLE IF NOT EXISTS``, no assumption of table
+    ownership.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_link_codes" in tables:
+        return
+
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS agent_link_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_id INTEGER NOT NULL,
+                    code_hash VARCHAR(64) NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    used_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+                if is_sqlite
+                else """
+                CREATE TABLE IF NOT EXISTS agent_link_codes (
+                    id SERIAL PRIMARY KEY,
+                    agent_id INTEGER NOT NULL,
+                    code_hash VARCHAR(64) NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    used_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_link_codes_code_hash "
+                "ON agent_link_codes (code_hash)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_link_codes_agent_id "
+                "ON agent_link_codes (agent_id)"
+            )
+        )
+
+    logger.info("Created agent_link_codes table")
 
 
 def _add_agent_approvals_consumed_at_column(db_engine, inspector, is_sqlite: bool) -> None:
