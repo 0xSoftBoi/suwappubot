@@ -66,4 +66,71 @@ Notably for us: it is **crypto-native** — every agent gets its own **SOL walle
 
 ---
 
-*Sections below — our current surfaces, parity matrix, and execution plan — grounded in the repo inventory.*
+## 6. Where we stand (repo inventory, 2026-08-01)
+
+We are **not** building a coding-agent cloud. Parity here means: *their playbook, our domain* — autonomous **trading** agents with wallets, reachable everywhere, converting through the same mechanics. The good news: most of the hard substrate already exists and is live.
+
+| Surface | State | Evidence |
+|---------|-------|----------|
+| Agent API (`/v1/agent/*`: quote, execute, status, register, topup, policy, webhooks) | **LIVE** | `api-ts/src/routes/agent.ts:77`, mounted in `app.ts` |
+| A2A protocol + agent card | LIVE | `api-ts/src/routes/a2a.ts` |
+| MCP surface (LLM tool defs) | LIVE | `api-ts/src/routes/mcp.ts` |
+| x402 per-call metering + spend permissions | LIVE | `middleware/x402Payment.ts:28`, `lib/spendPermission.ts` |
+| Stripe tiers (fee multipliers free=1.0x → enterprise=0.1x) | LIVE | `billing.ts:57-62` |
+| Per-user wallets, EVM (Turnkey) + Solana, KMS envelope | LIVE | `db/schema/wallets.ts:1-41` |
+| NL trade-intent parsing (Claude primary, OpenAI-compat fallback, budget caps) | LIVE (Telegram-only) | `bot/services/nl_intent_service.py`, `bot/handlers/nl_trade.py` |
+| Trading terminal (React, TradingView, 8 panels, 74 E2E tests) | **DEPLOYED** | `terminal/`, `railway.terminal.json` |
+| WhatsApp voice intent capture | Built, wiring unverified | `bot/services/whatsapp_voice.py` |
+| SDKs (TS, Python, openclaw) | Exist in-repo, not marketed | `packages/sdk*` |
+| Webapp/terminal chat UI for agents | **MISSING** | agent access is API-only |
+| Fee collection + sweeper | LIVE | `bot/services/fee_service.py`, `fee_sweeper.py` |
+
+Scout's verdict: *"modular components waiting for a coordinator layer."* chat.dev's SOL-wallet-per-agent + self-funding story is something we already have the rails for — on **7+ chains**, not one.
+
+## 7. Parity matrix — their mechanic → our move
+
+| # | chat.dev mechanic | Our analog | Status | Effort |
+|---|---|---|---|---|
+| 1 | Agent with own wallet, self-funds compute | Agent wallet auto-tops-up credits via x402 from its own balance | Rails live; auto-topup loop missing | M **MONEY-PATH** |
+| 2 | 7 control surfaces (web/IDE/SMS/voice/API/group/terminal) | Telegram ✅, terminal ✅, API/MCP ✅; voice ⚠️ unwired, group-share ✖, webapp chat ✖ | Partial | M |
+| 3 | No-card free tier, usage-gated (never feature-gated) | Free starter credits on agent register; ceilings drive upgrade | Register live; free-credit grant + ceiling UX missing | S |
+| 4 | Login *is* signup (one step) | `POST /v1/agent/register` is already headless one-step; webapp equivalent missing | Partial | S |
+| 5 | BYO-subscription (use your existing Claude/ChatGPT) | BYO wallet (non-custodial signing) + BYO LLM key for NL features | Not offered | M |
+| 6 | Channel API (embed agents in 3rd-party apps; headless account+wallet provisioning; HMAC webhooks) | Partner Channel API: inbound message → NL intent → quote/execute; auto-provision agent+wallet | Webhook events + register exist; inbound-message channel missing | M-L |
+| 7 | IDE extension session-capture funnel | **MCP-first funnel**: publish MCP server to registries (Claude/Cursor/ChatGPT), agent-card discovery; SDKs to npm/PyPI | MCP live but unlisted; SDKs unpublished | S |
+| 8 | Phone number as CTA ("Call +1-856-CHATDEV") | "Text your trading agent" — WhatsApp/Telegram deep-link on showcase; later a voice number | Voice svc exists unwired | S (link) / M (voice) |
+| 9 | Comparison/cost-bait SEO (vs Devin/Cursor…) | Showcase blog: "Suwappu vs Banana Gun vs Maestro vs BonkBot", "true cost of a trading bot" | None | S |
+| 10 | Social proof on the pricing section | Testimonials/volume stats inline on showcase pricing | None | S |
+| 11 | Public-repo free compute (OSS subsidy) | Free/discounted fees for open-source agent builders using the SDK | None | S (policy) |
+| 12 | Scheduled Tool Pipelines | We have orders/DCA/alerts/snipe — package as "Automations" in one UI + agent API | Backends live, not unified | M |
+| 13 | Group-chat agent sharing (`/share`) | Telegram group `/share` of an agent (read-only quotes first) | None | M |
+| 14 | Their gaps: no teams/SSO/SOC2/SDKs/WebSockets | Differentiators we can ship: published SDKs, HMAC-signed webhooks (have), 2FA (have), KMS custody story (have), multi-chain (have) | Mostly done — needs marketing | S |
+
+## 8. Execution plan
+
+**Phase 0 — Conversion mechanics (week 1-2, mostly S-effort, no new money-path):**
+1. **Agent onboarding page + free credits**: showcase page with one-step agent signup hitting `/v1/agent/register`, granting starter credits (no card). Tier table styled like theirs: usage ceilings, ~33% annual discount, social proof inline. → `showcase-dev`, credits grant → `api-ts-dev`.
+2. **Publish the funnel assets**: SDKs to npm/PyPI, MCP server listed in public MCP registries, agent card discoverable. → `sdk-dev`.
+3. **SEO comparison content**: 3 posts (vs Telegram-bot competitors; "true cost" calculator; "let your agent trade while you sleep"). → `showcase-dev` + `researcher` for claims.
+4. **"Text your agent" CTA**: Telegram/WhatsApp deep links as primary showcase CTA (their phone-number trick, zero build).
+
+**Phase 1 — Surface parity (week 3-5):**
+5. **Webapp/terminal chat panel**: bind `nl_intent_service` → existing confirm-swap flow in a chat UI (the missing "coordinator layer"). Intent parser still never signs; 2FA gate intact. → `webapp-dev` + `bot-dev`.
+6. **Wire WhatsApp voice** end-to-end (voice → intent → confirm). Verify with a real voice message per Live Verification rule. → `bot-dev`.
+7. **Automations UI**: unify orders/DCA/alerts/snipe as scheduled "pipelines" in terminal + agent API (`schedule` endpoints). Fix backlog D2 (snipe backend) as part of this. → `api-ts-dev` + `webapp-dev`.
+8. **Group agent sharing**: `/share` in Telegram groups, quotes-only first, owner-revocable. → `bot-dev`.
+
+**Phase 2 — Platform parity (week 6-9):**
+9. **Channel API**: `POST /v1/channels` + `/inbound` + HMAC-signed outbound webhooks + key rotation; headless account-and-wallet provisioning (mirror their `register` bypass). Distribution loop: other apps embed our swap agent. → `api-ts-dev`; security review → `security-auditor`.
+10. **Self-funding agents**: opt-in auto-topup of x402 credits from the agent's own wallet with hard spending limits. **MONEY-PATH → `money-path-reviewer` (Opus) before merge.** → `api-ts-dev`.
+11. **Agent dashboard** in webapp: registry, credits, spend limits, policy editor, webhook logs. → `webapp-dev`.
+12. **BYO options**: non-custodial signing mode (agent submits pre-signed txs) + BYO LLM key for NL parsing. → `api-ts-dev` + `bot-dev`.
+
+**Explicitly NOT copying** (out of scope, surface if this shrinks the vision): cloud VMs/compute rental, coding harnesses, GPU tiers, custom domains, IDE extension (MCP is our editor-side beachhead), credential harvesting from other tools' local state (their extension reads competitors' auth files — effective, but not a pattern we should adopt for wallets).
+
+## 9. Verification gates (per CLAUDE.md)
+
+- Every phase item ships behind `bash scripts/verify.sh` + `python3 scripts/status.py` green.
+- Live E2E per feature: real agent registration + testnet/small quote-execute through each new surface (chat panel, voice, Channel API) before calling it live — "code-complete, not functionally verified" otherwise.
+- Items 1, 10, 12 touch billing/wallets → tag **MONEY-PATH**, Opus review mandatory.
+- Conversion instrumentation: track signup→first-quote→first-swap→paid-tier funnel from day one (else we can't "study how *we're* converting").
