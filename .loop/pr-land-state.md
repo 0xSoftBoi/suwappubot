@@ -12,7 +12,11 @@ ROUND 1 DONE (dbd2ed09): mobile.py fully fixed — all 24 refs + 4 EXTRA broken 
 ROUND 1 QA (conductor, opus): I re-verified the mobile.py diff against the models myself — LEVELS list matched, get_level_info/xp_to_next_level/get_fee_discount confirmed methods, and the NEW JOIN is genuinely correct (CopyTrade.trader_id and TraderProfile.user_id are both FK->users.id). Fixed one drift risk myself (996eff84): level order now derived from LEVELS sorted by xp instead of a duplicated hardcoded list; verified output identical.
 ROUND 2: dead-button audit found 4 real dead buttons out of 69 prefixes checked vs 88 handler patterns (pred_amt_* correctly ruled false-positive): history_stats (handler EXISTS but never registered), snipe_watch_add (x2), admin_status, admin_import_wallet. bot-dev fixing now with rules: reuse existing renderers, never half-wire the wallet-import KEY path (money-path → flag, make button honest instead of faking a feature), every handler must query.answer().
 API-TS: CLEAN — bun run check passes, all mounted routes (perps/p2p/predict/tokens/health/lend/rewards/smartAccount/staking/publicSwap) have verified DI services + schema cols. No broken api-ts routes. So breakage = the mobile.py python cluster only (this round).
+ROUND 3 CLEAN: terminal Mini App → backend contract consistent. 99 frontend calls all resolve (auth 12 + webapp 57 + terminal 24 python routes, 6 api-ts agent routes). No 404s. Live Mini App is NOT the breakage source.
+ROUND 4 IN FLIGHT: mobile (Expo) app → api/routes/mobile.py contract — especially RESPONSE-SHAPE mismatches (backend returns camelCase; does the app read keys the handler never returns?), incl. re-checking the just-fixed points/rewards/copy-trading handlers against app expectations.
+
 DEPLOY CAVEAT: fixes land on my branch; getting them LIVE still needs user to unblock Railway (Actions billing / token) — sandbox can't deploy.
+STATIC-AUDIT COVERAGE SO FAR: attr/method mismatches (found 28), dead buttons (found 4), api-ts routes+types (clean), terminal contract (clean). REMAINING CLASSES NEED REAL LOGS: external API/RPC failures, timeouts, auth-token edge cases, data-dependent 500s — none of these are statically detectable. Ask user for `railway logs --service python-api` tail to go further.
 
 ---
 
