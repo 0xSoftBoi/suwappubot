@@ -168,8 +168,7 @@ async def _show_status(update: Update) -> None:
 
     if not sessions:
         await update.message.reply_text(
-            "📭 No active MPP sessions.\n\n"
-            "Start one with `/mpp session <service_url>`",
+            "📭 No active MPP sessions.\n\n" "Start one with `/mpp session <service_url>`",
             parse_mode="Markdown",
         )
         return

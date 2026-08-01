@@ -299,9 +299,7 @@ class AvnuPaymaster:
         if not tx_hash:
             # Got a response but no hash — the paymaster accepted the request,
             # so the tx may still land. Do NOT let callers re-execute.
-            raise PaymasterSubmittedError(
-                "Paymaster execute returned no transaction_hash", result
-            )
+            raise PaymasterSubmittedError("Paymaster execute returned no transaction_hash", result)
         return _to_hex(tx_hash)
 
     # ------------------------------------------------------------------

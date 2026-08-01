@@ -18,7 +18,6 @@ from bot.utils.formatters import format_usd
 from bot.utils.telegram_safe import safe_md
 from database.db import get_session
 
-
 # Conversation states
 SELECT_TOKEN, SELECT_TYPE, ENTER_PRICE = range(3)
 

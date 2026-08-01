@@ -32,9 +32,7 @@ class TrackedTwitterAccount(Base):
     """A Twitter/X handle tracked by a terminal user."""
 
     __tablename__ = "tracked_twitter_accounts"
-    __table_args__ = (
-        UniqueConstraint("user_id", "handle", name="uq_tracked_twitter_user_handle"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "handle", name="uq_tracked_twitter_user_handle"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)

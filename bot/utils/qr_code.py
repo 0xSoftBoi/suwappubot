@@ -15,12 +15,12 @@ def generate_wallet_qr(
 ) -> bytes:
     """
     Generate a QR code image for a wallet address.
-    
+
     Args:
         address: The wallet address
         chain: Optional chain name for styling
         size: Image size in pixels
-        
+
     Returns:
         PNG image as bytes
     """
@@ -31,7 +31,7 @@ def generate_wallet_qr(
         box_size=10,
         border=2,
     )
-    
+
     # For EVM, can use ethereum: URI scheme
     if chain and chain.lower() in ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]:
         data = f"ethereum:{address}"
@@ -39,10 +39,10 @@ def generate_wallet_qr(
         data = f"solana:{address}"
     else:
         data = address
-    
+
     qr.add_data(data)
     qr.make(fit=True)
-    
+
     # Choose colors based on chain
     colors = {
         "ethereum": ("#627EEA", "#1A1A2E"),
@@ -53,9 +53,9 @@ def generate_wallet_qr(
         "bsc": ("#F0B90B", "#1A1A2E"),
         "solana": ("#14F195", "#1A1A2E"),
     }
-    
+
     fg_color, bg_color = colors.get(chain.lower() if chain else "", ("#000000", "#FFFFFF"))
-    
+
     # Create styled image
     img = qr.make_image(
         image_factory=StyledPilImage,
@@ -65,26 +65,26 @@ def generate_wallet_qr(
             front_color=hex_to_rgb(fg_color),
         ),
     )
-    
+
     # Resize
     img = img.resize((size, size), Image.Resampling.LANCZOS)
-    
+
     # Convert to bytes
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
-    
+
     return buffer.getvalue()
 
 
 def generate_simple_qr(address: str, size: int = 300) -> bytes:
     """
     Generate a simple black & white QR code.
-    
+
     Args:
         address: The wallet address
         size: Image size in pixels
-        
+
     Returns:
         PNG image as bytes
     """
@@ -96,22 +96,21 @@ def generate_simple_qr(address: str, size: int = 300) -> bytes:
     )
     qr.add_data(address)
     qr.make(fit=True)
-    
+
     img = qr.make_image(fill_color="black", back_color="white")
-    
+
     # Resize
     img = img.resize((size, size), Image.Resampling.LANCZOS)
-    
+
     # Convert to bytes
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
-    
+
     return buffer.getvalue()
 
 
 def hex_to_rgb(hex_color: str) -> tuple:
     """Convert hex color to RGB tuple."""
     hex_color = hex_color.lstrip("#")
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))

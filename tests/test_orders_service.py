@@ -29,7 +29,6 @@ from bot.models.advanced import (  # noqa: E402
 )
 from bot.services.orders import OrderService  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

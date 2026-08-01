@@ -188,23 +188,25 @@ ERC20_APPROVE_ABI = [
 @dataclass
 class LayerZeroQuote:
     """Quote for LayerZero/Stargate cross-chain transfer."""
+
     src_chain: str
     dst_chain: str
     token_symbol: str
     amount_in: str
     amount_out: str
     amount_out_min: str
-    native_fee: str       # LZ messaging fee in native token (wei)
+    native_fee: str  # LZ messaging fee in native token (wei)
     native_fee_usd: float
-    estimated_time: int   # seconds
-    pool_address: str     # Stargate pool contract
-    dst_eid: int          # LayerZero destination endpoint ID
+    estimated_time: int  # seconds
+    pool_address: str  # Stargate pool contract
+    dst_eid: int  # LayerZero destination endpoint ID
     raw_data: dict
 
 
 @dataclass
 class LayerZeroStatus:
     """Status of a LayerZero transaction."""
+
     src_tx_hash: str
     dst_tx_hash: Optional[str]
     status: str  # INFLIGHT, DELIVERED, FAILED
@@ -215,6 +217,7 @@ class LayerZeroStatus:
 
 class LayerZeroError(Exception):
     """Exception for LayerZero API errors."""
+
     def __init__(self, message: str, data: dict = None):
         super().__init__(message)
         self.data = data or {}
@@ -285,6 +288,7 @@ class LayerZeroAPI:
         chain = get_chain_by_name(src_chain)
 
         from bot.services.rpc_manager import rpc_manager
+
         web3 = rpc_manager.get_web3(src_chain)
 
         pool = web3.eth.contract(
@@ -297,16 +301,16 @@ class LayerZeroAPI:
         min_amount = int(amount_int * slippage_factor)
 
         # Pad address to bytes32 for LayerZero
-        to_bytes32 = Web3.to_bytes(hexstr=from_address).rjust(32, b'\x00')
+        to_bytes32 = Web3.to_bytes(hexstr=from_address).rjust(32, b"\x00")
 
         send_param = (
             dst_eid,
             to_bytes32,
             amount_int,
             min_amount,
-            b"",   # extraOptions (empty = default gas)
-            b"",   # composeMsg
-            b"",   # oftCmd (empty = taxi mode)
+            b"",  # extraOptions (empty = default gas)
+            b"",  # composeMsg
+            b"",  # oftCmd (empty = taxi mode)
         )
 
         try:
@@ -319,10 +323,18 @@ class LayerZeroAPI:
 
         # Estimate USD cost
         native_prices = {
-            "ethereum": 2000, "polygon": 0.8, "bsc": 300,
-            "arbitrum": 2000, "optimism": 2000, "base": 2000,
-            "avalanche": 35, "fantom": 0.5, "linea": 2000,
-            "mantle": 0.5, "scroll": 2000, "gnosis": 1,
+            "ethereum": 2000,
+            "polygon": 0.8,
+            "bsc": 300,
+            "arbitrum": 2000,
+            "optimism": 2000,
+            "base": 2000,
+            "avalanche": 35,
+            "fantom": 0.5,
+            "linea": 2000,
+            "mantle": 0.5,
+            "scroll": 2000,
+            "gnosis": 1,
             "tempo": 1,  # Gas is in USD stablecoins, so 1 USD = 1 USD
         }
         native_price = native_prices.get(src_chain.lower(), 2000)
@@ -371,7 +383,7 @@ class LayerZeroAPI:
         pool_address = Web3.to_checksum_address(quote.pool_address)
         pool = web3.eth.contract(address=pool_address, abi=STARGATE_SEND_ABI)
 
-        to_bytes32 = Web3.to_bytes(hexstr=sender_address).rjust(32, b'\x00')
+        to_bytes32 = Web3.to_bytes(hexstr=sender_address).rjust(32, b"\x00")
 
         send_param = (
             quote.dst_eid,
@@ -402,6 +414,7 @@ class LayerZeroAPI:
         # For non-ETH tokens, need ERC20 approval to the pool
         if quote.token_symbol.upper() != "ETH":
             from bot.config.tokens import get_token_address
+
             token_address = get_token_address(quote.token_symbol, quote.src_chain)
             if token_address:
                 token_contract = web3.eth.contract(

@@ -96,6 +96,7 @@ WORMHOLE_TOKENS = {
 @dataclass
 class WormholeQuote:
     """Quote for Wormhole bridge transfer."""
+
     from_chain: str
     to_chain: str
     from_token: str
@@ -119,6 +120,7 @@ class WormholeQuote:
 @dataclass
 class WormholeVAA:
     """Verified Action Approval from Wormhole Guardians."""
+
     vaa_bytes: str
     emitter_chain: int
     emitter_address: str
@@ -129,6 +131,7 @@ class WormholeVAA:
 @dataclass
 class WormholeStatus:
     """Status of a Wormhole transfer."""
+
     tx_hash: str
     status: str  # PENDING, VAA_READY, REDEEMED, FAILED
     vaa: Optional[WormholeVAA]
@@ -138,6 +141,7 @@ class WormholeStatus:
 
 class WormholeError(Exception):
     """Exception for Wormhole API errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -145,85 +149,80 @@ class WormholeError(Exception):
 
 class WormholeAPI:
     """Client for Wormhole/Portal cross-chain bridging.
-    
+
     Wormhole specializes in Solana <-> EVM transfers, filling a gap
     that Li.Fi and other EVM-focused aggregators don't handle well.
     """
-    
+
     def __init__(self):
         self.api_url = WORMHOLE_API_URL
         self.portal_url = PORTAL_API_URL
-    
-    def is_supported_route(
-        self,
-        from_chain: str,
-        to_chain: str,
-        token: str
-    ) -> bool:
+
+    def is_supported_route(self, from_chain: str, to_chain: str, token: str) -> bool:
         """Check if Wormhole supports this route."""
         from_chain_l = from_chain.lower()
         to_chain_l = to_chain.lower()
         token_u = token.upper()
-        
+
         # Check chains
         if from_chain_l not in WORMHOLE_CHAIN_IDS:
             return False
         if to_chain_l not in WORMHOLE_CHAIN_IDS:
             return False
-        
+
         if from_chain_l == to_chain_l:
             return False
-        
+
         # Wormhole is most valuable for Solana routes
         is_solana_route = from_chain_l == "solana" or to_chain_l == "solana"
-        
+
         # Check token availability
         if token_u not in WORMHOLE_TOKENS:
             return False
-        
+
         token_chains = WORMHOLE_TOKENS[token_u]
         return from_chain_l in token_chains and to_chain_l in token_chains
-    
+
     def is_solana_route(self, from_chain: str, to_chain: str) -> bool:
         """Check if this is a Solana-involved route."""
         return from_chain.lower() == "solana" or to_chain.lower() == "solana"
-    
+
     def get_wormhole_chain_id(self, chain: str) -> int:
         """Get Wormhole chain ID."""
         chain_id = WORMHOLE_CHAIN_IDS.get(chain.lower())
         if chain_id is None:
             raise WormholeError(f"Chain not supported by Wormhole: {chain}")
         return chain_id
-    
+
     def get_token_bridge(self, chain: str) -> str:
         """Get Token Bridge address for a chain."""
         address = TOKEN_BRIDGE_ADDRESSES.get(chain.lower())
         if not address:
             raise WormholeError(f"No Token Bridge for chain: {chain}")
         return address
-    
+
     def get_token_address(self, token: str, chain: str) -> str:
         """Get token address on a chain."""
         token_u = token.upper()
         chain_l = chain.lower()
-        
+
         if token_u not in WORMHOLE_TOKENS:
             raise WormholeError(f"Token not supported: {token}")
-        
+
         address = WORMHOLE_TOKENS[token_u].get(chain_l)
         if not address:
             raise WormholeError(f"Token {token} not available on {chain}")
-        
+
         return address
-    
+
     def get_supported_tokens(self) -> List[str]:
         """Get list of supported tokens."""
         return list(WORMHOLE_TOKENS.keys())
-    
+
     def get_supported_chains(self) -> List[str]:
         """Get list of supported chains."""
         return list(WORMHOLE_CHAIN_IDS.keys())
-    
+
     async def get_quote(
         self,
         from_chain: str,
@@ -233,31 +232,29 @@ class WormholeAPI:
     ) -> WormholeQuote:
         """
         Get a quote for Wormhole transfer.
-        
+
         Args:
             from_chain: Source chain name
             to_chain: Destination chain name
             token: Token symbol
             amount: Amount in smallest unit
-            
+
         Returns:
             WormholeQuote with transfer details
         """
         if not self.is_supported_route(from_chain, to_chain, token):
-            raise WormholeError(
-                f"Route not supported: {token} from {from_chain} to {to_chain}"
-            )
-        
+            raise WormholeError(f"Route not supported: {token} from {from_chain} to {to_chain}")
+
         source_token = self.get_token_address(token, from_chain)
         dest_token = self.get_token_address(token, to_chain)
         token_bridge = self.get_token_bridge(from_chain)
         wh_chain_id = self.get_wormhole_chain_id(to_chain)
-        
+
         # Wormhole typically charges minimal relayer fee
         # The main cost is gas on both chains
         is_solana_src = from_chain.lower() == "solana"
         is_solana_dst = to_chain.lower() == "solana"
-        
+
         # Gas estimates
         if is_solana_src:
             gas_cost = 0.01  # Solana is very cheap
@@ -270,7 +267,7 @@ class WormholeAPI:
                 "polygon": 0.10,
             }
             gas_cost = gas_estimates.get(from_chain.lower(), 1.0)
-        
+
         # Add destination gas for redeem
         if is_solana_dst:
             gas_cost += 0.01
@@ -283,14 +280,14 @@ class WormholeAPI:
                 "polygon": 0.10,
             }
             gas_cost += dest_gas.get(to_chain.lower(), 1.0)
-        
+
         # Relayer fee (optional, user can self-relay)
         relayer_fee = "0"
         relayer_fee_usd = 0.0
-        
+
         # Calculate amounts
         amount_int = int(amount)
-        
+
         # Get decimals
         decimals_map = {
             "SOL": 9,
@@ -299,10 +296,10 @@ class WormholeAPI:
             "WETH": 18,
         }
         decimals = decimals_map.get(token.upper(), 18)
-        
-        from_amount_human = amount_int / (10 ** decimals)
+
+        from_amount_human = amount_int / (10**decimals)
         to_amount_human = from_amount_human  # 1:1 for same token
-        
+
         return WormholeQuote(
             from_chain=from_chain,
             to_chain=to_chain,
@@ -325,9 +322,9 @@ class WormholeAPI:
                 "provider": "wormhole",
                 "from_wh_chain": self.get_wormhole_chain_id(from_chain),
                 "to_wh_chain": wh_chain_id,
-            }
+            },
         )
-    
+
     async def get_vaa(
         self,
         tx_hash: str,
@@ -337,23 +334,23 @@ class WormholeAPI:
     ) -> Optional[WormholeVAA]:
         """
         Wait for and retrieve VAA from Wormhole Guardians.
-        
+
         Args:
             tx_hash: Source chain transaction hash
             from_chain: Source chain name
             max_attempts: Maximum polling attempts
             poll_interval: Seconds between polls
-            
+
         Returns:
             WormholeVAA if available
         """
         wh_chain_id = self.get_wormhole_chain_id(from_chain)
-        
+
         session = await get_session()
-        
+
         for attempt in range(max_attempts):
             await api_limiter.wait_and_acquire("wormhole")
-            
+
             try:
                 # Query Wormholescan for VAA
                 url = f"{self.api_url}/vaas"
@@ -361,14 +358,14 @@ class WormholeAPI:
                     "txHash": tx_hash,
                     "chainId": wh_chain_id,
                 }
-                
+
                 async with session.get(url, params=params) as response:
                     if response.status == 404:
                         await asyncio.sleep(poll_interval)
                         continue
-                    
+
                     data = await response.json()
-                    
+
                     vaas = data.get("data", [])
                     if vaas:
                         vaa_data = vaas[0]
@@ -379,15 +376,15 @@ class WormholeAPI:
                             sequence=vaa_data.get("sequence", 0),
                             hash=vaa_data.get("hash", ""),
                         )
-                    
+
                     await asyncio.sleep(poll_interval)
-                    
+
             except Exception as e:
                 logger.warning(f"VAA poll error: {e}")
                 await asyncio.sleep(poll_interval)
-        
+
         return None
-    
+
     async def get_transfer_status(
         self,
         tx_hash: str,
@@ -395,29 +392,29 @@ class WormholeAPI:
     ) -> WormholeStatus:
         """
         Get the status of a Wormhole transfer.
-        
+
         Args:
             tx_hash: Source chain transaction hash
             from_chain: Source chain name
-            
+
         Returns:
             WormholeStatus with transfer details
         """
         await api_limiter.wait_and_acquire("wormhole")
-        
+
         session = await get_session()
         wh_chain_id = self.get_wormhole_chain_id(from_chain)
-        
+
         try:
             # Check for VAA
             url = f"{self.api_url}/vaas"
             params = {"txHash": tx_hash, "chainId": wh_chain_id}
-            
+
             async with session.get(url, params=params) as response:
                 data = await response.json() if response.status == 200 else {}
-                
+
                 vaas = data.get("data", [])
-                
+
                 if not vaas:
                     return WormholeStatus(
                         tx_hash=tx_hash,
@@ -426,7 +423,7 @@ class WormholeAPI:
                         redeem_tx_hash=None,
                         raw_response=data,
                     )
-                
+
                 vaa_data = vaas[0]
                 vaa = WormholeVAA(
                     vaa_bytes=vaa_data.get("vaa", ""),
@@ -435,10 +432,10 @@ class WormholeAPI:
                     sequence=vaa_data.get("sequence", 0),
                     hash=vaa_data.get("hash", ""),
                 )
-                
+
                 # Check if redeemed
                 is_redeemed = vaa_data.get("isCompleted", False)
-                
+
                 return WormholeStatus(
                     tx_hash=tx_hash,
                     status="REDEEMED" if is_redeemed else "VAA_READY",
@@ -446,7 +443,7 @@ class WormholeAPI:
                     redeem_tx_hash=vaa_data.get("targetTxHash"),
                     raw_response=data,
                 )
-                
+
         except Exception as e:
             logger.error(f"Status check error: {e}")
             return WormholeStatus(
@@ -456,7 +453,7 @@ class WormholeAPI:
                 redeem_tx_hash=None,
                 raw_response={},
             )
-    
+
     def build_transfer_calldata_evm(
         self,
         quote: WormholeQuote,
@@ -465,13 +462,13 @@ class WormholeAPI:
     ) -> Dict[str, Any]:
         """
         Build EVM transfer transaction for Wormhole.
-        
+
         This creates a transaction to lock/burn tokens on the source EVM chain.
         """
         from web3 import Web3
-        
+
         to_address = to_address or from_address
-        
+
         # Token Bridge transferTokens function
         TRANSFER_TOKENS_ABI = [
             {
@@ -486,28 +483,29 @@ class WormholeAPI:
                 "name": "transferTokens",
                 "outputs": [{"name": "sequence", "type": "uint64"}],
                 "stateMutability": "payable",
-                "type": "function"
+                "type": "function",
             }
         ]
-        
+
         token_bridge = Web3().eth.contract(
-            address=Web3.to_checksum_address(quote.token_bridge),
-            abi=TRANSFER_TOKENS_ABI
+            address=Web3.to_checksum_address(quote.token_bridge), abi=TRANSFER_TOKENS_ABI
         )
-        
+
         # Convert recipient to bytes32
         if quote.to_chain.lower() == "solana":
             # For Solana, use base58-decoded address padded to 32 bytes
             import base58
+
             recipient_bytes = base58.b58decode(to_address)
-            recipient_bytes32 = recipient_bytes.ljust(32, b'\x00')
+            recipient_bytes32 = recipient_bytes.ljust(32, b"\x00")
         else:
             # For EVM, pad address to 32 bytes
-            recipient_bytes32 = Web3.to_bytes(hexstr=to_address).rjust(32, b'\x00')
-        
+            recipient_bytes32 = Web3.to_bytes(hexstr=to_address).rjust(32, b"\x00")
+
         import random
+
         nonce = random.randint(0, 2**32 - 1)
-        
+
         data = token_bridge.encode_abi(
             "transferTokens",
             args=[
@@ -517,15 +515,15 @@ class WormholeAPI:
                 recipient_bytes32,
                 0,  # No arbiter fee
                 nonce,
-            ]
+            ],
         )
-        
+
         return {
             "to": Web3.to_checksum_address(quote.token_bridge),
             "data": data,
             "value": 0,  # Wormhole fee is paid separately
         }
-    
+
     def build_redeem_calldata_evm(
         self,
         to_chain: str,
@@ -533,13 +531,13 @@ class WormholeAPI:
     ) -> Dict[str, Any]:
         """
         Build EVM redeem transaction to complete the bridge.
-        
+
         This creates a transaction to mint/unlock tokens on the destination chain.
         """
         from web3 import Web3
-        
+
         token_bridge_addr = self.get_token_bridge(to_chain)
-        
+
         # completeTransfer function
         COMPLETE_TRANSFER_ABI = [
             {
@@ -547,20 +545,18 @@ class WormholeAPI:
                 "name": "completeTransfer",
                 "outputs": [],
                 "stateMutability": "nonpayable",
-                "type": "function"
+                "type": "function",
             }
         ]
-        
+
         token_bridge = Web3().eth.contract(
-            address=Web3.to_checksum_address(token_bridge_addr),
-            abi=COMPLETE_TRANSFER_ABI
+            address=Web3.to_checksum_address(token_bridge_addr), abi=COMPLETE_TRANSFER_ABI
         )
-        
+
         data = token_bridge.encode_abi(
-            "completeTransfer",
-            args=[Web3.to_bytes(hexstr=vaa.vaa_bytes)]
+            "completeTransfer", args=[Web3.to_bytes(hexstr=vaa.vaa_bytes)]
         )
-        
+
         return {
             "to": Web3.to_checksum_address(token_bridge_addr),
             "data": data,
@@ -570,4 +566,3 @@ class WormholeAPI:
 
 # Global instance
 wormhole_api = WormholeAPI()
-

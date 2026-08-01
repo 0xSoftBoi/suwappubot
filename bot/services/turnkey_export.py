@@ -56,7 +56,9 @@ async def export_and_backup_wallet(wallet_row, turnkey_client, session) -> bool:
         wallet_row.backup_key_exported_at = datetime.now(timezone.utc)
 
         session.flush()
-        logger.info(f"Stored encrypted backup key for wallet {wallet_row.id} ({wallet_row.address[:10]}...)")
+        logger.info(
+            f"Stored encrypted backup key for wallet {wallet_row.id} ({wallet_row.address[:10]}...)"
+        )
         return True
 
     except Exception as e:

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class TaxFlow(BaseWhatsAppFlow):
     """Generate and export tax CSV reports."""
+
     flow_name = "tax"
     trigger_commands = ["tax"]
     steps = {
@@ -36,7 +37,9 @@ class TaxFlow(BaseWhatsAppFlow):
             list_sections=[{"title": "Years", "rows": rows}],
         )
 
-    async def _step_choose_year(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_choose_year(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         year_str = text.replace("year_", "")
         try:
             year = int(year_str)
@@ -58,7 +61,9 @@ class TaxFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text in ("tax_cancel", "cancel"):
             await self._clear(user_id)
             return FlowResponse("Tax export cancelled.")
@@ -125,26 +130,40 @@ class TaxFlow(BaseWhatsAppFlow):
 
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow([
-                "Date", "Time", "Type", "From Chain", "From Token", "From Amount",
-                "To Chain", "To Token", "To Amount", "Fee USD", "TX Hash", "Status"
-            ])
+            writer.writerow(
+                [
+                    "Date",
+                    "Time",
+                    "Type",
+                    "From Chain",
+                    "From Token",
+                    "From Amount",
+                    "To Chain",
+                    "To Token",
+                    "To Amount",
+                    "Fee USD",
+                    "TX Hash",
+                    "Status",
+                ]
+            )
 
             for s in swaps:
-                writer.writerow([
-                    s.created_at.strftime("%Y-%m-%d"),
-                    s.created_at.strftime("%H:%M:%S"),
-                    "Swap",
-                    s.from_chain,
-                    s.from_token,
-                    s.from_amount,
-                    s.to_chain,
-                    s.to_token,
-                    s.to_amount,
-                    f"{s.fee_usd:.4f}" if s.fee_usd else "0",
-                    s.tx_hash or "",
-                    s.status,
-                ])
+                writer.writerow(
+                    [
+                        s.created_at.strftime("%Y-%m-%d"),
+                        s.created_at.strftime("%H:%M:%S"),
+                        "Swap",
+                        s.from_chain,
+                        s.from_token,
+                        s.from_amount,
+                        s.to_chain,
+                        s.to_token,
+                        s.to_amount,
+                        f"{s.fee_usd:.4f}" if s.fee_usd else "0",
+                        s.tx_hash or "",
+                        s.status,
+                    ]
+                )
 
             csv_content = output.getvalue()
 
@@ -156,9 +175,12 @@ class TaxFlow(BaseWhatsAppFlow):
             # Placeholder: In real implementation, upload csv_content to S3
             # and return the signed URL
             import base64
+
             # Note: WhatsApp document API requires a real URL, not a data URI
             # This is a placeholder that would need S3 integration
-            logger.info(f"Generated tax CSV with {len(swaps)} transactions for user {user_db_id}, year {year}")
+            logger.info(
+                f"Generated tax CSV with {len(swaps)} transactions for user {user_db_id}, year {year}"
+            )
 
             # Return None to indicate we need cloud storage integration
             # In production, this would return an S3 signed URL

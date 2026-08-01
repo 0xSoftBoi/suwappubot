@@ -28,20 +28,22 @@ def app_client():
 
 def seed_user_wallet():
     with get_session() as session:
-        session.add_all([
-            User(id=1, username="terminal-user"),
-            Wallet(
-                id=1,
-                user_id=1,
-                address="0xlimitwallet",
-                chain_type="evm",
-                wallet_provider="turnkey",
-                turnkey_wallet_id="wallet-id",
-                turnkey_account_id="account-id",
-                is_active=True,
-                is_default=True,
-            ),
-        ])
+        session.add_all(
+            [
+                User(id=1, username="terminal-user"),
+                Wallet(
+                    id=1,
+                    user_id=1,
+                    address="0xlimitwallet",
+                    chain_type="evm",
+                    wallet_provider="turnkey",
+                    turnkey_wallet_id="wallet-id",
+                    turnkey_account_id="account-id",
+                    is_active=True,
+                    is_default=True,
+                ),
+            ]
+        )
 
 
 def test_webapp_limit_order_create_list_cancel(tmp_path, monkeypatch):

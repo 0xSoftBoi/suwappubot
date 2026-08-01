@@ -39,11 +39,10 @@ jobs:
 
       - name: Format check (black)
         run: black --check --line-length=100 bot/ api/ tests/
-        continue-on-error: true   # advisory — fix before setting to false
 
       - name: Lint (flake8)
         run: flake8 bot/ api/ tests/ --max-line-length=100 --extend-ignore=E501,W503
-        continue-on-error: true   # advisory — fix before setting to false
+        continue-on-error: true   # advisory by choice — flake8 findings are informational, not blocking
 
       - name: Run tests with coverage
         run: |

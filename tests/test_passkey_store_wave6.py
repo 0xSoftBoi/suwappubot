@@ -55,6 +55,7 @@ def test_challenge_create_then_verify_roundtrip():
         assert await _verify(encoded, "registration") is True
         # Single-use: the challenge is gone after verification.
         assert await _verify(encoded, "registration") is False
+
     asyncio.run(main())
 
 
@@ -62,6 +63,7 @@ def test_unknown_challenge_fails():
     async def main():
         encoded = _b64url_encode(b"never_issued")
         assert await _verify(encoded, "authentication") is False
+
     asyncio.run(main())
 
 
@@ -72,6 +74,7 @@ def test_type_mismatch_detected():
         await _create(challenge, {"type": "authentication"})
         # Verified as the wrong flow -> rejected.
         assert await _verify(encoded, "registration") is False
+
     asyncio.run(main())
 
 
@@ -81,6 +84,7 @@ def test_concurrent_verify_consumes_challenge_once():
     Regression for the TOCTOU replay — a get()+delete() pair let both reads
     see the challenge before either delete landed. get_del() is atomic.
     """
+
     async def main():
         challenge = "race_ch"
         encoded = _b64url_encode(challenge.encode())
@@ -93,4 +97,5 @@ def test_concurrent_verify_consumes_challenge_once():
         assert sorted([r1, r2]) == [False, True]
         # And it stays consumed afterwards.
         assert await _verify(encoded, "registration") is False
+
     asyncio.run(main())

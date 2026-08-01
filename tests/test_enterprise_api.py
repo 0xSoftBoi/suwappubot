@@ -23,8 +23,8 @@ os.environ.setdefault("INTERNAL_API_KEY", "test-key")
 
 from bot.services.api_client import InternalAPIClient, APIClientError
 
-
 # ─── helpers ────────────────────────────────────────────────────────────────
+
 
 def _make_client() -> InternalAPIClient:
     client = InternalAPIClient()
@@ -36,6 +36,7 @@ def _make_client() -> InternalAPIClient:
 
 
 # ─── get_my_org ─────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_get_my_org_returns_dict_on_200():
@@ -76,6 +77,7 @@ async def test_get_my_org_reraises_non_404_errors():
 
 
 # ─── get_org_members ────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_get_org_members_returns_list_from_members_key():
@@ -125,6 +127,7 @@ async def test_get_org_members_calls_correct_endpoint():
 
 # ─── get_org_api_keys ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_org_api_keys_returns_list_from_keys_key():
     """get_org_api_keys unwraps the 'keys' key from the response dict."""
@@ -171,6 +174,7 @@ async def test_get_org_api_keys_calls_correct_endpoint():
 
 
 # ─── create_org_api_key ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_create_org_api_key_returns_key_dict():
@@ -227,9 +231,7 @@ async def test_create_org_api_key_propagates_403():
 
     with patch.object(client, "_request", new=AsyncMock(side_effect=error)):
         with pytest.raises(APIClientError) as exc_info:
-            await client.create_org_api_key(
-                user_id=99, org_id="org-1", name="key", scopes=[]
-            )
+            await client.create_org_api_key(user_id=99, org_id="org-1", name="key", scopes=[])
 
     assert exc_info.value.status == 403
 
@@ -242,9 +244,7 @@ async def test_create_org_api_key_empty_scopes():
 
     mock_request = AsyncMock(return_value=response)
     with patch.object(client, "_request", new=mock_request):
-        result = await client.create_org_api_key(
-            user_id=1, org_id="org-1", name="bare", scopes=[]
-        )
+        result = await client.create_org_api_key(user_id=1, org_id="org-1", name="bare", scopes=[])
 
     call_kwargs = mock_request.call_args[1]
     assert call_kwargs["json_data"]["scopes"] == []

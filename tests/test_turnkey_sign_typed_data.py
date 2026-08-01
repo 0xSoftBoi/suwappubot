@@ -9,7 +9,6 @@ import pytest
 
 from bot.services.turnkey_client import TurnkeyClient
 
-
 # A typed-data message we can sign deterministically.
 TYPED_DATA = {
     "types": {

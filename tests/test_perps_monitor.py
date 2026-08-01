@@ -22,6 +22,7 @@ def test_start_runs_loop_then_stops(monkeypatch):
 
     async def fake_sync():
         calls["n"] += 1
+
     m._sync_all_positions = fake_sync
 
     async def main():
@@ -30,6 +31,7 @@ def test_start_runs_loop_then_stops(monkeypatch):
         await asyncio.sleep(0.05)  # allow a few poll ticks
         await m.stop()
         assert m._running is False
+
     asyncio.run(main())
     assert calls["n"] >= 1  # the loop actually ran (it was dead code before)
 
@@ -40,6 +42,7 @@ def test_double_start_is_idempotent(monkeypatch):
 
     async def fake_sync():
         pass
+
     m._sync_all_positions = fake_sync
 
     async def main():
@@ -48,6 +51,7 @@ def test_double_start_is_idempotent(monkeypatch):
         await m.start()  # second start must not spawn a new loop
         assert m._task is first_task
         await m.stop()
+
     asyncio.run(main())
 
 
@@ -59,11 +63,13 @@ def test_loop_survives_sync_errors(monkeypatch):
     async def boom():
         calls["n"] += 1
         raise RuntimeError("transient")
+
     m._sync_all_positions = boom
 
     async def main():
         await m.start()
         await asyncio.sleep(0.05)
         await m.stop()
+
     asyncio.run(main())
     assert calls["n"] >= 2  # loop keeps polling despite errors

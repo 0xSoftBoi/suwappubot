@@ -51,6 +51,7 @@ ZEROX_NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
 @dataclass
 class ZeroXQuote:
     """Quote response from 0x Swap API v2 (allowance-holder)."""
+
     chain_id: int
     from_token: str
     to_token: str

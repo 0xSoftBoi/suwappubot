@@ -13,7 +13,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 from bot.services.token_security.token_analyzer import (
-    token_analyzer, TokenSafetyReport, RiskCategory,
+    token_analyzer,
+    TokenSafetyReport,
+    RiskCategory,
 )
 
 
