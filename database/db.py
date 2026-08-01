@@ -531,6 +531,7 @@ def _ensure_schema(db_engine) -> None:
     # --- subscriptions: started_at column ---
     if "subscriptions" in tables:
         _add_subscription_started_at(db_engine, inspector, is_sqlite)
+        _add_subscription_stripe_customer_id(db_engine, inspector, is_sqlite)
 
     # --- audit_logs: org_id / agent_id columns (org-scoped audit trail) ---
     if "audit_logs" in tables:
@@ -1196,6 +1197,32 @@ def _add_subscription_started_at(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_subscription_stripe_customer_id(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add stripe_customer_id to subscriptions idempotently.
+
+    api-ts stamps this from the Stripe checkout webhook so the web dashboard can
+    open a Stripe billing portal session (invoices, payment methods, cancel).
+    `subscriptions` is python-owned, so the column is added here rather than by
+    drizzle-kit.
+    """
+    cols = {c["name"] for c in inspector.get_columns("subscriptions")}
+    if "stripe_customer_id" in cols:
+        return
+
+    if is_sqlite:
+        ddl = "ALTER TABLE subscriptions ADD COLUMN stripe_customer_id VARCHAR(64)"
+    else:
+        ddl = "ALTER TABLE subscriptions " "ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64)"
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_subscriptions_stripe_customer_id "
+                "ON subscriptions (stripe_customer_id)"
+            )
+        )
 
 
 def _add_audit_org_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:

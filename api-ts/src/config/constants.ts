@@ -89,3 +89,29 @@ export const TIER_PRICES_USD: Record<string, number> = {
 
 /** Tiers that can be purchased (excludes 'free'). */
 export const PURCHASABLE_TIERS = Object.keys(TIER_PRICES_USD)
+
+/**
+ * Prepaid API credit packs (card top-up for the `api_credits` table).
+ *
+ * DENOMINATION: `api_credits.balance` is USD, not 0.001-credit units. The
+ * python x402 path (bot/services/x402_service.py `_add_api_credits`) credits
+ * `payment.amount` — a USD figure — straight into the same column, and
+ * `use_credits` debits USD. Anything written here MUST be USD or the two
+ * stacks disagree by 1000x. (The 0.001 CREDIT_USD_VALUE unit belongs to the
+ * separate `agent_credits` table — do not conflate them.)
+ *
+ * `chargeUsd` is what Stripe charges; `balanceUsd` is what lands in the
+ * balance. Larger packs grant a volume bonus, so the two differ — the webhook
+ * grants exactly `balanceUsd` and never recomputes it from the amount charged.
+ */
+export const CREDIT_PACKS = [
+	{ id: 'starter', chargeUsd: 25, balanceUsd: 25, bonusPct: 0 },
+	{ id: 'growth', chargeUsd: 100, balanceUsd: 110, bonusPct: 10 },
+	{ id: 'scale', chargeUsd: 500, balanceUsd: 600, bonusPct: 20 },
+] as const
+
+export type CreditPackId = (typeof CREDIT_PACKS)[number]['id']
+
+export function getCreditPack(id: string) {
+	return CREDIT_PACKS.find((p) => p.id === id) ?? null
+}

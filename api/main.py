@@ -40,6 +40,7 @@ import secrets
 import json
 import jwt
 import hashlib
+import hmac
 import base64
 
 # Add project root to path to import bot modules
@@ -265,6 +266,32 @@ async def lifespan(app: FastAPI):
     if not enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
     elif db_success:
+        # Publish this build's fingerprint so the worker is verifiable.
+        #
+        # python-worker has NO public URL, so /health cannot be probed and
+        # there was no way to answer "is the worker running my code?". That
+        # turned a stale worker deploy into hours of guesswork: the scorer was
+        # wired into this very block, deployed green repeatedly, and simply
+        # never appeared in the boot sequence — indistinguishable from a code
+        # bug. Redis is already the worker's channel for heartbeats, so it is
+        # the natural place to announce the build too; python-api surfaces it
+        # on /health/ready.
+        try:
+            from bot.utils.redis_cache import redis_cache
+
+            # 24h, not an hour: this answers "what build did the worker last
+            # boot with", so it must outlive a quiet period. A short TTL would
+            # expire on a perfectly healthy worker and report "unknown",
+            # recreating exactly the ambiguity this is meant to remove.
+            # Liveness is a separate question, already answered by the
+            # per-service heartbeats below.
+            await redis_cache.set(
+                "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
+            )
+            logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+        except Exception as e:
+            logger.warning(f"Could not publish worker fingerprint: {e}")
+
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
         await asyncio.sleep(2)
@@ -805,6 +832,40 @@ class AuthVerifyResponse(BaseModel):
     expiresAt: datetime
 
 
+# ---------------------------------------------------------------------------
+# Session cookie domain
+#
+# Set to the PARENT domain (e.g. ".suwappu.bot") so one session cookie reaches
+# both the site and the API subdomain as a same-site request. Without it the
+# cookie is host-only, which is why the web dashboard had no working sign-in:
+# it fell back to sending a bearer token to routes that only accepted Telegram
+# initData, and every request 401'd.
+#
+# SECURITY: a parent-domain cookie is readable by EVERY subdomain, so it must
+# only be widened to a domain whose subdomains are all trusted. Left unset it
+# stays host-only, which is the safe default — the widening is opt-in via
+# SESSION_COOKIE_DOMAIN rather than hardcoded.
+# ---------------------------------------------------------------------------
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN") or None
+
+
+def _session_cookie_kwargs() -> Dict[str, Any]:
+    """Shared attributes for every session cookie we set.
+
+    Centralised because the attributes were duplicated across four call sites;
+    a domain added to three of four would produce an intermittently broken
+    session that is painful to diagnose.
+    """
+    kwargs: Dict[str, Any] = {
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+    }
+    if SESSION_COOKIE_DOMAIN:
+        kwargs["domain"] = SESSION_COOKIE_DOMAIN
+    return kwargs
+
+
 class AuthMeResponse(BaseModel):
     authenticated: bool
     address: Optional[str] = None
@@ -1037,6 +1098,11 @@ async def health_ready():
         else:
             svc_heartbeats[svc] = "alive"
 
+    # The worker publishes its own fingerprint to Redis at startup (it has no
+    # public URL of its own). Reporting it here is the only way to verify a
+    # python-worker deploy actually landed.
+    worker_fingerprint = await redis_cache.get("service:worker:fingerprint")
+
     checks = {
         "database": DATABASE_AVAILABLE,
         "redis": redis_ok,
@@ -1056,6 +1122,7 @@ async def health_ready():
             # _compute_source_fingerprint() — a green deploy is not proof the
             # new code is live; this is.
             "source_fingerprint": SOURCE_FINGERPRINT,
+            "worker_fingerprint": worker_fingerprint or "unknown",
             "checks": {
                 "database": "connected" if DATABASE_AVAILABLE else "disconnected",
                 "redis": "connected" if redis_ok else "memory-fallback",
@@ -1169,10 +1236,8 @@ async def auth_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1269,10 +1334,8 @@ async def auth_solana_verify(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1336,34 +1399,18 @@ class TelegramAuthResponse(BaseModel):
     address: str
 
 
-@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
-async def auth_telegram(
-    request: Request,
-    response: Response,
-    body: Optional[TelegramAuthRequest] = None,
-    db: Session = Depends(get_db),
-):
+async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, db: Session):
+    """Resolve/create the user, ensure a wallet, mint the session JWT.
+
+    Shared by BOTH Telegram entry points so they cannot drift:
+      * /auth/telegram         — Mini App initData (inside Telegram)
+      * /auth/telegram/widget  — Login Widget (a normal web browser)
+
+    The two differ ONLY in how the payload is verified; everything after that
+    — user provisioning, wallet lookup, token minting, cookie attributes — is
+    identical and must stay identical, which is why it lives here rather than
+    being copied into the second endpoint.
     """
-    Authenticate a Telegram Mini App user via validated WebApp initData.
-
-    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
-    resolve (or create) the user by their telegram_id reusing the bot's wallet
-    provisioning, mint the same session JWT the other auth flows mint, set the
-    httponly 'suwappu_auth' cookie, and return the token + wallet address.
-    """
-    from api.webapp import validate_telegram_init_data
-
-    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
-    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
-    if not init_data:
-        raise HTTPException(status_code=401, detail="Missing Telegram initData")
-
-    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
-    if not tg_user or not tg_user.get("id"):
-        # Never log the raw initData.
-        logger.warning("auth/telegram: invalid or unverifiable initData")
-        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
-
     telegram_id = int(tg_user["id"])
 
     # Resolve or create the user by telegram_id (same shape the bot's /start uses).
@@ -1428,10 +1475,8 @@ async def auth_telegram(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1441,6 +1486,123 @@ async def auth_telegram(
         user={"id": user.id},
         address=wallet_address or "",
     )
+
+
+class TelegramWidgetAuthRequest(BaseModel):
+    """Payload produced by Telegram's Login Widget (a browser, not a Mini App)."""
+
+    id: int
+    auth_date: int
+    hash: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+def _verify_telegram_widget(payload: Dict[str, Any], bot_token: str) -> bool:
+    """Verify a Telegram Login Widget signature.
+
+    CAREFUL — this is NOT the Mini App scheme. The two derive the secret key
+    differently and are not interchangeable:
+
+        Login Widget : secret = SHA256(bot_token)
+        Mini App     : secret = HMAC_SHA256("WebAppData", bot_token)
+
+    Using the Mini App derivation here silently rejects every valid browser
+    login; using this one for initData would accept nothing. See
+    https://core.telegram.org/widgets/login#checking-authorization
+
+    Returns True only for a signature match on a fresh payload.
+    """
+    received_hash = payload.get("hash")
+    if not received_hash or not bot_token:
+        return False
+
+    # Every field EXCEPT hash, sorted, as "key=value" joined by newlines.
+    # None values are omitted — Telegram does not send absent optional fields,
+    # so including them as empty strings would break the digest.
+    pairs = sorted(f"{k}={v}" for k, v in payload.items() if k != "hash" and v is not None)
+    data_check_string = "\n".join(pairs)
+
+    secret_key = hashlib.sha256(bot_token.encode("utf-8")).digest()
+    calculated = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(calculated, str(received_hash)):
+        return False
+
+    # Replay protection: the signature is valid forever on its own, so a
+    # captured payload could be reused indefinitely without a freshness check.
+    try:
+        auth_date = int(payload.get("auth_date", 0))
+    except (TypeError, ValueError):
+        return False
+    age = datetime.now(timezone.utc).timestamp() - auth_date
+    return 0 <= age <= 86400
+
+
+@app.post("/auth/telegram/widget", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram_widget(
+    body: TelegramWidgetAuthRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Sign in from a normal web browser via the Telegram Login Widget.
+
+    The dashboard previously had no browser sign-in at all: users were told to
+    open the bot, obtain a token and paste it into a password field. That is
+    not something an enterprise buyer gets past, and it trains people to
+    handle bearer tokens by hand.
+
+    This mints the SAME session JWT as every other auth flow by delegating to
+    _complete_telegram_login, so nothing about sessions, wallets or cookies
+    diverges between entry points.
+    """
+    payload = body.model_dump(exclude_none=True)
+
+    if not _verify_telegram_widget(payload, settings.telegram_bot_token):
+        # Never log the payload itself.
+        logger.warning("auth/telegram/widget: invalid or stale login payload")
+        raise HTTPException(status_code=401, detail="Invalid Telegram login")
+
+    tg_user = {
+        "id": body.id,
+        "username": body.username,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+    }
+    return await _complete_telegram_login(tg_user, response, db)
+
+
+@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram(
+    request: Request,
+    response: Response,
+    body: Optional[TelegramAuthRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Authenticate a Telegram Mini App user via validated WebApp initData.
+
+    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
+    resolve (or create) the user by their telegram_id reusing the bot's wallet
+    provisioning, mint the same session JWT the other auth flows mint, set the
+    httponly 'suwappu_auth' cookie, and return the token + wallet address.
+    """
+    from api.webapp import validate_telegram_init_data
+
+    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
+    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Missing Telegram initData")
+
+    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
+    if not tg_user or not tg_user.get("id"):
+        # Never log the raw initData.
+        logger.warning("auth/telegram: invalid or unverifiable initData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
+
+    return await _complete_telegram_login(tg_user, response, db)
 
 
 # --- Refresh tokens (H13): short-lived access JWT + rotating refresh token ---
@@ -1456,21 +1618,17 @@ def _set_session_cookies(
     response.set_cookie(
         key="suwappu_auth",
         value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
         path="/",
+        **_session_cookie_kwargs(),
     )
     if refresh_token is not None:
         response.set_cookie(
             key=REFRESH_COOKIE,
             value=refresh_token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=REFRESH_TTL_SECONDS,
             path="/",
+            **_session_cookie_kwargs(),
         )
 
 
@@ -1496,7 +1654,9 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
     rotated = rotate_refresh_token(token, client="refresh")
     if rotated is None:
         # Clear stale cookies so the client falls back to a fresh login.
-        response.delete_cookie(REFRESH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        # Domain must match the one used when setting, or the browser keeps
+        # the cookie and "logout" silently leaves a live session behind.
+        response.delete_cookie(REFRESH_COOKIE, path="/", **_session_cookie_kwargs())
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user_id, address, new_refresh, _expires = rotated
@@ -1519,7 +1679,10 @@ async def auth_logout(request: Request, response: Response, body: Optional[Refre
         except Exception as e:
             logger.warning(f"Refresh-token revoke on logout failed: {e}")
     for key in ("suwappu_auth", REFRESH_COOKIE):
-        response.delete_cookie(key=key, path="/", secure=True, httponly=True, samesite="lax")
+        # Same attributes as when set — crucially the domain. A delete that
+        # omits it does not match a parent-domain cookie, so logout would
+        # appear to succeed while leaving the session valid.
+        response.delete_cookie(key=key, path="/", **_session_cookie_kwargs())
     return {"success": True, "message": "Logged out successfully"}
 
 
@@ -1786,11 +1949,9 @@ async def passkey_register_complete(
         response.set_cookie(
             key="suwappu_auth",
             value=token,
-            httponly=True,
-            secure=True,
-            samesite="lax",
             max_age=JWT_EXPIRY_HOURS * 3600,
             path="/",
+            **_session_cookie_kwargs(),
         )
         return PasskeyRegisterCompleteResponse(
             success=True,
@@ -1847,10 +2008,8 @@ async def passkey_register_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
@@ -1950,10 +2109,8 @@ async def passkey_auth_complete(
     response.set_cookie(
         key="suwappu_auth",
         value=token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
         path="/",
     )
 
