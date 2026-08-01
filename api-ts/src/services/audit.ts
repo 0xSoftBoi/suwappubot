@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { desc, eq, isNull, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { requireDb } from '../db'
 import { auditLogs } from '../db/schema/security'
@@ -15,6 +17,14 @@ import { logger } from '../lib/logger'
  * column, so agent-scoped events reuse `userId` for the agent id (and also stamp
  * it in `details.agentId`). System events (e.g. admin-key auth, which isn't tied
  * to a user) use userId 0.
+ *
+ * Hash chain (tamper evidence): every insert computes
+ *   entryHash = sha256(canonical JSON of {userId, orgId, agentId, eventType,
+ *     details, ts, prevHash})
+ * chained per-org (a shared 'global' chain covers org-less entries). Reads for
+ * the previous hash + the insert happen inside one transaction guarded by a
+ * Postgres advisory lock keyed on the chain, so two concurrent writers to the
+ * same chain can never both read the same prevHash.
  */
 export interface AuditEvent {
 	userId: number
@@ -32,6 +42,32 @@ const serializeDetails = (details: AuditEvent['details']): string | null => {
 	return typeof details === 'string' ? details : JSON.stringify(details)
 }
 
+/** Chain key for a given org id — 'global' covers org-less (userId 0 / no org) entries. */
+const chainKeyOf = (orgId: string | null): string => orgId ?? 'global'
+
+export const computeEntryHash = (input: {
+	userId: number
+	orgId: string | null
+	agentId: string | null
+	eventType: string
+	details: string | null
+	ts: string
+	prevHash: string | null
+}): string => {
+	// Canonical (fixed key order) JSON so the hash is deterministic regardless
+	// of object construction order.
+	const canonical = JSON.stringify({
+		userId: input.userId,
+		orgId: input.orgId,
+		agentId: input.agentId,
+		eventType: input.eventType,
+		details: input.details,
+		ts: input.ts,
+		prevHash: input.prevHash,
+	})
+	return createHash('sha256').update(canonical).digest('hex')
+}
+
 /**
  * Effect-native audit write — use inside Effect pipelines with `yield* auditLog(...)`.
  * Self-contained (R = DrizzleService, E = never): swallows + logs any failure.
@@ -39,15 +75,62 @@ const serializeDetails = (details: AuditEvent['details']): string | null => {
 export const auditLog = (event: AuditEvent) =>
 	Effect.gen(function* () {
 		const db = yield* requireDb
+		const orgId = event.orgId ?? null
+		const agentId = event.agentId?.slice(0, 64) ?? null
+		const eventType = event.eventType.slice(0, 50)
+		const details = serializeDetails(event.details)
+		const ipAddress = event.ipAddress?.slice(0, 45) ?? null
+		const chainKey = chainKeyOf(orgId)
+
 		yield* Effect.tryPromise({
 			try: () =>
-				db.insert(auditLogs).values({
-					userId: event.userId,
-					orgId: event.orgId ?? null,
-					agentId: event.agentId?.slice(0, 64) ?? null,
-					eventType: event.eventType.slice(0, 50),
-					details: serializeDetails(event.details),
-					ipAddress: event.ipAddress?.slice(0, 45) ?? null,
+				db.transaction(async (tx) => {
+					// Serialize concurrent inserts to the same chain: an advisory lock
+					// held for the lifetime of this transaction. hashtext() maps the
+					// chain key to a stable int4 for pg_advisory_xact_lock.
+					await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${chainKey}))`)
+
+					const [prev] = orgId
+						? await tx
+								.select({ entryHash: auditLogs.entryHash })
+								.from(auditLogs)
+								.where(eq(auditLogs.orgId, orgId))
+								.orderBy(desc(auditLogs.id))
+								.limit(1)
+						: await tx
+								.select({ entryHash: auditLogs.entryHash })
+								.from(auditLogs)
+								.where(isNull(auditLogs.orgId))
+								.orderBy(desc(auditLogs.id))
+								.limit(1)
+
+					const prevHash = prev?.entryHash ?? null
+					// Fix the timestamp ourselves (rather than relying on the column's
+					// defaultNow()) so the exact value hashed is the exact value stored —
+					// verification recomputes from the stored createdAt.
+					const now = new Date()
+					const ts = now.toISOString()
+					const entryHash = computeEntryHash({
+						userId: event.userId,
+						orgId,
+						agentId,
+						eventType,
+						details,
+						ts,
+						prevHash,
+					})
+
+					await tx.insert(auditLogs).values({
+						userId: event.userId,
+						orgId,
+						agentId,
+						eventType,
+						details,
+						ipAddress,
+						createdAt: now,
+						prevHash,
+						entryHash,
+					})
 				}),
 			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 		})

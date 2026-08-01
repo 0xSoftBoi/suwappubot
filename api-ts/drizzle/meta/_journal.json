@@ -78,6 +78,13 @@
       "when": 1785548787156,
       "tag": "0010_naive_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785551301867,
+      "tag": "0011_happy_chat",
+      "breakpoints": true
     }
   ]
 }

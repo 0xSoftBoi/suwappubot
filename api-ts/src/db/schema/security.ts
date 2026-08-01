@@ -25,6 +25,13 @@ export const auditLogs = pgTable(
 		details: text('details'),
 		ipAddress: varchar('ip_address', { length: 45 }),
 		createdAt: timestamp('created_at').defaultNow(),
+		// Hash-chain (tamper evidence). Chained per-org ('global' chain for
+		// org-less entries). Nullable so pre-existing rows (written before this
+		// migration) don't need backfill — the chain simply starts fresh from the
+		// first row that has these populated. See services/audit.ts for the
+		// hashing + locking scheme.
+		prevHash: varchar('prev_hash', { length: 64 }),
+		entryHash: varchar('entry_hash', { length: 64 }),
 	},
 	(t) => ({
 		orgCreatedIdx: index('audit_logs_org_created_idx').on(t.orgId, t.createdAt),

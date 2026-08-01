@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
@@ -7,7 +7,7 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentApprovals, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentApprovals, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents, auditLogs, policyKillSwitches, organizations } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -18,6 +18,7 @@ import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
+import { apiKeyAuth } from '../middleware/apiKeyAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
@@ -28,7 +29,7 @@ import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchMintPriceUsd } from '../lib/prices'
 import { enforcePolicy, hasUsdPolicyRules, type PolicyGateIntent } from '../services/policyGate'
-import { writeAuditLog } from '../services/audit'
+import { computeEntryHash, writeAuditLog } from '../services/audit'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -515,6 +516,13 @@ agentRoutes.use('/billing', agentFlexAuth())
 agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 agentRoutes.use('/approvals/*', agentFlexAuth())
+agentRoutes.use('/audit', agentFlexAuth())
+agentRoutes.use('/audit/*', agentFlexAuth())
+// Kill switch is org-API-key only (see handlers below) — apiKeyAuth() is a
+// no-op when no sk_live_ key is present, so the handlers explicitly reject
+// requests that never resolved an apiKeyAuth context (plain agent tokens).
+agentRoutes.use('/killswitch', apiKeyAuth())
+agentRoutes.use('/killswitch', requireScope('admin'))
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -1064,6 +1072,14 @@ agentRoutes.post('/swap', async (c) => {
 					gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
 					walletAddress: wallet_address ?? null,
 				}
+
+		// EVM ownership precondition must run BEFORE the policy gate: redemption
+		// atomically consumes the approval, so any later deterministic rejection
+		// would burn a human-approved authorization without executing (found in
+		// live smoke test). The later in-branch check is kept as defense in depth.
+		if (!cached.isSolana && !checkEvmWalletOwnership(agent, wallet_address)) {
+			return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
+		}
 
 		const policyResponse = await enforcePolicy(c, agent, gateIntent, approval_id, priceUnavailableReason)
 		if (policyResponse) {
@@ -3609,6 +3625,316 @@ agentRoutes.post('/billing/recurring', async (c) => {
 			? 'Recurring authorization registered on-chain — we pull the tier price each period (cancel by revoking the permission).'
 			: 'Recurring authorization recorded; on-chain registration pending (operator not yet enabled).',
 	})
+})
+
+// ===========================================
+// AUDIT TRAIL (hash-chained)
+// ===========================================
+
+/**
+ * Resolve the caller's audit scope from context set by agentFlexAuth: an org
+ * API key scopes to that org's chain; a plain agent bearer token scopes to
+ * the global (org-less) chain and further narrows to that agent's own rows.
+ */
+function resolveAuditScope(c: Context): { orgId: string | null; agentId: string | null } {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (apiKeyCtx) return { orgId: apiKeyCtx.orgId, agentId: null }
+	const agent = c.get('agent') as Agent | undefined
+	const agentId = agent ? (agent.uuid ?? String(agent.id)) : null
+	return { orgId: null, agentId }
+}
+
+// GET /v1/agent/audit - List audit events visible to the caller
+agentRoutes.get('/audit', async (c) => {
+	const { orgId, agentId } = resolveAuditScope(c)
+
+	const eventType = c.req.query('event_type')
+	const filterAgentId = c.req.query('agent_id')
+	const since = c.req.query('since')
+	const limitParam = parseInt(c.req.query('limit') ?? '100', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 100, 1), 500)
+
+	const conditions: ReturnType<typeof eq>[] = []
+	if (orgId) {
+		// Org key: own org's rows only.
+		conditions.push(eq(auditLogs.orgId, orgId))
+	} else if (agentId) {
+		// Plain agent token: own agentId only (global/org-less chain).
+		conditions.push(isNull(auditLogs.orgId))
+		conditions.push(eq(auditLogs.agentId, agentId))
+	} else {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Authentication required')
+	}
+	if (eventType) conditions.push(eq(auditLogs.eventType, eventType))
+	// agent_id filter only meaningful/allowed for org-key callers — a plain
+	// agent token is already pinned to its own agentId above.
+	if (orgId && filterAgentId) conditions.push(eq(auditLogs.agentId, filterAgentId))
+	if (since) {
+		const sinceDate = new Date(since)
+		if (!Number.isNaN(sinceDate.getTime())) conditions.push(gte(auditLogs.createdAt, sinceDate))
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							eventType: auditLogs.eventType,
+							agentId: auditLogs.agentId,
+							orgId: auditLogs.orgId,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(and(...conditions))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	return c.json({ success: true, events: result.right, count: result.right.length })
+})
+
+// GET /v1/agent/audit/verify - Walk the hash chain and confirm no tampering
+agentRoutes.get('/audit/verify', async (c) => {
+	const { orgId, agentId } = resolveAuditScope(c)
+	if (!orgId && !agentId) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Authentication required')
+	}
+
+	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							id: auditLogs.id,
+							userId: auditLogs.userId,
+							orgId: auditLogs.orgId,
+							agentId: auditLogs.agentId,
+							eventType: auditLogs.eventType,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							prevHash: auditLogs.prevHash,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	const rows = result.right
+	let valid = true
+	let firstBreakId: number | undefined
+	// Rows are newest-first; walk oldest->newest logically by iterating in
+	// reverse so each row's expected prevHash is the previous row's entryHash.
+	let expectedPrevHash: string | null = null
+	const oldestFirst = [...rows].reverse()
+	for (const row of oldestFirst) {
+		// Rows written before this migration have null hashes — skip them (chain
+		// starts fresh at the first hashed row) rather than flagging a false break.
+		if (row.entryHash == null && row.prevHash == null) {
+			expectedPrevHash = null
+			continue
+		}
+		if (row.prevHash !== expectedPrevHash) {
+			valid = false
+			firstBreakId = row.id
+			break
+		}
+		const recomputed = computeEntryHash({
+			userId: row.userId,
+			orgId: row.orgId,
+			agentId: row.agentId,
+			eventType: row.eventType,
+			details: row.details,
+			ts: row.createdAt ? new Date(row.createdAt).toISOString() : '',
+			prevHash: row.prevHash,
+		})
+		if (recomputed !== row.entryHash) {
+			valid = false
+			firstBreakId = row.id
+			break
+		}
+		expectedPrevHash = row.entryHash
+	}
+
+	return c.json({ success: true, valid, checked: rows.length, firstBreakId })
+})
+
+// ===========================================
+// KILL SWITCH
+// ===========================================
+
+const KillSwitchSchema = z.object({
+	scope: z.enum(['org', 'agent']),
+	scope_id: z.string().optional(),
+	active: z.boolean(),
+	reason: z.string().max(300).optional(),
+})
+
+// POST /v1/agent/killswitch - Activate/deactivate a kill switch (org API key only)
+agentRoutes.post('/killswitch', async (c) => {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (!apiKeyCtx) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Org API key required for kill-switch management')
+	}
+
+	const body = await c.req.json().catch(() => ({}))
+	const parsed = KillSwitchSchema.safeParse(body)
+	if (!parsed.success) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
+	}
+	const { scope, active, reason } = parsed.data
+
+	// Org keys may only manage their OWN org's org-scope switch. There is no
+	// agent->org ownership mapping in this schema, so agent-scope kill switches
+	// via an org key are not permitted (would let one org silence an arbitrary
+	// agentId it doesn't control). Global scope is admin/bot-only, never via
+	// this API.
+	if (scope !== 'org') {
+		return agentError(c, 403, 'POLICY_VIOLATION', "Org API keys may only manage scope='org' kill switches")
+	}
+	if (parsed.data.scope_id && parsed.data.scope_id !== apiKeyCtx.orgId) {
+		return agentError(c, 403, 'POLICY_VIOLATION', 'Cannot set a kill switch for another organization')
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [org] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ ownerId: organizations.ownerId })
+						.from(organizations)
+						.where(eq(organizations.id, apiKeyCtx.orgId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			if (!org) return yield* Effect.fail(new ValidationError({ message: 'Organization not found' }))
+
+			const [existing] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ id: policyKillSwitches.id })
+						.from(policyKillSwitches)
+						.where(and(eq(policyKillSwitches.scope, 'org'), eq(policyKillSwitches.scopeId, apiKeyCtx.orgId)))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			if (existing) {
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(policyKillSwitches)
+							.set({
+								active,
+								reason: reason ?? null,
+								activatedBy: org.ownerId,
+								activatedAt: new Date(),
+								deactivatedAt: active ? null : new Date(),
+							})
+							.where(eq(policyKillSwitches.id, existing.id)),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+			} else {
+				yield* Effect.tryPromise({
+					try: () =>
+						db.insert(policyKillSwitches).values({
+							scope: 'org',
+							scopeId: apiKeyCtx.orgId,
+							active,
+							reason: reason ?? null,
+							activatedBy: org.ownerId,
+							deactivatedAt: active ? null : new Date(),
+						}),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+			}
+
+			return { scope: 'org' as const, scopeId: apiKeyCtx.orgId, active }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	writeAuditLog({
+		userId: 0,
+		orgId: apiKeyCtx.orgId,
+		eventType: active ? 'killswitch.activated' : 'killswitch.deactivated',
+		details: { scope: 'org', scopeId: apiKeyCtx.orgId, reason: reason ?? null },
+	})
+
+	return c.json({ success: true, killswitch: result.right })
+})
+
+// GET /v1/agent/killswitch - List active kill switches visible to the caller
+agentRoutes.get('/killswitch', async (c) => {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (!apiKeyCtx) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Org API key required for kill-switch visibility')
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							scope: policyKillSwitches.scope,
+							scopeId: policyKillSwitches.scopeId,
+							active: policyKillSwitches.active,
+							reason: policyKillSwitches.reason,
+							activatedAt: policyKillSwitches.activatedAt,
+							deactivatedAt: policyKillSwitches.deactivatedAt,
+						})
+						.from(policyKillSwitches)
+						.where(
+							and(
+								eq(policyKillSwitches.active, true),
+								or(
+									eq(policyKillSwitches.scope, 'global'),
+									and(eq(policyKillSwitches.scope, 'org'), eq(policyKillSwitches.scopeId, apiKeyCtx.orgId)),
+								),
+							),
+						)
+						.orderBy(desc(policyKillSwitches.activatedAt)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	return c.json({ success: true, killswitches: result.right })
 })
 
 // ===========================================
