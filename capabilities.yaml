@@ -379,3 +379,28 @@ capabilities:
     enabled_when: "SENTRY_DSN is set."
     evidence: "api-ts/src/config/EnvService.ts:55-58"
     verify: "curl -s https://<api-ts-host>/health"
+
+  - name: opentelemetry_tracing_api_ts
+    description: >
+      OpenTelemetry request tracing for the api-ts service (OTLP/HTTP export).
+      Fully optional and OFF by default — when disabled, none of the
+      @opentelemetry/* SDK packages are even imported (dynamic import), so
+      there is no init cost, no exporter, and no added request latency. When
+      enabled, one span per HTTP request is created with method/route/status
+      attributes only — never headers, bodies, or Authorization/Cookie values.
+    service: api-ts
+    env_vars:
+      - name: OTEL_ENABLED
+        required_to_enable: true
+      - name: OTEL_SERVICE_NAME
+        required_to_enable: false
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        required_to_enable: false
+    enabled_when: >
+      OTEL_ENABLED=true (default false). OTEL_SERVICE_NAME defaults to
+      suwappu-api-ts. OTEL_EXPORTER_OTLP_ENDPOINT defaults to the OTLP/HTTP
+      exporter's own default (http://localhost:4318) when unset; traces are
+      POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`. Exporter/collector
+      failures are caught and logged, never fatal.
+    evidence: "api-ts/src/config/EnvService.ts:139-144, api-ts/src/lib/otel.ts, api-ts/src/middleware/otelTracing.ts, api-ts/src/app.ts"
+    verify: "curl -s https://<api-ts-host>/health"

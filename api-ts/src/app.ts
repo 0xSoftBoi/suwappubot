@@ -7,7 +7,7 @@ import type { AgentErrorCode } from './lib/agentError'
 import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware } from './middleware'
+import { adminKeyAuth, createCorsMiddleware, otelRequestTracing } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
@@ -56,6 +56,10 @@ export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string | undefined
 	internalApiKey?: string | undefined
+	// String 'true'/'false' (matches the *_ENABLED convention in EnvService).
+	// Only when 'true' is the OTel request-tracing middleware registered at
+	// all — see the otelRequestTracing() call below and lib/otel.ts.
+	otelEnabled?: string | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -67,6 +71,14 @@ export function createApp(config: AppConfig) {
 	// Global middleware
 	app.use('*', honoLogger())
 	app.use('*', createCorsMiddleware(config.allowedOrigins))
+
+	// OpenTelemetry request tracing — only registered when OTEL_ENABLED='true'.
+	// Gating at registration (not inside the middleware) means the disabled
+	// path never allocates a span or touches the OTel API at all: zero added
+	// latency, zero behavior change. See lib/otel.ts for SDK init.
+	if (config.otelEnabled === 'true') {
+		app.use('*', otelRequestTracing())
+	}
 
 	// Request ID — inject a UUID per request for distributed tracing.
 	// Passed through as X-Request-ID so clients and logs can correlate.

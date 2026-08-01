@@ -100,9 +100,10 @@ forbidden; change the routes and regenerate.
 Structured logs: pino in api-ts, stdlib logging in the Python services.
 `python3 scripts/status.py` is the operator entry point (Railway control plane + deep
 health + log scan + CI in one shot); layer-by-layer monitoring coverage is documented in
-`docs/deployment/monitoring.md`. OpenTelemetry tracing is a declared roadmap capability,
-not yet wired — treat any OTel code you find as dead until `capabilities.yaml` says
-otherwise.
+`docs/deployment/monitoring.md`. OpenTelemetry request tracing is an optional capability
+for api-ts (`opentelemetry_tracing_api_ts` in `capabilities.yaml`): off by default, and
+when `OTEL_ENABLED` is unset none of the SDK is even imported. Spans carry
+method/route/status only — never headers, bodies, or credentials.
 
 ## Superseded / rejected defaults
 
