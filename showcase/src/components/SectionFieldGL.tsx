@@ -124,8 +124,8 @@ export default function SectionFieldGL({
           if (k % 4 === 0) batch.push(q.x, q.y, (won ? 10 : 7) * q.k, (won ? 0.13 : 0.06) * fade);
         }
         const head = pt(p);
-        for (let g = 0; g < 5; g++) {
-          batch.push(head.x, head.y, (won ? 9 : 6) - g, (won ? 0.9 : 0.55));
+        for (let g = 0; g < 4; g++) {
+          batch.push(head.x, head.y, (won ? 10 : 7) - g, (won ? 1.0 : 0.6));
         }
         if ((won || (!narrow && near)) && p > 0.18) {
           ctx.textAlign = 'center';
@@ -138,7 +138,7 @@ export default function SectionFieldGL({
       for (const [q, label, align] of [
         [A0, 'your order', 'right'], [B0, 'best fill', 'left'],
       ] as const) {
-        for (let g = 0; g < 6; g++) batch.push(q.x, q.y, 11 - g, 0.5);
+        for (let g = 0; g < 5; g++) batch.push(q.x, q.y, 11 - g, 0.8);
         ctx.textAlign = align;
         ctx.fillStyle = A(0.7);
         ctx.fillText(label, q.x + (align === 'right' ? -12 : 12), q.y);
@@ -194,7 +194,7 @@ export default function SectionFieldGL({
 
         if (near) {
           const now = proj(x0 + span, series(64, k) * 0.26, z);
-          for (let g = 0; g < 6; g++) batch.push(now.x, now.y, 11 - g, 0.7);
+          for (let g = 0; g < 5; g++) batch.push(now.x, now.y, 11 - g, 0.8);
           const lbl = 'long 20x';
           const lw = ctx.measureText(lbl).width;
           ctx.textAlign = 'left';
@@ -209,8 +209,8 @@ export default function SectionFieldGL({
           const size = 0.1 + ((i * 7) % 5) * 0.052;
           const r0 = proj(0.76, f * 0.44, 0.55);
           const r1 = proj(0.76, f * 0.44, 0.55 - size);
-          lines.seg(r0.x, r0.y, r1.x, r1.y, 3.0, f < 0 ? 0.75 : 0.24);
-          batch.push((r0.x+r1.x)/2, (r0.y+r1.y)/2, 7, f < 0 ? 0.14 : 0.05);
+          lines.seg(r0.x, r0.y, r1.x, r1.y, 2.4, f < 0 ? 0.6 : 0.22);
+          batch.push((r0.x+r1.x)/2, (r0.y+r1.y)/2, 6, f < 0 ? 0.1 : 0.04);
         }
         const bt = proj(0.76, 0.32, 0.55);
         ctx.textAlign = 'right';
@@ -241,7 +241,7 @@ export default function SectionFieldGL({
       };
 
       const a0 = proj(-0.82, 0, 0), b0 = proj(0.82, 0, 0);
-      lines.seg(a0.x, a0.y, b0.x, b0.y, 1.4, 0.16);
+      lines.seg(a0.x, a0.y, b0.x, b0.y, 1.4, 0.42);
 
       // Gate: a dense ring, brighter while a transaction crosses.
       const packets = Array.from({ length: 6 }, (_, i) => {
@@ -252,17 +252,17 @@ export default function SectionFieldGL({
       let crossing = 0;
       for (const pk of packets) if (Math.abs(pk.x) < 0.12) crossing = 1 - Math.abs(pk.x) / 0.12;
 
-      for (let i = 0; i < 520; i++) {
-        const ang = (i / 520) * 6.284 + spin;
+      for (let i = 0; i < 260; i++) {
+        const ang = (i / 260) * 6.284 + spin;
         const q = proj(0, Math.sin(ang) * 0.34, Math.cos(ang) * 0.34);
-        batch.push(q.x, q.y, (3.6 + crossing * 2.2) * q.k, 0.45 + crossing * 0.5);
+        batch.push(q.x, q.y, (2.6 + crossing * 1.2) * q.k, 0.8 + crossing * 0.6);
       }
       if (crossing > 0.02) {
-        for (let i = 0; i < 120; i++) {
-          const ang = (i / 120) * 6.284 + spin;
+        for (let i = 0; i < 90; i++) {
+          const ang = (i / 90) * 6.284 + spin;
           const rr = 0.34 + (1 - crossing) * 0.34;
           const q = proj(0, Math.sin(ang) * rr, Math.cos(ang) * rr);
-          batch.push(q.x, q.y, 1.6 * q.k, 0.5 * crossing);
+          batch.push(q.x, q.y, 2.2 * q.k, 0.7 * crossing);
         }
       }
 
@@ -271,15 +271,15 @@ export default function SectionFieldGL({
 
       for (const pk of packets) {
         const q = proj(pk.x, pk.y, pk.z);
-        for (let g = 0; g < 5; g++) batch.push(q.x, q.y, 8 - g, 0.7);
+        for (let g = 0; g < 4; g++) batch.push(q.x, q.y, 8 - g, 0.9);
         // Trail behind each transaction.
         const trail = [];
         for (let s2 = 0; s2 <= 70; s2++) {
           trail.push(proj(Math.max(-0.82, pk.x - s2 * 0.0034), pk.y, pk.z));
         }
-        lines.path(trail, 2.6, 0.8, 0.0);
+        lines.path(trail, 3.0, 1.0, 0.0);
         for (let s2 = 0; s2 <= 70; s2 += 3) {
-          batch.push(trail[s2].x, trail[s2].y, 6 * trail[s2].k, 0.2 * (1 - s2 / 70));
+          batch.push(trail[s2].x, trail[s2].y, 7 * trail[s2].k, 0.4 * (1 - s2 / 70));
         }
         if (pk.i === lead) {
           ctx.textAlign = 'center';
@@ -288,11 +288,11 @@ export default function SectionFieldGL({
         }
         if (pk.x < 0) {
           const g2 = proj(pk.x, pk.y + 0.16, pk.z);
-          batch.push(g2.x, g2.y, 3.4 * g2.k, 0.4);
+          batch.push(g2.x, g2.y, 4.2 * g2.k, 0.75);
         } else {
           const since = (pk.x - 0) / 0.82;
           const g2 = proj(pk.x * (1 - Math.min(1, since * 3)), pk.y + 0.16, pk.z);
-          batch.push(g2.x, g2.y, 3.4 * g2.k, 0.4 * (1 - Math.min(1, since * 3)));
+          batch.push(g2.x, g2.y, 4.2 * g2.k, 0.75 * (1 - Math.min(1, since * 3)));
         }
       }
 
@@ -330,7 +330,7 @@ export default function SectionFieldGL({
         const a2 = (i / 220) * 6.284;
         orbit.push(proj(Math.cos(a2), 0, Math.sin(a2)));
       }
-      lines.path(orbit, 1.4, 0.2);
+      lines.path(orbit, 1.4, 0.5);
 
       const agent = proj(0, 0, 0);
       const nodes = TOOLS.map((name, i) => {
@@ -342,18 +342,18 @@ export default function SectionFieldGL({
 
       for (const n of nodes) {
         const near = n.z > 0;
-        lines.seg(agent.x, agent.y, n.x, n.y, 1.3, near ? 0.22 : 0.1);
+        lines.seg(agent.x, agent.y, n.x, n.y, 1.2, near ? 0.3 : 0.14);
         const out = n.raw < 0.5;
         const u = out ? n.raw * 2 : (1 - n.raw) * 2;
         const live = u > 0.55;
-        for (let g = 0; g < 4; g++) batch.push(n.x, n.y, (live ? 8 : 5) - g, live ? 0.85 : near ? 0.45 : 0.2);
+        for (let g = 0; g < 4; g++) batch.push(n.x, n.y, (live ? 10 : 7) - g, live ? 0.95 : near ? 0.55 : 0.28);
         // Comet trail on the call.
         const ct = [];
         for (let s2 = 0; s2 <= 60; s2++) {
           const uu = Math.max(0, u - s2 * 0.005);
           ct.push({ x: agent.x + (n.x - agent.x) * uu, y: agent.y + (n.y - agent.y) * uu });
         }
-        lines.path(ct, 2.4, 0.9, 0.0);
+        lines.path(ct, 2.4, 0.85, 0.0);
         for (let s2 = 0; s2 <= 60; s2 += 3) batch.push(ct[s2].x, ct[s2].y, 6, 0.18 * (1 - s2 / 60));
         const dirx = n.x - agent.x;
         ctx.textAlign = dirx < -6 ? 'right' : dirx > 6 ? 'left' : 'center';
@@ -363,7 +363,7 @@ export default function SectionFieldGL({
         ctx.fillText(n.name, lx, ly);
       }
 
-      for (let g = 0; g < 7; g++) batch.push(agent.x, agent.y, 13 - g, 0.5);
+      for (let g = 0; g < 6; g++) batch.push(agent.x, agent.y, 13 - g, 0.7);
       ctx.textAlign = 'center';
       ctx.fillStyle = A(0.7);
       ctx.fillText('your agent', agent.x, agent.y + 20);
