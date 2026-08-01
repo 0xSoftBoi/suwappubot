@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import type { Context } from 'hono'
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { runEffectEither } from '../runtime'
 import { EnvService } from '../config/EnvService'
@@ -237,23 +237,35 @@ async function resolveUserTelegramId(
 	agentId?: string | null,
 ): Promise<number | null> {
 	if (agentId) {
-		const linked = await runEffectEither(
-			Effect.gen(function* () {
-				const db = yield* requireDb
-				const rows = yield* Effect.tryPromise({
-					try: () =>
-						db
-							.select({ telegramId: users.telegramId })
-							.from(agents)
-							.innerJoin(users, eq(users.id, agents.ownerUserId))
-							.where(or(eq(agents.uuid, agentId), eq(agents.id, Number(agentId) || -1)))
-							.limit(1),
-					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-				})
-				return rows[0]?.telegramId ?? null
-			}),
-		)
-		if (Either.isRight(linked) && linked.right != null) return linked.right
+		const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId)
+		const isNumeric = /^\d+$/.test(agentId)
+		// agents.uuid is NOT NULL, so a numeric agentId (agents.id) is the only
+		// other valid form — no need for an `or()` fallback across both columns.
+		const agentMatch = isUuid
+			? eq(agents.uuid, agentId)
+			: isNumeric
+				? eq(agents.id, Number(agentId))
+				: null
+
+		if (agentMatch) {
+			const linked = await runEffectEither(
+				Effect.gen(function* () {
+					const db = yield* requireDb
+					const rows = yield* Effect.tryPromise({
+						try: () =>
+							db
+								.select({ telegramId: users.telegramId })
+								.from(agents)
+								.innerJoin(users, eq(users.id, agents.ownerUserId))
+								.where(agentMatch)
+								.limit(1),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+					return rows[0]?.telegramId ?? null
+				}),
+			)
+			if (Either.isRight(linked) && linked.right != null) return linked.right
+		}
 	}
 
 	if (!organizationId) return null

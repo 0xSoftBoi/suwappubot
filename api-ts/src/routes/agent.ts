@@ -29,7 +29,7 @@ import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchMintPriceUsd } from '../lib/prices'
 import { enforcePolicy, hasUsdPolicyRules, type PolicyGateIntent } from '../services/policyGate'
-import { computeEntryHash, writeAuditLog } from '../services/audit'
+import { auditLog, computeEntryHash, writeAuditLog } from '../services/audit'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -2263,11 +2263,36 @@ agentRoutes.post('/swap/execute', async (c) => {
 // `/claim <code>` in the Suwappu Telegram bot, which writes ownerUserId
 // directly (shared DB, cross-stack). Only the sha256 hash of the code is
 // persisted — the raw code is returned exactly once and never stored.
+//
+// Takeover guard: if the agent already has an owner, this refuses to mint a
+// new code — a re-link must go through the CURRENT owner unlinking first via
+// `/unlink` in the bot. Without this, any holder of the agent's bearer token
+// (e.g. a leaked key) could mint a fresh code and hijack the agent to a
+// different Telegram account.
 agentRoutes.post('/link/code', async (c) => {
 	const agent = c.get('agent')
 
-	const rawCode = crypto.randomBytes(8).toString('hex').slice(0, 8).toUpperCase()
+	if (agent.ownerUserId != null) {
+		void writeAuditLog({
+			userId: 0,
+			agentId: agent.uuid ?? String(agent.id),
+			eventType: 'agent.link_code_rejected',
+			details: { reason: 'already_linked', agentId: agent.uuid ?? String(agent.id) },
+			ipAddress: resolveRequestIp(c),
+		})
+		return agentError(
+			c,
+			409,
+			'CONFLICT',
+			'This agent is already linked to an owner. The current owner must run /unlink in the Suwappu Telegram bot before a new link code can be minted.',
+		)
+	}
+
+	// 16 hex chars = 64 bits of entropy, no truncation.
+	const rawCode = crypto.randomBytes(8).toString('hex').toUpperCase()
 	const codeHash = crypto.createHash('sha256').update(rawCode).digest('hex')
+	// Date.now() is already a UTC epoch — spelled out explicitly here since the
+	// column is timestamptz and both Python and TS writers must agree on UTC.
 	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 
 	const result = await runEffectEither(
@@ -2282,6 +2307,13 @@ agentRoutes.post('/link/code', async (c) => {
 					}),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
+			yield* auditLog({
+				userId: 0,
+				agentId: agent.uuid ?? String(agent.id),
+				eventType: 'agent.link_code_minted',
+				details: { agentId: agent.uuid ?? String(agent.id), expiresAt: expiresAt.toISOString() },
+				ipAddress: resolveRequestIp(c),
+			})
 		}),
 	)
 
@@ -2293,7 +2325,12 @@ agentRoutes.post('/link/code', async (c) => {
 		success: true,
 		code: rawCode,
 		expires_at: expiresAt.toISOString(),
-		instructions: 'Run /claim <code> in the Suwappu Telegram bot',
+		// The bot verifies this code server-side over a 5-minute-or-shorter
+		// window (see expires_at) and consumes it exactly once (used_at) —
+		// there is no client-side signature scheme here, just a single-use
+		// hashed bearer code checked against the DB.
+		instructions:
+			'Run /claim <code> in the Suwappu Telegram bot within 10 minutes. The code is single-use and verified server-side.',
 	})
 })
 

@@ -23,6 +23,7 @@ export type AgentErrorCode =
 	| 'MARKET_NOT_FOUND'
 	| 'UPSTREAM_ERROR'
 	| 'NOT_FOUND'
+	| 'CONFLICT'
 	| 'INTERNAL'
 
 /**
