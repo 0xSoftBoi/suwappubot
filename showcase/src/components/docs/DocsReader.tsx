@@ -16,7 +16,15 @@ export default function DocsReader({ html, title }: Props) {
   useEffect(() => {
     import('dompurify').then((mod) => {
       const DOMPurify = mod.default || mod;
-      setSafeHtml(DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'span'], ADD_ATTR: ['class', 'id'] }));
+      setSafeHtml(
+        DOMPurify.sanitize(html, {
+          ADD_TAGS: ['code', 'span', 'figure', 'figcaption', 'img'],
+          // src/alt/loading/decoding keep research exhibits intact through
+          // the client-side re-sanitize; without them the figures lose their
+          // source on hydration and render as empty boxes.
+          ADD_ATTR: ['class', 'id', 'src', 'alt', 'loading', 'decoding'],
+        }),
+      );
     });
   }, [html]);
 

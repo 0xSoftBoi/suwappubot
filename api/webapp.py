@@ -3810,3 +3810,43 @@ async def webapp_referral_leaderboard(
             for idx, entry in enumerate(leaderboard)
         ]
     }
+
+
+@router.get("/execution/benchmark")
+async def get_execution_benchmark(
+    from_token: str = Query(..., max_length=40),
+    to_token: str = Query(..., max_length=40),
+    window_days: int = Query(30, ge=1, le=180),
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Where this user's execution sits versus everyone trading the same shape.
+
+    EXECUTION INTELLIGENCE (phase 3). This is the thing a trader cannot compute
+    from their own history — a percentile needs everyone else's fills.
+
+    PRIVACY: cohort suppression below MIN_COHORT_USERS distinct users is
+    enforced inside ExecutionBenchmark's query layer, not here, so no route or
+    future export can bypass it by forgetting the check. A suppressed response
+    says so explicitly rather than masquerading as "no data".
+
+    Every percentile is returned with a concrete remedy where one applies — a
+    benchmark that only tells a user they underperformed gives them a reason
+    to leave and no way to act on it.
+    """
+    from bot.services.execution_benchmark import execution_benchmark
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        return execution_benchmark.user_percentile(
+            user_id=user.id,
+            from_token=from_token.upper(),
+            to_token=to_token.upper(),
+            window_days=window_days,
+        )
+    except Exception as e:
+        logger.error(f"[execution_benchmark] failed: {e}")
+        raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable")

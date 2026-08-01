@@ -55,6 +55,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
+from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
@@ -287,6 +288,11 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Post-trade execution scoring (execution intelligence, phase 2).
+        # Marks out completed swaps at fixed horizons so realized-vs-quoted
+        # (ours) can be separated from markout (the market's).
+        await execution_scorer.start()
+        await asyncio.sleep(2)
         # Perps position-sync loop (#248): previously implemented but never started.
         await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -418,6 +424,7 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
@@ -922,6 +929,7 @@ def get_db():
 #   perps_monitor      POLL_INTERVAL=10s
 #   withdraw_reconciler poll_interval=60s
 #   balance_refresher  refresh_interval=60s + a refresh pass over all wallets
+#   execution_scorer   interval=120s (post-trade marks)
 #   predict_monitor    POLL_INTERVAL=120s
 #   hl_ws_alerts       websocket refresh loop
 # Keep these in sync with each writer's ttl_seconds — the TTL must be >= the
@@ -931,10 +939,53 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
     "perps_monitor": 90,
     "withdraw_reconciler": 180,
     "balance_refresher": 300,
+    # interval=120s, ttl=300s -> threshold must sit between the two.
+    "execution_scorer": 300,
     "predict_monitor": 360,
     "hl_ws_alerts": 300,
 }
 DEFAULT_STALENESS_SECONDS = 90
+
+
+# ---------------------------------------------------------------------------
+# Build fingerprint
+#
+# A deploy that reports SUCCESS is NOT proof the new code is running: Railway
+# can keep an older container serving, and `railway redeploy` re-deploys a
+# PREVIOUS image rather than current source. That cost real debugging time —
+# a scorer was wired into the lifespan, deployed green, and simply was not in
+# the running build, with nothing to reveal the mismatch.
+#
+# So the app fingerprints its OWN source at import: hash every .py under the
+# application root. Compare the value in /health against the same hash
+# computed locally, and "did my deploy actually land?" becomes a one-line
+# check instead of an investigation. No build step, no env var, no git
+# metadata required — it works identically for `railway up`, GitHub builds
+# and local runs.
+# ---------------------------------------------------------------------------
+def _compute_source_fingerprint() -> str:
+    """SHA-256 over the app's own Python sources, truncated. Import-time only."""
+    import hashlib
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    digest = hashlib.sha256()
+    try:
+        for sub in ("api", "bot", "database"):
+            base = root / sub
+            if not base.is_dir():
+                continue
+            for path in sorted(base.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                digest.update(path.relative_to(root).as_posix().encode())
+                digest.update(path.read_bytes())
+    except Exception:  # pragma: no cover - never block startup on this
+        return "unavailable"
+    return digest.hexdigest()[:12]
+
+
+SOURCE_FINGERPRINT = _compute_source_fingerprint()
 
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
@@ -944,7 +995,10 @@ async def health_live():
     Load balancers should use ``/health/ready`` to gate traffic;
     orchestrators use this to decide whether to restart the container.
     """
-    return {"status": "alive"}
+    # Fingerprint is included here too: /health/live answers even when the DB
+    # or Redis is down, so deploy verification never depends on dependencies
+    # being healthy.
+    return {"status": "alive", "source_fingerprint": SOURCE_FINGERPRINT}
 
 
 @app.get("/health/ready", tags=["Health"], summary="Readiness probe")
@@ -994,6 +1048,10 @@ async def health_ready():
         "balance_refresher",
         "perps_monitor",
         "predict_monitor",
+        # Post-trade execution scoring. Without this entry the service would
+        # run unmonitored — a silently dead scorer looks identical to one with
+        # no swaps to score.
+        "execution_scorer",
     ]
     if getattr(settings, "hl_ws_alerts_enabled", False) or getattr(
         settings, "hl_whale_alerts_enabled", False
@@ -1023,6 +1081,10 @@ async def health_ready():
         content={
             "ready": is_ready,
             "service": "suwappu-bot",
+            # Which build is actually serving this request. See
+            # _compute_source_fingerprint() — a green deploy is not proof the
+            # new code is live; this is.
+            "source_fingerprint": SOURCE_FINGERPRINT,
             "checks": {
                 "database": "connected" if DATABASE_AVAILABLE else "disconnected",
                 "redis": "connected" if redis_ok else "memory-fallback",
