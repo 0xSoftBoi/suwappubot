@@ -10,6 +10,7 @@ import {
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
+import { users } from './users'
 
 /**
  * AI Agents table - External agents that can use the Suwappu API
@@ -50,12 +51,19 @@ export const agents = pgTable('agents', {
 	totalRequests: integer('total_requests').default(0),
 	totalSwaps: integer('total_swaps').default(0),
 
+	// Human owner link (SUW-approvals-with-no-human gap). Nullable/additive:
+	// when set, policyGate's approval-notification resolution prefers this
+	// direct agent->user mapping over the org-owner fallback path. Linked via
+	// POST /v1/agent/link/code + /claim <code> in the Telegram bot.
+	ownerUserId: integer('owner_user_id').references(() => users.id),
+
 	// Timestamps
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 	lastActiveAt: timestamp('last_active_at'),
 }, (table) => ({
 	isActiveIdx: index('ix_agents_is_active').on(table.isActive),
+	ownerUserIdIdx: index('ix_agents_owner_user_id').on(table.ownerUserId),
 }))
 
 export type Agent = typeof agents.$inferSelect

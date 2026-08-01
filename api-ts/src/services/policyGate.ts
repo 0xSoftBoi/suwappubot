@@ -1,11 +1,12 @@
 import crypto from 'crypto'
 import type { Context } from 'hono'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { runEffectEither } from '../runtime'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
 import { agentApprovals } from '../db/schema/approvals'
+import { agents } from '../db/schema/agents'
 import { organizations } from '../db/schema/organizations'
 import { users } from '../db/schema/users'
 import { PolicyService, type PolicyIntent, type PolicyVerdict } from './PolicyService'
@@ -204,21 +205,57 @@ const intentHashOf = (intent: PolicyIntent): string =>
 const APPROVAL_VALUE_BAND = 0.05
 
 /**
- * Resolve the Telegram user id to notify for an approval, via
- * organizations.ownerId -> users.telegramId. Note: the `agents` table itself
- * has NO owner/user FK — the only owner mapping that exists in the current
- * schema is org-level (organizations.ownerId references users.id, and
- * users.telegramId is the Telegram id). So this only resolves anything when
- * the intent carries an organizationId (true for Hono `/v1/agent/*` routes
- * authenticated via an org API key — see enforcePolicy's apiKeyCtx.orgId).
- * MCP tool calls authenticate via plain per-agent bearer tokens with no org
- * context (enforcePolicyForTool always passes organizationId: null), so
- * approvals minted from that surface will still get a null user_telegram_id
- * — that's an inherent gap in the current schema, not a bug in this join.
- * Null-safe throughout: returns null on missing org, missing owner, missing
- * user row, or a null telegramId on the user.
+ * True if `newValueUsd` is within `bandPct` above `oldValueUsd` (or at/below
+ * it). Only the upper bound is enforced — a re-quote coming in LOWER than the
+ * originally-approved value is always fine (never a bait-and-switch); only a
+ * MATERIALLY LARGER value than what the human approved is rejected. Extracted
+ * from redeemApproval's inline comparison for unit testing.
  */
-async function resolveUserTelegramId(organizationId: string | null | undefined): Promise<number | null> {
+export function isWithinValueBand(oldValueUsd: number, newValueUsd: number, bandPct = APPROVAL_VALUE_BAND): boolean {
+	return newValueUsd <= oldValueUsd * (1 + bandPct)
+}
+
+/**
+ * Resolve the Telegram user id to notify for an approval.
+ *
+ * Resolution order:
+ *   1. Direct agent->owner link (agents.ownerUserId -> users.telegramId) —
+ *      set via POST /v1/agent/link/code + /claim <code> in the Telegram bot.
+ *      Works on BOTH the Hono org-key surface and the MCP per-agent-bearer
+ *      surface, since it needs no organizationId at all.
+ *   2. Fallback: organizations.ownerId -> users.telegramId (only resolvable
+ *      when the intent carries an organizationId — the Hono `/v1/agent/*`
+ *      surface authenticated via an org API key; see enforcePolicy's
+ *      apiKeyCtx.orgId). MCP tool calls have no org context
+ *      (enforcePolicyForTool always passes organizationId: null), so before
+ *      owner-linking this fallback could never resolve anything on that
+ *      surface — owner-linking closes that gap.
+ * Null-safe throughout: returns null when neither path resolves a telegramId.
+ */
+async function resolveUserTelegramId(
+	organizationId: string | null | undefined,
+	agentId?: string | null,
+): Promise<number | null> {
+	if (agentId) {
+		const linked = await runEffectEither(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ telegramId: users.telegramId })
+							.from(agents)
+							.innerJoin(users, eq(users.id, agents.ownerUserId))
+							.where(or(eq(agents.uuid, agentId), eq(agents.id, Number(agentId) || -1)))
+							.limit(1),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+				return rows[0]?.telegramId ?? null
+			}),
+		)
+		if (Either.isRight(linked) && linked.right != null) return linked.right
+	}
+
 	if (!organizationId) return null
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -249,7 +286,7 @@ async function createApprovalRow(
 	const id = crypto.randomUUID()
 	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 	const intentHash = intentHashOf(intent)
-	const userTelegramId = await resolveUserTelegramId(intent.organizationId)
+	const userTelegramId = await resolveUserTelegramId(intent.organizationId, intent.agentId)
 	// Primary keys chosen to match what Python's approval_notifier._intent_summary
 	// looks for (fromToken/toToken/fromAmount) so the Telegram card renders a real
 	// summary instead of "?".
@@ -272,10 +309,11 @@ async function createApprovalRow(
 						orgId: intent.organizationId ?? null,
 						agentId: intent.agentId ?? '',
 						agentName: null,
-						// Resolved via organizations.ownerId -> users.telegramId (the
-						// `agents` table itself has no owner FK). Null when the intent has
-						// no organizationId (e.g. MCP tool-auth surface) or the org/owner/
-						// telegramId lookup comes back empty.
+						// Resolved via resolveUserTelegramId: prefers the direct
+						// agents.ownerUserId link, falling back to
+						// organizations.ownerId -> users.telegramId. Null only when
+						// neither path resolves (agent not owner-linked AND no org
+						// context, or the resolved user has no telegramId).
 						userTelegramId,
 						intentJson,
 						intentHash,
@@ -344,7 +382,7 @@ async function redeemApproval(
 			// materially larger trade redeemed against the same approval_id.
 			const approvedValueUsd = row.valueUsd ?? 0
 			const currentValueUsd = intent.valueUsd ?? 0
-			if (currentValueUsd > approvedValueUsd * (1 + APPROVAL_VALUE_BAND)) {
+			if (!isWithinValueBand(approvedValueUsd, currentValueUsd)) {
 				return { ok: false as const, reason: 'value_exceeds_approved' }
 			}
 
@@ -470,20 +508,26 @@ export async function enforcePolicyForTool(
 ): Promise<{ isError: true; content: Array<{ type: string; text: string }> } | null> {
 	// PRODUCT CONSTRAINT: MCP tool calls authenticate via plain agent bearer
 	// tokens only (no org API-key path), and the `agents` table has no owner/org
-	// FK (see resolveUserTelegramId's doc comment above) — there is currently NO
-	// deterministic agent→organization mapping this surface can resolve. Every
-	// MCP-gated call is therefore evaluated against org-less per-agent policy
-	// rows only; any org-scoped policy (e.g. an org-wide kill switch or cap) is
-	// invisible to this surface. Logged loudly (once per call, not just once
-	// globally) so monitoring can page on it rather than this silently drifting
-	// further from the Hono /v1/agent/* surface's org-aware gate.
+	// FK to an organization — there is currently NO deterministic agent→org
+	// mapping this surface can resolve. Every MCP-gated call is therefore
+	// evaluated against org-less per-agent policy rows only; any org-scoped
+	// policy (e.g. an org-wide kill switch or cap) is invisible to this surface.
+	// NOTE: this is no longer a dead end for HUMAN NOTIFICATION — once an agent
+	// is owner-linked via POST /v1/agent/link/code + /claim <code>,
+	// resolveUserTelegramId resolves agents.ownerUserId -> users.telegramId
+	// directly, with no org context required, so approvals raised on this
+	// surface can still reach a human. What remains genuinely unresolved here
+	// is org-level POLICY (caps/kill-switches), not notification. Logged loudly
+	// (once per call, not just once globally) so monitoring can page on it
+	// rather than this silently drifting further from the Hono /v1/agent/*
+	// surface's org-aware gate.
 	console.error('[POLICY-MCP-NO-ORG-CONTEXT] enforcePolicyForTool has no org mapping for agent', agentIdOf(agent))
 	writeAuditLog({
 		userId: 0,
 		orgId: null,
 		agentId: agentIdOf(agent),
 		eventType: 'policy.mcp_no_org_context',
-		details: { note: 'MCP tool-auth surface has no agent->org mapping; evaluated org-less' },
+		details: { note: 'MCP tool-auth surface has no agent->org mapping for policy scoping (owner-link still resolves human notification when linked); evaluated org-less' },
 	})
 
 	const fullIntent: PolicyIntent = {

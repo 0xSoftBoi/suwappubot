@@ -7,7 +7,7 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentApprovals, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents, auditLogs, policyKillSwitches, organizations } from '../db'
+import { agents, agentApprovals, agentCredits, agentCreditTopups, agentLinkCodes, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents, auditLogs, policyKillSwitches, organizations } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -516,6 +516,7 @@ agentRoutes.use('/billing', agentFlexAuth())
 agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 agentRoutes.use('/approvals/*', agentFlexAuth())
+agentRoutes.use('/link/code', agentFlexAuth())
 agentRoutes.use('/audit', agentFlexAuth())
 agentRoutes.use('/audit/*', agentFlexAuth())
 // Kill switch is org-API-key only (see handlers below) — apiKeyAuth() is a
@@ -547,6 +548,7 @@ agentRoutes.use('/billing', rateLimit())
 agentRoutes.use('/billing/*', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
 agentRoutes.use('/approvals/*', rateLimit())
+agentRoutes.use('/link/code', rateLimit())
 
 // ===========================================
 // PAY-PER-CALL METERING (x402 prepaid credits)
@@ -592,6 +594,7 @@ agentRoutes.get('/me', async (c) => {
 			},
 			created_at: agent.createdAt,
 			last_active_at: agent.lastActiveAt,
+			owner_linked: agent.ownerUserId != null,
 		},
 	})
 })
@@ -2252,6 +2255,45 @@ agentRoutes.post('/swap/execute', async (c) => {
 				? 'You will receive webhook notifications at your callback_url'
 				: 'Set callback_url via PATCH /v1/agent/me to receive webhook notifications',
 		},
+	})
+})
+
+// POST /v1/agent/link/code - Mint a short-lived one-time code to link this
+// agent to a human Telegram owner (agents.ownerUserId). The human runs
+// `/claim <code>` in the Suwappu Telegram bot, which writes ownerUserId
+// directly (shared DB, cross-stack). Only the sha256 hash of the code is
+// persisted — the raw code is returned exactly once and never stored.
+agentRoutes.post('/link/code', async (c) => {
+	const agent = c.get('agent')
+
+	const rawCode = crypto.randomBytes(8).toString('hex').slice(0, 8).toUpperCase()
+	const codeHash = crypto.createHash('sha256').update(rawCode).digest('hex')
+	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			yield* Effect.tryPromise({
+				try: () =>
+					db.insert(agentLinkCodes).values({
+						agentId: agent.id,
+						codeHash,
+						expiresAt,
+					}),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', 'Failed to mint link code')
+	}
+
+	return c.json({
+		success: true,
+		code: rawCode,
+		expires_at: expiresAt.toISOString(),
+		instructions: 'Run /claim <code> in the Suwappu Telegram bot',
 	})
 })
 
