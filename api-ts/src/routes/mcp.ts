@@ -49,6 +49,18 @@ const PUBLIC_MCP_METHODS = new Set([
 	'notifications/initialized',
 ])
 
+// Registry acceptance criteria (modelcontextprotocol.io + Coinbase Agent.market):
+// read tools must not require payment-capable auth. These four are the pure
+// read/discovery tools — zero-cost (see MCP_TOOL_COSTS), never touch agent-scoped
+// state, and have a REST sibling that is itself public (GET /v1/agent/chains) or
+// a static/curated dataset (tokens, Tempo TIP-20 list, MPP directory). They may
+// be called via tools/call WITHOUT a Bearer token so registry validators and
+// anonymous MCP clients can exercise the read surface with zero setup. Every
+// other tool — including cost-0 get_quote-adjacent reads like get_prices, which
+// still cache/scope data — keeps the Bearer requirement. Do NOT add a tool here
+// unless its handler takes no `agent` parameter and its MCP_TOOL_COSTS entry is 0.
+const PUBLIC_READ_TOOLS = new Set(['list_chains', 'list_tokens', 'get_tempo_tokens', 'browse_mpp_directory'])
+
 // ---------------------------------------------------------------
 // Protocol version negotiation (MCP spec: lifecycle / initialize)
 //
@@ -117,12 +129,12 @@ const TOOLS = [
 	},
 	{
 		name: 'list_chains',
-		description: 'List all supported blockchain networks for swapping.',
+		description: 'List all supported blockchain networks for swapping. Free and public — no API key required.',
 		inputSchema: { type: 'object', properties: {} },
 	},
 	{
 		name: 'list_tokens',
-		description: 'List available tokens on a specific chain.',
+		description: 'List available tokens on a specific chain. Free and public — no API key required.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -164,7 +176,7 @@ const TOOLS = [
 	},
 	{
 		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
+		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD. Free and public — no API key required.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -174,7 +186,7 @@ const TOOLS = [
 	},
 	{
 		name: 'browse_mpp_directory',
-		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth.',
+		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth. Free and public — no API key required.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1396,6 +1408,20 @@ const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]
 // MCP JSON-RPC endpoint
 // ---------------------------------------------------------------
 
+// MCP Streamable HTTP transport (spec: 2025-03-26+) defines a single endpoint
+// supporting POST (JSON-RPC messages) and, optionally, GET to open a
+// server-initiated SSE stream. We are a stateless request/response JSON-RPC
+// server — every tools/call response is a synchronous JSON body, never SSE —
+// so we do not offer that optional GET stream. Per spec: "If the server does
+// not offer an SSE stream at this endpoint, it MUST respond with 405 Method
+// Not Allowed." Do NOT confuse this with the legacy (pre-2025-03-26) HTTP+SSE
+// transport, which required a long-lived GET SSE connection for every response —
+// we never implemented and are explicitly not adopting that transport.
+mcpRoutes.get('/', (c) => {
+	c.header('Allow', 'POST')
+	return c.body(null, 405)
+})
+
 mcpRoutes.post('/', async (c) => {
 	let body: unknown
 	try {
@@ -1411,8 +1437,12 @@ mcpRoutes.post('/', async (c) => {
 
 	// Only gate non-public methods on auth so anonymous MCP clients can complete the
 	// initialize/tools-list handshake before ever presenting an API key (spec compliance).
+	// A tools/call targeting a PUBLIC_READ_TOOLS entry is likewise exempt — read/discovery
+	// tools must not require payment-capable auth (registry acceptance criteria).
+	const isPublicToolCall =
+		req.method === 'tools/call' && PUBLIC_READ_TOOLS.has(((req.params || {}).name as string) || '')
 	let agent: Agent | undefined
-	if (!PUBLIC_MCP_METHODS.has(req.method)) {
+	if (!PUBLIC_MCP_METHODS.has(req.method) && !isPublicToolCall) {
 		try {
 			await agentBearerAuth()(c, async () => {})
 		} catch (e) {
@@ -1475,7 +1505,10 @@ mcpRoutes.post('/', async (c) => {
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
 			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name', undefined, 'VALIDATION_ERROR'), 200)
-			// tools/call is not in PUBLIC_MCP_METHODS, so agent is always set here.
+			// agent is set here for every tool EXCEPT a PUBLIC_READ_TOOLS call (see the
+			// auth gate above) — those handlers never dereference callAgent, so the cast
+			// is safe in practice; the chargeAgentForCall call just below reads the raw
+			// (possibly-undefined) `agent` instead of this cast to avoid a null-deref.
 			const callAgent = agent as Agent
 
 			// Validate the tool exists and its required args are present BEFORE any
@@ -1493,7 +1526,10 @@ mcpRoutes.post('/', async (c) => {
 			// envelope carrying the x402 challenge so x402-aware MCP clients can settle
 			// and retry (raw HTTP 402 bodies break JSON-RPC framing for other clients).
 			const charge = await chargeAgentForCall({
-				agent: { id: callAgent.id, rateLimitTier: callAgent.rateLimitTier },
+				// Read from the raw (possibly-undefined) `agent`, not the `callAgent` cast —
+				// a PUBLIC_READ_TOOLS call reaches here with agent undefined, and
+				// chargeAgentForCall treats a missing agent as 'skip: no_agent' safely.
+				agent: agent ? { id: agent.id, rateLimitTier: agent.rateLimitTier } : undefined,
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
