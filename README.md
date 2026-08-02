@@ -1,7 +1,5 @@
 <div align="center">
-  <a href="https://www.suwappu.bot">
-    <img src="showcase/public/social-card.svg" width="100%" alt="Suwappu — cross-chain by design. Swap, trade perps, and lend, one SDK for AI agents and humans.">
-  </a>
+  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Route Field — a generative visualization of settlement routes converging across chains">
 </div>
 
 # Suwappu
