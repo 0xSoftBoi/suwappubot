@@ -249,6 +249,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.favorites import FavoriteSwapPair, PriceAlert, UserSettings
         from bot.models.tempo_access_key import TempoAccessKey
 
+        # Token Intel / Dev Tracking — watched deployers + detected new deploys
+        from bot.models.intel import DeployerWatch, DeployerWatchHit
+
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
         # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns
@@ -675,6 +678,9 @@ def _ensure_schema(db_engine) -> None:
 
     # --- On-chain fee-cashback rewards (weekly Merkle epochs) ---
     _create_onchain_rewards_tables(db_engine, inspector, is_sqlite)
+
+    # --- Token Intel / Dev Tracking: deployer_watches, deployer_watch_hits ---
+    _create_token_intel_tables(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -3393,3 +3399,65 @@ def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool
             logger.info(f"Set DB default on {table}.{column}")
         except Exception as e:
             logger.warning(f"Could not set default on {table}.{column}: {e}")
+
+
+def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create Token Intel / Dev Tracking tables idempotently.
+
+    deployer_watches: a user's watchlist of deployer addresses.
+    deployer_watch_hits: new-token-deploy events matched against a watch.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+    ts_default = "CURRENT_TIMESTAMP" if is_sqlite else "NOW()"
+
+    with db_engine.begin() as conn:
+        if "deployer_watches" not in tables:
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS deployer_watches (
+                    {pk},
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    deployer_address VARCHAR(255) NOT NULL,
+                    chain VARCHAR(50) NOT NULL DEFAULT 'ethereum',
+                    label VARCHAR(100),
+                    created_at {ts_type} DEFAULT {ts_default},
+                    CONSTRAINT uq_deployer_watch_user_addr_chain
+                        UNIQUE (user_id, deployer_address, chain)
+                )
+            """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_deployer_watches_user_id "
+                "ON deployer_watches(user_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_deployer_watches_deployer_address "
+                "ON deployer_watches(deployer_address)"
+            )
+        )
+
+        if "deployer_watch_hits" not in tables:
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS deployer_watch_hits (
+                    {pk},
+                    watch_id INTEGER NOT NULL REFERENCES deployer_watches(id),
+                    token_address VARCHAR(255) NOT NULL,
+                    chain VARCHAR(50) NOT NULL DEFAULT 'ethereum',
+                    detected_at {ts_type} DEFAULT {ts_default}
+                )
+            """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_deployer_watch_hits_watch_id "
+                "ON deployer_watch_hits(watch_id)"
+            )
+        )

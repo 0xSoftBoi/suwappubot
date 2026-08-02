@@ -17,6 +17,9 @@ export interface Portfolio {
 export interface ApiError {
   detail: string
   status: number
+  // Seconds to wait before retrying — populated from the response's
+  // `Retry-After` header on 429s (e.g. the per-IP-limited intel endpoint).
+  retryAfter?: number
 }
 
 export interface SwapToken {
@@ -958,6 +961,54 @@ export interface RewardsSummary {
   payoutToken: string
   payoutChain: string
   entries: RewardsEntry[]
+}
+
+// Token Intel — Bubblemaps/Solscan-style deployer + holder-cluster analysis.
+// GET /terminal/intel/{chain}/{token_address}. Every field may be null/empty —
+// the backend degrades gracefully and explains what's missing in `notes`.
+export interface IntelHolder {
+  address: string
+  balance: number
+  pct: number
+}
+
+export type IntelFlag = 'HIGH_TOP10' | 'BUNDLED' | 'SNIPED' | 'SERIAL_DEPLOYER' | 'CLUSTERED'
+
+export interface TokenIntel {
+  token_address: string
+  chain: string
+  name: string | null
+  symbol: string | null
+  total_supply: number | null
+  deployer: string | null
+  deployer_prior_deploys: number | null
+  deployer_dead_deploys: number | null
+  mint_authority: string | null
+  top_holders: IntelHolder[]
+  top10_pct: number | null
+  cluster_groups: string[][]
+  bundle_buyer_count: number | null
+  snipe_buyer_count: number | null
+  pair_created_at: string | null
+  flags: IntelFlag[]
+  notes: string[]
+  generated_at: string | null
+}
+
+export interface DevWatchEntry {
+  id: number
+  deployer_address: string
+  chain: string
+  label: string | null
+  created_at: string
+  hits_count: number
+}
+
+export interface DevWatchHit {
+  token_address: string
+  chain: string
+  detected_at: string
+  label: string | null
 }
 
 export interface RewardsClaimPayload {

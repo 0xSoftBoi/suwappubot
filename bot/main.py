@@ -219,6 +219,12 @@ from bot.handlers.subscription import (
 )
 from bot.handlers.vip import vip_handler
 from bot.handlers.import_handler import import_conversation_handler
+from bot.handlers.intel import (
+    intel_handler,
+    devwatch_handler,
+    intel_refresh_handler,
+    intel_watch_handler,
+)
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -444,6 +450,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(ticket_handler)  # /ticket (admin: view one ticket)
     application.add_handler(treply_handler)  # /treply (admin: reply to a ticket)
     application.add_handler(tclose_handler)  # /tclose (admin: resolve a ticket)
+    application.add_handler(intel_handler)  # /intel — token deployer/holder report
+    application.add_handler(devwatch_handler)  # /devwatch — deployer watchlist
+    application.add_handler(intel_refresh_handler)  # /intel "Refresh" button
+    application.add_handler(intel_watch_handler)  # /intel "Watch deployer" button
 
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
@@ -853,6 +863,17 @@ async def post_init(application) -> None:
         logger.info("✓ Health monitor started")
 
         # Start token launch detector for sniping
+        # Dev Tracking: notify users watching a deployer when it launches a new
+        # token. Hooked non-fatally — a bug here must never break sniping.
+        async def _on_launch_dev_watch(launch) -> None:
+            try:
+                from bot.services.token_intel.dev_watch import check_watched_deployer_launch
+
+                await check_watched_deployer_launch(launch, bot=application.bot)
+            except Exception as e:
+                logger.error(f"Dev-watch launch check failed: {e}")
+
+        launch_detector.on_launch(_on_launch_dev_watch)
         await launch_detector.start()
         logger.info("✓ Token launch detector started")
 
