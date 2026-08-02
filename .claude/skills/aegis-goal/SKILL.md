@@ -23,7 +23,8 @@ Standing goal: **every phase of `docs/plans/aegis-fork-extend.md` implemented, v
 - [x] 1.4 DONE (commit f8d896b) — WhatsApp seam: scan in `_wa_dispatch` (`api/main.py:2512-2531`) — must cover text, button payloads, `nfm_reply` JSON, and post-Whisper voice transcripts (`:2522-2524`).
 - [x] 1.5 DONE (commit ee4747b, group -1 at top of add_handlers) — Telegram seam: group `-1` scanner handler in `bot/main.py` `add_handlers` (before `:740`) or wrap `PerUserSerializingProcessor.do_process_update` (`bot/utils/update_processor.py:25`). Scan-and-log only — never blocks normal commands.
 - [x] 1.6 DONE (commit f8d896b, 30/60s per-key limit + scan) — Agent NL API `api/main.py:2163-2183`: add scanner + per-key rate limit (today it has neither between the API-key check and `handle_command`).
-- [ ] 1.7 Verification gate: pytest for every seam; p50 added latency <5ms (regex/heuristic tier only — no ML extras on the request path); observe-mode telemetry (`.aegis/telemetry.jsonl`) reviewed after ~1 week of prod traffic **before any enforce flip anywhere**.
+- [x] 1.7a Code gate DONE (commit 59a0bc2): 57 tests pass (19 AEGIS + 38 NL incl. 6 new prompt-hardening), p50 scan latency 0.12ms. Suite caught+fixed a real bug (ThreatMatch flat-field access blanked signature_ids telemetry).
+- [ ] 1.7b Telemetry review: after Phase 1 deploys, review observe-mode detections (Railway logs `AEGIS threat detected` + `.aegis/telemetry.jsonl`) after ~1 week of prod traffic **before any enforce flip anywhere**.
 
 ### Phase 2 — Quarantine + token-address broker (federate with existing immune system)
 - [ ] 2.1 Persist AEGIS threat verdicts into `BlacklistService.report_scam` (`bot/services/token_security/blacklist_service.py:388`) so detections accumulate in the store the bot already hard-blocks on (`paste_trade.py:213`, `swap.py:1101`).
