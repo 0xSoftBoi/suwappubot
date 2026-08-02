@@ -17,10 +17,9 @@ See the [CLAUDE.md](./CLAUDE.md) file for build commands and project structure.
 ### Prerequisites
 
 - Python 3.11+ (bot + API)
-- Bun (TypeScript API, mobile, TUI)
+- Bun (TypeScript API)
 - Node.js 18+ (webapp)
-- Docker (for local development with docker-compose)
-- PostgreSQL (or use docker-compose)
+- PostgreSQL (local instance or a dev database connection string)
 
 ### Quick start
 
@@ -28,8 +27,8 @@ See the [CLAUDE.md](./CLAUDE.md) file for build commands and project structure.
 # Python bot + API
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.template .env  # Fill in your values
-uvicorn api.main:app --reload
+# Fill in your values — see .env.schema for the full contract
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # TypeScript API
 cd api-ts && bun install && bun run dev

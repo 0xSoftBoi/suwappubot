@@ -1,23 +1,95 @@
-# Suwappu 🌸
+<div align="center">
+  <a href="https://www.suwappu.bot">
+    <img src="showcase/public/logo.svg" width="84" alt="Suwappu">
+  </a>
+</div>
 
-Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
+<h1 align="center">Suwappu</h1>
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
-[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
-[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
+<div align="center">
+
+[![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
+[![CI](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/test.yml?branch=main&label=CI)](.github/workflows/test.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/codeql.yml?branch=main&label=CodeQL)](.github/workflows/codeql.yml)
+[![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
-[![Providers](https://img.shields.io/badge/Swap_Providers-10+-orange)]()
+[![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
+
+</div>
+
+<p align="center">
+  <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
+  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+</p>
+
+<p align="center">
+  <b><a href="https://www.suwappu.bot">Trade now</a></b> &nbsp;·&nbsp;
+  <b><a href="https://terminal.suwappu.bot">Open Terminal</a></b> &nbsp;·&nbsp;
+  <b><a href="https://t.me/SuwappuBot">Telegram Bot</a></b> &nbsp;·&nbsp;
+  <b><a href="docs/agent-clients.md">Agent Docs</a></b> &nbsp;·&nbsp;
+  <b><a href="#security">Security</a></b>
+</p>
+
+<br>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<a href="https://www.suwappu.bot"><img src="docs/assets/screenshots/showcase.jpg" alt="Suwappu marketing site — trade anything, no limits"></a>
+
+<sub>**[www.suwappu.bot](https://www.suwappu.bot)** — marketing site, embedded terminal preview</sub>
+
+</td>
+<td width="50%" valign="top">
+
+<a href="https://terminal.suwappu.bot"><img src="docs/assets/screenshots/terminal.png" alt="Suwappu Terminal — live TradingView chart, order book, and swap panel"></a>
+
+<sub>**[terminal.suwappu.bot](https://terminal.suwappu.bot)** — the live Telegram Mini App: chart, order book, swap/limit/DCA, portfolio</sub>
+
+</td>
+</tr>
+</table>
+
+---
+
+<details>
+<summary><b>Table of contents</b></summary>
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Features](#features)
+4. [Quick Start](#quick-start)
+5. [Swap Routing](#swap-routing)
+6. [Supported Chains](#supported-chains)
+7. [Bot Commands](#bot-commands)
+8. [Project Structure](#project-structure)
+9. [API Endpoints (TypeScript)](#api-endpoints-typescript)
+10. [npm Packages](#npm-packages)
+11. [Deployment](#deployment)
+12. [Security](#security)
+13. [Documentation](#documentation)
+14. [Links](#links)
+
+</details>
+
+---
 
 ## Overview
 
-**14 chains. 10+ swap providers. 3 agent protocols. 4 frontends.**
+**14 chains. 15+ swap providers. 3 agent protocols. 5 frontends.**
 
 | | |
 |---|---|
 | **Chains** | 12 EVM (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll) + Solana + TRON |
-| **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero/Stargate, Chainlink CCIP |
-| **Agent Protocols** | REST API (50+ endpoints) · MCP (8 tools) · A2A (JSON-RPC) |
-| **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Mobile (iOS) |
+| **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero, Chainlink CCIP, OKX DEX, 1inch, KyberSwap, 0x, SunSwap + more |
+| **Agent Protocols** | REST API (50+ endpoints) · MCP (22 tools) · A2A (JSON-RPC) |
+| **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Browser Extension |
 | **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
 
 ---
@@ -32,22 +104,22 @@ flowchart LR
         DC["Discord"]
         AI["AI Agents\nMCP + A2A + REST"]
         Web["Webapp + Terminal"]
-        Mob["Mobile (iOS)"]
+        Ext["Browser Extension"]
     end
 
     subgraph Backend["Backend"]
-        Bot["Python Monolith\nSwap Engine · 27 Handlers\n56 Services"]
+        Bot["Python Monolith\nSwap Engine · 60+ Handlers\n120+ Services"]
         API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
-    subgraph Providers["10+ Swap Providers"]
+    subgraph Providers["15+ Swap Providers"]
         EVM["12 EVM Chains"]
         SOL["Solana"]
         TRON["TRON"]
     end
 
     TG & WA & DC --> Bot
-    AI & Web & Mob --> API
+    AI & Web & Ext --> API
     Bot --> API
     API --> EVM & SOL & TRON
     Bot --> EVM & SOL & TRON
@@ -58,7 +130,7 @@ flowchart LR
 ## Features
 
 ### Trading
-- **Cross-chain swaps** — 10+ providers with priority-based routing, quote comparison, slippage protection
+- **Cross-chain swaps** — 15+ providers raced in parallel per route, best-price selection, slippage protection
 - **MEV protection** — CoW Protocol batch auctions (EVM) + Jito bundles (Solana)
 - **Limit orders** — Buy/sell triggers, stop-loss, trailing stop with expiry
 - **DCA orders** — Dollar-cost averaging on daily/weekly/monthly intervals
@@ -80,7 +152,7 @@ flowchart LR
 | Protocol | Endpoint | Tools/Skills |
 |----------|----------|-------------|
 | **REST API** | `/v1/agent/*` | 50+ endpoints — swaps, wallets, portfolio, perps, predictions, lending, webhooks |
-| **MCP** | `/mcp` | 8 tools — get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory |
+| **MCP** | `/mcp` | 22 tools — quotes, swaps, portfolio, perps, predictions, lending, wallet policies, and more |
 | **A2A** | `/a2a` | Natural language — "swap 0.5 ETH to USDC on base", "price ETH SOL BTC" |
 
 **Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
@@ -104,11 +176,11 @@ See [docs/features/openclaw_integration.md](docs/features/openclaw_integration.m
 
 | Platform | Capabilities |
 |----------|-------------|
-| **Telegram** | Full feature set — 27 commands, Mini App, inline keyboards |
+| **Telegram** | Full feature set — 60+ commands across 60+ handlers, Mini App, inline keyboards |
 | **WhatsApp** | Swaps, orders, DCA, alerts, voice messages, conversation flows |
 | **Discord** | Whale alerts, trending tokens, leaderboard, analysis forum |
-| **Web Terminal** | TradingView charts, order book, 15+ panels, keyboard shortcuts |
-| **Mobile (iOS)** | 49 screens, 5 tabs — swap, portfolio, copy trading, sniping, points |
+| **Web Terminal** | TradingView charts, order book, 20+ panels, keyboard shortcuts |
+| **Browser Extension** | MV3 wallet — injects `window.ethereum`/`window.solana`, EIP-1193/6963 + Wallet Standard |
 
 ---
 
@@ -153,37 +225,36 @@ curl -X POST https://api.suwappu.bot/a2a \
 
 ```bash
 # TypeScript API
-cd api-ts && bun install && cp .env.example .env && bun run dev
+cd api-ts && bun install && bun run dev
 
 # Webapp
 cd webapp && npm install && npm run dev
 
 # Bot (Python)
 python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt && uvicorn api.main:app --reload
-
-# Full stack
-docker-compose -f docker-compose.local.yml up
+pip install -r requirements.txt
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+Each service needs its own `.env` — see [`.env.schema`](.env.schema) for the full contract
+and `python3 scripts/doctor.py` to check what's configured locally.
 
 ---
 
 ## Swap Routing
 
-The SwapEngine orchestrates 10+ providers with priority-based routing:
+The SwapEngine races all eligible providers for a given route in parallel and returns the
+best output amount — it's quote comparison, not a fixed priority list:
 
 ```
 Request → Pre-checks (spending limits, safety score, MEV config)
-        → SwapEngine priority router:
-           1. CoW Protocol   — Same-chain EVM, MEV-protected batch auctions
-           2. Socket         — Super-aggregated cross-chain + same-chain
-           3. Jupiter + Jito — Solana swaps with MEV bundle protection
-           4. Circle CCTP    — Native USDC cross-chain (zero fee)
-           5. Across         — Fast EVM bridges (~0.04% fee)
-           6. Wormhole       — Solana ↔ EVM bridging
-           7. Li.Fi          — Aggregated fallback
-           8. LayerZero      — Same-token cross-chain
-           9. Chainlink CCIP — Generic cross-chain
+        → SwapEngine: race eligible providers in parallel, pick best output
+           Same-chain EVM   — CoW Protocol (MEV-protected batch auctions), OKX DEX,
+                              1inch, KyberSwap, 0x, Li.Fi
+           Solana           — Jupiter + Jito (MEV bundle protection)
+           Cross-chain      — Socket, Li.Fi, Circle CCTP (USDC), Across, Wormhole,
+                              LayerZero, Chainlink CCIP
+           Chain-specific   — SunSwap (TRON), plus other per-chain DEX integrations
         → Points-based fee discount (up to 50%)
 ```
 
@@ -211,6 +282,10 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 ---
 
 ## Bot Commands
+
+Core commands below — the bot has grown to 60+ handlers (savings, borrow, P2P, bulk pay,
+airdrops, gift cards, and more); see [docs/features/README.md](docs/features/README.md) for
+the fuller map, or `/start` in the bot for the current menu.
 
 | Command | Description |
 |---------|-------------|
@@ -242,34 +317,37 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 suwappubot/
 ├── api-ts/             # TypeScript API (Hono + Effect-TS + Drizzle)
 │   └── src/
-│       ├── routes/     # 15 route modules, 50+ endpoints
-│       ├── services/   # 22 services (swap, agent, perps, lending, etc.)
+│       ├── routes/     # 22 route modules, 50+ endpoints
+│       ├── services/   # Services (swap, agent, perps, lending, etc.)
 │       └── middleware/  # Auth (bearer, telegram, flex, admin, internal)
 ├── bot/                # Python Telegram bot
-│   ├── handlers/       # 27 command handlers
-│   ├── services/       # 56 services (swap engine, sniping, copy, security)
+│   ├── handlers/       # 60+ command handlers
+│   ├── services/       # 120+ services (swap engine, sniping, copy, security)
 │   └── config/         # Chain configs, token configs, settings
 ├── api/                # Python FastAPI (webhook handlers)
-├── webapp/             # Telegram Mini App (React + Vite) — 18 pages, 95+ components
-├── terminal/           # Web Trading Terminal — 15+ panels, TradingView charts
-├── showcase/           # Marketing site (Next.js + GSAP + Three.js)
-├── mobile/             # iOS/Android app (Expo) — 49 screens
+├── webapp/             # React + Vite Telegram Mini App — 29 pages, dev-only, not deployed
+├── terminal/           # Live Telegram Mini App (app.suwappu.bot) — 20+ panels, TradingView
+├── extension/          # Browser wallet extension (MV3, EIP-1193/6963 + Wallet Standard)
+├── showcase/           # Marketing site (Next.js)
+├── contracts/          # SUWP token + on-chain harness (Solidity)
+├── cloudflare/         # Cloudflare Worker (router)
 ├── packages/
-│   ├── shared/         # Shared TypeScript types (10 modules)
+│   ├── shared/         # Shared TypeScript types
 │   ├── sdk/            # @suwappu/sdk (npm, published)
-│   ├── mcp-server/     # @suwappu/mcp-server (npm, published)
 │   ├── openclaw/       # @suwappu/openclaw (npm, published)
+│   ├── design-tokens/  # @suwappu/design-tokens
 │   └── sdk-python/     # Python SDK (development)
-├── examples/           # Working examples (swap-agent, perps-trader, yield-farmer, prediction-bot)
-├── gitbook/            # API documentation (33 files)
-├── infra/              # AWS CDK infrastructure
+├── gitbook/            # API documentation (50+ files)
+├── infra/              # AWS CDK — legacy, unused for app deploys (see Deployment)
 ├── database/           # DB init + runtime migrations
-├── cpp/                # C++ core (crypto, math, validation)
-├── tui/                # Terminal monitoring dashboard (Ink)
-├── docs/               # Architecture docs
+├── docs/               # Architecture, deployment, and feature docs
+├── skills/             # Claude Code skills for this repo
+├── monitoring/         # External health-check endpoint manifest
 ├── tests/              # Python tests
-└── .github/workflows/  # CI/CD (4 deploy + CI + rollback)
+└── .github/workflows/  # CI/CD
 ```
+
+`@suwappu/mcp-server` is published to npm but not vendored in this monorepo.
 
 ---
 
@@ -281,7 +359,7 @@ suwappubot/
 | **Perps** (`/v1/agent/perps/*`) | Bearer | markets, quote, positions |
 | **Predictions** (`/v1/agent/predict/*`) | Bearer | markets, market details (Polymarket) |
 | **Lending** (`/v1/agent/lend/*`) | Bearer | markets, market details (Morpho) |
-| **MCP** (`/mcp`) | Bearer | 8 tools via JSON-RPC |
+| **MCP** (`/mcp`) | Bearer | 22 tools via JSON-RPC |
 | **A2A** (`/a2a`) | Bearer | message/send, tasks/get, tasks/cancel |
 | **Webapp Swap** (`/webapp/swap/*`) | Telegram | quote, execute, status, chains, tokens |
 | **Webapp Auth** (`/webapp/*`) | Various | validate, telegram auth, Turnkey OAuth, trending, token info/chart |
@@ -296,22 +374,36 @@ suwappubot/
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.3.0 | TypeScript SDK + `suwappu` CLI |
-| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.5.0 | MCP server for Claude Desktop/Cursor |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.5.2 | TypeScript SDK + `suwappu` CLI |
+| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.1.1 | MCP server for Claude Desktop/Cursor |
 | [`@suwappu/openclaw`](https://www.npmjs.com/package/@suwappu/openclaw) | 0.2.0 | OpenClaw skill module |
 
 ---
 
 ## Deployment
 
-All services on AWS ECS Fargate (us-east-1) with circuit breaker + rollback.
+Deploy target is **Railway** — there is no AWS/ECS/EC2 deploy path anymore. Railway is wired
+to GitHub, so merging to `main`/`dev` auto-deploys any service whose watched paths changed.
+See [docs/deployment/railway.md](docs/deployment/railway.md) and the `/deploy` skill.
+(The AWS Dockerfiles/CDK under `infra/` are left in place for reversibility, not because
+they're live.)
 
-| Environment | API | Webapp | Bot | Showcase | Branch |
-|-------------|-----|--------|-----|----------|--------|
-| **Production** | api.suwappu.bot | app.suwappu.bot | bot.suwappu.bot | www.suwappu.bot | `main` |
-| **Development** | devapi.suwappu.bot | devfront.suwappu.bot | devbot.suwappu.bot | — | `dev` |
+**`webapp/` is unused in production** — it has no Railway service and deploys nowhere. The
+live Telegram Mini App (`app.suwappu.bot`) is served by `terminal/`.
 
-CI/CD: Push to `main`/`dev` → Docker build → Trivy scan → ECR push → DB backup → ECS deploy → health check.
+| Service | Production URL | Branch |
+|---------|-----------------|--------|
+| `python-api` (bot + FastAPI) | python-api-*.up.railway.app (no custom domain) | `main` |
+| `api-ts` | api.suwappu.bot | `main` |
+| `terminal` (live Mini App) | app.suwappu.bot · terminal.suwappu.bot | `main` |
+| `showcase` | www.suwappu.bot | `main` |
+
+Development env uses the same services on the `dev` branch, e.g. `devapi.suwappu.bot` for
+api-ts.
+
+CI/CD: GitHub Actions auto-deploys on push to `main`/`dev` (see
+[docs/deployment/monitoring.md](docs/deployment/monitoring.md) for how each layer's health is
+checked post-deploy).
 
 ---
 
@@ -377,11 +469,11 @@ checked-in Software Bill of Materials (SBOM).
 
 | Resource | Description |
 |----------|-------------|
-| [GitBook API Docs](gitbook/) | Full API reference (33 files) |
-| [Agent Integration](docs/features/agent_integration.md) | MCP, A2A, REST setup |
-| [Examples](examples/) | Working examples: swap-agent, perps-trader, yield-farmer, prediction-bot |
-| [Deployment](docs/deployment/) | AWS, CI/CD, releases |
-| [Development](docs/development/) | Local setup, debugging, migrations |
+| [GitBook API Docs](gitbook/) | Full API reference (50+ files) |
+| [Agent Clients](docs/agent-clients.md) | MCP, A2A, REST setup for AI agents |
+| [Features](docs/features/README.md) | User-facing feature guides (HyperLiquid, Tempo, etc.) |
+| [Deployment](docs/deployment/) | Railway, CI/CD, monitoring |
+| [CLAUDE.md](CLAUDE.md) | Local setup, build commands, migrations, architecture gotchas |
 
 ### Governance
 
