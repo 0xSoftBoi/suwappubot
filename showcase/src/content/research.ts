@@ -2,11 +2,19 @@
 // with the same pipeline as the docs). "planned" posts show as upcoming on the
 // index — credible roadmap, not fabricated content.
 
+import stats from '@/data/stats.generated.json';
+
 export type ResearchPost = {
   slug: string;
   title: string;
   date: string; // ISO; empty for planned
   category: 'Protocol' | 'Architecture' | 'Security' | 'Agents' | 'Benchmarks';
+  /**
+   * 'research' = measurement/theory with released data and a stated method;
+   * 'engineering' = how a shipped system works, verified against the code at
+   * a stated date. The index renders them in separate sections.
+   */
+  kind: 'research' | 'engineering';
   excerpt: string;
   readMins?: number;
   status: 'published' | 'planned';
@@ -15,255 +23,152 @@ export type ResearchPost = {
   body?: string;
 };
 
-const TEMPO_BODY = `# Gasless swaps on Tempo: how fee-payer (type 0x76) transactions actually work
+const TEMPO_BODY = `# Gasless swaps on Tempo: fee-payer (type 0x76) transactions, as actually implemented
 
-Onboarding a new user to crypto has a chicken-and-egg problem: to make their first swap they need gas, but to get gas they usually need to already hold the native token. Tempo's fee-payer transaction type lets us cut that knot — a sponsor pays the gas so the user doesn't have to. This post walks through how Suwappu sponsors a user's first swaps, end to end.
+*Engineering note. Verified against the engine source on 31 July 2026. Two claims in the original version of this post were stale — the accounting is no longer in-memory, and "total cost ≈ $0.001" conflated two different numbers — and both are corrected below.*
 
-## The problem with "just pay gas"
-
-On most chains, every transaction must be signed by the account that pays for it. A brand-new wallet with a zero balance literally cannot broadcast anything. The usual workarounds — faucets, meta-transactions, ERC-4337 paymasters — each add moving parts.
-
-Tempo takes a more direct route: a dedicated transaction type where the **gas payer and the sender are two different signatures on the same transaction**.
+Onboarding a new user to crypto has a chicken-and-egg problem: to make their first swap they need gas, but to get gas they usually need to already hold the native token. Tempo's fee-payer transaction type cuts the knot — a sponsor pays the gas so the user doesn't have to.
 
 ## Type 0x76: two signers, one transaction
 
-A Tempo fee-payer transaction (type \`0x76\`) is built so that:
+On most chains, the account paying for a transaction must be the account signing it, so a zero-balance wallet cannot broadcast anything. The usual workarounds — faucets, meta-transactions, ERC-4337 paymasters — each add moving parts. Tempo instead defines a transaction type in which the **gas payer and the sender are two different signatures on the same transaction**: the user signs the call, a fee payer counter-signs the gas, the network verifies both and debits the fee payer.
 
-- The **user** signs the call they want to make (the swap).
-- A **fee payer** counter-signs, agreeing to cover the gas.
+In the real implementation (via the \`pytempo\` SDK), the transaction is domain-separated: the sender signs the type-\`0x76\` hash, the sponsor signs the parallel fee-payer hash (\`0x78\` domain), and the sponsor's signature is attached before broadcast. One detail worth copying if you build on Tempo: the token approval and the swap ride in the **same** 0x76 transaction, so a first-time user needs zero prior on-chain state — no separate approve transaction, no dust of native token, nothing.
 
-Both signatures travel in one transaction. The network verifies both, debits gas from the fee payer, and executes the user's intent. The user never needs the native token.
+## What sponsorship is bounded by (with the real numbers)
 
-\`\`\`text
-tx (type 0x76)
-├─ user signature      → authorizes the swap
-└─ fee-payer signature → authorizes paying gas
-\`\`\`
+Sponsorship is an onboarding perk with hard limits, not an open faucet. The configured defaults:
 
-## How Suwappu sponsors it
+- **3 sponsored transactions per user, lifetime.**
+- **$100 per day of sponsor spend, global**, across all users, on a UTC-day window.
+- **A fallback that never blocks**: if sponsorship is unavailable — cap hit, budget exhausted, sponsor wallet unavailable, or any error at all in the sponsorship path — the swap executes normally, user-paid. The sponsorship code is wrapped so that its failure cannot fail a swap.
 
-When a sponsored swap is eligible, the engine builds the 0x76 transaction and asks our fee-payer wallet to counter-sign it via the \`pytempo\` SDK:
+The original version of this post said the accounting was in-memory and "a restart resets counters." That was true when written and is not anymore: bookkeeping now persists in the database (one row per user carrying a lifetime count and the day's spend), precisely so limits hold across restarts and replicas. We are correcting it prominently because the old sentence described an abuse window — spam right after a deploy — that no longer exists.
 
-\`\`\`python
-# 1. Build the user's swap as a fee-payer (0x76) transaction
-tx = build_fee_payer_tx(user_swap, fee_payer=sponsor_address)
+## What a sponsored swap actually costs, separated honestly
 
-# 2. Sponsor counter-signs the gas
-signed = sponsor_wallet.cosign_fee_payer(tx)
+Two different numbers were blurred together in the original post:
 
-# 3. Broadcast — user paid nothing for gas
-receipt = await tempo.send(signed)
-\`\`\`
+- **The sponsor's cost** (ours): Tempo gas per transaction is sub-cent; the engine books it at an estimated $0.001 per sponsored transaction against the daily budget.
+- **The user's cost**: gas is $0.00 on a sponsored swap — but the platform swap fee and market slippage still apply, exactly as on any other swap. "Your first swap costs a tenth of a cent" was our cost wearing the user's clothes; the correct sentence is "your first swap needs no gas token and pays no gas."
 
-Because Tempo settles in TIP-20 stablecoins and fees are sub-cent, the user's *total* cost on a sponsored swap is on the order of **$0.001**.
+Fees on Tempo settle in TIP-20 stablecoins (the fee token is pathUSD), which is what makes the whole flow denominable in dollars end to end.
 
-## Guardrails (so sponsorship is sustainable)
+## Deployment status, stated plainly
 
-Sponsorship is a best-effort onboarding perk, not an unlimited faucet. It is bounded by:
-
-- A small **per-user lifetime cap** on sponsored swaps.
-- A **daily USD budget** across all users.
-- A **graceful fallback**: if sponsorship is unavailable — budget exhausted, signer busy — the swap still executes, user-paid. Nothing ever blocks.
-
-The accounting is intentionally best-effort (in-memory), so a restart resets counters. That's an acceptable trade for an onboarding perk; it is not a financial guarantee.
+The sponsorship path is code-complete, tested, and wired behind a configuration flag that **defaults to off**; enabling it is an operational decision (it requires a funded sponsor wallet and the flag set in the deployment). This post describes the capability and its guardrails, not a promise that any particular swap will be sponsored on any particular day. The unconditional part — Tempo swaps settling with sub-cent fees in stablecoins, approval and swap in one transaction — applies to every Tempo swap, sponsored or not.
 
 ## Why this matters for agents
 
-The same mechanism that smooths human onboarding matters even more for autonomous agents: an agent's first action shouldn't require pre-funding a gas account in the native asset. Fee-payer transactions let an agent transact in stablecoins from the first call.
-
-## Takeaways
-
-- Type \`0x76\` carries two signatures — sender and gas payer — in one transaction.
-- Suwappu counter-signs gas for eligible first swaps via \`pytempo\`.
-- It's bounded by per-user and daily limits, with a user-paid fallback.
-- Net effect: a first swap that costs about a tenth of a cent, in stablecoins, with no native gas token required.
+An autonomous agent's first action should not require pre-funding a gas account in a volatile native asset. Fee-payer transactions let an agent hold only stablecoins and still transact from its first call — and the same dual-signature pattern generalizes to any sponsor-the-user flow. That, more than human onboarding, is why we consider the mechanism strategically interesting.
 `;
 
-const ROUTING_BODY = `# Best-price routing: how Suwappu picks the winning quote
+const ROUTING_BODY = `# How Suwappu picks a quote: the race, the ranking rule, and its known gaps
 
-"Cross-chain swap" is the easy part to say and the hard part to do well. Liquidity for any given pair is scattered across dozens of DEXes, aggregators, and bridges, each with different prices, gas, and reliability. Suwappu's job is to make that fragmentation invisible — to return the *best* quote, not the first one. Here's how the routing engine works.
+*Engineering note. Every claim below was verified against the engine source on 31 July 2026, with file references; where an earlier version of this post overstated what the ranking does, this version says so.*
 
-## The naive approach (and why it loses)
+Liquidity for any pair is scattered across DEXes, aggregators, and bridges. Suwappu's routing engine races a subset of ${stats.routerCount} integrated providers for each request and returns the winner. This post describes the actual mechanism — including the two places where the honest description is less flattering than the marketing one.
 
-The simplest design is to pick one aggregator and forward every request to it. It's easy, and it's usually wrong: no single source is best for every pair, chain, and size. Routing to one venue means systematically leaving value on the table for everything that venue isn't best at.
+## The roster is ${stats.routerCount} providers; no request races all of them
 
-## Race the field, compare apples to apples
+The full roster: ${stats.routers.join(', ')}. That list is generated from the same source of truth as this page, so it cannot drift from the code.
 
-Instead, for each swap Suwappu fans the request out to multiple providers in parallel and compares the results:
+Every race is **chain-gated**. A same-chain EVM swap races the aggregator set (OKX, 1inch, 0x, KyberSwap, LiFi, CoW when eligible, Socket). A cross-chain same-token transfer races the bridge set (LayerZero, LiFi, CCTP, CCIP, Across, Wormhole, Socket) — CCTP is preferred for native USDC because it is zero-fee. Solana routes through Jupiter, Tron through SunSwap, Starknet through AVNU. These sets are mutually exclusive: the widest single race is about seven providers, and a diagram showing every logo fanning out from one request would describe no request that ever happens.
 
-\`\`\`text
-quote request
-   ├─▶ LiFi
-   ├─▶ CoW Protocol
-   ├─▶ OKX
-   ├─▶ 1inch
-   ├─▶ KyberSwap
-   ├─▶ Jupiter      (Solana)
-   ├─▶ Across       (fast bridging)
-   └─▶ CCTP         (native USDC)
-         │
-         ▼
-   normalize → rank → best quote
-\`\`\`
+## The ranking rule, stated exactly
 
-The trick is in *normalize → rank*. A raw output amount is meaningless until you subtract everything that eats into it. We rank on **net output** — expected tokens out, minus gas, minus bridge/relayer fees, minus price impact — so a route that quotes a bigger number but costs more in gas doesn't win on a technicality.
+The winner is the route with the highest **quoted output amount**. That is the whole rule.
 
-## Same-chain vs cross-chain
+An earlier version of this post said we rank on "net output — minus gas, minus bridge fees, minus price impact." That described an aspiration, not the code, and the difference matters, so here is the truthful version:
 
-The engine treats two cases:
+- **Provider fees and price impact are inside the quote.** Aggregators return the amount you would actually receive net of their fees and pool impact, so ranking on quoted output already compares fee-netted numbers. One consequence we handle explicitly: a provider that does *not* net its fees into the quote would unfairly win a raw-output comparison, so its quotes are excluded from the ranking rather than allowed to game it.
+- **Gas is not subtracted.** Each quote carries a gas estimate, and we display it, but the ranking does not net it. Cross-provider gas estimates are inconsistently reported and unreliable at quote time; netting bad estimates can flip rankings on noise. The known cost of this choice: for small swaps, a route with a slightly better output and materially worse gas can win. That is a real gap, not a feature.
+- **Bridge time is displayed, never ranked on.**
 
-- **Same-chain swaps** route through DEX aggregators (e.g. LiFi on EVM, Jupiter on Solana).
-- **Cross-chain swaps** add a bridge leg — Across for speed, CCTP for native USDC — and the ranking accounts for bridge time and cost, not just the swap.
+Whether "highest quoted output" actually selects the best realized execution is an empirical question, and as of 31 July 2026 the engine records what it would need to answer it: every quote race now captures the losing routes alongside the winner (provider, quoted output, gas estimate, rank). When enough production data accumulates, the measured answer — including how often the gas gap flips the true ranking — will be a paper on this page, with the dataset released.
 
-A single user intent ("swap X on chain A for Y on chain B") can therefore resolve to a multi-step route, quoted and priced as one number.
+## MEV protection is real and conditional — here is the condition
 
-## MEV-aware execution
+CoW Protocol's batch auctions resist sandwiching, and the engine races CoW for same-chain EVM swaps — but only when the swap carries **no platform fee**, because CoW's order flow cannot carry our fee parameter. Swaps that charge a platform fee (the default for standard accounts) exclude CoW from the race. If you route through us specifically for MEV-shielded execution, that is the condition to know about; fee-exempt flows get it, fee-charged flows currently do not. Solana swaps can submit through Jito bundles, which serves the same purpose there.
 
-The best *quote* is wasted if the *fill* gets sandwiched. Where it helps, swaps can route through MEV-shielded venues (e.g. CoW) so the price you were quoted is closer to the price you get. Token-security heuristics and transaction simulation run before funds move.
+## What runs before funds move
 
-## Why "best of N" is the whole product
+All swaps get token-security heuristics before execution, and tokens that fail the honeypot check are hard-blocked with no override. Full buy/sell-cycle simulation — actually simulating the round trip before committing — runs for Solana swaps on paid tiers. EVM swaps do not get pre-flight simulation today; the protection there is the heuristic screen, the honeypot block, and the quote-vs-execution slippage guard.
 
-Racing the field costs a little latency and a lot of integration work — every provider has its own API, quirks, and failure modes. But it's the difference between "we support N chains" and "we get you the best execution across N chains." For agents especially, that consistency matters: an autonomous caller can't eyeball a bad route, so the engine has to be the one that never takes one.
+## One more scoping fact
 
-## Takeaways
+The race described above lives in the Python engine that serves the Telegram bot and the terminal. The agent REST API (\`/v1/agent/*\`) currently quotes through LiFi on EVM and Jupiter on Solana — one aggregator per ecosystem, not the multi-provider race. The two surfaces converge as the agent API matures; until they do, this paragraph is the honest difference between them.
 
-- Suwappu races up to nine providers per swap and ranks on **net output**, not headline amount.
-- Same-chain and cross-chain intents resolve through one ranked pipeline.
-- MEV-shielding and pre-trade checks protect the fill, not just the quote.
-- "Best of N" is the point — especially for agents that can't catch a bad route themselves.
+## Why publish the unflattering version
+
+An execution claim that cannot survive a reader with the source code is worth less than no claim. The engine's real design — race a chain-gated field, rank on provider-netted quoted output, exclude quotes that would game the comparison, display but don't net gas — is a defensible set of engineering trade-offs, and the two known gaps (gas netting, the CoW/fee tension) are now measurable with the telemetry shipped in July 2026. When we can quantify them, we will.
 `;
 
 
-const USDT0_BODY = `# What actually backs an omnichain dollar: measuring USDT0 across 17 chains
+const USDT0_BODY = `# The under-collateralization was our artifact: USDT0, measured completely, twice corrected
 
-We published a number, then found out it was wrong. This post is the corrected version, and the correction is more useful than the original finding.
+We have now published this measurement three times, and each version corrected the one before it. The first reported a comfortable surplus; completing the liability universe destroyed 96% of it. The second reported a month in which the system looked 51-59% collateralized, with the backing account "unidentified." This version identifies that account — we had verified the wrong address — and the corrected series never falls below par. The errors are documented in full because they are the most instructive part of the work.
 
-Omnichain stablecoins move dollar liabilities across chains through lock-and-mint mechanics rather than per-chain custodians. Canonical USDT is escrowed in a lockbox contract on Ethereum; remote chains carry mint-and-burn representations. That design relocates a solvency question into a place anyone can check. For the underlying token, backing is an off-chain reserve attested periodically by an auditor. For the omnichain representation, backing is an on-chain escrow balance, and the invariant is continuously verifiable from public state:
+The invariant under test is the one thing an omnichain dollar makes checkable from public state: the USDT escrowed in the Ethereum lockbox must cover the USDT0 minted across every remote chain. We read it directly — totalSupply() and balanceOf() by archive call at block-height-aligned timestamps, every 48 hours for twelve months, no explorer APIs, no indexers.
 
-> Collateral held in the lockbox must be at least the sum of minted supply across every remote chain.
+## Correction 2: the account, identified
 
-This is narrower than asking whether USDT is fully backed. We are not auditing anyone's reserves. We are asking whether the omnichain representation is solvent as a bridge, at the one layer of the stack that can be checked cheaply, continuously, and without permission.
+Version 2 reported 16 observations at ratios of 0.513-0.588 and tested the obvious hypothesis — that pre-migration Polygon supply was backed at Polygon's canonical bridge escrow. The test came back empty: the address we had recorded as the Polygon ERC20 predicate held $0.02 throughout. We published the shortfall as real-but-unexplained, backing account unknown.
 
-## What we measured
+The address was wrong. The canonical Polygon PoS predicate — one lookup away in Polygon's own bridge documentation — is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`, and archive reads at the panel's own blocks show it held **$1.22-1.39bn across the entire pre-break window**, covering Polygon-leg supply at 1.006-1.015 at all 16 observations. An empty balance at a wrong address is indistinguishable from an empty escrow. Nothing in the $0.02 reading could have told us which we had.
 
-We read chain state directly, every 48 hours for twelve months, across 17 EVM deployments. No block explorer API, no subgraph, no third-party indexer. Every liability figure is a totalSupply call against a verified token contract; every collateral figure is a balanceOf call against canonical USDT on Ethereum for the lockbox address.
+![Two series: version 2's published collateralization ratio, dashed, falling to 0.51-0.59 before late August 2025, and the corrected series including the canonical Polygon predicate, solid, holding near 1.02 continuously across the full year.](/research/usdt0-corrected-series.svg "The published under-collateralization was a wrong-address artifact. Corrected, the system holds ~1.02 across the entire sample — zero of 183 observations below par.")
 
-One methodological point matters more than it sounds. Seventeen chains have seventeen block times, so querying each chain at its current head and summing the results does not produce a snapshot — it sums states that can be minutes apart, which is exactly when a large flow is moving. Instead we fix a target timestamp and, per chain, locate the highest block whose timestamp is at or before it, then read state at that block. Every term in the sum is then evaluated at the same moment in wall-clock time.
+With the right account restored, the corrected aggregate ratio pre-break is **1.017-1.028, median 1.021**. The two "regimes" of version 2 collapse into one continuously-collateralized system whose backing was split across two accounts and then consolidated. The decomposition closes flow by flow, not just in levels: regressing each backing account on *its own leg's* liability flow gives β = 1.018 (SE 0.010) for the lockbox against non-Polygon flow and β = 1.085 (SE 0.032) for the predicate against Polygon flow, correlations 0.99 — each account matched its leg's marginal flow throughout, at the same ~3% level margin all year (pre-break lockbox-leg median 1.032; post-break median 1.032).
 
-## Provenance: why some of these tokens were never lock-and-mint
+## The consolidation was never a mystery — the issuer announced it, same day
 
-One objection has to be dealt with before any sum means anything. On several chains the contract now serving as USDT0 is not a fresh deployment. It is that chain's pre-existing canonical USDT contract, upgraded in place to speak mint/burn semantics. Arbitrum and Polygon are the two material cases, and together they are 51.9% of measured supply. Supply minted on those tokens *before* migration was not collateralized by the lockbox, which did not yet hold the corresponding assets.
+Version 2 bracketed a $1,258,602,286 lockbox inflow to a six-hour window on 27 August 2025 and called the cause "our inference." The complete accounting at the bracket blocks: the predicate fell **$1,358,841,579 — matching Polygon supply at the bracket open to within $82k** — the lockbox rose $1,258.6m, Arbitrum supply fell $98.1m, residual $2.1m of ordinary flow. And the issuer had published it as it happened: *"The supply backing PoS USDT on Polygon has now been migrated to the USDT0 lockbox on Ethereum mainnet"* — USDT0 blog, 27 August 2025. Version 2 wrote "an issuer statement would change our view" while that statement had been up for eleven months. We ran a changepoint search with a bootstrapped sup-F statistic to date an event whose date was in a press release.
 
-The natural hypothesis is that it sat in each chain's own canonical bridge escrow on Ethereum. We tested that directly, reading those escrows at the same block heights as everything else, and it fails. Across the entire pre-migration window the Polygon ERC20 predicate held $0.00 of USDT and the Arbitrum L1 gateway held between $140k and $346k, against a measured shortfall of $1.17bn to $1.33bn.
+## The first complete-universe reading: three basis points
 
-Optimism is the instructive exception. Its L1StandardBridge holds $214.9m of USDT — but that backs Optimism's *separate* legacy USDT contract, a different address from the USDT0 contract we measure on Optimism. Same chain, same asset name, different contract, different backing account. That is what a false positive looks like, and it is why a candidate backing account has to be verified rather than assumed.
+Version 2's biggest named holes — Tron, TON, MegaETH — resolved in ways we did not expect. **Tron and TON hold no USDT0 at all**: the issuer's registry lists them under the separate Legacy Mesh, where native Tether USDT converts against liquidity pools through an Arbitrum hub. They were never lockbox liabilities; classifying them as "unmeasured USDT0" was our category error. MegaETH, meanwhile, now exposes a public RPC — we verified the contract and read it directly ($2.2m). HyperCore is a sub-ledger whose $12.3m float we verified is already contained inside the HyperEVM supply the panel counts.
 
-## The correction
+Which means that for the first time, every deployment the issuer documents is measurable, and we measured all of them in one session on 1 August 2026:
 
-The first version of this study measured 12 chains. The issuer documents roughly 22 networks. An adversarial reviewer, working from the issuer's own deployments page, read the legs we had skipped and found supply we had never counted. We verified every one independently by direct contract call: Monad $72.31m, Stable $29.57m, Conflux $16.45m, Tempo $9.19m, Morph $4.70m, Sei $2.50m, Hedera $84k. Together, $134.8m of liabilities missing from our own denominator.
+| | |
+|---|---|
+| Liabilities, all 20 readable legs | $3,452.6m |
+| Lockbox collateral | $3,453.6m |
+| Ratio | **1.0003** |
+| Buffer | **$1.03m — three basis points** |
 
-**Table 1. Like-for-like snapshot at current head, 2026-07-26, all reads in one session.**
+The reads span about a minute of wall clock rather than one aligned block height — which typically moves the sum by tens of thousands of dollars, not millions; the reason we still refuse to sign the buffer is that in-flight cross-chain messages, any encumbrance of the escrowed USDT, and any registry omission each plausibly exceed $1m, and none is visible to a balance read. So the honest statement of the headline result: **measured completely, USDT0's backing is indistinguishable from exactly 1:1, with no measurable cushion.** Anything the balance check cannot see — encumbrance of the escrowed USDT, messages in flight between chains, a registry omission — is now larger than the margin. The check has become possible at precisely the scale where the check alone stops being sufficient.
 
-| | Original 12-chain universe | Corrected EVM universe |
-|---|---|---|
-| Lockbox collateral | $3,392.9m | $3,392.9m |
-| Measured liabilities | $3,255.4m | $3,390.2m |
-| Collateralization ratio | 1.042 | 1.001 |
-| Buffer | $137.5m | $2.7m |
-| Buffer, share of liabilities | 4.2% | 8 basis points |
+## The buffer is operated to no visible rule — and it was wound down to par
 
-Completing the universe eliminates 98.0% of the reported surplus. That is a head read, not a block-aligned one. Run inside the re-collected panel instead, at the last aligned observation on 2026-07-25, the same comparison gives 1.042 and $137.1m on the old universe against **1.002 and $5.1m** on the new one — eliminating 96.3%. The difference between the two figures is Sei and Hedera, which the panel does not carry. Both are quoted below where each belongs; they are not interchangeable.
+Post-consolidation, the dollar buffer ran $5.1m to $760.3m — 15 basis points to 18.7% of liabilities, a 124× range in share terms, which no proportional target survives. Nor is it inert: **eleven** discrete 48-hour movements exceed $100m and do not correspond to liability flow — +$508m in and −$597m out against essentially flat supply in December alone. Someone operates this account at nine-figure discretion, to no size rule the data can identify (pure discretion, a dollar floor, and pre-funding for expected mints are all consistent with what we see).
 
-The error is ours and it has a clean description. The first version stated the rule that a candidate backing account must be verified rather than assumed. We applied that discipline to the collateral side and not to the liability side, where the symmetric obligation is to enumerate deployments from the issuer's registry rather than from the set we already had a collector for. Version one named $136.5m of unmeasured supply as the figure that would overturn its conclusion. Public chain state supplied $134.8m of it, within days, at a cost of one contract call per chain.
+![Two panels: the collateral buffer in dollars, spiking to $760m in December 2025 then declining through 2026 to $5m at the end of the sample, and the buffer as a share of liabilities, ranging from 18.7% down to 15 basis points.](/research/usdt0-buffer.svg "The buffer in dollars and as a share of liabilities. The 124x range in share terms rules out a proportional target; the 2026 decline ends at measurement noise.")
 
-![Collateralization ratio over twelve months in the upper panel, and the number of chains returning live supply in the lower panel, rising in steps from 8 to 17.](/research/usdt0-ratio-coverage.svg "The apparent surplus shrinks as the measured universe grows. The lower panel is the confound: coverage rises from 8 chains to 17 across the sample, so early readings undercount liabilities and the series is not comparable across time.")
+The fact that matters most for anyone holding the asset: **the cushion was run down to par by sample end.** The buffer fell from $296.9m at end-December to $78.9m in late June, then collapsed to $5.1m at the final panel observation — collateral withdrawn $117m beyond liability decline in the last eight days alone — and the complete-universe head reading finds it at $1.03m. Zero observations below par in the corrected sample is a true statement about the past (worth ~39 independent looks once persistence is accounted for). The endpoint — a margin at measurement noise — is the statement about now. And one more honesty note: the panel's final $5.1m is a 17-leg number, and the three legs the panel never carried held $4.9m at the head reading, so the complete-universe buffer at the last observation was likely on the order of $0.2m, sign undeterminable. Universe truncation manufactures surplus even at the sample's last row — our own rule, applying to our own tail.
 
-## Two regimes, and what the first one is not
+## The rule, learned twice
 
-The panel splits cleanly at late August 2025.
+Both corrections are the same error, mirrored. Version 1 summed the liabilities it had configured (12 of 22 legs) and reported an artifactual surplus. Version 2 read the collateral control it had configured (the wrong predicate) and reported an artifactual shortfall. **Both sides of the invariant must be enumerated from the issuer's registry and verified account by account — with the account-to-leg mapping treated as the thing under test, not an input.** A monitor that inherits either side from its own configuration file will eventually publish one of these errors with confidence, as we did, twice.
 
-Before it, 16 observations run 0.513 to 0.588 — median 0.562, every one below 1.0, median shortfall $1.19bn. Read naively that says USDT0 was half-backed for a month. **It cannot be read that way.** The escrow controls above rule out the reading that would have made it benign in the obvious way, but two readings still survive: pre-migration supply on Arbitrum and Polygon was issued against off-chain reserves, in which case the on-chain invariant did not apply to it and the pre-break ratio measures nothing at all; or the backing sat in an account we did not identify. The balances we can read do not separate them. The defensible statement is that the pre-migration lockbox did not back measured supply and the account that did is unidentified in our panel.
-
-After it, across 165 observations, the ratio is **never below 1.0** — minimum 1.002, median 1.032.
-
-![Lockbox collateral against total measured liabilities over twelve months, running well below until late August 2025, converging in a single step, then tracking just above through the expansion and contraction.](/research/usdt0-collateral.svg "Collateral runs well below liabilities until late August 2025, converges in one step, then tracks close above them through a supply cycle that peaks near $7.7bn.")
-
-## The consolidation, dated two ways
-
-The discontinuity is worth reporting precisely because it can be dated independently twice. A six-hourly rescan places an increase of $1,258,602,286 in the lockbox between 27 August 2025 12:00 and 18:00 UTC — Ethereum blocks 23,232,316 to 23,234,104 — while Arbitrum supply *fell* $98.1m and Polygon moved by $243k. Collateral arrived; liabilities did not. The move is confined to that bracket; over the following 18 hours the balance drifts by $12m, ordinary flow rather than a second step.
-
-Separately, an exhaustive least-squares changepoint search over the 48-hour panel, given no input from that rescan, locates the break in the same window.
-
-Two caveats on that second method, because it is weaker than it looks. A step this large is visible to the naked eye, so a changepoint search was never going to miss it — the rescan is the evidence and the test is corroboration. And under the no-break null the bootstrap distribution is wildly heavy-tailed, with a 95th percentile of 337 against a maximum of 14,287, which is a useful measure of how much spurious break evidence serial persistence alone can manufacture.
-
-What we cannot tell you is why. Arbitrum supply moving *down* rules out "new liabilities were issued and later over-collateralized." The data are consistent with an existing pool of USDT being deposited into the lockbox. The balance change is an observation; "consolidation" is our inference, and an issuer statement at the time would have settled it.
-
-## The buffer, and what it says about policy
-
-Post-break the buffer ran from $5.1m to $760.3m, median $113.7m — 15 basis points to 18.7% of measured liabilities, median 3.2%.
-
-The dollar minimum and the share minimum are the same observation: the last one, 2026-07-25, at the sample's highest coverage of 17 chains. **The buffer is thinnest where the measurement is most complete**, which is the single most important sentence in this section. The second-thinnest share, 45 basis points on 2025-10-18, falls on the largest measured liability base at $7.69bn — but with only 10 of 17 chains covered, so it is as much a statement about coverage as about backing.
-
-![Surplus collateral after the August 2025 consolidation, shown in dollars in the upper panel and as a share of liabilities in the lower panel.](/research/usdt0-buffer.svg "The buffer post-consolidation, in dollars and as a share of liabilities. The thinnest reading is the last one, at the sample's most complete coverage.")
-
-Read across the whole post-break series, 165 observations above par with strong persistence is evidence of a **maintained collateral policy** rather than of 165 independent tests. That is the honest characterisation, and it cuts both ways: it means the system is being actively managed, and it means the exceedance count is much weaker evidence than the raw tally suggests.
-
-## Why the negative result is the useful one
-
-Tron, TON and MegaETH remain unmeasurable with this method — the first two are not EVM chains and cannot be read with a contract call at all. Measured liabilities are therefore a lower bound, and **every ratio here is an upper bound**.
-
-That matters because of how thin the margin is. Unmeasured supply above $5.1m flips the latest observation below 1.0. Above $113.7m it flips half the post-break sample. At $50m, 26.1% of post-break observations flip; at $100m, 41.8%; at $200m, 89.1%. Against the $134.8m we have already been wrong by once, these are not exotic magnitudes.
-
-So the residual buffer is smaller than the error bar around it, and the defensible conclusion is not a number but a limit.
-
-**Full backing of USDT0 cannot be verified from public EVM state alone.**
-
-For anyone holding or routing the asset, the on-chain check does not substitute for issuer disclosure at this margin. For a supervisor, it identifies precisely which disclosure would close the gap: a canonical, machine-readable deployment registry with per-leg supply. Neither conclusion was available from the version of this work that reported a comfortable surplus.
-
-## The symmetric rule
-
-The generalisable lesson is one sentence. **Both sides of the invariant must be enumerated from an external registry and verified account by account, not inherited from whatever the collector was already configured to read.**
-
-On the collateral side that means the backing account is verified rather than assumed — Optimism's $214.9m backing a differently-addressed token is what happens when it isn't. On the liability side it means the deployment set comes from the issuer's published list, with every entry either measured or named and sized as unmeasured. A monitor that does the first and not the second reports a comfortable surplus that is an artifact of its own configuration file. Ours did, for one version.
-
-## Statistical notes
-
-The panel is 183 observations at 48-hour intervals; the 165 quoted throughout are the post-break subsample, which is the only regime where the invariant is well defined. Four things a careful reader should know:
-
-- **The series is strongly serially correlated.** Post-break AR(1) persistence is 0.616, with Ljung–Box rejecting white noise at every lag tested. Effective sample size is 39.2 of 165. Newey–West standard errors are 1.70× the naive figure, giving a 95% HAC interval on the post-break mean of [1.025, 1.038].
-- **The level is not comparable across time.** Chain coverage rises from 8 to 17 across the sample. Early readings undercount liabilities and are biased upward, which is why we lead with the current, best-covered reading rather than a historical average — and why the post-break median of 1.032 is not a finding about backing.
-- **Several newly added chains have no public archive access.** Monad returns supply on 3 of 183 observations, Stable on 1. They can be read today but not backfilled. That is a hard limit on the history, not an oversight.
-- **Zero-filling biases the ratio up.** Cells labelled not-deployed are not verified by a bytecode check, so archive-depth failure and genuine non-deployment are not distinguished. Both are zero-filled, and both push liabilities down and the ratio up. This is the principal remaining defect in the collection harness.
+For issuers, the constructive version: publish a machine-readable registry of legs, contracts, and the backing account per leg per period. Every error in this paper's history traces to reconstructing that mapping by hand.
 
 ## What would change our view
 
-- **Any measurement of Tron, TON or MegaETH supply.** These are the largest known holes, and at a $5.1m buffer they are the binding condition.
-- **Backfilled archive access to Monad, Stable, Tempo, Morph and Conflux.** Without it, no time-series claim here survives beyond the observations where coverage is constant.
-- **Identification of the pre-migration backing account**, which would make that regime measurable either way.
-- **Evidence the escrowed USDT is encumbered.** We measure the lockbox's balance, not its legal status. If the escrowed USDT is pledged or rehypothecated, the balance we read overstates available backing. At 15 basis points, any encumbrance at all is decisive.
-- **A nonzero fee parameter on canonical USDT.** The transfer paths assume a lossless transfer with no pre/post balance check, a gap flagged in third-party audit review. Tether's fee parameter is currently 0. Were it set nonzero, credited amounts could diverge from amounts received, breaking the invariant by design rather than by operational event. Dormant today, and the one structural path we know of by which the ratio could be violated silently.
-- **In-flight cross-chain messages.** A transfer debited at source but not yet credited at destination understates liabilities while the message is in flight. We did not detect or exclude these. At a $5.1m buffer this is no longer a tail refinement.
-- **An issuer statement contradicting the consolidation reading.**
+Evidence the escrowed USDT is encumbered — at three basis points, any encumbrance is decisive. A nonzero fee parameter on canonical USDT, the one structural path by which credited and received amounts could diverge silently. In-flight message volume, which understates liabilities and now routinely exceeds the buffer. Archive access to Monad and Stable, whose history cannot be backfilled — Monad grew 30% in the five days between our panel close and the head reading, so the truncated history is increasingly the story. And a dated correction from the issuer to any figure here; given this paper's history, we would treat that as the expected case.
 
 ## If you build on Suwappu
 
-We run [cross-chain execution infrastructure](/solutions) across several of the chains measured here, and this reconciliation began as an internal check on our own balance accounting. Two things follow for anyone building on top of us.
-
-First, the method transfers. If you are routing value through any omnichain asset, the universe of deployments is part of your risk model, and enumerating it from the issuer's registry — not from your existing integrations — is the step that is easy to skip and expensive to get wrong.
-
-Second, this is the kind of check that belongs in software rather than a PDF. A solvency reading that gates routing, or an [agent-facing](/agents) risk call that an autonomous system can query before it moves size, is worth more than an annual report. That is where this work is going next.
+We run [cross-chain execution infrastructure](/solutions) across several of the chains measured here, and this reconciliation began as an internal check on our own balance accounting. The method transfers: if you route value through any omnichain asset, the deployment universe and the backing-account mapping are part of your risk model, and both must come from the issuer's registry, not your integration list. The complete-universe check now costs about twenty RPC calls; it belongs in software, gating routing — an [agent-queryable](/agents) solvency reading rather than an annual PDF. That is where this work goes next.
 
 ## Data and code
 
-Every figure comes from a documented contract address at a stated block height, using public RPC endpoints and no credentials.
-
-**[The full working paper, the collection harness, the analysis, the statistical tests and every dataset are published here](/research/replication)** — including [the superseded 12-chain panel](/research/replication/data/usdt0_panel_v1_12chain.csv), so the correction above can be checked directly rather than taken on trust.
-
-This post is an abridgement. [The paper](/research/replication/papers/usdt0-collateral-reconciliation.md) carries the full method, the per-chain composition table, the complete robustness section and the disclosures — and where the two disagree, the paper governs.
+**[The full working paper, the collection harness, every analysis script and every dataset are published here](/research/replication)** — including the superseded 12-chain panel, the wrong-address escrow series, and the archive backfill of the canonical predicate, so both corrections are independently checkable. This post is an abridgement; [the paper](/research/replication/papers/usdt0-collateral-reconciliation.md) governs.
 
 ---
 
-*Disclosures: this is research, not investment advice, and nothing here is a recommendation to buy, sell or hold any asset. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances incidental to running it. We did not contact Tether, Everdawn Labs or any other issuer named; no issuer reviewed or confirmed any finding. Where we infer intent from balances, we say so. All data is read from public chain state.*`;
+*Disclosures: this is research, not investment advice, and nothing here is a recommendation to buy, sell or hold any asset. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it. We did not contact Tether, Everdawn Labs or any issuer named; no issuer reviewed any version of this work. The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. All data is public chain state or cited public documents.*`;
 
 const POINTS_BODY = `# Points programs are Tullock contests: who actually collects an airdrop
 
@@ -335,6 +240,10 @@ How much that pays depends on how much competing effort the farmer faces, so it 
 
 The gain rises as the farmer's own share of the pool falls, approaching the bonus rate itself. It is a best response against fixed competing effort, not an equilibrium quantity. The mechanism designed to fight sybils is what creates the incentive to be one — and fee-proportional points are exactly invariant at every level tested.
 
+## Postscript: the test has been run, and the sharp prediction failed
+
+This post originally said the model's falsification test — recipient-level concentration at completed programs — had not been run. It now has been, by us, against 330,000 real allocations. The active-set prediction fails by one to two orders of magnitude: measured top-1 shares are 0.73% and 2.40% against the 17-41% band above. The design results below (denomination, sybil neutrality) are unaffected — they are arithmetic, not equilibrium predictions. [The companion paper has the data, the formal rejection, and the diagnosis.](/research/airdrop-concentration)
+
 ## What this does not establish
 
 No number in this work is calibrated against an observed points program. It is a model, solved exactly and checked carefully, not a measurement.
@@ -369,14 +278,69 @@ This post is an abridgement. [The paper](/research/replication/papers/points-tul
 
 *Disclosures: this is research, not investment advice. Suwappu operates a points program of the type analyzed here, and the design this work recommends is the one we ship — treat that as an interested party's claim and check the argument rather than the source. Points-to-token conversion in our program is gated to a future token event and has not occurred, so no outcome data from it informs any result above.*`;
 
+const AIRDROP_BODY = `# We tested our own airdrop model against 330,000 real allocations. It failed.
+
+Last week we published a theory paper modelling points programs as Tullock contests. Its sharpest prediction: a pro-rata pool gets captured by a handful of operators — a median top-1 share of 17-41% and five to eighteen active participants out of thousands. It also named the public variable that would falsify it: recipient-level concentration at completed programs. We went and measured that variable, had the measurement adversarially refereed (which caught a missing distributor and killed our favorite coincidence — both corrections are in the released data), and this is the result. It is the falsification branch.
+
+## The data
+
+**Hyperliquid's HYPE genesis** is the cleanest allocation dataset in the industry: 31% of supply credited pro rata to point-holders automatically, no claim transaction, no exchange distribution at genesis. One free API call returns all 90,918 addresses; excluding six system accounts, the books close to the cent against published tokenomics (user pool + undistributed genesis + assistance fund + a $5k residual = exactly 310.12M = the announced 310M + the 0.012% HIP-2 bucket), leaving **90,912 recipient wallets holding 269.6m HYPE**. Honesty note: this is the *post-enforcement* allocation — about 13% of the announced pool never reached users, because eligibility, sybil and jurisdiction filters ran before genesis. That filtering *raises* measured concentration, toward the model we reject, so the rejection does not lean on it.
+
+**EigenLayer's EIGEN Season 1**: every transfer out of both real distributor contracts — Season 1 ran in two phases, and our first collection missed the second, a defect the referee pass caught via a conservation check we now publish (each distributor's seed equals its claims plus its forfeiture sweep, to the cent) — giving **239,035 wallets, 101.1m EIGEN**, merged per wallet across phases. Claims data cut two ways and we state both: unclaimed small allocations are invisible (biasing concentration toward the model), but EIGEN's geo-restrictions could also have censored a large barred claimant, so we lean the top-1 rejection on HYPE, which has no claim step.
+
+**Ethena's ENA Season 1** we first declared unmeasurable — wrongly, twice, and both corrections are in the release. The distribution turns out to enumerate exactly on-chain: four sibling claim contracts, seeded by the same Ethena address, summing to the announced 750M to within dust. Our first collections contained a fake top recipient (the issuer's own 336.6M sweep-back of unclaimed funds) and a 47M coverage hole — both caught by the conservation check (seed = claims + sweeps + residuals) that we now run on every collector. Final vector: **46,198 wallets claimed 407.8M ENA — and 45% of the pool went back to the issuer unclaimed**, against a widely-repeated "96% claimed" figure that does not survive the ledger. ENA is the lowest-resolution datapoint (claim executors may be custodial), and it still lands on the same shape: top-1 5.4%, top-1% 62.7%, Gini 0.904.
+
+## The result
+
+| | Model predicted (matched n) | HYPE measured | EIGEN measured |
+|---|---|---|---|
+| Top-1 recipient | 15-41% of pool | **0.73%** | **2.40%** |
+| Top-10 recipients | ~78-100% | 4.7% | 12.7% |
+| Active participants | 5-23 | 90,912 | 239,035 |
+
+The band was recomputed at each program's own entrant count to head off the obvious objection — it barely moves (top-1 16-36%, active set 6-23 at n = 90,913). And the rejection is formal: across fifteen dispersion values spanning the model's entire parameter space, in 3,000 Monte Carlo draws per program, **not one draw jointly produced a top-1 share within a factor of two of the observed one and an active set of even half the observed participation.** The two moments trade off monotonically — make costs near-identical and participation rises toward 20,000 while the top share collapses to 0.03%; add dispersion and the top share recovers as participation dies. The observed pairs are unreachable from anywhere in the parameter space.
+
+## What the allocations actually look like
+
+Not equal — nothing like equal. The top 1% of wallets holds 58.6% of HYPE's pool, 61.3% of EIGEN's, and 62.7% of ENA's — three chains, three activities, three formulas, one shape. HYPE's allocation Gini is **0.947**; EIGEN's, once the flat bonus is stripped to isolate the pro-rata core, is **0.943**. (An earlier draft celebrated those two matching to three decimals; the corrected two-phase EIGEN vector broke the coincidence, which is why we publish corrections — the robust statement is that both sit in the 0.88-0.95 band under any reasonable trim, which is where on-chain wealth distributions live.)
+
+![Lorenz curves for HYPE and bonus-adjusted EIGEN allocations, both bowed extremely far from the equality diagonal with Ginis near 0.95, against the Tullock model's curve, which hugs the floor until a vertical jump at the far right — about twenty wallets owning the entire pool.](/research/airdrop-lorenz.svg "Both programs' allocation curves are unequal like wealth distributions. The model's equilibrium — a vertical line at the extreme right — is a different kind of object entirely.")
+
+That is the Gini of a wealth distribution, not of a contest. The simplest reading, and the one every number supports: **a pro-rata program photographs the capital distribution of its participants.** Points in both programs were earned roughly in proportion to capital deployed — restaked ETH, margin-backed volume. Capital's *marginal* cost is nearly uniform across participants (that is why the backed-out dispersion is ~zero), but capital *endowments* are wildly unequal, and the model has the roles reversed: it assumes unbounded effort at heterogeneous marginal cost, while reality ran bounded budgets at homogeneous marginal cost.
+
+## What survives from the theory, and what we retract
+
+The design results survive untouched, because they are mechanism arithmetic, not equilibrium selection: denominate points in fees rather than volume (it changes who keeps the dissipated value), and never attach per-wallet floors or bonuses (EIGEN's flat bonus was 22.9% of all claimed tokens, and per our own corollary that structure is a sybil incentive — some unknown fraction of its 239,035 wallets exists because of it).
+
+What we retract: "underwrite a points program as an allocation to roughly ten counterparties." The correct statement is that the top percentile of wallets — hundreds to a couple of thousand of them — takes about 60%, and its composition mirrors participant capital. Hundreds of uncoordinated large holders behave differently from ten coordinated operators: less unlock-cliff risk, more persistent drift.
+
+And one prediction this reframing makes that the contest model cannot: because allocation mirrors participant capital, **a program's final concentration is forecastable mid-season from its depositor distribution** — before any token exists. That is a statistic worth monitoring in real time, and we intend to.
+
+## The caveat that could overturn us
+
+All of this is wallet-level. Farmers split across wallets, so measured concentration is a floor on person-level concentration — and if credible clustering ever collapses the top percentile of these programs into a handful of entities, the model's prediction was right and our rejection wrong. We flag that as the single most damaging possibility rather than burying it, with the arithmetic computed: rescuing the model's top-1 band requires HYPE's wealthiest **55 wallets** to be one entity, and rescuing its participation prediction requires ~90,000 wallets to be ~21 people. EIGEN is softer — its top 12-16 wallets merging would reach the band's edge — which is exactly why the top-1 rejection leans on HYPE.
+
+## If you build on Suwappu
+
+If you are launching an incentive program on our [API](/docs) or [agent surface](/agents): denominate in fees, skip per-wallet floors, expect your allocation to mirror your depositor curve, and size sybil enforcement to the floors you chose — on a clean pro-rata core, splitting wallets changes nothing, so detection budgets belong on the bonus structure, not the core. Our own [seasons program](/pricing) follows exactly this design, and this paper's result — concentration will mirror capital regardless — applies to us as much as anyone; we claim no exemption.
+
+## Data and code
+
+**[Both complete recipient vectors, the collectors, the analysis, and the formal test are published here](/research/replication)** — 309,000 rows of allocation data, the model solver reused verbatim from the theory paper, fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, the matched-n bands, the sup-over-σ test and the ENA post-mortem, and where the two disagree, the paper governs.
+
+---
+
+*Disclosures: this is research, not investment advice. Suwappu operates a fee-denominated points program of the class analyzed here; note that this paper weakens the more dramatic claim of our own prior work, and judge the incentive accordingly. We hold no position in HYPE, EIGEN or ENA. No issuer named reviewed this work. All data is public chain state or public APIs, collected 31 July 2026.*`;
+
 export const researchPosts: ResearchPost[] = [
   {
     slug: 'omnichain-dollar-collateral',
-    title: 'What actually backs an omnichain dollar: measuring USDT0 across 17 chains',
-    date: '2026-07-26',
+    title: 'The under-collateralization was our artifact: USDT0, measured completely, twice corrected',
+    date: '2026-07-31',
     category: 'Security',
-    excerpt: 'We read USDT0 collateral and cross-chain supply from chain state for twelve months. Completing the deployment universe removed 98% of the surplus we first reported, leaving a buffer of 15 basis points.',
-    readMins: 13,
+    kind: 'research',
+    excerpt: 'Our second correction: the "unidentified" $1.3bn backing account was the canonical Polygon predicate — we had verified the wrong address. Corrected, USDT0 never falls below par, and the first complete-universe reading shows a buffer of three basis points.',
+    readMins: 12,
     status: 'published',
     keywords: [
       'omnichain stablecoin', 'USDT0', 'stablecoin collateralization',
@@ -390,6 +354,7 @@ export const researchPosts: ResearchPost[] = [
     title: 'Points programs are Tullock contests: who actually collects an airdrop',
     date: '2026-07-26',
     category: 'Architecture',
+    kind: 'research',
     excerpt: 'A pro-rata points pool is captured by five to eighteen operators out of five thousand. Caps do not help; only fee denomination changes where the value lands — and the standard anti-sybil bonus is what creates the sybil incentive.',
     readMins: 10,
     status: 'published',
@@ -401,26 +366,45 @@ export const researchPosts: ResearchPost[] = [
     body: POINTS_BODY,
   },
   {
+    slug: 'airdrop-concentration',
+    title: 'We tested our own airdrop model against 330,000 real allocations. It failed.',
+    date: '2026-07-31',
+    category: 'Benchmarks',
+    kind: 'research',
+    excerpt: 'Complete recipient vectors for HYPE genesis and EIGEN S1 reject the Tullock active-set prediction: top-1 holds 0.7-2.4% against a predicted 15-41%. Allocations are unequal like wealth, Gini ≈0.95, not like a contest — and the referee pass that corrected our own collection is part of the release.',
+    readMins: 9,
+    keywords: [
+      'airdrop concentration', 'airdrop allocation data', 'Hyperliquid HYPE airdrop',
+      'EigenLayer EIGEN airdrop', 'Tullock contest empirics', 'points program design',
+      'token distribution Gini', 'airdrop farming',
+    ],
+    status: 'published',
+    body: AIRDROP_BODY,
+  },
+  {
     slug: 'tempo-fee-payer-0x76',
-    title: 'Gasless swaps on Tempo: how fee-payer (type 0x76) transactions work',
-    date: '2026-06-12',
+    title: 'Gasless swaps on Tempo: fee-payer (type 0x76) transactions, as actually implemented',
+    date: '2026-07-31',
     category: 'Protocol',
-    excerpt: 'A walkthrough of Tempo’s two-signature fee-payer transaction type and how Suwappu sponsors a user’s first swaps for about a tenth of a cent.',
+    kind: 'engineering',
+    excerpt: 'The two-signature sponsorship flow with its real numbers — 3 sponsored swaps per user, $100/day global, DB-persisted accounting — and two corrections to the original version of this post.',
     readMins: 5,
     status: 'published',
     body: TEMPO_BODY,
   },
   {
     slug: 'best-price-routing',
-    title: 'Best-price routing: how Suwappu picks the winning quote',
-    date: '2026-05-28',
+    title: 'How Suwappu picks a quote: the race, the ranking rule, and its known gaps',
+    date: '2026-07-31',
     category: 'Architecture',
-    excerpt: 'Why we race up to nine aggregators per swap and rank on net output — not the headline amount — across same-chain and cross-chain routes.',
+    kind: 'engineering',
+    excerpt: 'The chain-gated race across our 18 integrated providers, the exact ranking rule, and the two honest gaps — gas is displayed but not netted, and MEV-shielded routing is conditional on fees. An earlier version of this post overclaimed; this one is verified against source.',
     readMins: 6,
     status: 'published',
     body: ROUTING_BODY,
   },
   {
+    kind: 'engineering' as const,
     slug: 'hyperliquid-egress',
     title: 'Building HyperLiquid into a bot: HyperUnit, region gating, and egress',
     date: '',
@@ -429,6 +413,7 @@ export const researchPosts: ResearchPost[] = [
     status: 'planned',
   },
   {
+    kind: 'engineering' as const,
     slug: 'kms-key-management',
     title: 'Managing hot-wallet keys: KMS envelope encryption and migrating off Fernet',
     date: '',
@@ -437,6 +422,7 @@ export const researchPosts: ResearchPost[] = [
     status: 'planned',
   },
   {
+    kind: 'engineering' as const,
     slug: 'mcp-for-swaps',
     title: 'An MCP server for cross-chain swaps: a safe DeFi tool for agents',
     date: '',
@@ -445,11 +431,12 @@ export const researchPosts: ResearchPost[] = [
     status: 'planned',
   },
   {
+    kind: 'research' as const,
     slug: 'route-benchmarks',
-    title: 'Benchmarking cross-chain routes: latency and price impact',
+    title: 'Measured dispersion in production quote races',
     date: '',
     category: 'Benchmarks',
-    excerpt: 'A reproducible methodology for measuring quote latency and realized price impact across our supported aggregators and bridges.',
+    excerpt: 'The engine began capturing counterfactual routes — every losing quote alongside the winner — on 31 July 2026. When enough production data accumulates, this paper reports the measured gap between best and second-best routes, with the dataset released.',
     status: 'planned',
   },
 ];

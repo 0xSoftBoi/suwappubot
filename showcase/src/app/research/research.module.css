@@ -86,3 +86,9 @@
     grid-template-columns: 1fr;
   }
 }
+
+.replicationLink {
+  margin-top: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--sw-muted, #4F6F7F);
+}
