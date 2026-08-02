@@ -52,6 +52,7 @@ from bot.services.sniping.snipe_executor import (
     SnipeMode as ExecutorSnipeMode,
 )
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
+from bot.services.token_security.address_gate import check_address_gate
 from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
@@ -169,6 +170,17 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if args and len(args) >= 1:
         contract = args[0].strip()
         if is_solana_address(contract):
+            # Same blacklist + sanctions gate as receive_contract — this path
+            # also arms a buy, so a hit must refuse to arm rather than stash
+            # the mint. See address_gate.py for the failure policy.
+            gate = await check_address_gate(contract, chain="solana")
+            if gate.blocked:
+                await update.message.reply_text(
+                    f"🛑 *Blocked* — {gate.reason}",
+                    parse_mode="Markdown",
+                )
+                return await show_snipe_menu(update, context)
+
             context.user_data["snipe"]["token_mint"] = contract
 
             # If amount also provided
@@ -258,6 +270,22 @@ async def receive_contract(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(
             "That doesn't look like a valid Solana address.\n"
             "Please enter a valid token mint address.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]]
+            ),
+        )
+        return ENTER_CONTRACT
+
+    # Blacklist + sanctions screening — this ARMS a buy (same stakes as
+    # paste_trade's Buy button), so a hit refuses to arm rather than just
+    # warning. See bot/services/token_security/address_gate.py for the
+    # failure policy (blacklist fail-open, compliance mirrors the swap flow).
+    gate = await check_address_gate(text, chain="solana")
+    if gate.blocked:
+        await update.message.reply_text(
+            f"🛑 *Blocked* — {gate.reason}\n"
+            "Sniping this token is disabled to protect your funds.",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]]
             ),

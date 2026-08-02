@@ -34,6 +34,7 @@ from bot.config.xstocks import (
 )
 from bot.services.alchemy_client import get_alchemy_client, is_alchemy_configured
 from bot.services.sniping.pump_fun_api import pump_fun_api
+from bot.services.token_security.address_gate import check_address_gate
 from bot.services.token_security.token_analyzer import token_analyzer
 from bot.utils.validators import detect_address_chain
 
@@ -216,6 +217,19 @@ async def _render_token_card(
             f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
             f"🛑 *HONEYPOT DETECTED* — simulation shows this token *cannot be sold* "
             f"after buying. Buying is blocked to protect your funds.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Blacklist + sanctions screening — applies on every chain (unlike the
+    # Solana-only honeypot check above), same as the honeypot hard-block: no
+    # Buy button, and paste_token is never stashed so pbuy_ can't be reused.
+    gate = await check_address_gate(address, chain=info["chain"])
+    if gate.blocked:
+        await update.message.reply_text(
+            f"*{info['symbol']}* — {info.get('name', '')}\n"
+            f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
+            f"🛑 *BLOCKED* — {gate.reason}. Buying is blocked to protect your funds.",
             parse_mode="Markdown",
         )
         return

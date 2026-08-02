@@ -15,6 +15,7 @@ from bot.models.intel import DeployerWatch
 from bot.models.user import User
 from bot.services.token_intel import token_intel_service
 from bot.services.token_intel.intel_service import TokenIntelReport
+from bot.services.token_security.address_gate import check_address_gate
 from bot.utils.telegram_safe import safe_md
 from bot.utils.validators import detect_address_chain
 from database.db import get_session
@@ -73,6 +74,26 @@ def _resolve_chain(chain_family: str, chain_arg: str | None) -> str | None:
     if chain_family == "evm":
         return "ethereum"
     return None
+
+
+async def _gate_banner(address: str, chain: str) -> str:
+    """Blacklist/sanctions warning banner for /intel.
+
+    /intel is read-only analytics (see module docstring) — a hit here must
+    never block the report itself, only add a prominent warning above it.
+    That includes the failure path: check_address_gate mirrors the
+    swap-flow's compliance failure policy (only a deliberate block is
+    caught), so any other unexpected exception is caught HERE instead and
+    treated as "no banner" rather than crashing the whole report.
+    """
+    try:
+        gate = await check_address_gate(address, chain=chain)
+    except Exception as e:
+        logger.warning("address gate check failed for /intel %s/%s: %s", chain, address, e)
+        return ""
+    if not gate.blocked:
+        return ""
+    return f"🛑 *WARNING: {gate.reason}*\n\n"
 
 
 def _format_report(report: TokenIntelReport) -> str:
@@ -187,8 +208,10 @@ async def intel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await status_msg.edit_text("❌ Could not analyze that token right now. Try again shortly.")
         return
 
+    banner = await _gate_banner(address, chain)
+
     await status_msg.edit_text(
-        _format_report(report),
+        banner + _format_report(report),
         parse_mode="Markdown",
         reply_markup=_report_keyboard(report),
         disable_web_page_preview=True,
@@ -211,8 +234,10 @@ async def intel_refresh_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ Refresh failed, try again shortly.", show_alert=True)
         return
 
+    banner = await _gate_banner(address, chain)
+
     await query.edit_message_text(
-        _format_report(report),
+        banner + _format_report(report),
         parse_mode="Markdown",
         reply_markup=_report_keyboard(report),
         disable_web_page_preview=True,
