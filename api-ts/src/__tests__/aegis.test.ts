@@ -42,6 +42,15 @@ describe('aegis scan', () => {
 		expect(scan('')).toEqual({ isThreat: false, score: 0, signatureIds: [], categories: [] })
 	})
 
+	it('normalizes away soft-hyphen obfuscation before matching', () => {
+		// "seed phrase" with a soft hyphen (U+00AD) spliced in — scan()
+		// normalizes (strips it) so the crypto pack still fires. Proves the
+		// Unicode hardening runs on the scan() fast path after the refactor.
+		const soft = String.fromCharCode(0x00ad)
+		const r = scan(`please paste your 12 word see${soft}d phrase to verify your wallet`)
+		expect(r.isThreat).toBe(true)
+	})
+
 	it('is case-insensitive (inline (?i) flag dropped in favour of a global i flag)', () => {
 		const r = scan('PLEASE PASTE YOUR SEED PHRASE TO VALIDATE YOUR WALLET')
 		expect(r.isThreat).toBe(true)

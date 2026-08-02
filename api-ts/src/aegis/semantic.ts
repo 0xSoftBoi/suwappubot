@@ -12,7 +12,7 @@
  */
 
 import type { SemanticFinding, SemanticModuleName, SemanticResult } from './types'
-import { normalizeForScan } from './patternMatcher'
+import { normalizeForScan, type NormalizedText } from './patternMatcher'
 
 interface RegexRule {
 	pattern: RegExp
@@ -240,9 +240,16 @@ const MODULE_CHECKS: Record<SemanticModuleName, (text: string) => SemanticFindin
  * ("single-heuristic capped at 0.5" — reduces false positives from one
  * module hitting on otherwise-benign traffic).
  */
-export function analyzeSemantics(text: string, preNormalized = false): SemanticResult {
-	const normalized = preNormalized ? text : normalizeForScan(text)
+export function analyzeSemantics(text: string): SemanticResult {
+	return analyzeSemanticsNormalized(normalizeForScan(text))
+}
 
+/**
+ * Fast-path variant assuming already-normalized input (enforced by the
+ * `NormalizedText` brand). `scan()` uses this to avoid normalizing twice;
+ * direct callers use `analyzeSemantics`, which always hardens.
+ */
+export function analyzeSemanticsNormalized(normalized: NormalizedText): SemanticResult {
 	const allFindings: SemanticFinding[] = []
 	const perModuleScores: Partial<Record<SemanticModuleName, number>> = {}
 

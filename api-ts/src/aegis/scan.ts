@@ -15,8 +15,8 @@
  */
 
 import { loadSignatures } from './signatures'
-import { scanPatterns, normalizeForScan } from './patternMatcher'
-import { analyzeSemantics } from './semantic'
+import { scanPatternsNormalized, normalizeForScan } from './patternMatcher'
+import { analyzeSemanticsNormalized } from './semantic'
 import { DEFAULT_CONFIDENCE_THRESHOLD, type ScanResult, type Signature } from './types'
 
 export interface ScanOptions {
@@ -62,12 +62,13 @@ export function scan(text: string, options: ScanOptions = {}): ScanResult {
 		return { isThreat: false, score: 0, signatureIds: [], categories: [] }
 	}
 
-	// Normalize once and hand the normalized string to both tiers (they skip
-	// their own normalize when preNormalized=true). scan() is on every agent
-	// request path, so this avoids doing the NFC + regex passes twice per call.
+	// Normalize once and hand the branded NormalizedText to both fast-path
+	// tiers. scan() is on every agent request path, so this avoids doing the
+	// NFC + regex passes twice per call — while the exported scanPatterns/
+	// analyzeSemantics still normalize unconditionally for direct callers.
 	const normalized = normalizeForScan(text)
-	const matches = scanPatterns(normalized, signatures, sensitivity, true)
-	const semanticResult = analyzeSemantics(normalized, true)
+	const matches = scanPatternsNormalized(normalized, signatures, sensitivity)
+	const semanticResult = analyzeSemanticsNormalized(normalized)
 
 	const patternMaxConfidence = matches.reduce((max, m) => Math.max(max, m.confidence), 0)
 	const score = Math.max(patternMaxConfidence, semanticResult.aggregateScore)

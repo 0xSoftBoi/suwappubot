@@ -22,6 +22,15 @@ const VARIATION_SELECTORS_RE = new RegExp(
 )
 
 /**
+ * A string that has been through `normalizeForScan`. The brand exists so the
+ * fast-path `*Normalized` scanners can only be handed genuinely-normalized
+ * text (the compiler rejects a raw `string`), instead of exposing a
+ * `preNormalized` boolean that a caller could set to silently bypass the
+ * Unicode hardening.
+ */
+export type NormalizedText = string & { readonly __aegisNormalized: unique symbol }
+
+/**
  * Unicode-normalize text the same way the Python scanner does before matching,
  * to prevent trivial evasion via confusable characters:
  *   - NFC normalization
@@ -29,21 +38,20 @@ const VARIATION_SELECTORS_RE = new RegExp(
  *   - soft hyphen (U+00AD) -> removed
  *   - variation selectors (U+FE00-U+FE0F) -> removed
  */
-export function normalizeForScan(text: string): string {
+export function normalizeForScan(text: string): NormalizedText {
 	let normalized = text.normalize('NFC')
 	normalized = normalized.replace(NBSP_RE, ' ')
 	normalized = normalized.replace(SOFT_HYPHEN_RE, '')
 	normalized = normalized.replace(VARIATION_SELECTORS_RE, '')
-	return normalized
+	return normalized as NormalizedText
 }
 
 const MATCHED_TEXT_MAX_LEN = 200
 
 /**
- * Scan (already-normalized or raw) text against every compiled signature.
- * A match's confidence equals its severity -- mirrors the Python comment:
- * "a match is a match regardless of surrounding text length (prevents
- * dilution via padding attacks)".
+ * Scan text against every compiled signature. Normalizes unconditionally, so
+ * direct callers always get the Unicode hardening. `scan()` uses
+ * `scanPatternsNormalized` instead to avoid normalizing twice per request.
  *
  * @param sensitivity Minimum confidence to keep a match (default 0.5, mirrors PatternMatcher's default).
  */
@@ -51,10 +59,21 @@ export function scanPatterns(
 	text: string,
 	signatures: Signature[],
 	sensitivity = 0.5,
-	preNormalized = false,
+): ThreatMatch[] {
+	return scanPatternsNormalized(normalizeForScan(text), signatures, sensitivity)
+}
+
+/**
+ * Fast-path variant that assumes its input is already normalized (enforced by
+ * the `NormalizedText` brand). Only reachable with the output of
+ * `normalizeForScan`, so it cannot be used to skip hardening.
+ */
+export function scanPatternsNormalized(
+	normalized: NormalizedText,
+	signatures: Signature[],
+	sensitivity = 0.5,
 ): ThreatMatch[] {
 	const clampedSensitivity = Math.max(0, Math.min(1, sensitivity))
-	const normalized = preNormalized ? text : normalizeForScan(text)
 	const matches: ThreatMatch[] = []
 
 	for (const sig of signatures) {
