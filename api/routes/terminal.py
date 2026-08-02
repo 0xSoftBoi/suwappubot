@@ -2343,7 +2343,7 @@ async def terminal_devwatch_delete(request: Request, watch_id: int):
 
 
 @router.get("/intel/{chain}/{token_address}")
-async def terminal_token_intel(chain: str, token_address: str):
+async def terminal_token_intel(chain: str, token_address: str, request: Request):
     """Full TokenIntelReport for a token, serialized via dataclasses.asdict.
 
     ``chain="auto"`` triggers the same address-family auto-detection used by
@@ -2356,7 +2356,26 @@ async def terminal_token_intel(chain: str, token_address: str):
     from bot.handlers.intel import _resolve_chain as _intel_resolve_chain
     from bot.services.token_intel import token_intel_service
     from bot.services.token_intel.intel_service import TokenIntelReport
+    from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
     from bot.utils.validators import detect_address_chain
+
+    # This route is unauthenticated and each cache miss fans out to Blockscout /
+    # DexScreener / RPC, so throttle per client IP to avoid amplifying abuse into
+    # an upstream ban. Same UserRateLimiter pattern as the WhatsApp webhook.
+    limiter = getattr(terminal_token_intel, "_limiter", None)
+    if limiter is None:
+        limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+        terminal_token_intel._limiter = limiter
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        # NB: check() signals rejection by raising, it does not return False.
+        await limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded, try again shortly",
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 60))))},
+        )
 
     token_address = (token_address or "").strip()
     resolved_chain = (chain or "").strip()

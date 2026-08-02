@@ -86,6 +86,19 @@ def _sample_report(chain="ethereum", address="0x" + "ab" * 20) -> TokenIntelRepo
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _reset_intel_rate_limiter():
+    """The per-IP limiter is cached on the route function, so it would otherwise
+    leak spent budget between tests and 429 unrelated cases."""
+    from api.routes.terminal import terminal_token_intel
+
+    if hasattr(terminal_token_intel, "_limiter"):
+        delattr(terminal_token_intel, "_limiter")
+    yield
+    if hasattr(terminal_token_intel, "_limiter"):
+        delattr(terminal_token_intel, "_limiter")
+
+
 class TestIntelReport:
     def test_happy_path_shape(self, monkeypatch):
         report = _sample_report()
@@ -115,6 +128,20 @@ class TestIntelReport:
         assert set(body["flags"]) == {"HIGH_TOP10", "CLUSTERED"}
         assert body["notes"] == []
         assert "generated_at" in body
+
+    def test_rate_limited_after_burst(self, monkeypatch):
+        """The route is unauthenticated and fans out to upstream APIs, so it
+        must throttle per client IP rather than amplify abuse."""
+        report = _sample_report()
+        monkeypatch.setattr(token_intel_service, "analyze", AsyncMock(return_value=report))
+
+        client = app_client()
+        path = f"/terminal/intel/ethereum/{report.token_address}"
+        codes = [client.get(path).status_code for _ in range(35)]
+
+        assert codes[0] == 200
+        assert 429 in codes, "expected the per-IP limiter to reject the tail of a 35-req burst"
+        assert codes.count(200) == 30, "limiter should allow exactly max_requests before rejecting"
 
     def test_auto_chain_evm_address_resolves_to_ethereum(self, monkeypatch):
         captured = {}
