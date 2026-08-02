@@ -1,28 +1,31 @@
 <div align="center">
-  <picture>
-    <img src="showcase/public/logo.svg" width="88" alt="Suwappu">
-  </picture>
+  <a href="https://www.suwappu.bot">
+    <img src="showcase/public/social-card.svg" width="100%" alt="Suwappu — cross-chain by design. Swap, trade perps, and lend, one SDK for AI agents and humans.">
+  </a>
 </div>
 
-<h1 align="center">Suwappu</h1>
-
-<p align="center">
-  <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
-  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
-</p>
+# Suwappu
 
 <div align="center">
 
 [![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
+[![CI](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/test.yml?branch=main&label=CI)](.github/workflows/test.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/codeql.yml?branch=main&label=CodeQL)](.github/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/0xSoftBoi/suwappubot?label=openssf%20scorecard)](https://securityscorecards.dev/viewer/?uri=github.com/0xSoftBoi/suwappubot)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
 [![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
-
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 
 </div>
+
+<p align="center">
+  <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
+  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+</p>
 
 <p align="center">
   <b><a href="https://www.suwappu.bot">Trade now</a></b> &nbsp;·&nbsp;
