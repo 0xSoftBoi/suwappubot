@@ -1,4 +1,5 @@
 """SUWP token staking service."""
+
 import logging
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -15,7 +16,9 @@ WEEKLY_SUWP_EMISSION = Decimal("10000")  # bonus SUWP distributed per epoch
 
 
 class StakingService:
-    async def claim_points_for_suwp(self, user_id: int, points_to_burn: int, wallet_address: str) -> TokenClaim:
+    async def claim_points_for_suwp(
+        self, user_id: int, points_to_burn: int, wallet_address: str
+    ) -> TokenClaim:
         """Convert points to a pending SUWP claim. Min 1000 points."""
         if points_to_burn < POINTS_PER_SUWP:
             raise ValueError(f"Minimum claim is {POINTS_PER_SUWP} points (= 1 SUWP)")
@@ -60,24 +63,32 @@ class StakingService:
 
     def get_claims(self, user_id: int) -> list:
         with get_session() as session:
-            return session.query(TokenClaim).filter(
-                TokenClaim.user_id == user_id
-            ).order_by(TokenClaim.created_at.desc()).limit(20).all()
+            return (
+                session.query(TokenClaim)
+                .filter(TokenClaim.user_id == user_id)
+                .order_by(TokenClaim.created_at.desc())
+                .limit(20)
+                .all()
+            )
 
     def get_staking_position(self, user_id: int) -> Optional[StakingPosition]:
         with get_session() as session:
-            return session.query(StakingPosition).filter(
-                StakingPosition.user_id == user_id,
-                StakingPosition.is_active == True,
-            ).first()
+            return (
+                session.query(StakingPosition)
+                .filter(
+                    StakingPosition.user_id == user_id,
+                    StakingPosition.is_active == True,
+                )
+                .first()
+            )
 
-    def register_stake(self, user_id: int, wallet_address: str, suwp_amount: Decimal) -> StakingPosition:
+    def register_stake(
+        self, user_id: int, wallet_address: str, suwp_amount: Decimal
+    ) -> StakingPosition:
         """Register a staking position (user staked on-chain, we record it here)."""
         now = datetime.now(timezone.utc)
         with get_session() as session:
-            pos = session.query(StakingPosition).filter(
-                StakingPosition.user_id == user_id
-            ).first()
+            pos = session.query(StakingPosition).filter(StakingPosition.user_id == user_id).first()
             if pos:
                 pos.suwp_staked += suwp_amount
                 pos.wallet_address = wallet_address.lower()
@@ -99,14 +110,20 @@ class StakingService:
     def register_unstake(self, user_id: int, suwp_amount: Decimal) -> StakingPosition:
         now = datetime.now(timezone.utc)
         with get_session() as session:
-            pos = session.query(StakingPosition).filter(
-                StakingPosition.user_id == user_id,
-                StakingPosition.is_active == True,
-            ).first()
+            pos = (
+                session.query(StakingPosition)
+                .filter(
+                    StakingPosition.user_id == user_id,
+                    StakingPosition.is_active == True,
+                )
+                .first()
+            )
             if not pos:
                 raise ValueError("No active staking position found")
             if pos.suwp_staked < suwp_amount:
-                raise ValueError(f"Cannot unstake {suwp_amount} SUWP, only {pos.suwp_staked} staked")
+                raise ValueError(
+                    f"Cannot unstake {suwp_amount} SUWP, only {pos.suwp_staked} staked"
+                )
             pos.suwp_staked -= suwp_amount
             if pos.suwp_staked == 0:
                 pos.staked_since = None
@@ -119,13 +136,18 @@ class StakingService:
         """Global staking statistics."""
         with get_session() as session:
             from sqlalchemy import func
-            result = session.query(
-                func.sum(StakingPosition.suwp_staked).label("total_suwp_staked"),
-                func.count(StakingPosition.id).label("staker_count"),
-            ).filter(
-                StakingPosition.is_active == True,
-                StakingPosition.suwp_staked > 0,
-            ).one()
+
+            result = (
+                session.query(
+                    func.sum(StakingPosition.suwp_staked).label("total_suwp_staked"),
+                    func.count(StakingPosition.id).label("staker_count"),
+                )
+                .filter(
+                    StakingPosition.is_active == True,
+                    StakingPosition.suwp_staked > 0,
+                )
+                .one()
+            )
             return {
                 "total_suwp_staked": float(result.total_suwp_staked or 0),
                 "staker_count": result.staker_count or 0,
@@ -134,10 +156,14 @@ class StakingService:
     def get_pending_rewards(self, user_id: int) -> list:
         """Get unclaimed epoch rewards for a user."""
         with get_session() as session:
-            return session.query(EpochReward).filter(
-                EpochReward.user_id == user_id,
-                EpochReward.status == "pending",
-            ).all()
+            return (
+                session.query(EpochReward)
+                .filter(
+                    EpochReward.user_id == user_id,
+                    EpochReward.status == "pending",
+                )
+                .all()
+            )
 
     def create_distribution_epoch(self):
         """Create a weekly DistributionEpoch: 40% fees direct + 100% vault yield → stakers."""
@@ -149,27 +175,34 @@ class StakingService:
         now = datetime.now(timezone.utc)
 
         with get_session() as session:
-            last_epoch = session.query(DistributionEpoch).order_by(
-                DistributionEpoch.epoch_number.desc()
-            ).first()
+            last_epoch = (
+                session.query(DistributionEpoch)
+                .order_by(DistributionEpoch.epoch_number.desc())
+                .first()
+            )
 
             if last_epoch:
                 period_start = last_epoch.period_end
                 next_epoch_number = last_epoch.epoch_number + 1
             else:
                 from datetime import datetime as dt
+
                 period_start = dt(2024, 1, 1, tzinfo=timezone.utc)
                 next_epoch_number = 1
 
             period_end = now
 
-            total_row = session.query(
-                func.coalesce(func.sum(FeeTransaction.fee_amount_usd), 0).label("total")
-            ).filter(
-                FeeTransaction.collected == True,
-                FeeTransaction.created_at >= period_start,
-                FeeTransaction.created_at < period_end,
-            ).one()
+            total_row = (
+                session.query(
+                    func.coalesce(func.sum(FeeTransaction.fee_amount_usd), 0).label("total")
+                )
+                .filter(
+                    FeeTransaction.collected == True,
+                    FeeTransaction.created_at >= period_start,
+                    FeeTransaction.created_at < period_end,
+                )
+                .one()
+            )
             total_fees_usd = Decimal(str(total_row.total))
 
             direct_fees_usdc = (total_fees_usd * Decimal("0.40")).quantize(
@@ -183,12 +216,16 @@ class StakingService:
             vault_yield = treasury_vault_service.harvest_yield()
             total_staker_usdc = direct_fees_usdc + vault_yield
 
-            staked_row = session.query(
-                func.coalesce(func.sum(StakingPosition.suwp_staked), 0).label("total")
-            ).filter(
-                StakingPosition.is_active == True,
-                StakingPosition.suwp_staked > 0,
-            ).one()
+            staked_row = (
+                session.query(
+                    func.coalesce(func.sum(StakingPosition.suwp_staked), 0).label("total")
+                )
+                .filter(
+                    StakingPosition.is_active == True,
+                    StakingPosition.suwp_staked > 0,
+                )
+                .one()
+            )
             total_suwp_staked = Decimal(str(staked_row.total))
 
             vault_stats = treasury_vault_service.get_vault_stats()
@@ -212,17 +249,22 @@ class StakingService:
             session.add(epoch)
             session.flush()
 
-            stakers = session.query(StakingPosition).filter(
-                StakingPosition.is_active == True,
-                StakingPosition.suwp_staked > 0,
-            ).all()
+            stakers = (
+                session.query(StakingPosition)
+                .filter(
+                    StakingPosition.is_active == True,
+                    StakingPosition.suwp_staked > 0,
+                )
+                .all()
+            )
 
             # USDC rewards now flow per-second via Superfluid GDA pool (fundStream).
             # No per-staker USDC EpochReward records are created; usdc_reward is set to 0.
             logger.info(
                 "Epoch #%d: %.6f USDC will be streamed via fundStream() "
                 "(Superfluid GDA pool) — no per-staker USDC records created.",
-                next_epoch_number, float(total_staker_usdc),
+                next_epoch_number,
+                float(total_staker_usdc),
             )
 
             rewards_count = 0
@@ -234,14 +276,16 @@ class StakingService:
                     Decimal("0.000001"), rounding=ROUND_DOWN
                 )
                 # usdc_reward is 0: USDC distributes continuously via Superfluid GDA pool.
-                session.add(EpochReward(
-                    epoch_id=epoch.id,
-                    user_id=staker.user_id,
-                    suwp_staked_snapshot=staker.suwp_staked,
-                    usdc_reward=Decimal("0"),
-                    suwp_bonus=suwp_bonus,
-                    status="pending",
-                ))
+                session.add(
+                    EpochReward(
+                        epoch_id=epoch.id,
+                        user_id=staker.user_id,
+                        suwp_staked_snapshot=staker.suwp_staked,
+                        usdc_reward=Decimal("0"),
+                        suwp_bonus=suwp_bonus,
+                        status="pending",
+                    )
+                )
                 rewards_count += 1
 
             session.commit()
@@ -249,8 +293,12 @@ class StakingService:
             logger.info(
                 "Epoch #%d: fees=%.2f direct=%.2f vault_yield=%.2f "
                 "total_staker=%.2f (streamed via Superfluid) suwp_rewards=%d stakers",
-                next_epoch_number, float(total_fees_usd), float(direct_fees_usdc),
-                float(vault_yield), float(total_staker_usdc), rewards_count,
+                next_epoch_number,
+                float(total_fees_usd),
+                float(direct_fees_usdc),
+                float(vault_yield),
+                float(total_staker_usdc),
+                rewards_count,
             )
             return epoch
 
@@ -261,33 +309,46 @@ class StakingService:
         Requires treasury wallet to have USDC approved to the staking contract.
         """
         from bot.config.settings import settings
+
         contract_addr = getattr(settings, "staking_contract_address", None)
         if not contract_addr:
-            logger.info("[mock] fund_stream_on_chain %.6f USDC (no contract address set)", epoch_usdc)
+            logger.info(
+                "[mock] fund_stream_on_chain %.6f USDC (no contract address set)", epoch_usdc
+            )
             return "0x" + "0" * 64
         try:
             from bot.services.treasury_vault_service import treasury_vault_service
             from web3 import Web3
+
             web3 = treasury_vault_service._get_web3()
             wallet = treasury_vault_service._get_treasury_wallet()
             private_key = treasury_vault_service._get_private_key(wallet)
 
             STAKING_ABI = [
-                {"name": "fundStream", "type": "function", "stateMutability": "nonpayable",
-                 "inputs": [{"name": "usdcAmount", "type": "uint256"},
-                             {"name": "durationSeconds", "type": "uint256"}],
-                 "outputs": []},
+                {
+                    "name": "fundStream",
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                    "inputs": [
+                        {"name": "usdcAmount", "type": "uint256"},
+                        {"name": "durationSeconds", "type": "uint256"},
+                    ],
+                    "outputs": [],
+                },
             ]
             contract = web3.eth.contract(
                 address=Web3.to_checksum_address(contract_addr), abi=STAKING_ABI
             )
             usdc_wei = int(epoch_usdc * Decimal("1000000"))  # 6 decimals
             tx_hash = treasury_vault_service._build_and_send(
-                web3, wallet,
+                web3,
+                wallet,
                 contract.functions.fundStream(usdc_wei, duration_seconds),
                 private_key,
             )
-            logger.info("fundStream called: %.6f USDC over %ds tx=%s", epoch_usdc, duration_seconds, tx_hash)
+            logger.info(
+                "fundStream called: %.6f USDC over %ds tx=%s", epoch_usdc, duration_seconds, tx_hash
+            )
             return tx_hash
         except Exception as e:
             logger.error("fund_stream_on_chain failed: %s", e, exc_info=True)
@@ -296,6 +357,7 @@ class StakingService:
     def get_vault_stats(self) -> dict:
         """Delegate to treasury vault service."""
         from bot.services.treasury_vault_service import treasury_vault_service
+
         return treasury_vault_service.get_vault_stats()
 
 

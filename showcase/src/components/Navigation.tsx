@@ -23,6 +23,22 @@ function getCurrentLocale(): string {
 
 export default function Navigation() {
   const t = useTranslations('nav');
+
+  // Whether this browser already has a dashboard session. The nav previously
+  // had NO sign-in entry at all — /dashboard was reachable only by typing the
+  // URL, so an existing paying customer had no route back to their usage,
+  // API keys or billing from the site they landed on.
+  //
+  // Read in an effect rather than during render: localStorage does not exist
+  // on the server, and branching on it during render would desync hydration.
+  const [hasSession, setHasSession] = useState(false);
+  useEffect(() => {
+    try {
+      setHasSession(Boolean(localStorage.getItem('suwappu_dashboard_token')));
+    } catch {
+      // Private mode / storage disabled — fall back to the signed-out label.
+    }
+  }, []);
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -146,6 +162,13 @@ export default function Navigation() {
         {navLink('/docs', t('docs'))}
         {navLink('https://github.com/0xSoftBoi/suwappubot', 'GitHub', true)}
         <LanguageSwitcher current={locale} />
+        {/* Account entry. Deliberately a nav link rather than a third CTA:
+            "Open Bot" is an acquisition action, and an existing customer
+            looking for their billing should not have to parse two buttons
+            that both look like signup. */}
+        <a href="/dashboard" className="nav__link nav__link--account">
+          {hasSession ? t('dashboard') : t('signIn')}
+        </a>
         {/* Two CTAs only: ghost sales + persimmon primary. */}
         <a href={ENTERPRISE_CONTACT_PATH} className="nav__cta nav__cta--ghost">
           {t('talkToSales')}
@@ -194,6 +217,9 @@ export default function Navigation() {
         {drawerLink('/docs', t('docs'))}
         {drawerLink('/status', t('status'))}
         {drawerLink('https://github.com/0xSoftBoi/suwappubot', 'GitHub', true)}
+        <a href="/dashboard" className="nav__drawer-cta nav__drawer-cta--ghost" onClick={closeMenu}>
+          {hasSession ? t('dashboard') : t('signIn')}
+        </a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
           {t('openBot')}
         </a>

@@ -125,6 +125,8 @@ HELP_MESSAGE = r"""
 • /a \- Price alerts   • /g \- Gas tracker
 • /f \- Favorites   • /tax \- Tax export
 • /set \- Settings   • /digest \- Weekly summary
+• /intel \<address\> \- Deployer \& holder report 🔎
+• /devwatch \- Track deployer wallets 👁
 
 ━━ 🎮 *GROWTH* ━━
 • /ref \- Referral code \(earn 30% of fees\)

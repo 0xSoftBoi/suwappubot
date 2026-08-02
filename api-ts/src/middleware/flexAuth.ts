@@ -1,5 +1,6 @@
 import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
+import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
@@ -57,6 +58,12 @@ declare module 'hono' {
  *
  * Normalizes to a common `authUser` context variable.
  */
+/**
+ * Session cookie minted by python-api. Scoped to the parent domain so it is
+ * sent to api.suwappu.bot as a same-site request from the showcase origin.
+ */
+export const SESSION_COOKIE = 'suwappu_auth'
+
 export function flexAuth() {
 	return async (c: Context, next: Next) => {
 		// 1. Try Telegram auth first
@@ -101,10 +108,29 @@ export function flexAuth() {
 			// If Telegram auth fails, fall through to try JWT
 		}
 
-		// 2. Try JWT Bearer auth
+		// 2. Try JWT — from the Authorization header OR the session cookie.
+		//
+		// The cookie source exists because the web dashboard had NO working
+		// sign-in at all: it sent `Authorization: Bearer <token>` to routes
+		// guarded by telegramAuth(), which reads only X-Telegram-Init-Data, so
+		// every request 401'd with "Missing Telegram authentication" and the
+		// login screen reported the token as rejected. Nobody could get in.
+		//
+		// python-api mints this JWT on every auth flow (Google OAuth, Telegram,
+		// passkey, SIWE) and sets it as an HttpOnly cookie scoped to the parent
+		// domain, so it reaches api-ts as a same-site request. Reading it here
+		// means the browser never has to hold a bearer token in JS — which is
+		// what the old paste-a-token flow trained people to do.
+		//
+		// The header is tried first so machine clients are unaffected.
 		const authHeader = c.req.header('Authorization')
-		if (authHeader?.startsWith('Bearer ')) {
-			const token = authHeader.slice(7)
+		const headerToken = authHeader?.startsWith('Bearer ')
+			? authHeader.slice(7)
+			: undefined
+		const cookieToken = getCookie(c, SESSION_COOKIE)
+		const token = headerToken ?? cookieToken
+
+		if (token) {
 
 			const result = await runEffectEither(
 				Effect.gen(function* () {

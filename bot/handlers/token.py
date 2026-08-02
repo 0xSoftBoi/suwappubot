@@ -1,10 +1,15 @@
 """SUWP token commands -- claim points, stake, check rewards."""
+
 import logging
 from decimal import Decimal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ContextTypes, CommandHandler, CallbackQueryHandler,
-    ConversationHandler, MessageHandler, filters
+    ContextTypes,
+    CommandHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    MessageHandler,
+    filters,
 )
 from database.db import get_session
 from bot.models.user import User
@@ -26,7 +31,7 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         user_pts = session.query(UserPoints).filter(UserPoints.user_id == db_user.id).first()
-        current_points = getattr(user_pts, 'current_points', 0) or 0
+        current_points = getattr(user_pts, "current_points", 0) or 0
         claimable_suwp = current_points // POINTS_PER_SUWP
         db_user_id = db_user.id
 
@@ -57,21 +62,31 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     if claimable_suwp > 0:
-        keyboard.append([InlineKeyboardButton(f"Claim {claimable_suwp} SUWP", callback_data="token_claim")])
-    keyboard.append([
-        InlineKeyboardButton("Stake SUWP", callback_data="token_stake"),
-        InlineKeyboardButton("Unstake", callback_data="token_unstake"),
-    ])
+        keyboard.append(
+            [InlineKeyboardButton(f"Claim {claimable_suwp} SUWP", callback_data="token_claim")]
+        )
+    keyboard.append(
+        [
+            InlineKeyboardButton("Stake SUWP", callback_data="token_stake"),
+            InlineKeyboardButton("Unstake", callback_data="token_unstake"),
+        ]
+    )
     if pending_usdc > 0 or pending_suwp_bonus > 0:
-        keyboard.append([InlineKeyboardButton("Claim Rewards", callback_data="token_claim_rewards")])
+        keyboard.append(
+            [InlineKeyboardButton("Claim Rewards", callback_data="token_claim_rewards")]
+        )
     keyboard.append([InlineKeyboardButton("🔗 Bond LP for SUWP", callback_data="bond_menu")])
     keyboard.append([InlineKeyboardButton("Back", callback_data="main_menu")])
 
     effective_message = update.message or update.callback_query.message
     if update.message:
-        await effective_message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        await effective_message.reply_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     else:
-        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.callback_query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
 async def token_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,8 +96,12 @@ async def token_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        user_pts = session.query(UserPoints).filter(UserPoints.user_id == db_user.id).first() if db_user else None
-        current_points = getattr(user_pts, 'current_points', 0) or 0
+        user_pts = (
+            session.query(UserPoints).filter(UserPoints.user_id == db_user.id).first()
+            if db_user
+            else None
+        )
+        current_points = getattr(user_pts, "current_points", 0) or 0
 
     max_suwp = current_points // POINTS_PER_SUWP
     await query.edit_message_text(
@@ -91,7 +110,9 @@ async def token_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Enter your Base wallet address to receive SUWP:\n"
         f"_(SUWP is distributed weekly -- pending claims are batched)_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="token_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="token_menu")]]
+        ),
     )
     context.user_data["token_action"] = "claim"
     context.user_data["token_claim_max_pts"] = current_points
@@ -109,7 +130,9 @@ async def token_stake_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "2. Send your SUWP staking amount and wallet address here\n\n"
         "Enter your Base wallet address that holds SUWP:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="token_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="token_menu")]]
+        ),
     )
     context.user_data["token_action"] = "stake"
     return ENTER_WALLET
@@ -130,7 +153,9 @@ async def token_unstake_callback(update: Update, context: ContextTypes.DEFAULT_T
     if staked <= 0:
         await query.edit_message_text(
             "You have no active staking position to unstake.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="token_menu")]]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back", callback_data="token_menu")]]
+            ),
         )
         return ConversationHandler.END
 
@@ -140,7 +165,9 @@ async def token_unstake_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"On-chain unstaking is processed via the weekly batch settlement. "
         f"Contact support or use the staking contract directly on Base to initiate unstaking.",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="token_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Back", callback_data="token_menu")]]
+        ),
     )
     return ConversationHandler.END
 
@@ -161,7 +188,9 @@ async def token_claim_rewards_callback(update: Update, context: ContextTypes.DEF
     if not pending_rewards:
         await query.edit_message_text(
             "No pending rewards at this time. Rewards are distributed weekly.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="token_menu")]]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back", callback_data="token_menu")]]
+            ),
         )
         return ConversationHandler.END
 
@@ -172,7 +201,9 @@ async def token_claim_rewards_callback(update: Update, context: ContextTypes.DEF
         f"Rewards are settled on-chain weekly to your registered staking wallet. "
         f"No action required -- they will be sent automatically at the next epoch distribution.",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="token_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Back", callback_data="token_menu")]]
+        ),
     )
     return ConversationHandler.END
 
@@ -286,6 +317,7 @@ async def bond_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
 
     from bot.config.settings import settings
+
     contract_addr = getattr(settings, "bonds_contract_address", None)
 
     text = (
@@ -303,7 +335,9 @@ async def bond_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if contract_addr:
-        text += f"*Bonds contract:* `{contract_addr}`\n\n_Enter your Uniswap v3 NFT token ID to bond:_"
+        text += (
+            f"*Bonds contract:* `{contract_addr}`\n\n_Enter your Uniswap v3 NFT token ID to bond:_"
+        )
         keyboard = [
             [InlineKeyboardButton("🔗 Bond LP NFT", callback_data="bond_start")],
             [InlineKeyboardButton("📋 My Active Bonds", callback_data="bond_list")],
@@ -326,7 +360,9 @@ async def bond_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "Enter your Uniswap v3 SUWP/USDC position NFT token ID:\n"
         "_(Find it on app.uniswap.org → Pool → your position)_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bond_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="bond_menu")]]
+        ),
     )
     context.user_data["token_action"] = "bond"
     return ENTER_LP_TOKEN_ID
@@ -343,6 +379,7 @@ async def receive_lp_token_id(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ENTER_LP_TOKEN_ID
 
     from bot.config.settings import settings
+
     contract_addr = getattr(settings, "bonds_contract_address", None)
 
     await update.message.reply_text(
@@ -370,7 +407,9 @@ async def bond_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "• Webapp → Staking → Bonds\n"
         "• Basescan → Contract → Read → getUserBonds",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="bond_menu")]]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("« Back", callback_data="bond_menu")]]
+        ),
     )
 
 
@@ -401,7 +440,11 @@ token_conv_handler = ConversationHandler(
 
 # Standalone callback handlers for buttons outside the conversation flow
 token_menu_callback_handler = CallbackQueryHandler(token_menu_callback, pattern="^token_menu$")
-token_unstake_callback_handler = CallbackQueryHandler(token_unstake_callback, pattern="^token_unstake$")
-token_claim_rewards_callback_handler = CallbackQueryHandler(token_claim_rewards_callback, pattern="^token_claim_rewards$")
+token_unstake_callback_handler = CallbackQueryHandler(
+    token_unstake_callback, pattern="^token_unstake$"
+)
+token_claim_rewards_callback_handler = CallbackQueryHandler(
+    token_claim_rewards_callback, pattern="^token_claim_rewards$"
+)
 bond_menu_callback_handler = CallbackQueryHandler(bond_callback, pattern="^bond_menu$")
 bond_list_callback_handler = CallbackQueryHandler(bond_list_callback, pattern="^bond_list$")

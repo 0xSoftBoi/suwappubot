@@ -445,7 +445,7 @@ class ReferralService:
                 ) or 0.0
 
                 if referee_volume < MIN_VOLUME_BEFORE_PAYOUT_USD:
-                    logger.info(
+                    logger.warning(
                         f"Referral reward skipped: referee {referee_id} lifetime volume "
                         f"${referee_volume:.2f} < ${MIN_VOLUME_BEFORE_PAYOUT_USD}"
                     )

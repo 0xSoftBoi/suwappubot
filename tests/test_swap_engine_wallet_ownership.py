@@ -5,6 +5,7 @@ request body. Without an ownership check, a caller could supply a wallet_id from
 one user and a user_id from another to swap on someone else's wallet (C2). The
 binding check raises SwapError before any funds move.
 """
+
 import os
 from datetime import datetime, timezone
 

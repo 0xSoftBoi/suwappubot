@@ -29,6 +29,7 @@ class RedisCache:
     async def connect(self) -> bool:
         """Connect to Redis if REDIS_URL is set, otherwise use in-memory."""
         import os
+
         redis_url = os.environ.get("REDIS_URL")
         if not redis_url:
             logger.info("REDIS_URL not set — using in-memory cache")
@@ -36,16 +37,22 @@ class RedisCache:
 
         try:
             import redis.asyncio as aioredis
+            from redis.backoff import NoBackoff
+            from redis.retry import Retry
+
             self._redis = aioredis.from_url(
                 redis_url,
                 decode_responses=True,
                 socket_connect_timeout=5,
                 socket_timeout=3,
-                retry_on_timeout=True,
+                retry=Retry(NoBackoff(), 1),
             )
             await self._redis.ping()
             self._connected = True
-            logger.info("Connected to Redis at %s", redis_url.split("@")[-1] if "@" in redis_url else redis_url)
+            logger.info(
+                "Connected to Redis at %s",
+                redis_url.split("@")[-1] if "@" in redis_url else redis_url,
+            )
             return True
         except Exception as e:
             logger.warning(f"Redis connection failed, falling back to in-memory: {e}")
@@ -125,7 +132,7 @@ class RedisCache:
         # Hard cap: evict oldest entries if over limit
         if len(self._memory_cache) > self.MAX_MEMORY_KEYS:
             sorted_keys = sorted(self._memory_ttl, key=self._memory_ttl.get)
-            for k in sorted_keys[:len(self._memory_cache) - self.MAX_MEMORY_KEYS]:
+            for k in sorted_keys[: len(self._memory_cache) - self.MAX_MEMORY_KEYS]:
                 self._memory_cache.pop(k, None)
                 self._memory_ttl.pop(k, None)
 
@@ -263,8 +270,10 @@ redis_cache = RedisCache()
 
 # === Convenience decorators ===
 
+
 def cached(ttl_seconds: int = 300, key_prefix: str = ""):
     """Decorator to cache async function results."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -289,4 +298,5 @@ def cached(ttl_seconds: int = 300, key_prefix: str = ""):
             return result
 
         return wrapper
+
     return decorator

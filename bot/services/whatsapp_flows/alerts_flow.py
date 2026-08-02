@@ -36,6 +36,7 @@ class AlertsFlow(BaseWhatsAppFlow):
 
     async def _show_alerts_menu(self, user_db_id: int) -> FlowResponse:
         from bot.services.alerts import alert_service
+
         alerts = alert_service.get_user_alerts(user_db_id)
 
         if alerts:
@@ -55,7 +56,9 @@ class AlertsFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_main_menu(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_main_menu(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
 
         if text == "alert_create":
@@ -70,12 +73,17 @@ class AlertsFlow(BaseWhatsAppFlow):
             )
         elif text == "alert_delete":
             from bot.services.alerts import alert_service
+
             alerts = alert_service.get_user_alerts(db_uid)
             if not alerts:
                 await self._clear(user_id)
                 return FlowResponse("No active alerts to delete.")
             rows = [
-                {"id": f"alertdel_{a.id}", "title": f"#{a.id} {a.token_symbol}", "description": _format_alert(a)}
+                {
+                    "id": f"alertdel_{a.id}",
+                    "title": f"#{a.id} {a.token_symbol}",
+                    "description": _format_alert(a),
+                }
                 for a in alerts[:10]
             ]
             await self._update(user_id, "delete_select")
@@ -86,14 +94,18 @@ class AlertsFlow(BaseWhatsAppFlow):
             )
         return await self._show_alerts_menu(db_uid)
 
-    async def _step_choose_token(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_choose_token(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         token = text.replace("alerttk_", "").upper()
         await self._update(user_id, "enter_price", {"token": token})
         return FlowResponse(
             text=f"Token: *{token}*\n\nEnter the target price in USD (e.g. `3500` or `0.0042`):",
         )
 
-    async def _step_enter_price(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_enter_price(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         try:
             price = float(text.replace("$", "").replace(",", "").strip())
             if price <= 0:
@@ -110,7 +122,9 @@ class AlertsFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_choose_direction(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_choose_direction(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if "above" in text.lower():
             direction = "price_above"
         elif "below" in text.lower():
@@ -137,7 +151,9 @@ class AlertsFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text in ("alert_cancel", "cancel"):
             await self._clear(user_id)
             return FlowResponse("Alert creation cancelled.")
@@ -159,6 +175,7 @@ class AlertsFlow(BaseWhatsAppFlow):
 
         try:
             from bot.services.alerts import alert_service
+
             alert = alert_service.create_alert(
                 user_id=db_uid,
                 token_symbol=token,
@@ -174,12 +191,15 @@ class AlertsFlow(BaseWhatsAppFlow):
             logger.error(f"Alert creation failed: {e}")
             return FlowResponse("Failed to create alert. Try again later.")
 
-    async def _step_delete_select(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_delete_select(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         await self._clear(user_id)
         db_uid = state.data.get("user_db_id") or user_db_id
         try:
             alert_id = int(text.replace("alertdel_", ""))
             from bot.services.alerts import alert_service
+
             if alert_service.delete_alert(alert_id, db_uid):
                 return FlowResponse(f"✅ Alert #{alert_id} deleted.")
             return FlowResponse("Alert not found or already deleted.")

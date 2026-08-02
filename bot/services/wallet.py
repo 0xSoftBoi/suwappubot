@@ -156,9 +156,7 @@ class WalletService:
 
     def _http_session(self) -> aiohttp.ClientSession:
         """Per-call session bound to the shared connector (does not own it)."""
-        return aiohttp.ClientSession(
-            connector=self._get_connector(), connector_owner=False
-        )
+        return aiohttp.ClientSession(connector=self._get_connector(), connector_owner=False)
 
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""
@@ -179,6 +177,12 @@ class WalletService:
 
     async def _evm_rpc_call(self, chain_name: str, method: str, params: list, timeout: float = 3.5):
         """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking."""
+        # Skip the network entirely when every endpoint for this chain is
+        # circuit-open: firing a doomed request just opens a socket against a
+        # known-dead RPC. Raising here (before any session is created) lets the
+        # circuit cool down instead of being hammered every call.
+        if rpc_manager.chain_all_circuits_open(chain_name):
+            raise ConnectionError("all_circuits_open")
         url = rpc_manager.get_rpc_url(chain_name)
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         t0 = time.monotonic()
@@ -847,6 +851,9 @@ class WalletService:
         if not token_mint:
             return 0.0
 
+        if rpc_manager.chain_all_circuits_open("solana"):
+            raise ConnectionError("all_circuits_open")
+
         client = await self._get_solana_client()
 
         try:
@@ -899,6 +906,8 @@ class WalletService:
 
     async def get_solana_native_balance(self, address: str) -> float:
         """Get SOL balance for an address. Raises on RPC error."""
+        if rpc_manager.chain_all_circuits_open("solana"):
+            raise ConnectionError("all_circuits_open")
         try:
             async with self._http_session() as session:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}

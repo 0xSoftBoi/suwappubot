@@ -103,6 +103,43 @@ class SpendingLimitService:
                 SpendEvent(user_id=user_id, amount_usd=amount_usd, swap_id=swap_id, kind=kind)
             )
 
+    def check_with_2fa(
+        self, user_id: int, amount_usd: float, recently_verified: bool = False
+    ) -> Tuple[bool, Optional[str], bool]:
+        """Combined pre-execution guard: spending-limit check + 2FA-required gate.
+
+        This is the SAME check the swap.py / bulk_swap.py confirm handlers run
+        inline before calling ``SwapEngine.execute_swap`` — factored out so
+        every handler-side entry point (including quickswap's ``/s``) can run
+        the identical gate instead of re-implementing it (or skipping it).
+
+        Returns ``(allowed, block_reason, requires_2fa)``:
+          - ``allowed=False`` -> caller MUST abort; ``block_reason`` is a
+            user-facing message (spending limit exceeded).
+          - ``requires_2fa=True`` -> caller MUST obtain and verify a fresh TOTP
+            code (``twofa_service.verify_transaction``) before proceeding to
+            ``execute_swap``.
+          - ``recently_verified`` lets a caller carry over a just-verified code
+            across a quote refresh, mirroring the ``twofa_verified_at`` window
+            used in swap.py/bulk_swap.py, so a stale-quote retry doesn't force
+            a second code entry moments later.
+        """
+        allowed, reason = self.check(user_id, amount_usd)
+        if not allowed:
+            return False, reason, False
+
+        # Lazy import: twofa.py does not import this module, so this is not a
+        # cycle, but importing at call time keeps this module's import graph
+        # unchanged for every other caller.
+        from bot.services.twofa import twofa_service
+
+        requires_2fa = (
+            not recently_verified
+            and twofa_service.is_2fa_enabled(user_id)
+            and amount_usd >= self.effective_2fa_threshold(user_id)
+        )
+        return True, None, requires_2fa
+
     def effective_2fa_threshold(self, user_id: int) -> float:
         """The USD amount at/above which a swap requires a 2FA code.
 

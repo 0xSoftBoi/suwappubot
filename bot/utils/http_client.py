@@ -10,13 +10,17 @@ T = TypeVar("T")
 
 try:
     import orjson
+
     def _json_serialize(obj):
         return orjson.dumps(obj).decode()
+
     def _json_deserialize(s):
         return orjson.loads(s)
+
     HAS_ORJSON = True
 except ImportError:
     import json
+
     _json_serialize = json.dumps
     _json_deserialize = json.loads
     HAS_ORJSON = False
@@ -29,7 +33,7 @@ _lock = asyncio.Lock()
 async def get_session() -> aiohttp.ClientSession:
     """Get or create a shared aiohttp session with connection pooling."""
     global _session
-    
+
     if _session is None or _session.closed:
         async with _lock:
             if _session is None or _session.closed:
@@ -43,20 +47,20 @@ async def get_session() -> aiohttp.ClientSession:
                     force_close=False,  # Reuse connections
                     use_dns_cache=True,
                 )
-                
+
                 timeout = aiohttp.ClientTimeout(
                     total=20,  # Reduced total timeout
                     connect=3,  # Faster connection timeout
                     sock_read=15,  # Faster read timeout
                 )
-                
+
                 _session = aiohttp.ClientSession(
                     connector=connector,
                     timeout=timeout,
                     raise_for_status=False,
                     json_serialize=_json_serialize if HAS_ORJSON else None,
                 )
-    
+
     return _session
 
 
@@ -131,8 +135,11 @@ async def with_retry(
         delay = base_delay * (2 ** (attempt - 1))
         logger.warning(
             "%s failed (attempt %d/%d), retrying in %.1fs: %s",
-            label, attempt, max_attempts, delay, last_exc,
+            label,
+            attempt,
+            max_attempts,
+            delay,
+            last_exc,
         )
         await asyncio.sleep(delay)
     raise last_exc
-

@@ -64,6 +64,27 @@
       "when": 1784993362236,
       "tag": "0008_nervous_jazinda",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784993462236,
+      "tag": "0009_white_vertigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784993562236,
+      "tag": "0010_nifty_supreme_intelligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784993662236,
+      "tag": "0011_silly_black_queen",
+      "breakpoints": true
     }
   ]
 }

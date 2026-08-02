@@ -10,6 +10,7 @@ from database.db import Base
 
 class SnipeStatus(enum.Enum):
     """Status of a snipe order."""
+
     PENDING = "pending"
     WATCHING = "watching"  # Monitoring for conditions
     EXECUTING = "executing"
@@ -22,6 +23,7 @@ class SnipeStatus(enum.Enum):
 
 class SnipeMode(enum.Enum):
     """Execution mode for snipes."""
+
     INSTANT = "instant"  # Execute immediately
     CONDITIONAL = "conditional"  # Wait for conditions
     FIRST_BLOCK = "first_block"  # Land in same block as launch
@@ -29,6 +31,7 @@ class SnipeMode(enum.Enum):
 
 class SnipePlatform(enum.Enum):
     """Platform to snipe on."""
+
     PUMP_FUN = "pump_fun"
     RAYDIUM = "raydium"
     ANY = "any"  # Snipe on any platform
@@ -36,8 +39,10 @@ class SnipePlatform(enum.Enum):
 
 # ============ SNIPE ORDERS ============
 
+
 class SnipeOrder(Base):
     """Individual snipe order for a specific token or launch event."""
+
     __tablename__ = "snipe_orders"
 
     id = Column(Integer, primary_key=True)
@@ -111,8 +116,10 @@ class SnipeOrder(Base):
 
 # ============ SNIPE CONFIGURATION (User Defaults) ============
 
+
 class SnipeConfig(Base):
     """User's default snipe configuration."""
+
     __tablename__ = "snipe_configs"
 
     id = Column(Integer, primary_key=True)
@@ -154,8 +161,10 @@ class SnipeConfig(Base):
 
 # ============ SNIPE HISTORY ============
 
+
 class SnipeHistory(Base):
     """Historical record of snipe executions for analytics."""
+
     __tablename__ = "snipe_history"
 
     id = Column(Integer, primary_key=True)
@@ -200,8 +209,10 @@ class SnipeHistory(Base):
 
 # ============ WATCHED TOKENS (for migration sniping) ============
 
+
 class WatchedToken(Base):
     """Tokens being watched for migration or specific events."""
+
     __tablename__ = "watched_tokens"
 
     id = Column(Integer, primary_key=True)
@@ -234,8 +245,10 @@ class WatchedToken(Base):
 
 # ============ AUTO-SNIPE RULES ============
 
+
 class AutoSnipeRule(Base):
     """Rules for automatic sniping based on criteria."""
+
     __tablename__ = "auto_snipe_rules"
 
     id = Column(Integer, primary_key=True)

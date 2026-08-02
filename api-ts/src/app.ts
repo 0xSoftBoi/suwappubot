@@ -4,9 +4,10 @@ import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
 import type { AgentErrorCode } from './lib/agentError'
+import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware } from './middleware'
+import { adminKeyAuth, createCorsMiddleware, otelRequestTracing } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
@@ -28,6 +29,7 @@ import {
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
+	tokenRoutes,
 	webappRoutes,
 } from './routes'
 
@@ -54,6 +56,10 @@ export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string | undefined
 	internalApiKey?: string | undefined
+	// String 'true'/'false' (matches the *_ENABLED convention in EnvService).
+	// Only when 'true' is the OTel request-tracing middleware registered at
+	// all — see the otelRequestTracing() call below and lib/otel.ts.
+	otelEnabled?: string | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -65,6 +71,14 @@ export function createApp(config: AppConfig) {
 	// Global middleware
 	app.use('*', honoLogger())
 	app.use('*', createCorsMiddleware(config.allowedOrigins))
+
+	// OpenTelemetry request tracing — only registered when OTEL_ENABLED='true'.
+	// Gating at registration (not inside the middleware) means the disabled
+	// path never allocates a span or touches the OTel API at all: zero added
+	// latency, zero behavior change. See lib/otel.ts for SDK init.
+	if (config.otelEnabled === 'true') {
+		app.use('*', otelRequestTracing())
+	}
 
 	// Request ID — inject a UUID per request for distributed tracing.
 	// Passed through as X-Request-ID so clients and logs can correlate.
@@ -92,6 +106,18 @@ export function createApp(config: AppConfig) {
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
+			// Only report unexpected 5xx HTTPExceptions to Sentry. Expected 4xx
+			// (validation, auth failures, 402 billing challenges) are normal
+			// traffic, not incidents — capturing them would flood the quota.
+			if (err.status >= 500) {
+				captureServerError(err, {
+					path: c.req.path,
+					method: c.req.method,
+					requestId,
+					status: err.status,
+				})
+			}
+
 			const isAgentSurface = c.req.path.startsWith('/v1/agent') || c.req.path.startsWith('/mcp')
 			const cause = err.cause as { hint?: string } | undefined
 			const body: Record<string, unknown> = { error: err.message, requestId, timestamp }
@@ -106,6 +132,7 @@ export function createApp(config: AppConfig) {
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
+		captureServerError(err, { path: c.req.path, method: c.req.method, requestId })
 		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 
@@ -123,6 +150,9 @@ export function createApp(config: AppConfig) {
 
 	// On-chain fee-cashback rewards (read API + wallet-claim payloads)
 	app.route('/webapp/rewards', rewardsRoutes)
+
+	// Token search/price routes - public, no Telegram auth required
+	app.route('/webapp/tokens', tokenRoutes)
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)

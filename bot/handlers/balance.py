@@ -19,7 +19,6 @@ from bot.utils.templates import (
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
-
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
 

@@ -50,10 +50,7 @@ for _stub_name in (
 # bot/handlers/__init__.py (which imports sibling modules with annotations not
 # valid on the Python 3.9 interpreter used here).
 _LIMIT_ORDERS_PATH = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "bot"
-    / "handlers"
-    / "limit_orders.py"
+    pathlib.Path(__file__).resolve().parents[1] / "bot" / "handlers" / "limit_orders.py"
 )
 _spec = importlib.util.spec_from_file_location(
     "bot_handlers_limit_orders_under_test", _LIMIT_ORDERS_PATH

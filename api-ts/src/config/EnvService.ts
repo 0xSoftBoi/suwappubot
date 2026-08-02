@@ -52,6 +52,11 @@ export const EnvSchema = Schema.Struct({
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
+	// Sentry error tracking — fully optional. Unset = no-op (no init, no latency,
+	// no behavior change). Never required in production; only wire it up when
+	// operators provide a DSN.
+	SENTRY_DSN: Schema.optional(Schema.String),
+
 	// Sponge Gateway
 	SPONGE_API_KEY: Schema.optional(Schema.String),
 	SPONGE_WEBHOOK_SECRET: Schema.optional(Schema.String),
@@ -126,6 +131,17 @@ export const EnvSchema = Schema.Struct({
 	// it just can't read live isClaimed() state from the chain.
 	REWARDS_DISTRIBUTOR_ADDRESS: Schema.optional(Schema.String),
 	REWARDS_RPC_URL: Schema.optional(Schema.String),
+
+	// OpenTelemetry tracing — fully optional, OFF by default. Unset/false = no
+	// SDK init, no exporter, no network calls, no added latency (see lib/otel.ts).
+	// Follows the same string 'true'/'false' convention as the other *_ENABLED
+	// flags above rather than a coerced boolean, for consistency.
+	OTEL_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	OTEL_SERVICE_NAME: Schema.optionalWith(Schema.String, { default: () => 'suwappu-api-ts' }),
+	// OTLP/HTTP collector base URL (e.g. http://localhost:4318 or a hosted
+	// collector). Traces are POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`.
+	// When unset, the exporter's own default (http://localhost:4318) is used.
+	OTEL_EXPORTER_OTLP_ENDPOINT: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

@@ -37,6 +37,7 @@ MIGRATION_THRESHOLD_SOL = 85.0  # ~85 SOL to complete bonding curve
 
 class PumpFunEventType(Enum):
     """Event types from pump.fun WebSocket."""
+
     TOKEN_CREATED = "tokenCreated"
     TRADE = "trade"
     MIGRATION = "migration"
@@ -45,6 +46,7 @@ class PumpFunEventType(Enum):
 @dataclass
 class PumpFunToken:
     """Token information from pump.fun."""
+
     mint: str
     name: str
     symbol: str
@@ -85,6 +87,7 @@ class PumpFunToken:
 @dataclass
 class PumpFunTrade:
     """Trade event from pump.fun."""
+
     signature: str
     mint: str
     sol_amount: int  # In lamports
@@ -109,6 +112,7 @@ class PumpFunTrade:
 @dataclass
 class PumpFunQuote:
     """Quote for buying/selling on pump.fun."""
+
     mint: str
     sol_amount: int
     token_amount: int
@@ -120,6 +124,7 @@ class PumpFunQuote:
 
 class PumpFunError(Exception):
     """Exception for pump.fun API errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -164,8 +169,7 @@ class PumpFunAPI:
             session = await get_session()
 
             async with session.get(
-                f"{PUMP_FUN_API}/coins/{mint}",
-                headers={"Accept": "application/json"}
+                f"{PUMP_FUN_API}/coins/{mint}", headers={"Accept": "application/json"}
             ) as response:
                 if response.status == 404:
                     return None
@@ -200,7 +204,7 @@ class PumpFunAPI:
             async with session.get(
                 f"{PUMP_FUN_API}/coins",
                 params={"limit": min(limit, 100), "sort": "created_timestamp", "order": "DESC"},
-                headers={"Accept": "application/json"}
+                headers={"Accept": "application/json"},
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -233,8 +237,13 @@ class PumpFunAPI:
             # Get tokens sorted by market cap (closest to graduation)
             async with session.get(
                 f"{PUMP_FUN_API}/coins",
-                params={"limit": 100, "sort": "market_cap", "order": "DESC", "includeNsfw": "false"},
-                headers={"Accept": "application/json"}
+                params={
+                    "limit": 100,
+                    "sort": "market_cap",
+                    "order": "DESC",
+                    "includeNsfw": "false",
+                },
+                headers={"Accept": "application/json"},
             ) as response:
                 if response.status != 200:
                     return []
@@ -350,29 +359,21 @@ class PumpFunAPI:
     async def subscribe_new_tokens(self):
         """Subscribe to all new token creation events."""
         if self._ws:
-            await self._ws.send(json.dumps({
-                "method": "subscribeNewToken"
-            }))
+            await self._ws.send(json.dumps({"method": "subscribeNewToken"}))
             logger.info("Subscribed to pump.fun new token events")
 
     async def subscribe_token_trades(self, mint: str):
         """Subscribe to trades for a specific token."""
         self._subscribed_tokens.add(mint)
         if self._ws:
-            await self._ws.send(json.dumps({
-                "method": "subscribeTokenTrade",
-                "keys": [mint]
-            }))
+            await self._ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [mint]}))
             logger.debug(f"Subscribed to trades for {mint}")
 
     async def unsubscribe_token_trades(self, mint: str):
         """Unsubscribe from trades for a specific token."""
         self._subscribed_tokens.discard(mint)
         if self._ws:
-            await self._ws.send(json.dumps({
-                "method": "unsubscribeTokenTrade",
-                "keys": [mint]
-            }))
+            await self._ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
 
     async def start(self):
         """Start WebSocket connection for real-time events."""
@@ -441,7 +442,11 @@ class PumpFunAPI:
             token = self._parse_token(data)
             for callback in self._callbacks[PumpFunEventType.TOKEN_CREATED]:
                 try:
-                    await callback(token) if asyncio.iscoroutinefunction(callback) else callback(token)
+                    (
+                        await callback(token)
+                        if asyncio.iscoroutinefunction(callback)
+                        else callback(token)
+                    )
                 except Exception as e:
                     logger.error(f"Error in token_created callback: {e}")
 
@@ -450,7 +455,11 @@ class PumpFunAPI:
             trade = self._parse_trade(data)
             for callback in self._callbacks[PumpFunEventType.TRADE]:
                 try:
-                    await callback(trade) if asyncio.iscoroutinefunction(callback) else callback(trade)
+                    (
+                        await callback(trade)
+                        if asyncio.iscoroutinefunction(callback)
+                        else callback(trade)
+                    )
                 except Exception as e:
                     logger.error(f"Error in trade callback: {e}")
 
@@ -459,7 +468,11 @@ class PumpFunAPI:
                 mint = data.get("mint")
                 for callback in self._callbacks[PumpFunEventType.MIGRATION]:
                     try:
-                        await callback(mint) if asyncio.iscoroutinefunction(callback) else callback(mint)
+                        (
+                            await callback(mint)
+                            if asyncio.iscoroutinefunction(callback)
+                            else callback(mint)
+                        )
                     except Exception as e:
                         logger.error(f"Error in migration callback: {e}")
 

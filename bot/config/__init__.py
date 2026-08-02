@@ -10,4 +10,3 @@ __all__ = [
     "TOKENS",
     "get_token_address",
 ]
-

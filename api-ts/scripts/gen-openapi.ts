@@ -39,7 +39,7 @@ import {
 } from '../src/routes/validators'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const SPEC_PATH = join(__dirname, '..', 'openapi-agent.json')
+export const SPEC_PATH = join(__dirname, '..', 'openapi-agent.json')
 
 const SPEC_VERSION = '0.5.0'
 
@@ -335,7 +335,7 @@ const SCHEMA_MAP: Record<
 }
 
 /** Build the regenerated spec object from the existing one (pure; no IO besides the passed-in spec). */
-function buildSpec(existing: Json): Json {
+export function buildSpec(existing: Json): Json {
 	// Deep clone so we never mutate the parsed input.
 	const spec: Json = JSON.parse(JSON.stringify(existing))
 
@@ -357,7 +357,9 @@ function buildSpec(existing: Json): Json {
 	return spec
 }
 
-function serialize(obj: Json): string {
+/** Stable JSON serialization: preserves object key insertion order (deterministic —
+ * no timestamps, no non-deterministic iteration), 2-space indent, trailing newline. */
+export function serialize(obj: Json): string {
 	return `${JSON.stringify(obj, null, 2)}\n`
 }
 
@@ -383,4 +385,8 @@ function main(): void {
 	console.log(`✓ Wrote ${SPEC_PATH} (version ${SPEC_VERSION}).`)
 }
 
-main()
+// Only run when executed directly (`bun run scripts/gen-openapi.ts`), not when
+// imported by other tooling (e.g. scripts/check-openapi.ts) for its exports.
+if (import.meta.main) {
+	main()
+}

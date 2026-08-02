@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class CircuitState(str, Enum):
-    CLOSED = "closed"        # Normal — using Turnkey
-    OPEN = "open"            # Turnkey down — using local backup
+    CLOSED = "closed"  # Normal — using Turnkey
+    OPEN = "open"  # Turnkey down — using local backup
     HALF_OPEN = "half_open"  # Testing if Turnkey recovered
 
 
@@ -86,9 +86,10 @@ def get_circuit_breaker() -> CircuitBreaker:
     global _circuit_breaker
     if _circuit_breaker is None:
         from bot.config.settings import settings
+
         _circuit_breaker = CircuitBreaker(
-            threshold=getattr(settings, 'turnkey_circuit_breaker_threshold', 3),
-            recovery_timeout=getattr(settings, 'turnkey_circuit_breaker_recovery_seconds', 300),
+            threshold=getattr(settings, "turnkey_circuit_breaker_threshold", 3),
+            recovery_timeout=getattr(settings, "turnkey_circuit_breaker_recovery_seconds", 300),
         )
     return _circuit_breaker
 
@@ -97,11 +98,11 @@ def should_use_fallback() -> bool:
     """Check if we should use fallback signing (local backup keys)."""
     from bot.config.settings import settings
 
-    mode = getattr(settings, 'turnkey_fallback_mode', 'auto')
+    mode = getattr(settings, "turnkey_fallback_mode", "auto")
 
-    if mode == 'disabled':
+    if mode == "disabled":
         return False
-    if mode == 'manual':
+    if mode == "manual":
         return True
     # auto mode — use circuit breaker
     return get_circuit_breaker().is_open
@@ -115,7 +116,7 @@ async def sign_evm_with_fallback(wallet_service, wallet, transaction: dict) -> s
     """
     from bot.config.settings import settings
 
-    if not getattr(settings, 'turnkey_fallback_enabled', True):
+    if not getattr(settings, "turnkey_fallback_enabled", True):
         return await wallet_service.sign_evm_transaction(wallet, transaction)
 
     if not wallet.is_turnkey_wallet:
@@ -140,7 +141,7 @@ async def sign_typed_data_with_fallback(wallet_service, wallet, typed_data: dict
     """Sign EIP-712 typed data with Turnkey fallback."""
     from bot.config.settings import settings
 
-    if not getattr(settings, 'turnkey_fallback_enabled', True):
+    if not getattr(settings, "turnkey_fallback_enabled", True):
         return await wallet_service.sign_typed_data(wallet, typed_data)
 
     if not wallet.is_turnkey_wallet:
@@ -165,7 +166,7 @@ async def sign_solana_with_fallback(wallet_service, wallet, transaction_bytes: b
     """Sign a Solana transaction with Turnkey fallback."""
     from bot.config.settings import settings
 
-    if not getattr(settings, 'turnkey_fallback_enabled', True):
+    if not getattr(settings, "turnkey_fallback_enabled", True):
         return await wallet_service.sign_solana_transaction(wallet, transaction_bytes)
 
     if not wallet.is_turnkey_wallet:
@@ -187,6 +188,7 @@ async def sign_solana_with_fallback(wallet_service, wallet, transaction_bytes: b
 
 
 # --- Local signing helpers using backup keys ---
+
 
 def _get_backup_private_key(wallet) -> str:
     """Decrypt the backup private key from a Turnkey wallet."""

@@ -1,66 +1,45 @@
 name: Health Check
 
-# Independent, external uptime probe for the public Railway services.
-# Runs on a schedule and on manual dispatch. On any non-2xx it pings Telegram.
-# Catches services that deployed fine but later went down — a failure mode the
-# Railway deploy webhook cannot see. Deploy *failures* are alerted separately by
-# the /internal/railway-webhook endpoint in python-api.
+# One of TWO independent schedulers running the same probe
+# (scripts/uptime_probe.py). The other is the `monitor` Railway cron service
+# (railway.monitor.json).
+#
+# Why two: this workflow silently stops running when GitHub Actions billing
+# fails — the job never starts, so the alert step never runs and nothing reports
+# that monitoring itself died. That happened on 2026-07-25. A second scheduler
+# on a different provider means one billing failure cannot blind us, and the
+# heartbeat both of them emit feeds a dead-man's switch in python-api that
+# alerts when the probes go quiet.
+#
+# The endpoint list lives in monitoring/endpoints.json so both schedulers check
+# exactly the same things — previously each kept its own list and `webapp`
+# silently went unmonitored after it was deployed as its own service.
+#
+# Deploy *failures* are alerted separately by /internal/railway-webhook.
+# Services with no public URL are covered by `python3 scripts/status.py`.
 
 on:
   schedule:
     - cron: "*/10 * * * *" # every 10 minutes (GitHub cron is best-effort)
   workflow_dispatch: {}
 
+# Least privilege: this job runs a checked-out repo script with four secrets in
+# env, so it should not also carry a writable GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
       - name: Probe health endpoints
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
-        run: |
-          set -u
-          # name|url pairs — public HTTP services only (workers are internal).
-          endpoints=(
-            "python-api|https://python-api-production-8526.up.railway.app/health"
-            "api-ts|https://api-ts-production.up.railway.app/health"
-            "terminal|https://terminal-production-7906.up.railway.app/"
-            "showcase|https://showcase-production-6f89.up.railway.app/robots.txt"
-            "bridge|https://suwappu-bridge-production.up.railway.app/"
-          )
-
-          failures=""
-          for pair in "${endpoints[@]}"; do
-            name="${pair%%|*}"
-            url="${pair#*|}"
-            # 3 attempts, 15s timeout each, before declaring down (ride out blips).
-            code=""
-            for attempt in 1 2 3; do
-              code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "$url" || echo "000")
-              [[ "$code" =~ ^2 ]] && break
-              sleep 5
-            done
-            if [[ ! "$code" =~ ^2 ]]; then
-              echo "DOWN: $name ($url) -> HTTP $code"
-              failures+="• \`$name\` → HTTP $code%0A"
-            else
-              echo "OK:   $name -> HTTP $code"
-            fi
-          done
-
-          if [[ -n "$failures" ]]; then
-            if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_ALERT_CHAT_ID:-}" ]]; then
-              msg="🩺 *Suwappu health check failed*%0A${failures}"
-              curl -s -m 15 \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${TELEGRAM_ALERT_CHAT_ID}" \
-                -d "parse_mode=Markdown" \
-                --data-urlencode "text=${msg}" > /dev/null || true
-            else
-              echo "::warning::Telegram secrets not set — cannot send alert"
-            fi
-            echo "::error::One or more services are down"
-            exit 1
-          fi
-          echo "All services healthy"
+          MONITOR_HEARTBEAT_URL: ${{ secrets.MONITOR_HEARTBEAT_URL }}
+          MONITOR_HEARTBEAT_TOKEN: ${{ secrets.MONITOR_HEARTBEAT_TOKEN }}
+          PROBE_SOURCE: github-actions
+        # stdlib only — no pip install, no dependency on the repo's requirements.
+        run: python3 scripts/uptime_probe.py --env prod

@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes, CommandHandler
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
 from bot.services.swap_engine import SwapEngine
+from bot.services.spending_limits import spending_limit_service
 from bot.config.tokens import get_token_by_symbol
 from bot.config.chains import get_chain_by_name
 from bot.utils.validators import validate_amount
@@ -249,6 +250,43 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
     if not swap_data:
         await query.edit_message_text("❌ Swap session expired. Please start again.")
         return
+
+    quote = swap_data["quote"]
+    user_id = swap_data["user_id"]
+
+    # MONEY-PATH guard: the same spending-limit + 2FA-required check the full
+    # swap wizard (bot/handlers/swap.py confirm_swap) runs before executing —
+    # without this, `/s` could push an above-threshold swap straight to
+    # execute_swap on a 2FA-enabled account with no code challenge at all.
+    # See spending_limit_service.check_with_2fa (shared with swap.py/bulk_swap.py).
+    amount_usd = await spending_limit_service.usd_value(quote.from_token, quote.from_amount_human)
+    if amount_usd is not None:
+        allowed, block_reason, requires_2fa = spending_limit_service.check_with_2fa(
+            user_id, amount_usd
+        )
+        if not allowed:
+            await query.edit_message_text(f"🚫 {block_reason}")
+            context.user_data.pop("quickswap", None)
+            return
+        if requires_2fa:
+            # Quick Swap has no inline TOTP-entry flow (unlike /swap and
+            # /bulk). Rather than letting an above-threshold swap execute with
+            # zero 2FA challenge — the bug this guard closes — fail CLOSED:
+            # block execution here and route the user to the full wizard,
+            # which already implements the code challenge end-to-end.
+            await query.edit_message_text(
+                f"🔐 *2FA Required*\n\n"
+                f"This swap moves {format_usd(amount_usd)}, which is at or above "
+                f"your 2FA threshold. Quick Swap (`/s`) doesn't support entering "
+                f"a verification code inline — please use the full swap wizard "
+                f"to confirm this trade.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🔄 Open Swap Wizard", callback_data="swap_start")]]
+                ),
+            )
+            context.user_data.pop("quickswap", None)
+            return
 
     await query.edit_message_text("⏳ Executing swap...")
 

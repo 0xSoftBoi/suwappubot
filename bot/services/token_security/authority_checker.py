@@ -51,6 +51,7 @@ FREEZE_AUTHORITY_OFFSET = 50
 @dataclass
 class AuthorityResult:
     """Result of authority check."""
+
     token_mint: str
     checked_at: datetime
 
@@ -90,6 +91,7 @@ class AuthorityResult:
 
 class AuthorityCheckerError(Exception):
     """Exception for authority checker errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -150,11 +152,8 @@ class AuthorityChecker:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getAccountInfo",
-                    "params": [
-                        token_mint,
-                        {"encoding": "base64"}
-                    ]
-                }
+                    "params": [token_mint, {"encoding": "base64"}],
+                },
             ) as response:
                 if response.status != 200:
                     raise AuthorityCheckerError(f"RPC error: HTTP {response.status}")
@@ -202,37 +201,32 @@ class AuthorityChecker:
         # Parse mint authority
         # COption<Pubkey>: first 4 bytes indicate Some(1) or None(0)
         mint_auth_option = int.from_bytes(
-            data[MINT_AUTHORITY_OPTION_OFFSET:MINT_AUTHORITY_OPTION_OFFSET + 4],
-            "little"
+            data[MINT_AUTHORITY_OPTION_OFFSET : MINT_AUTHORITY_OPTION_OFFSET + 4], "little"
         )
 
         if mint_auth_option == 1:
             # Mint authority is set
             result.has_mint_authority = True
-            mint_auth_bytes = data[MINT_AUTHORITY_OFFSET:MINT_AUTHORITY_OFFSET + 32]
+            mint_auth_bytes = data[MINT_AUTHORITY_OFFSET : MINT_AUTHORITY_OFFSET + 32]
             result.mint_authority = self._bytes_to_base58(mint_auth_bytes)
         else:
             result.has_mint_authority = False
             result.mint_authority = None
 
         # Parse supply (u64, little-endian)
-        result.supply = int.from_bytes(
-            data[SUPPLY_OFFSET:SUPPLY_OFFSET + 8],
-            "little"
-        )
+        result.supply = int.from_bytes(data[SUPPLY_OFFSET : SUPPLY_OFFSET + 8], "little")
 
         # Parse decimals
         result.decimals = data[DECIMALS_OFFSET]
 
         # Parse freeze authority
         freeze_auth_option = int.from_bytes(
-            data[FREEZE_AUTHORITY_OPTION_OFFSET:FREEZE_AUTHORITY_OPTION_OFFSET + 4],
-            "little"
+            data[FREEZE_AUTHORITY_OPTION_OFFSET : FREEZE_AUTHORITY_OPTION_OFFSET + 4], "little"
         )
 
         if freeze_auth_option == 1:
             result.has_freeze_authority = True
-            freeze_auth_bytes = data[FREEZE_AUTHORITY_OFFSET:FREEZE_AUTHORITY_OFFSET + 32]
+            freeze_auth_bytes = data[FREEZE_AUTHORITY_OFFSET : FREEZE_AUTHORITY_OFFSET + 32]
             result.freeze_authority = self._bytes_to_base58(freeze_auth_bytes)
         else:
             result.has_freeze_authority = False
@@ -289,10 +283,7 @@ class AuthorityChecker:
         """Check authorities for multiple tokens in parallel."""
         results = {}
 
-        tasks = [
-            self.check_authorities(mint, use_cache=True)
-            for mint in token_mints
-        ]
+        tasks = [self.check_authorities(mint, use_cache=True) for mint in token_mints]
 
         completed = await asyncio.gather(*tasks, return_exceptions=True)
 

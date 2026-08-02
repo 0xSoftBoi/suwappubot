@@ -12,19 +12,20 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     This provides an inline way to open the dashboard webapp,
     as an alternative to the menu button.
     """
-    keyboard = [[
-        InlineKeyboardButton(
-            text="📊 Open Dashboard",
-            web_app=WebAppInfo(url=settings.webapp_url)
-        )
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="📊 Open Dashboard", web_app=WebAppInfo(url=settings.webapp_url)
+            )
+        ]
+    ]
 
     await update.message.reply_text(
         "🌸 *Suwappu Dashboard*\n\n"
         "View your portfolio and swap history in the Mini App.\n\n"
         "Tap the button below to open:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
@@ -33,21 +34,21 @@ async def dashboard_menu_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    keyboard = [[
-        InlineKeyboardButton(
-            text="📊 Open Dashboard",
-            web_app=WebAppInfo(url=settings.webapp_url)
-        )
-    ], [
-        InlineKeyboardButton("« Back", callback_data="main_menu")
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="📊 Open Dashboard", web_app=WebAppInfo(url=settings.webapp_url)
+            )
+        ],
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ]
 
     await query.edit_message_text(
         "🌸 *Suwappu Dashboard*\n\n"
         "View your portfolio and swap history in the Mini App.\n\n"
         "Tap the button below to open:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 

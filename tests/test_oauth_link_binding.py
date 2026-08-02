@@ -5,6 +5,7 @@ victim into authorizing, binding the attacker's OAuth identity to the victim's
 account. The callback now requires the authenticated session to match
 oauth_state.user_id for link flows (login flows are unaffected).
 """
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")

@@ -49,12 +49,19 @@ async def backfill_user_positions(user_id: int) -> bool:
     """Reconstruct the user's spot cost basis from swap history. Idempotent:
     clears existing rows and replays from scratch, then stamps
     User.positions_backfilled_at. Best-effort — returns False on failure."""
+
     def _load():
         with get_session() as session:
-            rows = session.query(SwapTransaction).filter(
-                SwapTransaction.user_id == user_id,
-                SwapTransaction.status.in_(_REPLAY_STATUSES),
-            ).order_by(SwapTransaction.created_at.asc()).limit(_MAX_REPLAY).all()
+            rows = (
+                session.query(SwapTransaction)
+                .filter(
+                    SwapTransaction.user_id == user_id,
+                    SwapTransaction.status.in_(_REPLAY_STATUSES),
+                )
+                .order_by(SwapTransaction.created_at.asc())
+                .limit(_MAX_REPLAY)
+                .all()
+            )
             return [
                 (s.from_token, s.from_chain, s.to_token, s.to_chain, s.from_amount, s.to_amount)
                 for s in rows
@@ -133,10 +140,16 @@ async def backfill_user_positions(user_id: int) -> bool:
             for (token, chain), (qty, cost, realized) in acc.items():
                 if qty <= 1e-12 and abs(realized) < 1e-9:
                     continue  # never held / nothing realized — skip empty row
-                session.add(UserPosition(
-                    user_id=user_id, token=token, chain=chain,
-                    qty=qty, cost_usd=cost, realized_pnl_usd=realized,
-                ))
+                session.add(
+                    UserPosition(
+                        user_id=user_id,
+                        token=token,
+                        chain=chain,
+                        qty=qty,
+                        cost_usd=cost,
+                        realized_pnl_usd=realized,
+                    )
+                )
 
             u = session.query(User).filter(User.id == user_id).first()
             if u:

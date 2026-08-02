@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **IMPLEMENT, don't plan.** When asked to fix or build something, DO the work. If you need to explore first, limit exploration to 5 minutes then start building. Only produce a plan document if explicitly asked for one.
 - If blocked, say so explicitly — don't fill the response with exploration as a substitute for implementation.
 
+## Response Length
+
+- Keep each assistant turn under **~400 output tokens**. Prefer many short turns over one long turn.
+- For long reports, audits, or plans: `Write` them to a file and reply with the path + a 3-bullet summary. Never inline a whole document in a turn.
+- Write deliverables to disk **as they are produced**, not at the end. An interrupted session should cost a turn, not the whole run.
+
 ## Git Conventions
 
 - **IMPORTANT**: Do NOT add "Co-Authored-By" lines to commit messages.
@@ -20,6 +26,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **Worktree check**: Run `git rev-parse --git-common-dir` — if in a worktree, **NEVER rebase**. Always use `git merge` or `git pull --no-rebase`.
 4. **Divergence check**: Compare `git rev-parse HEAD` vs `git rev-parse @{u}` to detect local/remote divergence. Recommend merge (not force-push) unless user explicitly approves.
 5. **Uncommitted work**: Run `git status` and `git stash list` to surface any uncommitted changes or stashed work. Report before proceeding.
+
+### PR merge policy
+When asked to "merge all PRs": check CI on **every** open PR, merge the green ones, then actively **fix** the failing ones (including Dependabot) rather than reporting them as blocked. Only stop and ask if the fix needs a product decision or a secret you don't have. Report per-PR: merged / fixed-then-merged / blocked-with-reason.
 
 ### Additional rules:
 - **NEVER use `git rebase`**. Always use `git merge` or `git pull --no-rebase`.
@@ -41,7 +50,7 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure for swapping token
 - **Mobile** (`mobile/`): Expo iOS app
 - **Showcase** (`showcase/`): Next.js homepage
 
-Deploys to Railway. See `docs/deployment/`.
+Deploys to Railway. See `docs/deployment/` — and `docs/deployment/monitoring.md` for how we find out something is broken (which layer catches what, and what each one is blind to).
 
 ## Commands
 
@@ -143,8 +152,15 @@ cd mobile && bun install && bun run ios
 - GitHub Actions auto-deploys on push to `main`/`dev` (currently broken — billing)
 
 ```bash
-curl https://api.suwappu.bot/health       # Check production
-curl https://devapi.suwappu.bot/health     # Check development
+python3 scripts/status.py                  # ALL services: deploy state + health + logs + CI
+python3 scripts/status.py --env dev
+
+# Single-endpoint checks. NOTE: api.suwappu.bot serves the **api-ts** service,
+# NOT python-api (it returns {"service":"suwappu-api-ts"}). The Python bot has no
+# custom domain in prod — use its railway.app host for the deep readiness payload.
+curl https://api.suwappu.bot/health                              # api-ts (prod)
+curl https://python-api-production-8526.up.railway.app/health    # python bot (prod)
+curl https://devapi.suwappu.bot/health                           # api-ts (dev)
 ```
 
 ## API & Bot Reference
@@ -167,7 +183,7 @@ bash scripts/verify.sh agent  # Run only agent card/registry checks
 
 ## Standing rules (hard-won — follow these)
 
-1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify: `curl https://api.suwappu.bot/health` → 200 **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. The `/ship` skill does this.
+1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify with `python3 scripts/status.py` (checks the Railway control plane, deep health, and scans logs for import errors in one shot) **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. Do NOT use `curl https://api.suwappu.bot/health` for this — that domain serves api-ts, not the bot. The `/ship` skill does this.
 2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
 3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
 4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. (Escape hatch: `/model opus` for a genuinely hard-architecture session.)
@@ -214,6 +230,9 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - `/ship` — Branch → commit → PR → wait for CI green → merge → verify the bot boots
 - `/deploy` — Deploy services to Railway (`prod|dev` × `python-api|python-worker|terminal|api-ts|showcase|all`)
 - `/audit` — Attacker-minded security audit of scoped files; streams compact findings incrementally
+- `/audit-fleet` — Parallel audit: one `security-auditor` per attack surface, findings streamed to `.audit/findings/*.jsonl`, then deduped/ranked/filed
+- `/bugclass` — Treat one confirmed bug as a class: reproduce → fix → sweep both stacks → one commit per instance
+- `/worktree-check` — Audit all worktrees for uncommitted/unpushed/stashed work at risk **before** any reset or cleanup
 - `/worktree` — Manage git worktrees for parallel development
 - `/migrations` — Database migration tutorial
 - `/new-handler` — Add a new Telegram bot command handler
@@ -227,11 +246,20 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - Keep each finding compact: `severity`, `file:line`, exploit path, fix. Distinguish real bugs from false positives explicitly.
 - End with a candid coverage QA note: what you scanned, what you skipped or refused, and why.
 - Scope to specific candidate files up front rather than "audit everything."
+- **Structured output goes FIRST.** When asked for JSON findings, emit/append the JSON object for each finding **before** any prose explanation, file-by-file. Never buffer the analysis and dump the JSON at the end — multiple audits (IDOR, 2FA bypass, fee overcharge) died at the spend limit with zero parseable output.
+- Finding shape: `{file, line, severity, title, exploit_path, preconditions, confidence, false_positive_reasoning}`.
 
 ## CI / Testing
 
 - **Do NOT cancel a CI run or long command assuming it hung.** GitHub Actions runner contention is common and slow suites are expected. The Bash tool caps ~2 min — that is a tool timeout, not a hung job. Wait and re-check `gh run watch` / poll status before concluding failure.
 - Give slow test suites generous timeouts; an 18-test run taking minutes is normal, not a hang.
+- **Always pass an explicit `timeout` of at least `600000` ms** to Bash for `pytest`, `npm test`/`bun test`, builds, and CI polling. Never cancel a GitHub Actions run for slowness — check whether the job is *queued* (runner contention) vs actually stuck, and wait at least 15 minutes before escalating.
+
+## Live Verification
+
+- **A fix is not complete until it is verified on the live deployed URL.** CI green and "deploy succeeded" are not evidence.
+- After any deploy: load the production URL with the claude-in-chrome MCP, screenshot the affected view, and report the evidence. If the browser tool can't set the viewport, use the iframe workaround at the target width.
+- If live verification is genuinely blocked, say "code-complete, not functionally verified — needs X." Never report "deployed" from CI status alone.
 
 ## Working Style / Scope
 

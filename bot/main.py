@@ -204,6 +204,13 @@ from bot.handlers.admin_performance import (
     perf_reset_handler,
     perf_slow_queries_handler,
 )
+from bot.handlers.support import (
+    support_conversation_handler,
+    tickets_handler,
+    ticket_handler,
+    treply_handler,
+    tclose_handler,
+)
 from bot.handlers.subscription import (
     subscription_handler,
     subscription_conversation,
@@ -212,6 +219,12 @@ from bot.handlers.subscription import (
 )
 from bot.handlers.vip import vip_handler
 from bot.handlers.import_handler import import_conversation_handler
+from bot.handlers.intel import (
+    intel_handler,
+    devwatch_handler,
+    intel_refresh_handler,
+    intel_watch_handler,
+)
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -311,6 +324,8 @@ from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
+from bot.services.support_notifier import support_notifier
+from bot.services.battle_monitor import battle_monitor
 from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
@@ -431,6 +446,14 @@ def add_handlers(application: Application) -> None:
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
     application.add_handler(perf_handler)  # /perf
+    application.add_handler(tickets_handler)  # /tickets (admin: list support tickets)
+    application.add_handler(ticket_handler)  # /ticket (admin: view one ticket)
+    application.add_handler(treply_handler)  # /treply (admin: reply to a ticket)
+    application.add_handler(tclose_handler)  # /tclose (admin: resolve a ticket)
+    application.add_handler(intel_handler)  # /intel — token deployer/holder report
+    application.add_handler(devwatch_handler)  # /devwatch — deployer watchlist
+    application.add_handler(intel_refresh_handler)  # /intel "Refresh" button
+    application.add_handler(intel_watch_handler)  # /intel "Watch deployer" button
 
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
@@ -472,6 +495,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
     application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
     application.add_handler(gift_conversation)  # /gift gift cards (gated on BITREFILL_API_KEY)
+    application.add_handler(support_conversation_handler)  # /support, /bug — ticket filing
 
     # ============ COMMUNITY PAYMENT TOOLS (Bucket 2) ============
     # MONEY-PATH: custodial-balance transfers (tip / lucky box / split)
@@ -764,6 +788,8 @@ async def post_init(application) -> None:
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("support", "🆘 Contact support"),
+            BotCommand("bug", "🐞 Report a bug"),
             BotCommand("set", "⚙️ Settings"),
             BotCommand("h", "📖 Help — full command list"),
         ]
@@ -837,6 +863,17 @@ async def post_init(application) -> None:
         logger.info("✓ Health monitor started")
 
         # Start token launch detector for sniping
+        # Dev Tracking: notify users watching a deployer when it launches a new
+        # token. Hooked non-fatally — a bug here must never break sniping.
+        async def _on_launch_dev_watch(launch) -> None:
+            try:
+                from bot.services.token_intel.dev_watch import check_watched_deployer_launch
+
+                await check_watched_deployer_launch(launch, bot=application.bot)
+            except Exception as e:
+                logger.error(f"Dev-watch launch check failed: {e}")
+
+        launch_detector.on_launch(_on_launch_dev_watch)
         await launch_detector.start()
         logger.info("✓ Token launch detector started")
 
@@ -844,10 +881,18 @@ async def post_init(application) -> None:
         await rug_service.start(swap_engine=SwapEngine())
         logger.info("✓ Rug protection service started")
 
+        # Start support ticket fan-out (admin DM + support group + Linear sync)
+        await support_notifier.start(bot=application.bot)
+        logger.info("✓ Support notifier started")
+
         # Start HyperLiquid WebSocket alert feed
         if settings.hl_ws_alerts_enabled:
             await hl_ws_alerts.start(bot=application.bot)
             logger.info("✓ HyperLiquid WebSocket alerts started")
+
+        # Start battle settlement monitor (settles expired /battle positions)
+        await battle_monitor.start(bot=application.bot)
+        logger.info("✓ Battle monitor started")
 
 
 async def post_shutdown(application) -> None:
@@ -863,6 +908,8 @@ async def post_shutdown(application) -> None:
         await launch_detector.stop()
         if settings.hl_ws_alerts_enabled:
             await hl_ws_alerts.stop()
+        await support_notifier.stop()
+        await battle_monitor.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()
@@ -885,6 +932,7 @@ async def run_headless() -> None:
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     await rug_service.start(swap_engine=SwapEngine())
+    await battle_monitor.start(bot=None)
 
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
 

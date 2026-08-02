@@ -26,6 +26,7 @@ class WalletRecoveryService:
     def turnkey_client(self):
         if self._turnkey_client is None:
             from bot.services.turnkey_client import get_turnkey_client
+
             self._turnkey_client = get_turnkey_client()
         return self._turnkey_client
 
@@ -49,18 +50,20 @@ class WalletRecoveryService:
         from database.db import get_session
 
         with get_session() as session:
-            user = session.query(User).filter(
-                User.telegram_id == user_id
-            ).first()
+            user = session.query(User).filter(User.telegram_id == user_id).first()
             if not user:
                 logger.error(f"User {user_id} not found for recovery setup")
                 return False
 
-            wallet = session.query(Wallet).filter(
-                Wallet.user_id == user.id,
-                Wallet.wallet_provider == "turnkey",
-                Wallet.is_active == True,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user.id,
+                    Wallet.wallet_provider == "turnkey",
+                    Wallet.is_active == True,
+                )
+                .first()
+            )
             if not wallet:
                 logger.error(f"No Turnkey wallet found for user {user_id}")
                 return False
@@ -92,18 +95,20 @@ class WalletRecoveryService:
         from database.db import get_session
 
         with get_session() as session:
-            user = session.query(User).filter(
-                User.recovery_email == email
-            ).first()
+            user = session.query(User).filter(User.recovery_email == email).first()
             if not user:
                 logger.warning(f"No user found with recovery email: {email[:3]}***")
                 return None
 
-            wallet = session.query(Wallet).filter(
-                Wallet.user_id == user.id,
-                Wallet.wallet_provider == "turnkey",
-                Wallet.is_active == True,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user.id,
+                    Wallet.wallet_provider == "turnkey",
+                    Wallet.is_active == True,
+                )
+                .first()
+            )
             if not wallet or not wallet.turnkey_sub_org_id:
                 logger.error(f"No Turnkey wallet/sub-org for user {user.id}")
                 return None
@@ -145,17 +150,19 @@ class WalletRecoveryService:
         from database.db import get_session
 
         with get_session() as session:
-            user = session.query(User).filter(
-                User.recovery_email == email
-            ).first()
+            user = session.query(User).filter(User.recovery_email == email).first()
             if not user:
                 return False
 
-            wallet = session.query(Wallet).filter(
-                Wallet.user_id == user.id,
-                Wallet.wallet_provider == "turnkey",
-                Wallet.is_active == True,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user.id,
+                    Wallet.wallet_provider == "turnkey",
+                    Wallet.is_active == True,
+                )
+                .first()
+            )
             if not wallet or not wallet.turnkey_sub_org_id:
                 return False
 
@@ -178,10 +185,7 @@ class WalletRecoveryService:
                     if user:
                         user.telegram_id = new_telegram_id
 
-            logger.info(
-                f"Recovery completed for user {user_db_id}, "
-                f"new auth: {auth_id}"
-            )
+            logger.info(f"Recovery completed for user {user_db_id}, " f"new auth: {auth_id}")
             return True
 
         except Exception as e:
@@ -193,16 +197,19 @@ class WalletRecoveryService:
         from database.db import get_session
 
         with get_session() as session:
-            user = session.query(User).filter(
-                User.telegram_id == user_id
-            ).first()
+            user = session.query(User).filter(User.telegram_id == user_id).first()
             if not user:
                 return {"has_recovery": False}
 
-            has_turnkey = session.query(Wallet).filter(
-                Wallet.user_id == user.id,
-                Wallet.wallet_provider == "turnkey",
-            ).first() is not None
+            has_turnkey = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user.id,
+                    Wallet.wallet_provider == "turnkey",
+                )
+                .first()
+                is not None
+            )
 
             return {
                 "has_recovery": bool(user.recovery_email),

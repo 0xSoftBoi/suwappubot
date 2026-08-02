@@ -7,6 +7,7 @@ from database.db import Base
 
 class PerpPosition(Base):
     """Perpetual trading position."""
+
     __tablename__ = "perp_positions"
 
     id = Column(Integer, primary_key=True)
@@ -38,6 +39,7 @@ class PerpPosition(Base):
 
 class PerpOrder(Base):
     """Perpetual trading order."""
+
     __tablename__ = "perp_orders"
 
     id = Column(Integer, primary_key=True)
@@ -48,7 +50,9 @@ class PerpOrder(Base):
     market = Column(String(50), nullable=False)
     side = Column(String(10), nullable=False)  # "long" or "short"
 
-    order_type = Column(String(20), nullable=False)  # market, limit, stop_market, take_profit, stop_loss
+    order_type = Column(
+        String(20), nullable=False
+    )  # market, limit, stop_market, take_profit, stop_loss
     size = Column(Numeric(precision=20, scale=8), nullable=False)
     price = Column(Numeric(precision=20, scale=8), nullable=True)  # NULL for market orders
     leverage = Column(Integer, default=1)
@@ -65,6 +69,7 @@ class PerpOrder(Base):
 
 class HyperLiquidAccount(Base):
     """User's HyperLiquid account configuration."""
+
     __tablename__ = "hyperliquid_accounts"
 
     id = Column(Integer, primary_key=True)

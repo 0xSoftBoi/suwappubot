@@ -21,6 +21,19 @@ from .tax import (
     tax_download_callback_handler,
     tax_menu_callback_handler,
 )
+from .support import (
+    support_conversation_handler,
+    tickets_handler,
+    ticket_handler,
+    treply_handler,
+    tclose_handler,
+)
+from .intel import (
+    intel_handler,
+    devwatch_handler,
+    intel_refresh_handler,
+    intel_watch_handler,
+)
 
 __all__ = [
     # Core handlers
@@ -66,4 +79,15 @@ __all__ = [
     "broadcast_handler",
     # VIP
     "vip_handler",
+    # Support / bug tickets
+    "support_conversation_handler",
+    "tickets_handler",
+    "ticket_handler",
+    "treply_handler",
+    "tclose_handler",
+    # Token Intel / Dev Tracking
+    "intel_handler",
+    "devwatch_handler",
+    "intel_refresh_handler",
+    "intel_watch_handler",
 ]

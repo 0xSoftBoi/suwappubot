@@ -53,6 +53,7 @@ KYBERSWAP_NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
 @dataclass
 class KyberSwapQuote:
     """Quote response from the KyberSwap Aggregator."""
+
     chain_slug: str
     from_token: str
     to_token: str
@@ -229,24 +230,30 @@ class KyberSwapAPI:
         routeSummary passthrough below.
         """
         # 1. Fresh route
-        route_data = await self._routes(chain_slug, {
-            "tokenIn": from_token,
-            "tokenOut": to_token,
-            "amountIn": amount,
-            **self._fee_params(platform_fee_bps),
-        })
+        route_data = await self._routes(
+            chain_slug,
+            {
+                "tokenIn": from_token,
+                "tokenOut": to_token,
+                "amountIn": amount,
+                **self._fee_params(platform_fee_bps),
+            },
+        )
         route_summary = route_data.get("routeSummary") or {}
         router_address = route_data.get("routerAddress", "")
         if not route_summary or not router_address:
             raise KyberSwapError("KyberSwap returned no route to build", route_data)
 
         # 2. Encode the swap. slippageTolerance is in bps (50 = 0.5%).
-        build_data = await self._build(chain_slug, {
-            "routeSummary": route_summary,
-            "sender": user_address,
-            "recipient": user_address,
-            "slippageTolerance": int(slippage * 100),
-        })
+        build_data = await self._build(
+            chain_slug,
+            {
+                "routeSummary": route_summary,
+                "sender": user_address,
+                "recipient": user_address,
+                "slippageTolerance": int(slippage * 100),
+            },
+        )
 
         call_data = build_data.get("data")
         if not call_data:
