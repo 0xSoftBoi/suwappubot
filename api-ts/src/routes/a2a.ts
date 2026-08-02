@@ -7,6 +7,7 @@ import type { Agent } from '../db'
 import { ValidationError } from '../errors'
 import type { AgentErrorCode } from '../lib/agentError'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { sanitizeReflectedText } from '../lib/outboundSanitize'
 import { cacheAgentQuote } from '../lib/quoteCache'
 import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
 import { runEffectEither } from '../runtime'
@@ -199,7 +200,7 @@ function getChainList(): string[] {
 // Message processing
 // -------------------------------------------------------------------
 
-async function processMessage(
+export async function processMessage(
 	text: string,
 	agent: Agent,
 ): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
@@ -331,15 +332,22 @@ async function processMessage(
 	}
 
 	// --- Unknown ---
+	// `text` here is unrecognized, caller-controlled free text. A2A responses
+	// may be rendered by other agents/clients, so scrub it before reflecting it
+	// back in either the human-readable text part or the structured data part
+	// (§3.4 outbound sanitization) — length-capped and control/formatting
+	// sequences neutralized. This only shapes what's echoed; command matching
+	// above is untouched.
+	const safeInput = sanitizeReflectedText(text)
 	return {
 		parts: [
 			{
 				type: 'text',
-				text: `Could not understand: "${text}". Try "swap 0.5 ETH to USDC on base", "price ETH", or "help".`,
+				text: `Could not understand: "${safeInput}". Try "swap 0.5 ETH to USDC on base", "price ETH", or "help".`,
 			},
 			{
 				type: 'data',
-				data: { error: 'unrecognized_command', input: text, hint: 'Send "help" for available commands' },
+				data: { error: 'unrecognized_command', input: safeInput, hint: 'Send "help" for available commands' },
 			},
 		],
 	}
