@@ -1,5 +1,9 @@
 .DS_Store
 
+# Local security-audit working directory (exploit paths, preconditions) —
+# never push exact exploitation steps for findings that may still be open.
+.audit/
+
 # Python cache/build artifacts
 __pycache__/
 *.py[cod]
