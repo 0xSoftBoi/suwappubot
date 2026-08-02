@@ -14,16 +14,9 @@ dependency, bad config, or scan error must degrade to a clean verdict, never rai
 never block the bot. These tests hold that contract, not the reverse.
 """
 
-import os
 import statistics
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
-os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
-os.environ.setdefault("KMS_PROVIDER", "dev")
-os.environ.setdefault("SECRET_KEY", "test-secret")
 
 import pytest
 
