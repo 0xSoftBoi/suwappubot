@@ -1,0 +1,61 @@
+{
+  "nav": {
+    "engine": "Motè",
+    "hyperliquid": "HyperLiquid",
+    "tempo": "Tempo",
+    "agents": "Ajan",
+    "api": "API",
+    "pricing": "Pri",
+    "docs": "Dokiman",
+    "solutions": "Solisyon",
+    "compare": "Konpare",
+    "forAgents": "Pou Ajan",
+    "status": "Estati",
+    "signIn": "Konekte",
+    "dashboard": "Dashboard",
+    "openBot": "Ouvri Bot",
+    "talkToSales": "Pale ak ekip vant",
+    "openTerminal": "Ouvri Terminal",
+    "whatsapp": "WhatsApp"
+  },
+  "hero": {
+    "kicker": "Kounye a nan beta louvri · 41 chèn",
+    "h1": "Fè echanj nenpòt bagay.",
+    "h1_accent": "San limit.",
+    "lead": "Suwappu dirije echanj ou yo atravè 41 chèn ak 19 rezo likidite — l ap chèche pi bon pri a, chak fwa. Non-kustodyal, pa gen KYC pou swap debaz. Kòmanse an 30 segond.",
+    "cta_bot": "Kòmanse trade gratis",
+    "cta_terminal": "Ouvri Terminal",
+    "byline_pre": "Kreye pa otè liv la",
+    "byline_book": "Printing Money",
+    "byline_mid": "— yon liv pratik sou sekirite DeFi — epi yon kontribitè open-source pou",
+    "byline_and": "ak"
+  },
+  "cta": {
+    "kicker": "Kòmanse gratis",
+    "heading": "Premye echanj ou pran sèlman 30 segond.",
+    "lead": "Ouvri bot la nan Telegram, oswa enstale SDK a epi konekte ajan ou. Pi bon egzekisyon atravè 41 chèn — pa gen bezwen konfigire bous.",
+    "open_bot": "Kòmanse trade gratis",
+    "whatsapp": "Chat sou WhatsApp",
+    "docs": "Li dokiman yo"
+  },
+  "referral": {
+    "kicker": "Fè lajan avèk Suwappu",
+    "heading": "30% nan chak frè trading. Pou tout tan.",
+    "body": "Refere yon zanmi epi fè 30% nan frè trading yo jenere yo — peye otomatikman, sou chak chèn. Pran lyen pèsonèl ou avèk <cmd>/ref</cmd> anndan bot la.",
+    "cta": "Jwenn lyen referans ou"
+  },
+  "pricing": {
+    "kicker": "Pri",
+    "heading": "Pri senp e transparan.",
+    "subheading": "Chwazi plan ki adapte ak volim ou. Anile nenpòt lè.",
+    "referral_heading": "Fè 30% kòm afilye",
+    "referral_body": "Refere trader aktif epi fè 30% nan frè yo — sou chak chèn, peye otomatikman. Pran lyen ou avèk /ref anndan bot la.",
+    "referral_cta": "Jwenn lyen referans ou",
+    "enterprise_heading": "Ou bezwen yon plan pèsonalize?",
+    "enterprise_body": "Enfrastrikti dedye, pri baze sou volim, ak SLA pou biwo trading ak flòt ajan.",
+    "enterprise_cta": "Pale avèk nou"
+  },
+  "languageSwitcher": {
+    "label": "Lang"
+  }
+}

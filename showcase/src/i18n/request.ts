@@ -1,7 +1,7 @@
 import { getRequestConfig } from 'next-intl/server';
 import { cookies, headers } from 'next/headers';
 
-export const locales = ['en', 'es', 'fr', 'zh'] as const;
+export const locales = ['en', 'es', 'fr', 'zh', 'hi', 'tl', 'vi', 'ht'] as const;
 export type Locale = (typeof locales)[number];
 export const defaultLocale: Locale = 'en';
 
@@ -19,7 +19,10 @@ async function resolveLocale(): Promise<Locale> {
   const headerStore = await headers();
   const acceptLang = headerStore.get('accept-language') ?? '';
   for (const segment of acceptLang.split(',')) {
-    const tag = segment.split(';')[0].trim().slice(0, 2).toLowerCase();
+    let tag = segment.split(';')[0].trim().slice(0, 3).toLowerCase();
+    // Filipino devices send 'fil'/'fil-PH'; our locale code is 'tl'. A plain
+    // 2-char slice would truncate 'fil' to 'fi' (Finnish) and miss it.
+    tag = tag.startsWith('fil') ? 'tl' : tag.slice(0, 2);
     if ((locales as readonly string[]).includes(tag)) {
       return tag as Locale;
     }

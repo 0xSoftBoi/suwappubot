@@ -1,0 +1,61 @@
+{
+  "nav": {
+    "engine": "Engine",
+    "hyperliquid": "HyperLiquid",
+    "tempo": "Tempo",
+    "agents": "Mga Agent",
+    "api": "API",
+    "pricing": "Presyo",
+    "docs": "Docs",
+    "solutions": "Mga Solusyon",
+    "compare": "Ihambing",
+    "forAgents": "Para sa mga Agent",
+    "status": "Status",
+    "signIn": "Mag-sign in",
+    "dashboard": "Dashboard",
+    "openBot": "Buksan ang Bot",
+    "talkToSales": "Kausapin ang sales",
+    "openTerminal": "Buksan ang Terminal",
+    "whatsapp": "WhatsApp"
+  },
+  "hero": {
+    "kicker": "Live na ngayon sa open beta · 41 chains",
+    "h1": "I-trade ang kahit ano.",
+    "h1_accent": "Walang limitasyon.",
+    "lead": "Ino-route ng Suwappu ang mga trade mo sa 41 chains at 19 liquidity networks — hinahanap ang pinakamagandang presyo, sa tuwina. Non-custodial, walang KYC para sa basic swaps. Magsimula sa loob ng 30 segundo.",
+    "cta_bot": "Simulan ang libreng trading",
+    "cta_terminal": "Buksan ang Terminal",
+    "byline_pre": "Ginawa ng may-akda ng",
+    "byline_book": "Printing Money",
+    "byline_mid": "— isang hands-on na libro tungkol sa DeFi security — at open-source contributor sa",
+    "byline_and": "at"
+  },
+  "cta": {
+    "kicker": "Magsimula nang libre",
+    "heading": "30 segundo lang ang unang trade mo.",
+    "lead": "Buksan ang bot sa Telegram, o i-install ang SDK at i-connect ang agent mo. Best execution sa 41 chains — walang kailangang i-set up na wallet.",
+    "open_bot": "Simulan ang libreng trading",
+    "whatsapp": "Mag-chat sa WhatsApp",
+    "docs": "Basahin ang docs"
+  },
+  "referral": {
+    "kicker": "Kumita kasama ang Suwappu",
+    "heading": "30% ng bawat trading fee. Habambuhay.",
+    "body": "I-refer ang isang kaibigan at kumita ng 30% ng mga trading fee na nabubuo mula sa kanilang mga trade — awtomatikong babayaran, sa bawat chain. Kunin ang personal mong link gamit ang <cmd>/ref</cmd> sa loob ng bot.",
+    "cta": "Kunin ang iyong referral link"
+  },
+  "pricing": {
+    "kicker": "Presyo",
+    "heading": "Simple at transparent na presyo.",
+    "subheading": "Piliin ang plan na bagay sa volume mo. Puwede kang mag-cancel anumang oras.",
+    "referral_heading": "Kumita ng 30% bilang affiliate",
+    "referral_body": "I-refer ang mga aktibong trader at kumita ng 30% ng kanilang mga fee — sa bawat chain, awtomatikong babayaran. Kunin ang link mo gamit ang /ref sa loob ng bot.",
+    "referral_cta": "Kunin ang iyong referral link",
+    "enterprise_heading": "Kailangan ng custom na plan?",
+    "enterprise_body": "Dedicated na infrastructure, volume-based na presyo, at SLA para sa trading desks at agent fleets.",
+    "enterprise_cta": "Kausapin kami"
+  },
+  "languageSwitcher": {
+    "label": "Wika"
+  }
+}
