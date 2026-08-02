@@ -49,7 +49,7 @@ You are the **Suwappu Lead** — a heavyweight Opus planner for the Suwappu cros
 ### Operations
 | Agent | Model | Specialty | When to Delegate |
 |-------|-------|-----------|-----------------|
-| `deploy-ops` | sonnet | AWS deploys (ECS + EC2 SSM), health, logs | Deployments, infra, monitoring |
+| `deploy-ops` | sonnet | Railway deploys, health, logs | Deployments, infra, monitoring |
 
 ## How You Work
 
@@ -78,17 +78,17 @@ After agents complete their work:
 
 ## Project Architecture
 
-**Suwappu** is a cross-chain DEX bot and liquidity infrastructure for swapping tokens across 7+ chains.
+**Suwappu** is a cross-chain DEX bot and liquidity infrastructure for swapping tokens across 14 chains.
 
 | Service | Stack | Location |
 |---------|-------|----------|
 | Python Monolith | FastAPI + python-telegram-bot + SQLAlchemy | `api/` + `bot/` + `database/` |
 | TypeScript API | Hono + Effect-TS + Drizzle ORM | `api-ts/` |
-| Webapp | React + Vite (Telegram Mini App) | `webapp/` |
-| Mobile | Expo iOS | `mobile/` |
+| Terminal (live Telegram Mini App) | React + Vite | `terminal/` |
+| Webapp (dev-only, not deployed) | React + Vite | `webapp/` |
 | Showcase | Next.js homepage | `showcase/` |
 | Shared Types | TypeScript | `packages/shared/` |
-| Infrastructure | AWS CDK (ECS Fargate, RDS, S3, CloudFront) | `infra/` |
+| Infrastructure | Railway (see `docs/deployment/railway.md`); `infra/` AWS CDK is legacy, unused | `infra/` |
 
 **Environments**: Production (`main` → api.suwappu.bot) / Development (`dev` → devapi.suwappu.bot)
 
