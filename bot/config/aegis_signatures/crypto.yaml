@@ -1,0 +1,99 @@
+# Suwappu crypto-domain threat signatures for the AEGIS scanner.
+# Format: aegis/scanner/signatures (id, category, pattern, severity, description).
+# severity doubles as match confidence; matches below scanner.sensitivity are dropped.
+# IDs use the SW- prefix to avoid colliding with bundled PI-/CE-/SE-* ids (first-loaded wins).
+#
+# Calibration note: these start life in observe mode. Anything noisy in the
+# telemetry review gets its severity lowered or its pattern tightened before
+# any enforce flip.
+
+signatures:
+  # --- Seed phrase / private key solicitation ---
+  - id: SW-001
+    category: credential_extraction
+    pattern: "(?i)(?:enter|paste|send|share|provide|verify|confirm|type|dm|submit)\\s+(?:me\\s+|us\\s+)?(?:your\\s+)?(?:12|24|twelve|twenty[- ]?four)?[- ]?(?:word\\s+)?(?:seed|recovery|secret|mnemonic)\\s+(?:phrase|words?|key)"
+    severity: 0.95
+    description: "Solicits a wallet seed/recovery phrase"
+
+  - id: SW-002
+    category: credential_extraction
+    pattern: "(?i)(?:enter|paste|send|share|provide|verify|confirm|export|reveal)\\s+(?:me\\s+|us\\s+)?(?:your\\s+)?private\\s+key"
+    severity: 0.95
+    description: "Solicits a wallet private key"
+
+  - id: SW-003
+    category: credential_extraction
+    pattern: "(?i)(?:seed|recovery|mnemonic)\\s+phrase\\s+(?:is\\s+)?(?:required|needed|necessary)\\s+(?:to|for)\\s+(?:verify|validate|restore|unlock|sync|claim|migrate)"
+    severity: 0.9
+    description: "Claims a seed phrase is required for verification/claiming"
+
+  # --- Fake wallet validation / sync lures ---
+  - id: SW-010
+    category: social_engineering
+    pattern: "(?i)(?:validate|verify|sync(?:hronize)?|re[- ]?connect|re[- ]?link|authenticate|rectify)\\s+your\\s+wallet"
+    severity: 0.8
+    description: "'Validate/sync your wallet' phishing lure"
+
+  - id: SW-011
+    category: social_engineering
+    pattern: "(?i)wallet\\s+(?:will\\s+be\\s+|has\\s+been\\s+)?(?:suspended|deactivated|frozen|locked|compromised)[^.\\n]{0,60}(?:verify|validate|click|visit|connect|confirm)"
+    severity: 0.85
+    description: "Wallet-suspension scare directing to a verification action"
+
+  # --- Fake support / impersonation ---
+  - id: SW-020
+    category: social_engineering
+    pattern: "(?i)(?:contact|message|dm|reach)\\s+(?:our\\s+|the\\s+)?(?:live\\s+)?support\\s+(?:team\\s+)?(?:on|via|at|through)\\s+(?:telegram|whatsapp|t\\.me)"
+    severity: 0.7
+    description: "Redirects victims to off-platform 'support' (fake-support scam)"
+
+  - id: SW-021
+    category: social_engineering
+    pattern: "(?i)(?:i\\s+am|this\\s+is|we\\s+are)\\s+(?:from\\s+)?(?:suwappu|official)\\s+(?:support|team|admin|staff|customer\\s+(?:care|service))"
+    severity: 0.75
+    description: "Claims to be official Suwappu support/admin"
+
+  # --- Drainer / malicious approval language ---
+  - id: SW-030
+    category: social_engineering
+    pattern: "(?i)(?:sign|approve|confirm)\\s+(?:this|the)\\s+(?:transaction|message|signature|permit)\\s+to\\s+(?:claim|receive|unlock|withdraw|migrate|airdrop)"
+    severity: 0.8
+    description: "Sign-to-claim drainer approval lure"
+
+  - id: SW-031
+    category: social_engineering
+    pattern: "(?i)(?:set|increase|grant)\\s+(?:unlimited|max(?:imum)?|infinite)\\s+(?:allowance|approval|spending)"
+    severity: 0.75
+    description: "Requests unlimited token allowance (drainer pattern)"
+
+  - id: SW-032
+    category: social_engineering
+    pattern: "(?i)(?:free|exclusive|surprise)\\s+(?:airdrop|mint|claim)[^.\\n]{0,60}(?:connect\\s+your\\s+wallet|sign\\s+in\\s+with\\s+wallet)"
+    severity: 0.7
+    description: "Airdrop bait requiring wallet connection"
+
+  # --- Address-substitution / payment redirection ---
+  - id: SW-040
+    category: social_engineering
+    pattern: "(?i)(?:send|transfer|deposit)\\s+(?:the\\s+|your\\s+)?(?:funds?|tokens?|crypto|payment|balance)\\s+to\\s+(?:this|the\\s+following|my|our)\\s+(?:new\\s+)?(?:address|wallet)\\s+(?:instead|below|first)"
+    severity: 0.8
+    description: "Redirects a payment to a substituted address"
+
+  - id: SW-041
+    category: social_engineering
+    pattern: "(?i)(?:old|previous)\\s+(?:deposit\\s+)?address\\s+(?:is\\s+)?(?:no\\s+longer\\s+valid|deprecated|compromised|changed)[^.\\n]{0,60}(?:use|send\\s+to)"
+    severity: 0.85
+    description: "'Old address invalid, use new one' substitution scam"
+
+  # --- Guaranteed-return / recovery-agent scams ---
+  - id: SW-050
+    category: social_engineering
+    pattern: "(?i)(?:guaranteed|risk[- ]?free)\\s+(?:daily\\s+|weekly\\s+)?(?:profit|return|roi)s?\\s+of\\s+\\d"
+    severity: 0.7
+    description: "Guaranteed-returns investment scam language"
+
+  - id: SW-051
+    category: social_engineering
+    pattern: "(?i)(?:recover|retrieve|get\\s+back)\\s+your\\s+(?:lost|stolen|scammed)\\s+(?:funds?|crypto|tokens?|coins?)[^.\\n]{0,60}(?:fee|deposit|contact|dm)"
+    severity: 0.8
+    description: "Fund-recovery-agent advance-fee scam"

@@ -41,3 +41,6 @@ contracts/slither_results.json
 .venv-test/
 .claude/settings.local.json
 contracts/lib/openzeppelin-contracts/package-lock.json
+
+# AEGIS runtime state/telemetry (bot/services/aegis_service.py)
+.aegis/

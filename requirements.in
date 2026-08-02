@@ -39,6 +39,12 @@ urllib3>=2.7.0
 anthropic
 openai==2.48.0
 
+# ---- Agent immune system (AEGIS scanner, observe mode — docs/plans/aegis-fork-extend.md) ----
+# Pinned to an immutable upstream commit; repoint to the 0xsoftboi/aegis fork once created.
+# Core install only (pyyaml/pydantic/httpx, all already pinned above) — NO optional extras;
+# ML/embedding extras are banned from the request path (latency).
+aegis-shield @ git+https://github.com/gaiarobotics/aegis@e3e87b3791fb99e5ddee767dee20a3ef1bf2b99e
+
 # ---- Database ----
 SQLAlchemy==2.0.51
 psycopg2-binary>=2.9,<3.0             # PostgreSQL driver

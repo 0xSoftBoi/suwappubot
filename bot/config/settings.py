@@ -925,6 +925,13 @@ class Settings(BaseSettings):
     NL_TRADING_ENABLED: bool = Field(
         default=False, description="Master switch for natural-language trade intent parsing"
     )
+    AEGIS_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "AEGIS inbound threat scanner (observe mode — logs only, never blocks). "
+            "See bot/services/aegis_service.py and docs/plans/aegis-fork-extend.md"
+        ),
+    )
     NL_TRADING_MODEL: str = Field(
         default="claude-haiku-4-5-20251001",
         description="Anthropic model used to parse natural-language trade intents",

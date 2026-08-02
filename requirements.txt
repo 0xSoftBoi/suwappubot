@@ -4,6 +4,8 @@
 #
 #    pip-compile --no-strip-extras --output-file=requirements.txt requirements.in
 #
+aegis-shield @ git+https://github.com/gaiarobotics/aegis@e3e87b3791fb99e5ddee767dee20a3ef1bf2b99e
+    # via -r requirements.in
 aiohappyeyeballs==2.6.1
     # via aiohttp
 aiohttp==3.14.3
@@ -168,6 +170,7 @@ httptools==0.8.0
 httpx[http2]==0.28.1
     # via
     #   -r requirements.in
+    #   aegis-shield
     #   anthropic
     #   openai
     #   py-clob-client
@@ -263,6 +266,7 @@ pycryptodome==3.23.0
 pydantic==2.13.4
     # via
     #   -r requirements.in
+    #   aegis-shield
     #   anthropic
     #   eth-account
     #   eth-utils
@@ -298,7 +302,9 @@ python-telegram-bot[rate-limiter]==22.8
 pyunormalize==17.0.0
     # via web3
 pyyaml==6.0.3
-    # via uvicorn
+    # via
+    #   aegis-shield
+    #   uvicorn
 qrcode==8.2
     # via -r requirements.in
 redis==8.0.1

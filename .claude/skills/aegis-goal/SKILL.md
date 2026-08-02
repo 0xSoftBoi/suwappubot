@@ -17,8 +17,8 @@ Standing goal: **every phase of `docs/plans/aegis-fork-extend.md` implemented, v
 ## The backlog
 
 ### Phase 1 — Python scanner at LLM + message choke points (observe mode)
-- [ ] 1.1 Fork `gaiarobotics/aegis` → `0xsoftboi/aegis`; add `aegis-shield` to Python deps pinned to the fork's git ref, **no optional extras**.
-- [ ] 1.2 `bot/config/aegis.yaml` (mode: observe, block_on_threat: false) + crypto signature pack `bot/config/aegis_signatures/crypto.yaml` (seed-phrase solicitation, "validate your wallet", fake-support DMs, drainer-approval language, address-substitution lures — categories `credential_extraction`/`social_engineering`).
+- [x] 1.1 Pinned `aegis-shield` to immutable upstream commit `e3e87b3791fb…` in requirements.in + pip-compile'd lockfile (minimal diff; all 3 hard deps already present). Verified clean-venv install + scan smoke test. **Manual follow-up:** session repo-scoping blocked creating the `0xsoftboi/aegis` fork — fork on GitHub when convenient and repoint the requirements.in URL (same SHA).
+- [x] 1.2 `bot/config/aegis.yaml` (observe, scanner-only modules, block_on_threat: false) + `bot/config/aegis_signatures/crypto.yaml` (14 SW-* signatures) + `bot/services/aegis_service.py` (fail-open singleton wrapper, WARNING-log mirror for Railway) + `AEGIS_ENABLED` setting. Verified: pack loads (52 sigs total), 14/14 detection cases pass, p50 0.22ms.
 - [ ] 1.3 LLM pre-flight: `Shield.scan_input()` in `parse_trade_intent` (`bot/services/nl_intent_service.py:404`, before the Anthropic call); provenance-delimit untrusted text in `_build_user_content` (`:214-216`); sanitize the `pending_intent` echo (`:182-192` — injection persistence loop).
 - [ ] 1.4 WhatsApp seam: scan in `_wa_dispatch` (`api/main.py:2512-2531`) — must cover text, button payloads, `nfm_reply` JSON, and post-Whisper voice transcripts (`:2522-2524`).
 - [ ] 1.5 Telegram seam: group `-1` scanner handler in `bot/main.py` `add_handlers` (before `:740`) or wrap `PerUserSerializingProcessor.do_process_update` (`bot/utils/update_processor.py:25`). Scan-and-log only — never blocks normal commands.
