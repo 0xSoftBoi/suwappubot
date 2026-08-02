@@ -227,4 +227,70 @@ frame(ax, "Denomination decides who keeps the dissipated value",
       "Suwappu Research · closed-form equilibrium; see the paper for the revenue-capture identity")
 save(fig, "points-denomination.svg")
 
+# --- 6. v3: the published artifact vs the corrected series ------------------
+pred = json.load(open(os.path.join(DATA, "polygon_predicate_prebreak.json")))["balances_usd"]
+corr_ratio = []
+for r in rows:
+    c = float(r["collateral"])
+    l = float(r["liabilities"])
+    p = pred.get(r["date"], 0.0)  # predicate counted pre-migration only
+    corr_ratio.append((c + (p if r["date"] <= "2025-08-25" else 0.0)) / l)
+corr_ratio = np.array(corr_ratio)
+pre = ~post
+fig, ax = plt.subplots(figsize=(7.2, 3.9))
+ax.axhline(1.0, color=LINE, lw=1)
+# the artifact: v2's published series, wrong pre-break, shown as the ghost
+ax.plot(np.array(dates)[pre], ratio[pre], color=PERSIMMON, lw=1.4, ls=(0, (3, 2)))
+ax.annotate("what we published in v2\n(wrong backing account)",
+            xy=(dates[4], ratio[4]), xytext=(-4, 34), textcoords="offset points",
+            fontsize=7.5, color=PERSIMMON, fontweight="700", ha="left", va="bottom")
+# the corrected series: continuous, never below par
+ax.plot(dates, corr_ratio, color=SKY, lw=1.6)
+ax.annotate("corrected: lockbox + canonical Polygon predicate",
+            xy=(mdates.date2num(datetime(2026, 2, 20, tzinfo=timezone.utc)), 1.145),
+            xycoords="data", fontsize=7.5, color=SKY, fontweight="700", ha="center")
+brk = datetime(2025, 8, 27, tzinfo=timezone.utc)
+ax.axvline(brk, color=MUTED, lw=0.8, ls=":")
+ax.annotate("27 Aug 2025: issuer migrates\nPolygon backing into the lockbox",
+            xy=(brk, 0.62), xytext=(8, 0), textcoords="offset points",
+            fontsize=7.5, color=MUTED, va="center")
+ax.set_ylim(0.45, 1.25)
+ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %y"))
+frame(ax, "The under-collateralization was our artifact, not the system's",
+      "USDT0 collateralization ratio; v2 as published (dashed) vs corrected accounting (solid)",
+      "Suwappu Research · lockbox + Polygon PoS predicate 0x40ec5B33, archive eth_call at aligned blocks")
+save(fig, "usdt0-corrected-series.svg")
+
+# --- 7. p3: observed Lorenz curves vs the model ----------------------------
+conc = json.load(open(os.path.join(DATA, "airdrops", "concentration.json")))
+fig, ax = plt.subplots(figsize=(7.2, 4.2))
+ax.plot([0, 1], [0, 1], color=LINE, lw=1)
+ax.annotate("perfect equality", xy=(0.52, 0.545), fontsize=7, color=MUTED, rotation=38)
+hy = np.array(conc["HYPE genesis"]["stats"]["lorenz"])
+ei = np.array(conc["EIGEN Season 1"]["stats_bonus_adjusted"]["lorenz"])
+en = np.array(conc["ENA Season 1"]["stats"]["lorenz"])
+ax.plot(hy[:, 0], hy[:, 1], color=SKY, lw=1.7)
+ax.plot(ei[:, 0], ei[:, 1], color=PERSIMMON, lw=1.7)
+ax.plot(en[:, 0], en[:, 1], color=MUTED, lw=1.4, alpha=0.9)
+ax.annotate("ENA S1 (Gini 0.904)", xy=(0.38, 0.145), fontsize=7.5,
+            color=MUTED, fontweight="700")
+ax.annotate("HYPE genesis (Gini 0.947)", xy=(0.68, 0.10), fontsize=8,
+            color=SKY, fontweight="700")
+ax.annotate("EIGEN S1 both phases, bonus-adjusted (Gini 0.943)", xy=(0.26, 0.062), fontsize=8,
+            color=PERSIMMON, fontweight="700")
+# the model's allocation at sigma=0.2, matched n: top ~20 wallets own everything —
+# a Lorenz curve hugging the floor until the last sliver of the population.
+ax.plot([0, 0.9995, 1], [0, 0, 1], color=INK, lw=1.4, ls=(0, (3, 2)))
+ax.annotate("Tullock active-set model, σ=0.2\n(~20 wallets own the entire pool)",
+            xy=(0.985, 0.20), fontsize=7.5, color=INK, ha="right", fontweight="700")
+ax.set_xlabel("share of recipient wallets (poorest first)")
+ax.set_ylabel("share of allocation")
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 1)
+frame(ax, "Airdrop allocations are unequal like wealth, not like a contest",
+      "Lorenz curves of complete recipient-level allocations vs the model's equilibrium",
+      "Suwappu Research · HYPE genesis state (90,912 wallets) · EIGEN two-phase logs (239,035) · ENA four-channel logs (46,198)")
+save(fig, "airdrop-lorenz.svg")
+
 print("done")

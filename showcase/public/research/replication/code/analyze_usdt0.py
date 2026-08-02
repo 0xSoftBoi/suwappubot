@@ -28,7 +28,8 @@ FIGS = os.path.join(ROOT, "figures")
 PANEL = os.path.join(DATA, "usdt0_panel.csv")
 
 LOCKBOX = "USDT0_lockbox"
-LEGACY = {"Optimism_L1Bridge", "Arbitrum_L1Gateway", "Polygon_ERC20Pred"}
+LEGACY = {"Optimism_L1Bridge", "Arbitrum_L1Gateway", "Polygon_ERC20Pred",
+          "Wrong_Polygon_Pred_v2", "Polygon_ERC20Pred_canonical"}
 
 rows = list(csv.DictReader(open(PANEL)))
 by_ts = defaultdict(dict)

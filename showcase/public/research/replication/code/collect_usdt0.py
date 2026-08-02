@@ -69,6 +69,10 @@ CHAINS = [
      "0x20C00000000000000000000014f22CA97301EB73", 6, "native-oft"),
     ("Morph",      ["https://rpc.morphl2.io"],
      "0xe7cd86e13AC4309349F30B3435a9d337750fC82D", 6, "native-oft"),
+    # v3: MegaETH exposed a public mainnet RPC (chainId 4326); symbol/decimals
+    # verified live 2026-07-31. Serves >=1M blocks of history.
+    ("MegaETH",    ["https://mainnet.megaeth.com/rpc", "https://megaeth.drpc.org"],
+     "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb", 6, "native-oft"),
 ]
 
 # Ethereum-side contracts read as balanceOf(USDT).
@@ -76,7 +80,13 @@ ETH_ACCOUNTS = [
     ("USDT0_lockbox",      "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee", "collateral"),
     ("Optimism_L1Bridge",  "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1", "legacy-escrow"),
     ("Arbitrum_L1Gateway", "0xcEe284F754E854890e311e3280b767F80797180d", "legacy-escrow"),
-    ("Polygon_ERC20Pred",  "0x8484Ef722627bf18ca5Ae6BcF031c23E6e922B30", "legacy-escrow"),
+    # v2 mislabeled 0x8484Ef72... as the Polygon ERC20 predicate; it is not,
+    # and its ~$0.02 reading produced Correction 2 (see paper Section 5).
+    # Retained under an honest name so the v2 series stays reproducible.
+    ("Wrong_Polygon_Pred_v2", "0x8484Ef722627bf18ca5Ae6BcF031c23E6e922B30", "legacy-escrow"),
+    # The canonical Polygon PoS ERC20 predicate — the account that actually
+    # backed Polygon-leg supply until the 2025-08-27 migration.
+    ("Polygon_ERC20Pred_canonical", "0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf", "legacy-escrow"),
 ]
 ETH_RPC = ["https://eth.drpc.org", "https://rpc.mevblocker.io", "https://mainnet.gateway.tenderly.co"]
 

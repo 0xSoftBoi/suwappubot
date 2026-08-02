@@ -65,12 +65,12 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   const body = post.body.replace(/^#\s+.+\n+/, '');
   const html = markdownToHtml(body);
 
-  // ScholarlyArticle rather than Article: these carry a stated method, released
-  // data and a reproduction path, which is what the type is for and what makes
-  // them eligible for richer treatment in search.
+  // ScholarlyArticle for research (stated method, released data, reproduction
+  // path); TechArticle for engineering notes, which document a system rather
+  // than report a result.
   const articleLd = {
     '@context': 'https://schema.org',
-    '@type': 'ScholarlyArticle',
+    '@type': post.kind === 'research' ? 'ScholarlyArticle' : 'TechArticle',
     headline: post.title,
     description: post.excerpt,
     datePublished: post.date,
