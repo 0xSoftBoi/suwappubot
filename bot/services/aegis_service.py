@@ -24,9 +24,23 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_PATH = _REPO_ROOT / "bot" / "config" / "aegis.yaml"
 
-# Bound regex work on pathological inputs; Telegram caps messages at 4096
-# chars, WhatsApp ~64KB, agent API is schema-capped — 16k covers all real text.
-_MAX_SCAN_CHARS = 16_384
+# Bound regex work on pathological inputs without silently skipping suffix
+# content: text is scanned in bounded chunks (with a small overlap so a
+# signature spanning a boundary still matches) and the chunk verdicts are
+# merged. Telegram caps messages at 4096 chars, WhatsApp ~64KB — the total
+# cap covers every real payload.
+_CHUNK_CHARS = 16_384
+_CHUNK_OVERLAP = 256
+_MAX_TOTAL_SCAN_CHARS = 131_072
+
+
+def _iter_chunks(text: str):
+    text = text[:_MAX_TOTAL_SCAN_CHARS]
+    step = _CHUNK_CHARS - _CHUNK_OVERLAP
+    for start in range(0, len(text), step):
+        yield text[start : start + _CHUNK_CHARS]
+        if start + _CHUNK_CHARS >= len(text):
+            break
 
 
 @dataclass
@@ -39,9 +53,6 @@ class AegisVerdict:
     categories: List[str] = field(default_factory=list)
     scanned: bool = False  # False when AEGIS is unavailable or errored
     elapsed_ms: float = 0.0
-
-
-_CLEAN = AegisVerdict()
 
 
 class AegisService:
@@ -93,24 +104,26 @@ class AegisService:
         except Exception:
             logger.debug("AEGIS signature inventory check failed", exc_info=True)
 
-    def _to_verdict(self, result, text: str, elapsed_ms: float) -> AegisVerdict:
-        verdict = AegisVerdict(
-            is_threat=bool(result.is_threat),
-            score=float(result.threat_score),
-            scanned=True,
-            elapsed_ms=elapsed_ms,
-        )
-        if verdict.is_threat:
+    def _merge_chunk(self, verdict: AegisVerdict, result, chunk: str) -> None:
+        """Fold one chunk's Shield result into the aggregate verdict."""
+        verdict.score = max(verdict.score, float(result.threat_score))
+        if result.is_threat:
+            verdict.is_threat = True
             # Shield's result only carries a match count; re-run the pattern
             # matcher (pure regex, ~1ms) to name the signatures for telemetry.
             # Only happens on detections, so the hot path stays single-scan.
             try:
-                scanner_result = self._shield._scanner.scan_input(text)
-                verdict.signature_ids = [m.signature_id for m in scanner_result.matches]
-                verdict.categories = sorted({m.category for m in scanner_result.matches})
+                scanner_result = self._shield._scanner.scan_input(chunk)
+                verdict.signature_ids.extend(
+                    m.signature_id
+                    for m in scanner_result.matches
+                    if m.signature_id not in verdict.signature_ids
+                )
+                verdict.categories = sorted(
+                    set(verdict.categories) | {m.category for m in scanner_result.matches}
+                )
             except Exception:
                 logger.debug("AEGIS signature-id extraction failed", exc_info=True)
-        return verdict
 
     def _log_verdict(self, verdict: AegisVerdict, source: str, user_id: Optional[str]) -> None:
         if verdict.is_threat:
@@ -127,33 +140,37 @@ class AegisService:
         """Scan text synchronously. Never raises; returns a clean verdict on failure."""
         shield = self._ensure_shield()
         if shield is None or not text:
-            return _CLEAN
-        text = text[:_MAX_SCAN_CHARS]
+            return AegisVerdict()
         try:
             t0 = time.perf_counter()
-            result = shield.scan_input(text, source_agent_id=source)
-            verdict = self._to_verdict(result, text, (time.perf_counter() - t0) * 1000)
+            verdict = AegisVerdict(scanned=True)
+            for chunk in _iter_chunks(text):
+                result = shield.scan_input(chunk, source_agent_id=source)
+                self._merge_chunk(verdict, result, chunk)
+            verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
-            return _CLEAN
+            return AegisVerdict()
 
     async def ascan(self, text: str, source: str, user_id: Optional[str] = None) -> AegisVerdict:
         """Async scan for event-loop contexts. Never raises."""
         shield = self._ensure_shield()
         if shield is None or not text:
-            return _CLEAN
-        text = text[:_MAX_SCAN_CHARS]
+            return AegisVerdict()
         try:
             t0 = time.perf_counter()
-            result = await shield.ascan_input(text, source_agent_id=source)
-            verdict = self._to_verdict(result, text, (time.perf_counter() - t0) * 1000)
+            verdict = AegisVerdict(scanned=True)
+            for chunk in _iter_chunks(text):
+                result = await shield.ascan_input(chunk, source_agent_id=source)
+                self._merge_chunk(verdict, result, chunk)
+            verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
-            return _CLEAN
+            return AegisVerdict()
 
 
 _instance: Optional[AegisService] = None

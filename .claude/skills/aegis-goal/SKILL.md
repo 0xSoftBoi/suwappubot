@@ -29,7 +29,7 @@ Standing goal: **every phase of `docs/plans/aegis-fork-extend.md` implemented, v
 ### Phase 2 — Quarantine + token-address broker (federate with existing immune system)
 - [ ] 2.1 Persist AEGIS threat verdicts into `BlacklistService.report_scam` (`bot/services/token_security/blacklist_service.py:388`) so detections accumulate in the store the bot already hard-blocks on (`paste_trade.py:213`, `swap.py:1101`).
 - [ ] 2.2 Token-address broker at the paste surface: extend `token_analyzer.quick_check` beyond Solana to EVM in `_render_token_card` (`bot/handlers/paste_trade.py:197`; closes "Buy button still shown on EVM" at `:207-208`); pipe every pasted/embedded address through `blacklist_service.check` + `compliance.assert_compliant` before the Buy keyboard is stashed (`:223`); same for `/intel` (`bot/handlers/intel.py:169,323`) and snipe `receive_contract` (`bot/handlers/snipe.py:253`). **MONEY-PATH.**
-- [ ] 2.3 Per-user trust adaptation (AEGIS `TrustManager` semantics), **DB-backed** via `database/db.py::_ensure_schema()` additive migration — never in-process memory (multi-replica webhook mode).
+- [ ] 2.3 Per-user trust adaptation (AEGIS `TrustManager` semantics), **DB-backed** via `database/db.py::_ensure_schema()` additive migration — never in-process memory (multi-replica webhook mode). Fold in the PR #685 review note: move the `/v1/agent/execute` per-key limiter to the same shared store (Redis is already a dep) and add idle-key eviction — today it's in-process like every other limiter in the repo.
 - [ ] 2.4 `money-path-reviewer` (Opus) pass on all Phase 2 gating diffs before merge.
 
 ### Phase 3 — `packages/aegis-ts`: minimal TypeScript port (the genuine "extend")

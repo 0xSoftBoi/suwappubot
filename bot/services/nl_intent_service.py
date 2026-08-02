@@ -178,14 +178,16 @@ _USER_MSG_CLOSE = "</user_message>"
 _ECHO_FIELD_MAX_LEN = 64
 
 
-def _sanitize_echo_field(value: Any) -> Any:
+def _sanitize_echo_field(value: Any) -> str:
     """Sanitize a single previously-LLM-extracted pending_intent field before
-    re-embedding it into the next prompt. Only string fields need this —
-    numeric/enum fields already came from the fixed, validated tool schema
-    and pass through unchanged. Without this, an injection that influenced a
-    prior turn's output could be replayed verbatim into the next prompt."""
+    re-embedding it into the next prompt. Every value is coerced to text and
+    scrubbed — a malformed provider tool result can put arbitrary structures
+    (lists/dicts wrapping injected strings) into pending_intent, so nothing
+    may bypass the delimiter stripping. Without this, an injection that
+    influenced a prior turn's output could be replayed verbatim into the
+    next prompt."""
     if not isinstance(value, str):
-        return value
+        value = str(value)
     sanitized = value.replace(_USER_MSG_OPEN, "").replace(_USER_MSG_CLOSE, "")
     sanitized = " ".join(sanitized.split())  # collapse newlines/whitespace
     return sanitized[:_ECHO_FIELD_MAX_LEN]

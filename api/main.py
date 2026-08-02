@@ -2182,7 +2182,11 @@ async def agent_execute(
     try:
         await _agent_execute_limiter.check(key_id)
     except RateLimitExceeded as e:
-        raise HTTPException(status_code=429, detail=str(e))
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
 
     # 1. Resolve user
     user = db.query(User).filter(User.id == request.user_id).first()

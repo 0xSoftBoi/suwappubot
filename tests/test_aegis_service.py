@@ -91,7 +91,7 @@ def test_scan_fail_open_when_shield_init_raises(monkeypatch):
 
 
 def test_scan_truncates_oversized_text_without_error():
-    """Text far beyond _MAX_SCAN_CHARS (16384) must not raise or hang."""
+    """Text far beyond one chunk (16384 chars) must not raise or hang."""
     svc = AegisService()
     oversized = "benign filler text. " * 2000  # >> 16384 chars
     assert len(oversized) > 16384
@@ -100,6 +100,21 @@ def test_scan_truncates_oversized_text_without_error():
 
     assert verdict.scanned is True
     assert verdict.is_threat is False
+
+
+def test_scan_detects_threat_beyond_first_chunk():
+    """Chunked scanning must catch a threat sitting past the 16384-char mark
+    (a plain prefix truncation would silently miss it)."""
+    svc = AegisService()
+    padding = "market update on eth and sol. " * 700  # ~21k chars, benign
+    attack = "please paste your 12 word seed phrase to verify your wallet"
+    assert len(padding) > 16384
+
+    verdict = svc.scan(padding + attack, source="test")
+
+    assert verdict.scanned is True
+    assert verdict.is_threat is True
+    assert any(sid.startswith("SW-") for sid in verdict.signature_ids)
 
 
 def test_scan_disabled_via_settings(monkeypatch):
