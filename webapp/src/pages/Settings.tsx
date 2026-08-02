@@ -7,7 +7,10 @@ import { WalletCard } from '../components/cards'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
+import i18n from '../lib/i18n'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
+
+const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh']
 
 type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas' | 'desktop'
 
@@ -57,6 +60,21 @@ export function Settings() {
       setPreferences(data.preferences)
       setWallets(data.wallets)
       setSlippageInput(bpToPercent(data.preferences.defaultSlippage))
+
+      // Sync a returning user's server-stored language preference on a new
+      // device/session. Precedence (mirrors detectLanguage() in lib/i18n.ts):
+      // explicit local override > server-stored preference > Telegram
+      // language_code > 'en'. Never clobber an explicit local choice.
+      const serverLanguage = data.preferences.languagePreference
+      const hasExplicitLocalOverride = !!localStorage.getItem('suwappu_locale')
+      if (
+        !hasExplicitLocalOverride &&
+        serverLanguage &&
+        SUPPORTED_LANGUAGES.includes(serverLanguage) &&
+        serverLanguage !== i18n.language
+      ) {
+        i18n.changeLanguage(serverLanguage)
+      }
     } catch (err: any) {
       console.error('Failed to load preferences:', err)
       setError(err.detail || err.message || 'Failed to load settings')

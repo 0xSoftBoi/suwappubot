@@ -1,5 +1,6 @@
 import React from 'react'
 import { ImpactIndicator } from './ImpactIndicator'
+import { formatCurrency, getIntlLocale } from '../../lib/format'
 import type { SwapQuote, SwapToken } from '../../types/swap'
 import type { SimulationResult } from '../../types/simulation'
 
@@ -17,7 +18,7 @@ export interface TransactionSimulationProps {
 // ── Helpers ────────────────────────────────────────────
 
 function formatUsd(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return formatCurrency(value)
 }
 
 function formatTokenAmount(value: string): string {
@@ -26,7 +27,7 @@ function formatTokenAmount(value: string): string {
   if (num === 0) return '0'
   if (num < 0.0001) return '<0.0001'
   if (num < 1) return num.toPrecision(4)
-  return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+  return num.toLocaleString(getIntlLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 6 })
 }
 
 function getPriceImpactLabel(impact: number): string {

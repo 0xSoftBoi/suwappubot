@@ -21,6 +21,7 @@ import { useWallet, chains as walletChains, chainMeta, getRpcUrl } from '../hook
 import { usePortfolio } from '../hooks/usePortfolio'
 import { useTurnkeyAccount } from '../hooks/useTurnkeyAccount'
 import { getExplorerTxUrl } from '../lib/chains'
+import { formatCurrency } from '../lib/format'
 import type { Token } from '../types/api'
 import a11yToast from '../lib/a11yToast'
 
@@ -164,12 +165,7 @@ function formatTokenBalance(balance: string): string {
 }
 
 function formatUsdValue(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
+  return formatCurrency(value)
 }
 
 type WalletView = 'overview' | 'receive' | 'send' | 'connect'
