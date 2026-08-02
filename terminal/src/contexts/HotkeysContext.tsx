@@ -45,6 +45,7 @@ const DEFAULT_HOTKEY_DEFS: { key: string; label: string; category: string }[] = 
   { key: 'd', label: 'Discovery Tab', category: 'Navigation' },
   { key: 't', label: 'Tweets Tab', category: 'Navigation' },
   { key: 'w', label: 'Wallet Tracker Tab', category: 'Navigation' },
+  { key: 'i', label: 'Token Intel Tab', category: 'Navigation' },
   { key: '?', label: 'Show Hotkeys Help', category: 'Navigation' },
 ]
 
@@ -76,6 +77,7 @@ export function HotkeysProvider({ children }: { children: ReactNode }) {
       ['tab-discovery', { key: 'd', label: 'Discovery Tab', category: 'Navigation', action: () => setActiveTab('discovery') }],
       ['tab-tweets', { key: 't', label: 'Tweets Tab', category: 'Navigation', action: () => setActiveTab('tweets') }],
       ['tab-wallet-tracker', { key: 'w', label: 'Wallet Tracker Tab', category: 'Navigation', action: () => setActiveTab('wallet-tracker') }],
+      ['tab-intel', { key: 'i', label: 'Token Intel Tab', category: 'Navigation', action: () => setActiveTab('intel') }],
       ['help-toggle', { key: '?', label: 'Show Hotkeys Help', category: 'Navigation', action: () => toggleHelp() }],
     ]
     for (const [id, entry] of builtins) {
