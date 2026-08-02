@@ -41,9 +41,9 @@ Standing goal: **every phase of `docs/plans/aegis-fork-extend.md` implemented, v
 - [ ] 3.5 Verification: `bun run check` (incremental), vitest for loader + middleware, `bash scripts/verify.sh api`.
 
 ### Phase 4 — Standalone hardening quick wins (do regardless of AEGIS; small independent PRs)
-- [ ] 4.1 Apply `safe_md` (`bot/utils/telegram_safe.py:26`) at `paste_trade.py:214-233` (external token metadata → Markdown), `support.py:196` (user ticket text → admin chat), `api/main.py:2675-2679` (Railway payload → admin chat). `/bugclass` candidate: "untrusted text rendered with parse_mode=Markdown".
-- [ ] 4.2 WhatsApp signature verification **fail-closed** in prod when `WHATSAPP_APP_SECRET` unset (`bot/services/whatsapp_service.py:367-384`).
-- [ ] 4.3 `bot/utils/sanitizer.py` `InputSanitizer` — wire it where it earns its keep or delete it (defined, imported nowhere).
+- [x] 4.1 DONE (e90a330) — safe_md on token symbol/name (paste_trade), support ticket username/message/admin_reply, Railway admin alert (api/main.py), + predict market question. Was: Apply `safe_md` (`bot/utils/telegram_safe.py:26`) at `paste_trade.py:214-233` (external token metadata → Markdown), `support.py:196` (user ticket text → admin chat), `api/main.py:2675-2679` (Railway payload → admin chat). `/bugclass` candidate: "untrusted text rendered with parse_mode=Markdown".
+- [x] 4.2 NO-OP (e90a330) — current main ALREADY fails closed when WHATSAPP_APP_SECRET unset (returns False); the research finding was stale. Did NOT loosen to permit unsigned webhooks in dev. Was: WhatsApp signature verification **fail-closed** in prod when `WHATSAPP_APP_SECRET` unset (`bot/services/whatsapp_service.py:367-384`).
+- [x] 4.3 DONE (e90a330) — deleted bot/utils/sanitizer.py; InputSanitizer had zero external refs (dead). Was: `bot/utils/sanitizer.py` `InputSanitizer` — wire it where it earns its keep or delete it (defined, imported nowhere).
 - [ ] 4.4 Drop/backfill the plaintext `agents.api_key` column in api-ts (`db/schema/agents.ts:26-27`), keep hash only. **MONEY-PATH**; needs key-migration care for existing agents.
 
 ### Phase 5 — Stretch / upstream (start only after 1–4 are shipped & verified)
