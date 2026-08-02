@@ -111,6 +111,8 @@ from bot.handlers.settings import (
     speed_set_handler,
     chain_menu_handler,
     chain_set_handler,
+    language_menu_handler,
+    language_set_handler,
     notify_prefs_handler,
     ntoggle_copy_handler,
     ntoggle_order_handler,
@@ -595,6 +597,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(speed_set_handler)  # Settings → tx speed set
     application.add_handler(chain_menu_handler)  # Settings → default chain menu
     application.add_handler(chain_set_handler)  # Settings → default chain set
+    application.add_handler(language_menu_handler)  # Settings → language menu
+    application.add_handler(language_set_handler)  # Settings → language set
     application.add_handler(recovery_menu_callback)  # settings_recovery button
     application.add_handler(notify_prefs_handler)  # Settings → notification prefs submenu
     application.add_handler(ntoggle_copy_handler)  # Notif prefs → copy executed toggle

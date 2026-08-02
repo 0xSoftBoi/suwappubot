@@ -124,17 +124,26 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 _SUPPORTED_LANGS = frozenset({"en", "es", "fr", "zh"})
 
 
-def get_user_lang(user) -> str:
-    """Derive a supported language code from a Telegram User object.
+def get_user_lang(user, stored_lang: str | None = None) -> str:
+    """Derive a supported language code for a user.
 
-    Maps language_code prefixes to supported languages; falls back to "en".
+    Priority order:
+      1. ``stored_lang`` — an explicit, user-chosen preference (e.g.
+         ``db_user.language_preference``), used if set and supported.
+      2. The live Telegram ``User.language_code`` attribute, mapped by prefix.
+      3. ``"en"`` fallback.
 
     Args:
         user: telegram.User (or any object with a ``language_code`` attribute).
+        stored_lang: Optional explicit language preference already persisted
+            for this user (e.g. from the settings menu). Takes priority over
+            the live Telegram client language when set and supported.
 
     Returns:
         One of "en", "es", "fr", "zh".
     """
+    if stored_lang and stored_lang in _SUPPORTED_LANGS:
+        return stored_lang
     if user is None:
         return "en"
     lc: str | None = getattr(user, "language_code", None)
