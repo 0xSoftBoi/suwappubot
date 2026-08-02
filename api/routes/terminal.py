@@ -2215,6 +2215,7 @@ def _devwatch_dict(watch, hit_count: int = 0) -> dict:
 
 @router.get("/intel/devwatch")
 async def terminal_devwatch_list(request: Request):
+    # NOTE: This endpoint retrieves the authenticated user's deployed-dev watch list.
     """The signed-in user's watched-deployer list, each with a recent-hits count."""
     uid = int(_terminal_user(request)["user_id"])
     from database.db import get_session
