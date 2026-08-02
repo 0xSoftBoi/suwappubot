@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/terminal", tags=["terminal"])
 
+# Log route registration for debugging production issues.
+_route_count_at_init = len(router.routes)
+logger.info(f"Terminal router initialized with {_route_count_at_init} routes")
+
 COINBASE_BASE_URL = "https://api.exchange.coinbase.com"
 COINBASE_PRODUCT = "ETH-USD"
 ETH_NATIVE_ADDRESSES = {
