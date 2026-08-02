@@ -78,6 +78,7 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
+from bot.utils.telegram_safe import safe_md
 from bot.main import add_handlers
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
@@ -2600,7 +2601,8 @@ async def receive_whatsapp_message(request: Request):
     raw_body = await request.body()
 
     # Verify Meta's X-Hub-Signature-256 before trusting any of the payload.
-    # Fail-closed when WHATSAPP_APP_SECRET is set; skipped (with a warning) if not.
+    # verify_signature fails closed (rejects) when the signature is invalid or
+    # no WHATSAPP_APP_SECRET is configured.
     if not whatsapp_service.verify_signature(raw_body, request.headers.get("X-Hub-Signature-256")):
         logger.warning("Rejected WhatsApp webhook: invalid X-Hub-Signature-256")
         raise HTTPException(status_code=403, detail="Invalid signature")
@@ -2719,13 +2721,17 @@ async def railway_webhook(request: Request):
     env = (payload.get("environment") or {}).get("name") or payload.get("environmentName") or "?"
     project = (payload.get("project") or {}).get("name") or "suwappu"
     commit = (payload.get("deployment") or {}).get("meta", {}).get("commitMessage")
-    commit_line = f"\n`{commit.splitlines()[0][:80]}`" if commit else ""
+    commit_line = f"\n`{safe_md(commit.splitlines()[0][:80])}`" if commit else ""
 
+    # The payload is Railway-authenticated by the shared ?token= secret, but its
+    # field values (service/env/project/commit names) are still attacker-influenced
+    # free text upstream of that boundary — escape before interpolating into a
+    # Markdown-rendered admin alert (bug class: markdown injection via external text).
     text = (
-        f"🚨 *Railway deploy {status}*\n"
-        f"Project: `{project}`\n"
-        f"Service: `{service}`\n"
-        f"Env: `{env}`{commit_line}"
+        f"🚨 *Railway deploy {safe_md(status)}*\n"
+        f"Project: `{safe_md(project)}`\n"
+        f"Service: `{safe_md(service)}`\n"
+        f"Env: `{safe_md(env)}`{commit_line}"
     )
 
     bot_app = getattr(request.app.state, "bot_app", None)

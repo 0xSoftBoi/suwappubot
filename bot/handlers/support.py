@@ -32,6 +32,7 @@ from bot.models.support import SupportTicket, TicketKind, TicketStatus
 from bot.models.user import User
 from bot.services.push_service import send_push_notification
 from bot.services.support_notifier import add_linear_comment
+from bot.utils.telegram_safe import safe_md
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -189,10 +190,11 @@ async def tickets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         lines = [f"🎫 *Tickets ({arg})* — showing {len(tickets)}\n"]
         for t in tickets:
             meta = _meta(t.kind)
-            handle = f"@{t.username}" if t.username else f"id:{t.telegram_id}"
+            handle = f"@{safe_md(t.username)}" if t.username else f"id:{t.telegram_id}"
             snippet = (t.message or "").replace("\n", " ")
             if len(snippet) > 60:
                 snippet = snippet[:60] + "…"
+            snippet = safe_md(snippet)
             lines.append(f"{meta['emoji']} *#{t.id}* `{t.status}` — {handle}\n   {snippet}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
@@ -216,17 +218,17 @@ async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(f"No ticket #{ticket_id}.")
             return
         meta = _meta(t.kind)
-        handle = f"@{t.username}" if t.username else f"id:{t.telegram_id}"
+        handle = f"@{safe_md(t.username)}" if t.username else f"id:{t.telegram_id}"
         created = t.created_at.strftime("%Y-%m-%d %H:%M UTC") if t.created_at else "?"
         lines = [
             f"{meta['emoji']} *{meta['noun'].title()} #{t.id}*",
             f"Status: `{t.status}`  •  From: {handle} (`{t.telegram_id}`)",
             f"Opened: {created}",
             "",
-            t.message or "",
+            safe_md(t.message or ""),
         ]
         if t.admin_reply:
-            lines += ["", f"_Last reply:_ {t.admin_reply}"]
+            lines += ["", f"_Last reply:_ {safe_md(t.admin_reply)}"]
         lines += [
             "",
             f"Reply: `/treply {t.id} <message>`  •  Close: `/tclose {t.id}`",

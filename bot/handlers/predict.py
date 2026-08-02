@@ -41,6 +41,7 @@ from bot.models.predict import PredictionOrder, PredictionPosition
 from bot.services.polymarket_api import polymarket_client, MarketInfo
 from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
+from bot.utils.telegram_safe import safe_md
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
 
@@ -135,7 +136,7 @@ def format_usdc(amount) -> str:
 
 def _build_market_card(market: MarketInfo, index: int = 0) -> str:
     """Build a compact market card for display."""
-    question = truncate(market.question)
+    question = safe_md(truncate(market.question))
     yes_pct = market.outcome_yes_price * 100
     no_pct = market.outcome_no_price * 100
     bar = format_price_bar(market.outcome_yes_price)
