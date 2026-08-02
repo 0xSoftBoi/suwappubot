@@ -17,7 +17,7 @@ import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentError } from '../lib/agentError'
-import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
+import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { flexAuth } from '../middleware/flexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
@@ -2049,6 +2049,10 @@ agentRoutes.post('/execute', async (c) => {
 	}
 
 	const { command, wallet_address } = parsed.data
+
+	// AEGIS observe-mode scan (Phase 3, docs/plans/aegis-fork-extend.md). Log-only —
+	// never blocks /execute and never alters the response below.
+	scanForThreatsObserveOnly(command, { source: 'agent_execute', agentId: agent.id })
 
 	// If a wallet_address is supplied it must be the agent's own managed EVM wallet —
 	// otherwise a natural-language command could carry a victim's address as the swap

@@ -20,7 +20,7 @@ import { MorphoService } from '../services/MorphoService'
 import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership } from './agent'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
@@ -1520,6 +1520,15 @@ mcpRoutes.post('/', async (c) => {
 			if (argsError) {
 				return c.json(rpcErr(req.id, -32602, argsError, undefined, 'VALIDATION_ERROR'), 200)
 			}
+
+			// AEGIS observe-mode scan (Phase 3). Runs after arg validation and
+			// BEFORE chargeAgentForCall so a blocked-looking call is never billed;
+			// log-only — never blocks the tools/call, never alters the response.
+			scanForThreatsObserveOnly(JSON.stringify(args ?? {}), {
+				source: 'mcp_tools_call',
+				agentId: agent?.id,
+				tool: name,
+			})
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return a JSON-RPC error

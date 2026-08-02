@@ -1,4 +1,5 @@
 export { adminKeyAuth, agentBearerAuth, agentBearerAuthAllowInactive } from './auth'
+export { scanForThreatsObserveOnly } from './aegisScan'
 export { apiKeyAuth } from './apiKeyAuth'
 export { agentFlexAuth } from './agentFlexAuth'
 export { agentOrMppAuth } from './agentOrMppAuth'
