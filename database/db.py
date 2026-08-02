@@ -252,6 +252,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Token Intel / Dev Tracking — watched deployers + detected new deploys
         from bot.models.intel import DeployerWatch, DeployerWatchHit
 
+        # AEGIS per-user trust adaptation (Phase 2.3 of docs/plans/aegis-fork-extend.md)
+        from bot.models.aegis_trust import AegisUserTrust
+
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
         # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns
@@ -681,6 +684,9 @@ def _ensure_schema(db_engine) -> None:
 
     # --- Token Intel / Dev Tracking: deployer_watches, deployer_watch_hits ---
     _create_token_intel_tables(db_engine, inspector, is_sqlite)
+
+    # --- AEGIS per-user trust adaptation (Phase 2.3): aegis_user_trust ---
+    _create_aegis_trust_table(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -3461,3 +3467,19 @@ def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
                 "ON deployer_watch_hits(watch_id)"
             )
         )
+
+
+def _create_aegis_trust_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the aegis_user_trust table (Phase 2.3 per-user trust adaptation) idempotently.
+
+    RECORD-ONLY: nothing reads this table to gate/throttle anything yet — see
+    bot/models/aegis_trust.py and bot/services/aegis_trust.py module docstrings.
+    """
+    try:
+        from bot.models.aegis_trust import AegisUserTrust
+
+        if not inspector.has_table(AegisUserTrust.__tablename__):
+            AegisUserTrust.__table__.create(bind=db_engine)
+            logger.info("Created aegis_user_trust table")
+    except Exception as e:
+        logger.warning(f"Failed to create aegis_user_trust table: {e}")

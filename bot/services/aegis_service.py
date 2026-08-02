@@ -253,6 +253,54 @@ class AegisService:
                 ",".join(verdict.categories) or "-",
             )
 
+    async def _maybe_record_trust(
+        self, source: str, user_id: Optional[str], verdict: AegisVerdict
+    ) -> None:
+        """Async counterpart of `_maybe_report_scam` — persists this verdict into
+        the DB-backed per-user trust score (Phase 2.3, see bot/services/aegis_trust.py).
+
+        `source` doubles as the trust row's `platform` (it's already "telegram",
+        "whatsapp", "agent_api", "nl_intent" at every real call site). Lazy
+        import avoids an import cycle; DB work runs off the event loop via
+        run_in_db. Fail-open by construction — a trust-tracking hiccup must
+        never affect the scan path.
+        """
+        try:
+            from database.db import run_in_db
+            from bot.services import aegis_trust
+
+            await run_in_db(aegis_trust.record_verdict, source, user_id, verdict)
+        except Exception:
+            logger.debug("AEGIS trust recording failed (fail-open)", exc_info=True)
+
+    def _schedule_record_trust(
+        self, source: str, user_id: Optional[str], verdict: AegisVerdict
+    ) -> None:
+        """Sync-context counterpart to `_maybe_record_trust` (used by `scan()`).
+
+        Same fire-and-forget scheduling as `_schedule_report_scam`: `scan()`
+        can't await, so this schedules the coroutine on a running event loop
+        if one exists, and otherwise skips with a debug log. Never spins up a
+        nested loop and never raises.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("AEGIS trust recording skipped: no running event loop for sync scan()")
+            return
+        try:
+            task = loop.create_task(self._maybe_record_trust(source, user_id, verdict))
+            task.add_done_callback(self._log_background_trust_failure)
+        except Exception:
+            logger.debug("AEGIS trust recording scheduling failed (fail-open)", exc_info=True)
+
+    @staticmethod
+    def _log_background_trust_failure(task: "asyncio.Task") -> None:
+        try:
+            task.result()
+        except Exception:
+            logger.debug("AEGIS background trust-recording task failed", exc_info=True)
+
     def scan(self, text: str, source: str, user_id: Optional[str] = None) -> AegisVerdict:
         """Scan text synchronously. Never raises; returns a clean verdict on failure."""
         shield = self._ensure_shield()
@@ -267,6 +315,7 @@ class AegisService:
             verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
             self._schedule_report_scam(text, verdict)
+            self._schedule_record_trust(source, user_id, verdict)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
@@ -286,6 +335,7 @@ class AegisService:
             verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
             await self._maybe_report_scam(text, verdict)
+            await self._maybe_record_trust(source, user_id, verdict)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
