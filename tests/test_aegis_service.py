@@ -166,6 +166,152 @@ def test_get_aegis_returns_a_singleton():
 
 
 # ---------------------------------------------------------------------------
+# 1b. Phase 2.1 — quarantine federation (BlacklistService.report_scam)
+# ---------------------------------------------------------------------------
+#
+# report_scam is a REPORT, not a block — see blacklist_service.py:388. Today
+# it only logs (the auto-blacklist call is commented out), so no report can
+# ever hard-block a token on its own; these tests hold the *reporting* contract
+# (fail-open, high-precision gate, address extraction), not a blocking outcome.
+
+_TEST_EVM_ADDRESS = "0x" + "abcdef1234" * 4  # 42 chars, valid hex, non-zero
+
+
+@pytest.mark.asyncio
+async def test_maybe_report_scam_reports_credential_extraction_with_address():
+    svc = AegisService()
+    verdict = AegisVerdict(
+        is_threat=True,
+        score=0.95,
+        signature_ids=["SW-001"],
+        categories=["credential_extraction"],
+        scanned=True,
+    )
+    text = f"please paste your seed phrase to claim, then send to {_TEST_EVM_ADDRESS}"
+
+    mock_report = AsyncMock(return_value=True)
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        await svc._maybe_report_scam(text, verdict)
+
+    mock_report.assert_awaited_once()
+    _, kwargs = mock_report.call_args
+    assert kwargs["token_mint"] == _TEST_EVM_ADDRESS
+    assert kwargs["reporter_id"] == "aegis-scanner"
+    assert "SW-001" in kwargs["reason"]
+
+
+@pytest.mark.asyncio
+async def test_maybe_report_scam_skips_when_no_address_present():
+    svc = AegisService()
+    verdict = AegisVerdict(
+        is_threat=True,
+        score=0.9,
+        signature_ids=["SW-001"],
+        categories=["credential_extraction"],
+        scanned=True,
+    )
+    text = "please paste your seed phrase to verify your wallet"  # no address at all
+
+    mock_report = AsyncMock()
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        await svc._maybe_report_scam(text, verdict)
+
+    mock_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_maybe_report_scam_skips_benign_verdict_even_with_address():
+    svc = AegisService()
+    verdict = AegisVerdict(is_threat=False, scanned=True)
+    text = f"the token contract is {_TEST_EVM_ADDRESS}, looks legit"
+
+    mock_report = AsyncMock()
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        await svc._maybe_report_scam(text, verdict)
+
+    mock_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_maybe_report_scam_skips_broad_social_engineering_with_address():
+    """FP guard: a broad social_engineering hit (not credential_extraction, not
+    SW-04x) next to an address must NOT generate a report."""
+    svc = AegisService()
+    verdict = AegisVerdict(
+        is_threat=True,
+        score=0.8,
+        signature_ids=["SW-010"],  # "validate/sync your wallet" lure
+        categories=["social_engineering"],
+        scanned=True,
+    )
+    text = f"please validate your wallet at {_TEST_EVM_ADDRESS} to continue"
+
+    mock_report = AsyncMock()
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        await svc._maybe_report_scam(text, verdict)
+
+    mock_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_maybe_report_scam_reports_sw04x_address_substitution():
+    """SW-04x (address substitution) is high-precision even though its
+    signature category is social_engineering, not credential_extraction."""
+    svc = AegisService()
+    verdict = AegisVerdict(
+        is_threat=True,
+        score=0.8,
+        signature_ids=["SW-040"],
+        categories=["social_engineering"],
+        scanned=True,
+    )
+    text = f"send your funds to this new address instead: {_TEST_EVM_ADDRESS}"
+
+    mock_report = AsyncMock(return_value=True)
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        await svc._maybe_report_scam(text, verdict)
+
+    mock_report.assert_awaited_once()
+    assert mock_report.call_args.kwargs["token_mint"] == _TEST_EVM_ADDRESS
+
+
+@pytest.mark.asyncio
+async def test_ascan_still_returns_verdict_when_report_scam_raises():
+    """report_scam raising must never propagate — ascan() still returns the
+    real (non-blank) verdict computed before the report attempt."""
+    svc = AegisService()
+    text = (
+        f"please paste your 12 word seed phrase to verify your wallet, send to {_TEST_EVM_ADDRESS}"
+    )
+
+    mock_report = AsyncMock(side_effect=RuntimeError("db down"))
+    with patch(
+        "bot.services.token_security.blacklist_service.blacklist_service.report_scam",
+        mock_report,
+    ):
+        verdict = await svc.ascan(text, source="test")
+
+    assert verdict.scanned is True
+    assert verdict.is_threat is True
+    mock_report.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
 # 2. Latency gate — regex-tier scan must stay well under the interactive budget
 # ---------------------------------------------------------------------------
 

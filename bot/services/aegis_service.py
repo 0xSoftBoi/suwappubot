@@ -12,17 +12,61 @@ WARNING level because Railway retains logs while the container-local
 `.aegis/telemetry.jsonl` does not survive redeploys.
 """
 
+import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+
+from bot.utils.validators import detect_address_chain
 
 logger = logging.getLogger(__name__)
 
 # Repo root: bot/services/aegis_service.py -> bot/services -> bot -> root
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_PATH = _REPO_ROOT / "bot" / "config" / "aegis.yaml"
+
+# --- Quarantine federation (Phase 2.1) --------------------------------------
+#
+# Reports go ONLY to BlacklistService.report_scam — never add_to_blacklist.
+# report_scam is a report, not a block; the store's own quorum/threshold
+# logic (or a human) decides whether a reported address ever gets blocked.
+# This keeps a noisy/miscalibrated observe-mode signature from being able to
+# hard-block a real token on its own.
+_AEGIS_REPORTER_ID = "aegis-scanner"
+
+# High-precision gate: broad social_engineering chatter with an address
+# nearby is NOT reported (too FP-prone — e.g. "send funds to this address
+# instead" next to someone's own legit deposit address). Only two narrow
+# signals are trusted enough to persist as a report:
+#   - category credential_extraction (seed phrase / private key solicitation)
+#   - the SW-04x address-substitution pack (SW-040/SW-041), which is about a
+#     *substituted* address specifically, even though its signature category
+#     is social_engineering like the rest of the crypto pack.
+_HIGH_PRECISION_CATEGORIES = {"credential_extraction"}
+_ADDRESS_SUBSTITUTION_SIGNATURE_PREFIX = "SW-04"
+
+# Heuristic candidate-address extraction for free text (paste-to-trade's
+# detect_address_chain expects the *whole* string to be an address; scam text
+# has an address embedded in a sentence). Not exhaustive — good enough to gate
+# a report, not to enumerate every address in a payload. detect_address_chain
+# does the real validation; this just finds substrings worth checking.
+_CANDIDATE_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40,64}|[1-9A-HJ-NP-Za-km-z]{32,44}")
+
+
+def _extract_candidate_addresses(text: str) -> List[str]:
+    seen: List[str] = []
+    for match in _CANDIDATE_ADDRESS_RE.finditer(text):
+        candidate = match.group(0)
+        if candidate in seen:
+            continue
+        is_valid, _chain = detect_address_chain(candidate)
+        if is_valid:
+            seen.append(candidate)
+    return seen
+
 
 # Bound regex work on pathological inputs without silently skipping suffix
 # content: text is scanned in bounded chunks (with a small overlap so a
@@ -125,6 +169,79 @@ class AegisService:
             except Exception:
                 logger.debug("AEGIS signature-id extraction failed", exc_info=True)
 
+    @staticmethod
+    def _is_high_precision_threat(verdict: AegisVerdict) -> bool:
+        """Gate for BlacklistService reporting — see module-level comment."""
+        if any(cat in _HIGH_PRECISION_CATEGORIES for cat in verdict.categories):
+            return True
+        return any(
+            sig_id.startswith(_ADDRESS_SUBSTITUTION_SIGNATURE_PREFIX)
+            for sig_id in verdict.signature_ids
+        )
+
+    @staticmethod
+    def _report_reason(verdict: AegisVerdict) -> str:
+        return (
+            f"AEGIS observe-mode detection score={verdict.score:.2f} "
+            f"signatures={','.join(verdict.signature_ids) or '-'} "
+            f"categories={','.join(verdict.categories) or '-'}"
+        )
+
+    async def _maybe_report_scam(self, text: str, verdict: AegisVerdict) -> None:
+        """Federate a high-precision threat verdict into BlacklistService.report_scam.
+
+        Fail-open and non-blocking by construction: every failure mode (no
+        address found, blacklist_service unimportable, report_scam raising)
+        is swallowed here so a scam-report hiccup can never take down the
+        scan path. Only ever calls report_scam — never add_to_blacklist; the
+        store's own quorum/threshold logic owns the decision to block.
+        """
+        if not verdict.is_threat or not self._is_high_precision_threat(verdict):
+            return
+        try:
+            addresses = _extract_candidate_addresses(text)
+            if not addresses:
+                return
+            from bot.services.token_security.blacklist_service import blacklist_service
+
+            reason = self._report_reason(verdict)
+            for address in addresses:
+                await blacklist_service.report_scam(
+                    token_mint=address,
+                    reporter_id=_AEGIS_REPORTER_ID,
+                    reason=reason,
+                )
+        except Exception:
+            logger.debug("AEGIS scam-report failed (fail-open)", exc_info=True)
+
+    def _schedule_report_scam(self, text: str, verdict: AegisVerdict) -> None:
+        """Sync-context counterpart to `_maybe_report_scam` (used by `scan()`).
+
+        `scan()` can't await, so this schedules the coroutine on a running
+        event loop if one exists (fire-and-forget — never awaited here, so it
+        can't add latency to the sync scan path) and otherwise skips with a
+        debug log. Never spins up a nested loop and never raises.
+        """
+        if not verdict.is_threat or not self._is_high_precision_threat(verdict):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("AEGIS scam-report skipped: no running event loop for sync scan()")
+            return
+        try:
+            task = loop.create_task(self._maybe_report_scam(text, verdict))
+            task.add_done_callback(self._log_background_report_failure)
+        except Exception:
+            logger.debug("AEGIS scam-report scheduling failed (fail-open)", exc_info=True)
+
+    @staticmethod
+    def _log_background_report_failure(task: "asyncio.Task") -> None:
+        try:
+            task.result()
+        except Exception:
+            logger.debug("AEGIS background scam-report task failed", exc_info=True)
+
     def _log_verdict(self, verdict: AegisVerdict, source: str, user_id: Optional[str]) -> None:
         if verdict.is_threat:
             logger.warning(
@@ -149,6 +266,7 @@ class AegisService:
                 self._merge_chunk(verdict, result, chunk)
             verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
+            self._schedule_report_scam(text, verdict)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
@@ -167,6 +285,7 @@ class AegisService:
                 self._merge_chunk(verdict, result, chunk)
             verdict.elapsed_ms = (time.perf_counter() - t0) * 1000
             self._log_verdict(verdict, source, user_id)
+            await self._maybe_report_scam(text, verdict)
             return verdict
         except Exception:
             logger.exception("AEGIS scan failed (fail-open) source=%s", source)
