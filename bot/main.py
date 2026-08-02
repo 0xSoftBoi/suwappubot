@@ -315,6 +315,7 @@ from bot.handlers.enterprise import (
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
+from bot.handlers.aegis_scan import aegis_scan_update
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -369,6 +370,16 @@ async def error_handler(update: Update, context) -> None:
 
 def add_handlers(application: Application) -> None:
     """Add all handlers to the application."""
+    # ============ AEGIS OBSERVE-MODE SCAN (group -1) ============
+    # Runs before every group-0 handler below on EVERY update that carries
+    # text/caption (free text, captions, forwarded messages all qualify —
+    # pure service updates with no text/caption are filtered out here).
+    # Scan-only: no reply, no state mutation, never raises
+    # ApplicationHandlerStop, so group 0 always still runs normally after it.
+    application.add_handler(
+        MessageHandler(filters.TEXT | filters.CAPTION, aegis_scan_update), group=-1
+    )
+
     # ============ COMMAND HANDLERS ============
     application.add_handler(start_handler)
     application.add_handler(help_handler)

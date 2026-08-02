@@ -1,0 +1,59 @@
+# AEGIS scanner config for the Suwappu Python monolith (bot + api).
+# Phase 1 of docs/plans/aegis-fork-extend.md — OBSERVE MODE ONLY.
+#
+# Do NOT flip mode to "enforce" or block_on_threat to true until the 1.7
+# telemetry review is complete (see /aegis-goal). Scanner failures must stay
+# fail-open for commands.
+#
+# Loaded explicitly by bot/services/aegis_service.py (Shield(policy=<this file>));
+# relative paths below resolve against the process cwd, which is the repo root
+# in dev, Docker, and Railway (uvicorn api.main:app).
+
+mode: observe
+
+agent_name: suwappu-bot
+agent_purpose: "Cross-chain DEX Telegram/WhatsApp bot — parses user trade commands"
+
+# Phase 1 uses the scanner only. Trust/broker/behavior arrive in Phase 2+ —
+# everything else off keeps threads, state, and moving parts minimal.
+modules:
+  scanner: true
+  broker: false
+  identity: false
+  memory: false
+  behavior: false
+  skills: false
+  recovery: false
+  integrity: false
+
+scanner:
+  pattern_matching: true
+  semantic_analysis: true
+  # Envelope/sanitizer rewrite message content — off in Phase 1 (scan-and-log only).
+  prompt_envelope: false
+  outbound_sanitizer: false
+  block_on_threat: false
+  sensitivity: 0.5
+  confidence_threshold: 0.8
+  signatures:
+    use_bundled: true
+    additional_files:
+      - bot/config/aegis_signatures/crypto.yaml
+
+# Local JSONL is the FP-review artifact for the 1.7 gate. Container FS is
+# ephemeral on Railway, so aegis_service also mirrors detections to app logs
+# (WARNING level) which Railway retains.
+telemetry:
+  local_log: true
+  local_log_path: .aegis/telemetry.jsonl
+  remote_enabled: false
+
+# Watch nothing but log if the config file changes — never kill the bot process.
+self_integrity:
+  enabled: true
+  watch_config: true
+  watch_package: false
+  on_tamper: log
+
+state_store:
+  enabled: false
