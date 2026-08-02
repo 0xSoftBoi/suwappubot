@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
 import { agentTrust } from '../db/schema/agentTrust'
@@ -39,8 +39,8 @@ import { logger } from '../lib/logger'
 export const TRUST_DEFAULT = 100
 export const TRUST_MIN = 0
 export const TRUST_MAX = 100
-const THREAT_PENALTY = 15
-const RECOVERY_STEP = 1
+export const THREAT_PENALTY = 15
+export const RECOVERY_STEP = 1
 export const RECOVERY_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 export interface AgentTrustServiceInterface {
@@ -85,66 +85,65 @@ export const AgentTrustServiceLive = Layer.succeed(
 				const db = yield* requireDb
 				const now = new Date()
 
-				const rows = yield* Effect.tryPromise({
-					try: () =>
-						db.select().from(agentTrust).where(eq(agentTrust.agentId, agentId)).limit(1),
-					catch: toError,
-				})
-				const existing = rows[0]
-
 				if (isThreat) {
-					if (!existing) {
-						yield* Effect.tryPromise({
-							try: () =>
-								db.insert(agentTrust).values({
+					// Atomic upsert: a single INSERT ... ON CONFLICT (agent_id) DO
+					// UPDATE statement. The insert branch seeds a fresh row already
+					// penalized (no prior row); the conflict branch recomputes
+					// trustScore/threatCount from the CURRENT row via SQL expressions
+					// evaluated server-side — never from a value read by a prior
+					// SELECT in this process, so concurrent verdicts for the same
+					// agent can't race a read-modify-write and lose a penalty/counter.
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.insert(agentTrust)
+								.values({
 									agentId,
 									trustScore: Math.max(TRUST_MIN, TRUST_DEFAULT - THREAT_PENALTY),
 									threatCount: 1,
 									cleanCount: 0,
 									lastThreatAt: now,
 									lastSeenAt: now,
-								}),
-							catch: toError,
-						})
-						return
-					}
-
-					const current = existing.trustScore ?? TRUST_DEFAULT
-					yield* Effect.tryPromise({
-						try: () =>
-							db
-								.update(agentTrust)
-								.set({
-									trustScore: Math.max(TRUST_MIN, current - THREAT_PENALTY),
-									threatCount: (existing.threatCount ?? 0) + 1,
-									lastThreatAt: now,
-									lastSeenAt: now,
 								})
-								.where(eq(agentTrust.agentId, agentId)),
+								.onConflictDoUpdate({
+									target: agentTrust.agentId,
+									set: {
+										trustScore: sql`greatest(${TRUST_MIN}, ${agentTrust.trustScore} - ${THREAT_PENALTY})`,
+										threatCount: sql`${agentTrust.threatCount} + 1`,
+										lastThreatAt: now,
+										lastSeenAt: now,
+									},
+								}),
 						catch: toError,
 					})
 					return
 				}
 
-				// Clean path — never create a row for an agent with zero threats.
-				if (!existing) return
-
-				const lastUpdate = existing.lastSeenAt ?? existing.createdAt
-				if (lastUpdate && now.getTime() - new Date(lastUpdate).getTime() < RECOVERY_INTERVAL_MS) {
-					return // too soon since the last write — skip to bound write volume
-				}
-
-				const current = existing.trustScore ?? TRUST_DEFAULT
+				// Clean path — write-amplification guard (see module docstring):
+				// NEVER create a row for an agent with zero threats, and only
+				// recover an EXISTING row's score once RECOVERY_INTERVAL_MS has
+				// elapsed since it was last touched (lastSeenAt, falling back to
+				// createdAt when never set). Expressed as a single conditional
+				// UPDATE ... WHERE so "a row exists" AND "the interval elapsed" are
+				// checked and applied atomically in one statement — no separate
+				// SELECT that a concurrent verdict could race between the check and
+				// the write.
+				const recoveryCutoff = new Date(now.getTime() - RECOVERY_INTERVAL_MS)
 				yield* Effect.tryPromise({
 					try: () =>
 						db
 							.update(agentTrust)
 							.set({
-								trustScore: Math.min(TRUST_MAX, current + RECOVERY_STEP),
-								cleanCount: (existing.cleanCount ?? 0) + 1,
+								trustScore: sql`least(${TRUST_MAX}, ${agentTrust.trustScore} + ${RECOVERY_STEP})`,
+								cleanCount: sql`${agentTrust.cleanCount} + 1`,
 								lastSeenAt: now,
 							})
-							.where(eq(agentTrust.agentId, agentId)),
+							.where(
+								and(
+									eq(agentTrust.agentId, agentId),
+									sql`coalesce(${agentTrust.lastSeenAt}, ${agentTrust.createdAt}) <= ${recoveryCutoff}`,
+								),
+							),
 					catch: toError,
 				})
 			}).pipe(

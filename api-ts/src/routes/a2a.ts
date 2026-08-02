@@ -13,6 +13,7 @@ import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
+	AgentTrustService,
 	CHAINS,
 	JupiterService,
 	type QuoteParams,
@@ -635,8 +636,18 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	}
 
 	// AEGIS observe-mode scan (Phase 3). Log-only — never blocks message/send
-	// and never alters the response produced below.
-	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id })
+	// and never alters the response produced below. onVerdict feeds
+	// AgentTrustService as a fire-and-forget write (RECORD-ONLY — nothing gates
+	// or denies on it; the call isn't awaited and recordVerdict is itself
+	// fail-open, so a trust-write failure can never affect this response).
+	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id }, undefined, (isThreat) => {
+		runEffectEither(
+			Effect.gen(function* () {
+				const trustService = yield* AgentTrustService
+				yield* trustService.recordVerdict(agent.id, isThreat)
+			}),
+		)
+	})
 
 	const taskId = crypto.randomUUID()
 	const now = isoNow()

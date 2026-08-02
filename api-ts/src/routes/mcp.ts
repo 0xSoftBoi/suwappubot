@@ -12,7 +12,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
@@ -1538,11 +1538,28 @@ mcpRoutes.post('/', async (c) => {
 			// log-only — never blocks the tools/call, never alters the response.
 			// scanValueObserveOnly serializes `args` INSIDE its fail-open guard so
 			// a non-serializable arg can never throw up the tools/call handler.
-			scanValueObserveOnly(args, {
-				source: 'mcp_tools_call',
-				agentId: agent?.id,
-				tool: name,
-			})
+			// onVerdict feeds AgentTrustService as a fire-and-forget write
+			// (RECORD-ONLY, never awaited) — skipped entirely when `agent` is
+			// undefined (a PUBLIC_READ_TOOLS call has no authenticated agent to
+			// attribute the verdict to).
+			scanValueObserveOnly(
+				args,
+				{
+					source: 'mcp_tools_call',
+					agentId: agent?.id,
+					tool: name,
+				},
+				undefined,
+				(isThreat) => {
+					if (!agent) return
+					runEffectEither(
+						Effect.gen(function* () {
+							const trustService = yield* AgentTrustService
+							yield* trustService.recordVerdict(agent.id, isThreat)
+						}),
+					)
+				},
+			)
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return a JSON-RPC error

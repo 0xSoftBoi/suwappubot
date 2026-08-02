@@ -36,6 +36,7 @@ function runObserveScan(
 	getText: () => string | undefined | null,
 	context: AegisScanContext,
 	options?: ScanOptions,
+	onVerdict?: (isThreat: boolean) => void,
 ): void {
 	try {
 		const text = getText()
@@ -56,6 +57,11 @@ function runObserveScan(
 				'AEGIS threat detected (observe mode -- not blocked)',
 			)
 		}
+		// Let the caller react to the verdict (e.g. feed AgentTrustService)
+		// without breaking this function's sync, fail-open, never-throw
+		// contract -- invoked inside the SAME try/catch as the scan itself, so
+		// a throwing onVerdict degrades exactly like a scanner bug would.
+		onVerdict?.(verdict.isThreat)
 	} catch (err) {
 		// Fail-open: a scanner bug must never break the request it was
 		// trying to observe.
@@ -75,13 +81,21 @@ function runObserveScan(
  * Intentionally synchronous and fire-and-forget from the caller's
  * perspective: call this after validating input and BEFORE any billing/
  * metering step, but do not gate the response on its result.
+ *
+ * `onVerdict`, if given, is invoked with the scan's `isThreat` boolean INSIDE
+ * this function's own try/catch, so it inherits the same fail-open guarantee
+ * -- a throwing callback degrades to "scan failed", never breaks the caller.
+ * Used by the route seams to feed AgentTrustService.recordVerdict as a
+ * fire-and-forget write; this function stays agnostic of what the callback
+ * does with the verdict.
  */
 export function scanForThreatsObserveOnly(
 	text: string | undefined | null,
 	context: AegisScanContext,
 	options?: ScanOptions,
+	onVerdict?: (isThreat: boolean) => void,
 ): void {
-	runObserveScan(() => text, context, options)
+	runObserveScan(() => text, context, options, onVerdict)
 }
 
 /**
@@ -95,6 +109,12 @@ export function scanValueObserveOnly(
 	value: unknown,
 	context: AegisScanContext,
 	options?: ScanOptions,
+	onVerdict?: (isThreat: boolean) => void,
 ): void {
-	runObserveScan(() => (typeof value === 'string' ? value : JSON.stringify(value ?? {})), context, options)
+	runObserveScan(
+		() => (typeof value === 'string' ? value : JSON.stringify(value ?? {})),
+		context,
+		options,
+		onVerdict,
+	)
 }

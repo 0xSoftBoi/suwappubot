@@ -182,16 +182,23 @@ export function agentBearerAuth() {
 		// RECORD-ONLY trust read (Phase 2.3 analogue, api-ts agent surface — see
 		// services/AgentTrustService.ts). Stashed on the context for future use;
 		// nothing today gates or denies on it. AgentTrustService.getTrust is
-		// itself fail-open (Effect<number, never, ...>, defaults to 100), but the
-		// runEffect boundary is wrapped here too so a trust read can NEVER break
-		// auth, no matter what goes wrong resolving/running the effect.
+		// itself fail-open (Effect<number, never, ...>, defaults to 100), but
+		// auth must never STALL on a locked row / degraded DB either — bound the
+		// read with a short timeout that falls back to the same default, and keep
+		// the try/catch around the whole thing as a second, unconditional guard.
 		let agentTrustScore = 100
 		try {
 			agentTrustScore = await runEffect(
 				Effect.gen(function* () {
 					const trustService = yield* AgentTrustService
 					return yield* trustService.getTrust(agent.id)
-				}),
+				}).pipe(
+					Effect.timeoutTo({
+						duration: '200 millis',
+						onSuccess: (score) => score,
+						onTimeout: () => 100,
+					}),
+				),
 			)
 		} catch {
 			agentTrustScore = 100
