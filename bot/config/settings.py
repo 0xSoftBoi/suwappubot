@@ -469,6 +469,12 @@ class Settings(BaseSettings):
     flare_rpc_url: str = Field(
         default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC"
     )
+    aurora_rpc_url: str = Field(default="https://mainnet.aurora.dev", description="Aurora RPC")
+    blast_rpc_url: str = Field(
+        default="https://rpc.blast.io,https://blast-rpc.publicnode.com",
+        description="Blast RPC",
+    )
+    ink_rpc_url: str = Field(default="https://rpc-gel.inkonchain.com", description="Ink RPC")
 
     # Solana RPC
     solana_rpc_url: str = Field(
