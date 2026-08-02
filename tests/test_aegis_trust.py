@@ -32,6 +32,15 @@ def _verdict(is_threat: bool) -> SimpleNamespace:
     return SimpleNamespace(is_threat=is_threat)
 
 
+@pytest.fixture(autouse=True)
+def _reset_no_row_cache():
+    """The negative cache is a process-global — clear it around every test so
+    one test's cached absences can't suppress another's DB reads."""
+    aegis_trust._no_row_cache.clear()
+    yield
+    aegis_trust._no_row_cache.clear()
+
+
 # ---------------------------------------------------------------------------
 # get_trust() defaults
 # ---------------------------------------------------------------------------
@@ -176,6 +185,40 @@ def test_recovery_never_exceeds_100(tmp_db):
     aegis_trust.record_verdict("telegram", "user-5", _verdict(is_threat=False))
 
     assert aegis_trust.get_trust("telegram", "user-5") == 100.0
+
+
+# ---------------------------------------------------------------------------
+# Read-amplification negative cache (money-path review, Phase 2.4)
+# ---------------------------------------------------------------------------
+
+
+def test_clean_verdict_caches_absent_user_then_skips_db(tmp_db):
+    """First clean scan of a no-row user reads the DB and caches the absence;
+    the second clean scan must not touch the DB at all."""
+    key = ("telegram", "cache-me")
+
+    aegis_trust.record_verdict("telegram", "cache-me", _verdict(is_threat=False))
+    assert key in aegis_trust._no_row_cache
+
+    with patch(
+        "bot.services.aegis_trust.get_session", side_effect=AssertionError("should not hit DB")
+    ):
+        aegis_trust.record_verdict("telegram", "cache-me", _verdict(is_threat=False))
+    # No exception escaped (fail-open) and, more importantly, get_session was
+    # never called — the cached-absent key short-circuited before the DB.
+
+
+def test_threat_evicts_negative_cache_key(tmp_db):
+    """A threat that creates a row must evict the cached absence so later clean
+    scans take the recovery read path instead of skipping the DB forever."""
+    key = ("telegram", "was-cached")
+
+    aegis_trust.record_verdict("telegram", "was-cached", _verdict(is_threat=False))
+    assert key in aegis_trust._no_row_cache
+
+    aegis_trust.record_verdict("telegram", "was-cached", _verdict(is_threat=True))
+    assert key not in aegis_trust._no_row_cache
+    assert aegis_trust.get_trust("telegram", "was-cached") == pytest.approx(85.0)
 
 
 # ---------------------------------------------------------------------------

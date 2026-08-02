@@ -26,11 +26,22 @@ nobody acts on yet. So:
 
 All public functions are fail-open: any DB error is caught, logged at debug,
 and swallowed. A trust-tracking hiccup must never raise into the scan path.
+
+Read-amplification guard (money-path review, Phase 2.4): the write guard above
+bounds *writes*, but a naive clean path still runs one SELECT per scanned
+message — and record_verdict shares the money-path DB thread pool. Since the
+overwhelming majority of users never trip a signature (so have no row), we keep
+an in-process negative cache of (platform, user_id) keys known to have no row.
+A clean verdict for a cached key returns before touching the DB, so steady-state
+reads fall to ~one per new user (then cached) plus the small set of users who
+have actually tripped a threat. The cache is per-process (fine — it only ever
+suppresses a redundant read of a row that is still absent); a threat that
+creates a row evicts the key so its later clean scans take the recovery path.
 """
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Set, Tuple
 
 from database.db import get_session
 from bot.models.aegis_trust import AegisUserTrust
@@ -44,6 +55,20 @@ TRUST_MAX = 100.0
 _THREAT_PENALTY = 15.0
 _RECOVERY_STEP = 1.0
 _RECOVERY_INTERVAL = timedelta(hours=1)
+
+# In-process negative cache of (platform, user_id) keys confirmed to have no
+# row. Set operations are atomic under the GIL, which is all this fail-open
+# cache needs — a race at worst causes one redundant DB read. Bounded by a
+# crude clear-on-overflow: a telemetry cache never needs LRU precision, and
+# clearing just costs a few reads until it refills.
+_no_row_cache: Set[Tuple[str, str]] = set()
+_NO_ROW_CACHE_MAX = 50_000
+
+
+def _cache_absent(key: Tuple[str, str]) -> None:
+    if len(_no_row_cache) >= _NO_ROW_CACHE_MAX:
+        _no_row_cache.clear()
+    _no_row_cache.add(key)
 
 
 def get_trust(platform: str, user_id: Optional[str]) -> float:
@@ -96,6 +121,13 @@ def record_verdict(platform: str, user_id: Optional[str], verdict) -> None:
         is_threat = bool(getattr(verdict, "is_threat", False))
         now = datetime.utcnow()
         user_id = str(user_id)
+        key = (platform, user_id)
+
+        # Read-amplification guard: a clean verdict for a user we already know
+        # has no row does zero DB work. Threats always go to the DB (and evict
+        # the key, since they may create the row).
+        if not is_threat and key in _no_row_cache:
+            return
 
         with get_session() as session:
             row = (
@@ -120,10 +152,12 @@ def record_verdict(platform: str, user_id: Optional[str], verdict) -> None:
                 row.threat_count = (row.threat_count or 0) + 1
                 row.last_threat_at = now
                 row.last_seen_at = now
+                _no_row_cache.discard(key)  # a row now exists for this key
                 return
 
             # Clean path — never create a row for a user with zero threats.
             if row is None:
+                _cache_absent(key)  # remember: skip the DB on this user's next clean scan
                 return
 
             last_update = row.last_seen_at or row.created_at
