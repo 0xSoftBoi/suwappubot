@@ -2217,6 +2217,12 @@ def _devwatch_dict(watch, hit_count: int = 0) -> dict:
     }
 
 
+@router.get("/intel/health")
+async def terminal_intel_health():
+    """Simple health check for intel routes."""
+    return {"status": "intel_routes_active"}
+
+
 @router.get("/intel/devwatch")
 async def terminal_devwatch_list(request: Request):
     # NOTE: This endpoint retrieves the authenticated user's deployed-dev watch list.
