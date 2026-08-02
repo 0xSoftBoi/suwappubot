@@ -17,20 +17,53 @@
 
 import { z } from 'zod'
 import { logger } from './logger'
+import { sanitizeReflectedText } from './outboundSanitize'
 
 /** Hard ceiling on the number of services returned, regardless of the caller's requested `limit`. */
 export const MAX_MPP_SERVICES = 100
 
 const MAX_STRING_LENGTH = 500
 const MAX_DESCRIPTION_LENGTH = 1000
+const MAX_CATEGORY_LENGTH = 200
+const MAX_FEE_TOKEN_LENGTH = 50
 
-/** One validated, size-bounded MPP directory entry. Unknown fields are dropped (zod strips by default). */
+/**
+ * One validated, size-bounded MPP directory entry. Unknown fields are dropped
+ * (zod strips by default), and every reflected string field is run through
+ * sanitizeReflectedText — length alone is not enough: a description could
+ * otherwise carry ANSI/control/multiline content straight to an agent caller.
+ */
 const MppServiceEntrySchema = z.object({
-	url: z.string().trim().min(1).max(MAX_STRING_LENGTH),
-	name: z.string().trim().min(1).max(MAX_STRING_LENGTH),
-	description: z.string().max(MAX_DESCRIPTION_LENGTH).optional().default(''),
-	category: z.string().max(200).optional().default(''),
-	feeToken: z.string().max(50).optional().default('pathUSD'),
+	url: z
+		.string()
+		.trim()
+		.min(1)
+		.max(MAX_STRING_LENGTH)
+		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH)),
+	name: z
+		.string()
+		.trim()
+		.min(1)
+		.max(MAX_STRING_LENGTH)
+		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH)),
+	description: z
+		.string()
+		.max(MAX_DESCRIPTION_LENGTH)
+		.optional()
+		.default('')
+		.transform((s) => sanitizeReflectedText(s, MAX_DESCRIPTION_LENGTH)),
+	category: z
+		.string()
+		.max(MAX_CATEGORY_LENGTH)
+		.optional()
+		.default('')
+		.transform((s) => sanitizeReflectedText(s, MAX_CATEGORY_LENGTH)),
+	feeToken: z
+		.string()
+		.max(MAX_FEE_TOKEN_LENGTH)
+		.optional()
+		.default('pathUSD')
+		.transform((s) => sanitizeReflectedText(s, MAX_FEE_TOKEN_LENGTH)),
 	minDeposit: z.number().finite().nonnegative().optional().default(0),
 	supportsStreaming: z.boolean().optional().default(false),
 	supportsOneTime: z.boolean().optional().default(true),
