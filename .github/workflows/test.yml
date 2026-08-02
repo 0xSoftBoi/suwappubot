@@ -92,7 +92,6 @@ jobs:
 
       - name: Run TypeScript tests
         run: bun run test
-        continue-on-error: true   # advisory until coverage is built up
 
       # Published product numbers (chain counts, router count) are derived from
       # bot/ and api-ts/ by showcase/scripts/generate-stats.mjs. They cannot be

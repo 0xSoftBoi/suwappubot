@@ -22,6 +22,11 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")  # never hit real KMS in tests
+# api.main freezes JWT_SECRET at import time (random if SECRET_KEY is unset).
+# Any test module importing api.main before a per-module setdefault runs would
+# freeze a random secret and 401 every webapp JWT test that runs later — so the
+# secret must be pinned here, before any test module is imported.
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 
 # ---------------------------------------------------------------------------

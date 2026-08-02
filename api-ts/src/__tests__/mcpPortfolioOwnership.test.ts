@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Either } from 'effect'
 
+// mock.module() mutates the process-wide module registry and is not undone when this
+// file ends, so the stub would leak into every test file that runs later. Capture the
+// real module first and restore it in afterAll.
+const REAL_RUNTIME = { ...(await import('../runtime')) }
+
+afterAll(() => {
+	mock.module('../runtime', () => REAL_RUNTIME)
+})
+
 // Mock the Effect runtime so the handlers never touch BalanceService / Hyperliquid /
 // the network. Any code path that reaches runEffectEither returns an empty success —
 // this isolates the ownership gate as the only thing under test.
