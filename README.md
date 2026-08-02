@@ -1,20 +1,36 @@
 <div align="center">
+  <picture>
+    <img src="showcase/public/logo.svg" width="88" alt="Suwappu">
+  </picture>
+</div>
 
-# 🌸 Suwappu
+<h1 align="center">Suwappu</h1>
 
-**Cross-chain DEX infrastructure for humans and AI agents.**
-Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+<p align="center">
+  <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
+  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+</p>
+
+<div align="center">
 
 [![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
-[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
-[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
 [![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
 
-[**Trade now**](https://www.suwappu.bot) · [**Open Terminal**](https://terminal.suwappu.bot) · [**Telegram Bot**](https://t.me/SuwappuBot) · [**Docs**](docs/agent-clients.md)
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 
 </div>
+
+<p align="center">
+  <b><a href="https://www.suwappu.bot">Trade now</a></b> &nbsp;·&nbsp;
+  <b><a href="https://terminal.suwappu.bot">Open Terminal</a></b> &nbsp;·&nbsp;
+  <b><a href="https://t.me/SuwappuBot">Telegram Bot</a></b> &nbsp;·&nbsp;
+  <b><a href="docs/agent-clients.md">Agent Docs</a></b> &nbsp;·&nbsp;
+  <b><a href="#security">Security</a></b>
+</p>
 
 <br>
 
@@ -36,6 +52,28 @@ Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or
 </td>
 </tr>
 </table>
+
+---
+
+<details>
+<summary><b>Table of contents</b></summary>
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Features](#features)
+4. [Quick Start](#quick-start)
+5. [Swap Routing](#swap-routing)
+6. [Supported Chains](#supported-chains)
+7. [Bot Commands](#bot-commands)
+8. [Project Structure](#project-structure)
+9. [API Endpoints (TypeScript)](#api-endpoints-typescript)
+10. [npm Packages](#npm-packages)
+11. [Deployment](#deployment)
+12. [Security](#security)
+13. [Documentation](#documentation)
+14. [Links](#links)
+
+</details>
 
 ---
 
