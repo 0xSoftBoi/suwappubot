@@ -1,0 +1,493 @@
+# Instincts generated from https://github.com/0xSoftBoi/suwappubot
+# Generated: 2026-08-02T11:53:18.128Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: suwappubot-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, fix
+
+## Evidence
+
+- 4 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat(showcase): publish two research papers with exhibits and fix canonical URLs, fix(showcase): correct research posts against source papers; publish replication bundle
+
+---
+id: suwappubot-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Commit Length
+
+## Action
+
+Write moderate-length commit messages (~90 characters)
+
+## Evidence
+
+- Average commit message length: 90 chars
+- Based on 4 commits
+
+---
+id: suwappubot-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Naming Files
+
+## Action
+
+Use snake_case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: snake_case
+
+---
+id: suwappubot-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Export Style
+
+## Action
+
+Prefer mixed exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: mixed
+
+---
+id: suwappubot-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: 
+
+---
+id: suwappubot-test-framework
+trigger: "when writing tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Test Framework
+
+## Action
+
+Use jest as the test framework
+
+## Evidence
+
+- Test framework detected: jest
+- File pattern: *.test.ts
+
+---
+id: suwappubot-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: suwappubot-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: yes
+
+---
+id: suwappubot-workflow-add-or-update-research-paper-with-exhibits-and-replication-bundle
+trigger: "when doing add or update research paper with exhibits and replication bundle"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Workflow Add Or Update Research Paper With Exhibits And Replication Bundle
+
+## Action
+
+Follow the add-or-update-research-paper-with-exhibits-and-replication-bundle workflow:
+1. Add or update SVG exhibit(s) in showcase/public/research/
+2. Add or update research post markdown and metadata in showcase/public/research/replication/papers/
+3. Add or update code and data for replication in showcase/public/research/replication/code/ and showcase/public/research/replication/data/
+4. Update research index/content in showcase/src/content/research.ts
+5. Update or create route files for the paper in showcase/src/app/research/[slug]/page.tsx and/or showcase/src/app/research/replication/page.tsx
+6. Update or create Open Graph images in showcase/src/app/research/[slug]/opengraph-image.tsx (if needed)
+7. Update global or research-specific CSS in showcase/src/app/globals.css or showcase/src/app/research/research.module.css
+8. Verify production build renders paper, exhibits, and replication bundle correctly
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: showcase/public/research/*.svg, showcase/public/research/replication/papers/*.md, showcase/public/research/replication/code/*.py
+
+---
+id: suwappubot-workflow-sitewide-research-section-corrections-and-metadata-improvements
+trigger: "when doing sitewide research section corrections and metadata improvements"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Workflow Sitewide Research Section Corrections And Metadata Improvements
+
+## Action
+
+Follow the sitewide-research-section-corrections-and-metadata-improvements workflow:
+1. Edit research post content and metadata in showcase/public/research/replication/papers/ and showcase/src/content/research.ts
+2. Update or correct SVG exhibits in showcase/public/research/
+3. Update markdown renderer or DOMPurify settings in showcase/src/app/docs/[section]/[slug]/markdown.ts and showcase/src/components/docs/DocsReader.tsx
+4. Update canonical URL logic and SEO metadata in showcase/src/app/layout.tsx and per-route files
+5. Update or add Open Graph images in showcase/src/app/research/[slug]/opengraph-image.tsx
+6. Update global CSS if needed for new content types
+7. Verify changes in production build
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: showcase/public/research/*.svg, showcase/public/research/replication/papers/*.md, showcase/src/content/research.ts
+
+---
+id: suwappubot-instinct-filename-snake-case
+trigger: "When creating a new Python file"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Filename Snake Case
+
+## Action
+
+Name the file using snake_case
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files: snake_case
+
+---
+id: suwappubot-instinct-function-camelCase
+trigger: "When defining a new function in Python"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Function CamelCase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions: camelCase
+
+---
+id: suwappubot-instinct-class-PascalCase
+trigger: "When defining a new class in Python"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Class PascalCase
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes: PascalCase
+
+---
+id: suwappubot-instinct-constant-SCREAMING_SNAKE_CASE
+trigger: "When defining a constant in Python"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Constant SCREAMING_SNAKE_CASE
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: suwappubot-instinct-import-mixed
+trigger: "When importing modules in Python"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Import Mixed
+
+## Action
+
+Use both absolute and relative imports as appropriate
+
+## Evidence
+
+- Pattern in codeStyle.importStyle: mixed
+
+---
+id: suwappubot-instinct-export-mixed
+trigger: "When exporting modules or functions"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Export Mixed
+
+## Action
+
+Use both named and default exports as appropriate
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle: mixed
+
+---
+id: suwappubot-instinct-test-file-pattern
+trigger: "When creating a test file for TypeScript code"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Test File Pattern
+
+## Action
+
+Name the file with a .test.ts suffix
+
+## Evidence
+
+- Pattern in testing.filePattern: *.test.ts
+
+---
+id: suwappubot-instinct-test-framework-jest
+trigger: "When writing tests for TypeScript code"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Test Framework Jest
+
+## Action
+
+Use the Jest testing framework
+
+## Evidence
+
+- Pattern in testing.framework: jest
+
+---
+id: suwappubot-instinct-test-types
+trigger: "When writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Test Types
+
+## Action
+
+Write both unit and integration tests
+
+## Evidence
+
+- Pattern in testing.testTypes: unit, integration
+
+---
+id: suwappubot-instinct-test-coverage-config
+trigger: "When configuring tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Test Coverage Config
+
+## Action
+
+Ensure test coverage is configured and measured
+
+## Evidence
+
+- Pattern in testing.coverageConfig: true
+
+---
+id: suwappubot-instinct-commit-conventional
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Commit Conventional
+
+## Action
+
+Use the Conventional Commits format with prefixes like feat or fix
+
+## Evidence
+
+- Pattern in commits.type: conventional
+- Examples: 'feat(showcase): ...', 'fix(showcase): ...'
+
+---
+id: suwappubot-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Commit Length
+
+## Action
+
+Keep the commit message concise, around 90 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 90
+
+---
+id: suwappubot-instinct-publish-research-workflow
+trigger: "When someone wants to publish or update a research paper with supporting exhibits and/or replication materials"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Publish Research Workflow
+
+## Action
+
+Follow the workflow: add/update SVG exhibits, markdown, code/data, update index/content, update/create route files, update Open Graph images, update CSS, verify production build
+
+## Evidence
+
+- Workflow: add-or-update-research-paper-with-exhibits-and-replication-bundle
+- Commit sequences and file patterns in workflow definition
+
+---
+id: suwappubot-instinct-correct-research-workflow
+trigger: "When someone needs to correct errors in published research, improve metadata, or enhance markdown/image support"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: 0xSoftBoi/suwappubot
+---
+
+# Suwappubot Instinct Correct Research Workflow
+
+## Action
+
+Follow the workflow: edit research content/metadata, update SVG exhibits, update markdown renderer or DOMPurify, update canonical URL and SEO metadata, update Open Graph images, update CSS, verify production build
+
+## Evidence
+
+- Workflow: sitewide-research-section-corrections-and-metadata-improvements
+- Commit sequences and file patterns in workflow definition
+
