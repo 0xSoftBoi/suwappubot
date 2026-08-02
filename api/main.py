@@ -70,12 +70,14 @@ from bot.services.digest_service import digest_service
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
 from bot.services.rpc_manager import rpc_manager
+from bot.services.aegis_service import get_aegis
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
+from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
 from bot.main import add_handlers
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
@@ -2160,6 +2162,9 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
     }
 
 
+_agent_execute_limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+
+
 @app.post("/v1/agent/execute", tags=["Agents"], summary="Execute natural language trading command")
 async def agent_execute(
     request: AgentExecuteRequest,
@@ -2172,10 +2177,20 @@ async def agent_execute(
     """
     from bot.services.unified_bot_service import unified_bot_service
 
+    # 0. Rate limit per agent key (keyed on a stable hash, not the raw secret)
+    key_id = hashlib.sha256(agent_key.encode()).hexdigest()[:16]
+    try:
+        await _agent_execute_limiter.check(key_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
     # 1. Resolve user
     user = db.query(User).filter(User.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # AEGIS observe-mode scan (advisory only — never blocks execution)
+    await get_aegis().ascan(request.text, source="agent_api", user_id=key_id)
 
     # 2. Execute via unified service
     response = await unified_bot_service.handle_command(
@@ -2528,6 +2543,30 @@ async def _wa_dispatch(message):
                 "🎤 Sorry, I couldn't understand that voice note — please type your request.",
             )
             return
+
+    # AEGIS observe-mode scan (advisory only — never blocks or alters routing).
+    scan_parts = []
+    if message.text:
+        scan_parts.append(message.text)
+    if message.button_payload:
+        scan_parts.append(message.button_payload)
+    if message.list_reply_id:
+        scan_parts.append(message.list_reply_id)
+    if message.nfm_reply_data:
+        try:
+            nfm_text = (
+                message.nfm_reply_data
+                if isinstance(message.nfm_reply_data, str)
+                else json.dumps(message.nfm_reply_data, separators=(",", ":"))
+            )
+        except Exception:
+            nfm_text = str(message.nfm_reply_data)
+        scan_parts.append(nfm_text)
+    if scan_parts:
+        await get_aegis().ascan(
+            "\n".join(scan_parts), source="whatsapp", user_id=message.from_number
+        )
+
     await whatsapp_router.route(message)
 
 
