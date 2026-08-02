@@ -56,5 +56,10 @@ export default defineConfig({
 		// python owner; records Stripe sessions started by showcase visitors with
 		// no Suwappu account.
 		'web_checkouts',
+		// api-ts-exclusive per-agent AEGIS trust record (agentTrust.ts, Phase 2.3
+		// analogue) — no python owner. Separate concern from python's
+		// aegis_user_trust (keyed on (platform, user_id), bot end-user trust);
+		// this one is keyed on agents.id (registered-agent A2A/MCP surface).
+		'agent_trust',
 	],
 })

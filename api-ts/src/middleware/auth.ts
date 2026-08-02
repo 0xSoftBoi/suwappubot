@@ -6,7 +6,7 @@ import { inArray } from 'drizzle-orm'
 import { requireDb } from '../db/DrizzleService'
 import { agents } from '../db/schema'
 import { runEffect, runEffectEither } from '../runtime'
-import { AgentService } from '../services'
+import { AgentService, AgentTrustService } from '../services'
 import { writeAuditLog } from '../services/audit'
 
 // Batch agent activity updates: collect IDs and flush every 60s
@@ -178,6 +178,25 @@ export function agentBearerAuth() {
 
 		// Store agent in context for route handlers
 		c.set('agent', agent)
+
+		// RECORD-ONLY trust read (Phase 2.3 analogue, api-ts agent surface — see
+		// services/AgentTrustService.ts). Stashed on the context for future use;
+		// nothing today gates or denies on it. AgentTrustService.getTrust is
+		// itself fail-open (Effect<number, never, ...>, defaults to 100), but the
+		// runEffect boundary is wrapped here too so a trust read can NEVER break
+		// auth, no matter what goes wrong resolving/running the effect.
+		let agentTrustScore = 100
+		try {
+			agentTrustScore = await runEffect(
+				Effect.gen(function* () {
+					const trustService = yield* AgentTrustService
+					return yield* trustService.getTrust(agent.id)
+				}),
+			)
+		} catch {
+			agentTrustScore = 100
+		}
+		c.set('agentTrust', agentTrustScore)
 
 		await next()
 	}

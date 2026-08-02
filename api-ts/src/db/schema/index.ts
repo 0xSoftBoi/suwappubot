@@ -1,4 +1,5 @@
 export * from './advanced'
+export * from './agentTrust'
 export * from './agents'
 export * from './approvals'
 export * from './battles'
