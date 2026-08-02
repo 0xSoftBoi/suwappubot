@@ -48,6 +48,10 @@ _SUPPORTED_LANGS = (
     ("es", "🇪🇸 Español"),
     ("fr", "🇫🇷 Français"),
     ("zh", "🇨🇳 中文"),
+    ("hi", "🇮🇳 हिन्दी"),
+    ("tl", "🇵🇭 Tagalog"),
+    ("vi", "🇻🇳 Tiếng Việt"),
+    ("ht", "🇭🇹 Kreyòl Ayisyen"),
 )
 
 
@@ -1217,7 +1221,7 @@ language_menu_handler = CallbackQueryHandler(
     language_menu_callback, pattern="^settings_language_menu$"
 )
 language_set_handler = CallbackQueryHandler(
-    language_set_callback, pattern="^settings_lang_(en|es|fr|zh)$"
+    language_set_callback, pattern="^settings_lang_(en|es|fr|zh|hi|tl|vi|ht)$"
 )
 notify_prefs_handler = CallbackQueryHandler(
     notify_prefs_callback, pattern="^settings_notify_prefs$"
