@@ -114,7 +114,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       : res.status === 429 ? 'Too many requests — slow down a moment.'
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
       : null
-    throw { detail: body.detail || body.message || friendly || res.statusText, status: res.status }
+    // Rate-limited endpoints (e.g. /terminal/intel/*) send Retry-After (seconds)
+    // — surface it so callers can back off instead of hammering the API.
+    const retryAfterHeader = res.headers.get('Retry-After')
+    const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined
+    throw {
+      detail: body.detail || body.message || friendly || res.statusText,
+      status: res.status,
+      ...(Number.isFinite(retryAfter) ? { retryAfter } : {}),
+    }
   }
   return res.json()
 }

@@ -17,6 +17,9 @@ export interface Portfolio {
 export interface ApiError {
   detail: string
   status: number
+  // Seconds to wait before retrying — populated from the response's
+  // `Retry-After` header on 429s (e.g. the per-IP-limited intel endpoint).
+  retryAfter?: number
 }
 
 export interface SwapToken {

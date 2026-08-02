@@ -53,7 +53,7 @@ export function IntelPanel() {
     }
   }, [selectedPair, prefilled])
 
-  const { data: intel, isLoading, isFetching, error, refetch } = useTokenIntel(
+  const { data: intel, isLoading, isFetching, error, failureReason, refetch } = useTokenIntel(
     query?.chain ?? '',
     query?.address ?? ''
   )
@@ -125,6 +125,7 @@ export function IntelPanel() {
             isLoading={isLoading}
             isFetching={isFetching}
             error={error}
+            failureReason={failureReason}
             onRetry={() => refetch()}
           />
         )}
@@ -139,6 +140,7 @@ function IntelResults({
   isLoading,
   isFetching,
   error,
+  failureReason,
   onRetry,
 }: {
   hasQuery: boolean
@@ -146,6 +148,7 @@ function IntelResults({
   isLoading: boolean
   isFetching: boolean
   error: unknown
+  failureReason: unknown
   onRetry: () => void
 }) {
   if (!hasQuery) {
@@ -154,6 +157,20 @@ function IntelResults({
         kicker="Token Intel"
         title="Scan a token"
         description="Paste a contract address (or leave chain on Auto-detect) to pull deployer history, holder distribution, wallet clusters, and bundle/snipe signals."
+      />
+    )
+  }
+
+  // A 429 mid-retry: react-query is backing off (bounded, respecting
+  // Retry-After) before it lands in `error`. Surface that honestly instead of
+  // a plain spinner so it doesn't read as a hang.
+  const inFlightStatus = (failureReason as { status?: number } | undefined)?.status
+  if (isLoading && inFlightStatus === 429) {
+    return (
+      <TerminalEmptyState
+        kicker="Rate limited"
+        title="Slow down a moment"
+        description="Too many scans in a short window — retrying shortly on its own. No need to resubmit."
       />
     )
   }
@@ -169,15 +186,17 @@ function IntelResults({
 
   // Never blank the panel on error — show what happened + a retry.
   if (error) {
+    const status = (error as { status?: number } | undefined)?.status
+    const isRateLimited = status === 429
     const message =
       typeof error === 'object' && error && 'detail' in error
         ? String((error as { detail?: string }).detail)
         : 'Could not load token intel.'
     return (
       <TerminalEmptyState
-        kicker="Scan failed"
-        title="Couldn't load this token"
-        description={message}
+        kicker={isRateLimited ? 'Rate limited' : 'Scan failed'}
+        title={isRateLimited ? 'Still rate limited — try again shortly' : "Couldn't load this token"}
+        description={isRateLimited ? 'This endpoint is per-IP rate limited. Wait a few seconds, then retry.' : message}
         action={
           <TerminalButton size="sm" onClick={onRetry}>
             Retry
