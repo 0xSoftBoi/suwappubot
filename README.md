@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Route Graph — a generative force-directed routing graph over a faint math grid and contract-call texture">
+  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Suwappu spelled out as a glowing routing-graph circuit over a faint math grid and contract-call texture">
 </div>
 
 # Suwappu
