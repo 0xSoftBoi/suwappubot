@@ -1,8 +1,10 @@
 <div align="center">
-  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Suwappu spelled out as a glowing routing-graph circuit over a faint math grid and contract-call texture">
+  <a href="https://www.suwappu.bot">
+    <img src="showcase/public/logo.svg" width="84" alt="Suwappu">
+  </a>
 </div>
 
-# Suwappu
+<h1 align="center">Suwappu</h1>
 
 <div align="center">
 
