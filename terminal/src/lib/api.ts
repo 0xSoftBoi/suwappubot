@@ -76,6 +76,9 @@ import type {
   TrackedTwitterAccount,
   TweetData,
   WalletActivity,
+  TokenIntel,
+  DevWatchEntry,
+  DevWatchHit,
 } from '../types/api'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -585,6 +588,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ positionId }),
     })
+  },
+
+  // Token Intel — deployer/holder/cluster analysis (Bubblemaps/Solscan-style).
+  getTokenIntel(chain: string, tokenAddress: string) {
+    return request<TokenIntel>(
+      `/terminal/intel/${encodeURIComponent(chain)}/${encodeURIComponent(tokenAddress)}`
+    )
+  },
+
+  getDevWatchList() {
+    return request<DevWatchEntry[]>('/terminal/intel/devwatch')
+  },
+
+  addDevWatch(params: { deployer_address: string; chain: string; label?: string }) {
+    return request<DevWatchEntry>('/terminal/intel/devwatch', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  removeDevWatch(watchId: number) {
+    return request<void>(`/terminal/intel/devwatch/${watchId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getDevWatchHits(limit = 50) {
+    return request<DevWatchHit[]>(`/terminal/intel/devwatch/hits?limit=${limit}`)
   },
 
   // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)
