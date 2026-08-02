@@ -74,6 +74,12 @@ export function Settings() {
         serverLanguage !== i18n.language
       ) {
         i18n.changeLanguage(serverLanguage)
+        // Persist the synced preference locally too, otherwise detectLanguage()
+        // in lib/i18n.ts re-resolves from scratch on the next reload (falls
+        // back to Telegram language_code / 'en') and the language — and thus
+        // the money-formatting locale — can flip mid-session with no user
+        // action every time this page loads.
+        localStorage.setItem('suwappu_locale', serverLanguage)
       }
     } catch (err: any) {
       console.error('Failed to load preferences:', err)
