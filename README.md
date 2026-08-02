@@ -11,7 +11,7 @@
 [![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
 [![CI](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/test.yml?branch=main&label=CI)](.github/workflows/test.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/codeql.yml?branch=main&label=CodeQL)](.github/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/0xSoftBoi/suwappubot?label=openssf%20scorecard)](https://securityscorecards.dev/viewer/?uri=github.com/0xSoftBoi/suwappubot)
+[![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
