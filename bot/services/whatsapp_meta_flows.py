@@ -315,8 +315,11 @@ class WhatsAppMetaFlows:
 
         if data:
             interactive["action"]["parameters"]["flow_action_payload"] = {
-                "screen": list(FLOW_SCHEMAS.values())[0]["screens"][0]["id"]
-                if FLOW_SCHEMAS else "MAIN_SCREEN",
+                "screen": (
+                    list(FLOW_SCHEMAS.values())[0]["screens"][0]["id"]
+                    if FLOW_SCHEMAS
+                    else "MAIN_SCREEN"
+                ),
                 "data": data,
             }
 

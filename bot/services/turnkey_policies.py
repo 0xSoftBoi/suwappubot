@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PolicyInfo:
     """Represents a Turnkey policy with local metadata."""
+
     policy_id: str
     policy_name: str
     policy_type: str  # "spending_limit" or "address_whitelist"
@@ -49,6 +50,7 @@ class TurnkeyPolicyService:
         """Refresh cached ETH price from chain config."""
         try:
             from bot.services.price_service import price_service
+
             price = await price_service.get_price("ETH")
             if price and price > 0:
                 self._eth_price_usd = price
@@ -80,6 +82,7 @@ class TurnkeyPolicyService:
             return None
 
         from bot.services.turnkey_client import get_turnkey_client
+
         client = get_turnkey_client()
 
         await self.update_eth_price()
@@ -134,6 +137,7 @@ class TurnkeyPolicyService:
             return None
 
         from bot.services.turnkey_client import get_turnkey_client
+
         client = get_turnkey_client()
 
         policy_name = f"whitelist_{wallet.address[:10]}"
@@ -191,6 +195,7 @@ class TurnkeyPolicyService:
             return []
 
         from bot.services.turnkey_client import get_turnkey_client
+
         client = get_turnkey_client()
 
         try:
@@ -212,28 +217,34 @@ class TurnkeyPolicyService:
                 continue
 
             if name.startswith("spending_limit_hourly_"):
-                results.append(PolicyInfo(
-                    policy_id=policy_id,
-                    policy_name=name,
-                    policy_type="spending_limit",
-                    wallet_address=wallet.address,
-                    time_window_seconds=3600,
-                ))
+                results.append(
+                    PolicyInfo(
+                        policy_id=policy_id,
+                        policy_name=name,
+                        policy_type="spending_limit",
+                        wallet_address=wallet.address,
+                        time_window_seconds=3600,
+                    )
+                )
             elif name.startswith("spending_limit_daily_"):
-                results.append(PolicyInfo(
-                    policy_id=policy_id,
-                    policy_name=name,
-                    policy_type="spending_limit",
-                    wallet_address=wallet.address,
-                    time_window_seconds=86400,
-                ))
+                results.append(
+                    PolicyInfo(
+                        policy_id=policy_id,
+                        policy_name=name,
+                        policy_type="spending_limit",
+                        wallet_address=wallet.address,
+                        time_window_seconds=86400,
+                    )
+                )
             elif name.startswith("whitelist_"):
-                results.append(PolicyInfo(
-                    policy_id=policy_id,
-                    policy_name=name,
-                    policy_type="address_whitelist",
-                    wallet_address=wallet.address,
-                ))
+                results.append(
+                    PolicyInfo(
+                        policy_id=policy_id,
+                        policy_name=name,
+                        policy_type="address_whitelist",
+                        wallet_address=wallet.address,
+                    )
+                )
 
         return results
 
@@ -244,6 +255,7 @@ class TurnkeyPolicyService:
     ) -> bool:
         """Remove all policies whose name starts with prefix."""
         from bot.services.turnkey_client import get_turnkey_client
+
         client = get_turnkey_client()
 
         try:
@@ -283,20 +295,24 @@ class TurnkeyPolicyService:
         from bot.models.favorites import UserSettings
 
         with get_session() as session:
-            user_settings = session.query(UserSettings).filter(
-                UserSettings.user_id == user_id
-            ).first()
+            user_settings = (
+                session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            )
             if not user_settings:
                 return
 
             per_swap = user_settings.per_swap_limit_usd
             daily = user_settings.daily_limit_usd
 
-            wallets = session.query(Wallet).filter(
-                Wallet.user_id == user_id,
-                Wallet.wallet_provider == "turnkey",
-                Wallet.is_active == True,
-            ).all()
+            wallets = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user_id,
+                    Wallet.wallet_provider == "turnkey",
+                    Wallet.is_active == True,
+                )
+                .all()
+            )
 
         for wallet in wallets:
             # Set daily limit

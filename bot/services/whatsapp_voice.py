@@ -62,7 +62,9 @@ class WhatsAppVoiceHandler:
         # 2. Transcribe via OpenAI Whisper
         text = await self._transcribe(audio_bytes)
         if text is None:
-            return "Sorry, I couldn't transcribe your voice message. Please type your command instead."
+            return (
+                "Sorry, I couldn't transcribe your voice message. Please type your command instead."
+            )
 
         text = text.strip()
         if not text:
@@ -111,9 +113,7 @@ class WhatsAppVoiceHandler:
                 )
 
                 if resp.status_code != 200:
-                    logger.error(
-                        f"Whisper API error {resp.status_code}: {resp.text[:200]}"
-                    )
+                    logger.error(f"Whisper API error {resp.status_code}: {resp.text[:200]}")
                     return None
 
                 result = resp.json()

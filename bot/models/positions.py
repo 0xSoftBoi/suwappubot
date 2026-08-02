@@ -29,13 +29,11 @@ class UserPosition(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    token = Column(String(20), nullable=False)   # symbol (matches swap.from/to_token)
+    token = Column(String(20), nullable=False)  # symbol (matches swap.from/to_token)
     chain = Column(String(20), nullable=False)
-    qty = Column(Float, default=0.0)             # accumulated token quantity
-    cost_usd = Column(Float, default=0.0)        # total USD cost of the held qty
+    qty = Column(Float, default=0.0)  # accumulated token quantity
+    cost_usd = Column(Float, default=0.0)  # total USD cost of the held qty
     realized_pnl_usd = Column(Float, default=0.0)  # cumulative realized PnL (sells)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "token", "chain", name="uq_user_position"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "token", "chain", name="uq_user_position"),)

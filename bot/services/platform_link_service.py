@@ -100,16 +100,12 @@ class PlatformLinkService:
 
             # Check if the source user already has this platform linked
             if getattr(source_user, target_col) is not None:
-                logger.warning(
-                    f"User {source_user_id} already has {target_platform} linked"
-                )
+                logger.warning(f"User {source_user_id} already has {target_platform} linked")
                 return False
 
             # Find any existing user that owns the target platform ID
             existing_user = (
-                session.query(User)
-                .filter(getattr(User, target_col) == target_platform_id)
-                .first()
+                session.query(User).filter(getattr(User, target_col) == target_platform_id).first()
             )
 
             if existing_user and existing_user.id != source_user_id:
@@ -121,9 +117,7 @@ class PlatformLinkService:
 
         # Delete the consumed code
         await redis_cache.delete(f"{LINK_CODE_PREFIX}{code}")
-        logger.info(
-            f"Linked {target_platform}:{target_platform_id} to user {source_user_id}"
-        )
+        logger.info(f"Linked {target_platform}:{target_platform_id} to user {source_user_id}")
         return True
 
     def get_linked_platforms(self, user_id: int) -> dict:
@@ -173,9 +167,7 @@ class PlatformLinkService:
                 return False
 
             # Prevent unlinking the last platform
-            linked_count = sum(
-                1 for c in PLATFORM_COLUMNS.values() if getattr(user, c) is not None
-            )
+            linked_count = sum(1 for c in PLATFORM_COLUMNS.values() if getattr(user, c) is not None)
             if linked_count <= 1:
                 logger.warning(
                     f"Cannot unlink {platform} — it is the only linked platform for user {user_id}"
@@ -202,16 +194,10 @@ class PlatformLinkService:
         relationship). Other relationships (swaps, subscriptions) remain
         attached to the user that created them and are cascade-deleted.
         """
-        logger.info(
-            f"Merging user {discard_user.id} into user {keep_user.id}"
-        )
+        logger.info(f"Merging user {discard_user.id} into user {keep_user.id}")
 
         # Re-parent wallets
-        wallets_to_move = (
-            session.query(Wallet)
-            .filter(Wallet.user_id == discard_user.id)
-            .all()
-        )
+        wallets_to_move = session.query(Wallet).filter(Wallet.user_id == discard_user.id).all()
         for wallet in wallets_to_move:
             wallet.user_id = keep_user.id
 
@@ -224,13 +210,11 @@ class PlatformLinkService:
             keep_user.discord_username = discard_user.discord_username
 
         # Accumulate referral stats
-        keep_user.total_referral_rewards = (
-            (keep_user.total_referral_rewards or 0)
-            + (discard_user.total_referral_rewards or 0)
+        keep_user.total_referral_rewards = (keep_user.total_referral_rewards or 0) + (
+            discard_user.total_referral_rewards or 0
         )
-        keep_user.referral_count = (
-            (keep_user.referral_count or 0)
-            + (discard_user.referral_count or 0)
+        keep_user.referral_count = (keep_user.referral_count or 0) + (
+            discard_user.referral_count or 0
         )
 
         session.delete(discard_user)

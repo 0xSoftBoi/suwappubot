@@ -383,6 +383,17 @@ checked-in Software Bill of Materials (SBOM).
 | [Deployment](docs/deployment/) | AWS, CI/CD, releases |
 | [Development](docs/development/) | Local setup, debugging, migrations |
 
+### Governance
+
+| Resource | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System boundaries, decision taxonomy, standing decisions |
+| [CONVENTIONS.md](CONVENTIONS.md) | Toolchain, git, code, testing, and naming rules |
+| [AGENTS.md](AGENTS.md) | Policy for AI agents working in this repo |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SUPPORT.md](SUPPORT.md) · [SECURITY.md](SECURITY.md) | Contributing, getting help, vulnerability reporting |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes |
+| [`.env.schema`](.env.schema) · [`capabilities.yaml`](capabilities.yaml) | Generated env contract · optional-provider manifest (`python3 scripts/doctor.py` to probe) |
+
 ---
 
 ## Links

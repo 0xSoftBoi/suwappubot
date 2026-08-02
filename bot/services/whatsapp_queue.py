@@ -109,9 +109,7 @@ class WhatsAppMessageQueue:
         try:
             uq.queue.put_nowait(message)
         except asyncio.QueueFull:
-            logger.warning(
-                f"Queue full for {user_id} (depth={MAX_QUEUE_DEPTH}), dropping message"
-            )
+            logger.warning(f"Queue full for {user_id} (depth={MAX_QUEUE_DEPTH}), dropping message")
             return False
 
         uq.last_activity = time.monotonic()

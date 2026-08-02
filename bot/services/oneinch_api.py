@@ -47,6 +47,7 @@ ONEINCH_NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
 @dataclass
 class OneInchQuote:
     """Quote response from 1inch Aggregation Protocol."""
+
     chain_id: str
     from_token: str
     to_token: str

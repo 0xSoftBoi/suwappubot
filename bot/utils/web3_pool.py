@@ -10,6 +10,7 @@ class Web3Pool:
     def get(cls, chain_name: str) -> Web3:
         """Get a Web3 instance for the specified chain."""
         from bot.services.rpc_manager import rpc_manager
+
         return rpc_manager.get_web3(chain_name)
 
     @classmethod

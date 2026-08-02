@@ -5,6 +5,7 @@ from database.db import Base
 
 class WebhookEvent(Base):
     """Webhook delivery record for agent notifications."""
+
     __tablename__ = "webhook_events"
 
     id = Column(Integer, primary_key=True)

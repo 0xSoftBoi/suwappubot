@@ -21,7 +21,6 @@ import pytest  # noqa: E402
 from bot.services.swap_engine import SwapEngine, SwapQuote  # noqa: E402
 from bot.utils.exceptions import SwapError  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -103,8 +102,13 @@ def test_get_quote_returns_best_when_some_providers_fail(monkeypatch):
     # socket and lifi both genuinely race for an ethereum->base USDC->WETH swap
     # (across/cctp/ccip require same-token routes, so they aren't in this race).
     # The higher-priced quote must win.
-    for method in ["_get_cctp_quote", "_get_ccip_quote", "_get_cow_quote",
-                   "_get_across_quote", "_get_wormhole_quote"]:
+    for method in [
+        "_get_cctp_quote",
+        "_get_ccip_quote",
+        "_get_cow_quote",
+        "_get_across_quote",
+        "_get_wormhole_quote",
+    ]:
         monkeypatch.setattr(engine, method, _fail)
     monkeypatch.setattr(engine, "_get_socket_quote", _low)
     monkeypatch.setattr(engine, "_get_lifi_quote", _high)

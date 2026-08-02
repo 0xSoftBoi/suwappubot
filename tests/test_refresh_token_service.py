@@ -1,4 +1,5 @@
 """Tests for the refresh-token rotation + reuse-detection logic (H13)."""
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")

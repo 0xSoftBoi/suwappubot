@@ -10,9 +10,10 @@ from functools import wraps
 @dataclass
 class CacheEntry:
     """A single cache entry with expiration."""
+
     value: Any
     expires_at: float
-    
+
     @property
     def is_expired(self) -> bool:
         return time.time() > self.expires_at
@@ -20,49 +21,43 @@ class CacheEntry:
 
 class AsyncCache:
     """Simple async-compatible in-memory cache with TTL."""
-    
+
     def __init__(self, default_ttl: int = 60):
         self._cache: dict[str, CacheEntry] = {}
         self._default_ttl = default_ttl
         self._lock = asyncio.Lock()
-    
+
     async def get(self, key: str) -> Optional[Any]:
         """Get a value from cache if not expired."""
         entry = self._cache.get(key)
         if entry is None or entry.is_expired:
             return None
         return entry.value
-    
+
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """Set a value in cache with optional TTL override."""
         ttl = ttl or self._default_ttl
         async with self._lock:
-            self._cache[key] = CacheEntry(
-                value=value,
-                expires_at=time.time() + ttl
-            )
-    
+            self._cache[key] = CacheEntry(value=value, expires_at=time.time() + ttl)
+
     async def delete(self, key: str) -> None:
         """Delete a key from cache."""
         async with self._lock:
             self._cache.pop(key, None)
-    
+
     async def clear(self) -> None:
         """Clear all cache entries."""
         async with self._lock:
             self._cache.clear()
-    
+
     async def cleanup_expired(self) -> int:
         """Remove expired entries and return count removed."""
         async with self._lock:
-            expired_keys = [
-                key for key, entry in self._cache.items()
-                if entry.is_expired
-            ]
+            expired_keys = [key for key, entry in self._cache.items() if entry.is_expired]
             for key in expired_keys:
                 del self._cache[key]
             return len(expired_keys)
-    
+
     def stats(self) -> dict:
         """Get cache statistics."""
         total = len(self._cache)
@@ -83,42 +78,44 @@ gas_cache = AsyncCache(default_ttl=15)  # 15 second TTL for gas prices
 
 def cached(cache: AsyncCache, key_func: Callable[..., str], ttl: Optional[int] = None):
     """Decorator for caching async function results."""
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             cache_key = key_func(*args, **kwargs)
-            
+
             # Try to get from cache
             cached_value = await cache.get(cache_key)
             if cached_value is not None:
                 return cached_value
-            
+
             # Call function and cache result
             result = await func(*args, **kwargs)
             await cache.set(cache_key, result, ttl)
             return result
-        
+
         return wrapper
+
     return decorator
 
 
 class RateLimiter:
     """Simple rate limiter for API calls."""
-    
+
     def __init__(self, calls_per_second: float = 10):
         self._min_interval = 1.0 / calls_per_second
         self._last_call = 0.0
         self._lock = asyncio.Lock()
-    
+
     async def acquire(self) -> None:
         """Wait if necessary to respect rate limit."""
         async with self._lock:
             now = time.time()
             time_since_last = now - self._last_call
-            
+
             if time_since_last < self._min_interval:
                 await asyncio.sleep(self._min_interval - time_since_last)
-            
+
             self._last_call = time.time()
 
 
@@ -126,4 +123,3 @@ class RateLimiter:
 lifi_rate_limiter = RateLimiter(calls_per_second=5)
 jupiter_rate_limiter = RateLimiter(calls_per_second=10)
 rpc_rate_limiter = RateLimiter(calls_per_second=20)
-

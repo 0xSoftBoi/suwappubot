@@ -52,7 +52,9 @@ class TwoFAFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_show_menu(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_show_menu(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
 
         if text == "2fa_enable":
@@ -106,12 +108,16 @@ class TwoFAFlow(BaseWhatsAppFlow):
             await self._clear(user_id)
             return FlowResponse("Failed to generate 2FA secret. Try again later.")
 
-    async def _step_enable_start(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_enable_start(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         # Redirect to enable flow
         db_uid = state.data.get("user_db_id") or user_db_id
         return await self._start_enable(user_id, db_uid)
 
-    async def _step_enable_verify(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_enable_verify(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
         secret = state.data.get("totp_secret")
 
@@ -125,9 +131,12 @@ class TwoFAFlow(BaseWhatsAppFlow):
 
         try:
             import pyotp
+
             totp = pyotp.TOTP(secret)
             if not totp.verify(code):
-                return FlowResponse("Invalid code. Please try again with the current code from your authenticator:")
+                return FlowResponse(
+                    "Invalid code. Please try again with the current code from your authenticator:"
+                )
         except Exception as e:
             logger.error(f"TOTP verify error: {e}")
             await self._clear(user_id)
@@ -142,6 +151,7 @@ class TwoFAFlow(BaseWhatsAppFlow):
                 user = session.query(User).filter(User.id == db_uid).first()
                 if user:
                     from bot.services.twofa import twofa_service
+
                     user.two_fa_enabled = True
                     # Encrypt at rest — never persist the raw TOTP seed.
                     user.totp_secret = twofa_service.encrypt_secret(secret)
@@ -157,7 +167,9 @@ class TwoFAFlow(BaseWhatsAppFlow):
             "Transactions above your threshold will now require a TOTP code."
         )
 
-    async def _step_disable_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_disable_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
 
         if text.strip().upper() != "DISABLE":
@@ -181,7 +193,9 @@ class TwoFAFlow(BaseWhatsAppFlow):
         await self._clear(user_id)
         return FlowResponse("2FA has been *disabled*.")
 
-    async def _step_set_threshold(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_set_threshold(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
 
         try:

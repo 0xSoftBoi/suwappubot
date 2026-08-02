@@ -52,6 +52,7 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 class SnipeMode(Enum):
     """Execution mode for snipes."""
+
     INSTANT = "instant"  # Execute immediately
     CONDITIONAL = "conditional"  # Wait for conditions
     FIRST_BLOCK = "first_block"  # Try to land in same block
@@ -59,6 +60,7 @@ class SnipeMode(Enum):
 
 class SnipeStatus(Enum):
     """Status of a snipe order."""
+
     PENDING = "pending"
     EXECUTING = "executing"
     SUBMITTED = "submitted"
@@ -70,6 +72,7 @@ class SnipeStatus(Enum):
 @dataclass
 class SnipeConfig:
     """Configuration for a snipe."""
+
     sol_amount: float  # Amount of SOL to spend
     slippage_bps: int = 1000  # 10% default slippage
     mode: SnipeMode = SnipeMode.INSTANT
@@ -86,6 +89,7 @@ class SnipeConfig:
 @dataclass
 class SnipeResult:
     """Result of a snipe execution."""
+
     success: bool
     status: SnipeStatus
     token_mint: str
@@ -102,6 +106,7 @@ class SnipeResult:
 
 class SnipeExecutorError(Exception):
     """Exception for snipe execution errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -149,9 +154,7 @@ class SnipeExecutor:
                     launch, wallet_keypair, config, start_time
                 )
             elif launch.platform in (LaunchPlatform.RAYDIUM, LaunchPlatform.PUMP_FUN_MIGRATION):
-                return await self._execute_raydium_snipe(
-                    launch, wallet_keypair, config, start_time
-                )
+                return await self._execute_raydium_snipe(launch, wallet_keypair, config, start_time)
             else:
                 raise SnipeExecutorError(f"Unknown platform: {launch.platform}")
 
@@ -352,8 +355,8 @@ class SnipeExecutor:
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getLatestBlockhash",
-                "params": [{"commitment": "confirmed"}]
-            }
+                "params": [{"commitment": "confirmed"}],
+            },
         ) as response:
             data = await response.json()
             blockhash = Hash.from_string(data["result"]["value"]["blockhash"])
@@ -401,9 +404,7 @@ class SnipeExecutor:
             }
 
             async with session.get(
-                f"{JUPITER_API}/quote",
-                params=params,
-                headers={"Accept": "application/json"}
+                f"{JUPITER_API}/quote", params=params, headers={"Accept": "application/json"}
             ) as response:
                 if response.status != 200:
                     return None
@@ -436,9 +437,7 @@ class SnipeExecutor:
             }
 
             async with session.post(
-                JUPITER_SWAP_API,
-                json=payload,
-                headers={"Content-Type": "application/json"}
+                JUPITER_SWAP_API, json=payload, headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
                     return None
@@ -545,9 +544,9 @@ class SnipeExecutor:
                                 "encoding": "base64",
                                 "skipPreflight": True,
                                 "maxRetries": 0,
-                            }
-                        ]
-                    }
+                            },
+                        ],
+                    },
                 ) as response:
                     data = await response.json()
 
@@ -624,8 +623,8 @@ class SnipeExecutor:
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "getSignatureStatuses",
-                        "params": [[signature]]
-                    }
+                        "params": [[signature]],
+                    },
                 ) as response:
                     data = await response.json()
                     result = data.get("result", {}).get("value", [])

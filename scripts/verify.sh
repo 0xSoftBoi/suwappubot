@@ -2,6 +2,15 @@
 set -e
 MODE=${1:-all}
 
+case "$MODE" in
+  all|python|api|agent|env|health|onchain) ;;
+  *)
+    echo "✗ Unknown verify lane: '$MODE'" >&2
+    echo "  Valid lanes: all python api agent env health onchain" >&2
+    exit 2
+    ;;
+esac
+
 if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
   echo "=== Python syntax ==="
   find api bot database -name "*.py" -not -path "*/\.*" | xargs python3 -m py_compile
@@ -22,6 +31,16 @@ if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
     exit 1
   fi
   echo "✓ OpenAPI spec in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "env" ]]; then
+  echo "=== Env contract drift ==="
+  if ! python3 scripts/check_env_schema.py; then
+    echo "✗ .env.schema is out of sync with the settings schemas."
+    echo "  Run: python3 scripts/check_env_schema.py --write and commit the result."
+    exit 1
+  fi
+  echo "✓ Env contract in sync"
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then

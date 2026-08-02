@@ -1,4 +1,5 @@
 """Tests for the backup-key access guard (R4)."""
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")

@@ -48,6 +48,7 @@ OKX_CHAIN_IDS = {
 @dataclass
 class OKXDEXQuote:
     """Quote response from OKX DEX Aggregator."""
+
     chain_id: str
     from_token: str
     to_token: str

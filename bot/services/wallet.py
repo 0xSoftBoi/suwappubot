@@ -156,9 +156,7 @@ class WalletService:
 
     def _http_session(self) -> aiohttp.ClientSession:
         """Per-call session bound to the shared connector (does not own it)."""
-        return aiohttp.ClientSession(
-            connector=self._get_connector(), connector_owner=False
-        )
+        return aiohttp.ClientSession(connector=self._get_connector(), connector_owner=False)
 
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""
