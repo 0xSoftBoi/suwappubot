@@ -106,8 +106,8 @@ class AegisService:
             # Only happens on detections, so the hot path stays single-scan.
             try:
                 scanner_result = self._shield._scanner.scan_input(text)
-                verdict.signature_ids = [m.signature.id for m in scanner_result.matches]
-                verdict.categories = sorted({m.signature.category for m in scanner_result.matches})
+                verdict.signature_ids = [m.signature_id for m in scanner_result.matches]
+                verdict.categories = sorted({m.category for m in scanner_result.matches})
             except Exception:
                 logger.debug("AEGIS signature-id extraction failed", exc_info=True)
         return verdict
