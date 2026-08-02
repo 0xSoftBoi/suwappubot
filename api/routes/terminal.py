@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -13,6 +14,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -2180,3 +2182,214 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
         tx_id=claimed_tx_id, tx_hash=tx_hash, from_address=hot_wallet.address
     )
     return {"ok": True, "txHash": tx_hash, "status": "submitted"}
+
+
+# === Token Intel (Bubblemaps-style dev tracking) ===
+# Exposes the existing bot/services/token_intel service + dev-watch models
+# over HTTP for the terminal web UI. No new business logic here — this is
+# auth + validate + delegate to the same service/models the Telegram
+# /intel and /devwatch commands use (bot/handlers/intel.py).
+#
+# Route registration order matters: the two-segment "/intel/devwatch/hits"
+# GET route MUST be registered before the generic two-segment
+# "/intel/{chain}/{token_address}" GET route below it, or Starlette would
+# match "devwatch"/"hits" as chain/token_address first.
+
+
+class DevWatchAddBody(BaseModel):
+    deployer_address: str
+    chain: str
+    label: Optional[str] = None
+
+
+def _devwatch_dict(watch, hit_count: int = 0) -> dict:
+    return {
+        "id": watch.id,
+        "deployerAddress": watch.deployer_address,
+        "chain": watch.chain,
+        "label": watch.label,
+        "createdAt": watch.created_at.isoformat() if watch.created_at else None,
+        "hitCount": hit_count,
+    }
+
+
+@router.get("/intel/devwatch")
+async def terminal_devwatch_list(request: Request):
+    """The signed-in user's watched-deployer list, each with a recent-hits count."""
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.intel import DeployerWatch, DeployerWatchHit
+    from sqlalchemy import func
+
+    out = []
+    with get_session() as session:
+        watches = (
+            session.query(DeployerWatch)
+            .filter(DeployerWatch.user_id == uid)
+            .order_by(DeployerWatch.id.asc())
+            .all()
+        )
+        watch_ids = [w.id for w in watches]
+        hit_counts: dict = {}
+        if watch_ids:
+            rows = (
+                session.query(DeployerWatchHit.watch_id, func.count(DeployerWatchHit.id))
+                .filter(DeployerWatchHit.watch_id.in_(watch_ids))
+                .group_by(DeployerWatchHit.watch_id)
+                .all()
+            )
+            hit_counts = {wid: cnt for wid, cnt in rows}
+        out = [_devwatch_dict(w, hit_counts.get(w.id, 0)) for w in watches]
+    return {"watches": out}
+
+
+@router.get("/intel/devwatch/hits")
+async def terminal_devwatch_hits(request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    """Recent DeployerWatchHit rows across all of the signed-in user's watches,
+    newest first, each carrying the parent watch's label for display."""
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.intel import DeployerWatch, DeployerWatchHit
+
+    out = []
+    with get_session() as session:
+        rows = (
+            session.query(DeployerWatchHit, DeployerWatch)
+            .join(DeployerWatch, DeployerWatchHit.watch_id == DeployerWatch.id)
+            .filter(DeployerWatch.user_id == uid)
+            .order_by(DeployerWatchHit.detected_at.desc())
+            .limit(limit)
+            .all()
+        )
+        for hit, watch in rows:
+            out.append(
+                {
+                    "id": hit.id,
+                    "watchId": hit.watch_id,
+                    "tokenAddress": hit.token_address,
+                    "chain": hit.chain,
+                    "detectedAt": hit.detected_at.isoformat() if hit.detected_at else None,
+                    "label": watch.label,
+                    "deployerAddress": watch.deployer_address,
+                }
+            )
+    return {"hits": out}
+
+
+@router.post("/intel/devwatch")
+async def terminal_devwatch_add(request: Request, body: DevWatchAddBody):
+    """Add a deployer to the signed-in user's watchlist. Idempotent on the
+    (user_id, deployer_address, chain) unique constraint — a duplicate add
+    returns the existing row rather than erroring."""
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.intel import DeployerWatch
+
+    address = (body.deployer_address or "").strip()
+    chain = (body.chain or "").strip().lower()
+    label = (body.label or "").strip() or None
+    if not address or not chain:
+        raise HTTPException(status_code=400, detail="deployer_address and chain are required.")
+
+    def _find_existing(session) -> Optional[DeployerWatch]:
+        return (
+            session.query(DeployerWatch)
+            .filter(
+                DeployerWatch.user_id == uid,
+                DeployerWatch.deployer_address == address,
+                DeployerWatch.chain == chain,
+            )
+            .first()
+        )
+
+    try:
+        with get_session() as session:
+            existing = _find_existing(session)
+            if existing:
+                return _devwatch_dict(existing)
+            watch = DeployerWatch(user_id=uid, deployer_address=address, chain=chain, label=label)
+            session.add(watch)
+            session.flush()
+            result = _devwatch_dict(watch)
+        return result
+    except IntegrityError:
+        # Lost a race against a concurrent identical insert — return the row
+        # the other request created instead of erroring (idempotent add).
+        with get_session() as session:
+            existing = _find_existing(session)
+            if existing:
+                return _devwatch_dict(existing)
+        raise HTTPException(status_code=409, detail="Could not add watch. Try again.")
+
+
+@router.delete("/intel/devwatch/{watch_id}")
+async def terminal_devwatch_delete(request: Request, watch_id: int):
+    """Remove a watched deployer. Scoped to the signed-in user — a watch_id
+    belonging to another user 404s rather than being deleted (no IDOR)."""
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.intel import DeployerWatch
+
+    with get_session() as session:
+        watch = (
+            session.query(DeployerWatch)
+            .filter(DeployerWatch.id == watch_id, DeployerWatch.user_id == uid)
+            .first()
+        )
+        if not watch:
+            raise HTTPException(status_code=404, detail="Watch not found.")
+        session.delete(watch)
+    return {"ok": True}
+
+
+@router.get("/intel/{chain}/{token_address}")
+async def terminal_token_intel(chain: str, token_address: str):
+    """Full TokenIntelReport for a token, serialized via dataclasses.asdict.
+
+    ``chain="auto"`` triggers the same address-family auto-detection used by
+    the Telegram /intel command (bot.utils.validators.detect_address_chain +
+    bot.handlers.intel._resolve_chain). Never 500s on an upstream data-source
+    failure — TokenIntelService.analyze() already degrades field-by-field
+    internally; if it somehow raises anyway, this still returns a valid
+    (mostly-empty) report with a `notes` entry explaining the degradation.
+    """
+    from bot.handlers.intel import _resolve_chain as _intel_resolve_chain
+    from bot.services.token_intel import token_intel_service
+    from bot.services.token_intel.intel_service import TokenIntelReport
+    from bot.utils.validators import detect_address_chain
+
+    token_address = (token_address or "").strip()
+    resolved_chain = (chain or "").strip()
+
+    if resolved_chain.lower() == "auto":
+        is_valid, chain_family = detect_address_chain(token_address)
+        if not is_valid:
+            report = TokenIntelReport(
+                token_address=token_address,
+                chain="unknown",
+                notes=["auto_detect_invalid_address"],
+            )
+            return asdict(report)
+        detected = _intel_resolve_chain(chain_family, None)
+        if not detected:
+            report = TokenIntelReport(
+                token_address=token_address,
+                chain=chain_family or "unknown",
+                notes=[f"auto_detect_unsupported_chain_family_{chain_family}"],
+            )
+            return asdict(report)
+        resolved_chain = detected
+
+    try:
+        report = await token_intel_service.analyze(token_address, resolved_chain)
+    except Exception as e:
+        logger.error(
+            "terminal intel analyze failed for %s/%s: %s", resolved_chain, token_address, e
+        )
+        report = TokenIntelReport(
+            token_address=token_address,
+            chain=resolved_chain,
+            notes=["intel_analysis_failed"],
+        )
+
+    return asdict(report)
