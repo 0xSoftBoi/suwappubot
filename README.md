@@ -1,12 +1,43 @@
-# Suwappu 🌸
+<div align="center">
 
-Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
+# 🌸 Suwappu
 
+**Cross-chain DEX infrastructure for humans and AI agents.**
+Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+
+[![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
 [![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
+
+[**Trade now**](https://www.suwappu.bot) · [**Open Terminal**](https://terminal.suwappu.bot) · [**Telegram Bot**](https://t.me/SuwappuBot) · [**Docs**](docs/agent-clients.md)
+
+</div>
+
+<br>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<a href="https://www.suwappu.bot"><img src="docs/assets/screenshots/showcase.jpg" alt="Suwappu marketing site — trade anything, no limits"></a>
+
+<sub>**[www.suwappu.bot](https://www.suwappu.bot)** — marketing site, embedded terminal preview</sub>
+
+</td>
+<td width="50%" valign="top">
+
+<a href="https://terminal.suwappu.bot"><img src="docs/assets/screenshots/terminal.png" alt="Suwappu Terminal — live TradingView chart, order book, and swap panel"></a>
+
+<sub>**[terminal.suwappu.bot](https://terminal.suwappu.bot)** — the live Telegram Mini App: chart, order book, swap/limit/DCA, portfolio</sub>
+
+</td>
+</tr>
+</table>
+
+---
 
 ## Overview
 
