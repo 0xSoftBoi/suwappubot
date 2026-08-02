@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Route Field — a generative visualization of settlement routes converging across chains">
+  <img src="docs/assets/banner/route-field.jpg" width="100%" alt="Route Graph — a generative force-directed routing graph over a faint math grid and contract-call texture">
 </div>
 
 # Suwappu

@@ -5,11 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Circle
-
-# --- "Route Field": cross-chain settlement as harmonic superposition -------
-# A handful of dominant streams (2-3 sine harmonics each, seeded) carry the
-# eye left to right; a faint atmosphere of thinner streams fills the rest.
-# Node glows mark where a stream's local curvature peaks — a route settling.
+import matplotlib.font_manager as fm
 
 SEED = 40224
 rng = np.random.default_rng(SEED)
@@ -23,109 +19,152 @@ ax.set_xlim(0, W)
 ax.set_ylim(0, H)
 ax.axis("off")
 
-bg_top = np.array([0x18, 0x10, 0x0f]) / 255.0
-bg_bot = np.array([0x0a, 0x07, 0x07]) / 255.0
+bg_top = np.array([0x16, 0x0f, 0x0e]) / 255.0
+bg_bot = np.array([0x08, 0x06, 0x06]) / 255.0
 grad = np.linspace(0, 1, 256).reshape(-1, 1)
 bg_img = grad[:, :, None] * bg_top + (1 - grad[:, :, None]) * bg_bot
 ax.imshow(bg_img, extent=[0, W, 0, H], origin="lower", aspect="auto", zorder=0)
 
-route_cmap = LinearSegmentedColormap.from_list(
+persimmon = LinearSegmentedColormap.from_list(
     "persimmon", ["#7A2E12", "#B53B17", "#F1662D", "#FFB45B", "#FFE3B0"]
 )
 sage = "#7AB85B"
-x = np.linspace(0, W, 700)
+cream = "#FFF3D6"
 
+# ---- 1. math grid -----------------------------------------------------------
+for gx in np.arange(0, W, 60):
+    ax.plot([gx, gx], [0, H], color="#F1662D", alpha=0.028, linewidth=0.6, zorder=1)
+for gy in np.arange(0, H, 60):
+    ax.plot([0, W], [gy, gy], color="#F1662D", alpha=0.028, linewidth=0.6, zorder=1)
 
-def make_stream(base_y, amp1, amp2, f1, f2, phase1, phase2, drift):
-    y = (
-        base_y
-        + amp1 * np.sin(f1 * x + phase1)
-        + amp2 * np.sin(f2 * x + phase2)
-        + drift * (x / W)
-    )
-    return y
+# ---- 2. node layout: bin-anchored x (guarantees full-width spread), free y -
+N = 22
+n_cols = 11
+n_rows = 2
+xs, ys = [], []
+for c in range(n_cols):
+    for r in range(n_rows):
+        if len(xs) >= N:
+            break
+        col_w = W / n_cols
+        bx = col_w * (c + 0.5) + rng.uniform(-col_w * 0.32, col_w * 0.32)
+        by = H * (0.28 if r == 0 else 0.72) + rng.uniform(-H * 0.16, H * 0.16)
+        xs.append(bx)
+        ys.append(by)
+pos = np.column_stack([xs, ys])
+anchor_x = pos[:, 0].copy()
 
+# edges: connect mostly-neighboring columns so routes read left-to-right
+edges = set()
+order = np.argsort(pos[:, 0])
+for rank, i in enumerate(order):
+    k = rng.integers(1, 3)
+    window = order[max(0, rank - 4): rank + 5]
+    d = np.linalg.norm(pos[window] - pos[i], axis=1)
+    idx_sorted = window[np.argsort(d)]
+    idx_sorted = idx_sorted[idx_sorted != i]
+    for j in idx_sorted[:k]:
+        a, b = min(i, int(j)), max(i, int(j))
+        if a != b:
+            edges.add((a, b))
+edges = list(edges)
 
-def draw_stream(y, color_t, lw_peak, alpha_peak, glow=False):
-    dy = np.gradient(y, x)
-    speed = np.abs(dy)
-    speed_n = (speed - speed.min()) / (np.ptp(speed) + 1e-9)
-    # ease toward the ends so streams fade in/out rather than hard-clip
-    edge = np.clip(np.minimum(x / (W * 0.12), (W - x) / (W * 0.12)), 0, 1)
-    edge = edge ** 0.6
+# light relaxation: repel all, spring on edges, gentle pull back to x-anchor
+for _ in range(90):
+    disp = np.zeros_like(pos)
+    diff = pos[:, None, :] - pos[None, :, :]
+    dist = np.linalg.norm(diff, axis=2) + 1e-6
+    rep = (diff / dist[:, :, None] ** 3) * 3.0e6
+    disp += rep.sum(axis=1)
+    for a, b in edges:
+        d = pos[b] - pos[a]
+        dist_ab = np.linalg.norm(d) + 1e-6
+        f = (dist_ab - 210) * 0.02
+        disp[a] += f * d / dist_ab
+        disp[b] -= f * d / dist_ab
+    disp[:, 0] += (anchor_x - pos[:, 0]) * 0.06
+    pos += np.clip(disp, -6, 6)
+    pos[:, 0] = np.clip(pos[:, 0], W * 0.03, W * 0.97)
+    pos[:, 1] = np.clip(pos[:, 1], H * 0.10, H * 0.90)
 
-    pts = np.array([x, y]).T.reshape(-1, 1, 2)
+deg = np.zeros(N)
+for a, b in edges:
+    deg[a] += 1
+    deg[b] += 1
+
+# ---- 3. edges as smooth curved routes --------------------------------------
+for a, b in edges:
+    p0, p1 = pos[a], pos[b]
+    mid = (p0 + p1) / 2
+    perp = np.array([-(p1 - p0)[1], (p1 - p0)[0]])
+    perp = perp / (np.linalg.norm(perp) + 1e-6)
+    bend = rng.uniform(-0.16, 0.16) * np.linalg.norm(p1 - p0)
+    ctrl = mid + perp * bend
+    t = np.linspace(0, 1, 60)
+    curve = ((1 - t)[:, None] ** 2) * p0 + 2 * (1 - t)[:, None] * t[:, None] * ctrl + (t[:, None] ** 2) * p1
+
+    weight = rng.uniform(0.25, 1.0)
+    color = np.array(persimmon(0.25 + 0.6 * weight))
+    pts = curve.reshape(-1, 1, 2)
     segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+    fade = np.sin(np.linspace(0, np.pi, len(segs))) ** 0.5
+    colors = np.tile(color, (len(segs), 1))
+    colors[:, 3] = (0.12 + 0.4 * weight) * fade
+    widths = (0.5 + 2.0 * weight) * fade
+    ax.add_collection(LineCollection(segs, colors=colors, linewidths=widths,
+                                      capstyle="round", zorder=2))
 
-    base_rgba = np.array(route_cmap(color_t))
-    colors = np.tile(base_rgba, (len(segs), 1))
-    colors[:, 3] = alpha_peak * (0.25 + 0.85 * speed_n[:-1]) * edge[:-1]
-    widths = lw_peak * (0.55 + 0.85 * speed_n[:-1])
+# ---- 4. orbit rings around the two biggest hubs ----------------------------
+hub_idx = np.argsort(deg)[-2:]
+for hi in hub_idx:
+    cx, cy = pos[hi]
+    for ring_r in [rng.uniform(40, 54), rng.uniform(64, 82)]:
+        theta = np.linspace(0, 2 * np.pi, 120)
+        ax.plot(cx + ring_r * np.cos(theta), cy + ring_r * np.sin(theta) * 0.55,
+                 color=sage, alpha=0.16, linewidth=0.7, linestyle=(0, (1, 3)), zorder=2)
+        a0 = rng.uniform(0, 2 * np.pi)
+        px, py = cx + ring_r * np.cos(a0), cy + ring_r * np.sin(a0) * 0.55
+        ax.add_patch(Circle((px, py), 3.2, color=sage, alpha=0.85, zorder=4, linewidth=0))
+        ax.add_patch(Circle((px, py), 8.5, color=sage, alpha=0.18, zorder=3, linewidth=0))
 
-    lc = LineCollection(segs, colors=colors, linewidths=widths,
-                         capstyle="round", joinstyle="round", zorder=2)
-    ax.add_collection(lc)
+# ---- 5. nodes with glow -----------------------------------------------------
+for i in range(N):
+    cx, cy = pos[i]
+    strength = 0.35 + 0.65 * (deg[i] / max(deg.max(), 1))
+    r = 3.6 + 5.2 * strength
+    is_hub = i in hub_idx
+    core = cream if is_hub else persimmon(0.55 + 0.3 * strength)
+    glow = "#FFB45B" if is_hub else persimmon(0.35 + 0.3 * strength)
+    for mult, a in [(6.0, 0.045), (3.6, 0.09), (1.9, 0.18)]:
+        ax.add_patch(Circle((cx, cy), r * mult, color=glow, alpha=a * strength, linewidth=0, zorder=3))
+    ax.add_patch(Circle((cx, cy), r, color=core, alpha=0.95, linewidth=0, zorder=5))
+    ax.add_patch(Circle((cx, cy), r, facecolor="none", edgecolor="#120F12", alpha=0.6, linewidth=1.0, zorder=6))
 
-    if glow:
-        glow_colors = colors.copy()
-        glow_colors[:, 3] *= 0.35
-        lc_glow = LineCollection(segs, colors=glow_colors, linewidths=widths * 3.2,
-                                  capstyle="round", joinstyle="round", zorder=1)
-        ax.add_collection(lc_glow)
-    return y, speed_n, edge
+# ---- 6. code/contract texture, placed AFTER nodes are known, avoiding them -
+mono = fm.FontProperties(family="monospace")
+hex_chars = "0123456789abcdef"
+def rand_hex(n):
+    return "0x" + "".join(rng.choice(list(hex_chars)) for _ in range(n))
+selectors = ["swapExactTokensForTokens(", "execute(bytes32,", "quote(uint256)->",
+             "route[best_of_9]", "settle(address,uint256)", "0x38ed1739",
+             "CCTP.burn(", "MEV_PROTECT=true", "slippage<=50bps", "bridge(chainId=8453)",
+             "F(x,y)=argmin(fee+slip)", "dP/dt=liquidity_flow"]
 
-
-peaks = []
-
-# Atmosphere layer: many thin, quiet streams filling the space
-for i in range(34):
-    base_y = rng.uniform(H * 0.05, H * 0.95)
-    amp1 = rng.uniform(10, 46)
-    amp2 = amp1 * rng.uniform(0.2, 0.45)
-    f1 = rng.uniform(0.7, 2.2) * (2 * np.pi / W)
-    f2 = f1 * rng.uniform(1.8, 2.6)
-    y = make_stream(base_y, amp1, amp2, f1, f2,
-                     rng.uniform(0, 2 * np.pi), rng.uniform(0, 2 * np.pi),
-                     rng.uniform(-0.08, 0.08) * H)
-    draw_stream(y, rng.uniform(0.05, 0.55), lw_peak=rng.uniform(0.5, 1.0),
-                alpha_peak=rng.uniform(0.06, 0.13))
-
-# Hero layer: a few bold, glowing streams that carry the composition
-hero_bases = np.linspace(H * 0.22, H * 0.78, 6) + rng.uniform(-20, 20, 6)
-for i, base_y in enumerate(hero_bases):
-    amp1 = rng.uniform(40, 90)
-    amp2 = amp1 * rng.uniform(0.25, 0.4)
-    f1 = rng.uniform(0.9, 1.6) * (2 * np.pi / W)
-    f2 = f1 * rng.uniform(1.9, 2.3)
-    phase1 = rng.uniform(0, 2 * np.pi)
-    phase2 = rng.uniform(0, 2 * np.pi)
-    drift = rng.uniform(-0.06, 0.10) * H
-    y = make_stream(base_y, amp1, amp2, f1, f2, phase1, phase2, drift)
-    color_t = 0.35 + 0.55 * (i / (len(hero_bases) - 1))
-    y_out, speed_n, edge = draw_stream(y, color_t, lw_peak=2.6, alpha_peak=0.85, glow=True)
-
-    # settlement node near this stream's strongest curvature, away from edges
-    core = 700 * 0.5
-    window = slice(int(len(x) * 0.2), int(len(x) * 0.8))
-    local_idx = window.start + int(np.argmax(speed_n[window]))
-    if rng.random() < 0.85:
-        peaks.append((x[local_idx], y[local_idx], 0.7 + 0.3 * rng.random(),
-                      sage if rng.random() < 0.18 else "#FFE3B0"))
-
-for px, py, strength, core in peaks:
-    glow = sage if core == sage else "#F1662D"
-    r = 3.4 * strength
-    for mult, a in [(6.5, 0.045), (4.0, 0.09), (2.0, 0.18)]:
-        ax.add_patch(Circle((px, py), r * mult, color=glow, alpha=a * strength, linewidth=0, zorder=3))
-    ax.add_patch(Circle((px, py), r, color=core, alpha=0.9, linewidth=0, zorder=4))
-
-# soft vignette for depth
-vx, vy = np.meshgrid(np.linspace(-1, 1, 60), np.linspace(-1, 1, 24))
-vign = 1 - np.clip(1.15 - np.sqrt(vx**2 + vy**2 * 2.2), 0, 1)
-ax.imshow(np.dstack([np.zeros_like(vign)] * 3 + [vign * 0.55]),
-          extent=[0, W, 0, H], origin="lower", aspect="auto", zorder=5)
+placed = 0
+attempts = 0
+min_node_dist = 70
+while placed < 20 and attempts < 400:
+    attempts += 1
+    tx, ty = rng.uniform(20, W - 260), rng.uniform(20, H - 20)
+    if np.min(np.linalg.norm(pos - np.array([tx, ty]), axis=1)) < min_node_dist:
+        continue
+    txt = rng.choice(selectors) if rng.random() < 0.55 else rand_hex(rng.integers(6, 14))
+    ax.text(tx, ty, txt, fontproperties=mono, fontsize=rng.uniform(7.5, 10),
+            color=cream, alpha=rng.uniform(0.06, 0.12), rotation=rng.uniform(-3, 3),
+            zorder=1, ha="left", va="center")
+    placed += 1
 
 fig.savefig("/home/user/suwappubot/docs/assets/banner/route-field.png", dpi=DPI, facecolor=bg_bot)
-print("saved")
+print("saved, placed", placed, "text labels,", len(edges), "edges")
 # Regenerate: pip install numpy matplotlib && python3 docs/assets/banner/generate.py
 # Deterministic given SEED — same seed always produces the same image.
