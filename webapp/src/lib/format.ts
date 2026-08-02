@@ -14,6 +14,20 @@ const INTL_LOCALE_MAP: Record<string, string> = {
   es: 'es-ES',
   fr: 'fr-FR',
   zh: 'zh-CN',
+  hi: 'hi-IN',
+  // Filipino/Tagalog: ICU/Intl locale data is keyed under 'fil', not 'tl'.
+  // App-level language code stays 'tl' for content/UI-code consistency; this
+  // is purely the Intl-formatting lookup target.
+  tl: 'fil-PH',
+  vi: 'vi-VN',
+  // Haitian Creole: verified in Node 22 (full-icu) that 'ht-HT' has no ICU
+  // locale data — Intl.NumberFormat('ht-HT', ...) does NOT throw, but
+  // silently resolves to 'en-US' (resolvedOptions().locale === 'en-US').
+  // Rather than rely on that opaque runtime-dependent fallback (browser ICU
+  // builds may differ), map explicitly to 'fr-FR' — Haiti's number/currency
+  // formatting conventions follow French usage (comma decimal separator,
+  // space grouping) given its French-colonial numeral history.
+  ht: 'fr-FR',
 }
 
 const DEFAULT_LOCALE = 'en-US'

@@ -10,7 +10,7 @@ import { api } from '../lib/api'
 import i18n from '../lib/i18n'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
 
-const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh']
+const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh', 'hi', 'tl', 'vi', 'ht']
 
 type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas' | 'desktop'
 
