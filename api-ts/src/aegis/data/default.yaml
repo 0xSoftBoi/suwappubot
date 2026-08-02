@@ -1,0 +1,248 @@
+# AEGIS Default Threat Signatures — ported from the upstream `aegis-shield`
+# PyPI package's bundled `aegis/scanner/signatures/default.yaml` (not itself
+# in this repo; the Python side depends on the pip package). Ported verbatim
+# for the TypeScript scanner so both stacks share the same signature set.
+#
+# Each signature has: id, category, pattern (regex), severity (0.0-1.0), description
+# Patterns are compiled with the `i` (case-insensitive) flag in the TS loader,
+# mirroring the Python side's `(?i)` inline-flag convention.
+
+signatures:
+
+  # --- Prompt Injection ---
+  - id: PI-001
+    category: prompt_injection
+    pattern: "ignore\\s+(all\\s+)?(previous|prior|above|earlier)\\s+(instructions?|prompts?|rules?|directions?)"
+    severity: 0.95
+    description: "Direct instruction to ignore previous prompts"
+
+  - id: PI-002
+    category: prompt_injection
+    pattern: "disregard\\s+(all\\s+)?(previous|prior|above|earlier|your)\\s+(instructions?|prompts?|rules?|guidelines?)"
+    severity: 0.95
+    description: "Disregard previous instructions variant"
+
+  - id: PI-003
+    category: prompt_injection
+    pattern: "forget\\s+(everything|all|what)\\s+(you(('ve|\\s+have)\\s+been)?\\s+told|above|before)"
+    severity: 0.9
+    description: "Instruction to forget prior context"
+
+  - id: PI-004
+    category: prompt_injection
+    pattern: "new\\s+instructions?:\\s+"
+    severity: 0.7
+    description: "Attempt to inject new instructions"
+
+  - id: PI-005
+    category: prompt_injection
+    pattern: "override\\s+(all\\s+)?(system|safety|security)\\s+(prompts?|instructions?|rules?|settings?)"
+    severity: 0.95
+    description: "Explicit override attempt"
+
+  # --- Role Hijacking ---
+  - id: RH-001
+    category: role_hijacking
+    pattern: "you\\s+are\\s+now\\s+(a|an|the|my)\\s+\\w+"
+    severity: 0.55
+    description: "Attempt to reassign the assistant role"
+
+  - id: RH-002
+    category: role_hijacking
+    pattern: "act\\s+as\\s+(if\\s+you\\s+are\\s+|a\\s+|an\\s+|the\\s+)?(?!kind|nice|helpful)(\\w+)"
+    severity: 0.5
+    description: "Role-play directive to change behavior"
+
+  - id: RH-003
+    category: role_hijacking
+    pattern: "pretend\\s+(to\\s+be|you\\s+are|you're)\\s+"
+    severity: 0.55
+    description: "Pretend-to-be role override"
+
+  - id: RH-004
+    category: role_hijacking
+    pattern: "switch\\s+(to|into)\\s+(developer|admin|root|sudo|jailbreak|DAN)\\s+mode"
+    severity: 0.95
+    description: "Mode switching attack"
+
+  # --- Instruction Override ---
+  - id: IO-001
+    category: instruction_override
+    pattern: "(system\\s*prompt|system\\s*message)\\s*[:=]"
+    severity: 0.9
+    description: "Fake system prompt injection"
+
+  - id: IO-002
+    category: instruction_override
+    pattern: "\\[\\s*(SYSTEM|ADMIN|ROOT|DEVELOPER)\\s*\\]"
+    severity: 0.7
+    description: "Bracketed authority tag"
+
+  - id: IO-003
+    category: instruction_override
+    pattern: "IMPORTANT\\s*:[^\\n]*(?:must|always|never|override|ignore)"
+    severity: 0.75
+    description: "Imperative override with authority markers"
+
+  - id: IO-004
+    category: instruction_override
+    pattern: "<<\\s*(SYS|SYSTEM|INST)\\s*>>"
+    severity: 0.85
+    description: "Llama-style system tag injection"
+
+  # --- Data Exfiltration ---
+  - id: DE-001
+    category: data_exfiltration
+    pattern: "(send|post|upload|transmit|exfiltrate)\\s+[^\\n]{0,30}?(data|info|content|password|key|secret|token)\\s+to\\s+"
+    severity: 0.75
+    description: "Data exfiltration instruction"
+
+  - id: DE-002
+    category: data_exfiltration
+    pattern: "(?:include|embed|append|add)\\s+(?:the\\s+)?(?:system\\s+prompt|instructions?|api\\s+key|secret)\\s+in\\s+(?:your\\s+)?(?:response|output|reply)"
+    severity: 0.85
+    description: "Instruction to leak sensitive info in output"
+
+  - id: DE-003
+    category: data_exfiltration
+    pattern: "(?:show|reveal|display|print|output|tell\\s+me)\\s+(?:the\\s+|your\\s+)?(?:system\\s+prompt|hidden\\s+instructions?|initial\\s+prompt|secret)"
+    severity: 0.9
+    description: "Direct request for system prompt disclosure"
+
+  # --- Credential Extraction ---
+  - id: CE-001
+    category: credential_extraction
+    pattern: "(?:what|show|give|tell|reveal|display)\\s+(?:me\\s+)?(?:the\\s+|your\\s+)?(?:api\\s+key|password|secret\\s+key|access\\s+token|credentials?|private\\s+key)"
+    severity: 0.9
+    description: "Direct credential extraction attempt"
+
+  - id: CE-002
+    category: credential_extraction
+    pattern: "(?:output|print|echo|return|log)\\s+(?:the\\s+|your\\s+)?(?:env|environment|config)\\s*(?:variables?|vars?)?"
+    severity: 0.8
+    description: "Environment variable extraction"
+
+  - id: CE-003
+    category: credential_extraction
+    pattern: "(?:read|access|open|cat|dump)\\s+(?:the\\s+)?(?:\\.env|credentials|secrets?\\.(?:yaml|json|yml)|config\\.(?:json|yaml|yml))"
+    severity: 0.85
+    description: "Credential file access attempt"
+
+  # --- Memory Poisoning ---
+  - id: MP-001
+    category: memory_poisoning
+    pattern: "(?:remember|memorize|store|save|record)\\s+(?:this|that|the\\s+following)\\s*:[^\\n]*(?:always|never|must|override|ignore)"
+    severity: 0.85
+    description: "Persistent instruction injection via memory"
+
+  - id: MP-002
+    category: memory_poisoning
+    pattern: "(?:update|change|modify|set)\\s+(?:your\\s+)?(?:memory|knowledge|context|state)\\s+(?:to|so\\s+that|with)"
+    severity: 0.8
+    description: "Direct memory manipulation attempt"
+
+  - id: MP-003
+    category: memory_poisoning
+    pattern: "(?:from\\s+now\\s+on|going\\s+forward|henceforth|permanently),?\\s+(?:you\\s+(?:must|should|will|are)|always|never)"
+    severity: 0.8
+    description: "Persistent behavior modification attempt"
+
+  # --- Social Engineering ---
+  - id: SE-001
+    category: social_engineering
+    pattern: "(?:I\\s+am|I'm|this\\s+is)\\s+(?:the|an?|your)\\s+(?:admin|administrator|developer|owner|creator|OpenAI|Anthropic)"
+    severity: 0.85
+    description: "False authority claim"
+
+  - id: SE-002
+    category: social_engineering
+    pattern: "(?:my|the)\\s+(?:boss|manager|supervisor|CEO)\\s+(?:said|told|asked|wants|needs|requires)\\s+(?:you\\s+to|me\\s+to\\s+tell\\s+you)"
+    severity: 0.7
+    description: "Third-party authority appeal"
+
+  - id: SE-003
+    category: social_engineering
+    pattern: "(?:urgent|emergency|critical|life.?threatening)\\s*[!:,][^\\n]*(?:ignore|bypass|skip|disable)\\s+(?:safety|security|rules|restrictions)"
+    severity: 0.8
+    description: "Urgency-based safety bypass"
+
+  - id: SE-004
+    category: social_engineering
+    pattern: "(?:for\\s+(?:research|testing|educational|academic|security\\s+audit)\\s+purposes?),?\\s+(?:show|tell|reveal|explain|demonstrate)"
+    severity: 0.6
+    description: "Research pretext for extraction"
+
+  # --- Evasion ---
+  - id: EV-001
+    category: evasion
+    pattern: "r\\s*e\\s*v\\s*e\\s*a\\s*l.*s\\s*y\\s*s\\s*t\\s*e\\s*m"
+    severity: 0.8
+    description: "Space-separated evasion of keyword detection"
+
+  - id: EV-002
+    category: evasion
+    pattern: "(?:rot13|base64|hex|encode|decode|translate)\\s*(?:the\\s+following|this|:)"
+    severity: 0.7
+    description: "Encoding-based obfuscation"
+
+  - id: EV-003
+    category: evasion
+    pattern: "(?:spell|write|say)\\s+(?:it|this|that)\\s+(?:backwards?|in\\s+reverse|character\\s+by\\s+character)"
+    severity: 0.7
+    description: "Reverse/character-by-character evasion"
+
+  - id: EV-004
+    category: evasion
+    pattern: "replace\\s+(?:every|each|all)\\s+(?:letter|character|word).*(?:with|by)"
+    severity: 0.6
+    description: "Character substitution evasion"
+
+  # --- Encoded Injection ---
+  - id: EI-001
+    category: encoded_injection
+    pattern: "(?:execute|run|eval|process)\\s+(?:the\\s+)?(?:following\\s+)?(?:base64|encoded|hex)\\s*:"
+    severity: 0.9
+    description: "Encoded payload execution request"
+
+  - id: EI-002
+    category: encoded_injection
+    pattern: "(?:(?:[A-Za-z0-9+/]{4}){8,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)"
+    severity: 0.5
+    description: "Suspicious base64 encoded content"
+
+  - id: EI-003
+    category: encoded_injection
+    pattern: "\\\\u[0-9a-fA-F]{4}(?:\\\\u[0-9a-fA-F]{4}){3,}"
+    severity: 0.7
+    description: "Unicode escape sequence chain"
+
+  - id: EI-004
+    category: encoded_injection
+    pattern: "(?:&#x?[0-9a-fA-F]+;){4,}"
+    severity: 0.7
+    description: "HTML entity encoded content"
+
+  # --- Chain Propagation ---
+  - id: CP-001
+    category: chain_propagation
+    pattern: "(forward|send|transmit|distribute|propagate)\\s+(?:this|that|the)(?:\\s+(?:message|instruction|text|prompt))?\\s+to\\s+(?:all|every|other|\\d+(?:\\s+other)?)\\s+(?:agents?|AIs?|models?|assistants?|bots?)"
+    severity: 0.6
+    description: "Instruction to forward/propagate message to other agents"
+
+  - id: CP-002
+    category: chain_propagation
+    pattern: "(copy|paste|include|embed|insert)\\s+(?:this|the)\\s+(?:text|message|instruction|content)\\s+(?:in|into)\\s+(?:your\\s+)?(?:(?:next|future|all|every)\\s+)?(?:\\d+\\s+)?(?:conversations?|responses?|interactions?|outputs?|messages?)"
+    severity: 0.55
+    description: "Instruction to embed content in future communications"
+
+  - id: CP-003
+    category: chain_propagation
+    pattern: "(pass|relay)\\s+(?:this|it|that)(?:\\s+(?:message|instruction|along|on))?\\s+(?:along\\s+|on\\s+)?to\\s+(?:all\\s+|every\\s+|other\\s+|\\d+\\s+)?(?:connected\\s+)?(?:agents?|AIs?|models?|assistants?|bots?)"
+    severity: 0.6
+    description: "Relay instruction to other agents"
+
+  - id: CP-004
+    category: chain_propagation
+    pattern: "(?:memory|context|access|capabilities?|functions?)\\s+(?:will\\s+be\\s+|shall\\s+be\\s+)?(?:wiped|erased|deleted|revoked|removed|lost|terminated|reset)\\s+if\\s+(?:you\\s+)?(?:don'?t|do\\s+not|fail\\s+to)\\s+(?:forward|send|propagate|relay|share|pass)"
+    severity: 0.75
+    description: "Coercive threat tied to propagation compliance"
