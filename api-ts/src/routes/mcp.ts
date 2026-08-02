@@ -20,7 +20,7 @@ import { MorphoService } from '../services/MorphoService'
 import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
-import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
+import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership } from './agent'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
@@ -1524,7 +1524,9 @@ mcpRoutes.post('/', async (c) => {
 			// AEGIS observe-mode scan (Phase 3). Runs after arg validation and
 			// BEFORE chargeAgentForCall so a blocked-looking call is never billed;
 			// log-only — never blocks the tools/call, never alters the response.
-			scanForThreatsObserveOnly(JSON.stringify(args ?? {}), {
+			// scanValueObserveOnly serializes `args` INSIDE its fail-open guard so
+			// a non-serializable arg can never throw up the tools/call handler.
+			scanValueObserveOnly(args, {
 				source: 'mcp_tools_call',
 				agentId: agent?.id,
 				tool: name,

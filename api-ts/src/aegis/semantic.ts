@@ -240,8 +240,8 @@ const MODULE_CHECKS: Record<SemanticModuleName, (text: string) => SemanticFindin
  * ("single-heuristic capped at 0.5" — reduces false positives from one
  * module hitting on otherwise-benign traffic).
  */
-export function analyzeSemantics(text: string): SemanticResult {
-	const normalized = normalizeForScan(text)
+export function analyzeSemantics(text: string, preNormalized = false): SemanticResult {
+	const normalized = preNormalized ? text : normalizeForScan(text)
 
 	const allFindings: SemanticFinding[] = []
 	const perModuleScores: Partial<Record<SemanticModuleName, number>> = {}

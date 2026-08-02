@@ -51,9 +51,10 @@ export function scanPatterns(
 	text: string,
 	signatures: Signature[],
 	sensitivity = 0.5,
+	preNormalized = false,
 ): ThreatMatch[] {
 	const clampedSensitivity = Math.max(0, Math.min(1, sensitivity))
-	const normalized = normalizeForScan(text)
+	const normalized = preNormalized ? text : normalizeForScan(text)
 	const matches: ThreatMatch[] = []
 
 	for (const sig of signatures) {

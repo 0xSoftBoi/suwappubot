@@ -68,3 +68,44 @@ export function scanForThreatsObserveOnly(
 		)
 	}
 }
+
+/**
+ * Scan an arbitrary value by JSON-serializing it FIRST, entirely inside the
+ * fail-open boundary. Use this for structured inputs (e.g. MCP tool args)
+ * so a non-serializable value (BigInt, circular ref, symbol key) makes the
+ * observe-only scan a no-op instead of throwing up the request handler --
+ * `JSON.stringify` at the call site would sit outside that guarantee.
+ */
+export function scanValueObserveOnly(
+	value: unknown,
+	context: AegisScanContext,
+	options?: ScanOptions,
+): void {
+	try {
+		const text = typeof value === 'string' ? value : JSON.stringify(value ?? {})
+		if (!text) return
+		const verdict = scan(text, options)
+		if (verdict.isThreat) {
+			logger.warn(
+				{
+					aegis: true,
+					mode: 'observe',
+					source: context.source,
+					agentId: context.agentId ?? null,
+					tool: context.tool ?? null,
+					score: verdict.score,
+					signatureIds: verdict.signatureIds,
+					categories: verdict.categories,
+				},
+				'AEGIS threat detected (observe mode -- not blocked)',
+			)
+		}
+	} catch (err) {
+		// Fail-open: a scanner bug must never break the request it was
+		// trying to observe.
+		logger.debug(
+			{ aegis: true, source: context.source, err: err instanceof Error ? err.message : String(err) },
+			'AEGIS scan failed (fail-open)',
+		)
+	}
+}

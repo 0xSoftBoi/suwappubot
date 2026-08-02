@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadSignatures, scan, _resetSignatureCacheForTests } from '../aegis'
+import { scanValueObserveOnly } from '../middleware/aegisScan'
 
 // Phase 3 (docs/plans/aegis-fork-extend.md): the TS scanner is a minimal,
 // observe-only port of the Python aegis-shield regex + semantic tiers. These
@@ -81,5 +82,22 @@ describe('aegis signature loader', () => {
 		// The bad regex is dropped; the good one survives — no throw.
 		expect(sigs.some((s) => s.id === 'OK-1')).toBe(true)
 		expect(sigs.some((s) => s.id === 'BAD-1')).toBe(false)
+	})
+})
+
+describe('scanValueObserveOnly fail-open', () => {
+	it('never throws on a non-serializable value (BigInt / circular ref)', () => {
+		const circular: Record<string, unknown> = {}
+		circular.self = circular
+		// Both would make a call-site JSON.stringify throw; the guarded helper
+		// must swallow it and return void.
+		expect(() => scanValueObserveOnly({ n: 10n }, { source: 'test' })).not.toThrow()
+		expect(() => scanValueObserveOnly(circular, { source: 'test' })).not.toThrow()
+	})
+
+	it('still scans plain serializable args', () => {
+		expect(() =>
+			scanValueObserveOnly({ command: 'swap 1 eth to usdc' }, { source: 'test' }),
+		).not.toThrow()
 	})
 })
