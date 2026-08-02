@@ -332,7 +332,9 @@ async def receive_search_query(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not markets:
         await update.message.reply_text(
-            f'*Search: "{search_text}"*\n\n' "No markets found.\n" "Try a different search term.",
+            f'*Search: "{safe_md(search_text)}"*\n\n'
+            "No markets found.\n"
+            "Try a different search term.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -347,7 +349,7 @@ async def receive_search_query(update: Update, context: ContextTypes.DEFAULT_TYP
     pred_data["browse_mode"] = "search"
     pred_data["search_query"] = search_text
 
-    title = f'Search: "{truncate(search_text, 30)}"'
+    title = f'Search: "{safe_md(truncate(search_text, 30))}"'
     return await _show_market_list_msg(update.message, context, markets, 0, title)
 
 
@@ -447,7 +449,7 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     browse_mode = pred_data.get("browse_mode", "trending")
     if browse_mode == "search":
-        title = f'Search: "{truncate(pred_data.get("search_query", ""), 30)}"'
+        title = f'Search: "{safe_md(truncate(pred_data.get("search_query", ""), 30))}"'
     else:
         title = "Trending Markets"
 
@@ -496,7 +498,7 @@ async def market_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
     bar = format_price_bar(market.outcome_yes_price, 15)
 
     text = (
-        f"*{truncate(market.question, 200)}*\n\n"
+        f"*{safe_md(truncate(market.question, 200))}*\n\n"
         f"YES {yes_pct:.1f}% {bar} {no_pct:.1f}% NO\n\n"
         f"*Volume (24h):* {format_volume(market.volume_24hr)}\n"
         f"*Total Volume:* {format_volume(market.volume_total)}\n"
@@ -508,7 +510,7 @@ async def market_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
         text += f"*Ends:* {end_display}\n"
 
     if market.category:
-        text += f"*Category:* {market.category}\n"
+        text += f"*Category:* {safe_md(market.category)}\n"
 
     if orderbook_text:
         text += orderbook_text
@@ -546,7 +548,7 @@ async def back_to_list_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     browse_mode = pred_data.get("browse_mode", "trending")
     if browse_mode == "search":
-        title = f'Search: "{truncate(pred_data.get("search_query", ""), 30)}"'
+        title = f'Search: "{safe_md(truncate(pred_data.get("search_query", ""), 30))}"'
     else:
         title = "Trending Markets"
 
@@ -598,7 +600,7 @@ async def _start_buy_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, ou
 
     text = (
         f"*Buy {outcome}*\n\n"
-        f"Market: {truncate(market.question)}\n"
+        f"Market: {safe_md(truncate(market.question))}\n"
         f"Current Price: {price:.4f} USDC/share\n"
         f"Potential Payout: $1.00/share if {outcome}\n\n"
         f"Select amount of USDC to spend:"
@@ -726,7 +728,7 @@ def _build_confirmation(pred_data: dict) -> tuple:
 
     text = (
         f"*Confirm Order*\n\n"
-        f"*Market:* {truncate(market.question)}\n"
+        f"*Market:* {safe_md(truncate(market.question))}\n"
         f"*Side:* BUY {outcome.upper()}\n"
         f"*Amount:* {format_usdc(amount)}\n"
         f"*Price:* {price:.4f} USDC/share\n"
@@ -774,7 +776,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     await query.edit_message_text(
         f"*Placing Order...*\n\n"
-        f"BUY {outcome.upper()} on {truncate(market.question, 60)}\n"
+        f"BUY {outcome.upper()} on {safe_md(truncate(market.question, 60))}\n"
         f"Amount: {format_usdc(amount)}\n\n"
         f"Please wait...",
         parse_mode="Markdown",
@@ -899,7 +901,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
 
             await query.edit_message_text(
                 f"*Order Placed!*\n\n"
-                f"*Market:* {truncate(market.question)}\n"
+                f"*Market:* {safe_md(truncate(market.question))}\n"
                 f"*Side:* BUY {outcome.upper()}\n"
                 f"*Amount:* {format_usdc(amount)}\n"
                 f"*Shares:* {shares:.2f}\n"
@@ -911,7 +913,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await query.edit_message_text(
                 f"*Order Failed*\n\n"
-                f"Error: {result.error}\n\n"
+                f"Error: {safe_md(result.error)}\n\n"
                 f"Your funds have not been spent.\n"
                 f"Use /predict to try again.",
                 parse_mode="Markdown",
@@ -1012,7 +1014,7 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pnl_emoji = "\U0001f4c8" if pnl >= 0 else "\U0001f4c9"
 
             text += (
-                f"{outcome_emoji} *{truncate(pos.market_question or 'Unknown', 60)}*\n"
+                f"{outcome_emoji} *{safe_md(truncate(pos.market_question or 'Unknown', 60))}*\n"
                 f"  {pos.outcome} | {shares:.2f} shares @ {float(pos.avg_entry_price or 0):.4f}\n"
                 f"  Value: {format_usdc(value)} | {pnl_emoji} {pnl_pct:+.1f}%\n\n"
             )
@@ -1041,7 +1043,7 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             for pos in claimable:
                 payout = float(pos.resolved_payout or 0)
                 text += (
-                    f"\U0001f7e2 {truncate(pos.market_question or 'Unknown', 50)}\n"
+                    f"\U0001f7e2 {safe_md(truncate(pos.market_question or 'Unknown', 50))}\n"
                     f"  {pos.outcome} | {format_usdc(payout)} to redeem\n"
                 )
                 keyboard.append(
@@ -1108,7 +1110,7 @@ async def sell_position_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     await query.edit_message_text(
         f"*Sell Position*\n\n"
-        f"*Market:* {truncate(pred_data.get('sell_market_question', ''), 100)}\n"
+        f"*Market:* {safe_md(truncate(pred_data.get('sell_market_question', ''), 100))}\n"
         f"*Outcome:* {pred_data.get('sell_outcome')}\n"
         f"*Shares:* {shares:.2f}\n"
         f"*Current Price:* {current_price:.4f}\n"
@@ -1205,7 +1207,9 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
         else:
             await query.edit_message_text(
-                f"*Sell Failed*\n\n" f"Error: {result.error}\n\n" f"Use /predict to try again.",
+                f"*Sell Failed*\n\n"
+                f"Error: {safe_md(result.error)}\n\n"
+                f"Use /predict to try again.",
                 parse_mode="Markdown",
             )
 
@@ -1281,7 +1285,7 @@ async def redeem_position_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.edit_message_text(
         f"*Redeem Winnings*\n\n"
-        f"*Market:* {truncate(pred_data.get('redeem_question') or 'Unknown', 100)}\n"
+        f"*Market:* {safe_md(truncate(pred_data.get('redeem_question') or 'Unknown', 100))}\n"
         f"*Payout:* {format_usdc(payout)} in pUSD\n\n"
         f"This sends an on-chain transaction from your wallet on Polygon to "
         f"redeem your winning shares. You'll need a little MATIC for gas.\n\n"
@@ -1408,7 +1412,7 @@ def _redeem_error_message(result) -> str:
         )
     return (
         "*Redeem Failed*\n\n"
-        f"{getattr(result, 'error', 'Unknown error')}\n\n"
+        f"{safe_md(getattr(result, 'error', 'Unknown error'))}\n\n"
         "Your winning position is unchanged and still claimable."
     )
 
@@ -1467,7 +1471,7 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             text += (
                 f"{status_emoji} {order.side} {order.outcome} | "
                 f"{amount_str} | {order.status}\n"
-                f"  {truncate(order.market_question or '', 50)} | {date_str}\n\n"
+                f"  {safe_md(truncate(order.market_question or '', 50))} | {date_str}\n\n"
             )
 
     keyboard = [
