@@ -136,7 +136,12 @@ class Settings(BaseSettings):
     )
     oauth_redirect_base: str = Field(
         default="http://localhost:3000",
-        description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)",
+        description=(
+            "Allowed post-login redirect origins. MAY be a comma-separated LIST — "
+            "_is_allowed_redirect() splits it. Use oauth_callback_base (below) "
+            "wherever a SINGLE URL is needed; using this value raw builds a "
+            "malformed URI when it holds a list."
+        ),
     )
     webauthn_rp_id: str = Field(
         default="suwappu.bot",
@@ -756,6 +761,24 @@ class Settings(BaseSettings):
             return None
 
         return f"https://{network}.g.alchemy.com/v2/{self.alchemy_api_key}"
+
+    @property
+    def oauth_callback_base(self) -> str:
+        """The ONE origin OAuth providers redirect back to.
+
+        ``oauth_redirect_base`` may hold a comma-separated allowlist of
+        post-login destinations. The provider callback, by contrast, is a
+        single URL that must match what is registered with the provider.
+
+        Interpolating the raw list produced exactly this, which Google rejects
+        with redirect_uri_mismatch and no usable error on our side:
+
+            redirect_uri=https://a.example,https://b.example/auth/callback/google
+
+        The first entry is canonical.
+        """
+        first = (self.oauth_redirect_base or "").split(",")[0].strip()
+        return first.rstrip("/")
 
     def is_oauth_configured(self, provider: str) -> bool:
         """Check if OAuth is configured for a provider."""

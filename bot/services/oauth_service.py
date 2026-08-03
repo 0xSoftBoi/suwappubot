@@ -103,8 +103,10 @@ class OAuthService:
 
     def _get_redirect_uri(self, provider: str) -> str:
         """Get the OAuth redirect URI."""
-        base = settings.oauth_redirect_base.rstrip("/")
-        return f"{base}/auth/callback/{provider}"
+        # oauth_callback_base, NOT oauth_redirect_base: the latter may be a
+        # comma-separated allowlist, and interpolating it raw sends Google a
+        # malformed redirect_uri that fails with redirect_uri_mismatch.
+        return f"{settings.oauth_callback_base}/auth/callback/{provider}"
 
     @staticmethod
     def _generate_pkce() -> Tuple[str, str]:
