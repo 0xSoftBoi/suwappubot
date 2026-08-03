@@ -30,8 +30,23 @@ logger = logging.getLogger(__name__)
 
 
 def _table_missing(e: Exception) -> bool:
+    """True only for genuine missing-table/column signals.
+
+    Deliberately does NOT match generic ``"does not exist"`` substrings —
+    Postgres also uses that phrase for type-mismatch errors (e.g.
+    ``operator does not exist: uuid = character varying``), which is a real
+    bug, not a not-yet-migrated table, and must not be swallowed into a
+    misleading "not set up yet" reply.
+    """
     msg = str(e).lower()
-    return "does not exist" in msg or "no such table" in msg or "no such column" in msg
+    if "no such table" in msg or "no such column" in msg:
+        return True
+    if "relation" in msg and "does not exist" in msg:
+        return True
+    if "column" in msg and "does not exist" in msg:
+        return True
+    pgcode = getattr(getattr(e, "orig", None), "pgcode", None)
+    return pgcode in ("42P01", "42703")  # undefined_table / undefined_column
 
 
 def _resolve_user_id(session, telegram_id: int):
@@ -97,7 +112,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                 text(
                     "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id "
                     "FROM approval_requests ar "
-                    "LEFT JOIN agents a ON a.uuid = ar.agent_id "
+                    "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
                     "WHERE ar.id = :id"
                 ),
                 {"id": approval_id},
@@ -164,7 +179,7 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     "SELECT ar.id, a.name, ar.agent_id, ar.action_type, ar.payload, "
                     "ar.expires_at "
                     "FROM approval_requests ar "
-                    "LEFT JOIN agents a ON a.uuid = ar.agent_id "
+                    "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
                     "WHERE ar.user_id = :uid AND ar.status = 'pending' "
                     "ORDER BY ar.created_at DESC LIMIT 20"
                 ),

@@ -228,23 +228,8 @@ class TestApprovalDecisionCallback:
         assert row[0] == "pending"
         assert row[1] is None
 
-        # DISCOVERED-BUG NOTE (real, live, out of this test-only agent's scope
-        # to fix -- flagged for a bot-dev follow-up): approval_decision_callback's
-        # POST-decide re-read query still says
-        #   "LEFT JOIN agents a ON a.uuid = ar.agent_id"
-        # with NO CAST(a.uuid AS TEXT) -- unlike the fixed join in
-        # bot/services/approval_webhook.py. On real Postgres this raises
-        # `operator does not exist: uuid = character varying`, which
-        # _table_missing()'s substring check ("does not exist") misclassifies
-        # as "table not migrated yet", so the caller gets a WRONG reply
-        # ("This approval system isn't set up yet.") instead of the intended
-        # "This approval belongs to another user." The UPDATE itself already
-        # committed by this point (session.commit() runs before the SELECT),
-        # so the DB-side ownership guard above is unaffected -- only the
-        # user-facing message is broken. This assertion pins the CURRENT
-        # (buggy) behavior so a fix flips it, rather than silently masking it.
         reply_text = update.callback_query.edit_message_text.call_args[0][0]
-        assert reply_text == "This approval system isn't set up yet."
+        assert reply_text == "This approval belongs to another user."
 
 
 def _noop_notify(*args, **kwargs):

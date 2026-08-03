@@ -72,8 +72,22 @@ _inflight_tasks: set = set()
 
 
 def _table_missing(e: Exception) -> bool:
+    """True only for genuine missing-table/column signals.
+
+    Deliberately does NOT match generic ``"does not exist"`` substrings —
+    Postgres also uses that phrase for type-mismatch errors (e.g.
+    ``operator does not exist: uuid = character varying``), which is a real
+    bug, not a not-yet-migrated table, and must not be swallowed here.
+    """
     msg = str(e).lower()
-    return "does not exist" in msg or "no such table" in msg
+    if "no such table" in msg or "no such column" in msg:
+        return True
+    if "relation" in msg and "does not exist" in msg:
+        return True
+    if "column" in msg and "does not exist" in msg:
+        return True
+    pgcode = getattr(getattr(e, "orig", None), "pgcode", None)
+    return pgcode in ("42P01", "42703")  # undefined_table / undefined_column
 
 
 class WebhookDispatcher:

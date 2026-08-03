@@ -39,8 +39,23 @@ CHECK_INTERVAL_SECONDS = 15
 
 
 def _table_missing(e: Exception) -> bool:
+    """True only for genuine missing-table/column signals.
+
+    Deliberately does NOT match generic ``"does not exist"`` substrings —
+    Postgres also uses that phrase for type-mismatch errors (e.g.
+    ``operator does not exist: uuid = character varying``), which is a real
+    bug, not a not-yet-migrated table, and must not be swallowed into a
+    "not set up yet"/idling no-op.
+    """
     msg = str(e).lower()
-    return "does not exist" in msg or "no such table" in msg or "no such column" in msg
+    if "no such table" in msg or "no such column" in msg:
+        return True
+    if "relation" in msg and "does not exist" in msg:
+        return True
+    if "column" in msg and "does not exist" in msg:
+        return True
+    pgcode = getattr(getattr(e, "orig", None), "pgcode", None)
+    return pgcode in ("42P01", "42703")  # undefined_table / undefined_column
 
 
 def _fmt_expiry(expires_at) -> str:
@@ -196,7 +211,7 @@ class ApprovalNotifier:
                         "SELECT ar.id, ar.agent_id, a.name, u.telegram_id, ar.payload, "
                         "ar.action_type, ar.expires_at "
                         "FROM approval_requests ar "
-                        "LEFT JOIN agents a ON a.uuid = ar.agent_id "
+                        "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
                         "LEFT JOIN users u ON u.id = ar.user_id "
                         "WHERE ar.status = 'pending' AND ar.notified_at IS NULL "
                         "ORDER BY ar.created_at ASC LIMIT 20"
