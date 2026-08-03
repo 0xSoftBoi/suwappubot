@@ -456,7 +456,7 @@ class PerpsFlow(BaseWhatsAppFlow):
         try:
             from bot.services.perps_service import perps_service
 
-            positions = perps_service.get_positions(user_db_id, status="open")
+            positions = await perps_service.get_positions(user_db_id, status="open")
         except Exception as exc:
             logger.error(f"Failed to fetch positions for user {user_db_id}: {exc}")
             positions = []
@@ -497,7 +497,7 @@ class PerpsFlow(BaseWhatsAppFlow):
         try:
             from bot.services.perps_service import perps_service
 
-            positions = perps_service.get_positions(user_db_id, status="open")
+            positions = await perps_service.get_positions(user_db_id, status="open")
         except Exception as exc:
             logger.error(f"Failed to fetch positions for TP/SL for user {user_db_id}: {exc}")
             positions = []

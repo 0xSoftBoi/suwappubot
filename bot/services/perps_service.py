@@ -209,14 +209,32 @@ class PerpsService:
 
             session.expunge(position)
 
-        # Place TP/SL orders if specified
+        # Place TP/SL orders if specified. Best-effort: the position is already
+        # live on-chain, so a rejected trigger must not abort the rest of this
+        # function and report a failure for a trade the user really has.
         if tp_price:
             await self._place_tp_sl(
-                user_id, account, market, side, size, "take_profit", tp_price, position_id
+                user_id,
+                account,
+                market,
+                side,
+                size,
+                "take_profit",
+                tp_price,
+                position_id,
+                raise_on_error=False,
             )
         if sl_price:
             await self._place_tp_sl(
-                user_id, account, market, side, size, "stop_loss", sl_price, position_id
+                user_id,
+                account,
+                market,
+                side,
+                size,
+                "stop_loss",
+                sl_price,
+                position_id,
+                raise_on_error=False,
             )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
@@ -650,9 +668,37 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
+        raise_on_error: bool = True,
     ) -> bool:
         """Place a take profit or stop loss order. MONEY-PATH: propagates errors (not silently logged).
-        Returns True on success, raises on failure."""
+
+        Raises by default: a caller editing protection must know whether the
+        trigger actually landed. ``open_position`` opts out, because its
+        position is already live on-chain — raising there would abort the rest
+        of the open and report a failure for a trade the user really has.
+        Returns True when the trigger is resting.
+        """
+        try:
+            return await self._place_tp_sl_inner(
+                user_id, account, market, side, size, order_type, price, position_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to place {order_type} order: {e}")
+            if raise_on_error:
+                raise
+            return False
+
+    async def _place_tp_sl_inner(
+        self,
+        user_id: int,
+        account: HyperLiquidAccount,
+        market: str,
+        side: str,
+        size: float,
+        order_type: str,
+        price: float,
+        position_id: int,
+    ) -> bool:
         api_key, api_secret = self._decrypt_credentials(account)
         result = await self._client.place_order(
             address=account.hl_address,
