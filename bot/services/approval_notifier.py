@@ -38,6 +38,25 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL_SECONDS = 15
 
 
+def _is_postgres() -> bool:
+    try:
+        from database.db import engine
+
+        return engine.dialect.name != "sqlite"
+    except Exception:
+        return False
+
+
+def _now_utc_sql() -> str:
+    """SQL expression for "now, in UTC" comparable to a naive ``timestamp``
+    column (``approval_requests.expires_at`` is ``timestamp`` WITHOUT time
+    zone — see ``api-ts/src/db/schema/approvals.ts``). Mirrors
+    ``bot/handlers/approvals.py``'s ``_now_utc_sql`` and api-ts's
+    ``(now() at time zone 'utc')`` fix for the same column.
+    """
+    return "(now() at time zone 'utc')" if _is_postgres() else "CURRENT_TIMESTAMP"
+
+
 def _table_missing(e: Exception) -> bool:
     """True only for genuine missing-table/column signals.
 
@@ -150,6 +169,7 @@ class ApprovalNotifier:
             try:
                 await self._expire_stale()
                 await self._process_pending()
+                await self._sweep_step_up_challenges()
             except Exception as e:  # noqa: BLE001 — one bad cycle must not kill the loop
                 logger.error("Agent approval notifier loop error: %s", e, exc_info=True)
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
@@ -162,7 +182,7 @@ class ApprovalNotifier:
                     text(
                         "SELECT id, notify_chat_id, notify_message_id "
                         "FROM approval_requests "
-                        "WHERE status = 'pending' AND expires_at < CURRENT_TIMESTAMP"
+                        f"WHERE status = 'pending' AND expires_at < {_now_utc_sql()}"
                     )
                 ).fetchall()
                 if not rows:
@@ -202,6 +222,38 @@ class ApprovalNotifier:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug("Could not edit expired approval message %s: %s", row_id, e)
+
+    async def _sweep_step_up_challenges(self) -> None:
+        """Delete used/expired ``approval_step_up_challenges`` rows older
+        than a day. Every first Approve tap (when step-up is required)
+        inserts a row and nothing else ever cleans them up, so left alone
+        the table grows unbounded. Piggybacks on this loop rather than a
+        separate background task since it's cheap and this loop already
+        runs on the same cadence. Deliberately tolerant of the table not
+        existing (api-ts creates it) and must never raise into the poll
+        loop — a failed sweep just means the table grows a little more,
+        never a broken approval flow.
+        """
+        try:
+            with get_session() as session:
+                session.execute(
+                    text(
+                        "DELETE FROM approval_step_up_challenges "
+                        "WHERE (used_at IS NOT NULL OR expires_at < CURRENT_TIMESTAMP) "
+                        "AND created_at < CURRENT_TIMESTAMP - INTERVAL '1 day'"
+                        if _is_postgres()
+                        else "DELETE FROM approval_step_up_challenges "
+                        "WHERE (used_at IS NOT NULL OR expires_at < CURRENT_TIMESTAMP) "
+                        "AND created_at < datetime(CURRENT_TIMESTAMP, '-1 day')"
+                    )
+                )
+                session.commit()
+        except SQLAlchemyError as e:
+            if _table_missing(e):
+                return
+            logger.warning("Failed to sweep approval_step_up_challenges: %s", e)
+        except Exception as e:  # noqa: BLE001 — must never break the poll loop
+            logger.warning("Unexpected error sweeping approval_step_up_challenges: %s", e)
 
     async def _process_pending(self) -> None:
         try:

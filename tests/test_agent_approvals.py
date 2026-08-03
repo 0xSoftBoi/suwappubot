@@ -11,11 +11,13 @@ mocking, since the whole point of this logic is the atomic UPDATE semantics.
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+import bot.handlers.approvals as approvals_module
 from bot.handlers.approvals import (
     _consume_step_up_challenge,
     _decide_approval,
@@ -326,6 +328,40 @@ def test_step_up_challenge_is_single_use_and_owner_scoped(session):
     )
 
 
+def test_decide_approval_uses_utc_correct_expiry_guard(session, monkeypatch):
+    """Regression for the timezone-skew bug: _decide_approval's guard must
+    compare against a UTC-anchored "now", not a bare CURRENT_TIMESTAMP that a
+    non-UTC Postgres session TimeZone would skew against the naive
+    ``expires_at`` column. Simulate the Postgres branch (_is_postgres() ->
+    True) against the sqlite test engine: sqlite doesn't understand
+    ``now() at time zone 'utc'``, so if approvals.py ever regressed to using
+    that expression unconditionally (or _is_postgres() mis-detected), this
+    would raise instead of silently succeeding -- proving the dialect switch
+    is actually exercised for the Postgres branch and produces a
+    UTC-anchored comparison, not a session-local one.
+    """
+    import bot.handlers.approvals as approvals_mod
+
+    approval_id = _insert_pending(session, expires_in_min=15)
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+
+    # Force the Postgres SQL branch and confirm it's genuinely
+    # `(now() at time zone 'utc')`, not CURRENT_TIMESTAMP.
+    monkeypatch.setattr(approvals_mod, "_is_postgres", lambda: True)
+    assert approvals_mod._now_utc_sql() == "(now() at time zone 'utc')"
+
+    # And confirm the sqlite (non-Postgres) path used by these tests really
+    # is CURRENT_TIMESTAMP.
+    monkeypatch.setattr(approvals_mod, "_is_postgres", lambda: False)
+    assert approvals_mod._now_utc_sql() == "CURRENT_TIMESTAMP"
+
+    decided_now, row = _decide_approval(
+        session, approval_id=approval_id, caller_user_id=owner_user_id, new_status="approved"
+    )
+    assert decided_now is True
+    assert row[0] == "approved"
+
+
 def test_step_up_challenge_expires(session):
     approval_id = _insert_pending(session)
     owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
@@ -344,3 +380,91 @@ def test_step_up_challenge_expires(session):
         )
         is False
     )
+
+
+# --- full approval_decision_callback tests (sqlite shadow session) ---
+
+
+def _make_callback_update(telegram_id: int, callback_data: str):
+    query = MagicMock()
+    query.data = callback_data
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+
+    update = MagicMock()
+    update.callback_query = query
+    update.effective_user = MagicMock(id=telegram_id)
+    context = MagicMock()
+    return update, context
+
+
+class _NoCloseSessionCtx:
+    """Wraps an already-open test session as the ``with get_session() as s``
+    context manager approvals.py expects, without closing the shared
+    per-test sqlite session between the handler's internal ``with``
+    blocks."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        return self._session
+
+    def __exit__(self, *exc):
+        return False
+
+
+async def _noop_notify(*args, **kwargs):
+    return None
+
+
+@pytest.mark.asyncio
+async def test_owner_taps_lapsed_unswept_row_gets_expired_reply(session, monkeypatch):
+    """MEDIUM fix: an OWNER tapping a row that is still status='pending' in
+    the DB but whose expires_at has already passed (the notifier's expiry
+    sweep hasn't caught it yet) must get a clear "expired" reply instead of
+    the confusing generic "already pending" fallback."""
+    monkeypatch.setattr(approvals_module, "get_session", _NoCloseSessionCtx(session))
+    monkeypatch.setattr(approvals_module, "notify_approval_decided", _noop_notify)
+
+    approval_id = _insert_pending(session, expires_in_min=-1)
+
+    update, context = _make_callback_update(OWNER_TG_ID, f"apprv:{approval_id}:yes")
+    await approvals_module.approval_decision_callback(update, context)
+
+    row = session.execute(
+        text("SELECT status FROM approval_requests WHERE id = :id"), {"id": approval_id}
+    ).fetchone()
+    assert row[0] == "pending"  # untouched -- the expiry guard blocked the flip
+
+    reply_text = update.callback_query.edit_message_text.call_args[0][0]
+    assert "expired" in reply_text.lower()
+    assert "already" not in reply_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_non_owner_learns_nothing_about_a_decided_row(session, monkeypatch):
+    """MEDIUM info-leak fix: the ownership check must fire BEFORE the status
+    branches, so a non-owner tapping an already-decided row learns nothing --
+    not the agent name, not who decided it."""
+    monkeypatch.setattr(approvals_module, "get_session", _NoCloseSessionCtx(session))
+    monkeypatch.setattr(approvals_module, "notify_approval_decided", _noop_notify)
+
+    approval_id = _insert_pending(session, owner_telegram_id=OWNER_TG_ID, agent_id="agent-secret")
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+    session.execute(
+        text("UPDATE approval_requests SET status = 'approved', decided_by = :d WHERE id = :id"),
+        {"d": owner_user_id, "id": approval_id},
+    )
+    session.commit()
+
+    update, context = _make_callback_update(OTHER_TG_ID, f"apprv:{approval_id}:yes")
+    await approvals_module.approval_decision_callback(update, context)
+
+    reply_text = update.callback_query.edit_message_text.call_args[0][0]
+    assert reply_text == "This approval belongs to another user."
+    assert "agent-secret" not in reply_text
+    assert str(owner_user_id) not in reply_text

@@ -144,11 +144,20 @@ CREATE TABLE approval_requests (
     policy_decision_id BIGINT,
     reason VARCHAR(300),
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
-    expires_at TIMESTAMPTZ NOT NULL,
+    -- NOTE: plain TIMESTAMP (no tz), matching api-ts's drizzle schema
+    -- (`timestamp('expires_at')` with no `withTimezone` option) exactly --
+    -- this is deliberate, NOT an oversight. A naive `expires_at` compared
+    -- against `CURRENT_TIMESTAMP` (timestamptz) gets cast using the SESSION
+    -- TimeZone, which is exactly the skew bug
+    -- bot/handlers/approvals.py's `_now_utc_sql()` /
+    -- bot/services/approval_notifier.py's `_now_utc_sql()` guard against.
+    -- Declaring this column TIMESTAMPTZ here would silently hide that bug
+    -- the same way SQLite hides bug class (a)/(b) above.
+    expires_at TIMESTAMP NOT NULL,
     decided_by INTEGER REFERENCES users(id),
-    decided_at TIMESTAMPTZ,
-    consumed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    decided_at TIMESTAMP,
+    consumed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
 CREATE TABLE policy_kill_switches (

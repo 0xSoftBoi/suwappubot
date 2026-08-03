@@ -231,6 +231,146 @@ class TestApprovalDecisionCallback:
         reply_text = update.callback_query.edit_message_text.call_args[0][0]
         assert reply_text == "This approval belongs to another user."
 
+    @pytest.mark.asyncio
+    async def test_non_owner_learns_nothing_about_a_decided_row(self, pg_db, monkeypatch):
+        """MEDIUM info-leak fix: the ownership check must fire BEFORE the
+        status branches, so a non-owner tapping an already-decided (or
+        expired) row learns nothing -- not the agent name, not who decided
+        it -- same as tapping a still-pending row they don't own."""
+        from bot.handlers import approvals as approvals_module
+
+        monkeypatch.setattr(approvals_module, "get_session", pg_db.get_session)
+        monkeypatch.setattr(approvals_module, "notify_approval_decided", _noop_notify)
+
+        owner_tg = 555004
+        attacker_tg = 555005
+        owner_user_id = _seed_user(pg_db, owner_tg)
+        _seed_user(pg_db, attacker_tg)
+        _agent_id, agent_uuid = _seed_agent(pg_db, name="AgentDecidedLeak")
+        approval_id = _seed_approval(
+            pg_db, agent_uuid=agent_uuid, user_id=owner_user_id, status="approved"
+        )
+        with pg_db.get_session() as session:
+            session.execute(
+                text("UPDATE approval_requests SET decided_by = :d WHERE id = :id"),
+                {"d": owner_user_id, "id": approval_id},
+            )
+
+        update, context = _make_callback_update(attacker_tg, f"apprv:{approval_id}:yes")
+        await approvals_module.approval_decision_callback(update, context)
+
+        reply_text = update.callback_query.edit_message_text.call_args[0][0]
+        assert reply_text == "This approval belongs to another user."
+        assert "AgentDecidedLeak" not in reply_text
+        assert str(owner_user_id) not in reply_text
+
+    @pytest.mark.asyncio
+    async def test_owner_taps_lapsed_unswept_row_gets_expired_reply(self, pg_db, monkeypatch):
+        """MEDIUM fix: an OWNER tapping a row that is still status='pending'
+        in the DB but whose expires_at has already passed (the expiry-sweep
+        loop hasn't caught it yet) must get a clear "expired" reply, not the
+        confusing generic "already pending" fallback."""
+        from bot.handlers import approvals as approvals_module
+
+        monkeypatch.setattr(approvals_module, "get_session", pg_db.get_session)
+        monkeypatch.setattr(approvals_module, "notify_approval_decided", _noop_notify)
+
+        owner_tg = 555006
+        owner_user_id = _seed_user(pg_db, owner_tg)
+        _agent_id, agent_uuid = _seed_agent(pg_db, name="AgentLapsed")
+        approval_id = _seed_approval(
+            pg_db, agent_uuid=agent_uuid, user_id=owner_user_id, expires_in_min=-1
+        )
+
+        update, context = _make_callback_update(owner_tg, f"apprv:{approval_id}:yes")
+        await approvals_module.approval_decision_callback(update, context)
+
+        with pg_db.get_session() as session:
+            row = session.execute(
+                text("SELECT status FROM approval_requests WHERE id = :id"), {"id": approval_id}
+            ).fetchone()
+        assert row[0] == "pending"  # untouched -- the expiry guard blocked the flip
+
+        reply_text = update.callback_query.edit_message_text.call_args[0][0]
+        assert "expired" in reply_text.lower()
+        assert "already" not in reply_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_expiry_guard_is_utc_correct_under_non_utc_session_timezone(self, pg_db):
+        """HIGH fix: bot/handlers/approvals.py's _decide_approval guard must
+        compare expires_at (a naive `timestamp` column -- see
+        api-ts/src/db/schema/approvals.ts) against a UTC-anchored "now"
+        (`(now() at time zone 'utc')`), not a bare `CURRENT_TIMESTAMP`
+        (timestamptz) that Postgres implicitly casts using the SESSION
+        TimeZone. Prove it two ways against a real Postgres session with a
+        deliberately skewed TimeZone:
+
+          - TimeZone far AHEAD of UTC (Pacific/Kiritimati, UTC+14): the old
+            buggy `CURRENT_TIMESTAMP` cast makes "now" look far in the
+            future, which would make a genuinely-still-live row appear
+            already expired -- wrongly refusing a live approval.
+          - TimeZone far BEHIND UTC (Pacific/Midway, UTC-11): the old buggy
+            cast would make "now" look far in the past, which would make a
+            genuinely-expired row appear still live -- wrongly deciding an
+            expired approval.
+
+        Both must behave correctly (UTC-anchored) regardless of session
+        TimeZone with the fix in place.
+        """
+        from bot.handlers import approvals as approvals_module
+
+        # Seed BOTH rows up front, before any TimeZone mutation below --
+        # SET TIME ZONE is session-level and (unlike SET LOCAL) survives a
+        # commit and can leak onto a pooled connection that a later,
+        # unrelated `pg_db.get_session()` call happens to reuse, which would
+        # corrupt the naive `expires_at` this test seeds afterwards. Seeding
+        # first sidesteps that entirely; using SET LOCAL below (scoped to
+        # just the guarded UPDATE's own transaction) avoids leaking forward
+        # too.
+        owner_tg_a = 900001
+        owner_user_id_a = _seed_user(pg_db, owner_tg_a)
+        _agent_id_a, agent_uuid_a = _seed_agent(pg_db, name="AgentTZAhead")
+        # Still has 5 minutes left in real UTC terms.
+        live_approval_id = _seed_approval(
+            pg_db, agent_uuid=agent_uuid_a, user_id=owner_user_id_a, expires_in_min=5
+        )
+
+        owner_tg_b = 900002
+        owner_user_id_b = _seed_user(pg_db, owner_tg_b)
+        _agent_id_b, agent_uuid_b = _seed_agent(pg_db, name="AgentTZBehind")
+        # Already expired 5 minutes ago in real UTC terms.
+        expired_approval_id = _seed_approval(
+            pg_db, agent_uuid=agent_uuid_b, user_id=owner_user_id_b, expires_in_min=-5
+        )
+
+        with pg_db.get_session() as session:
+            session.execute(text("SET LOCAL TIME ZONE 'Pacific/Kiritimati'"))
+            decided_now, row = approvals_module._decide_approval(
+                session,
+                approval_id=live_approval_id,
+                caller_user_id=owner_user_id_a,
+                new_status="approved",
+            )
+        assert decided_now is True, (
+            "a genuinely-still-live (UTC) approval was wrongly refused under a "
+            "session TimeZone far ahead of UTC -- the guard is not UTC-anchored"
+        )
+        assert row[0] == "approved"
+
+        with pg_db.get_session() as session:
+            session.execute(text("SET LOCAL TIME ZONE 'Pacific/Midway'"))
+            decided_now, row = approvals_module._decide_approval(
+                session,
+                approval_id=expired_approval_id,
+                caller_user_id=owner_user_id_b,
+                new_status="approved",
+            )
+        assert decided_now is False, (
+            "a genuinely-expired (UTC) approval was wrongly decided under a "
+            "session TimeZone far behind UTC -- the guard is not UTC-anchored"
+        )
+        assert row[0] == "pending"
+
 
 def _noop_notify(*args, **kwargs):
     async def _inner():

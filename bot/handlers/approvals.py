@@ -60,6 +60,42 @@ def _table_missing(e: Exception) -> bool:
     return pgcode in ("42P01", "42703")  # undefined_table / undefined_column
 
 
+def _is_postgres() -> bool:
+    try:
+        from database.db import engine
+
+        return engine.dialect.name != "sqlite"
+    except Exception:
+        return False
+
+
+def _now_utc_sql() -> str:
+    """SQL expression for "now, in UTC" comparable to a naive ``timestamp``
+    column (``approval_requests.expires_at`` is ``timestamp`` WITHOUT time
+    zone — see ``api-ts/src/db/schema/approvals.ts``). Postgres's
+    ``CURRENT_TIMESTAMP`` is ``timestamptz`` and gets cast to a naive
+    timestamp using the SESSION TimeZone, which skews the comparison on any
+    session whose TimeZone isn't UTC — mirrors api-ts's
+    ``(now() at time zone 'utc')`` fix for the same column.
+    """
+    return "(now() at time zone 'utc')" if _is_postgres() else "CURRENT_TIMESTAMP"
+
+
+def _parse_utc(expires_at) -> datetime | None:
+    """Normalize a ``expires_at`` value read back via a raw ``text()`` query
+    into a UTC-aware ``datetime``, regardless of whether the driver handed
+    back a real ``datetime`` (psycopg2/Postgres — the production case) or a
+    plain string (sqlite's DBAPI when queried through a bare ``text()`` SQL
+    string with no column typing, which is how the SQLite-shadow-table unit
+    tests exercise this code). Returns ``None`` if ``expires_at`` is falsy.
+    """
+    if not expires_at:
+        return None
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    return expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+
+
 def _resolve_user_id(session, telegram_id: int):
     row = session.execute(
         text("SELECT id FROM users WHERE telegram_id = :tg"),
@@ -125,7 +161,7 @@ def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_stat
             "SET status = :new_status, decided_by = :decided_by, "
             "decided_at = CURRENT_TIMESTAMP "
             "WHERE id = :id AND status = 'pending' AND user_id = :caller_user_id "
-            "AND expires_at > CURRENT_TIMESTAMP"
+            f"AND expires_at > {_now_utc_sql()}"
         ),
         {
             "new_status": new_status,
@@ -139,7 +175,7 @@ def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_stat
 
     row = session.execute(
         text(
-            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id "
+            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id, ar.expires_at "
             "FROM approval_requests ar "
             "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
             "WHERE ar.id = :id"
@@ -289,12 +325,14 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("This approval request no longer exists.")
         return
 
-    status, existing_decided_by, agent_name, agent_id, owner_user_id = row
+    status, existing_decided_by, agent_name, agent_id, owner_user_id, expires_at = row
     label = agent_name or agent_id
 
-    if not decided_now and status == "pending" and owner_user_id != caller_user_id:
-        # Row is still pending but the tapper isn't the owner. Distinguish
-        # "not yours" from "already decided" without leaking any other detail.
+    # Ownership check FIRST, regardless of the row's status — a non-owner
+    # must learn nothing (not even that the row exists, who decided it, or
+    # what agent it belongs to) whether the row is pending, decided, or
+    # expired.
+    if owner_user_id != caller_user_id:
         await query.edit_message_text("This approval belongs to another user.")
         return
 
@@ -314,6 +352,18 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
             parse_mode="Markdown",
         )
     elif status == "expired":
+        await query.edit_message_text(
+            f"⌛ This request expired — agent `{label}`.", parse_mode="Markdown"
+        )
+    elif (
+        status == "pending"
+        and (exp := _parse_utc(expires_at)) is not None
+        and exp <= datetime.now(timezone.utc)
+    ):
+        # Owner tapped a still-'pending' row that is already past its own
+        # expiry but hasn't been swept to 'expired' yet by the notifier's
+        # poll loop — tell them what actually happened rather than the
+        # confusing generic "already pending" fallback below.
         await query.edit_message_text(
             f"⌛ This request expired — agent `{label}`.", parse_mode="Markdown"
         )
