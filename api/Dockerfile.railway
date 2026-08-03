@@ -26,6 +26,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        git \
         libpq-dev \
         curl \
         git \
