@@ -21,6 +21,8 @@ import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
 import { RewardsPanel } from '../rewards/RewardsPanel'
+import { PendingApprovalsPanel } from '../agent-control/PendingApprovalsPanel'
+import { AuditLogPanel } from '../agent-control/AuditLogPanel'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
@@ -41,6 +43,8 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
+  { id: 'approvals', label: 'Agent Approvals' },
+  { id: 'audit', label: 'Agent Audit' },
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
@@ -163,6 +167,16 @@ function MobileLayout() {
               {bottomTab === 'copilot' && <CopilotPanel />}
               {bottomTab === 'referrals' && <ReferralsPanel />}
               {bottomTab === 'rewards' && <RewardsPanel />}
+              {bottomTab === 'approvals' && (
+                <ErrorBoundary label="Agent Approvals">
+                  <PendingApprovalsPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'audit' && (
+                <ErrorBoundary label="Agent Audit">
+                  <AuditLogPanel />
+                </ErrorBoundary>
+              )}
             </div>
           </div>
         )}
@@ -309,6 +323,16 @@ function DesktopLayout() {
             {bottomTab === 'copilot' && <CopilotPanel />}
             {bottomTab === 'referrals' && <ReferralsPanel />}
             {bottomTab === 'rewards' && <RewardsPanel />}
+            {bottomTab === 'approvals' && (
+              <ErrorBoundary label="Agent Approvals">
+                <PendingApprovalsPanel />
+              </ErrorBoundary>
+            )}
+            {bottomTab === 'audit' && (
+              <ErrorBoundary label="Agent Audit">
+                <AuditLogPanel />
+              </ErrorBoundary>
+            )}
           </div>
         </div>
       </Allotment.Pane>

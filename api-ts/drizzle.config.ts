@@ -61,5 +61,11 @@ export default defineConfig({
 		// aegis_user_trust (keyed on (platform, user_id), bot end-user trust);
 		// this one is keyed on agents.id (registered-agent A2A/MCP surface).
 		'agent_trust',
+		// api-ts-exclusive agent->owner link codes (agentLinkCodes.ts) — no
+		// python owner; redeemed via /claim <code> in the Telegram bot.
+		'agent_link_codes',
+		// api-ts-exclusive step-up re-confirmation nonces for owner approve
+		// decisions (approvalStepUpChallenges.ts) — no python owner.
+		'approval_step_up_challenges',
 	],
 })

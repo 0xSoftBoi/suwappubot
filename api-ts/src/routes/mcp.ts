@@ -22,7 +22,8 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { checkEvmWalletOwnership } from './agent'
+import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf } from './agent'
+import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -934,7 +935,25 @@ async function handleLendMarket(args: Record<string, unknown>) {
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
-async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
+/**
+ * Converts the Response returned by enforcePolicyGateForFreshQuote (built for
+ * the REST /v1/agent/swap routes via c.json(...)) into the MCP tool-call
+ * isError envelope, so execute_swap shares the exact same policy gate
+ * (including approval-request creation) instead of a parallel implementation.
+ */
+async function policyGateResponseToMcpEnvelope(
+	resp: Response,
+): Promise<{ isError: true; content: { type: 'text'; text: string }[] }> {
+	let body: unknown
+	try {
+		body = await resp.json()
+	} catch {
+		body = { error: 'Policy gate blocked this request' }
+	}
+	return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] }
+}
+
+async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
 	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
@@ -952,6 +971,25 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 		return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first.' }] }
 
 	const quote = cached.quote
+
+	// --- Institutional policy gate ---
+	// Evaluate the trade intent against org policy rules + this agent's spend
+	// profile + kill switches BEFORE returning a signable tx — closes the MCP
+	// bypass where an agent could call execute_swap to skip the same gate that
+	// POST /v1/agent/swap enforces. Org context comes from agents.organizationId
+	// (plain agent-token/MCP auth carries no org API key) — see
+	// enforcePolicyGateForFreshQuote in routes/agent.ts (single source of truth,
+	// shared with both REST swap routes).
+	const gateResponse = await enforcePolicyGateForFreshQuote(
+		c,
+		agentIdentifierOf(agent),
+		agent.organizationId ?? null,
+		quote,
+		!!cached.isSolana,
+		wallet_address,
+	)
+	if (gateResponse) return await policyGateResponseToMcpEnvelope(gateResponse)
+
 	if (cached.isSolana) {
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -1628,7 +1666,7 @@ mcpRoutes.post('/', async (c) => {
 						result = handleListTokens(args || {})
 						break
 					case 'execute_swap':
-						result = await handleExecuteSwap(args || {}, callAgent)
+						result = await handleExecuteSwap(args || {}, callAgent, c)
 						break
 					case 'simulate_swap':
 						result = await handleSimulateSwap(args || {}, callAgent)

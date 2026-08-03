@@ -68,6 +68,10 @@ export const EnvSchema = Schema.Struct({
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Require a server-issued step-up challenge (approval_step_up_challenges)
+	// to be presented and consumed before an owner's approve decision is
+	// honored. Default OFF so existing owner approve flows are unaffected.
+	APPROVAL_STEP_UP_REQUIRED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	// Address that receives USDC topups. Falls back to FEE_WALLET_EVM in code if unset.
 	AGENT_METERING_COLLECTOR_ADDRESS: Schema.optional(Schema.String),
 	// Network + USDC asset address used in the x402 402 challenge body.
