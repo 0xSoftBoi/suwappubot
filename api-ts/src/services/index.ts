@@ -15,6 +15,15 @@ export {
 } from './ApprovalService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
+	AgentTrustService,
+	AgentTrustServiceLive,
+	type AgentTrustServiceInterface,
+	RECOVERY_INTERVAL_MS,
+	TRUST_DEFAULT,
+	TRUST_MAX,
+	TRUST_MIN,
+} from './AgentTrustService'
+export {
 	CopyTradingService,
 	CopyTradingServiceLive,
 	type FollowSettings,

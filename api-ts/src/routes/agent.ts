@@ -33,6 +33,7 @@ import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
+	AgentTrustService,
 	ApprovalService,
 	BalanceService,
 	CHAINS,
@@ -2051,8 +2052,24 @@ agentRoutes.post('/execute', async (c) => {
 	const { command, wallet_address } = parsed.data
 
 	// AEGIS observe-mode scan (Phase 3, docs/plans/aegis-fork-extend.md). Log-only —
-	// never blocks /execute and never alters the response below.
-	scanForThreatsObserveOnly(command, { source: 'agent_execute', agentId: agent.id })
+	// never blocks /execute and never alters the response below. onVerdict feeds
+	// AgentTrustService as a fire-and-forget write (RECORD-ONLY — see
+	// services/AgentTrustService.ts; nothing here gates or denies on it, and a
+	// trust-write failure can never affect this response since recordVerdict is
+	// itself fail-open and this call isn't awaited).
+	scanForThreatsObserveOnly(command, { source: 'agent_execute', agentId: agent.id }, undefined, (isThreat) => {
+		// Only threats hit the DB — a clean verdict is the common case and its
+		// recordVerdict would be a no-op UPDATE (row absent, or recovery interval
+		// not elapsed), so gating here keeps the hot path free of a per-request
+		// write. Clean-path recovery is deferred to a future periodic job.
+		if (!isThreat) return
+		runEffectEither(
+			Effect.gen(function* () {
+				const trustService = yield* AgentTrustService
+				yield* trustService.recordVerdict(agent.id, true)
+			}),
+		)
+	})
 
 	// If a wallet_address is supplied it must be the agent's own managed EVM wallet —
 	// otherwise a natural-language command could carry a victim's address as the swap

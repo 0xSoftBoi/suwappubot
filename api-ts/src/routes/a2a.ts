@@ -7,11 +7,13 @@ import type { Agent } from '../db'
 import { ValidationError } from '../errors'
 import type { AgentErrorCode } from '../lib/agentError'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { sanitizeReflectedText } from '../lib/outboundSanitize'
 import { cacheAgentQuote } from '../lib/quoteCache'
 import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
+	AgentTrustService,
 	CHAINS,
 	JupiterService,
 	type QuoteParams,
@@ -199,7 +201,7 @@ function getChainList(): string[] {
 // Message processing
 // -------------------------------------------------------------------
 
-async function processMessage(
+export async function processMessage(
 	text: string,
 	agent: Agent,
 ): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
@@ -331,15 +333,22 @@ async function processMessage(
 	}
 
 	// --- Unknown ---
+	// `text` here is unrecognized, caller-controlled free text. A2A responses
+	// may be rendered by other agents/clients, so scrub it before reflecting it
+	// back in either the human-readable text part or the structured data part
+	// (§3.4 outbound sanitization) — length-capped and control/formatting
+	// sequences neutralized. This only shapes what's echoed; command matching
+	// above is untouched.
+	const safeInput = sanitizeReflectedText(text)
 	return {
 		parts: [
 			{
 				type: 'text',
-				text: `Could not understand: "${text}". Try "swap 0.5 ETH to USDC on base", "price ETH", or "help".`,
+				text: `Could not understand: "${safeInput}". Try "swap 0.5 ETH to USDC on base", "price ETH", or "help".`,
 			},
 			{
 				type: 'data',
-				data: { error: 'unrecognized_command', input: text, hint: 'Send "help" for available commands' },
+				data: { error: 'unrecognized_command', input: safeInput, hint: 'Send "help" for available commands' },
 			},
 		],
 	}
@@ -627,8 +636,21 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	}
 
 	// AEGIS observe-mode scan (Phase 3). Log-only — never blocks message/send
-	// and never alters the response produced below.
-	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id })
+	// and never alters the response produced below. onVerdict feeds
+	// AgentTrustService as a fire-and-forget write (RECORD-ONLY — nothing gates
+	// or denies on it; the call isn't awaited and recordVerdict is itself
+	// fail-open, so a trust-write failure can never affect this response).
+	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id }, undefined, (isThreat) => {
+		// Threat-only write (see agent.ts /execute for the rationale) — clean
+		// verdicts skip the DB; recovery is a deferred periodic-job concern.
+		if (!isThreat) return
+		runEffectEither(
+			Effect.gen(function* () {
+				const trustService = yield* AgentTrustService
+				yield* trustService.recordVerdict(agent.id, true)
+			}),
+		)
+	})
 
 	const taskId = crypto.randomUUID()
 	const now = isoNow()

@@ -3,6 +3,7 @@ import type { Agent } from '../db'
 import {
 	isQuoteOwnedByAgent,
 	isTaskOwnedByAgent,
+	processMessage,
 	resolveAgentEvmAddress,
 	stopA2aCleanup,
 } from '../routes/a2a'
@@ -76,5 +77,45 @@ describe('a2a EVM address resolution', () => {
 		expect(resolveAgentEvmAddress(makeAgent(4, { wallet_address: '0xnothex' }))).toBe(PLACEHOLDER)
 		expect(resolveAgentEvmAddress(makeAgent(5, { wallet_address: '0x1234' }))).toBe(PLACEHOLDER)
 		expect(resolveAgentEvmAddress(makeAgent(6, { wallet_address: 12345 }))).toBe(PLACEHOLDER)
+	})
+})
+
+// §3.4 outbound sanitization — the unknown-command branch of processMessage
+// echoes the caller's own unrecognized free text back verbatim. A2A responses
+// may be rendered by other agents/clients, so the reflected text must be
+// length-capped and control/formatting-sequence scrubbed (command matching
+// itself is unaffected).
+describe('a2a unknown-command echo sanitization', () => {
+	function findParts(result: Awaited<ReturnType<typeof processMessage>>) {
+		const textPart = result.parts.find((p) => p.type === 'text') as { type: 'text'; text: string }
+		const dataPart = result.parts.find((p) => p.type === 'data') as {
+			type: 'data'
+			data: Record<string, unknown>
+		}
+		return { textPart, dataPart }
+	}
+
+	it('scrubs newlines/control chars and caps length in the unrecognized-command echo', async () => {
+		const evilInput = `zzz\n`.repeat(50) + '\x1b[31mowned\x1b[0m' + 'z'.repeat(500)
+		const result = await processMessage(evilInput, makeAgent(1))
+		const { textPart, dataPart } = findParts(result)
+
+		expect(dataPart.data.error).toBe('unrecognized_command')
+		// No raw newline or ESC control bytes reflected back to the client.
+		expect(textPart.text).not.toMatch(/[\n\r]/)
+		expect(textPart.text).not.toContain('\x1b')
+		expect(dataPart.data.input as string).not.toMatch(/[\n\r]/)
+		expect(dataPart.data.input as string).not.toContain('\x1b')
+
+		// Hard-capped well under the ~700-char raw input.
+		expect((dataPart.data.input as string).length).toBeLessThan(320)
+		expect(textPart.text.length).toBeLessThan(400)
+	})
+
+	it('still reflects short, benign unrecognized input unchanged for legit callers', async () => {
+		const result = await processMessage('do a barrel roll', makeAgent(1))
+		const { dataPart } = findParts(result)
+		expect(dataPart.data.input).toBe('do a barrel roll')
+		expect(dataPart.data.error).toBe('unrecognized_command')
 	})
 })

@@ -179,6 +179,14 @@ export function agentBearerAuth() {
 		// Store agent in context for route handlers
 		c.set('agent', agent)
 
+		// NB: agent trust (services/AgentTrustService.ts, wired write path via the
+		// scanner seams) is intentionally NOT read here. It is record-only and
+		// nothing gates on it yet, so a per-request read would add a DB round-trip
+		// — and a stall/pool-exhaustion vector on a degraded DB (the client's
+		// statement_timeout is 30s) — to the auth hot path for data no consumer
+		// uses. When enforcement is designed (post-telemetry-review), the consumer
+		// reads getTrust() at the point of use with an appropriately bounded query.
+
 		await next()
 	}
 }

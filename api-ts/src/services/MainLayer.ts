@@ -2,6 +2,7 @@ import { Layer } from 'effect'
 import { EnvServiceLive } from '../config/EnvService'
 import { DrizzleServiceLive } from '../db'
 import { AgentServiceLive } from './AgentService'
+import { AgentTrustServiceLive } from './AgentTrustService'
 import { AlertServiceLive } from './AlertService'
 import { ApprovalServiceLive } from './ApprovalService'
 import { BalanceServiceLive } from './BalanceService'
@@ -73,6 +74,7 @@ export const ServicesLayer = Layer.mergeAll(
 	SeasonsServiceLive,
 	BalanceServiceLive,
 	AgentServiceLive,
+	AgentTrustServiceLive,
 	TokenServiceLive,
 	JupiterServiceLive,
 	LimitOrderServiceLive,

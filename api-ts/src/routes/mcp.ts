@@ -12,7 +12,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
@@ -28,6 +28,8 @@ import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { parseMppDirectoryResponse } from '../lib/mppDirectory'
+import { logger } from '../lib/logger'
 import openApiSpec from '../../openapi-agent.json'
 import { requireDb, swapTransactions } from '../db'
 import type { Agent } from '../db'
@@ -548,7 +550,7 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 	}
 }
 
-async function handleBrowseMppDirectory(args: Record<string, unknown>) {
+export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	const category = args.category as string | undefined
 	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
 
@@ -566,8 +568,18 @@ async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 			return { isError: true, content: [{ type: 'text', text: `MPP directory returned ${res.status}: ${res.statusText}` }] }
 		}
 
-		const data = await res.json()
-		return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+		// Third-party-controlled content — never reflect the raw upstream body.
+		// Parse/shape through a fail-safe Zod projection first (§3.4 outbound
+		// sanitization): unknown/oversized fields dropped, array length capped.
+		let rawData: unknown
+		try {
+			rawData = await res.json()
+		} catch (parseErr) {
+			logger.warn(`[mcp] MPP directory returned non-JSON body: ${parseErr}`)
+			return { content: [{ type: 'text', text: JSON.stringify({ services: [] }) }] }
+		}
+		const shaped = parseMppDirectoryResponse(rawData)
+		return { content: [{ type: 'text', text: JSON.stringify(shaped) }] }
 	} catch (e: any) {
 		return { isError: true, content: [{ type: 'text', text: `Failed to fetch MPP directory: ${e.message}` }] }
 	}
@@ -1526,11 +1538,30 @@ mcpRoutes.post('/', async (c) => {
 			// log-only — never blocks the tools/call, never alters the response.
 			// scanValueObserveOnly serializes `args` INSIDE its fail-open guard so
 			// a non-serializable arg can never throw up the tools/call handler.
-			scanValueObserveOnly(args, {
-				source: 'mcp_tools_call',
-				agentId: agent?.id,
-				tool: name,
-			})
+			// onVerdict feeds AgentTrustService as a fire-and-forget write
+			// (RECORD-ONLY, never awaited) — skipped entirely when `agent` is
+			// undefined (a PUBLIC_READ_TOOLS call has no authenticated agent to
+			// attribute the verdict to).
+			scanValueObserveOnly(
+				args,
+				{
+					source: 'mcp_tools_call',
+					agentId: agent?.id,
+					tool: name,
+				},
+				undefined,
+				(isThreat) => {
+					// Threat-only write (see agent.ts /execute); skip when there's no
+					// agent (PUBLIC_READ_TOOLS).
+					if (!isThreat || !agent) return
+					runEffectEither(
+						Effect.gen(function* () {
+							const trustService = yield* AgentTrustService
+							yield* trustService.recordVerdict(agent.id, true)
+						}),
+					)
+				},
+			)
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return a JSON-RPC error
