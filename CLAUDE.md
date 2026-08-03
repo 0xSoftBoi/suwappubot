@@ -149,7 +149,7 @@ cd mobile && bun install && bun run ios
 **Deploy methods**:
 - `/deploy` skill for manual deployments (preferred)
 - Railway dashboard for manual triggers and environment management
-- GitHub Actions auto-deploys on push to `main`/`dev` (currently broken — billing)
+- Native Railway GitHub integration auto-deploys **python-api, api-ts, terminal, showcase** on push to `main`. **python-worker and webapp have NO auto-deploy** — deploy them manually with `railway up` from a FRESHLY-CREATED worktree (same-directory re-uploads can ship stale snapshots), or enable `.github/workflows/deploy-railway.yml` (needs a `RAILWAY_TOKEN` environment secret). Verify worker deploys via `worker_fingerprint` on `/health/ready`.
 
 ```bash
 python3 scripts/status.py                  # ALL services: deploy state + health + logs + CI

@@ -5,25 +5,36 @@ description: "Deploy Suwappu services on Railway. Usage: /deploy [prod|dev] [pyt
 # Suwappu Deployment Skill (Railway)
 
 **Suwappu runs entirely on Railway — there is NO AWS/ECS/EC2 anymore.** The old
-AWS-ECS Telegram Mini App was abandoned on 2026-06-08 (commit `e262711`); `app.suwappu.bot`
-now mirrors the **terminal** service. Ignore any older AWS/SSM/ECS instructions.
+AWS-ECS Telegram Mini App was abandoned on 2026-06-08 (commit `e262711`). Ignore
+any older AWS/SSM/ECS instructions.
 
-## How deploys actually happen: auto on push to main
+## How deploys actually happen (verified 2026-08-03)
 
-Railway is wired to GitHub via the `deploy-railway.yml` Action + per-service
-`watchPatterns`. **Merging to `main` auto-deploys any service whose watched paths changed.**
-You usually do NOT need to run anything — merge the PR and Railway rebuilds.
+**Native Railway GitHub integration** (NOT the `deploy-railway.yml` Action — that
+workflow is disabled pending a `RAILWAY_TOKEN` secret) auto-deploys **python-api,
+api-ts, terminal, showcase** on every push to `main`. For those four, merging the
+PR IS the deploy.
 
-| Service | `railway.*.json` | Dockerfile | watchPatterns (auto-deploy trigger) |
+**python-worker and webapp have NO auto-deploy** — every deploy is a manual
+`railway up`. They silently fall behind main otherwise (worker ran 3-day-old code
+in Aug 2026; webapp ran 9-day-old code with a broken build nobody had noticed).
+After a worker deploy, verify `worker_fingerprint` on
+`https://python-api-production-8526.up.railway.app/health/ready` matches the
+expected hash (`scripts/verify_deploy.sh`); `checks.worker_code_matches_api:
+false` there means the worker is on a different build than python-api.
+
+| Service | `railway.*.json` | Dockerfile | Auto-deploy? |
 |---|---|---|---|
-| `python-api` (bot + FastAPI) | `railway.python-api.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
-| `python-worker` (background tasks) | `railway.python-worker.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
-| `terminal` (live Telegram Mini App — `app.suwappu.bot` + `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | `terminal/**`, `packages/design-tokens/**` |
-| `api-ts` | `api-ts/railway.json` | `api-ts/Dockerfile` | (root) |
-| `showcase` (`www.suwappu.bot`) | `showcase/railway.json` | `showcase/Dockerfile` | (root) |
+| `python-api` (bot + FastAPI) | `railway.python-api.json` | `api/Dockerfile.railway` | yes — push to main |
+| `python-worker` (background tasks) | `railway.python-worker.json` | `api/Dockerfile.railway` | **NO — manual only** |
+| `terminal` (trading terminal — `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | yes — push to main |
+| `api-ts` | `api-ts/railway.json` | `api-ts/Dockerfile` | yes — push to main |
+| `showcase` (`suwappu.bot` + `www`) | `showcase/railway.json` | `showcase/Dockerfile` | yes — push to main |
+| `webapp` (Telegram Mini App — `app.suwappu.bot`) | `railway.webapp.json` | `webapp/Dockerfile` | **NO — manual only** |
 
 Other services in the project: `suwappu-bridge`, `suwappu-relayer`, `Postgres`, `Redis`.
-**`webapp/` is DEAD** — no Railway config, deployed nowhere. The live Mini App is `terminal/`.
+(`webapp` was once dead but was revived as its own Railway service in Jul 2026 —
+`app.suwappu.bot` serves **webapp**, not terminal.)
 
 Project: `suwappu` (id `428680a3-dd24-4f7c-8349-e66d791b5104`), workspace "Eric Manganaro's Projects",
 env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
@@ -31,7 +42,12 @@ env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
 ## Manual deploy (emergency override / when you can't merge)
 
 This machine has the `railway` CLI (no `aws`, no `docker` needed for source-upload deploys).
-Deploy from a **clean `origin/main` worktree** so you never upload other sessions' uncommitted changes:
+Deploy from a **FRESHLY-CREATED `origin/main` worktree** — two reasons, both hit in prod:
+(1) `railway up` uploads the working directory, so a shared tree ships other sessions'
+uncommitted changes; (2) **re-running `railway up` from the SAME directory can upload a
+STALE snapshot** (verified 2026-08-03: two deploys shipped 30-min-old content, silently
+omitting fresh commits, while reporting SUCCESS). Create the worktree, deploy once,
+remove it. Always verify the fingerprint actually changed afterward:
 
 ```bash
 cd /home/mongolraider/suwappu
