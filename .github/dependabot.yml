@@ -53,3 +53,10 @@ updates:
       - "/webapp"
     schedule:
       interval: "weekly"
+    # /api must stay on python 3.12: requirements.txt pins (coincurve==21.0.0,
+    # solders, etc.) have no cp313/cp314 wheels yet. 3.14 bump (#586) broke every
+    # python-api build on Railway for 2 days. Ignore 3.13+ so dependabot stops
+    # re-proposing the break.
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.13"]

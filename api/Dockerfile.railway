@@ -13,10 +13,13 @@
 
 # ---- Builder: install deps into an isolated venv (with build tools as a fallback for
 #      any package that ships only an sdist) ----
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 # NOTE: 3.12 — the codebase uses PEP 604 `X | None` annotations that evaluate at
 # import time, which require Python >= 3.10. The pinned deps in requirements.txt all ship
 # 3.12 manylinux wheels.
+# DO NOT bump to 3.13/3.14: coincurve==21.0.0 (and other pins) have no cp313/cp314
+# wheels yet — pip resolution fails and every python-api build dies on Railway.
+# Dependabot's docker ecosystem keeps proposing this; ignored in .github/dependabot.yml.
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -34,7 +37,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ---- Runtime: slim image, no build tools, non-root ----
-FROM python:3.14-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
