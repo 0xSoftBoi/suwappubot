@@ -50,12 +50,16 @@ async def _call(db, request):
 
 
 async def test_login_callback_rejects_missing_nonce_cookie():
+    # The rejection is a 302 to the UI carrying a machine-readable auth_error
+    # slug, not an HTTPException — see _oauth_failure_redirect. What matters for
+    # CSRF is that the callback REJECTS and never reaches token exchange; the
+    # shape of the rejection is a UX decision.
     state = SimpleNamespace(
         action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
     )
-    with pytest.raises(HTTPException) as exc:
-        await _call(_db_returning(state), _request_with_cookies({}))
-    assert exc.value.status_code == 400
+    result = await _call(_db_returning(state), _request_with_cookies({}))
+    assert result.status_code == 302
+    assert "auth_error=nonce_missing" in result.headers["location"]
 
 
 async def test_login_callback_rejects_wrong_nonce_cookie():
@@ -63,9 +67,9 @@ async def test_login_callback_rejects_wrong_nonce_cookie():
         action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
     )
     request = _request_with_cookies({oauth.OAUTH_NONCE_COOKIE: "attacker-value"})
-    with pytest.raises(HTTPException) as exc:
-        await _call(_db_returning(state), request)
-    assert exc.value.status_code == 400
+    result = await _call(_db_returning(state), request)
+    assert result.status_code == 302
+    assert "auth_error=nonce_mismatch" in result.headers["location"]
 
 
 async def test_login_callback_matching_nonce_passes_the_check(monkeypatch):
