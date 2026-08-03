@@ -109,7 +109,7 @@ function fmtDateShort(iso: string): string {
 }
 
 function truncate(s: string, len = 12): string {
-  if (!s) return '—';
+  if (!s) return '-';
   if (s.length <= len) return s;
   return `${s.slice(0, 6)}…${s.slice(-4)}`;
 }
@@ -547,12 +547,12 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
       <div className="adm-stat">
         <div className="adm-stat__label">Avg swap size</div>
         <div className="adm-stat__value">
-          {avgSwapUSD !== null ? fmtUSD(avgSwapUSD) : '—'}
+          {avgSwapUSD !== null ? fmtUSD(avgSwapUSD) : '-'}
         </div>
         <span className="adm-stat__delta adm-stat__delta--flat">30-day avg USD</span>
       </div>
 
-      {/* Subscription breakdown — donut card */}
+      {/* Subscription breakdown: donut card */}
       <div className="adm-stat adm-stat--donut">
         <div className="adm-stat__label">Subscriptions</div>
         {stats.subscription_breakdown ? (
@@ -656,7 +656,7 @@ function AgentsTable({ apiKey }: { apiKey: string }) {
                       <td><StatusBadge status={row.status} /></td>
                       <td>{fmtNum(row.total_requests)}</td>
                       <td>{fmtNum(row.total_swaps)}</td>
-                      {hasSpend && <td>{row.total_spend !== undefined ? fmtUSD(row.total_spend) : '—'}</td>}
+                      {hasSpend && <td>{row.total_spend !== undefined ? fmtUSD(row.total_spend) : '-'}</td>}
                       <td className="adm-mono">{fmtTime(row.created_at)}</td>
                       <td className="adm-mono">{fmtTime(row.last_active_at)}</td>
                     </tr>
@@ -801,7 +801,7 @@ function SwapsTable({ apiKey }: { apiKey: string }) {
                       {row.from_chain}:{row.from_token} → {row.to_chain}:{row.to_token}
                     </span>
                   </td>
-                  <td>{row.usd_value !== undefined ? fmtUSD(row.usd_value) : '—'}</td>
+                  <td>{row.usd_value !== undefined ? fmtUSD(row.usd_value) : '-'}</td>
                   <td><StatusBadge status={row.status} /></td>
                   <td className="adm-mono">{fmtTime(row.created_at)}</td>
                 </tr>
@@ -875,10 +875,10 @@ function WebhooksTable({ apiKey }: { apiKey: string }) {
                   <td><span className="adm-mono">{row.event_type}</span></td>
                   <td><StatusBadge status={row.status} /></td>
                   <td>{row.attempts}</td>
-                  <td><span className="adm-mono">{row.response_code ?? '—'}</span></td>
+                  <td><span className="adm-mono">{row.response_code ?? '-'}</span></td>
                   <td style={{ maxWidth: 200 }}>
                     <span className="adm-mono" title={row.last_error} style={{ color: row.last_error ? 'var(--adm-red)' : 'var(--adm-faint)' }}>
-                      {row.last_error ? truncate(row.last_error, 32) : '—'}
+                      {row.last_error ? truncate(row.last_error, 32) : '-'}
                     </span>
                   </td>
                   <td className="adm-mono">{fmtTime(row.created_at)}</td>
@@ -920,7 +920,7 @@ function AuthGate({ onAuth }: { onAuth: (key: string) => void }) {
       onAuth(value.trim());
     } catch (err) {
       if (err instanceof Error && err.message === 'UNAUTHORIZED') {
-        setError('Invalid admin key — check your credentials.');
+        setError('Invalid admin key: check your credentials.');
       } else {
         setError('Could not reach the API. Check network connectivity.');
       }
@@ -972,7 +972,7 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
       .then(setStats)
       .catch((e) => setStatsError(e.message));
 
-    // Graceful — timeseries endpoint may not exist yet
+    // Graceful: timeseries endpoint may not exist yet
     adminFetch<AdminTimeseries>('/admin/stats/timeseries?days=30', apiKey)
       .then(setTimeseries)
       .catch(() => { /* silent: charts just stay empty */ });
@@ -1042,7 +1042,7 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
           <span className="adm-topbar__key-badge">&#128273; {keyPreview}</span>
         </div>
 
-        {/* Overview — KPI cards */}
+        {/* Overview: KPI cards */}
         <div id="overview" style={{ scrollMarginTop: 24 }}>
           {statsError && <div className="adm-error">Stats unavailable: {statsError}</div>}
           {stats ? (
@@ -1052,7 +1052,7 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
           )}
         </div>
 
-        {/* Activity — timeseries charts */}
+        {/* Activity: timeseries charts */}
         <ActivityCharts timeseries={timeseries} />
 
         <AgentsTable apiKey={apiKey} />

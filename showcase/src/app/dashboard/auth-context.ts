@@ -1,4 +1,4 @@
-// Shared auth context for the dashboard — kept in its own file so layout.tsx
+// Shared auth context for the dashboard: kept in its own file so layout.tsx
 // only exports the default Layout component (required by Next.js App Router).
 
 import { createContext, useContext } from 'react';

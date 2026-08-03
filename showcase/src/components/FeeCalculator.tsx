@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * FeeCalculator — the honest answer to "is a subscription worth it for me?"
+ * FeeCalculator: the honest answer to "is a subscription worth it for me?"
  *
  * A subscription page that leads with $9.99/mo is answering the wrong question.
  * On a trading product the subscription is rounding error; the swap fee is the
  * real cost. A trader moving $50k/month pays $500 in fees on Free and $150 on
- * Premium — the $29.99 is noise next to a $320 swing. Nothing on this page let
+ * Premium: the $29.99 is noise next to a $320 swing. Nothing on this page let
  * anyone see that, so the tiers read as arbitrary.
  *
  * This computes true monthly cost (subscription + fee x volume) for every tier
@@ -48,7 +48,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
     const cents = Math.round(((t.monthly as number) + (volume * t.feePct) / 100) * 100);
     return { ...t, cents, total: cents / 100 };
   });
-  // On a genuine tie, prefer the cheaper subscription — same cost, less commitment.
+  // On a genuine tie, prefer the cheaper subscription: same cost, less commitment.
   const cheapest = rows.reduce(
     (a, b) =>
       b.cents < a.cents || (b.cents === a.cents && (b.monthly as number) < (a.monthly as number))
@@ -56,12 +56,12 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
         : a,
     rows[0]
   );
-  const baseline = rows[0]; // Free — what they pay today if they do nothing
+  const baseline = rows[0]; // Free: what they pay today if they do nothing
   const saving = (baseline.cents - cheapest.cents) / 100;
   // Anything else costing the same is shown as an equal, not a runner-up.
   const tied = rows.filter((r) => r.cents === cheapest.cents && r.name !== cheapest.name);
-  // Quote-only tiers (Enterprise) are excluded from the ranking above — we can't
-  // total a price we don't publish — but their fee is real and comparable.
+  // Quote-only tiers (Enterprise) are excluded from the ranking above: we can't
+  // total a price we don't publish, but their fee is real and comparable.
   const enterprise = tiers.find((t) => t.monthly === null);
   const enterpriseGap = enterprise
     ? cheapest.total - (enterprise.monthly ?? 0) - (volume * enterprise.feePct) / 100
@@ -76,7 +76,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
         </h2>
         <p className={styles.lead}>
           Every tier lowers your swap fee. Put in what you trade in a month and see the
-          real cost — subscription plus fees, side by side.
+          real cost: subscription plus fees, side by side.
         </p>
       </div>
 
@@ -125,7 +125,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
                 {r.name}
                 {best && (
                   <span className={styles.bestTag}>
-                    {tied.length ? 'cheapest — tied' : 'cheapest for you'}
+                    {tied.length ? 'cheapest: tied' : 'cheapest for you'}
                   </span>
                 )}
               </span>
@@ -151,12 +151,12 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
             </strong>{' '}
             {tied.length ? 'both cost ' : 'costs '}
             <strong>{usd(saving)} less</strong> than staying on {baseline.name}
-            {tied.length ? ` — pick ${cheapest.name} for the lower commitment` : ''}.
+            {tied.length ? `: pick ${cheapest.name} for the lower commitment` : ''}.
           </>
         ) : (
           <>
             At {usd(volume)} a month, <strong>{baseline.name}</strong> is already your cheapest
-            option. Upgrading would cost you more — come back when you&rsquo;re trading more.
+            option. Upgrading would cost you more: come back when you&rsquo;re trading more.
           </>
         )}
       </p>
@@ -168,7 +168,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
           judge. */}
       {enterprise && enterpriseGap > 100 && (
         <p className={styles.enterprise}>
-          Trading this much? <strong>Enterprise</strong> is {enterprise.feePct}% — about{' '}
+          Trading this much? <strong>Enterprise</strong> is {enterprise.feePct}%: about{' '}
           <strong>{usd((volume * enterprise.feePct) / 100)}</strong> in fees, {usd(enterpriseGap)}{' '}
           below {cheapest.name} before its subscription, which is priced per desk.{' '}
           <a href="/contact">Get a quote</a>.
@@ -177,7 +177,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
 
       <p className={styles.footnote}>
         Fees only. Network gas and third-party liquidity costs are separate, and Enterprise is
-        priced per desk — <a href="/contact">talk to us</a> for that.
+        priced per desk: <a href="/contact">talk to us</a> for that.
       </p>
     </section>
   );

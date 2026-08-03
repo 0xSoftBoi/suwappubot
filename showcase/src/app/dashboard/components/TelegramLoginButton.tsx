@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { PYTHON_API_BASE_URL, TELEGRAM_BOT_USERNAME } from '@/lib/links';
+import { AUTH_BASE_URL, TELEGRAM_BOT_USERNAME } from '@/lib/links';
 
 export interface TelegramWidgetUser {
   id: number;
@@ -54,7 +54,7 @@ export default function TelegramLoginButton({ onToken, onError }: Props) {
 
     window.__suwappuTelegramAuth = async (user: TelegramWidgetUser) => {
       try {
-        const res = await fetch(`${PYTHON_API_BASE_URL}/auth/telegram/widget`, {
+        const res = await fetch(`${AUTH_BASE_URL}/auth/telegram/widget`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',

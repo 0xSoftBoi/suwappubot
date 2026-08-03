@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Pro/Premium "Upgrade" CTA on the pricing page — sends the visitor into a
+ * Pro/Premium "Upgrade" CTA on the pricing page: sends the visitor into a
  * Stripe checkout session on api-ts (no Telegram/webapp account required;
  * see api-ts src/routes/billing.ts GET /billing/stripe/checkout-web).
  * Fires `upgrade_click` with the tier so we can see web-checkout intent by
@@ -10,13 +10,13 @@
  * Uses a client-side fetch(...&format=json) + window.location.assign on
  * click rather than a plain <a href> to the endpoint, because the endpoint
  * has a real side effect (creates a Stripe checkout session + a
- * web_checkouts row) — a plain GET href is prefetchable by the browser/link
+ * web_checkouts row): a plain GET href is prefetchable by the browser/link
  * crawlers and would create throwaway sessions. The href itself is a
  * rel="nofollow" fallback pointing at /pricing (not the endpoint), so a
  * prefetch or JS-disabled click never touches the checkout endpoint.
  *
  * Failure is surfaced, never swallowed. The previous fallback re-navigated to
- * /pricing, which reads to the buyer as "the button is broken" — same page,
+ * /pricing, which reads to the buyer as "the button is broken": same page,
  * no explanation, no next step. Now the component holds its place, says what
  * happened, and offers a retry plus a human.
  */
@@ -74,7 +74,7 @@ export default function UpgradeCta({ tier, className, children }: UpgradeCtaProp
       </a>
       {failed && (
         <span className={styles.error} role="alert">
-          Checkout unavailable — try again, or{' '}
+          Checkout unavailable: try again, or{' '}
           <a href={ENTERPRISE_CONTACT_PATH}>contact us</a> and we&rsquo;ll set it up for you.
         </span>
       )}

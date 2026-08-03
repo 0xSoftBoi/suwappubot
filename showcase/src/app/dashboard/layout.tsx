@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
-import { TELEGRAM_URL, API_BASE_URL, PYTHON_API_BASE_URL } from '@/lib/links';
+import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
@@ -20,7 +20,7 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
   const [showToken, setShowToken] = useState(false);
 
   function handlePaste() {
-    // Token pasted manually — validate minimally and store
+    // Token pasted manually: validate minimally and store
     const t = draft.trim();
     if (!t) {
       setErr('Paste a valid Bearer token to continue.');
@@ -33,14 +33,14 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
     })
       .then((r) => {
         if (r.status === 401 || r.status === 403) {
-          setErr('Token rejected — check it and try again.');
+          setErr('Token rejected: check it and try again.');
         } else {
           // Accept any non-401 (even 404) because the org endpoint may not exist in dev
           onToken(t);
         }
       })
       .catch(() => {
-        // If the network is down, still let the user in — the page will show errors
+        // If the network is down, still let the user in: the page will show errors
         onToken(t);
       });
   }
@@ -69,7 +69,7 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
         <a
           className="summer-button summer-button--primary"
           style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
-          href={`${PYTHON_API_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(
+          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(
             typeof window !== 'undefined'
               ? `${window.location.origin}/dashboard`
               : 'https://suwappu.bot/dashboard',
@@ -177,7 +177,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setToken('');
     // Also end the server session, or a cookie-authenticated user would be
     // signed straight back in by the probe above on the next page load.
-    fetch(`${PYTHON_API_BASE_URL}/auth/logout`, {
+    fetch(`${AUTH_BASE_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
     }).catch(() => {});

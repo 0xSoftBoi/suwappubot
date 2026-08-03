@@ -69,7 +69,7 @@ export default function SummerFooter() {
             <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
+          <p>Cross-chain execution for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
           <div className="summer-footer__social">
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
@@ -99,13 +99,13 @@ export default function SummerFooter() {
         </nav>
       </div>
 
-      {/* Legal line — prose only. No compliance badges we do not actually hold. */}
+      {/* Legal line: prose only. No compliance badges we do not actually hold. */}
       <div className="summer-footer__legal">
         <p>
           Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
           Connect your own wallet and you keep your keys; we never take discretionary control of your
           funds and we do not provide financial, tax, or legal advice. Digital-asset trading carries
-          risk of total loss — see our{' '}
+          risk of total loss. See our{' '}
           <a href="/legal/risk">risk disclosures</a>, <a href="/legal/terms">terms</a>, and{' '}
           <a href="/legal/privacy">privacy policy</a>.
         </p>

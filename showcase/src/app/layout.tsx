@@ -9,7 +9,7 @@ import './summer-token-vars.css';
 import './globals.css';
 
 // Two families, one voice: Geist carries display + UI + body, JetBrains Mono
-// is rationed to numerals, kickers, and code. Geist is loaded ONCE — globals.css
+// is rationed to numerals, kickers, and code. Geist is loaded ONCE: globals.css
 // aliases --font-display to --font-sans so both var() names resolve to the same
 // instance (no second font download).
 const geist = Geist({
@@ -28,11 +28,11 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL('https://suwappu.bot'),
   title: {
-    default: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
+    default: 'Suwappu: Cross-chain DeFi SDK for AI Agents',
     template: '%s | Suwappu',
   },
   description:
-    `One SDK. ${stats.platformChains} chains. Swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend — all from a single API. Built for AI agents, bots, and developers.`,
+    `One SDK. ${stats.platformChains} chains. Swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: all from a single API. Built for AI agents, bots, and developers.`,
   keywords: [
     'cross-chain swap',
     'DEX SDK',
@@ -60,9 +60,9 @@ export const metadata: Metadata = {
   creator: 'Suwappu',
   publisher: 'Suwappu',
   openGraph: {
-    title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
+    title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend — one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: one SDK, three lines of code.`,
     type: 'website',
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
@@ -73,9 +73,9 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     site: '@suwappubot',
     creator: '@suwappubot',
-    title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
+    title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades — one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades: one SDK, three lines of code.`,
     // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
   // Deliberately no canonical at the root. Next inherits metadata down the tree

@@ -1,5 +1,5 @@
 /**
- * MarketProof — replaces the old hard-coded "market proof" table (which shipped
+ * MarketProof: replaces the old hard-coded "market proof" table (which shipped
  * stale static prices labelled as proof). Async server component: fetches real
  * spot prices server-side with 60s ISR revalidation, so the values are genuinely
  * live and land in the SSR HTML. Falls back gracefully (no stale data shown as
@@ -31,7 +31,7 @@ function fmtChange(n: number): string {
 
 async function getMarket(): Promise<Record<string, CgEntry> | null> {
   // Hard timeout so a slow/rate-limited upstream can never block SSR (and the
-  // Railway healthcheck). Falls back to the graceful "—" rows on abort.
+  // Railway healthcheck). Falls back to the graceful "-" rows on abort.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000);
   try {
@@ -57,13 +57,13 @@ export default async function MarketProof() {
     const chg = d?.usd_24h_change;
     return {
       pair: p.pair,
-      price: d?.usd != null ? fmtPrice(d.usd) : '—',
-      change: chg != null ? fmtChange(chg) : '—',
+      price: d?.usd != null ? fmtPrice(d.usd) : '-',
+      change: chg != null ? fmtChange(chg) : '-',
       dir: chg == null ? 'flat' : chg >= 0 ? 'up' : 'down',
       route: p.route,
     };
   });
-  // Gasless showcase row — a stable peg, not a market price.
+  // Gasless showcase row: a stable peg, not a market price.
   rows.push({ pair: 'USDC → pathUSD', price: '$1.00', change: 'gasless', dir: 'flat', route: 'Tempo' });
 
   const updated = new Date().toLocaleTimeString('en-US', {
@@ -77,11 +77,10 @@ export default async function MarketProof() {
       <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
       <div className="summer-proof__head">
         <div>
-          <p className="summer-kicker">Live routing</p>
           <h2>Real prices. Best-route execution.</h2>
         </div>
         <p>
-          The markets you can trade right now — spot across chains plus a gasless stable swap
+          The markets you can trade right now: spot across chains plus a gasless stable swap
           on Tempo. Suwappu routes each to the best available venue.
         </p>
       </div>

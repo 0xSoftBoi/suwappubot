@@ -118,15 +118,19 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 		return c.json({ error: 'Payment challenge expired or not found. Request a new one.' }, 402)
 	}
 
-	// Verify payment on-chain via internal Python API (shared verifyX402Payment
-	// helper — same parse every redemption path uses, so `sender` is available).
+	// MONEY-PATH (H1 fix): expectedToken/chain must be pinned to the
+	// server-issued challenge (set at issuance above), never to the
+	// client-supplied X-Payment-Proof. Reading proof.token/proof.chain here let
+	// an attacker settle in a worthless self-minted token on the cheapest chain
+	// and still pass verification. Amount/recipient were already server-pinned
+	// (challenge.price / challenge.paymentAddress) and are unchanged.
 	const verification = await verifyX402Payment({
 		internalUrl: env.INTERNAL_API_URL || 'http://localhost:8000',
 		internalKey: env.INTERNAL_API_KEY || '',
 		txHash: proof.tx_hash,
-		chain: proof.chain || challenge.chain,
+		chain: challenge.chain,
 		expectedAmount: challenge.price,
-		expectedToken: proof.token || challenge.token,
+		expectedToken: challenge.token,
 		expectedRecipient: challenge.paymentAddress,
 	})
 	if (!verification.verified) {
@@ -151,7 +155,10 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 	// in the SHARED (chain, txHash) ledger — the same global guard the topup /
 	// subscribe / webapp-crypto paths use — so a given on-chain payment buys
 	// exactly one paid request. Fail closed if the DB is unavailable.
-	const consumeChain = proof.chain || challenge.chain
+	// Same pin as above: use the challenge's chain, not the client-supplied
+	// proof.chain, so the ledger key can't be spoofed to a different value per
+	// attempt (which would defeat the shared (chain, txHash) replay guard).
+	const consumeChain = challenge.chain
 	const dbResult = await runEffectEither(requireDb)
 	if (Either.isLeft(dbResult)) {
 		return c.json({ error: 'Payment ledger unavailable' }, 503)

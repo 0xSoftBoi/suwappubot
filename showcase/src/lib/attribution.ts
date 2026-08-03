@@ -2,7 +2,7 @@
  * First-touch marketing attribution capture.
  *
  * On first page load, snapshots UTM params, a `ref` param, and
- * document.referrer into localStorage. First-touch wins — once a value is
+ * document.referrer into localStorage. First-touch wins: once a value is
  * stored we never overwrite it, so the attribution reflects how the visitor
  * originally found Suwappu even if they browse around with different UTMs
  * later. Forms (waitlist, enterprise contact) read this back and include it
@@ -26,7 +26,7 @@ export interface Attribution {
 
 /**
  * Reads the current URL + referrer and stores them as first-touch
- * attribution if nothing is stored yet. Safe to call on every page load —
+ * attribution if nothing is stored yet. Safe to call on every page load -
  * it no-ops once attribution has already been captured.
  */
 export function captureAttribution(): void {

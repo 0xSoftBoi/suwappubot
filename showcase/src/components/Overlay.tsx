@@ -97,13 +97,13 @@ const FEATURES = [
     icon: '🛡️',
     title: 'MEV-shielded routing',
     description:
-      'Every swap is protected from sandwich attacks. Your agent gets the price it was quoted — no front-running, no funny business.',
+      'Every swap is protected from sandwich attacks. Your agent gets the price it was quoted: no front-running, no funny business.',
   },
   {
     icon: '🔑',
     title: 'Secure key management',
     description:
-      'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
+      'Keys encrypted with KMS envelope encryption and signed server-side, or bring your own keys via the agent API for full self-custody.',
   },
   {
     icon: '🔌',
@@ -224,7 +224,7 @@ export default function Overlay() {
               <span className="hero__title-accent">Everywhere.</span>
             </h1>
             <p className="hero__subtitle" style={{ textAlign: 'center', maxWidth: 560, margin: '0 auto 2rem' }}>
-              One SDK. Fifteen chains. Trading terminal, Telegram bot, REST API, MCP server — all in one platform.
+              One SDK. Fifteen chains. Trading terminal, Telegram bot, REST API, MCP server: all in one platform.
             </p>
             <div className="hero__actions" style={{ justifyContent: 'center' }}>
               <motion.a
@@ -385,7 +385,7 @@ export default function Overlay() {
             <p className="section__label">Infrastructure</p>
             <h2 className="section__heading">10 tools. One import.</h2>
             <p className="section__body">
-              Swaps, quotes, portfolios, token prices, chain discovery, prediction markets — all from a single SDK.
+              Swaps, quotes, portfolios, token prices, chain discovery, prediction markets: all from a single SDK.
             </p>
           </Reveal>
 

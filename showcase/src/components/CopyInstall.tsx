@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 /**
- * CopyInstall — the developer entry point in the hero. Click-to-copy the
+ * CopyInstall: the developer entry point in the hero. Click-to-copy the
  * install command. Implicit CTA (a signal, not a button) per the hero's
  * one-primary-action hierarchy.
  */
@@ -16,7 +16,7 @@ export default function CopyInstall({ text }: { text: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      /* clipboard unavailable — no-op */
+      /* clipboard unavailable: no-op */
     }
   };
 

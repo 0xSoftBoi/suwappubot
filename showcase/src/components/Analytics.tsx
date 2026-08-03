@@ -14,7 +14,7 @@ import { useEffect } from 'react';
  * - X (Twitter) pixel: NEXT_PUBLIC_X_PIXEL_ID
  * - Reddit pixel: NEXT_PUBLIC_REDDIT_PIXEL_ID
  *
- * When their env vars are unset (current state), nothing renders/loads —
+ * When their env vars are unset (current state), nothing renders/loads -
  * this component is a pure no-op. `track()` in @/lib/analytics forwards
  * conversion events to whichever pixels are active via window.uwt / rdt.
  */
@@ -53,7 +53,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (!xPixelId) return;
-    // X (Twitter) universal website tag — https://business.x.com/en/help/campaign-measurement-and-analytics/conversion-tracking
+    // X (Twitter) universal website tag: https://business.x.com/en/help/campaign-measurement-and-analytics/conversion-tracking
     const script = document.createElement('script');
     script.textContent = `
       !function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
@@ -66,7 +66,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (!redditPixelId) return;
-    // Reddit pixel — https://business.reddithelp.com/helpcenter/s/article/about-the-reddit-pixel
+    // Reddit pixel: https://business.reddithelp.com/helpcenter/s/article/about-the-reddit-pixel
     const script = document.createElement('script');
     script.textContent = `
       !function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};
