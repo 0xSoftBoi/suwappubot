@@ -159,7 +159,10 @@ async def test_rejected_trigger_leaves_no_stored_level():
     session, inserted = _capturing_session()
     ctx = _session_ctx(session)
 
-    fill = MagicMock(order_id="o1", status="filled", fill_price=2000.0)
+    # HyperLiquid refuses both protective legs: no ids come back for them.
+    fill = MagicMock(
+        order_id="o1", status="filled", fill_price=2000.0, tp_order_id=None, sl_order_id=None
+    )
 
     with (
         patch.object(service._client, "get_market_max_leverage", return_value=20),
@@ -171,8 +174,6 @@ async def test_rejected_trigger_leaves_no_stored_level():
         patch.object(service._client, "get_mark_price", return_value=2000.0),
         patch.object(service, "_award_xp", return_value=None),
         patch("bot.services.perps_service.get_session", return_value=ctx),
-        # HyperLiquid refuses both protective triggers.
-        patch.object(service, "_place_tp_sl", return_value=False),
     ):
         await service.open_position(
             user_id=123,
@@ -200,7 +201,10 @@ async def test_accepted_trigger_is_written_back_to_the_row():
     session, inserted = _capturing_session()
     ctx = _session_ctx(session)
 
-    fill = MagicMock(order_id="o1", status="filled", fill_price=2000.0)
+    # HyperLiquid accepts both protective legs and returns an id for each.
+    fill = MagicMock(
+        order_id="o1", status="filled", fill_price=2000.0, tp_order_id="tp1", sl_order_id="sl1"
+    )
 
     with (
         patch.object(service._client, "get_market_max_leverage", return_value=20),
@@ -212,8 +216,6 @@ async def test_accepted_trigger_is_written_back_to_the_row():
         patch.object(service._client, "get_mark_price", return_value=2000.0),
         patch.object(service, "_award_xp", return_value=None),
         patch("bot.services.perps_service.get_session", return_value=ctx),
-        # HyperLiquid accepts both protective triggers.
-        patch.object(service, "_place_tp_sl", return_value=True),
     ):
         await service.open_position(
             user_id=123,

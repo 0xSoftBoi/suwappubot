@@ -62,6 +62,11 @@ class HLOrderResult:
     status: str  # "filled", "open", "cancelled"
     fill_price: Optional[float] = None
     filled_size: Optional[float] = None
+    # Set when protection was attached to this entry in the same signed action.
+    # A level is only real if the exchange came back with an id for it, so
+    # callers must read these rather than assume the request implied the order.
+    tp_order_id: Optional[str] = None
+    sl_order_id: Optional[str] = None
 
 
 class HyperLiquidClient:
@@ -325,14 +330,41 @@ class HyperLiquidClient:
                     tpsl="tp" if order_type == "take_profit" else "sl",
                 )
 
+            # Attach protection to the entry itself. HyperLiquid's "normalTpsl"
+            # grouping carries the entry and its reduce-only triggers in a single
+            # signed action, so a filled position is never briefly unprotected —
+            # which placing the triggers afterwards cannot guarantee.
+            #
+            # Only for an opening order: a reduce-only close or a trigger order
+            # has nothing to protect.
+            orders = [order]
+            protective = []
+            if not reduce_only and order_type in ("market", "limit"):
+                for level, kind in ((tp_price, "tp"), (sl_price, "sl")):
+                    if not level:
+                        continue
+                    orders.append(
+                        self._order_wire(
+                            asset_id,
+                            not is_buy,  # protection closes the position
+                            float(level),
+                            size,
+                            sz_dec,
+                            False,
+                            reduce_only=True,
+                            tpsl=kind,
+                        )
+                    )
+                    protective.append(kind)
+
             # Set leverage
             await self._set_leverage(client, address, api_key, api_secret, asset, leverage)
 
             # Build and sign the action
             action = {
                 "type": "order",
-                "orders": [order],
-                "grouping": "na",
+                "orders": orders,
+                "grouping": "normalTpsl" if protective else "na",
             }
 
             # Attach builder fee so Suwappu earns on the order. The builder
@@ -363,11 +395,31 @@ class HyperLiquidClient:
                 statuses = status_data.get("statuses", [{}])
 
                 if statuses:
+                    # statuses[0] is the entry; the protective legs follow in the
+                    # order they were appended. Report only the ids the exchange
+                    # actually returned — a rejected leg comes back as an error
+                    # and must not read as protection.
+                    attached = {}
+                    for offset, kind in enumerate(protective, start=1):
+                        leg = statuses[offset] if offset < len(statuses) else {}
+                        oid = (leg.get("resting") or leg.get("filled") or {}).get("oid")
+                        if oid:
+                            attached[kind] = str(oid)
+                        else:
+                            logger.warning(
+                                "HyperLiquid did not accept the %s leg for %s: %s",
+                                kind,
+                                market,
+                                leg,
+                            )
+
                     order_status = statuses[0]
                     if "resting" in order_status:
                         return HLOrderResult(
                             order_id=str(order_status["resting"]["oid"]),
                             status="open",
+                            tp_order_id=attached.get("tp"),
+                            sl_order_id=attached.get("sl"),
                         )
                     elif "filled" in order_status:
                         return HLOrderResult(
@@ -375,6 +427,8 @@ class HyperLiquidClient:
                             status="filled",
                             fill_price=float(order_status["filled"].get("avgPx", 0)),
                             filled_size=float(order_status["filled"].get("totalSz", 0)),
+                            tp_order_id=attached.get("tp"),
+                            sl_order_id=attached.get("sl"),
                         )
 
                 logger.warning(f"Unexpected order response: {data}")
