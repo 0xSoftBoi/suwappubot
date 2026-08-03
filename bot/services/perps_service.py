@@ -212,8 +212,13 @@ class PerpsService:
         # Place TP/SL orders if specified. Best-effort: the position is already
         # live on-chain, so a rejected trigger must not abort the rest of this
         # function and report a failure for a trade the user really has.
+        #
+        # The row was written with these levels above. If the exchange refuses a
+        # trigger, clear the level again — a stored price with no resting order
+        # tells the user they are protected when they are not.
+        rejected = []
         if tp_price:
-            await self._place_tp_sl(
+            if not await self._place_tp_sl(
                 user_id,
                 account,
                 market,
@@ -223,9 +228,10 @@ class PerpsService:
                 tp_price,
                 position_id,
                 raise_on_error=False,
-            )
+            ):
+                rejected.append("tp_price")
         if sl_price:
-            await self._place_tp_sl(
+            if not await self._place_tp_sl(
                 user_id,
                 account,
                 market,
@@ -235,7 +241,20 @@ class PerpsService:
                 sl_price,
                 position_id,
                 raise_on_error=False,
+            ):
+                rejected.append("sl_price")
+
+        if rejected:
+            logger.warning(
+                "Position %s opened but HyperLiquid rejected %s — clearing the stored level(s)",
+                position_id,
+                ", ".join(rejected),
             )
+            with get_session() as session:
+                stored = session.query(PerpPosition).filter_by(id=position_id).first()
+                if stored:
+                    for field in rejected:
+                        setattr(stored, field, None)
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
 
