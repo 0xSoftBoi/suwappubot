@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from bot.models.perps import PerpPosition
 from bot.services.perps_service import PerpsService
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -32,6 +33,33 @@ CALLER_MODULES = [
 ]
 
 AWAITED_METHODS = {"get_positions", "get_position"}
+
+
+def _capturing_session():
+    """A session whose queries return the PerpPosition that was actually inserted.
+
+    Asserting against a detached mock would let open_position write a level onto
+    the real row without the test noticing.
+    """
+    session = MagicMock()
+    added = []
+    session.add.side_effect = added.append
+
+    def _first():
+        for obj in added:
+            if isinstance(obj, PerpPosition):
+                return obj
+        return None
+
+    session.query.return_value.filter_by.return_value.first.side_effect = _first
+    return session, _first
+
+
+def _session_ctx(session):
+    ctx = MagicMock()
+    ctx.__enter__ = MagicMock(return_value=session)
+    ctx.__exit__ = MagicMock(return_value=False)
+    return ctx
 
 
 def _unawaited_calls(path: Path) -> list[str]:
@@ -109,14 +137,8 @@ async def test_rejected_trigger_leaves_no_stored_level():
     untouched — there is no window in which the row advertises a phantom stop.
     """
     service = PerpsService()
-    # A fresh row starts with no levels; the test asserts they stay that way.
-    stored = MagicMock(tp_price=None, sl_price=None)
-
-    session = MagicMock()
-    session.query.return_value.filter_by.return_value.first.return_value = stored
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=session)
-    ctx.__exit__ = MagicMock(return_value=False)
+    session, inserted = _capturing_session()
+    ctx = _session_ctx(session)
 
     fill = MagicMock(order_id="o1", status="filled", fill_price=2000.0)
 
@@ -143,8 +165,9 @@ async def test_rejected_trigger_leaves_no_stored_level():
             sl_price=1500.0,
         )
 
-    assert stored.tp_price is None, "refused take profit must never reach the row"
-    assert stored.sl_price is None, "refused stop loss must never reach the row"
+    row = inserted()
+    assert row.tp_price is None, "refused take profit must never reach the inserted row"
+    assert row.sl_price is None, "refused stop loss must never reach the inserted row"
 
 
 @pytest.mark.asyncio
@@ -155,13 +178,8 @@ async def test_accepted_trigger_is_written_back_to_the_row():
     trigger demonstrably fills it in.
     """
     service = PerpsService()
-    stored = MagicMock(tp_price=None, sl_price=None)
-
-    session = MagicMock()
-    session.query.return_value.filter_by.return_value.first.return_value = stored
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=session)
-    ctx.__exit__ = MagicMock(return_value=False)
+    session, inserted = _capturing_session()
+    ctx = _session_ctx(session)
 
     fill = MagicMock(order_id="o1", status="filled", fill_price=2000.0)
 
@@ -188,8 +206,9 @@ async def test_accepted_trigger_is_written_back_to_the_row():
             sl_price=1500.0,
         )
 
-    assert stored.tp_price == Decimal("2500.0")
-    assert stored.sl_price == Decimal("1500.0")
+    row = inserted()
+    assert row.tp_price == Decimal("2500.0")
+    assert row.sl_price == Decimal("1500.0")
 
 
 @pytest.mark.asyncio
