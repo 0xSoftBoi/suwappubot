@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
@@ -8,6 +9,7 @@ import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agentLinkCodes } from '../db/schema/agentLinkCodes'
 import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
@@ -16,6 +18,7 @@ import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
+import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
@@ -523,6 +526,10 @@ agentRoutes.use('/approvals/:id', agentBearerAuth())
 agentRoutes.use('/approvals', flexAuth())
 agentRoutes.use('/approvals/:id/approve', flexAuth())
 agentRoutes.use('/approvals/:id/deny', flexAuth())
+agentRoutes.use('/approvals/:id/step-up/challenge', flexAuth())
+// Agent<->owner linking: an agent key mints a short-lived code the human
+// owner redeems via /claim <code> in the Telegram bot.
+agentRoutes.use('/link/code', agentFlexAuth())
 agentRoutes.use('/audit', agentFlexAuth())
 agentRoutes.use('/audit/*', agentFlexAuth())
 // Kill switch is org-API-key only (see handlers below) — apiKeyAuth() is a
@@ -557,12 +564,15 @@ agentRoutes.use('/approvals', rateLimit())
 agentRoutes.use('/approvals/:id', rateLimit())
 agentRoutes.use('/approvals/:id/approve', rateLimit())
 agentRoutes.use('/approvals/:id/deny', rateLimit())
+agentRoutes.use('/approvals/:id/step-up/challenge', rateLimit())
+agentRoutes.use('/link/code', rateLimit())
 // Extra per-IP throttle on the owner-facing (JWT) approval endpoints — these
 // gate real money movement, so cap brute-force/scripted approve-spam attempts
 // independent of the per-user rateLimit() above.
 agentRoutes.use('/approvals', ipRateLimit(30))
 agentRoutes.use('/approvals/:id/approve', ipRateLimit(30))
 agentRoutes.use('/approvals/:id/deny', ipRateLimit(30))
+agentRoutes.use('/approvals/:id/step-up/challenge', ipRateLimit(30))
 
 // ===========================================
 // PAY-PER-CALL METERING (x402 prepaid credits)
@@ -606,6 +616,7 @@ agentRoutes.get('/me', async (c) => {
 			// — org-scoped policies AND org kill switches apply to its requests,
 			// including via the MCP surface. See PolicyService + routes/mcp.ts.
 			org_linked: agent.organizationId != null,
+			owner_linked: agent.ownerUserId != null,
 			stats: {
 				total_requests: agent.totalRequests,
 				total_swaps: agent.totalSwaps,
@@ -4163,6 +4174,76 @@ agentRoutes.post('/billing/recurring', async (c) => {
 })
 
 // ===========================================
+// AGENT <-> OWNER LINKING
+// ===========================================
+
+// POST /v1/agent/link/code - agent mints a short-lived link code; the human
+// owner redeems it via /claim <code> in the Telegram bot to set
+// agents.ownerUserId. Only the sha256 hash of the code is ever persisted.
+agentRoutes.post('/link/code', async (c) => {
+	const agent = c.get('agent')
+
+	if (agent.ownerUserId != null) {
+		writeAuditLog({
+			userId: 0,
+			agentId: agentIdentifierOf(agent),
+			eventType: 'agent.link_code_rejected',
+			details: { reason: 'already_linked' },
+		})
+		return c.json(
+			{
+				success: false,
+				error: 'Agent is already linked to an owner. Ask the owner to /unlink first.',
+			},
+			409,
+		)
+	}
+
+	const code = randomBytes(8).toString('hex')
+	const codeHash = createHash('sha256').update(code).digest('hex')
+	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(agentLinkCodes)
+						.values({ agentId: agent.id, codeHash, expiresAt })
+						.returning(),
+				catch: (e) => new ValidationError({ message: `Failed to create link code: ${e}` }),
+			})
+			const row = rows[0]
+			if (!row) {
+				return yield* Effect.fail(new ValidationError({ message: 'Link code insert returned no row' }))
+			}
+			return row
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	writeAuditLog({
+		userId: 0,
+		agentId: agentIdentifierOf(agent),
+		eventType: 'agent.link_code_minted',
+		details: { linkCodeId: result.right.id },
+	})
+
+	return c.json({
+		success: true,
+		code,
+		expires_at: expiresAt.toISOString(),
+		instructions:
+			'Send /claim <code> to the Suwappu Telegram bot within 10 minutes to link this agent to your account.',
+	})
+})
+
+// ===========================================
 // HUMAN-IN-THE-LOOP APPROVALS
 // ===========================================
 
@@ -4243,22 +4324,91 @@ agentRoutes.get('/approvals', async (c) => {
 	})
 })
 
-// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
-// Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
-// status='pending' so a duplicate click can only ever succeed once.
-agentRoutes.post('/approvals/:id/approve', async (c) => {
+// POST /v1/agent/approvals/:id/step-up/challenge - owner (JWT) issues a
+// fresh single-use step-up nonce for a pending approval they own. Required
+// before approve when APPROVAL_STEP_UP_REQUIRED='true'.
+agentRoutes.post('/approvals/:id/step-up/challenge', async (c) => {
 	const authUser = c.get('authUser')
 	const id = c.req.param('id')
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.decide(id, authUser.userId, 'approved')
+			return yield* approvals.issueStepUpChallenge(id, authUser.userId)
 		}),
 	)
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const row = result.right
+	writeAuditLog({
+		userId: authUser.userId,
+		agentId: null,
+		eventType: 'approval.step_up_issued',
+		details: { approvalId: id, stepUpChallengeId: row.insertedId },
+	})
+
+	return c.json({
+		success: true,
+		challenge: row.challenge,
+		expires_at: row.expiresAt.toISOString(),
+	})
+})
+
+// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
+// Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
+// status='pending' so a duplicate click can only ever succeed once. When
+// APPROVAL_STEP_UP_REQUIRED='true' a valid, unexpired, unused step-up
+// challenge (see POST .../step-up/challenge) must also be presented.
+agentRoutes.post('/approvals/:id/approve', async (c) => {
+	const authUser = c.get('authUser')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const approvals = yield* ApprovalService
+
+			if (env.APPROVAL_STEP_UP_REQUIRED === 'true') {
+				const body = yield* Effect.tryPromise({
+					try: () => c.req.json(),
+					catch: () => new ValidationError({ message: 'Invalid JSON body' }),
+				})
+				const stepUpChallenge =
+					body && typeof body === 'object' && 'step_up_challenge' in body
+						? (body as Record<string, unknown>).step_up_challenge
+						: undefined
+				if (typeof stepUpChallenge !== 'string' || stepUpChallenge.length === 0) {
+					return yield* Effect.fail(
+						new ValidationError({ message: 'step_up_challenge is required' }),
+					)
+				}
+				return yield* approvals.decideApproveWithStepUp(id, authUser.userId, stepUpChallenge)
+			}
+
+			return yield* approvals.decide(id, authUser.userId, 'approved')
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const err = result.left
+		if (err instanceof ValidationError && err.message.startsWith(STEP_UP_REJECTED_PREFIX)) {
+			return c.json(
+				{
+					success: false,
+					code: 'STEP_UP_REQUIRED',
+					error: err.message.slice(STEP_UP_REJECTED_PREFIX.length),
+				},
+				400,
+			)
+		}
+		if (err instanceof ValidationError && err.message === 'step_up_challenge is required') {
+			return c.json({ success: false, code: 'STEP_UP_REQUIRED', error: err.message }, 400)
+		}
+		const { status, body } = mapErrorToResponse(err)
 		return c.json({ success: false, ...body }, status)
 	}
 

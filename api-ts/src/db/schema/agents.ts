@@ -11,6 +11,7 @@ import {
 	varchar,
 } from 'drizzle-orm/pg-core'
 import { organizations } from './organizations'
+import { users } from './users'
 
 /**
  * AI Agents table - External agents that can use the Suwappu API
@@ -47,6 +48,12 @@ export const agents = pgTable('agents', {
 		onDelete: 'set null',
 	}),
 
+	// Human owner linked via POST /v1/agent/link/code + /claim <code> in the
+	// Telegram bot. Nullable/additive — most agents remain unlinked until
+	// claimed. Once set, re-linking must go through the owner's /unlink flow
+	// (see routes/agent.ts's 409 re-link guard) rather than a bare re-mint.
+	ownerUserId: integer('owner_user_id').references(() => users.id),
+
 	// Crypto-native subscription overlay (set by POST /v1/agent/billing/subscribe).
 	// When subscriptionExpiresAt is in the future, the agent's *effective* tier is
 	// subscriptionTier (resolved at auth time — see middleware/auth.ts). This is a
@@ -66,6 +73,7 @@ export const agents = pgTable('agents', {
 }, (table) => ({
 	isActiveIdx: index('ix_agents_is_active').on(table.isActive),
 	orgIdx: index('ix_agents_organization_id').on(table.organizationId),
+	ownerUserIdIdx: index('ix_agents_owner_user_id').on(table.ownerUserId),
 }))
 
 export type Agent = typeof agents.$inferSelect

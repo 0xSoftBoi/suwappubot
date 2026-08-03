@@ -1,11 +1,25 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { and, desc, eq, gt, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
 import { approvalRequests, type ApprovalRequest } from '../db/schema/approvals'
+import { approvalStepUpChallenges } from '../db/schema/approvalStepUpChallenges'
 import { organizations } from '../db/schema/organizations'
 import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../errors'
 import { coreTermsOf, type EconomicTerms } from '../lib/approvalTerms'
+import { validateStepUpChallenge } from '../lib/stepUpChallenge'
+
+/**
+ * Thrown INSIDE the db.transaction in decideApproveWithStepUp() when the
+ * presented step-up challenge fails validation. Caught by the surrounding
+ * Effect.tryPromise's `catch` and re-mapped to a ValidationError whose
+ * message is prefixed with STEP_UP_REJECTED_PREFIX so the route layer can
+ * tell "the step-up nonce itself was bad" apart from "the approval was
+ * already decided/expired" without a second DB round-trip.
+ */
+export const STEP_UP_REJECTED_PREFIX = 'STEP_UP_REJECTED: '
+
+class StepUpRejectedInternal extends Error {}
 
 /** How long a require_approval verdict stays actionable before auto-expiring. */
 export const APPROVAL_TTL_MS = 15 * 60 * 1000
@@ -64,6 +78,39 @@ export interface ApprovalServiceInterface {
 		userId: number,
 		outcome: 'approved' | 'denied',
 	) => Effect.Effect<ApprovalRequest, DatabaseError | NotFoundError | ForbiddenError | ValidationError, DrizzleService>
+
+	/**
+	 * Owner-scoped approve decision that ALSO validates + consumes a
+	 * server-issued step-up challenge (see approvalStepUpChallenges.ts),
+	 * atomically in one db.transaction: challenge-row lookup + validation +
+	 * marking it used, AND the conditional approvalRequests status UPDATE,
+	 * all succeed or all roll back together. Never used for 'denied' — deny
+	 * never requires step-up. On step-up validation failure the rejected
+	 * Effect's ValidationError.message is prefixed with
+	 * STEP_UP_REJECTED_PREFIX so the route can surface a distinct
+	 * `code: 'STEP_UP_REQUIRED'` response instead of a generic 400.
+	 */
+	readonly decideApproveWithStepUp: (
+		id: string,
+		userId: number,
+		stepUpChallenge: string,
+	) => Effect.Effect<ApprovalRequest, DatabaseError | ForbiddenError | ValidationError, DrizzleService>
+
+	/**
+	 * Owner-scoped: issues a fresh single-use step-up nonce for a pending
+	 * approval the caller owns. Mirrors decide()'s ownership+pending+not-expired
+	 * pre-check so a caller with no access to this approval never learns
+	 * anything about its state. The raw challenge value is returned to the
+	 * caller exactly once and must never be logged.
+	 */
+	readonly issueStepUpChallenge: (
+		id: string,
+		userId: number,
+	) => Effect.Effect<
+		{ challenge: string; expiresAt: Date; insertedId: number },
+		DatabaseError | ForbiddenError | ValidationError,
+		DrizzleService
+	>
 
 	/**
 	 * Validate-only step at resubmit time — does NOT mutate status. Checks
@@ -254,6 +301,177 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 				)
 			}
 			return row
+		}),
+
+	decideApproveWithStepUp: (id, userId, stepUpChallenge) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			// Ownership check first (cheap, and gives a clean 403 vs a silent no-op) —
+			// mirrors decide()'s pre-check so a caller with no access to this
+			// approval never even learns whether a step-up row exists for it.
+			const owned = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ approval: approvalRequests })
+						.from(approvalRequests)
+						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						.where(and(eq(approvalRequests.id, id), eq(organizations.ownerId, userId)))
+						.limit(1),
+				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
+			})
+			const existing = owned[0]?.approval
+			if (!existing) {
+				return yield* Effect.fail(
+					new ForbiddenError({ message: 'Approval request not found for your organizations' }),
+				)
+			}
+			if (existing.status !== 'pending' || isExpired(existing)) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							existing.status !== 'pending'
+								? `Approval request already ${existing.status}`
+								: 'Approval request has expired',
+					}),
+				)
+			}
+
+			// Everything below (challenge lookup, validation, marking it used, AND
+			// the conditional approval status UPDATE) runs in ONE db.transaction so
+			// a failure after consuming the nonce (e.g. the approval got decided by
+			// a concurrent request between our pre-check above and here) rolls the
+			// consumption back too — a transient failure never burns a one-use nonce
+			// for nothing.
+			const row = yield* Effect.tryPromise({
+				try: () =>
+					db.transaction(async (tx) => {
+						const challengeRows = await tx
+							.select()
+							.from(approvalStepUpChallenges)
+							.where(eq(approvalStepUpChallenges.challenge, stepUpChallenge))
+							.limit(1)
+						const challengeRow = challengeRows[0]
+
+						const validation = validateStepUpChallenge(
+							challengeRow
+								? {
+										userId: challengeRow.userId,
+										approvalId: challengeRow.approvalId,
+										usedAt: challengeRow.usedAt,
+										expiresAt: challengeRow.expiresAt,
+									}
+								: null,
+							{ userId, approvalId: id, now: new Date() },
+						)
+						if (!validation.valid) {
+							throw new StepUpRejectedInternal(validation.reason)
+						}
+
+						await tx
+							.update(approvalStepUpChallenges)
+							.set({ usedAt: new Date() })
+							.where(eq(approvalStepUpChallenges.id, challengeRow!.id))
+
+						const updated = await tx
+							.update(approvalRequests)
+							.set({
+								status: 'approved',
+								decidedBy: userId,
+								decidedAt: new Date(),
+							})
+							.where(
+								and(
+									eq(approvalRequests.id, id),
+									eq(approvalRequests.status, 'pending'),
+									sql`${approvalRequests.expiresAt} > (now() at time zone 'utc')`,
+								),
+							)
+							.returning()
+
+						const updatedRow = updated[0]
+						if (!updatedRow) {
+							throw new Error(
+								'Approval request was already decided or expired (concurrent update)',
+							)
+						}
+						return updatedRow
+					}),
+				catch: (e) => {
+					if (e instanceof StepUpRejectedInternal) {
+						return new ValidationError({ message: `${STEP_UP_REJECTED_PREFIX}${e.message}` })
+					}
+					if (e instanceof Error && e.message.includes('concurrent update')) {
+						return new ValidationError({ message: e.message })
+					}
+					return new DatabaseError({
+						message: 'Failed to record step-up approval decision',
+						cause: e,
+					})
+				},
+			})
+
+			return row
+		}),
+
+	issueStepUpChallenge: (id, userId) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			// Same ownership+pending+not-expired pre-check as decide() /
+			// decideApproveWithStepUp() — never reveal a challenge for an approval
+			// the caller doesn't own or that isn't actionable.
+			const owned = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ approval: approvalRequests })
+						.from(approvalRequests)
+						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						.where(and(eq(approvalRequests.id, id), eq(organizations.ownerId, userId)))
+						.limit(1),
+				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
+			})
+			const existing = owned[0]?.approval
+			if (!existing) {
+				return yield* Effect.fail(
+					new ForbiddenError({ message: 'Approval request not found for your organizations' }),
+				)
+			}
+			if (existing.status !== 'pending' || isExpired(existing)) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							existing.status !== 'pending'
+								? `Approval request already ${existing.status}`
+								: 'Approval request has expired',
+					}),
+				)
+			}
+
+			const challenge = randomBytes(24).toString('hex')
+			const expiresAt = new Date(Date.now() + 2 * 60 * 1000)
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(approvalStepUpChallenges)
+						.values({
+							userId,
+							approvalId: id,
+							challenge,
+							expiresAt,
+						})
+						.returning(),
+				catch: (e) => new DatabaseError({ message: 'Failed to issue step-up challenge', cause: e }),
+			})
+
+			const row = rows[0]
+			if (!row) {
+				return yield* Effect.fail(
+					new DatabaseError({ message: 'Step-up challenge insert returned no row' }),
+				)
+			}
+			return { challenge: row.challenge, expiresAt: row.expiresAt, insertedId: row.id }
 		}),
 
 	validateForExecution: (id, agentId, organizationId, freshTerms) =>
