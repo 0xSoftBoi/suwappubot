@@ -172,6 +172,17 @@ class SwapQuote:
     # Platform fee (bps) applied to this quote, so the execution call can
     # re-send the SAME fee param and actually collect it (quote/exec must agree).
     platform_fee_bps: Optional[int] = None
+    # Whether gas_cost_usd is a REAL figure from the provider (Li.Fi's
+    # gasCosts[].amountUSD, KyberSwap's routeSummary.gasUsd, CoW's genuine
+    # $0 — it's gasless) rather than the "1 gwei * $2000 ETH" display
+    # heuristic several adapters use as a rough UI estimate (OKX/1inch/0x —
+    # and it's missing cheap-L2s like arbitrum/base/optimism from the
+    # "cheap chain" discount list, so it can be wildly wrong there). Net-of-
+    # gas ranking in `_rank_quotes` only ever nets gas when EVERY raced
+    # quote's figure is trusted; a single untrusted (or "0.0 = unknown")
+    # quote falls the WHOLE race back to gross-output ranking, since an
+    # untrusted 0.0 would otherwise look like free gas and win unfairly.
+    gas_cost_trusted: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -241,14 +252,74 @@ def _quote_net_score(quote: "SwapQuote", out_price: Optional[float]) -> float:
     return quote.to_amount_human - (gas / out_price)
 
 
-def _rank_quotes(quotes: List["SwapQuote"]) -> "SwapQuote":
-    """Pick the best quote by net-of-gas value.
+def _derive_median_output_price(quotes: List["SwapQuote"]) -> Optional[float]:
+    """Median implied output-token USD price across every quote that exposes
+    one — not just the first (`asyncio.wait` returns a *set*, so "first" is
+    non-deterministic and a single bogus-but-positive provider USD field
+    could otherwise unilaterally flip the winner).
 
-    All raced quotes share the same to_token, so an implied USD price
-    derived from any one of them (via `_extract_output_usd_price`) is used
-    to net every quote's gas cost against its output. When no quote exposes
-    a usable USD figure, falls back to the previous gross to_amount_human
-    ranking — this never raises, so it can't crash the money path.
+    Quotes are visited in provider-name order for determinism, though the
+    result itself is order-independent (it's a median of the collected
+    values). Outliers more than 2x above or below the raw median are
+    discarded before taking the final median, so one adapter's bad USD
+    figure can't drag the whole race's price estimate off a cliff.
+    """
+    candidates = []
+    for q in sorted(quotes, key=lambda q: q.provider):
+        try:
+            price = _extract_output_usd_price(q)
+        except Exception:
+            price = None
+        if price:
+            candidates.append(price)
+
+    if not candidates:
+        return None
+
+    def _median(values: List[float]) -> float:
+        values = sorted(values)
+        n = len(values)
+        mid = n // 2
+        return values[mid] if n % 2 else (values[mid - 1] + values[mid]) / 2
+
+    raw_median = _median(candidates)
+    if raw_median <= 0:
+        return None
+
+    filtered = [p for p in candidates if 0.5 * raw_median <= p <= 2.0 * raw_median]
+    if not filtered:
+        return None
+    return _median(filtered)
+
+
+def _rank_quotes(quotes: List["SwapQuote"]) -> "SwapQuote":
+    """Pick the best quote. See `_rank_quotes_with_price` for the full
+    net-of-gas ranking logic and its gross-ranking fallback conditions."""
+    best, _out_price = _rank_quotes_with_price(quotes)
+    return best
+
+
+def _rank_quotes_with_price(
+    quotes: List["SwapQuote"],
+) -> tuple["SwapQuote", Optional[float]]:
+    """Pick the best quote by net-of-gas value, and return the USD price (if
+    any) actually used to net it — so callers (telemetry) can report the
+    exact same figure the ranking decision was made with.
+
+    Net-of-gas ranking only applies when ALL of the following hold, and
+    falls back to gross to_amount_human ranking (returning out_price=None)
+    the instant any of them doesn't — this can never raise, so it can't
+    crash the money path:
+      1. Every raced quote's `gas_cost_trusted` is True (a single untrusted
+         heuristic-gas quote — or a genuine-but-unlabeled 0.0 "unknown" —
+         would otherwise look artificially cheap and win unfairly).
+      2. A median USD price for the output token can be derived across the
+         race (see `_derive_median_output_price`).
+      3. Netting that price against gas doesn't eat more than 20% of any
+         single quote's own to_amount_human — beyond that the derived price
+         is treated as unreliable (e.g. a raw-address token whose decimals
+         haven't been corrected yet — that correction only happens AFTER
+         ranking) and the whole race falls back to gross.
 
     Wormhole returns an optimistic 1:1 placeholder quote (no real fee
     netting), so it's excluded from the race unless it's the only quote
@@ -256,22 +327,21 @@ def _rank_quotes(quotes: List["SwapQuote"]) -> "SwapQuote":
     """
     ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
     if len(ranked) == 1:
-        return ranked[0]
+        return ranked[0], None
 
-    out_price = None
-    for q in ranked:
-        try:
-            price = _extract_output_usd_price(q)
-        except Exception:
-            price = None
-        if price:
-            out_price = price
-            break
+    if not all(q.gas_cost_trusted for q in ranked):
+        return max(ranked, key=lambda q: q.to_amount_human), None
 
+    out_price = _derive_median_output_price(ranked)
     if out_price is None:
-        return max(ranked, key=lambda q: q.to_amount_human)
+        return max(ranked, key=lambda q: q.to_amount_human), None
 
-    return max(ranked, key=lambda q: _quote_net_score(q, out_price))
+    for q in ranked:
+        gas = q.gas_cost_usd or 0.0
+        if q.to_amount_human > 0 and (gas / out_price) > 0.20 * q.to_amount_human:
+            return max(ranked, key=lambda q: q.to_amount_human), None
+
+    return max(ranked, key=lambda q: _quote_net_score(q, out_price)), out_price
 
 
 def _parse_int(value, default: int = 0) -> int:
@@ -1160,13 +1230,16 @@ class SwapEngine:
         # Adaptive timeout: 3s fast path, extend to 8s total if no fast results
         FAST_TIMEOUT = 3.0
         EXTENDED_TIMEOUT = 5.0  # additional seconds (8s total)
-        # When we already have ≥1 quote at the 3s mark but other providers are
-        # still in flight, give them a short extra window rather than
-        # cancelling immediately — a slower-but-better aggregator shouldn't
-        # lose just because it landed a beat late. Worst case stays 8s total
-        # (the no-quotes extended path below is unchanged); this only widens
-        # the common "some quotes in, some still pending" case to ≤5s.
-        GRACE_TIMEOUT = 2.0
+        # Grace window: only fires when exactly ONE quote is in hand at the
+        # 3s mark (≥2 quotes already gives us something real to compare, so
+        # we don't wait at all — see the `elif pending:` cancel-now branch
+        # below). Uses return_when=FIRST_COMPLETED, not the default
+        # ALL_COMPLETED, so it exits the instant the NEXT provider lands
+        # rather than burning the full window waiting for every pending task
+        # (some provider routinely hangs out to its own HTTP timeout, which
+        # was turning "grace" into "always wait the full window"). Worst
+        # case stays 8s total (the no-quotes extended path is unchanged).
+        GRACE_TIMEOUT = 0.75
 
         wrapped_tasks = [asyncio.ensure_future(t) for t in tasks]
         # Counterfactual (comparison-only) tasks race alongside the real ones
@@ -1174,76 +1247,94 @@ class SwapEngine:
         # separately and can never end up in `quotes`/`best`.
         cf_wrapped = [asyncio.ensure_future(t) for t in counterfactual_tasks]
         quotes = []
-
-        if wrapped_tasks:
-            done, pending = await asyncio.wait(wrapped_tasks, timeout=FAST_TIMEOUT)
-            quotes = self._extract_quotes(done)
-
-            if not quotes and pending:
-                logger.info(
-                    "No quotes in %.0fs fast path, extending to %.0fs for %d pending providers",
-                    FAST_TIMEOUT,
-                    FAST_TIMEOUT + EXTENDED_TIMEOUT,
-                    len(pending),
-                )
-                done2, still_pending = await asyncio.wait(pending, timeout=EXTENDED_TIMEOUT)
-                quotes = self._extract_quotes(done2)
-                # Cancel and await remaining tasks to prevent connection leaks
-                for t in still_pending:
-                    t.cancel()
-                if still_pending:
-                    await asyncio.gather(*still_pending, return_exceptions=True)
-            elif quotes and pending:
-                logger.info(
-                    "%d quote(s) in %.0fs fast path, granting %.0fs grace for %d pending providers",
-                    len(quotes),
-                    FAST_TIMEOUT,
-                    GRACE_TIMEOUT,
-                    len(pending),
-                )
-                done3, still_pending = await asyncio.wait(pending, timeout=GRACE_TIMEOUT)
-                quotes.extend(self._extract_quotes(done3))
-                for t in still_pending:
-                    t.cancel()
-                if still_pending:
-                    await asyncio.gather(*still_pending, return_exceptions=True)
-
-        if not quotes:
-            raise SwapError("No provider returned a valid quote. Please try again.")
-
-        best = _rank_quotes(quotes)
-
-        # Fix the displayed receive-amount when buying a token by raw address
-        # (its real decimals aren't in the registry). Done after ranking — all
-        # providers mis-scaled identically, so the winner is unchanged — and
-        # before caching so every consumer sees the corrected figure.
-        best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
-
-        # Collect whatever counterfactual (comparison-only) quotes finished
-        # within the same budget the real race just used. Non-blocking check
-        # — no extra latency added to the response. Failures are ignored:
-        # this is telemetry, never allowed to affect the money path.
         cf_quotes = []
-        if cf_wrapped:
-            cf_done, cf_pending = await asyncio.wait(cf_wrapped, timeout=0)
-            cf_quotes = self._extract_quotes(cf_done)
-            for t in cf_pending:
-                t.cancel()
-            if cf_pending:
-                await asyncio.gather(*cf_pending, return_exceptions=True)
-            if cf_quotes:
-                # Deduct our platform fee from CoW's output for a fair,
-                # apples-to-apples comparison — CoW can't carry the fee param,
-                # so its raw quote is otherwise an unfair (fee-free) baseline.
-                fee_frac = (platform_fee_bps or 0) / 10_000.0
-                cf_quotes = [
-                    replace(q, to_amount_human=q.to_amount_human * (1 - fee_frac))
-                    for q in cf_quotes
-                ]
+
+        try:
+            if wrapped_tasks:
+                done, pending = await asyncio.wait(wrapped_tasks, timeout=FAST_TIMEOUT)
+                quotes = self._extract_quotes(done)
+
+                if not quotes and pending:
+                    logger.info(
+                        "No quotes in %.0fs fast path, extending to %.0fs for %d pending providers",
+                        FAST_TIMEOUT,
+                        FAST_TIMEOUT + EXTENDED_TIMEOUT,
+                        len(pending),
+                    )
+                    done2, still_pending = await asyncio.wait(pending, timeout=EXTENDED_TIMEOUT)
+                    quotes = self._extract_quotes(done2)
+                    # Cancel and await remaining tasks to prevent connection leaks
+                    for t in still_pending:
+                        t.cancel()
+                    if still_pending:
+                        await asyncio.gather(*still_pending, return_exceptions=True)
+                elif len(quotes) == 1 and pending:
+                    logger.info(
+                        "1 quote in %.0fs fast path, granting up to %.2fs grace "
+                        "(exits early on next completion) for %d pending providers",
+                        FAST_TIMEOUT,
+                        GRACE_TIMEOUT,
+                        len(pending),
+                    )
+                    done3, still_pending = await asyncio.wait(
+                        pending, timeout=GRACE_TIMEOUT, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    quotes.extend(self._extract_quotes(done3))
+                    for t in still_pending:
+                        t.cancel()
+                    if still_pending:
+                        await asyncio.gather(*still_pending, return_exceptions=True)
+                elif pending:
+                    # ≥2 quotes already in hand — no grace window, cancel now.
+                    for t in pending:
+                        t.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+            if not quotes:
+                raise SwapError("No provider returned a valid quote. Please try again.")
+
+            best, out_price_used = _rank_quotes_with_price(quotes)
+
+            # Fix the displayed receive-amount when buying a token by raw address
+            # (its real decimals aren't in the registry). Done after ranking — all
+            # providers mis-scaled identically, so the winner is unchanged — and
+            # before caching so every consumer sees the corrected figure.
+            best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
+        finally:
+            # Always collect + cancel counterfactual tasks, even when the try
+            # block above raised (e.g. "no provider returned a valid quote")
+            # — otherwise a failed race would leak the in-flight CoW request.
+            # Non-blocking check (timeout=0): no extra latency added to a
+            # successful response. Failures are ignored — this is telemetry,
+            # never allowed to affect the money path.
+            if cf_wrapped:
+                cf_done, cf_pending = await asyncio.wait(cf_wrapped, timeout=0)
+                cf_quotes = self._extract_quotes(cf_done)
+                for t in cf_pending:
+                    t.cancel()
+                if cf_pending:
+                    await asyncio.gather(*cf_pending, return_exceptions=True)
+
+        if cf_quotes:
+            # Deduct our platform fee from CoW's output for a fair,
+            # apples-to-apples comparison — CoW can't carry the fee param,
+            # so its raw quote is otherwise an unfair (fee-free) baseline.
+            fee_frac = (platform_fee_bps or 0) / 10_000.0
+            cf_quotes = [
+                replace(q, to_amount_human=q.to_amount_human * (1 - fee_frac)) for q in cf_quotes
+            ]
 
         if len(quotes) > 1 or cf_quotes:
             self._log_route_telemetry(
-                from_chain, to_chain, from_token, to_token, amount, quotes, cf_quotes, best
+                from_chain,
+                to_chain,
+                from_token,
+                to_token,
+                amount,
+                quotes,
+                cf_quotes,
+                best,
+                out_price_used,
             )
 
         await quote_cache.set(cache_key, best)
@@ -1259,18 +1350,18 @@ class SwapEngine:
         quotes: List["SwapQuote"],
         cf_quotes: List["SwapQuote"],
         best: "SwapQuote",
+        out_price: Optional[float],
     ) -> None:
         """One structured log line comparing every raced provider (plus any
         comparison-only counterfactual quotes) against the winner. Never
-        raises — telemetry must not be able to break the quote path."""
-        try:
-            out_price = None
-            for q in quotes:
-                price = _extract_output_usd_price(q)
-                if price:
-                    out_price = price
-                    break
+        raises — telemetry must not be able to break the quote path.
 
+        `out_price` is passed in from `_rank_quotes_with_price` rather than
+        recomputed here, so telemetry reports the exact price (or lack of
+        one, when the race fell back to gross ranking) the winner was
+        actually picked with — not a possibly-different recomputation.
+        """
+        try:
             winner_score = _quote_net_score(best, out_price)
 
             def _entry(q: "SwapQuote", counterfactual: bool) -> dict:
@@ -1375,6 +1466,7 @@ class SwapEngine:
             price_impact=0,  # Li.Fi doesn't always provide this
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
+            gas_cost_trusted=True,  # real gasCosts[].amountUSD from Li.Fi's own estimate
         )
 
     async def build_external_evm_swap(
@@ -2293,6 +2385,7 @@ class SwapEngine:
                 "chain_slug": chain_slug,
                 "slippage": slippage,
             },
+            gas_cost_trusted=True,  # real routeSummary.gasUsd from KyberSwap
         )
 
     async def _get_usdt0_quote(
@@ -2620,6 +2713,7 @@ class SwapEngine:
             price_impact=0,
             exchange_rate=self._rate(quote.to_amount_human, amount),
             raw_quote=quote.raw_quote,
+            gas_cost_trusted=True,  # genuinely gasless, not "0.0 = unknown"
         )
 
     async def _get_socket_quote(
