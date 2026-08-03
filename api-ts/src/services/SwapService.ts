@@ -1,5 +1,5 @@
 import { and, desc, eq, notInArray } from 'drizzle-orm'
-import { Context, Effect, Layer, Option } from 'effect'
+import { Context, Effect, Exit, Fiber, Layer, Option } from 'effect'
 import { logger } from '../lib/logger'
 import { captureQuoteRoutes, shouldCapture } from '../lib/routeCapture'
 import {
@@ -480,9 +480,13 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			// for comparison/telemetry (see the block above SwapServiceLive for why
 			// it can't be selected for execution yet). Kill switch:
 			// KYBERSWAP_COMPARISON_ENABLED=false disables without a redeploy.
-			// Bounded to ~3.5s (3s race + short grace) so a slow/down KyberSwap never
-			// adds latency to the user's quote — Effect.option swallows both
-			// provider errors and the timeout into `None`.
+			// Bounded to ~3.5s (3s race + short grace) via Effect.timeout, and
+			// Effect.option swallows both provider errors and the timeout into
+			// `None` — but crucially this is FORKED, not awaited: the user's quote
+			// must never wait on KyberSwap. We `Fiber.poll` (non-blocking) it later,
+			// once Li.Fi's own response is in hand, and simply skip the comparison
+			// log if KyberSwap hasn't resolved by then. Zero added latency to the
+			// user path, whether KyberSwap answers in 200ms or hangs for 10s.
 			const fromChainId = resolveChainId(params.fromChain)
 			const toChainId = resolveChainId(params.toChain)
 			const kyberComparisonEnabled =
@@ -501,9 +505,11 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 						)
 					: Effect.succeed(Option.none())
 
-			const [response, kyberResultOption] = yield* Effect.all([lifiEffect, kyberEffect], {
-				concurrency: 'unbounded',
-			})
+			// Fork — do NOT await. The fiber runs in the background while we await
+			// Li.Fi below; we only ever check on it non-blockingly via Fiber.poll.
+			const kyberFiber = yield* Effect.fork(kyberEffect)
+
+			const response = yield* lifiEffect
 
 			// Calculate derived values
 			const fromAmountNum =
@@ -573,6 +579,19 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			// `would_win` records which provider had the better fee-inclusive net
 			// output, for later evaluation of whether KyberSwap execution support
 			// is worth building.
+			//
+			// Fiber.poll is NON-BLOCKING — it returns immediately with None if the
+			// forked KyberSwap fetch hasn't completed yet, rather than waiting on
+			// it. Li.Fi has already resolved by this point, so this adds ~0ms: a
+			// fast KyberSwap response (typically the case) is captured; a slow one
+			// is simply skipped for this quote, never delaying the response.
+			const kyberPolled = yield* Fiber.poll(kyberFiber)
+			const kyberResultOption: Option.Option<KyberComparisonQuote> = Option.isSome(kyberPolled)
+				? Exit.isSuccess(kyberPolled.value)
+					? kyberPolled.value.value
+					: Option.none()
+				: Option.none()
+
 			if (Option.isSome(kyberResultOption)) {
 				const kyber = kyberResultOption.value
 				const lifiToAmountBig = BigInt(response.estimate.toAmount || '0')
