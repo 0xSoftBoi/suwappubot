@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { desc, eq, isNull, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { requireDb } from '../db'
 import { auditLogs } from '../db/schema/security'
@@ -15,6 +17,14 @@ import { logger } from '../lib/logger'
  * column, so agent-scoped events reuse `userId` for the agent id (and also stamp
  * it in `details.agentId`). System events (e.g. admin-key auth, which isn't tied
  * to a user) use userId 0.
+ *
+ * Hash chain (tamper evidence): every insert computes
+ *   entryHash = sha256(canonical JSON of {userId, orgId, agentId, eventType,
+ *     details, ts, prevHash})
+ * chained per-org (a shared 'global' chain covers org-less entries). Reads for
+ * the previous hash + the insert happen inside one transaction guarded by a
+ * Postgres advisory lock keyed on the chain, so two concurrent writers to the
+ * same chain can never both read the same prevHash.
  */
 export interface AuditEvent {
 	userId: number
@@ -32,6 +42,32 @@ const serializeDetails = (details: AuditEvent['details']): string | null => {
 	return typeof details === 'string' ? details : JSON.stringify(details)
 }
 
+/** Chain key for a given org id — 'global' covers org-less (userId 0 / no org) entries. */
+const chainKeyOf = (orgId: string | null): string => orgId ?? 'global'
+
+export const computeEntryHash = (input: {
+	userId: number
+	orgId: string | null
+	agentId: string | null
+	eventType: string
+	details: string | null
+	ts: string
+	prevHash: string | null
+}): string => {
+	// Canonical (fixed key order) JSON so the hash is deterministic regardless
+	// of object construction order.
+	const canonical = JSON.stringify({
+		userId: input.userId,
+		orgId: input.orgId,
+		agentId: input.agentId,
+		eventType: input.eventType,
+		details: input.details,
+		ts: input.ts,
+		prevHash: input.prevHash,
+	})
+	return createHash('sha256').update(canonical).digest('hex')
+}
+
 /**
  * Effect-native audit write — use inside Effect pipelines with `yield* auditLog(...)`.
  * Self-contained (R = DrizzleService, E = never): swallows + logs any failure.
@@ -39,15 +75,62 @@ const serializeDetails = (details: AuditEvent['details']): string | null => {
 export const auditLog = (event: AuditEvent) =>
 	Effect.gen(function* () {
 		const db = yield* requireDb
+		const orgId = event.orgId ?? null
+		const agentId = event.agentId?.slice(0, 64) ?? null
+		const eventType = event.eventType.slice(0, 50)
+		const details = serializeDetails(event.details)
+		const ipAddress = event.ipAddress?.slice(0, 45) ?? null
+		const chainKey = chainKeyOf(orgId)
+
 		yield* Effect.tryPromise({
 			try: () =>
-				db.insert(auditLogs).values({
-					userId: event.userId,
-					orgId: event.orgId ?? null,
-					agentId: event.agentId?.slice(0, 64) ?? null,
-					eventType: event.eventType.slice(0, 50),
-					details: serializeDetails(event.details),
-					ipAddress: event.ipAddress?.slice(0, 45) ?? null,
+				db.transaction(async (tx) => {
+					// Serialize concurrent inserts to the same chain: an advisory lock
+					// held for the lifetime of this transaction. hashtext() maps the
+					// chain key to a stable int4 for pg_advisory_xact_lock.
+					await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${chainKey}))`)
+
+					const [prev] = orgId
+						? await tx
+								.select({ entryHash: auditLogs.entryHash })
+								.from(auditLogs)
+								.where(eq(auditLogs.orgId, orgId))
+								.orderBy(desc(auditLogs.id))
+								.limit(1)
+						: await tx
+								.select({ entryHash: auditLogs.entryHash })
+								.from(auditLogs)
+								.where(isNull(auditLogs.orgId))
+								.orderBy(desc(auditLogs.id))
+								.limit(1)
+
+					const prevHash = prev?.entryHash ?? null
+					// Fix the timestamp ourselves (rather than relying on the column's
+					// defaultNow()) so the exact value hashed is the exact value stored —
+					// verification recomputes from the stored createdAt.
+					const now = new Date()
+					const ts = now.toISOString()
+					const entryHash = computeEntryHash({
+						userId: event.userId,
+						orgId,
+						agentId,
+						eventType,
+						details,
+						ts,
+						prevHash,
+					})
+
+					await tx.insert(auditLogs).values({
+						userId: event.userId,
+						orgId,
+						agentId,
+						eventType,
+						details,
+						ipAddress,
+						createdAt: now,
+						prevHash,
+						entryHash,
+					})
 				}),
 			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 		})
@@ -57,15 +140,92 @@ export const auditLog = (event: AuditEvent) =>
 		),
 	)
 
+export interface AuditVerifyResult {
+	valid: boolean
+	checked: number
+	firstBreakId?: number
+}
+
+/**
+ * Walk a hash chain (scoped by orgId, or the org-less/global chain when
+ * `orgId` is null) and confirm every row's `entryHash` matches
+ * `computeEntryHash` of its own fields chained to the previous row's
+ * `entryHash`. Shared by every audit-verify surface so the walk logic — and
+ * its "skip rows written before the hash-chain migration" behavior — lives
+ * in exactly one place.
+ */
+export const verifyAuditChain = (orgId: string | null, limit: number) =>
+	Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({
+						id: auditLogs.id,
+						userId: auditLogs.userId,
+						orgId: auditLogs.orgId,
+						agentId: auditLogs.agentId,
+						eventType: auditLogs.eventType,
+						details: auditLogs.details,
+						createdAt: auditLogs.createdAt,
+						prevHash: auditLogs.prevHash,
+						entryHash: auditLogs.entryHash,
+					})
+					.from(auditLogs)
+					.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
+					.orderBy(desc(auditLogs.id))
+					.limit(limit),
+			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+		})
+
+		let valid = true
+		let firstBreakId: number | undefined
+		// Rows are newest-first; walk oldest->newest logically by iterating in
+		// reverse so each row's expected prevHash is the previous row's entryHash.
+		let expectedPrevHash: string | null = null
+		const oldestFirst = [...rows].reverse()
+		for (const row of oldestFirst) {
+			// Rows written before this migration have null hashes — skip them
+			// (chain starts fresh at the first hashed row) rather than flagging a
+			// false break.
+			if (row.entryHash == null && row.prevHash == null) {
+				expectedPrevHash = null
+				continue
+			}
+			if (row.prevHash !== expectedPrevHash) {
+				valid = false
+				firstBreakId = row.id
+				break
+			}
+			const recomputed = computeEntryHash({
+				userId: row.userId,
+				orgId: row.orgId,
+				agentId: row.agentId,
+				eventType: row.eventType,
+				details: row.details,
+				ts: row.createdAt ? new Date(row.createdAt).toISOString() : '',
+				prevHash: row.prevHash,
+			})
+			if (recomputed !== row.entryHash) {
+				valid = false
+				firstBreakId = row.id
+				break
+			}
+			expectedPrevHash = row.entryHash
+		}
+
+		return { valid, checked: rows.length, firstBreakId } as AuditVerifyResult
+	})
+
 /**
  * Fire-and-forget audit write for plain async (non-Effect) call sites such as
  * Hono middleware. Does not block or throw.
  */
 export const writeAuditLog = (event: AuditEvent): void => {
 	// Lazy import to break the module cycle audit -> runtime -> MainLayer ->
-	// AgentService -> audit, which caused a TDZ crash ("Cannot access
-	// 'AgentServiceLive' before initialization") when a route/test pulled
-	// AgentService before the runtime. runEffect is only needed at call time.
+	// route service -> audit, which could otherwise cause a TDZ crash if a
+	// route/test pulled a service before the runtime. runEffect is only
+	// needed at call time.
 	void import('../runtime')
 		.then(({ runEffect }) => runEffect(auditLog(event)))
 		.catch((e) => logger.warn(`[audit] runtime load failed (${event.eventType}): ${e}`))
