@@ -523,12 +523,14 @@ class TestDeriveInputUsdValue:
         # NOT lifi's self-reported 99.0.
         assert _derive_input_usd_value([q1, q2], input_price_usd=1.0) == 1.0
 
-    def test_falls_back_to_provider_reported_value_when_no_oracle(self):
-        """Provider figure alone is still better than nothing — used only
-        when no independent oracle price is supplied at all."""
+    def test_no_oracle_means_no_input_usd_even_with_provider_figure(self):
+        """A provider's self-reported fromAmountUSD is never used on its own:
+        two colluding/wrong providers would otherwise pass the output
+        cross-check against their own numbers. With no oracle the value is
+        None and ranking takes the strict 5%-gas-clamp branch instead."""
         q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.0))
         q2 = _quote("kyberswap", to_amount_human=98.0)
-        assert _derive_input_usd_value([q1, q2], input_price_usd=None) == 99.0
+        assert _derive_input_usd_value([q1, q2], input_price_usd=None) is None
 
     def test_falls_back_to_caller_supplied_price_times_input_amount(self):
         # No provider exposes fromAmountUSD; from_amount_human=1.0 (fixture default).

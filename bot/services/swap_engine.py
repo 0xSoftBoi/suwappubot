@@ -358,18 +358,16 @@ def _derive_input_usd_value(
 ) -> Optional[float]:
     """Real USD value of the swap's INPUT amount — shared across the whole
     race, since every raced quote was given the SAME user-specified
-    from_amount_human. Prefers the INDEPENDENT oracle (`input_price_usd` x
-    the shared input amount); falls back to a provider-reported figure
-    (Li.Fi's fromAmountUSD) only when no oracle price is available — that
-    provider figure alone is still better than nothing, but see
-    `_input_usd_sources_disagree` for the case where BOTH exist and
-    conflict (that must not silently resolve to "prefer the oracle" — it's
-    a red flag on its own). Returns None when neither is available.
+    from_amount_human. INDEPENDENT oracle only (`input_price_usd` x the
+    shared input amount) — a provider-self-reported figure (Li.Fi's
+    fromAmountUSD) is deliberately NOT used as a fallback: two providers
+    reporting coherently-wrong USD figures would then pass the output
+    cross-check on their own numbers. With no oracle this returns None and
+    ranking takes the strict 5%-gas-clamp branch instead, which rejects
+    that case outright. The provider figure is still consulted by
+    `_input_usd_sources_disagree` as a red flag when both exist.
     """
-    oracle = _oracle_input_usd_value(quotes, input_price_usd)
-    if oracle is not None:
-        return oracle
-    return _provider_input_usd_value(quotes)
+    return _oracle_input_usd_value(quotes, input_price_usd)
 
 
 def _input_usd_sources_disagree(
@@ -1278,8 +1276,12 @@ class SwapEngine:
         # all _real_gas_cost_usd is ever used for); no-op otherwise.
         # Fire-and-forget: never awaited here, so it can't add latency to
         # the race even in the worst case.
-        if from_chain.lower() == to_chain.lower():
-            asyncio.ensure_future(self._prewarm_gas_and_price(from_chain))
+        # Gated on a consumer actually existing, and the task reference is
+        # retained so loop shutdown doesn't warn about a pending orphan.
+        if from_chain.lower() == to_chain.lower() and (
+            self.okx_dex.is_configured or self.oneinch.is_configured or self.zerox.is_configured
+        ):
+            self._prewarm_task = asyncio.ensure_future(self._prewarm_gas_and_price(from_chain))
 
         if self._is_tempo_only_swap(from_chain, to_chain):
             tasks.append(
