@@ -1139,7 +1139,19 @@ export async function enforcePolicyGateForFreshQuote(
 	isSolana: boolean,
 	walletAddress: string,
 ): Promise<Response | null> {
-	if (!orgId) return null
+	// Every caller of this function is an agent-authenticated route, so
+	// agentIdentifier is always present — but guard anyway rather than assume.
+	// PolicyService.evaluate() only truly no-ops (fully unscoped 'allow', no
+	// query at all) when BOTH organizationId and agentId are absent; a bare
+	// agentId with no org still matches org-less per-agent policy rows
+	// (policies.organization_id IS NULL AND agent_id = X) and kill switches
+	// (global + agent scope), so it MUST still run the gate. Do not
+	// short-circuit on `!orgId` here — that was the bug (per-agent grants
+	// silently never enforced). What genuinely stays org-conditional is
+	// further down: the require_approval branch's org-owner lookup (there's
+	// no organizations row to look up without an orgId) — it falls back to
+	// the agent's linked owner instead (see ApprovalService.create()).
+	if (!agentIdentifier) return null
 
 	let policyIntent: PolicyIntent
 	if (isSolana) {
@@ -1257,15 +1269,22 @@ export async function enforcePolicyGateForFreshQuote(
 		const created = await runEffectEither(
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const orgOwnerRows = yield* Effect.tryPromise({
-					try: () =>
-						db
-							.select({ ownerId: organizations.ownerId })
-							.from(organizations)
-							.where(eq(organizations.id, orgId))
-							.limit(1),
-					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-				})
+				// Org-owner lookup is genuinely org-conditional — there's no
+				// organizations row to resolve for an org-less agent. In that case
+				// leave userId null; ApprovalService.create() falls back to the
+				// agent's own linked owner (agents.owner_user_id) so the request is
+				// still approvable by a real human.
+				const orgOwnerRows = orgId
+					? yield* Effect.tryPromise({
+							try: () =>
+								db
+									.select({ ownerId: organizations.ownerId })
+									.from(organizations)
+									.where(eq(organizations.id, orgId))
+									.limit(1),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						})
+					: []
 				const approvals = yield* ApprovalService
 				return yield* approvals.create({
 					agentId: agentIdentifier,

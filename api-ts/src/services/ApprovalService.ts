@@ -147,6 +147,20 @@ export class ApprovalService extends Context.Tag('ApprovalService')<
 
 const isExpired = (row: ApprovalRequest) => row.expiresAt.getTime() < Date.now()
 
+/**
+ * The ownership predicate used everywhere a caller must prove they may act on
+ * an approval request: EITHER they own the org the request belongs to
+ * (organizations.ownerId = userId — requires a LEFT JOIN on organizations so
+ * org-less rows still evaluate), OR the request's own user_id (set from the
+ * org owner at creation time, or — for org-less agents — from
+ * agents.owner_user_id, see create() below) equals the caller directly. This
+ * is additive only: an org member who is neither the org owner nor the
+ * recorded user_id is never granted access by this predicate.
+ */
+export function approvalOwnershipCondition(userId: number) {
+	return or(eq(organizations.ownerId, userId), eq(approvalRequests.userId, userId))
+}
+
 export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 	create: (input) =>
 		Effect.gen(function* () {
@@ -239,7 +253,14 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 	listForOwner: (userId, status) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb
-			const conditions = [eq(organizations.ownerId, userId)]
+			// Ownership predicate: the caller owns the org the approval belongs to
+			// (organizations.ownerId = userId, via LEFT JOIN so org-less rows still
+			// survive), OR the approval's own user_id (set from the org owner, or
+			// — for org-less agents — from agents.owner_user_id, see
+			// ApprovalService.create()) equals the caller directly. This is
+			// additive only: it never grants access to an org member who is
+			// neither the org owner nor the recorded user_id.
+			const conditions = [approvalOwnershipCondition(userId)]
 			if (status) {
 				conditions.push(eq(approvalRequests.status, status))
 				if (status === 'pending') {
@@ -257,7 +278,9 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 					db
 						.select({ approval: approvalRequests })
 						.from(approvalRequests)
-						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						// LEFT JOIN (not INNER) — an org-less approval (organizationId
+						// null) must still be listable via the direct user_id match.
+						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
 						.where(and(...conditions))
 						.orderBy(desc(approvalRequests.createdAt))
 						.limit(200),
@@ -276,8 +299,10 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 					db
 						.select({ approval: approvalRequests })
 						.from(approvalRequests)
-						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), eq(organizations.ownerId, userId)))
+						// LEFT JOIN — see listForOwner() for why org-less approvals must
+						// still resolve via the direct user_id match below.
+						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
@@ -346,8 +371,10 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 					db
 						.select({ approval: approvalRequests })
 						.from(approvalRequests)
-						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), eq(organizations.ownerId, userId)))
+						// LEFT JOIN — see listForOwner() for why org-less approvals must
+						// still resolve via the direct user_id match below.
+						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
@@ -457,8 +484,10 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 					db
 						.select({ approval: approvalRequests })
 						.from(approvalRequests)
-						.innerJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), eq(organizations.ownerId, userId)))
+						// LEFT JOIN — see listForOwner() for why org-less approvals must
+						// still resolve via the direct user_id match below.
+						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
+						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
