@@ -247,7 +247,8 @@ async def oauth_callback(
     if error:
         logger.warning(f"OAuth callback error: {error} - {error_description}")
         # Redirect to frontend with error
-        error_url = f"{settings.oauth_redirect_base}/auth/error?error={error}"
+        # Single URL -> oauth_callback_base (oauth_redirect_base may be a list).
+        error_url = f"{settings.oauth_callback_base}/auth/error?error={error}"
         return RedirectResponse(url=error_url, status_code=302)
 
     # Validate state (CSRF protection)
@@ -404,7 +405,7 @@ async def oauth_callback(
     # destination even if a state row was somehow persisted with a bad value.
     redirect_url = oauth_state.redirect_uri
     if not redirect_url or not _is_allowed_redirect(redirect_url):
-        default_base = settings.oauth_redirect_base.split(",")[0].strip().rstrip("/")
+        default_base = settings.oauth_callback_base
         redirect_url = f"{default_base}/dashboard"
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
