@@ -10,6 +10,7 @@ import {
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
+import { organizations } from './organizations'
 
 /**
  * AI Agents table - External agents that can use the Suwappu API
@@ -38,6 +39,14 @@ export const agents = pgTable('agents', {
 	// Rate limiting
 	rateLimitTier: varchar('rate_limit_tier', { length: 20 }).default('free').notNull(),
 
+	// Optional org context for plain agent-token / MCP auth (no org API key
+	// involved). When set, org-scoped policies AND org kill switches apply to
+	// this agent's requests too (see PolicyService + routes/mcp.ts's gate).
+	// Additive/nullable — most agents remain org-less.
+	organizationId: uuid('organization_id').references(() => organizations.id, {
+		onDelete: 'set null',
+	}),
+
 	// Crypto-native subscription overlay (set by POST /v1/agent/billing/subscribe).
 	// When subscriptionExpiresAt is in the future, the agent's *effective* tier is
 	// subscriptionTier (resolved at auth time — see middleware/auth.ts). This is a
@@ -56,6 +65,7 @@ export const agents = pgTable('agents', {
 	lastActiveAt: timestamp('last_active_at'),
 }, (table) => ({
 	isActiveIdx: index('ix_agents_is_active').on(table.isActive),
+	orgIdx: index('ix_agents_organization_id').on(table.organizationId),
 }))
 
 export type Agent = typeof agents.$inferSelect

@@ -594,6 +594,10 @@ agentRoutes.get('/me', async (c) => {
 			name: agent.name,
 			description: agent.description,
 			rate_limit_tier: agent.rateLimitTier,
+			// True when this agent carries org context (agents.organizationId set)
+			// — org-scoped policies AND org kill switches apply to its requests,
+			// including via the MCP surface. See PolicyService + routes/mcp.ts.
+			org_linked: agent.organizationId != null,
 			stats: {
 				total_requests: agent.totalRequests,
 				total_swaps: agent.totalSwaps,
@@ -1097,8 +1101,11 @@ async function buildSwapTxResponse(
  * sign+broadcast path) — both are the SAME swap-execution action and MUST be
  * gated identically. /swap/execute forwarding straight to the internal
  * signer with no gate here was the money-path bypass this closes.
+ * Exported so routes/mcp.ts's execute_swap tool can reuse the exact same gate
+ * (including approval-request creation) instead of a parallel implementation
+ * — it converts the returned Response into the MCP isError envelope.
  */
-async function enforcePolicyGateForFreshQuote(
+export async function enforcePolicyGateForFreshQuote(
 	c: Context,
 	agentIdentifier: string,
 	orgId: string | null,
@@ -1150,6 +1157,10 @@ async function enforcePolicyGateForFreshQuote(
 			toToken: evmQuote.toToken?.address ?? null,
 			valueUsd,
 			gasUsd: parseFloat(evmQuote.estimatedGasUsd ?? '0') || 0,
+			// The router/contract this trade would actually call. Without it an
+			// operator's allowedContracts allowlist can never match — a configured
+			// control that silently enforces nothing.
+			contractAddress: evmQuote.transactionRequest?.to ?? null,
 		}
 	}
 
