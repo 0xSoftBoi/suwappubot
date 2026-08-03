@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 
 # Whale tiers
 WHALE_TIERS = [
-    (1_000_000, "\U0001F3E6"),  # $1M+  bank
-    (500_000, "\U0001F433"),    # $500K+ whale
-    (50_000, "\U0001F40B"),     # $50K+  whale
+    (1_000_000, "\U0001f3e6"),  # $1M+  bank
+    (500_000, "\U0001f433"),  # $500K+ whale
+    (50_000, "\U0001f40b"),  # $50K+  whale
 ]
 
 # Minimum USD value for the real-time trade feed (configurable at runtime)
@@ -104,7 +104,7 @@ class DiscordAlertService:
             return
 
         # Pick emoji by tier
-        emoji = "\U0001F40B"
+        emoji = "\U0001f40b"
         for threshold, tier_emoji in WHALE_TIERS:
             if usd_value >= threshold:
                 emoji = tier_emoji
@@ -152,7 +152,7 @@ class DiscordAlertService:
         source = token.get("source", "launch_detector")
 
         embed = discord.Embed(
-            title="\U0001F195 New Token Listing",
+            title="\U0001f195 New Token Listing",
             description=f"**{name}** (`{symbol}`)",
             color=COLOR_SUCCESS,
         )
@@ -186,7 +186,7 @@ class DiscordAlertService:
                 username = user.discord_username or user.username or f"User#{user.id}"
 
         embed = discord.Embed(
-            title="\U0001F504 Trade",
+            title="\U0001f504 Trade",
             description=(
                 f"**{trade.from_token}** \u2192 **{trade.to_token}** | "
                 f"**{format_usd(usd_value)}**"
@@ -235,13 +235,15 @@ class DiscordAlertService:
             return
 
         lines = []
-        medals = ["\U0001F947", "\U0001F948", "\U0001F949"]
+        medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
         for i, (token, count, vol) in enumerate(rows):
             prefix = medals[i] if i < 3 else f"`#{i + 1}`"
-            lines.append(f"{prefix} **{token}** \u2014 {count} trades \u2022 {format_usd(float(vol))}")
+            lines.append(
+                f"{prefix} **{token}** \u2014 {count} trades \u2022 {format_usd(float(vol))}"
+            )
 
         embed = discord.Embed(
-            title="\U0001F525 Trending Tokens (Last Hour)",
+            title="\U0001f525 Trending Tokens (Last Hour)",
             description="\n".join(lines),
             color=COLOR_INFO,
         )
@@ -296,7 +298,9 @@ class DiscordAlertService:
                 }
             )
 
-        embed = build_leaderboard_embed(leaders, title="\U0001F3C6 Daily Leaderboard", category="volume")
+        embed = build_leaderboard_embed(
+            leaders, title="\U0001f3c6 Daily Leaderboard", category="volume"
+        )
         embed.timestamp = datetime.now(timezone.utc)
 
         try:

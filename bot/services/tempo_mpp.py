@@ -23,6 +23,7 @@ MPP_DIRECTORY_URL = "https://directory.mpp.dev/v1"
 @dataclass
 class MPPService:
     """A service registered in the MPP directory."""
+
     url: str
     name: str
     description: str
@@ -36,6 +37,7 @@ class MPPService:
 @dataclass
 class MPPSession:
     """An active MPP streaming payment session."""
+
     session_id: str
     service_url: str
     service_name: str
@@ -50,6 +52,7 @@ class MPPSession:
 @dataclass
 class MPPPaymentResult:
     """Result of an MPP payment."""
+
     success: bool
     tx_hash: Optional[str]
     amount: float
@@ -305,9 +308,11 @@ class TempoMPP:
             from bot.models.subscription import MPPSessionRecord
 
             with get_db_session() as db:
-                record = db.query(MPPSessionRecord).filter(
-                    MPPSessionRecord.session_id == session_id
-                ).first()
+                record = (
+                    db.query(MPPSessionRecord)
+                    .filter(MPPSessionRecord.session_id == session_id)
+                    .first()
+                )
                 if record:
                     record.status = "closed"
                     record.closed_at = datetime.now(timezone.utc)
@@ -320,9 +325,7 @@ class TempoMPP:
             from bot.models.subscription import MPPSessionRecord
 
             with get_db_session() as db:
-                query = db.query(MPPSessionRecord).filter(
-                    MPPSessionRecord.status == "active"
-                )
+                query = db.query(MPPSessionRecord).filter(MPPSessionRecord.status == "active")
                 if user_id is not None:
                     query = query.filter(MPPSessionRecord.user_id == user_id)
 

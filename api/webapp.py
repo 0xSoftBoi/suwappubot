@@ -318,6 +318,104 @@ class WebAppSwap(BaseModel):
     errorMessage: Optional[str] = None
 
 
+class WebAppBridgeRoutesRequest(BaseModel):
+    fromChain: str
+    toChain: str
+    token: str
+    amount: str
+    fromAddress: Optional[str] = None
+    toAddress: Optional[str] = None
+    slippageBps: Optional[int] = 50
+
+
+class WebAppBridgeRoute(BaseModel):
+    """One cross-chain route.
+
+    `settlement` and `trustModel` come straight from BridgeQuote and are the
+    reason this is not just a SwapQuote: they describe what happens during the
+    window where the funds are on neither chain.
+    """
+
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    fromAmount: str
+    toAmount: str
+    toAmountMin: str
+    toAmountHuman: float
+    gasCostUsd: float
+    feeCostUsd: float
+    totalCostUsd: float
+    estimatedTime: int
+    settlement: str
+    trustModel: str
+    zeroSlippage: bool
+    depositAddress: Optional[str] = None
+
+
+class WebAppBridgeRoutesResponse(BaseModel):
+    routes: List[WebAppBridgeRoute]
+
+
+class WebAppBridgeBuildRequest(BaseModel):
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    amount: str
+    fromAddress: str
+    toAddress: Optional[str] = None
+    slippageBps: Optional[int] = 50
+
+
+class WebAppBridgeTx(BaseModel):
+    to: str
+    data: str
+    value: str
+    gas: Optional[int] = None
+
+
+class WebAppBridgeBuildResponse(BaseModel):
+    """Unsigned transaction(s) for an external wallet, plus the transfer to track.
+
+    `transferId` is issued here, before anything is signed, so the client always
+    has something to report a broadcast against.
+    """
+
+    transferId: int
+    chainId: Optional[int] = None
+    settlement: str
+    trustModel: str
+    approval: Optional[WebAppBridgeTx] = None
+    tx: Optional[WebAppBridgeTx] = None
+    depositAddress: Optional[str] = None
+
+
+class WebAppBridgeRecordRequest(BaseModel):
+    transferId: int
+    txHash: str
+
+
+class WebAppBridgeTransferResponse(BaseModel):
+    id: str
+    state: str
+    provider: str
+    fromChain: str
+    toChain: str
+    token: str
+    amountHuman: float
+    trustModel: str
+    settlement: str
+    sourceTxHash: Optional[str] = None
+    destinationTxHash: Optional[str] = None
+    depositAddress: Optional[str] = None
+    startedAt: str
+    updatedAt: str
+    estimatedTime: int
+    statusDetail: Optional[str] = None
+
+
 class WebAppSwapQuoteRequest(BaseModel):
     fromToken: str
     toToken: str
@@ -2807,6 +2905,368 @@ async def terminal_copilot_command(
     )
 
 
+@router.post("/bridge/routes", response_model=WebAppBridgeRoutesResponse)
+async def list_terminal_bridge_routes(
+    body: WebAppBridgeRoutesRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Cross-chain routes for a token, ranked by the registry.
+
+    Separate from /swap/quote because a bridge carries information a swap
+    quote has nowhere to put: how it settles, and who holds the funds while
+    they are in flight. The terminal surfaces both, so they must survive the
+    trip over the wire rather than being flattened into a provider name.
+
+    Returns an empty list rather than erroring when no provider can serve the
+    pair — every bridge provider is behind a default-OFF flag, so "no routes"
+    is the normal answer until one is enabled.
+    """
+    from bot.services.bridge.registry import get_bridge_quotes
+
+    if body.fromChain == body.toChain:
+        raise HTTPException(status_code=400, detail="Bridging requires two different chains")
+
+    try:
+        quotes = await get_bridge_quotes(
+            from_chain=body.fromChain,
+            to_chain=body.toChain,
+            from_token=body.token,
+            from_amount=body.amount,
+            from_address=body.fromAddress or "",
+            to_address=body.toAddress,
+            slippage_bps=body.slippageBps or 50,
+        )
+    except Exception as exc:  # noqa: BLE001 — a provider fault must not 500 the page
+        logger.warning(f"bridge routes failed {body.fromChain}->{body.toChain}: {exc}")
+        return WebAppBridgeRoutesResponse(routes=[])
+
+    decimals = get_token_decimals(body.token, body.toChain) or 6
+
+    routes: List[WebAppBridgeRoute] = []
+    for quote in quotes:
+        try:
+            to_amount_human = int(quote.to_amount) / (10**decimals)
+        except (TypeError, ValueError):
+            # A quote whose amount we cannot parse cannot be ranked or shown
+            # honestly, so drop it rather than render a wrong number.
+            continue
+
+        routes.append(
+            WebAppBridgeRoute(
+                provider=quote.provider,
+                fromChain=quote.from_chain,
+                toChain=quote.to_chain,
+                token=quote.from_token,
+                fromAmount=quote.from_amount,
+                toAmount=quote.to_amount,
+                toAmountMin=quote.to_amount_min,
+                toAmountHuman=to_amount_human,
+                gasCostUsd=quote.gas_cost_usd,
+                feeCostUsd=quote.fee_cost_usd,
+                totalCostUsd=quote.gas_cost_usd + quote.fee_cost_usd,
+                estimatedTime=quote.estimated_time,
+                settlement=quote.settlement,
+                trustModel=quote.trust_model,
+                # 1:1 mint/burn rails have no price impact by construction.
+                # Anything we cannot positively identify as such is reported as
+                # pooled, so the UI never claims a guarantee we cannot make.
+                zeroSlippage=quote.provider in ("cctp", "usdt0"),
+                depositAddress=quote.deposit_address,
+            )
+        )
+
+    return WebAppBridgeRoutesResponse(routes=routes)
+
+
+def _cctp_relayer_state(session, source_tx_hash: str) -> Optional[tuple]:
+    """Live (state, detail) for a CCTP transfer, read from the relayer's row.
+
+    The relayer's table is the authority on relay progress; bridge_transfers is
+    the user-facing record. Deriving here rather than copying on every relayer
+    tick means the two can't drift into disagreeing about whether funds landed.
+    """
+    try:
+        from bot.models.cctp import CctpGenericDeposit
+    except Exception:  # noqa: BLE001 — model unavailable is not a request error
+        return None
+
+    row = (
+        session.query(CctpGenericDeposit)
+        .filter(CctpGenericDeposit.burn_tx_hash == source_tx_hash)
+        .first()
+    )
+    if not row:
+        return None
+
+    if row.status == "failed":
+        return (
+            "failed",
+            "This transfer stopped and needs to be completed manually. Support can recover it.",
+        )
+    # A stall is "not moving but safe" — usually the relayer is out of gas on
+    # the destination chain. Distinct from failed, which no longer retries.
+    if getattr(row, "stall_count", 0) and row.status != "minted":
+        return ("stalled", "Waiting on the relayer. Your funds are safe and this will retry.")
+
+    return {
+        "pending_broadcast": ("pending_broadcast", None),
+        "burned": ("attesting", None),
+        "attested": ("destination_pending", None),
+        "minted": ("complete", None),
+    }.get(row.status, (None, None))
+
+
+@router.post("/bridge/build", response_model=WebAppBridgeBuildResponse)
+async def build_terminal_bridge_transfer(
+    body: WebAppBridgeBuildRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Build the unsigned transaction(s) for a bridge, and start tracking it.
+
+    The transfer row is written BEFORE the response, so it exists before the
+    user can sign anything. That ordering is deliberate and is the same lesson
+    as swap_engine's pre-broadcast recording: a signed transaction with no row
+    is invisible forever, while a row whose transaction is never signed is
+    harmless — nothing moved, and it simply stays in pending_broadcast.
+    """
+    from bot.config.chains import get_chain_by_name
+    from bot.models.bridge import BridgeTransfer
+    from bot.services.bridge.registry import get_bridge_quotes
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = auth_payload["user_id"]
+
+    if body.fromChain == body.toChain:
+        raise HTTPException(status_code=400, detail="Bridging requires two different chains")
+
+    sender = (body.fromAddress or "").strip()
+    if not sender:
+        raise HTTPException(status_code=400, detail="Connect a wallet first")
+    recipient = (body.toAddress or sender).strip()
+
+    # Validate both addresses against the chain they will be used on, before
+    # anything is quoted or persisted. The providers validate too, but a bad
+    # address must fail with a clear message rather than surfacing as "no route"
+    # — and the recipient is sealed into the transfer, so a malformed one sends
+    # funds somewhere nobody controls. Matches the /swap/build check.
+    from bot.services.bridge.base import validate_address_for_chain
+
+    if not validate_address_for_chain(sender, body.fromChain):
+        raise HTTPException(
+            status_code=400, detail=f"That wallet address isn't valid on {body.fromChain}"
+        )
+    if not validate_address_for_chain(recipient, body.toChain):
+        raise HTTPException(
+            status_code=400,
+            detail=f"The destination address isn't valid on {body.toChain}. "
+            "Cross-chain transfers need an address in the destination chain's format.",
+        )
+
+    quotes = await get_bridge_quotes(
+        from_chain=body.fromChain,
+        to_chain=body.toChain,
+        from_token=body.token,
+        from_amount=body.amount,
+        from_address=sender,
+        to_address=recipient,
+        slippage_bps=body.slippageBps or 50,
+    )
+    quote = next((q for q in quotes if q.provider == body.provider), None)
+    if quote is None:
+        # Re-quoting can legitimately lose a route (a fee moved, a provider went
+        # away). Say that rather than silently substituting a different one —
+        # the user chose this rail for its trust model, not just its price.
+        raise HTTPException(
+            status_code=409,
+            detail="That route is no longer available. Refresh to see current routes.",
+        )
+
+    tx = quote.transaction_request or {}
+    approval = tx.get("approval_tx")
+    is_deposit_address = quote.settlement == "deposit_address"
+
+    if is_deposit_address and not quote.deposit_address:
+        raise HTTPException(status_code=502, detail="Provider did not return a deposit address")
+    if not is_deposit_address and not (tx.get("to") and tx.get("data")):
+        raise HTTPException(
+            status_code=502, detail="Provider did not return a signable transaction"
+        )
+
+    decimals = get_token_decimals(body.token, body.fromChain) or 6
+
+    # Raw base units must be an exact integer. A provider handing back something
+    # unparseable is a bug on their side, but persisting it would store a wrong
+    # amount against real funds — refuse rather than coerce.
+    try:
+        amount_raw = int(quote.from_amount)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=502, detail="Provider returned an amount that could not be read"
+        )
+
+    transfer = BridgeTransfer(
+        user_id=user_id,
+        provider=quote.provider,
+        from_chain=quote.from_chain,
+        to_chain=quote.to_chain,
+        token=quote.from_token,
+        amount_raw=amount_raw,
+        decimals=decimals,
+        sender_address=sender,
+        recipient_address=recipient,
+        settlement=quote.settlement,
+        trust_model=quote.trust_model,
+        estimated_time=quote.estimated_time,
+        state="awaiting_deposit" if is_deposit_address else "pending_broadcast",
+        deposit_address=quote.deposit_address,
+    )
+    db.add(transfer)
+    db.commit()
+    db.refresh(transfer)
+
+    chain_id = None
+    if not is_deposit_address:
+        chain = get_chain_by_name(quote.from_chain)
+        chain_id = getattr(chain, "chain_id", None)
+        if not isinstance(chain_id, int):
+            # A non-EVM source can't be signed by an EVM wallet; the row stays
+            # for the record but the client is told plainly.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{quote.from_chain} transfers can't be signed by a connected EVM wallet",
+            )
+
+    return WebAppBridgeBuildResponse(
+        transferId=transfer.id,
+        chainId=chain_id,
+        settlement=quote.settlement,
+        trustModel=quote.trust_model,
+        approval=(
+            WebAppBridgeTx(
+                to=approval["to"], data=approval["data"], value=str(approval.get("value", 0))
+            )
+            if approval
+            else None
+        ),
+        tx=(
+            None
+            if is_deposit_address
+            else WebAppBridgeTx(
+                to=tx["to"], data=tx["data"], value=str(tx.get("value", 0)), gas=tx.get("gas")
+            )
+        ),
+        depositAddress=quote.deposit_address,
+    )
+
+
+@router.post("/bridge/record", response_model=WebAppBridgeTransferResponse)
+async def record_terminal_bridge_transfer(
+    body: WebAppBridgeRecordRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Attach the broadcast hash to a transfer built earlier."""
+    from bot.models.bridge import BridgeTransfer
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    transfer = (
+        db.query(BridgeTransfer)
+        .filter(
+            BridgeTransfer.id == body.transferId,
+            BridgeTransfer.user_id == auth_payload["user_id"],
+        )
+        .first()
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    tx_hash = (body.txHash or "").strip()
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail="Missing transaction hash")
+
+    # Idempotent: a client retrying the record call must not reset progress the
+    # relayer has already made.
+    if not transfer.source_tx_hash:
+        transfer.source_tx_hash = tx_hash
+        if transfer.state == "pending_broadcast":
+            transfer.state = "source_pending"
+        db.commit()
+        db.refresh(transfer)
+
+    return _bridge_transfer_response(db, transfer)
+
+
+@router.get("/bridge/transfers/{transfer_id}", response_model=WebAppBridgeTransferResponse)
+async def get_terminal_bridge_transfer(
+    transfer_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Current position of one transfer.
+
+    Polled by the terminal while the transfer is in flight, which is the window
+    where funds have left the source chain and not yet arrived.
+    """
+    from bot.models.bridge import BridgeTransfer
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    transfer = (
+        db.query(BridgeTransfer)
+        .filter(
+            BridgeTransfer.id == transfer_id,
+            BridgeTransfer.user_id == auth_payload["user_id"],
+        )
+        .first()
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    return _bridge_transfer_response(db, transfer)
+
+
+def _bridge_transfer_response(db, transfer) -> WebAppBridgeTransferResponse:
+    """Serialise a transfer, preferring the relayer's live view where it has one."""
+    state = transfer.state
+    detail = transfer.status_detail
+
+    if transfer.provider == "cctp" and transfer.source_tx_hash:
+        derived = _cctp_relayer_state(db, transfer.source_tx_hash)
+        if derived and derived[0]:
+            state = derived[0]
+            detail = derived[1] or detail
+
+    try:
+        amount_human = int(transfer.amount_raw) / (10 ** (transfer.decimals or 6))
+    except (TypeError, ValueError):
+        amount_human = 0.0
+
+    return WebAppBridgeTransferResponse(
+        id=str(transfer.id),
+        state=state,
+        provider=transfer.provider,
+        fromChain=transfer.from_chain,
+        toChain=transfer.to_chain,
+        token=transfer.token,
+        amountHuman=amount_human,
+        trustModel=transfer.trust_model,
+        settlement=transfer.settlement,
+        sourceTxHash=transfer.source_tx_hash,
+        destinationTxHash=transfer.destination_tx_hash,
+        depositAddress=transfer.deposit_address,
+        startedAt=(transfer.created_at.isoformat() if transfer.created_at else ""),
+        updatedAt=(transfer.updated_at.isoformat() if transfer.updated_at else ""),
+        estimatedTime=transfer.estimated_time or 0,
+        statusDetail=detail,
+    )
+
+
 @router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)
 async def create_terminal_swap_quote(
     body: WebAppSwapQuoteRequest,
@@ -3264,6 +3724,56 @@ async def get_my_swaps(
         )
         for swap in swaps
     ]
+
+
+@router.get("/users/me/swaps/{swap_id}", response_model=WebAppSwap)
+async def get_my_swap_detail(
+    swap_id: str,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get a single swap by id for the current Telegram-authenticated user.
+
+    Scoped to the requesting user — returns 404 (not 403) for swaps that
+    exist but belong to someone else, so IDs can't be used to probe for
+    other users' swap history.
+    """
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    try:
+        swap_id_int = int(swap_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    swap = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.id == swap_id_int, SwapTransaction.user_id == user.id)
+        .first()
+    )
+    if not swap:
+        raise HTTPException(status_code=404, detail="Swap not found")
+
+    return WebAppSwap(
+        id=str(swap.id),
+        fromChain=swap.from_chain,
+        toChain=swap.to_chain,
+        fromToken=swap.from_token,
+        toToken=swap.to_token,
+        fromAmount=swap.from_amount,
+        toAmount=swap.to_amount,
+        fromAmountUsd=swap.from_amount_usd,
+        toAmountUsd=swap.to_amount_usd,
+        status=swap.status,
+        txHash=swap.tx_hash,
+        bridgeTxHash=swap.bridge_tx_hash,
+        destinationTxHash=swap.destination_tx_hash,
+        createdAt=swap.created_at.isoformat() if swap.created_at else "",
+        completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+        errorMessage=swap.error_message,
+    )
 
 
 # --- Wallet Management Endpoints ---
@@ -3810,3 +4320,105 @@ async def webapp_referral_leaderboard(
             for idx, entry in enumerate(leaderboard)
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Support tickets (webapp Support page; fan-out/notify handled by support_notifier)
+# ---------------------------------------------------------------------------
+
+
+def _ticket_to_webapp(ticket: SupportTicket) -> Dict:
+    return {
+        "id": str(ticket.id),
+        "kind": ticket.kind,
+        "status": ticket.status,
+        "message": ticket.message,
+        "category": ticket.category,
+        "adminReply": ticket.admin_reply,
+        "createdAt": ticket.created_at.isoformat() if ticket.created_at else None,
+    }
+
+
+@router.get("/support/tickets")
+async def webapp_support_tickets(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    user_id = _require_terminal_user(auth_payload)
+    with get_session() as session:
+        tickets = (
+            session.query(SupportTicket)
+            .filter(SupportTicket.user_id == user_id)
+            .order_by(SupportTicket.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        return [_ticket_to_webapp(t) for t in tickets]
+
+
+class WebAppSupportTicketRequest(BaseModel):
+    kind: str = TicketKind.SUPPORT
+    message: str
+
+
+@router.post("/support/tickets")
+async def webapp_create_support_ticket(
+    body: WebAppSupportTicketRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    user_id = _require_terminal_user(auth_payload)
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    kind = body.kind if body.kind in (TicketKind.SUPPORT, TicketKind.BUG) else TicketKind.SUPPORT
+    with get_session() as session:
+        ticket = SupportTicket(
+            user_id=user_id,
+            kind=kind,
+            source="webapp",
+            message=message[:4000],
+            status=TicketStatus.OPEN,
+        )
+        session.add(ticket)
+        session.commit()
+        session.refresh(ticket)
+        return _ticket_to_webapp(ticket)
+
+
+@router.get("/execution/benchmark")
+async def get_execution_benchmark(
+    from_token: str = Query(..., max_length=40),
+    to_token: str = Query(..., max_length=40),
+    window_days: int = Query(30, ge=1, le=180),
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Where this user's execution sits versus everyone trading the same shape.
+
+    EXECUTION INTELLIGENCE (phase 3). This is the thing a trader cannot compute
+    from their own history — a percentile needs everyone else's fills.
+
+    PRIVACY: cohort suppression below MIN_COHORT_USERS distinct users is
+    enforced inside ExecutionBenchmark's query layer, not here, so no route or
+    future export can bypass it by forgetting the check. A suppressed response
+    says so explicitly rather than masquerading as "no data".
+
+    Every percentile is returned with a concrete remedy where one applies — a
+    benchmark that only tells a user they underperformed gives them a reason
+    to leave and no way to act on it.
+    """
+    from bot.services.execution_benchmark import execution_benchmark
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        return execution_benchmark.user_percentile(
+            user_id=user.id,
+            from_token=from_token.upper(),
+            to_token=to_token.upper(),
+            window_days=window_days,
+        )
+    except Exception as e:
+        logger.error(f"[execution_benchmark] failed: {e}")
+        raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable")

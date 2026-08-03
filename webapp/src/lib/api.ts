@@ -120,7 +120,7 @@ class ApiClient {
    * Get a specific swap by ID
    */
   async getSwap(id: string): Promise<Swap> {
-    return this.fetch<Swap>(`/swaps/${id}`)
+    return this.fetch<Swap>(`/webapp/users/me/swaps/${id}`)
   }
 
   // === Billing ===
@@ -857,7 +857,7 @@ class ApiClient {
     name: string
     symbol: string
     price: number | null
-    safetyScore: number
+    safetyScore: number | null
     chain: string
     address: string
     logoUrl?: string

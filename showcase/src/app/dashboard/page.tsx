@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/links';
 import { useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
+import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -67,12 +68,12 @@ interface DashboardData {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso?: string): string {
-  if (!iso) return '-';
+  if (!iso) return '—';
   try {
     return new Date(iso).toLocaleDateString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
     });
-  } catch { return '-'; }
+  } catch { return '—'; }
 }
 
 function fmtNumber(n: number): string {
@@ -153,9 +154,15 @@ function useApiFetch(token: string, clearToken: () => void) {
     async (path: string, opts: RequestInit = {}): Promise<Response> => {
       const res = await fetch(`${API_BASE_URL}${path}`, {
         ...opts,
+        // Send the parent-domain session cookie. This is now the primary
+        // credential: the cookie is minted by python-api on every auth flow
+        // (Google OAuth, Telegram, passkey) and scoped to .suwappu.bot, so it
+        // reaches api-ts as a same-site request and never has to be held in JS.
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          // Only sent when a token was pasted manually — the legacy fallback.
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(opts.headers ?? {}),
         },
       });
@@ -287,6 +294,13 @@ export default function DashboardPage() {
   const [showNewKey, setShowNewKey] = useState(false);
 
   // Period for usage chart (7D | 30D)
+  // Tabs, not one long scroll. The page previously stacked seven equal cards
+  // — KPIs, chart, endpoints, team, keys, billing — so the thing a paying
+  // customer actually came for sat at the very bottom, below analytics they
+  // did not ask for. These three groups map to the three jobs people come
+  // here to do: monitor, administer, pay.
+  const [tab, setTab] = useState<'overview' | 'team' | 'billing'>('overview');
+
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
   const [periodUsage, setPeriodUsage] = useState<UsageData | null>(null);
   const [periodLoading, setPeriodLoading] = useState(false);
@@ -428,7 +442,9 @@ export default function DashboardPage() {
       {/* ── Header bar ── */}
       <header className={styles.header}>
         <h1 className={styles.orgName}>{org.name}</h1>
-        <span className={styles.tierBadge}>Enterprise</span>
+        {/* The real tier. This was hardcoded to "Enterprise", so every
+            customer saw a plan they might not be on — on a billing page. */}
+        <span className={styles.tierBadge}>{(org.tier ?? 'free').toUpperCase()}</span>
         <div className={styles.headerSep} />
         <div className={styles.userInfo}>
           <span className={styles.userName}>{members[0]?.name ?? 'You'}</span>
@@ -439,59 +455,95 @@ export default function DashboardPage() {
         <button className={styles.signOutBtn} onClick={clearToken}>Sign out</button>
       </header>
 
-      {/* ── 6-tile KPI strip ── */}
-      <div className={styles.kpiRow} aria-label="Key performance indicators">
+      {/* ── Tab nav ── */}
+      <nav className={styles.tabs} aria-label="Dashboard sections">
+        {([
+          ['overview', 'Overview'],
+          ['team', 'Team & API keys'],
+          ['billing', 'Billing'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={styles.tab}
+            data-active={tab === id || undefined}
+            aria-current={tab === id ? 'page' : undefined}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
 
-        {/* 1: API Calls Today */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>API Calls Today</p>
-          <span className={styles.kpiValue}>{fmtNumber(usage.callsToday)}</span>
+      {tab === 'overview' && (<>
+      {/* ── KPI hierarchy ──
+          Was six identical tiles in a six-column grid, which gave calls,
+          errors, latency, team size and key count all the same weight — so
+          nothing read as important. Two problems fixed:
+
+          1. Hierarchy. The two numbers that change behaviour lead at full
+             size: spend-driving volume, and the error rate that decides
+             whether the integration is trusted. Latency and today's calls
+             are supporting context, so they are compact.
+          2. Team size and key count are gone from here entirely. They are
+             not performance indicators, and they now have their own tab one
+             click away — duplicating them as tiles diluted the strip.
+
+          Status dots appear ONLY where they encode a signal. Four of the six
+          tiles previously carried a static #8eb6c5 dot that looked identical
+          to the live health colour used for errors and latency, so a
+          decoration read as a status light. */}
+      <div className={styles.kpiPrimary}>
+        <div className={styles.kpiHero}>
+          <p className={styles.kpiLabel}>API calls this month</p>
+          <span className={styles.kpiHeroValue}>{fmtNumber(usage.callsThisMonth)}</span>
+          <span className={styles.kpiHeroMeta}>
+            {fmtNumber(usage.callsToday)} today
+          </span>
         </div>
 
-        {/* 2: API Calls This Month */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>API Calls This Month</p>
-          <span className={styles.kpiValue}>{fmtNumber(usage.callsThisMonth)}</span>
+        <div className={styles.kpiHero}>
+          <p className={styles.kpiLabel}>
+            Error rate
+            <span
+              className={styles.kpiDotInline}
+              style={SIGNAL_DOT[errorRateColor(usage.errorRate)]}
+              aria-label={`Status: ${errorRateColor(usage.errorRate)}`}
+            />
+          </p>
+          <span className={styles.kpiHeroValue}>{usage.errorRate.toFixed(2)}%</span>
+          <span className={styles.kpiHeroMeta}>
+            {usage.rateLimitHits > 0
+              ? `${fmtNumber(usage.rateLimitHits)} rate-limit hits`
+              : 'No rate-limit hits'}
+          </span>
+        </div>
+      </div>
+
+      <div className={styles.kpiSecondary}>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>
+            Avg response
+            <span
+              className={styles.kpiDotInline}
+              style={SIGNAL_DOT[latencyColor(usage.avgDurationMs)]}
+              aria-label={`Status: ${latencyColor(usage.avgDurationMs)}`}
+            />
+          </span>
+          <span className={styles.kpiCompactValue}>{fmtMs(usage.avgDurationMs)}</span>
         </div>
 
-        {/* 3: Error Rate */}
-        <div className={styles.kpiCard}>
-          <div
-            className={styles.kpiDot}
-            style={SIGNAL_DOT[errorRateColor(usage.errorRate)]}
-            aria-label={`Status: ${errorRateColor(usage.errorRate)}`}
-          />
-          <p className={styles.kpiLabel}>Error Rate</p>
-          <span className={styles.kpiValue}>{usage.errorRate.toFixed(2)}%</span>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>Plan</span>
+          <span className={styles.kpiCompactValue}>{(org.tier ?? 'free').toUpperCase()}</span>
         </div>
 
-        {/* 4: Avg Response Time */}
-        <div className={styles.kpiCard}>
-          <div
-            className={styles.kpiDot}
-            style={SIGNAL_DOT[latencyColor(usage.avgDurationMs)]}
-            aria-label={`Status: ${latencyColor(usage.avgDurationMs)}`}
-          />
-          <p className={styles.kpiLabel}>Avg Response Time</p>
-          <span className={styles.kpiValue}>{fmtMs(usage.avgDurationMs)}</span>
+        <div className={styles.kpiCompact}>
+          <span className={styles.kpiCompactLabel}>Rate limit</span>
+          <span className={styles.kpiCompactValue}>
+            {rateLimit.toLocaleString()}<span className={styles.kpiUnit}> req/min</span>
+          </span>
         </div>
-
-        {/* 5: Team Members */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>Team Members</p>
-          <span className={styles.kpiValue}>{fmtNumber(members.length)}</span>
-        </div>
-
-        {/* 6: Active API Keys */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiDot} style={{ background: '#8eb6c5' }} aria-hidden="true" />
-          <p className={styles.kpiLabel}>Active API Keys</p>
-          <span className={styles.kpiValue}>{fmtNumber(activeKeys.length)}</span>
-        </div>
-
       </div>
 
       {/* ── Usage chart ── */}
@@ -561,24 +613,9 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ── Latency distribution (placeholder until endpoint returns buckets) ── */}
-      <section className={styles.card} aria-label="Latency distribution">
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>Latency Distribution</h2>
-        </div>
-        <div className={styles.latencyPlaceholder}>
-          <span className={styles.latencyPlaceholderIcon} aria-hidden="true">⏱</span>
-          <div>
-            <p className={styles.latencyPlaceholderTitle}>Latency breakdown coming soon</p>
-            <p className={styles.latencyPlaceholderSub}>
-              P50 / P95 / P99 buckets (&lt;100ms · 100–200ms · 200–500ms · 500ms–1s · &gt;1s)
-              will appear here once the usage endpoint returns per-bucket data.
-              Current average: <strong>{fmtMs(usage.avgDurationMs)}</strong>
-            </p>
-          </div>
-        </div>
-      </section>
+      </>)}
 
+      {tab === 'team' && (<>
       {/* ── Team table ── */}
       <section className={styles.card} aria-label="Team members">
         <div className={styles.cardHead}>
@@ -682,7 +719,7 @@ export default function DashboardPage() {
                     </div>
                   </td>
                   <td className={styles.mono}>
-                    {k.callsThisMonth !== undefined ? k.callsThisMonth.toLocaleString() : '-'}
+                    {k.callsThisMonth !== undefined ? k.callsThisMonth.toLocaleString() : '—'}
                   </td>
                   <td>
                     <span className={`${styles.keyStatusBadge} ${styles[`keyStatus--${st}`]}`}>
@@ -711,90 +748,25 @@ export default function DashboardPage() {
         </table>
       </section>
 
-      {/* ── Billing ── */}
-      <section className={styles.card} aria-label="Billing">
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>Billing</h2>
-        </div>
+      </>)}
 
-        {/* Plan row */}
-        <div className={styles.billingPlanRow}>
-          <div className={styles.billingPlan}>
-            <span className={styles.tierBadge}>Enterprise</span>
-            <span className={styles.billingPlanName}>{org.tier ?? 'Enterprise'} Plan</span>
-          </div>
-          {org.subscription?.renewsAt && (
-            <span className={styles.billingMeta}>
-              Renewal: {fmtDate(org.subscription.renewsAt)}
-            </span>
-          )}
-          <div className={styles.billingStatusPill} data-status={subStatus}>
-            <span className={styles.billingStatusDot} />
-            {subStatus.charAt(0).toUpperCase() + subStatus.slice(1)}
-          </div>
-          <div className={styles.billingLink}>
-            <Link
-              href="/pricing"
-              className={`${styles.actionBtn} ${styles['actionBtn--create']}`}
-              style={{
-                display: 'inline-flex', alignItems: 'center', textDecoration: 'none',
-                minHeight: 34, padding: '0 14px', borderRadius: 8,
-                border: '1px solid rgba(207,227,234,0.9)',
-              }}
-            >
-              Manage Billing
-            </Link>
-          </div>
-        </div>
+      {tab === 'billing' && (<>
+      {/* ── Billing ──
+          Previously TWO stacked billing sections: this card and BillingPanel
+          directly below it, each showing the plan and each with its own
+          competing call to action. Now one. The plan limits that lived here
+          (rate limit, seat usage) move into the panel, where they sit next to
+          the plan they belong to. */}
+      <BillingPanel
+        apiFetch={apiFetch}
+        fallbackTier={org.tier}
+        renewsAt={org.subscription?.renewsAt}
+        rateLimitPerMin={rateLimit}
+        seatsUsed={seatUsed}
+        seatLimit={seatLimit}
+      />
 
-        {/* Usage meter */}
-        <div className={styles.billingMetrics}>
-
-          <div className={styles.billingMetric}>
-            <div className={styles.billingMetricLabel}>
-              <span>API Calls This Month</span>
-              <span className={styles.mono}>{totalCalls.toLocaleString()} / ∞</span>
-            </div>
-            <div className={styles.meterTrack} aria-label={`${totalCalls.toLocaleString()} API calls used`}>
-              <div className={styles.meterFill} style={{ width: `${usagePct}%` }} />
-            </div>
-            {totalCalls > ENTERPRISE_SOFT_WARN * 0.8 && (
-              <p className={styles.billingWarn}>
-                Heads up: approaching {(ENTERPRISE_SOFT_WARN / 1000).toFixed(0)}k soft monitoring threshold.
-                Contact your account manager to discuss capacity.
-              </p>
-            )}
-          </div>
-
-          <div className={styles.billingMetric}>
-            <div className={styles.billingMetricLabel}>
-              <span>Rate Limit</span>
-              <span className={styles.mono}>{rateLimit.toLocaleString()} req/min</span>
-            </div>
-          </div>
-
-          {seatLimit !== null && (
-            <div className={styles.billingMetric}>
-              <div className={styles.billingMetricLabel}>
-                <span>Seat Usage</span>
-                <span className={styles.mono}>{seatUsed} / {seatLimit} seats</span>
-              </div>
-              <div className={styles.meterTrack} aria-label={`${seatUsed} of ${seatLimit} seats used`}>
-                <div
-                  className={styles.meterFill}
-                  style={{
-                    width: `${Math.min((seatUsed / seatLimit) * 100, 100)}%`,
-                    background: seatUsed >= seatLimit
-                      ? 'linear-gradient(90deg, #c0392b, #e74c3c)'
-                      : undefined,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-        </div>
-      </section>
+      </>)}
 
       {/* ── New key modal ── */}
       {showNewKey && (

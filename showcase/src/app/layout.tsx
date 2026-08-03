@@ -78,9 +78,11 @@ export const metadata: Metadata = {
       `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades: one SDK, three lines of code.`,
     // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
-  alternates: {
-    canonical: 'https://suwappu.bot',
-  },
+  // Deliberately no canonical at the root. Next inherits metadata down the tree
+  // rather than deriving a per-route URL, so a value here is emitted verbatim on
+  // every page and declares the whole site a duplicate of one URL. Routes that
+  // need a canonical set it themselves (see app/research/[slug]); the rest
+  // self-canonicalize, which is the correct default.
   robots: {
     index: true,
     follow: true,
@@ -108,7 +110,10 @@ export default async function RootLayout({
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />
-        <link rel="canonical" href="https://suwappu.bot" />
+        {/* No hardcoded canonical here: this <head> renders on every route, so a
+            literal homepage URL declared every page a duplicate of "/". The
+            canonical comes from metadata.alternates.canonical instead, which
+            defaults to "/" for the root and is overridden per route. */}
       </head>
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>

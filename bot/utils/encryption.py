@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Try to import C++ core
 try:
     import suwappu_core
+
     CPP_CORE_AVAILABLE = True
 except ImportError:
     suwappu_core = None
@@ -30,7 +31,7 @@ def derive_key(password: str, salt: bytes = None) -> tuple[bytes, bytes]:
 
     if salt is None:
         salt = os.urandom(16)
-    
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -51,10 +52,10 @@ def encrypt_private_key(private_key: str, encryption_key: str) -> str:
 
     # Generate a unique salt for this key
     key, salt = derive_key(encryption_key)
-    
+
     fernet = Fernet(key)
     encrypted = fernet.encrypt(private_key.encode())
-    
+
     # Prepend salt to encrypted data
     result = base64.urlsafe_b64encode(salt + encrypted)
     return result.decode()
@@ -72,10 +73,10 @@ def decrypt_private_key(encrypted_data: str, encryption_key: str) -> str:
     data = base64.urlsafe_b64decode(encrypted_data.encode())
     salt = data[:16]
     encrypted = data[16:]
-    
+
     # Derive key using the same salt
     key, _ = derive_key(encryption_key, salt)
-    
+
     fernet = Fernet(key)
     decrypted = fernet.decrypt(encrypted)
     return decrypted.decode()
@@ -84,4 +85,3 @@ def decrypt_private_key(encrypted_data: str, encryption_key: str) -> str:
 def generate_encryption_key() -> str:
     """Generate a new random encryption key for use in .env."""
     return Fernet.generate_key().decode()
-

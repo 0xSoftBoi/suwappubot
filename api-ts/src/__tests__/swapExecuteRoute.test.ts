@@ -27,6 +27,24 @@ const TEST_AGENT = {
 	},
 } as any
 
+// mock.module() mutates the PROCESS-WIDE module registry and is NOT undone when this
+// file finishes — every test file that runs later in the same `bun test` process keeps
+// these stubs. That leak is why x402.test.ts (costForTool → 0, COST_WEIGHTS → {}) and
+// agentOrMppAuth.test.ts (bearer auth → pass-through, so a malformed key 200s) failed
+// in the full run while both passed in isolation. Capture the real implementations
+// before mocking and restore them in afterAll — same discipline as global.fetch below.
+const REAL_MODULES = {
+	'../middleware/auth': { ...(await import('../middleware/auth')) },
+	'../middleware/x402Payment': { ...(await import('../middleware/x402Payment')) },
+	'../runtime': { ...(await import('../runtime')) },
+}
+
+afterAll(() => {
+	mock.module('../middleware/auth', () => REAL_MODULES['../middleware/auth'])
+	mock.module('../middleware/x402Payment', () => REAL_MODULES['../middleware/x402Payment'])
+	mock.module('../runtime', () => REAL_MODULES['../runtime'])
+})
+
 // Bypass DB-backed bearer auth: any request in this suite authenticates as TEST_AGENT.
 // (agentFlexAuth falls through to agentBearerAuth() for non-org-key bearer tokens.)
 mock.module('../middleware/auth', () => ({

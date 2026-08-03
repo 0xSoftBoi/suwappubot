@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 class LaunchPlatform(Enum):
     """Platform where token was launched."""
+
     PUMP_FUN = "pump_fun"
     RAYDIUM = "raydium"
     PUMP_FUN_MIGRATION = "pump_fun_migration"
@@ -46,6 +47,7 @@ class LaunchPlatform(Enum):
 
 class LaunchQuality(Enum):
     """Quality rating for a launch."""
+
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
@@ -55,6 +57,7 @@ class LaunchQuality(Enum):
 @dataclass
 class TokenLaunch:
     """Detected token launch event."""
+
     token_mint: str
     platform: LaunchPlatform
     name: str
@@ -113,6 +116,7 @@ class TokenLaunch:
 @dataclass
 class SnipeFilter:
     """Filters for which launches to alert on."""
+
     min_liquidity_sol: float = 1.0
     max_liquidity_sol: float = 1000.0
     min_quality_score: float = 30.0
@@ -433,8 +437,9 @@ class LaunchDetector:
             r"rug",
         ]
         for pattern in suspicious_patterns:
-            if re.search(pattern, launch.name, re.IGNORECASE) or \
-               re.search(pattern, launch.symbol, re.IGNORECASE):
+            if re.search(pattern, launch.name, re.IGNORECASE) or re.search(
+                pattern, launch.symbol, re.IGNORECASE
+            ):
                 score -= 30
                 reasons.append(f"Suspicious name/symbol")
                 break
@@ -463,10 +468,7 @@ class LaunchDetector:
         # Cleanup old entries if cache is too large
         if len(self._recent_launches) > self._max_cache_size:
             # Remove oldest entries
-            sorted_launches = sorted(
-                self._recent_launches.items(),
-                key=lambda x: x[1].detected_at
-            )
+            sorted_launches = sorted(self._recent_launches.items(), key=lambda x: x[1].detected_at)
             for mint, _ in sorted_launches[:100]:
                 self._recent_launches.pop(mint, None)
 
@@ -488,7 +490,8 @@ class LaunchDetector:
                 cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._cache_ttl)
 
                 to_remove = [
-                    mint for mint, launch in self._recent_launches.items()
+                    mint
+                    for mint, launch in self._recent_launches.items()
                     if launch.detected_at < cutoff
                 ]
 
@@ -497,7 +500,8 @@ class LaunchDetector:
 
                 # Also cleanup migration candidates
                 self._migration_candidates = {
-                    k: v for k, v in self._migration_candidates.items()
+                    k: v
+                    for k, v in self._migration_candidates.items()
                     if k in self._recent_launches
                 }
 

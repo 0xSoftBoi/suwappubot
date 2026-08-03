@@ -32,9 +32,15 @@ TRONGRID_BASE = "https://api.trongrid.io"
 
 # Function selectors (keccak256 first 4 bytes)
 SELECTOR_GET_AMOUNTS_OUT = "d06ca61f"  # getAmountsOut(uint256,address[])
-SELECTOR_SWAP_EXACT_TOKENS_FOR_TOKENS = "38ed1739"  # swapExactTokensForTokens(uint256,uint256,address[],address,uint256)
-SELECTOR_SWAP_EXACT_ETH_FOR_TOKENS = "7ff36ab5"  # swapExactETHForTokens(uint256,address[],address,uint256)
-SELECTOR_SWAP_EXACT_TOKENS_FOR_ETH = "18cbafe5"  # swapExactTokensForETH(uint256,uint256,address[],address,uint256)
+SELECTOR_SWAP_EXACT_TOKENS_FOR_TOKENS = (
+    "38ed1739"  # swapExactTokensForTokens(uint256,uint256,address[],address,uint256)
+)
+SELECTOR_SWAP_EXACT_ETH_FOR_TOKENS = (
+    "7ff36ab5"  # swapExactETHForTokens(uint256,address[],address,uint256)
+)
+SELECTOR_SWAP_EXACT_TOKENS_FOR_ETH = (
+    "18cbafe5"  # swapExactTokensForETH(uint256,uint256,address[],address,uint256)
+)
 SELECTOR_APPROVE = "095ea7b3"  # approve(address,uint256)
 SELECTOR_ALLOWANCE = "dd62ed3e"  # allowance(address,address)
 
@@ -42,6 +48,7 @@ SELECTOR_ALLOWANCE = "dd62ed3e"  # allowance(address,address)
 @dataclass
 class SunSwapQuote:
     """Quote from SunSwap V2 Router."""
+
     amount_in: str
     amount_out: str
     amount_out_min: str
@@ -66,6 +73,7 @@ def _tron_address_to_hex(base58_address: str) -> str:
     ABI parameters (left-padded with zeros).
     """
     import base58 as b58
+
     decoded = b58.b58decode_check(base58_address)
     # decoded[0] is 0x41 (TRON prefix), rest is 20-byte address
     addr_hex = decoded[1:].hex()
@@ -76,9 +84,10 @@ def _hex_to_tron_address(hex_addr: str) -> str:
     """Convert 20-byte hex address back to TRON base58check format."""
     import base58 as b58
     import hashlib
+
     # Strip leading zeros to get 20-byte address, then add 0x41 prefix
     addr_bytes = bytes.fromhex(hex_addr[-40:])
-    prefixed = b'\x41' + addr_bytes
+    prefixed = b"\x41" + addr_bytes
     # Double SHA256 for checksum
     h1 = hashlib.sha256(prefixed).digest()
     h2 = hashlib.sha256(h1).digest()
@@ -210,7 +219,7 @@ class SunSwapAPI:
         amounts = []
         for i in range(array_length):
             start = 128 + i * 64
-            amounts.append(int(result_hex[start:start + 64], 16))
+            amounts.append(int(result_hex[start : start + 64], 16))
 
         return amounts
 
@@ -351,6 +360,7 @@ class SunSwapAPI:
         await api_limiter.wait_and_acquire("sunswap")
 
         import time
+
         deadline = int(time.time()) + deadline_offset
 
         is_from_trx = self._is_native_trx(from_token)
@@ -384,7 +394,9 @@ class SunSwapAPI:
             call_value = 0
         else:
             # swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
-            function_selector = "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"
+            function_selector = (
+                "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"
+            )
             offset_to_path = _encode_uint256(160)  # 5 * 32 = 160
             parameter = (
                 _encode_uint256(amount_in)

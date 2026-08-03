@@ -3,6 +3,7 @@
 Locks in the fix for the gross-vs-net allocation bug: a referred swap must never
 "allocate" more than 100% of the fee (referral + staking + protocol == fee_amount).
 """
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
@@ -24,6 +25,7 @@ def svc():
 # ---------------------------------------------------------------------------
 # Tier-based fee rates
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "tier,expected_pct",
@@ -50,12 +52,11 @@ def test_none_tier_falls_back_to_default(svc):
 # Allocation reconciliation — the regression lock for the 130% bug
 # ---------------------------------------------------------------------------
 
+
 def _assert_reconciles(calc):
     """referral + staking + protocol must equal the gross fee (within rounding)."""
     total = (
-        float(calc.referral_reward_usd)
-        + calc.staking_allocation_usd
-        + calc.protocol_allocation_usd
+        float(calc.referral_reward_usd) + calc.staking_allocation_usd + calc.protocol_allocation_usd
     )
     assert total == pytest.approx(float(calc.fee_amount_usd), abs=0.01)
 
@@ -67,7 +68,9 @@ def test_allocation_reconciles_without_referrer(svc):
     # no referrer → net == gross → 40/60 of the full fee
     assert float(calc.net_fee_usd) == pytest.approx(float(calc.fee_amount_usd))
     assert calc.staking_allocation_usd == pytest.approx(float(calc.fee_amount_usd) * 0.40, abs=0.01)
-    assert calc.protocol_allocation_usd == pytest.approx(float(calc.fee_amount_usd) * 0.60, abs=0.01)
+    assert calc.protocol_allocation_usd == pytest.approx(
+        float(calc.fee_amount_usd) * 0.60, abs=0.01
+    )
     _assert_reconciles(calc)
 
 
@@ -76,10 +79,10 @@ def test_allocation_reconciles_with_referrer(svc):
     calc = svc.calculate_fee(1000.0, referrer_id=42, tier=SubscriptionTier.FREE)
     assert calc.has_referrer is True
     assert float(calc.fee_amount_usd) == pytest.approx(10.0, abs=0.01)
-    assert float(calc.referral_reward_usd) == pytest.approx(3.0, abs=0.01)   # 30% of gross
+    assert float(calc.referral_reward_usd) == pytest.approx(3.0, abs=0.01)  # 30% of gross
     assert float(calc.net_fee_usd) == pytest.approx(7.0, abs=0.01)
-    assert calc.staking_allocation_usd == pytest.approx(2.8, abs=0.01)        # 40% of net
-    assert calc.protocol_allocation_usd == pytest.approx(4.2, abs=0.01)       # 60% of net
+    assert calc.staking_allocation_usd == pytest.approx(2.8, abs=0.01)  # 40% of net
+    assert calc.protocol_allocation_usd == pytest.approx(4.2, abs=0.01)  # 60% of net
     # the whole point: 3 + 2.8 + 4.2 == 10, NOT 13 (the old 130% bug)
     _assert_reconciles(calc)
 

@@ -16,6 +16,7 @@ import { LendingPanel } from '../lending/LendingPanel'
 import { WalletTrackerPanel } from '../tracker/WalletTrackerPanel'
 import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
 import { WatchlistPanel } from '../watchlist/WatchlistPanel'
+import { IntelPanel } from '../intel/IntelPanel'
 import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
@@ -32,6 +33,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'signals', label: 'Signals' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
+  { id: 'intel', label: 'Token Intel' },
   { id: 'copy-trading', label: 'Copy Trading' },
   { id: 'wallet-tracker', label: 'Wallet Tracker' },
   { id: 'tweets', label: 'Tweets' },
@@ -143,6 +145,11 @@ function MobileLayout() {
                 </ErrorBoundary>
               )}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
+              {bottomTab === 'intel' && (
+                <ErrorBoundary label="Token Intel">
+                  <IntelPanel />
+                </ErrorBoundary>
+              )}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
               {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
               {bottomTab === 'tweets' && <TweetMonitorPanel />}
@@ -284,6 +291,11 @@ function DesktopLayout() {
               </ErrorBoundary>
             )}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
+            {bottomTab === 'intel' && (
+              <ErrorBoundary label="Token Intel">
+                <IntelPanel />
+              </ErrorBoundary>
+            )}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
             {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
             {bottomTab === 'tweets' && <TweetMonitorPanel />}

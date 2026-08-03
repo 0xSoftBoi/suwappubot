@@ -8,6 +8,9 @@ import { publishedPosts, getPost } from '@/content/research';
 
 type Params = { slug: string };
 
+const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
+const SITE = 'https://suwappu.bot';
+
 export function generateStaticParams(): Params[] {
   return publishedPosts.map((p) => ({ slug: p.slug }));
 }
@@ -19,11 +22,31 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const post = getPost(slug);
-  if (!post) return { title: 'Not found | Suwappu Research' };
+  if (!post) return { title: 'Not found — Suwappu Research' };
+  const url = `/research/${post.slug}`;
   return {
-    title: `${post.title}: Suwappu`,
+    // The root layout's title template already appends "| Suwappu".
+    title: post.title,
     description: post.excerpt,
-    openGraph: { title: post.title, description: post.excerpt, type: 'article' },
+    // Each post is its own indexable document, so it carries its own canonical
+    // rather than inheriting the site root's.
+    alternates: { canonical: url },
+    authors: [{ name: AUTHOR_NAME }],
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+      type: 'article',
+      url,
+      publishedTime: post.date,
+      modifiedTime: post.date,
+      authors: [AUTHOR_NAME],
+      section: post.category,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: post.title,
+      description: post.excerpt,
+    },
   };
 }
 
@@ -42,8 +65,51 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   const body = post.body.replace(/^#\s+.+\n+/, '');
   const html = markdownToHtml(body);
 
+  // ScholarlyArticle for research (stated method, released data, reproduction
+  // path); TechArticle for engineering notes, which document a system rather
+  // than report a result.
+  const articleLd = {
+    '@context': 'https://schema.org',
+    '@type': post.kind === 'research' ? 'ScholarlyArticle' : 'TechArticle',
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: post.date,
+    dateModified: post.date,
+    inLanguage: 'en',
+    isAccessibleForFree: true,
+    articleSection: post.category,
+    keywords: post.keywords?.join(', '),
+    author: { '@type': 'Person', name: AUTHOR_NAME, url: `${SITE}/about` },
+    publisher: {
+      '@type': 'Organization',
+      name: 'Suwappu',
+      url: SITE,
+      logo: { '@type': 'ImageObject', url: `${SITE}/logo.svg` },
+    },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE}/research/${post.slug}` },
+    url: `${SITE}/research/${post.slug}`,
+  };
+
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: SITE },
+      { '@type': 'ListItem', position: 2, name: 'Research', item: `${SITE}/research` },
+      { '@type': 'ListItem', position: 3, name: post.title, item: `${SITE}/research/${post.slug}` },
+    ],
+  };
+
   return (
-    <main id="main-content" className="summer-page docs-shell sw-dark">
+    <main id="main-content" className="summer-page docs-shell">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+      />
       <Navigation />
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">

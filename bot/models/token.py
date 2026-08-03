@@ -7,6 +7,7 @@ from database.db import Base
 
 class PointsTier(Base):
     """User's points tier status, derived from XP + volume."""
+
     __tablename__ = "points_tiers"
 
     id = Column(Integer, primary_key=True)
@@ -25,6 +26,7 @@ class PointsTier(Base):
 
 class FeeDiscount(Base):
     """Fee discount based on points tier or subscription."""
+
     __tablename__ = "fee_discounts"
 
     id = Column(Integer, primary_key=True)

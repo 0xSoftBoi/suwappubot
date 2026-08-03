@@ -24,9 +24,10 @@ Welcome to Suwappu Bot! By using this service, you agree to the following:
 Do you accept these terms and conditions?
 """
 
+
 class TosService:
     """Service for handling TOS acceptance."""
-    
+
     @staticmethod
     def is_accepted(user_id: int) -> bool:
         """Check if a user (by internal ID) has accepted the TOS."""
@@ -63,5 +64,5 @@ class TosService:
             logger.error(f"Error accepting TOS for user {user_id}: {e}")
             return False
 
-tos_service = TosService()
 
+tos_service = TosService()

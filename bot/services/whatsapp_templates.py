@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 def _body_params(values: List[str]) -> List[Dict[str, Any]]:
     """Build a ``body`` component with positional text parameters."""
-    return [{
-        "type": "body",
-        "parameters": [
-            {"type": "text", "text": v} for v in values
-        ],
-    }]
+    return [
+        {
+            "type": "body",
+            "parameters": [{"type": "text", "text": v} for v in values],
+        }
+    ]
 
 
 def _header_param(value: str) -> Dict[str, Any]:
@@ -160,12 +160,14 @@ class WhatsAppTemplateService:
         {{3}} = amount, {{4}} = tx hash (truncated)
         """
         short_hash = tx_hash[:10] + "..." if len(tx_hash) > 13 else tx_hash
-        components = _body_params([
-            from_token.upper(),
-            to_token.upper(),
-            str(amount),
-            short_hash,
-        ])
+        components = _body_params(
+            [
+                from_token.upper(),
+                to_token.upper(),
+                str(amount),
+                short_hash,
+            ]
+        )
         return await self._send(to, "swap_completed", components)
 
     async def send_security_alert(

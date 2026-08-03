@@ -164,12 +164,14 @@ class PointsFlow(BaseWhatsAppFlow):
                 return FlowResponse(text="Reward no longer available.")
             reward_type = reward_obj.reward_type
             reward_value = reward_obj.reward_value
+            reward_duration_days = reward_obj.duration_days
 
         success, message = points_service.spend_points(
             user_id=db_id,
             amount=reward_cost,
             reward_type=reward_type,
             reward_value=reward_value,
+            duration_days=reward_duration_days,
         )
 
         await self._clear(user_id)

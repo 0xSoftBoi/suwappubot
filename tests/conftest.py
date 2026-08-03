@@ -21,12 +21,18 @@ import pytest
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
-os.environ.setdefault("KMS_PROVIDER", "dev")          # never hit real KMS in tests
+os.environ.setdefault("KMS_PROVIDER", "dev")  # never hit real KMS in tests
+# api.main freezes JWT_SECRET at import time (random if SECRET_KEY is unset).
+# Any test module importing api.main before a per-module setdefault runs would
+# freeze a random secret and 401 every webapp JWT test that runs later — so the
+# secret must be pinned here, before any test module is imported.
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 
 # ---------------------------------------------------------------------------
 # Event loop (pytest-asyncio)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def event_loop_policy():
@@ -37,10 +43,12 @@ def event_loop_policy():
 # Database
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def tmp_db(tmp_path):
     """Isolated SQLite database for each test, cleaned up afterwards."""
     from database.db import init_db, SessionLocal
+
     url = f"sqlite:///{tmp_path / 'test.db'}"
     assert init_db(url), "DB init failed"
     yield url
@@ -50,6 +58,7 @@ def tmp_db(tmp_path):
 # ---------------------------------------------------------------------------
 # Redis cache
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def mock_redis(monkeypatch):
@@ -72,6 +81,7 @@ def mock_redis(monkeypatch):
 # Telegram bot
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_telegram(monkeypatch):
     """Mock Telegram Bot so tests never touch the Telegram API."""
@@ -87,13 +97,14 @@ def mock_telegram(monkeypatch):
 # Web3 / RPC
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_web3():
     """Mock Web3 instance — no RPC calls."""
     w3 = MagicMock()
-    w3.eth.get_balance = MagicMock(return_value=10 ** 18)  # 1 ETH
+    w3.eth.get_balance = MagicMock(return_value=10**18)  # 1 ETH
     w3.eth.get_transaction_count = MagicMock(return_value=42)
-    w3.eth.gas_price = 20 * 10 ** 9  # 20 gwei
+    w3.eth.gas_price = 20 * 10**9  # 20 gwei
     w3.eth.send_raw_transaction = MagicMock(return_value=bytes.fromhex("ab" * 32))
     w3.eth.wait_for_transaction_receipt = MagicMock(return_value={"status": 1})
     return w3
@@ -102,6 +113,7 @@ def mock_web3():
 # ---------------------------------------------------------------------------
 # Swap engine
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def mock_swap_engine():
@@ -132,5 +144,7 @@ def mock_swap_engine():
             timestamp=datetime.utcnow(),
         )
     )
-    engine.execute_swap = AsyncMock(return_value=MagicMock(id=1, tx_hash="0x" + "ab" * 32, status="SUBMITTED"))
+    engine.execute_swap = AsyncMock(
+        return_value=MagicMock(id=1, tx_hash="0x" + "ab" * 32, status="SUBMITTED")
+    )
     return engine

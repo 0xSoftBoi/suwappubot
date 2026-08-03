@@ -35,9 +35,17 @@ def _install_stub(name):
     sys.modules[name] = m
 
 
-for _n in ("qrcode", "qrcode.constants", "qrcode.image", "qrcode.image.styledpil",
-           "qrcode.image.styles", "qrcode.image.styles.moduledrawers",
-           "qrcode.image.styles.colormasks", "PIL", "PIL.Image"):
+for _n in (
+    "qrcode",
+    "qrcode.constants",
+    "qrcode.image",
+    "qrcode.image.styledpil",
+    "qrcode.image.styles",
+    "qrcode.image.styles.moduledrawers",
+    "qrcode.image.styles.colormasks",
+    "PIL",
+    "PIL.Image",
+):
     _install_stub(_n)
 
 

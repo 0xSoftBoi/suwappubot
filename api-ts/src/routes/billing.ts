@@ -1,11 +1,25 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import type Stripe from 'stripe'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { EnvService } from '../config/EnvService'
-import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
-import { requireDb, subscriptions, wallets, webCheckouts, x402Payments } from '../db'
+import {
+	CREDIT_PACKS,
+	getCreditPack,
+	PURCHASABLE_TIERS,
+	SUBSCRIPTION_PERIOD_DAYS,
+	TIER_PRICES_USD,
+} from '../config/constants'
+import {
+	apiCredits,
+	consumedPayments,
+	requireDb,
+	subscriptions,
+	wallets,
+	webCheckouts,
+	x402Payments,
+} from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
@@ -226,9 +240,112 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 					customer?: string | null
 					customer_email?: string | null
 					customer_details?: { email?: string | null } | null
-					metadata?: { telegram_id?: string; user_id?: string; tier?: string; source?: string }
+					metadata?: {
+						telegram_id?: string
+						user_id?: string
+						tier?: string
+						source?: string
+						kind?: string
+						pack_id?: string
+						credit_usd?: string
+					}
 				}
-				const { user_id, tier, source } = session.metadata ?? {}
+				const { user_id, tier, source, kind } = session.metadata ?? {}
+
+				// ── Prepaid API credit top-up (mode: 'payment') ────────────────────
+				// MONEY-PATH: idempotent on the Stripe session id via the shared
+				// consumed_payments ledger. The insert-guard runs inside the same
+				// transaction as the balance increment, so a redelivered webhook
+				// (Stripe retries aggressively) loses the unique-constraint race
+				// instead of granting credits twice.
+				//
+				// `api_credits.balance` is USD-denominated (shared with the python
+				// x402 path) — the grant is a USD figure, NOT a credit-unit count.
+				if (kind === 'credits' && user_id) {
+					const dbUserId = parseInt(user_id, 10)
+					const creditsToGrant = Number(session.metadata?.credit_usd ?? 0)
+
+					if (!Number.isFinite(creditsToGrant) || creditsToGrant <= 0) {
+						yield* Effect.logError(
+							`credit checkout webhook: session ${session.id} has invalid credit_usd metadata (${session.metadata?.credit_usd}) — refusing to grant`,
+						)
+					} else {
+						const granted = yield* Effect.tryPromise({
+							try: () =>
+								db.transaction(async (tx) => {
+									const claimed = await tx
+										.insert(consumedPayments)
+										.values({
+											chain: 'stripe',
+											txHash: session.id,
+											purpose: 'stripe_credits',
+											consumedBy: String(dbUserId),
+										})
+										.onConflictDoNothing()
+										.returning({ id: consumedPayments.id })
+
+									// Already consumed by a prior delivery — no-op.
+									if (claimed.length === 0) return false
+
+									await tx
+										.insert(apiCredits)
+										.values({
+											userId: dbUserId,
+											balance: creditsToGrant,
+											lifetimePurchased: creditsToGrant,
+										})
+										.onConflictDoUpdate({
+											target: apiCredits.userId,
+											set: {
+												balance: sql`${apiCredits.balance} + ${creditsToGrant}`,
+												lifetimePurchased: sql`${apiCredits.lifetimePurchased} + ${creditsToGrant}`,
+												updatedAt: new Date(),
+											},
+										})
+
+									// Stamp the customer id so the dashboard can open the
+									// billing portal even for a credits-only customer. A user
+									// who has only ever bought credits may have NO subscriptions
+									// row, in which case the UPDATE matches nothing — insert a
+									// free-tier row so the id has somewhere to live. tier 'free'
+									// grants no entitlement, so this is safe.
+									if (session.customer) {
+										await tx
+											.insert(subscriptions)
+											.values({
+												userId: dbUserId,
+												tier: 'free',
+												stripeCustomerId: session.customer,
+											})
+											.onConflictDoUpdate({
+												target: subscriptions.userId,
+												set: {
+													stripeCustomerId: session.customer,
+													updatedAt: new Date(),
+												},
+											})
+									}
+
+									return true
+								}),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						})
+
+						yield* auditLog({
+							userId: dbUserId,
+							eventType: granted
+								? 'billing.credits_purchased'
+								: 'billing.credits_duplicate_ignored',
+							details: {
+								creditUsd: creditsToGrant,
+								packId: session.metadata?.pack_id ?? null,
+								source: 'stripe',
+								eventId: event.id,
+								sessionId: session.id,
+							},
+						})
+					}
+				}
 
 				// Anonymous web-visitor checkout (no Suwappu account yet). Record it
 				// in web_checkouts keyed by the Stripe session, and stamp whatever
@@ -309,6 +426,7 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 									tier,
 									startedAt: new Date(),
 									expiresAt,
+									stripeCustomerId: session.customer ?? null,
 								})
 								.onConflictDoUpdate({
 									target: subscriptions.userId,
@@ -317,6 +435,11 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 										startedAt: new Date(),
 										expiresAt,
 										updatedAt: new Date(),
+										// Never null out a previously-captured customer id
+										// (a later event may omit it).
+										...(session.customer
+											? { stripeCustomerId: session.customer }
+											: {}),
 									},
 								}),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -625,6 +748,197 @@ billingRoutes.get('/status', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		return c.json({ tier: 'free', fee_rate_percent: 1.0, active: true })
+	}
+	return c.json(result.right)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dashboard billing surface
+//
+// These back the web dashboard's Billing panel (showcase/src/app/dashboard).
+// Until now a paying customer had no way to see a balance, buy credits, read an
+// invoice, or change a card outside Telegram — checkout was the only Stripe
+// surface that existed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resolve the caller's internal DB user id from telegramAuth context. */
+const resolveDbUserId = (telegramId: number) =>
+	Effect.gen(function* () {
+		const userService = yield* UserService
+		const userOption = yield* userService.getUserByTelegramId(telegramId)
+		if (Option.isNone(userOption)) {
+			return yield* Effect.fail(new ValidationError({ message: 'User not found' }))
+		}
+		return userOption.value.id
+	})
+
+/** Read the stored Stripe customer id for a user (null if never charged). */
+const resolveStripeCustomerId = (dbUserId: number) =>
+	Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ stripeCustomerId: subscriptions.stripeCustomerId })
+					.from(subscriptions)
+					.where(eq(subscriptions.userId, dbUserId))
+					.limit(1),
+			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+		})
+		return rows[0]?.stripeCustomerId ?? null
+	})
+
+// GET /billing/credits — prepaid API credit balance for the caller.
+billingRoutes.get('/credits', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+
+			const [row] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(apiCredits)
+						.where(eq(apiCredits.userId, dbUserId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			// All three figures are USD — `api_credits` is a USD-denominated
+			// balance shared with the python x402 path.
+			return {
+				balance_usd: row?.balance ?? 0,
+				lifetime_purchased_usd: row?.lifetimePurchased ?? 0,
+				lifetime_used_usd: row?.lifetimeUsed ?? 0,
+				packs: CREDIT_PACKS,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// POST /billing/credits/checkout — Stripe checkout for a prepaid credit pack.
+// Body: { packId }. Returns { url } for the client to open.
+const CreditCheckoutSchema = z.object({
+	packId: z.string().min(1).max(32),
+})
+
+billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const parsed = CreditCheckoutSchema.safeParse(await c.req.json().catch(() => ({})))
+	if (!parsed.success) {
+		return c.json({ error: 'Invalid body — expected { packId }' }, 400)
+	}
+
+	// Pack pricing is resolved server-side; the client only names a pack.
+	const pack = getCreditPack(parsed.data.packId)
+	if (!pack) {
+		return c.json(
+			{
+				error: `Unknown credit pack. Valid packs: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,
+			},
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			const baseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
+
+			const url = yield* stripeService.createCreditCheckoutSession({
+				packId: pack.id,
+				chargeUsd: pack.chargeUsd,
+				balanceUsd: pack.balanceUsd,
+				userId: dbUserId,
+				telegramId: String(telegramUser.id),
+				customerId,
+				successUrl: `${baseUrl}/dashboard?topup=success&pack=${pack.id}`,
+				cancelUrl: `${baseUrl}/dashboard?topup=cancel`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// POST /billing/portal — Stripe-hosted billing portal (invoices, cards, cancel).
+billingRoutes.post('/portal', ipRateLimit(10), telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			if (!customerId) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'No Stripe customer on file — complete a card purchase first.',
+					}),
+				)
+			}
+
+			const baseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
+			const url = yield* stripeService.createBillingPortalSession({
+				customerId,
+				returnUrl: `${baseUrl}/dashboard`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// GET /billing/invoices — recent Stripe invoices for the caller.
+// Returns an empty list (not an error) for a customer who has never been
+// charged by card, so the dashboard can render an empty state.
+billingRoutes.get('/invoices', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const stripeService = yield* StripeService
+			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const customerId = yield* resolveStripeCustomerId(dbUserId)
+
+			if (!customerId) return { invoices: [], has_customer: false }
+
+			const invoices = yield* stripeService.listInvoices({ customerId, limit: 12 })
+			return { invoices, has_customer: true }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
 	}
 	return c.json(result.right)
 })

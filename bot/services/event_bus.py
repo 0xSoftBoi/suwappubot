@@ -48,12 +48,14 @@ class EventBus:
 
         try:
             import redis.asyncio as aioredis
+            from redis.backoff import NoBackoff
+            from redis.retry import Retry
 
             # Publisher connection
             self._publisher = aioredis.from_url(
                 redis_url,
                 decode_responses=True,
-                retry_on_timeout=True,
+                retry=Retry(NoBackoff(), 1),
             )
             await self._publisher.ping()
 
@@ -61,7 +63,7 @@ class EventBus:
             self._subscriber = aioredis.from_url(
                 redis_url,
                 decode_responses=True,
-                retry_on_timeout=True,
+                retry=Retry(NoBackoff(), 1),
             )
 
             self._connected = True
@@ -160,9 +162,7 @@ class EventBus:
                         try:
                             await handler(envelope)
                         except Exception as e:
-                            logger.error(
-                                f"[EventBus] Handler error for {event_type}: {e}"
-                            )
+                            logger.error(f"[EventBus] Handler error for {event_type}: {e}")
 
                     # Call wildcard handlers
                     for handler in self._handlers.get("*", []):

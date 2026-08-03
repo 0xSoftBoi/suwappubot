@@ -1,5 +1,12 @@
 import { getAuthToken } from './auth'
 import type {
+  BridgeBuildRequest,
+  BridgeBuildResult,
+  BridgeRoutesRequest,
+  BridgeRoutesResponse,
+  BridgeTransfer,
+} from '../types/bridge'
+import type {
   SwapQuoteRequest,
   SwapQuote,
   SwapExecuteRequest,
@@ -69,6 +76,9 @@ import type {
   TrackedTwitterAccount,
   TweetData,
   WalletActivity,
+  TokenIntel,
+  DevWatchEntry,
+  DevWatchHit,
 } from '../types/api'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -104,7 +114,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       : res.status === 429 ? 'Too many requests — slow down a moment.'
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
       : null
-    throw { detail: body.detail || body.message || friendly || res.statusText, status: res.status }
+    // Rate-limited endpoints (e.g. /terminal/intel/*) send Retry-After (seconds)
+    // — surface it so callers can back off instead of hammering the API.
+    const retryAfterHeader = res.headers.get('Retry-After')
+    const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined
+    throw {
+      detail: body.detail || body.message || friendly || res.statusText,
+      status: res.status,
+      ...(Number.isFinite(retryAfter) ? { retryAfter } : {}),
+    }
   }
   return res.json()
 }
@@ -263,6 +281,37 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     })
+  },
+
+  // Bridge — cross-chain routes and in-flight tracking. Separate from swap
+  // because the interesting state is what happens *between* the chains, which
+  // a single quote/execute pair has nowhere to put.
+  getBridgeRoutes(req: BridgeRoutesRequest) {
+    return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // Build the unsigned tx(s) AND start tracking the transfer. The server issues
+  // the transferId before anything is signed, so a broadcast always has
+  // something to be recorded against.
+  buildBridgeTransfer(req: BridgeBuildRequest) {
+    return request<BridgeBuildResult>('/webapp/bridge/build', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  recordBridgeTransfer(req: { transferId: number; txHash: string }) {
+    return request<BridgeTransfer>('/webapp/bridge/record', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  getBridgeTransfer(id: string) {
+    return request<BridgeTransfer>(`/webapp/bridge/transfers/${encodeURIComponent(id)}`)
   },
 
   // Swap
@@ -547,6 +596,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ positionId }),
     })
+  },
+
+  // Token Intel — deployer/holder/cluster analysis (Bubblemaps/Solscan-style).
+  getTokenIntel(chain: string, tokenAddress: string) {
+    return request<TokenIntel>(
+      `/terminal/intel/${encodeURIComponent(chain)}/${encodeURIComponent(tokenAddress)}`
+    )
+  },
+
+  getDevWatchList() {
+    return request<DevWatchEntry[]>('/terminal/intel/devwatch')
+  },
+
+  addDevWatch(params: { deployer_address: string; chain: string; label?: string }) {
+    return request<DevWatchEntry>('/terminal/intel/devwatch', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  removeDevWatch(watchId: number) {
+    return request<void>(`/terminal/intel/devwatch/${watchId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getDevWatchHits(limit = 50) {
+    return request<DevWatchHit[]>(`/terminal/intel/devwatch/hits?limit=${limit}`)
   },
 
   // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)

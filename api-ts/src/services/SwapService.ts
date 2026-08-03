@@ -1,6 +1,7 @@
 import { and, desc, eq, notInArray } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { logger } from '../lib/logger'
+import { captureQuoteRoutes, shouldCapture } from '../lib/routeCapture'
 import {
 	type DrizzleService,
 	type NewSwapTransaction,
@@ -411,6 +412,33 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				route,
 				transactionRequest: response.transactionRequest,
 				_rawQuote: response,
+			}
+
+			// EXECUTION INTELLIGENCE — fire-and-forget counterfactual capture.
+			//
+			// `/quote` gives us the single route we are about to offer; the
+			// alternatives it beat are never returned, so without this the
+			// counterfactual is lost the moment we respond. Mirrors a sampled
+			// share of quotes to `/advanced/routes` and records the options.
+			//
+			// Deliberately NOT awaited: this must add zero latency to the user's
+			// quote and can never fail it. Errors are swallowed inside
+			// captureQuoteRoutes(). See lib/routeCapture.ts for the sampling and
+			// rate-limit guards that keep it off the user's LI.FI budget.
+			if (shouldCapture()) {
+				void captureQuoteRoutes({
+					quoteId: quote.quoteId,
+					fromChain: quote.fromChain,
+					toChain: quote.toChain,
+					fromTokenAddress: params.fromToken,
+					toTokenAddress: params.toToken,
+					fromTokenSymbol: quote.fromToken.symbol,
+					toTokenSymbol: quote.toToken.symbol,
+					fromAmount: quote.fromAmount,
+					fromAmountUsd: parseFloat(quote.fromAmountUsd) || null,
+					fromAddress: params.fromAddress,
+					selectedTool: response.toolDetails?.name ?? response.tool ?? null,
+				})
 			}
 
 			return quote

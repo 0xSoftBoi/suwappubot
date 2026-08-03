@@ -14,9 +14,11 @@ from database.db import get_session, init_db
 from bot.models.advanced import LimitOrder, OrderStatus
 from bot.models.user import User, Wallet
 
+_SECRET = "test-secret"
+
 
 def auth_headers(user_id: int = 1):
-    token = jwt.encode({"user_id": user_id}, "test-secret", algorithm="HS256")
+    token = jwt.encode({"user_id": user_id}, _SECRET, algorithm="HS256")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -28,25 +30,37 @@ def app_client():
 
 def seed_user_wallet():
     with get_session() as session:
-        session.add_all([
-            User(id=1, username="terminal-user"),
-            Wallet(
-                id=1,
-                user_id=1,
-                address="0xlimitwallet",
-                chain_type="evm",
-                wallet_provider="turnkey",
-                turnkey_wallet_id="wallet-id",
-                turnkey_account_id="account-id",
-                is_active=True,
-                is_default=True,
-            ),
-        ])
+        session.add_all(
+            [
+                User(id=1, username="terminal-user"),
+                Wallet(
+                    id=1,
+                    user_id=1,
+                    address="0xlimitwallet",
+                    chain_type="evm",
+                    wallet_provider="turnkey",
+                    turnkey_wallet_id="wallet-id",
+                    turnkey_account_id="account-id",
+                    is_active=True,
+                    is_default=True,
+                ),
+            ]
+        )
 
 
 def test_webapp_limit_order_create_list_cancel(tmp_path, monkeypatch):
     assert init_db(f"sqlite:///{tmp_path / 'webapp-limit-orders.db'}")
     seed_user_wallet()
+
+    # api.main.JWT_SECRET is a module-level constant resolved once, at whichever
+    # moment api.main is first imported in the pytest process — not necessarily
+    # after this file's os.environ.setdefault("SECRET_KEY", ...) above has taken
+    # effect, since other test files may import it first. Patch it directly
+    # (same pattern as test_webapp_referrals.py) so token verification succeeds
+    # regardless of test collection/import order.
+    import api.main as main_mod
+
+    monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
 
     async def fake_get_price(token: str):
         return {"ETH": 3500.0, "USDC": 1.0}.get(token.upper())
@@ -90,6 +104,10 @@ def test_webapp_limit_order_create_list_cancel(tmp_path, monkeypatch):
 def test_webapp_limit_order_rejects_sell_below_market(tmp_path, monkeypatch):
     assert init_db(f"sqlite:///{tmp_path / 'webapp-limit-order-invalid.db'}")
     seed_user_wallet()
+
+    import api.main as main_mod
+
+    monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
 
     async def fake_get_price(token: str):
         return {"ETH": 3500.0, "USDC": 1.0}.get(token.upper())

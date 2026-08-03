@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OAuthUserInfo:
     """User information retrieved from OAuth provider."""
+
     provider: str
     provider_user_id: str
     email: Optional[str]
@@ -37,6 +38,7 @@ class OAuthUserInfo:
 @dataclass
 class OAuthTokens:
     """OAuth tokens from provider."""
+
     access_token: str
     refresh_token: Optional[str]
     expires_in: int  # seconds
@@ -101,8 +103,10 @@ class OAuthService:
 
     def _get_redirect_uri(self, provider: str) -> str:
         """Get the OAuth redirect URI."""
-        base = settings.oauth_redirect_base.rstrip("/")
-        return f"{base}/auth/callback/{provider}"
+        # oauth_callback_base, NOT oauth_redirect_base: the latter may be a
+        # comma-separated allowlist, and interpolating it raw sends Google a
+        # malformed redirect_uri that fails with redirect_uri_mismatch.
+        return f"{settings.oauth_callback_base}/auth/callback/{provider}"
 
     @staticmethod
     def _generate_pkce() -> Tuple[str, str]:
@@ -226,9 +230,7 @@ class OAuthService:
 
         # Twitter requires basic auth for token exchange
         if provider == "twitter":
-            auth_string = base64.b64encode(
-                f"{client_id}:{client_secret}".encode()
-            ).decode()
+            auth_string = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
             # Remove client_secret from body for Twitter
             del data["client_secret"]
@@ -351,9 +353,7 @@ class OAuthService:
 
         # Twitter requires basic auth
         if provider == "twitter":
-            auth_string = base64.b64encode(
-                f"{client_id}:{client_secret}".encode()
-            ).decode()
+            auth_string = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
             del data["client_secret"]
 
@@ -381,6 +381,7 @@ class OAuthService:
 
 class OAuthError(Exception):
     """Raised when OAuth flow fails."""
+
     pass
 
 

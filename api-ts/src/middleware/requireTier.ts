@@ -11,32 +11,53 @@ const TIER_RANK: Record<string, number> = { free: 0, pro: 1, premium: 2, enterpr
 /**
  * Gate a webapp route on the caller's subscription tier.
  *
- * MUST be mounted AFTER telegramAuth() (it reads c.get('telegramUser')).
+ * MUST be mounted AFTER an auth middleware. Accepts EITHER context var:
+ *   - `authUser`     (flexAuth: JWT bearer or session cookie) — already the
+ *                    internal users.id, so no lookup is needed.
+ *   - `telegramUser` (telegramAuth: Mini App initData) — a Telegram id, which
+ *                    must be resolved to the internal users.id first.
  *
- * `telegramUser.id` is the Telegram id, so we resolve it to the internal
- * users.id (via UserService) and read the `subscriptions` row by that id — the
+ * Reading ONLY telegramUser was a real outage: /enterprise/* moved to flexAuth
+ * so the web dashboard could authenticate by cookie, but this gate still
+ * demanded telegramUser. flexAuth authenticated successfully and set authUser,
+ * then this middleware rejected the request with "Authentication required" —
+ * blaming the credential rather than the gate.
+ *
+ * We read the `subscriptions` row by internal user id — the
  * same path the Stripe/crypto checkout writes (billing.ts). An expired
  * `expiresAt` is treated as free. Fail-closed: if the tier can't be confirmed
  * the request is denied, so the paywall never leaks on error.
  */
 export function requireTier(required: 'pro' | 'premium' | 'enterprise') {
 	return async (c: Context, next: Next) => {
+		const authUser = c.get('authUser')
 		const telegramUser = c.get('telegramUser')
-		if (!telegramUser) return c.json({ error: 'Authentication required' }, 401)
+		// Fail closed: an authUser without a usable id is NOT authenticated.
+		if (!authUser?.userId && !telegramUser) {
+			return c.json({ error: 'Authentication required' }, 401)
+		}
 
 		const result = await runEffectEither(
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const userService = yield* UserService
-				const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
-				if (Option.isNone(userOption)) return 'free'
+
+				// flexAuth already carries the internal id; telegramAuth does not.
+				let userId: number
+				if (authUser?.userId) {
+					userId = authUser.userId
+				} else {
+					const userService = yield* UserService
+					const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+					if (Option.isNone(userOption)) return 'free'
+					userId = userOption.value.id
+				}
 
 				const rows = yield* Effect.tryPromise({
 					try: () =>
 						db
 							.select({ tier: subscriptions.tier, expiresAt: subscriptions.expiresAt })
 							.from(subscriptions)
-							.where(eq(subscriptions.userId, userOption.value.id))
+							.where(eq(subscriptions.userId, userId))
 							.limit(1),
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				})

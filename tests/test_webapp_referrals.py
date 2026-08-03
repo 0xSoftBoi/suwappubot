@@ -25,7 +25,6 @@ from fastapi.testclient import TestClient
 
 from api.webapp import router, get_terminal_auth_payload
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -56,6 +55,7 @@ class _FakeCode:
 # Fixture: patch referral_service at the module level used by the endpoints
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_referral_service(monkeypatch):
     """Replace referral_service methods with deterministic stubs."""
@@ -74,17 +74,18 @@ def mock_referral_service(monkeypatch):
     svc.get_or_create_code.return_value = _FakeCode()
     svc.get_referrals_list.return_value = [
         {"user_id": 2, "username": "alice", "joined_at": None, "total_rewards_usd": 7.0},
-        {"user_id": 3, "username": "bob",   "joined_at": None, "total_rewards_usd": 5.5},
+        {"user_id": 3, "username": "bob", "joined_at": None, "total_rewards_usd": 5.5},
     ]
     svc.get_leaderboard.return_value = [
         {"user_id": 1, "username": "alice", "total_reward_usd": 50.0},
-        {"user_id": 2, "username": "bob",   "total_reward_usd": 30.0},
+        {"user_id": 2, "username": "bob", "total_reward_usd": 30.0},
     ]
 
     monkeypatch.setattr("bot.services.referral_service.referral_service", svc)
 
     # Patch JWT_SECRET in api.main so token verification succeeds
     import api.main as main_mod
+
     monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
 
     return svc
@@ -93,6 +94,7 @@ def mock_referral_service(monkeypatch):
 # ---------------------------------------------------------------------------
 # /webapp/referrals/stats
 # ---------------------------------------------------------------------------
+
 
 class TestReferralStats:
     def test_returns_expected_shape(self, mock_referral_service):
@@ -136,6 +138,7 @@ class TestReferralStats:
 # /webapp/referrals
 # ---------------------------------------------------------------------------
 
+
 class TestReferralsList:
     def test_returns_referrals_key(self, mock_referral_service):
         client = app_client()
@@ -170,6 +173,7 @@ class TestReferralsList:
 # /webapp/referrals/code
 # ---------------------------------------------------------------------------
 
+
 class TestReferralCode:
     def test_returns_code_and_link(self, mock_referral_service):
         client = app_client()
@@ -195,6 +199,7 @@ class TestReferralCode:
 # ---------------------------------------------------------------------------
 # /webapp/referrals/leaderboard
 # ---------------------------------------------------------------------------
+
 
 class TestReferralLeaderboard:
     def test_returns_leaderboard_key(self, mock_referral_service):

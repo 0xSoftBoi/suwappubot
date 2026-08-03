@@ -12,7 +12,7 @@
  * above) and PASS against the hardened guard.
  */
 
-import { describe, expect, it, mock } from 'bun:test'
+import { afterAll, describe, expect, it, mock } from 'bun:test'
 
 import { assertUrlSafeForFetch, isPrivateIp, safeFetch } from '../routes/ssrfGuard'
 import { RegisterAgentSchema } from '../routes/validators'
@@ -129,6 +129,18 @@ describe('assertUrlSafeForFetch — fetch-time re-validation', () => {
 
 // Sequenced resolver: successive lookups return successive answers, simulating
 // a rebinding authoritative server that flips its reply between queries.
+// These two mocks replace CORE NODE MODULES process-wide, and mock.module() is not
+// undone when this file ends — leaving a fake DNS resolver and a fake http.request
+// installed for every test file that runs afterwards. Capture the real modules first
+// and restore them in afterAll.
+const REAL_DNS = { ...(await import('node:dns/promises')) }
+const REAL_HTTP = { ...(await import('node:http')) }
+
+afterAll(() => {
+	mock.module('node:dns/promises', () => REAL_DNS)
+	mock.module('node:http', () => REAL_HTTP)
+})
+
 let dnsAnswers: Array<Array<{ address: string; family: number }>> = []
 mock.module('node:dns/promises', () => ({
 	lookup: async () => {

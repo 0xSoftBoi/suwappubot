@@ -26,6 +26,19 @@ export const DEMO_CALL_URL = 'https://calendly.com/tsoma4770/suwappu-demo';
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://api.suwappu.bot';
 
+// Base URL for the PYTHON monolith. Distinct from API_BASE_URL, which despite
+// the name resolves to api-ts — api.suwappu.bot serves api-ts, so /auth/* 404s
+// there. Auth, terminal and webapp routes live on the python service.
+export const PYTHON_API_BASE_URL =
+  process.env.NEXT_PUBLIC_PYTHON_API_URL ||
+  'https://python-api-production-8526.up.railway.app';
+
+// Telegram bot username, used by the Login Widget on the dashboard sign-in.
+// NOTE: the widget only renders on a domain registered with @BotFather via
+// /setdomain. Without that step Telegram silently refuses to draw the button.
+export const TELEGRAM_BOT_USERNAME =
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || 'suwappu_bot';
+
 // Base URL for the api-ts service (billing checkout, agent/A2A routes).
 // Distinct from API_BASE_URL, which is the legacy Python monolith.
 export const API_TS_BASE_URL =

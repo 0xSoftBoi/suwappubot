@@ -8,7 +8,7 @@ import { ValidationError } from '../errors'
 import type { AgentErrorCode } from '../lib/agentError'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { cacheAgentQuote } from '../lib/quoteCache'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, scanForThreatsObserveOnly } from '../middleware'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -625,6 +625,10 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 			200,
 		)
 	}
+
+	// AEGIS observe-mode scan (Phase 3). Log-only — never blocks message/send
+	// and never alters the response produced below.
+	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id })
 
 	const taskId = crypto.randomUUID()
 	const now = isoNow()

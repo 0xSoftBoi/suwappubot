@@ -1,5 +1,7 @@
 """Tests for bot/utils/validators.py — enterprise security hardening."""
+
 import os
+
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
@@ -7,10 +9,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 import pytest
 from bot.utils.validators import validate_evm_address, validate_solana_address, EVM_ZERO_ADDRESS
 
-
 # ---------------------------------------------------------------------------
 # EVM address validation
 # ---------------------------------------------------------------------------
+
 
 def test_valid_evm_address():
     assert validate_evm_address("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045") is True

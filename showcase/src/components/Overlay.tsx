@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import stats from '@/data/stats.generated.json';
-import { motion, useInView, useReducedMotion } from 'framer-motion';
+import { motion, useInView, useReducedMotion, type Variants } from 'framer-motion';
 import Terminal from './Terminal';
 import TerminalErrorBoundary from './TerminalErrorBoundary';
 import DocsMasonry from './DocsMasonry';
@@ -143,17 +143,17 @@ const STEPS = [
 /* ================================================================
    Scroll-triggered reveal
    ================================================================ */
-const revealVariants = {
+const revealVariants: Variants = {
   hidden: { opacity: 0, y: 32 },
   visible: { opacity: 1, y: 0 },
 };
 
-const staggerContainer = {
+const staggerContainer: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.1 } },
 };
 
-const staggerItem = {
+const staggerItem: Variants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] } },
 };

@@ -33,6 +33,7 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 class HoneypotReason(Enum):
     """Reasons a token might be flagged as honeypot."""
+
     SELL_FAILED = "sell_failed"
     HIGH_SELL_TAX = "high_sell_tax"
     TRANSFER_BLOCKED = "transfer_blocked"
@@ -44,6 +45,7 @@ class HoneypotReason(Enum):
 @dataclass
 class HoneypotResult:
     """Result of honeypot detection."""
+
     token_mint: str
     is_honeypot: bool
     confidence: float  # 0-1
@@ -63,6 +65,7 @@ class HoneypotResult:
 
 class HoneypotDetectorError(Exception):
     """Exception for honeypot detection errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -191,7 +194,7 @@ class HoneypotDetector:
                     "outputMint": token_mint,
                     "amount": str(amount_lamports),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     result.can_buy = False
@@ -246,7 +249,7 @@ class HoneypotDetector:
                     "outputMint": token_mint,
                     "amount": str(buy_amount_lamports),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     return
@@ -267,7 +270,7 @@ class HoneypotDetector:
                     "outputMint": WSOL_MINT,
                     "amount": str(tokens_received),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     result.can_sell = False
@@ -295,7 +298,9 @@ class HoneypotDetector:
 
                 # Calculate effective tax (buy + sell round trip)
                 if sol_returned > 0 and buy_amount_lamports > 0:
-                    round_trip_loss = (buy_amount_lamports - sol_returned) / buy_amount_lamports * 100
+                    round_trip_loss = (
+                        (buy_amount_lamports - sol_returned) / buy_amount_lamports * 100
+                    )
                     result.sell_tax = round_trip_loss - (result.buy_tax or 0)
 
                     if result.sell_tax > 50:
@@ -328,8 +333,8 @@ class HoneypotDetector:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getSignaturesForAddress",
-                    "params": [token_mint, {"limit": 50}]
-                }
+                    "params": [token_mint, {"limit": 50}],
+                },
             ) as response:
                 if response.status != 200:
                     return
@@ -367,7 +372,7 @@ class HoneypotDetector:
                     "outputMint": WSOL_MINT,
                     "amount": "1000000",  # 1 token with 6 decimals
                     "slippageBps": "5000",  # High slippage for test
-                }
+                },
             ) as response:
                 if response.status != 200:
                     return False
