@@ -13,7 +13,7 @@
 
 # ---- Builder: install deps into an isolated venv (with build tools as a fallback for
 #      any package that ships only an sdist) ----
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 # NOTE: 3.12 — the codebase uses PEP 604 `X | None` annotations that evaluate at
 # import time, which require Python >= 3.10. The pinned deps in requirements.txt all ship
 # 3.12 manylinux wheels.
@@ -23,6 +23,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        git \
         libpq-dev \
         curl \
     && rm -rf /var/lib/apt/lists/*
@@ -34,7 +35,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ---- Runtime: slim image, no build tools, non-root ----
-FROM python:3.14-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
