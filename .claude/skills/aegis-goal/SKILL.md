@@ -45,11 +45,12 @@ Standing goal: **every phase of `docs/plans/aegis-fork-extend.md` implemented, v
 - [x] 4.1 DONE (e90a330) — safe_md on token symbol/name (paste_trade), support ticket username/message/admin_reply, Railway admin alert (api/main.py), + predict market question. Was: Apply `safe_md` (`bot/utils/telegram_safe.py:26`) at `paste_trade.py:214-233` (external token metadata → Markdown), `support.py:196` (user ticket text → admin chat), `api/main.py:2675-2679` (Railway payload → admin chat). `/bugclass` candidate: "untrusted text rendered with parse_mode=Markdown".
 - [x] 4.2 NO-OP (e90a330) — current main ALREADY fails closed when WHATSAPP_APP_SECRET unset (returns False); the research finding was stale. Did NOT loosen to permit unsigned webhooks in dev. Was: WhatsApp signature verification **fail-closed** in prod when `WHATSAPP_APP_SECRET` unset (`bot/services/whatsapp_service.py:367-384`).
 - [x] 4.3 DONE (e90a330) — deleted bot/utils/sanitizer.py; InputSanitizer had zero external refs (dead). Was: `bot/utils/sanitizer.py` `InputSanitizer` — wire it where it earns its keep or delete it (defined, imported nowhere).
-- [ ] 4.4 Drop/backfill the plaintext `agents.api_key` column in api-ts (`db/schema/agents.ts:26-27`), keep hash only. **MONEY-PATH**; needs key-migration care for existing agents.
+- [x] 4.4 NO-OP (reassessed — stale premise) — the `agents.api_key` column does NOT store the plaintext secret. Every write stores a MASKED display value (`suwappu_sk_...` + last 8 chars, `AgentService.ts:136,386`); the full key is never persisted, and all auth lookups use `api_key_hash` (`AgentService.ts:266,463`). So there is no plaintext credential to drop — a MONEY-PATH migration to "fix" a non-existent leak is unjustified (same verify-the-evidence call as 4.2). A rename to `api_key_display` would be cosmetic-only; not worth a schema change on a money-path-adjacent table. Was: Drop/backfill the plaintext `agents.api_key` column, keep hash only.
 
 ### Phase 5 — Stretch / upstream (start only after 1–4 are shipped & verified)
-- [ ] 5.1 Deploy `aegis-monitor` as a Railway service (observe mode; SQLite→Postgres as needed) for fleet visibility over both stacks' scanners.
-- [ ] 5.2 Upstream contributions to `gaiarobotics/aegis`: crypto signature pack, the TS port, FP/FN calibration harness fed by our observe-mode telemetry.
+**BLOCKED ON USER — needs infra/access this CCR session does not have:**
+- [ ] 5.1 BLOCKED (needs Railway credentials) — Deploy `aegis-monitor` as a Railway service (observe mode; SQLite→Postgres as needed) for fleet visibility over both stacks' scanners.
+- [ ] 5.2 BLOCKED (session repo-scoping blocks forking/PRing gaiarobotics/aegis) — Upstream contributions: crypto signature pack, the TS port, FP/FN calibration harness fed by our observe-mode telemetry. Prep locally is possible; opening the upstream PR needs fork access.
 
 ## Rules
 - **Observe first, enforce later** — no surface flips to enforce until 1.7's telemetry review is done and FP rate is acceptable for that surface. Scanner failures fail-open for commands; fail-closed only for the paste-surface Buy gate.
