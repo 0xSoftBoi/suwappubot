@@ -1,0 +1,718 @@
+/* ==========================================================================
+   SITE — the sections below the hero, in the hero-e register.
+   Inherits every token from .hd (near-black, hairlines, tabular numerals).
+   Rules held to: one accent under 5% of surface, hairline borders at 8%,
+   10px radii, mono for labels only, motion on scroll entry only, and at
+   most one eyebrow per three sections.
+   ========================================================================== */
+
+.sw { background: var(--bg); }
+
+.sw__sec {
+  position: relative;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(2.75rem, 5.5vw, 4.5rem) 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+/* The hero already ends on a field, so the first section needs no rule. */
+.sw__sec:first-of-type { border-top: 0; }
+
+.sw__h2 {
+  margin: 0;
+  font-size: clamp(1.9rem, 3.6vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  color: var(--fg);
+  max-width: 20ch;
+}
+
+.sw__lead {
+  margin: 1rem 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 62ch;
+}
+
+.sw__eyebrow {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* ── Integrations strip ──────────────────────────────────────── */
+.sw__strip { text-align: center; }
+
+.sw__strip-h {
+  margin: 0 0 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--fg-dim);
+}
+
+.sw__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sw__chips li {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.32rem 0.7rem;
+}
+
+.sw__note {
+  margin: 1.25rem auto 0;
+  max-width: 56ch;
+  font-size: 0.8125rem;
+  color: var(--fg-faint);
+}
+
+/* ── Engine steps ────────────────────────────────────────────── */
+.sw__steps {
+  list-style: none;
+  margin: 2.5rem 0 0;
+  padding: 0;
+}
+
+.sw__steps li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 1.5rem;
+  padding: 1.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.sw__step-n {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--fg-faint);
+  padding-top: 0.3rem;
+}
+
+.sw__steps h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sw__steps p {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 62ch;
+}
+
+/* ── Surfaces ────────────────────────────────────────────────── */
+.sw__surfaces {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-top: 2.5rem;
+}
+
+.sw__surface {
+  position: relative;
+  display: block;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.015);
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.sw__surface:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line-strong);
+}
+
+.sw__surface-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--fg-faint);
+}
+
+.sw__surface h3 {
+  margin: 0.6rem 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.sw__surface p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+.sw__arrow {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--fg-faint);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.sw__surface:hover .sw__arrow { transform: translateX(3px); color: var(--fg); }
+
+/* ── Command list ────────────────────────────────────────────── */
+.sw__cmds {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0 3rem;
+  margin: 2.25rem 0 0;
+}
+
+.sw__cmds > div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 1rem;
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.sw__cmds dt {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--fg);
+}
+
+.sw__cmds dd {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+/* ── Split sections ──────────────────────────────────────────── */
+.sw__split > .reveal,
+.sw__split > div:first-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+}
+
+.sw__flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.sw__flow li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sw__flow b { font-size: 0.9375rem; font-weight: 600; color: var(--fg); }
+.sw__flow span { font-family: var(--font-mono); font-size: 0.75rem; color: var(--fg-faint); }
+.sw__flow li:last-child { border-color: rgba(246, 169, 60, 0.28); }
+.sw__flow li:last-child span { color: var(--accent); }
+
+/* ── Panels, tools, code ─────────────────────────────────────── */
+.sw__panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.sw__panel-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.sw__panel-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--fg-faint);
+}
+
+.sw__tools {
+  list-style: none;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem 1.5rem;
+}
+
+.sw__tools li {
+  display: flex;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
+
+.sw__tools li span { color: var(--fg-faint); }
+
+.sw__code {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--fg-dim);
+  overflow-x: auto;
+}
+
+.sw__close { text-align: center; }
+.sw__close .sw__h2, .sw__close .sw__lead { margin-left: auto; margin-right: auto; }
+.sw__close .hd__cta { justify-content: center; }
+
+/* ── The agent handoff, restyled for the dark register ───────── */
+.sw .sw-handoff { margin-top: 2.25rem; }
+
+.sw .sw-handoff__lead {
+  background: rgba(246, 169, 60, 0.05);
+  border-color: rgba(246, 169, 60, 0.22);
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__copy h3 { color: var(--fg); font-family: var(--font-sans); }
+.sw .sw-handoff__copy p { color: var(--fg-dim); }
+
+.sw .sw-handoff__primary {
+  background: var(--fg);
+  color: #0A0A0A;
+  border: 0;
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__primary:hover { opacity: 0.88; box-shadow: none; transform: none; }
+
+.sw .sw-handoff__preview,
+.sw .sw-handoff__panel {
+  background: var(--bg-elev);
+  border-color: var(--line);
+  border-radius: var(--r);
+}
+
+.sw .sw-handoff__preview > summary { color: var(--fg-dim); }
+.sw .sw-handoff__preview > summary::before { color: var(--accent); }
+.sw .sw-handoff__preview pre { color: var(--fg-faint); }
+
+.sw .sw-handoff__tab {
+  border-color: var(--line);
+  color: var(--fg-dim);
+  border-radius: 6px;
+}
+
+.sw .sw-handoff__tab--active {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
+
+.sw .sw-handoff__panel .summer-code__bar {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+}
+
+.sw .sw-handoff__panel pre { color: var(--fg-dim); }
+.sw .sw-handoff__note { color: var(--fg-faint); }
+.sw .sw-handoff__mini { color: var(--accent); border-color: var(--line); }
+
+/* ── Footer in the dark register ─────────────────────────────── */
+.sw .summer-footer {
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  color: var(--fg-dim);
+}
+
+.sw .summer-footer a { color: var(--fg-dim); }
+.sw .summer-footer a:hover { color: var(--fg); }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sw__surfaces { grid-template-columns: 1fr; }
+  .sw__cmds { grid-template-columns: 1fr; gap: 0; }
+  .sw__split > .reveal { grid-template-columns: 1fr; }
+  .sw__tools { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .sw__steps li { grid-template-columns: 2.5rem 1fr; gap: 1rem; }
+  .sw__cmds > div { grid-template-columns: 1fr; gap: 0.3rem; }
+  .sw__tools { grid-template-columns: 1fr; }
+}
+
+/* ── Section figures ─────────────────────────────────────────────
+   The reference's globe is a bounded object sitting beside the copy, not a
+   background wash. That is what lets its labels stay legible. These are the
+   same: a discrete diagram in the right column at full opacity, with the copy
+   held to the left so the two never overlap. */
+.sw__field {
+  position: absolute;
+  right: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(44%, 520px);
+  height: min(76%, 360px);
+  pointer-events: none;
+  opacity: 1;
+  /* Only the outer edge is softened, so nothing is clipped mid-label. */
+  mask-image: radial-gradient(ellipse 92% 92% at 50% 50%, #000 62%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 92% 92% at 50% 50%, #000 62%, transparent 100%);
+}
+
+/* Keep the copy clear of the figure. */
+.sw__sec:has(.sw__field) .sw__h2,
+.sw__sec:has(.sw__field) .sw__lead,
+.sw__sec:has(.sw__field) .sw__steps { max-width: min(54%, 620px); }
+
+.sw__sec:has(.sw__field) .sw__steps p { max-width: 100%; }
+
+/* The hero graph is the page's hero object, so it stays full-bleed and large,
+   with its ring of chain labels falling outside the centred copy. */
+.sw__field--hero {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  top: 0;
+  transform: none;
+  width: 100vw;
+  margin-left: -50vw;
+  height: 100%;
+  opacity: 0.85;
+  mask-image: radial-gradient(ellipse 86% 80% at 50% 42%, #000 55%, transparent 92%);
+  -webkit-mask-image: radial-gradient(ellipse 86% 80% at 50% 42%, #000 55%, transparent 92%);
+}
+
+/* Sections whose body is full-width (the handoff block) have no free column,
+   so their figure is pinned to the header band instead of the vertical middle. */
+.sw__field--top {
+  top: clamp(2.75rem, 5.5vw, 4.5rem);
+  transform: none;
+  height: min(42%, 220px);
+  width: min(38%, 420px);
+}
+
+.sw__sec { overflow: visible; }
+.sw__sec > .reveal, .sw__sec > * { position: relative; }
+.sw__sec > .sw__field { position: absolute; }
+
+@media (max-width: 1024px) {
+  /* Below this the copy needs the full width, so the figures step aside. */
+  .sw__field { display: none; }
+  .sw__sec:has(.sw__field) .sw__h2,
+  .sw__sec:has(.sw__field) .sw__lead,
+  .sw__sec:has(.sw__field) .sw__steps { max-width: none; }
+  .sw__field--hero { display: block; }
+}
+
+/* ── Split hero: copy left, chain sphere right ───────────────────
+   The reference gives its globe a column of its own next to left-aligned
+   copy. A large object centred behind centred text just reads as noise. */
+.hd__hero--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  grid-template-areas: 'copy object' 'rail rail';
+  align-items: center;
+  column-gap: clamp(1.5rem, 4vw, 3.5rem);
+  text-align: left;
+  max-width: 1240px;
+}
+
+.hd__hero--split .hd__copy { grid-area: copy; }
+.hd__hero--split .hd__object { grid-area: object; position: relative; }
+.hd__hero--split .hd__rail { grid-area: rail; }
+
+/* The centred-hero rules no longer apply once it is a split. */
+.hd__hero--split .hd__h1,
+.hd__hero--split .hd__lead { max-width: 100%; }
+.hd__hero--split .hd__cta { justify-content: flex-start; }
+.hd__hero--split .hd__stage { margin-top: 2rem; max-width: 100%; }
+
+.sw__field--sphere {
+  display: block;
+  width: 100%;
+  /* Leaves clearance for the stage readout directly beneath. */
+  margin-bottom: 0.5rem;
+  /* Square box keeps the sphere circular at any width. */
+  aspect-ratio: 1 / 1;
+  max-height: 60vh;
+  margin-inline: auto;
+}
+
+@media (max-width: 980px) {
+  .hd__hero--split {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'copy' 'object' 'rail';
+  }
+  .hd__hero--split .hd__object { max-width: 26rem; margin-inline: auto; }
+}
+
+/* ── Multi-stage route readout ───────────────────────────────────
+   Names the three legs of a cross-chain swap so the staging is explicit,
+   in step with the sphere's animation. */
+.stages {
+  margin-top: -0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--fg-faint);
+}
+
+.stages__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  justify-content: center;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.stages__tok { color: var(--fg); font-size: 0.8125rem; font-weight: 600; }
+.stages__chain { color: var(--fg-faint); }
+.stages__arrow { color: var(--accent); padding: 0 0.2rem; }
+
+.stages__list { list-style: none; margin: 0; padding: 0.5rem 0 0; }
+
+.stages__list li {
+  display: grid;
+  grid-template-columns: 1.6rem 3.6rem 6rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.stages__on { background: rgba(246, 169, 60, 0.08); }
+.stages__on .stages__kind, .stages__on .stages__venue { color: var(--accent); }
+
+.stages__n { color: var(--fg-faint); opacity: 0.6; }
+.stages__kind { text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-dim); }
+.stages__venue { color: var(--fg-dim); }
+.stages__note { color: var(--fg-faint); }
+
+.stages__foot {
+  margin: 0.6rem 0 0;
+  text-align: center;
+  color: var(--fg-faint);
+  opacity: 0.7;
+}
+
+@media (max-width: 520px) {
+  .stages__list li { grid-template-columns: 1.4rem 3.2rem 1fr; }
+  .stages__note { display: none; }
+}
+
+/* An inline figure: used where a split section's right column is the object
+   itself rather than a text block. */
+.sw__figure { position: relative; width: 100%; }
+
+.sw__figure-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 340px;
+}
+
+/* The perps object carries three ribbons and a book ladder, so it needs more
+   height than the default header-band figure. */
+#hyperliquid .sw__field--top {
+  /* Must clear the command rows below; measured overlap forced this down. */
+  height: min(34%, 178px);
+  width: min(42%, 440px);
+}
+
+/* The MCP orbit carries long tool names on both sides, so it needs a wider
+   box than the default header-band figure. */
+#agents .sw__field--top {
+  width: min(46%, 500px);
+  height: min(50%, 260px);
+  right: 0.5rem;
+}
+
+/* Three equal cards is the templated pattern the checklist calls out, so the
+   flagship surface leads and the other two sit beside it. */
+.sw__surfaces {
+  grid-template-columns: 1.35fr 1fr 1fr;
+  align-items: stretch;
+}
+
+.sw__surface--lead {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--line-strong);
+}
+
+.sw__surface--lead h3 { font-size: 1.5rem; }
+.sw__surface--lead p { font-size: 0.9375rem; }
+
+@media (max-width: 900px) {
+  .sw__surfaces { grid-template-columns: 1fr; }
+}
+
+/* ── Full-width object bands ─────────────────────────────────────
+   Every section had the same shape: heading left, copy left, a small diagram
+   stranded in the right margin. Six times in a row that reads as the
+   templated rhythm the objects were meant to break. The two objects with the
+   most to show now run full width as bands, which also gives them the scale
+   they were missing. */
+.sw__band {
+  position: relative;
+  width: 100%;
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.sw__band-canvas {
+  display: block;
+  width: 100%;
+  height: 210px;
+}
+
+.sw__band--tall .sw__band-canvas { height: 240px; }
+
+/* Wider shell for the band sections, so they read as a change of scale
+   rather than more of the same column. */
+.sw__sec--wide { max-width: 1320px; }
+
+/* Steps run in columns under a band section instead of a tall stack. */
+.sw__steps--cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0 2rem;
+  margin-top: 2rem;
+}
+
+.sw__steps--cols li {
+  grid-template-columns: 2.2rem 1fr;
+  gap: 0.9rem;
+  border-top: 1px solid var(--line);
+  padding: 1.25rem 0 0;
+}
+
+.sw__steps--cols p { max-width: 100%; font-size: 0.875rem; }
+
+/* The wide sections no longer hold the copy to half width. */
+.sw__sec--wide .sw__h2,
+.sw__sec--wide .sw__lead { max-width: min(62ch, 100%); }
+
+@media (max-width: 900px) {
+  .sw__steps--cols { grid-template-columns: 1fr; }
+  .sw__band-canvas, .sw__band--tall .sw__band-canvas { height: 170px; }
+}
+
+/* The GPU sphere is two stacked canvases: WebGL for the body and point cloud,
+   a 2D overlay for labels and the route. */
+.csgl { position: relative; display: block; }
+.csgl__gl,
+.csgl__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.csgl__overlay { pointer-events: none; }
+
+/* The GL objects render two stacked canvases inside a wrapper, so the sizing
+   that used to sit on a bare <canvas> now applies to the wrapper. Do NOT set
+   position here: .sw__field and .sw__field--top position themselves
+   absolutely, and overriding that collapsed the wrapper to 0x0, which left
+   the inner canvases at the 300x150 default. */
+.csgl.sw__band-canvas,
+.csgl.sw__figure-canvas { display: block; position: relative; }
+
+/* .csgl sets display:block, which was overriding the mobile rule that hides
+   margin figures below 1024px, so the agents object reappeared at 390px and
+   sat on the copy. Restore the hide with matching specificity. */
+@media (max-width: 1024px) {
+  .csgl.sw__field:not(.sw__field--hero) { display: none; }
+}
+
+/* ── Proof shots ─────────────────────────────────────────────────
+   Real product captures replacing the old abstract canvas bands.
+   The frame is deliberately quiet: a hairline and a soft lift, so the
+   screenshot itself is the thing being looked at, not the chrome. */
+.proof {
+  margin: 40px 0 0;
+}
+
+.proof__frame {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0a0a0b;
+  /* Tinted to the page ground rather than pure black. */
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 24px 60px -24px rgba(0, 0, 0, 0.9);
+}
+
+.proof__img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.proof__cap {
+  margin-top: 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.34);
+}
+
+@media (max-width: 760px) {
+  .proof { margin-top: 28px; }
+  .proof__frame { border-radius: 9px; }
+  .proof__cap { font-size: 10px; }
+}
+
+/* A section that carries no figure: tighter, so the absence of a visual
+   reads as a deliberate pause between two dense ones, not a gap. */
+.sw__sec--quiet {
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+@media (max-width: 760px) {
+  .sw__sec--quiet { padding-top: 48px; padding-bottom: 48px; }
+}

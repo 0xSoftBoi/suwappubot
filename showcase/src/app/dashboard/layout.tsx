@@ -20,7 +20,7 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
   const [showToken, setShowToken] = useState(false);
 
   function handlePaste() {
-    // Token pasted manually — validate minimally and store
+    // Token pasted manually: validate minimally and store
     const t = draft.trim();
     if (!t) {
       setErr('Paste a valid Bearer token to continue.');
@@ -33,14 +33,14 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
     })
       .then((r) => {
         if (r.status === 401 || r.status === 403) {
-          setErr('Token rejected — check it and try again.');
+          setErr('Token rejected: check it and try again.');
         } else {
           // Accept any non-401 (even 404) because the org endpoint may not exist in dev
           onToken(t);
         }
       })
       .catch(() => {
-        // If the network is down, still let the user in — the page will show errors
+        // If the network is down, still let the user in: the page will show errors
         onToken(t);
       });
   }

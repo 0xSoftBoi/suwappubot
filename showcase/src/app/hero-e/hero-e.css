@@ -1,0 +1,84 @@
+/* Hero E = hero-d's type and token discipline, plus the three devices that
+   make globalsettlement.com read as striking:
+     1. a saturated colour FIELD (not a photograph, they use none)
+     2. a faint technical grid
+     3. one generative object, thematically honest (routes, not a globe)
+   ========================================================================== */
+@import '../hero-d/hero-d.css';
+
+/* The breakout layers below need the hero to stop clipping horizontally;
+   the page keeps clipping so nothing scrolls sideways. */
+.he .hd__hero { overflow-x: visible; }
+.he { overflow-x: clip; }
+
+/* 1. The field. Deep ember over near-black, strongest behind the headline. */
+.he .hd__hero::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  top: -20%;
+  height: 150%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 8%, rgba(246, 169, 60, 0.20), transparent 62%),
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(150, 60, 20, 0.28), transparent 70%),
+    linear-gradient(180deg, #17100A 0%, #0C0A08 46%, #0A0A0A 78%);
+}
+
+/* The existing 9% glow is redundant against the field. */
+.he .hd__glow { display: none; }
+
+/* 2. Technical grid, barely there. */
+.he__grid {
+  position: absolute;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 68px 68px;
+  /* Fade it out before it reaches the content, so it reads as depth. */
+  mask-image: radial-gradient(ellipse 80% 62% at 50% 22%, #000 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 62% at 50% 22%, #000 30%, transparent 78%);
+}
+
+/* 3. The generative object. */
+.he .routefield {
+  position: absolute;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.9;
+  mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 34%, #000 26%, transparent 76%);
+}
+
+/* Content must sit above all three layers. */
+.he .hd__eyebrow,
+.he .hd__h1,
+.he .hd__lead,
+.he .hd__cta,
+.he .hd__stage,
+.he .hd__rail { z-index: 1; }
+
+/* The quote panel now sits on a lit field, so it needs its own weight. */
+.he .lq {
+  background: rgba(14, 13, 12, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 70px -30px rgba(0, 0, 0, 0.9);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .he .lq { background: #0E0D0C; backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

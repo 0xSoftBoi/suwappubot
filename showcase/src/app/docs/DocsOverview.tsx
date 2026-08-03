@@ -28,7 +28,7 @@ const quicklinks = [
   },
 ];
 
-// Machine-readable resources — the discovery surface agents (not humans) use
+// Machine-readable resources: the discovery surface agents (not humans) use
 // to learn the API without a human reading these docs first.
 const resources = [
   {
@@ -41,7 +41,7 @@ const resources = [
     n: 'API',
     href: 'https://api.suwappu.bot/v1/agent/openapi',
     title: 'OpenAPI spec',
-    desc: 'Full schema — import into Postman, Insomnia, or an SDK generator',
+    desc: 'Full schema: import into Postman, Insomnia, or an SDK generator',
   },
   {
     n: 'JSON',
@@ -52,11 +52,11 @@ const resources = [
 ];
 
 export default function DocsOverview() {
-  // Only show sections that actually have pages — never render an empty "0 pages" group.
+  // Only show sections that actually have pages: never render an empty "0 pages" group.
   const sections = docsData.sections.filter((s) => s.pages.length > 0);
 
   return (
-    <div className="summer-page docs-shell">
+    <div className="summer-page docs-shell sw-dark">
       <div className="docs-page">
         <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} />
@@ -73,7 +73,7 @@ export default function DocsOverview() {
             <p className="section__body" style={{ marginBottom: '2.5rem' }}>
               The cross-chain DeFi API built for AI agents. Register an agent, get
               best-price quotes, and execute swaps, perps, and gasless trades across{' '}
-              {stats.platformChains} chains — through one REST API, a TypeScript SDK, and an MCP server.
+              {stats.platformChains} chains: through one REST API, a TypeScript SDK, and an MCP server.
             </p>
 
             <div className="docs-quicklinks">
@@ -89,7 +89,7 @@ export default function DocsOverview() {
             </div>
           </motion.div>
 
-          {/* ── SECTION CARDS — mirrors the gitbook tree so the whole doc set is
+          {/* ── SECTION CARDS: mirrors the gitbook tree so the whole doc set is
               scannable without opening the accordion below. ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
@@ -102,7 +102,7 @@ export default function DocsOverview() {
                 <a className="agents-cap" href={`/docs#${s.id}`} key={s.id} style={{ display: 'block' }}>
                   <h3>{s.title}</h3>
                   <p>
-                    {s.pages.length} {s.pages.length === 1 ? 'page' : 'pages'} — including{' '}
+                    {s.pages.length} {s.pages.length === 1 ? 'page' : 'pages'}: including{' '}
                     {s.pages
                       .slice(0, 2)
                       .map((p) => p.title)
@@ -124,8 +124,8 @@ export default function DocsOverview() {
               <p className="mkt-callout__body">
                 Using Claude Desktop, Claude Code, Cursor, or Windsurf? Point it at{' '}
                 <code>https://api.suwappu.bot/mcp</code> with an{' '}
-                <code>Authorization: Bearer</code> header and your client discovers every tool —
-                quotes, swaps, portfolio, perps, predictions, lending — automatically.
+                <code>Authorization: Bearer</code> header and your client discovers every tool -
+                quotes, swaps, portfolio, perps, predictions, lending: automatically.
               </p>
               <a className="summer-button summer-button--secondary" href="/docs/protocols/mcp">
                 MCP client setup
@@ -133,7 +133,7 @@ export default function DocsOverview() {
             </section>
           </motion.div>
 
-          {/* ── MACHINE-READABLE RESOURCES — the discovery surface for agents ── */}
+          {/* ── MACHINE-READABLE RESOURCES: the discovery surface for agents ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}

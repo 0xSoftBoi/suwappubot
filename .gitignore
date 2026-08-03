@@ -42,5 +42,12 @@ contracts/slither_results.json
 .claude/settings.local.json
 contracts/lib/openzeppelin-contracts/package-lock.json
 
+# Local environment files (secrets). Nothing matching these may ever be
+# committed; .env.example / .env.sample are the documented, key-free templates.
+.env
+.env.*
+!.env.example
+!.env.sample
+
 # AEGIS runtime state/telemetry (bot/services/aegis_service.py)
 .aegis/

@@ -5,7 +5,7 @@ export const OG_SIZE = { width: 1200, height: 630 };
 /**
  * Shared dark cosmic OG/Twitter card renderer. Text-based by design (no
  * external images/fonts) so it stays legible and stays out of next/og's
- * font-loading edge cases. Matches the site's dark CRT/cosmic aesthetic —
+ * font-loading edge cases. Matches the site's dark CRT/cosmic aesthetic -
  * deep space background, cyan accent, mono tagline.
  */
 export function renderOgImage(tagline: string) {

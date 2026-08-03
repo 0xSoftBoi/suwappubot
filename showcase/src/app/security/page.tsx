@@ -6,7 +6,7 @@ import { TELEGRAM_URL } from '@/lib/links';
 import styles from './security.module.css';
 
 export const metadata: Metadata = {
-  title: 'Security — Suwappu',
+  title: 'Security | Suwappu',
   description:
     'How Suwappu protects keys and funds: KMS envelope encryption, TEE-backed signing, self-custody options, spending limits, MEV-shielded routing, and responsible disclosure.',
 };
@@ -14,11 +14,11 @@ export const metadata: Metadata = {
 const buckets = [
   {
     title: 'Key management',
-    body: 'Signing keys are held in a hardware-backed TEE (Turnkey). Where encrypted backups exist, they use envelope encryption (`kms_aesgcm_v2`) — a per-record AES-256-GCM data key wrapped by a KMS-managed key, with key wrapping moving behind an AWS KMS IAM boundary. Legacy Fernet-encrypted keys auto-migrate to the v2 scheme.',
+    body: 'Signing keys are held in a hardware-backed TEE (Turnkey). Where encrypted backups exist, they use envelope encryption (`kms_aesgcm_v2`): a per-record AES-256-GCM data key wrapped by a KMS-managed key, with key wrapping moving behind an AWS KMS IAM boundary. Legacy Fernet-encrypted keys auto-migrate to the v2 scheme.',
   },
   {
     title: 'Custody, your choice',
-    body: 'Bring your own keys via the agent API for full self-custody — Suwappu never sees them. Or use a managed wallet, where keys are encrypted at rest and signed server-side so your agent never handles a private key.',
+    body: 'Bring your own keys via the agent API for full self-custody: Suwappu never sees them. Or use a managed wallet, where keys are encrypted at rest and signed server-side so your agent never handles a private key.',
   },
   {
     title: 'Data protection',
@@ -26,7 +26,7 @@ const buckets = [
   },
   {
     title: 'Account controls',
-    body: 'Per-key and per-account guardrails: spending limits, allowed chains and pairs, withdrawal allowlists, and TOTP two-factor authentication — so autonomous agents act strictly inside the rails you define.',
+    body: 'Per-key and per-account guardrails: spending limits, allowed chains and pairs, withdrawal allowlists, and TOTP two-factor authentication, so autonomous agents act strictly inside the rails you define.',
   },
   {
     title: 'Execution safety',
@@ -34,17 +34,17 @@ const buckets = [
   },
   {
     title: 'Independent review',
-    body: 'Our wallet and key-management paths have undergone independent red-team review, with findings tracked and remediated. Formal third-party certifications and protocol audits are on the roadmap — we publish status rather than badges we have not earned.',
+    body: 'Our wallet and key-management paths have undergone independent red-team review, with findings tracked and remediated. Formal third-party certifications and protocol audits are on the roadmap: we publish status rather than badges we have not earned.',
   },
   {
     title: 'Rate limits & agent metering',
-    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Pay-per-call (x402) credit balances are metered per agent and deducted atomically — one agent’s usage or balance can never draw against another’s.',
+    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Pay-per-call (x402) credit balances are metered per agent and deducted atomically: one agent’s usage or balance can never draw against another’s.',
   },
 ];
 
 export default function SecurityPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell sw-dark">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
@@ -52,7 +52,7 @@ export default function SecurityPage() {
           <h1>Built to move money safely.</h1>
           <p className="mkt-hero__lead">
             Suwappu routes real funds across {stats.platformChains} chains for humans and autonomous agents.
-            Here is exactly how keys, funds, and data are protected — and what we have not
+            Here is exactly how keys, funds, and data are protected, and what we have not
             yet certified.
           </p>
         </header>
@@ -78,7 +78,7 @@ export default function SecurityPage() {
             </p>
           </div>
           <div className={styles.honesty}>
-            <h3>What we claim — and what we don&apos;t</h3>
+            <h3>What we claim, and what we don&apos;t</h3>
             <ul>
               <li><b>Real today:</b> TEE-backed signing, KMS envelope encryption, self-custody option, spending limits, 2FA, per-tier rate limits, per-agent metering isolation, independent red-team review.</li>
               <li><b>On the roadmap:</b> SOC 2, public smart-contract / protocol audit reports, a self-serve trust portal.</li>

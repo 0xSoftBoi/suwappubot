@@ -7,8 +7,8 @@ import stats from '@/data/stats.generated.json';
 import styles from './about.module.css';
 
 export const metadata: Metadata = {
-  title: 'About — Suwappu',
-  description: `Suwappu is cross-chain execution infrastructure for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
+  title: 'About | Suwappu',
+  description: `Suwappu is cross-chain execution infrastructure for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
 };
 
 const metrics = [
@@ -21,22 +21,22 @@ const metrics = [
 ];
 
 const principles = [
-  { title: 'Best quote, not the first', body: `We race every routing provider that supports your route — ${stats.routerCount} integrated in total, from 0x and 1inch to Jupiter on Solana and SunSwap on TRON. You get the best execution available, not whichever route answered first.` },
+  { title: 'Best quote, not the first', body: `We race every routing provider that supports your route: ${stats.routerCount} integrated in total, from 0x and 1inch to Jupiter on Solana and SunSwap on TRON. You get the best execution available, not whichever route answered first.` },
   { title: 'Your keys, your call', body: 'Bring your own keys for full self-custody, or use a managed wallet with KMS-backed encryption. Either way, you set the guardrails.' },
   { title: 'Built for agents and humans', body: 'The same execution surface powers a Telegram bot, a trading terminal, an SDK, a REST API, and an MCP server. Pick the interface that fits.' },
-  { title: 'Honest about status', body: 'We publish what is real and what is on the roadmap — no certifications we have not earned, no traction we cannot back up.' },
+  { title: 'Honest about status', body: 'We publish what is real and what is on the roadmap: no certifications we have not earned, no traction we cannot back up.' },
 ];
 
 const surfaces = [
   { name: 'Telegram bot', desc: 'Quote, swap, snipe, run perps, and copy traders without leaving the chat.' },
-  { name: 'Trading terminal', desc: 'A dense desk — charts, order books, perps, and execution in one surface.' },
+  { name: 'Trading terminal', desc: 'A dense desk: charts, order books, perps, and execution in one surface.' },
   { name: 'Agent API & SDK', desc: 'Quotes, swaps, perps, and portfolios through one REST API and a TypeScript SDK.' },
   { name: 'MCP server', desc: 'Drop Suwappu into Claude, Cursor, or any MCP client as agent-callable tools.' },
 ];
 
 export default function AboutPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell sw-dark">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
@@ -44,7 +44,7 @@ export default function AboutPage() {
           <h1>Cross-chain execution for agents and humans.</h1>
           <p className="mkt-hero__lead">
             Liquidity is fragmented across dozens of chains and venues. Suwappu makes it
-            feel like one — best-price swaps, HyperLiquid perps, and gasless trades across
+            feel like one: best-price swaps, HyperLiquid perps, and gasless trades across
             {' '}{stats.platformChains} chains, from a bot, a terminal, or a single API call.
           </p>
         </header>
@@ -88,7 +88,7 @@ export default function AboutPage() {
           <p>
             We&apos;re a small team shipping fast across Python, TypeScript, and on-chain
             infrastructure. If routing, wallets, perps, or agent tooling is your thing,
-            we want to talk — reach out through the bot or on X.
+            we want to talk: reach out through the bot or on X.
           </p>
           <a className="summer-button summer-button--primary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
             Get in touch
