@@ -688,6 +688,9 @@ def _ensure_schema(db_engine) -> None:
     # --- AEGIS per-user trust adaptation (Phase 2.3): aegis_user_trust ---
     _create_aegis_trust_table(db_engine, inspector, is_sqlite)
 
+    # --- Agent control-plane approval notification bookkeeping ---
+    _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
+
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
@@ -3483,3 +3486,62 @@ def _create_aegis_trust_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created aegis_user_trust table")
     except Exception as e:
         logger.warning(f"Failed to create aegis_user_trust table: {e}")
+
+
+def _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Python-owned Telegram-notification bookkeeping columns to
+    ``approval_requests`` (owned/created by api-ts — schema at
+    ``api-ts/src/db/schema/approvals.ts``), idempotently.
+
+    ``notified_at`` / ``notify_chat_id`` / ``notify_message_id`` are
+    PYTHON-OWNED — api-ts must NOT write them. They only track whether/where
+    ``bot/services/approval_notifier.py`` has DM'd the owning Telegram user
+    for a given row, so the notifier never double-sends and the decision
+    handler (``bot/handlers/approvals.py``) can edit the original message in
+    place. No-op (via ``has_table``) until api-ts has actually created the
+    table.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "approval_requests" not in tables:
+        return
+
+    try:
+        cols = {c["name"] for c in inspector.get_columns("approval_requests")}
+    except Exception as e:
+        logger.warning(f"Could not inspect approval_requests columns: {e}")
+        return
+
+    additions = []
+    if "notified_at" not in cols:
+        ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+        additions.append(f"ADD COLUMN notified_at {ts_type}")
+    if "notify_chat_id" not in cols:
+        bigint_type = "BIGINT" if not is_sqlite else "INTEGER"
+        additions.append(f"ADD COLUMN notify_chat_id {bigint_type}")
+    if "notify_message_id" not in cols:
+        additions.append("ADD COLUMN notify_message_id INTEGER")
+
+    if not additions:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                # SQLite doesn't support multi-column ALTER TABLE ADD COLUMN
+                # in one statement.
+                for addition in additions:
+                    conn.execute(text(f"ALTER TABLE approval_requests {addition}"))
+            else:
+                for addition in additions:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE approval_requests "
+                            f"{addition.replace('ADD COLUMN', 'ADD COLUMN IF NOT EXISTS')}"
+                        )
+                    )
+        logger.info(f"Added approval_requests notify columns: {additions}")
+    except Exception as e:
+        logger.warning(f"Failed to add approval_requests notify columns: {e}")

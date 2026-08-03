@@ -1377,6 +1377,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Agent control-plane approvals: DM the owning Telegram user an
+    # Approve/Deny prompt for pending api-ts approval_requests rows. Defaults
+    # off so this is a no-op until intentionally enabled; the notifier and
+    # handlers are defensive either way (tolerate the table not existing).
+    agent_approvals_enabled: bool = Field(
+        default=False,
+        description="Enable the agent-approval Telegram notifier + /approvals command",
+    )
+
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
