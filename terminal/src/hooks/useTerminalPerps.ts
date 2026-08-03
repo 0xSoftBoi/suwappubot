@@ -78,6 +78,19 @@ export function useCancelPerpsOrder() {
   })
 }
 
+export function useSetPerpsTpSl() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (params: { positionId: number; takeProfit?: number; stopLoss?: number }) =>
+      api.setPerpsTpSl(params),
+    onSuccess: () => {
+      // Both the resting triggers and the position's stored prices moved.
+      queryClient.invalidateQueries({ queryKey: ['terminal-perps-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['terminal-perps-positions'] })
+    },
+  })
+}
+
 export function useClosePerps() {
   const queryClient = useQueryClient()
   return useMutation({
