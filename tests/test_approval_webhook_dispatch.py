@@ -269,7 +269,12 @@ def test_poison_payload_dead_letters_instead_of_wedging(db, monkeypatch):
 
     import asyncio
 
-    asyncio.get_event_loop().run_until_complete(
+    # asyncio.run(), not get_event_loop().run_until_complete(): on 3.12 the
+    # latter raises "no current event loop" when none is set (which is the case
+    # in a full-suite CI run, though not when this file runs alone) and leaves
+    # broken global loop state behind that knocked over unrelated tests
+    # scheduled after this one.
+    asyncio.run(
         dispatcher._attempt_one(
             delivery_id=delivery_id,
             approval_id=db["approval_id"],
