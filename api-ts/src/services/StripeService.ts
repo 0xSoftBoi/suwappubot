@@ -6,7 +6,7 @@ export class StripeService extends Context.Tag('StripeService')<
 	StripeService,
 	{
 		createCheckoutSession: (params: {
-			tier: 'pro' | 'premium'
+			tier: 'pro' | 'premium' | 'enterprise'
 			telegramId: string
 			userId: number
 			successUrl: string
@@ -18,7 +18,7 @@ export class StripeService extends Context.Tag('StripeService')<
 		// webhook can tell this apart from the account-bound flow above and
 		// record a pending (unlinked) checkout instead of a subscriptions row.
 		createWebCheckoutSession: (params: {
-			tier: 'pro' | 'premium'
+			tier: 'pro' | 'premium' | 'enterprise'
 			successUrl: string
 			cancelUrl: string
 		}) => Effect.Effect<{ url: string; sessionId: string }, Error>
