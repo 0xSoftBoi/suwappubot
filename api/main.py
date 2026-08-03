@@ -279,21 +279,33 @@ async def lifespan(app: FastAPI):
         # bug. Redis is already the worker's channel for heartbeats, so it is
         # the natural place to announce the build too; python-api surfaces it
         # on /health/ready.
-        try:
-            from bot.utils.redis_cache import redis_cache
+        #
+        # Published from a loop, not once at boot: redis_cache degrades to
+        # process-memory on any Redis error (set() swallows it at debug
+        # level), and a boot-time one-shot can land there during deploy
+        # churn — invisible to python-api, which then reports "unknown" for
+        # the worker's entire lifetime. The per-service heartbeats survive
+        # the same hiccup only because they rewrite every cycle; do the same
+        # here. 24h TTL >> 10min interval, so the key never lapses while the
+        # worker lives, and still answers "what build last booted" afterward.
+        from bot.utils.redis_cache import redis_cache
 
-            # 24h, not an hour: this answers "what build did the worker last
-            # boot with", so it must outlive a quiet period. A short TTL would
-            # expire on a perfectly healthy worker and report "unknown",
-            # recreating exactly the ambiguity this is meant to remove.
-            # Liveness is a separate question, already answered by the
-            # per-service heartbeats below.
-            await redis_cache.set(
-                "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
-            )
-            logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
-        except Exception as e:
-            logger.warning(f"Could not publish worker fingerprint: {e}")
+        async def _publish_worker_fingerprint_loop() -> None:
+            announced = False
+            while True:
+                try:
+                    await redis_cache.set(
+                        "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
+                    )
+                    stats = await redis_cache.get_stats()
+                    if stats.get("connected") and not announced:
+                        announced = True
+                        logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+                except Exception as e:
+                    logger.warning(f"Could not publish worker fingerprint: {e}")
+                await asyncio.sleep(600)
+
+        app.state.worker_fingerprint_task = asyncio.create_task(_publish_worker_fingerprint_loop())
 
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
@@ -418,6 +430,9 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
+    fingerprint_task = getattr(app.state, "worker_fingerprint_task", None)
+    if fingerprint_task:
+        fingerprint_task.cancel()
     try:
         await _wa_queue.stop()
     except Exception as e:
