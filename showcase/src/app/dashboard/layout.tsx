@@ -78,31 +78,33 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           Continue with Google
         </a>
 
-        <div className={styles.loginDivider}>or</div>
-
+        {/* Telegram is hidden until its domain is registered (see
+            TelegramLoginButton), so the divider must not render alone. */}
         <TelegramLoginButton onToken={onToken} onError={setErr} />
 
-        <a
-          className={styles.loginAdvancedToggle}
-          href={`${TELEGRAM_URL}?start=link`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open the Suwappu bot
-        </a>
+        <div className={styles.loginFooterLinks}>
+          <a
+            className={styles.loginAdvancedToggle}
+            href={`${TELEGRAM_URL}?start=link`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open the Suwappu bot
+          </a>
 
         {/* Token entry is a fallback, not a peer of the primary action.
             Presenting "paste a Bearer token" as a co-equal sign-in option made
             the first screen of a paid product read like a debug console, so it
             is collapsed behind a disclosure. */}
-        <button
-          type="button"
-          className={styles.loginAdvancedToggle}
-          onClick={() => setShowToken((v) => !v)}
-          aria-expanded={showToken}
-        >
-          {showToken ? 'Hide' : 'Use an access token instead'}
-        </button>
+          <button
+            type="button"
+            className={styles.loginAdvancedToggle}
+            onClick={() => setShowToken((v) => !v)}
+            aria-expanded={showToken}
+          >
+            {showToken ? 'Hide' : 'Use an access token instead'}
+          </button>
+        </div>
 
         {showToken && (<>
         <input
