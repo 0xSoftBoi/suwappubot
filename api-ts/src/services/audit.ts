@@ -180,21 +180,41 @@ export const verifyAuditChain = (orgId: string | null, limit: number) =>
 			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 		})
 
+		// Fetch one anchor row just older than the window (same org scope) so the
+		// window's boundary row's prevHash link can actually be verified against
+		// the anchor's real entryHash, instead of being seeded from itself (which
+		// makes that one comparison tautological and lets an attacker tamper
+		// exactly the boundary row's prevHash undetected).
+		const anchorRows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ entryHash: auditLogs.entryHash })
+					.from(auditLogs)
+					.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
+					.orderBy(desc(auditLogs.id))
+					.limit(1)
+					.offset(limit),
+			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+		})
+		const anchor = anchorRows[0]
+
 		let valid = true
 		let firstBreakId: number | undefined
 		// Rows are newest-first; walk oldest->newest logically by iterating in
 		// reverse so each row's expected prevHash is the previous row's entryHash.
 		//
-		// The query above is windowed (LIMIT `limit`, newest-first), so when the
-		// chain is longer than the window, the oldest row IN the window has a
-		// non-null prevHash that points to a row OUTSIDE the window — we never
-		// fetched it, so we can't (and shouldn't try to) verify that link. Seed
-		// the expectation from the window's own boundary row rather than `null`,
-		// so verification only asserts chain integrity WITHIN the fetched window.
-		// A genuine tamper elsewhere in the window is still caught below.
+		// The query above is windowed (LIMIT `limit`, newest-first). When an
+		// older anchor row exists, seed the expectation from the anchor's real
+		// entryHash so the window's boundary link IS verified. Only when there is
+		// no older row (the window covers the whole chain) do we fall back to the
+		// boundary row's own prevHash, since there's nothing to check it against.
 		const oldestFirst = [...rows].reverse()
-		let expectedPrevHash: string | null = oldestFirst[0]?.prevHash ?? null
+		let expectedPrevHash: string | null = anchor
+			? (anchor.entryHash ?? null)
+			: (oldestFirst[0]?.prevHash ?? null)
+		let walked = 0
 		for (const row of oldestFirst) {
+			walked++
 			// Rows written before this migration have null hashes — skip them
 			// (chain starts fresh at the first hashed row) rather than flagging a
 			// false break.
@@ -231,7 +251,7 @@ export const verifyAuditChain = (orgId: string | null, limit: number) =>
 			expectedPrevHash = row.entryHash
 		}
 
-		return { valid, checked: rows.length, firstBreakId } as AuditVerifyResult
+		return { valid, checked: walked, firstBreakId } as AuditVerifyResult
 	})
 
 /**

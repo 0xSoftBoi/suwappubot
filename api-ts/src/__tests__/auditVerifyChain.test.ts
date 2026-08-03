@@ -56,10 +56,11 @@ function buildChain(count: number): FakeRow[] {
 	return rows
 }
 
-function makeFakeDb(allRowsOldestFirst: FakeRow[], limit: number) {
-	// Mirror the real query: ORDER BY id DESC LIMIT `limit`, i.e. the newest
-	// `limit` rows, newest-first.
-	const windowed = [...allRowsOldestFirst].reverse().slice(0, limit)
+function makeFakeDb(allRowsOldestFirst: FakeRow[]) {
+	// Full table, newest-first — mirrors ORDER BY id DESC with no LIMIT applied
+	// yet, so both the windowed main query and the offset anchor query can be
+	// simulated generically from the same underlying data.
+	const newestFirst = [...allRowsOldestFirst].reverse()
 	const db: unknown = {
 		select(_cols?: unknown) {
 			return {
@@ -69,7 +70,19 @@ function makeFakeDb(allRowsOldestFirst: FakeRow[], limit: number) {
 							return {
 								orderBy(_o: unknown) {
 									return {
-										limit: async (_n: number) => windowed,
+										limit(n: number) {
+											const sliced = newestFirst.slice(0, n)
+											return {
+												// Thenable so `await limit(n)` (no .offset() call) works
+												// directly, mirroring the main windowed query.
+												then(resolve: (v: FakeRow[]) => void) {
+													resolve(sliced)
+												},
+												// Anchor query: LIMIT n OFFSET m, applied against the
+												// full (unwindowed) newest-first ordering.
+												offset: async (m: number) => newestFirst.slice(m, m + n),
+											}
+										},
 									}
 								},
 							}
@@ -91,7 +104,7 @@ describe('verifyAuditChain', () => {
 	it('reports valid on a chain longer than the verify window', async () => {
 		const limit = 1000
 		const chain = buildChain(limit + 5)
-		const db = makeFakeDb(chain, limit)
+		const db = makeFakeDb(chain)
 
 		const result = await runVerify(db, limit)
 
@@ -110,7 +123,7 @@ describe('verifyAuditChain', () => {
 		if (!tamperedRow) throw new Error('test setup: tampered row not found')
 		tamperedRow.entryHash = 'deadbeef'.repeat(8)
 
-		const db = makeFakeDb(chain, limit)
+		const db = makeFakeDb(chain)
 		const result = await runVerify(db, limit)
 
 		expect(result.valid).toBe(false)
@@ -119,12 +132,36 @@ describe('verifyAuditChain', () => {
 
 	it('reports valid for a chain shorter than the window (pre-existing behavior)', async () => {
 		const chain = buildChain(10)
-		const db = makeFakeDb(chain, 1000)
+		const db = makeFakeDb(chain)
 
 		const result = await runVerify(db, 1000)
 
 		expect(result.valid).toBe(true)
 		expect(result.checked).toBe(10)
 		expect(result.firstBreakId).toBeUndefined()
+	})
+
+	it('catches a tamper of ONLY the window boundary row prevHash (finding 3)', async () => {
+		// A chain longer than the window: the oldest row IN the window has a
+		// real predecessor OUTSIDE the window. Previously expectedPrevHash was
+		// seeded from that boundary row's own prevHash, making its comparison
+		// tautological — tampering ONLY that field was undetectable. Now an
+		// anchor row just outside the window is fetched and used to seed the
+		// expectation, so this must be caught.
+		const limit = 1000
+		const chain = buildChain(limit + 5)
+		const boundaryId = chain.length - limit + 1 // oldest row IN the window
+		const boundaryRow = chain.find((r) => r.id === boundaryId)
+		if (!boundaryRow) throw new Error('test setup: boundary row not found')
+		// Dangle the link: point prevHash at a bogus value instead of the real
+		// anchor's entryHash. entryHash itself is untouched (still internally
+		// self-consistent) — only the chain link is forged.
+		boundaryRow.prevHash = 'forgedforged'.repeat(5)
+
+		const db = makeFakeDb(chain)
+		const result = await runVerify(db, limit)
+
+		expect(result.valid).toBe(false)
+		expect(result.firstBreakId).toBe(boundaryId)
 	})
 })

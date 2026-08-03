@@ -166,17 +166,25 @@ function evalStateless(
 		}
 	}
 	if (p.allowedContracts && p.allowedContracts.length > 0) {
-		const allowedContracts = p.allowedContracts.map((c) => c.toLowerCase())
-		const contract = lc(intent.contractAddress)
-		if (!contract) {
-			// Fail CLOSED: an allowlist is configured but this intent carries no
-			// resolvable contract address (e.g. transactionRequest.to missing) —
-			// we cannot verify it against the allowlist, so block rather than
-			// silently letting it through.
-			return { block: 'contract address unknown — cannot verify allowlist' }
-		}
-		if (!allowedContracts.includes(contract)) {
-			return { block: `contract ${contract} is not in the allowlist` }
+		// `contractAddress === undefined` means "not applicable on this chain"
+		// (e.g. Solana/Jupiter trades have no EVM router to check) — allowedContracts
+		// is an EVM-router allowlist concept, so those intents are simply not
+		// subject to it. `contractAddress === null` means "expected but unresolved"
+		// (an EVM quote whose transactionRequest.to is missing) — that DOES fail
+		// closed below, since we configured a control we can't verify.
+		if (intent.contractAddress !== undefined) {
+			const allowedContracts = p.allowedContracts.map((c) => c.toLowerCase())
+			const contract = lc(intent.contractAddress)
+			if (!contract) {
+				// Fail CLOSED: an allowlist is configured but this intent carries no
+				// resolvable contract address (e.g. transactionRequest.to missing) —
+				// we cannot verify it against the allowlist, so block rather than
+				// silently letting it through.
+				return { block: 'contract address unknown — cannot verify allowlist' }
+			}
+			if (!allowedContracts.includes(contract)) {
+				return { block: `contract ${contract} is not in the allowlist` }
+			}
 		}
 	}
 

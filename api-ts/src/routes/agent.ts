@@ -1557,6 +1557,15 @@ async function resolveApprovalResubmit(
 			toToken: freshTerms.toToken,
 			valueUsd: freshTerms.valueUsd,
 			gasUsd: freshGasUsd,
+			// The router/contract this trade would actually call. Without it an
+			// operator's allowedContracts allowlist can never match on resubmit —
+			// mirrors the first evaluation above. `undefined` (not `null`) for
+			// Solana: allowedContracts is an EVM-only concept, so Solana intents
+			// must signal "not applicable" rather than "unresolved" (see
+			// PolicyService's fail-closed branch).
+			contractAddress: isSolana
+				? undefined
+				: ((freshQuote as SwapQuote).transactionRequest?.to ?? null),
 		}
 		const verdict = await runEffectEither(
 			Effect.gen(function* () {

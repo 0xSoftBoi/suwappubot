@@ -482,11 +482,21 @@ concurrent writers to the same chain can never both read the same
   Params: `event_type`, `agent_id` (org-key callers only), `since` (ISO),
   `limit` (1–500, default 100). Returns `{success, events: [{eventType,
   agentId, orgId, details, createdAt, entryHash}], count}`.
-- `GET /v1/agent/audit/verify` — walks the caller's chain (`limit` 1–5000,
-  default 1000) oldest→newest, recomputing `computeEntryHash(...)` per row
-  and checking linkage against `prevHash`. Rows written before the hash-chain
-  migration (`entryHash IS NULL AND prevHash IS NULL`) are skipped rather
-  than flagged as a break. Returns `{success, valid, checked, firstBreakId?}`.
+- `GET /v1/agent/audit/verify` — for an org API key, walks that org's chain
+  (`limit` 1–5000, default 1000) oldest→newest, recomputing
+  `computeEntryHash(...)` per row and checking linkage against `prevHash`.
+  Rows written before the hash-chain migration (`entryHash IS NULL AND
+  prevHash IS NULL`) are skipped rather than flagged as a break. Returns
+  `{success, valid, checked, firstBreakId?}`. A plain agent-bearer-token
+  caller with no org context gets a `400 VALIDATION_ERROR` ("chain
+  verification requires org context — register this agent under an
+  organization to use /audit/verify") instead of a result — org-less agents
+  share ONE global hash-chain, so verifying it would leak other agents' row
+  counts/tamper status (cross-tenant metadata leak) and let any org-less
+  caller force a scan of up to 5000 rows that aren't theirs. Chain
+  verification is inherently whole-chain (each row's integrity depends on
+  its neighbor), so there is no safe way to scope it to just one org-less
+  agent's own rows.
 
 **Owner-scoped (JWT/session) reads** — added on this branch for the human
 owner acting through the web dashboard, with no API key
