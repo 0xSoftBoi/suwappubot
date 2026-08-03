@@ -705,24 +705,16 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 
 // GET /billing/status - current subscription tier and fee rate
 billingRoutes.get('/status', flexAuth(), async (c) => {
-	const telegramUser = c.get('telegramUser')
-
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const db = yield* requireDb
-			const userService = yield* UserService
 
-			// Resolve the real DB user ID
-			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
-			if (Option.isNone(userOption)) {
-				return {
-					tier: 'free' as string,
-					fee_rate_percent: FEE_RATES.free,
-					expires_at: null as Date | null,
-					active: true,
-				}
-			}
-			const dbUserId = userOption.value.id
+			// resolveCallerUserId, NOT a direct telegramUser dereference. This
+			// route resolved the user INLINE rather than through the shared
+			// helper, so switching it to flexAuth left it reading
+			// `telegramUser.id` on a caller that has no Telegram identity —
+			// a 500 on the one endpoint the dashboard needs to render a plan.
+			const dbUserId = yield* resolveCallerUserId(c)
 
 			const [sub] = yield* Effect.tryPromise({
 				try: () =>
