@@ -516,7 +516,13 @@ class PerpsService:
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
     ):
-        """Modify take profit / stop loss for a position."""
+        """Modify take profit / stop loss for a position. MONEY-PATH: places orders on HyperLiquid after DB update."""
+        # Validate price ranges before any action
+        if tp_price is not None and tp_price <= 0:
+            raise ValueError("TP price must be positive")
+        if sl_price is not None and sl_price <= 0:
+            raise ValueError("SL price must be positive")
+
         with get_session() as session:
             position = (
                 session.query(PerpPosition)
@@ -532,10 +538,47 @@ class PerpsService:
             if sl_price is not None:
                 position.sl_price = Decimal(str(sl_price))
 
-        logger.info(f"Updated TP/SL for position {position_id}: TP={tp_price}, SL={sl_price}")
+            session.flush()  # commit changes to DB before placing orders
 
-    def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
-        """Get user's positions."""
+        # Get account for order placement
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not set up")
+
+        # Place TP/SL orders on HyperLiquid (matching the flow in open_position)
+        # MONEY-PATH: failure to place orders is now propagated (not silently logged)
+        if tp_price is not None:
+            await self._place_tp_sl(
+                user_id,
+                account,
+                position.market,
+                position.side,
+                float(position.size),
+                "take_profit",
+                tp_price,
+                position_id,
+            )
+        if sl_price is not None:
+            await self._place_tp_sl(
+                user_id,
+                account,
+                position.market,
+                position.side,
+                float(position.size),
+                "stop_loss",
+                sl_price,
+                position_id,
+            )
+
+        logger.info(
+            f"Modified TP/SL for position {position_id}: TP={tp_price}, SL={sl_price} (orders placed on HyperLiquid)"
+        )
+
+    async def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
+        """Get user's positions. MONEY-PATH: syncs with HyperLiquid state before returning (detects liquidations/closures)."""
+        # Sync positions with HyperLiquid first to ensure accuracy
+        await self.sync_positions(user_id)
+
         with get_session() as session:
             positions = (
                 session.query(PerpPosition)
@@ -547,8 +590,10 @@ class PerpsService:
                 session.expunge(p)
             return positions
 
-    def get_position(self, user_id: int, position_id: int) -> Optional[PerpPosition]:
-        """Get a specific position."""
+    async def get_position(self, user_id: int, position_id: int) -> Optional[PerpPosition]:
+        """Get a specific position. MONEY-PATH: syncs with HyperLiquid state before returning."""
+        await self.sync_positions(user_id)
+
         with get_session() as session:
             position = (
                 session.query(PerpPosition).filter_by(id=position_id, user_id=user_id).first()
@@ -605,39 +650,42 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
-    ):
-        """Place a take profit or stop loss order."""
-        try:
-            api_key, api_secret = self._decrypt_credentials(account)
-            result = await self._client.place_order(
-                address=account.hl_address,
-                api_key=api_key,
-                api_secret=api_secret,
+    ) -> bool:
+        """Place a take profit or stop loss order. MONEY-PATH: propagates errors (not silently logged).
+        Returns True on success, raises on failure."""
+        api_key, api_secret = self._decrypt_credentials(account)
+        result = await self._client.place_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            side=side,
+            size=size,
+            price=price,
+            order_type=order_type,
+            reduce_only=True,
+        )
+
+        if not result:
+            raise Exception(f"Failed to place {order_type} order on HyperLiquid")
+
+        with get_session() as session:
+            order = PerpOrder(
+                user_id=user_id,
+                position_id=position_id,
+                exchange="hyperliquid",
                 market=market,
                 side=side,
-                size=size,
-                price=price,
                 order_type=order_type,
-                reduce_only=True,
+                size=Decimal(str(size)),
+                price=Decimal(str(price)),
+                status="pending",
+                hl_order_id=result.order_id,
             )
+            session.add(order)
 
-            if result:
-                with get_session() as session:
-                    order = PerpOrder(
-                        user_id=user_id,
-                        position_id=position_id,
-                        exchange="hyperliquid",
-                        market=market,
-                        side=side,
-                        order_type=order_type,
-                        size=Decimal(str(size)),
-                        price=Decimal(str(price)),
-                        status="pending",
-                        hl_order_id=result.order_id,
-                    )
-                    session.add(order)
-        except Exception as e:
-            logger.error(f"Failed to place {order_type} order: {e}")
+        logger.info(f"Placed {order_type} order for position {position_id} at {price}")
+        return True
 
     async def ensure_referrer(self, account: HyperLiquidAccount) -> None:
         """Best-effort: attach Suwappu's referral code to the user once.

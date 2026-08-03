@@ -35,12 +35,26 @@ export const policies = pgTable(
 	'policies',
 	{
 		id: uuid('id').defaultRandom().primaryKey(),
-		organizationId: uuid('organization_id')
-			.references(() => organizations.id, { onDelete: 'cascade' })
-			.notNull(),
+		// Nullable so a policy can be scoped to a bare agent (plain agent-token
+		// auth, no org) as well as to an org. organizationId null + agentId set =
+		// a per-agent grant that applies with no org context at all.
+		organizationId: uuid('organization_id').references(() => organizations.id, {
+			onDelete: 'cascade',
+		}),
 		// When set, this policy only applies to the named agent (agent spend
-		// profile). When null, it applies org-wide to every member/agent.
+		// profile). When null (and organizationId set), it applies org-wide to
+		// every member/agent.
 		agentId: varchar('agent_id', { length: 64 }),
+		// Grant semantics for the maker-checker escalation below:
+		//   'always_ask'  — every matched, non-blocked tx requires approval.
+		//   'above_limit' — (default) escalate only above requireApprovalAboveUsd.
+		//   'autonomous'  — never escalate (caps/blocks still apply).
+		approvalMode: varchar('approval_mode', { length: 20 }).default('above_limit').notNull(),
+		// Grant expiry — an expired policy is skipped entirely during evaluation.
+		expiresAt: timestamp('expires_at'),
+		// Contract/router allowlist (lowercased). When set, any intent whose
+		// contractAddress isn't in this list is blocked.
+		allowedContracts: text('allowed_contracts').array(),
 		name: varchar('name', { length: 120 }).notNull(),
 		enabled: boolean('enabled').default(true).notNull(),
 		// Lower priority number wins first; the first matching BLOCK/REQUIRE_APPROVAL
@@ -76,6 +90,8 @@ export const policies = pgTable(
 	(t) => ({
 		orgIdx: index('policies_org_idx').on(t.organizationId),
 		orgAgentIdx: index('policies_org_agent_idx').on(t.organizationId, t.agentId),
+		// Org-less per-agent policy lookups (plain agent-token auth, no org key).
+		agentOnlyIdx: index('policies_agent_only_idx').on(t.agentId),
 	}),
 )
 

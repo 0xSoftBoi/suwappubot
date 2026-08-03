@@ -23,7 +23,7 @@ import {
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
-import { telegramAuth } from '../middleware'
+import { flexAuth, telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import { StripeService } from '../services/StripeService'
@@ -66,7 +66,7 @@ const FEE_RATES: Record<string, number> = {
 // flow); with ?format=json (or Accept: application/json) returns { url } so the
 // Telegram Mini App can open it via WebApp.openLink (a redirect can't be
 // followed cross-origin from a fetch).
-billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) => {
+billingRoutes.get('/stripe/checkout', ipRateLimit(5), flexAuth(), async (c) => {
 	const tier = c.req.query('tier') as 'pro' | 'premium'
 	if (!['pro', 'premium'].includes(tier)) {
 		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
@@ -82,21 +82,20 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 		Effect.gen(function* () {
 			const env = yield* EnvService
 			const stripeService = yield* StripeService
-			const userService = yield* UserService
 
-			// Resolve the real DB user ID — TelegramUser only carries the Telegram id
-			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
-			if (Option.isNone(userOption)) {
-				return yield* Effect.fail(new Error('User not found'))
-			}
-			const dbUserId = userOption.value.id
+			// Works for BOTH auth paths. A web (Google OAuth) caller has no
+			// Telegram id at all, so resolving via getUserByTelegramId would
+			// throw for exactly the users this route was just opened up to.
+			const dbUserId = yield* resolveCallerUserId(c)
 
 			const baseUrl =
 				env.ALLOWED_ORIGINS?.split(',')[0]?.trim() || 'https://app.suwappu.bot'
 
 			const checkoutUrl = yield* stripeService.createCheckoutSession({
 				tier,
-				telegramId: String(telegramUser.id),
+				// Informational only — the webhook keys off user_id. Empty for
+				// web callers, who have no Telegram identity.
+				telegramId: telegramUser ? String(telegramUser.id) : '',
 				userId: dbUserId,
 				successUrl: `${baseUrl}/premium?upgrade=success&tier=${tier}`,
 				cancelUrl: `${baseUrl}/premium`,
@@ -705,7 +704,7 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 })
 
 // GET /billing/status - current subscription tier and fee rate
-billingRoutes.get('/status', telegramAuth(), async (c) => {
+billingRoutes.get('/status', flexAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser')
 
 	const result = await runEffectEither(
@@ -762,6 +761,27 @@ billingRoutes.get('/status', telegramAuth(), async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Resolve the caller's internal DB user id from telegramAuth context. */
+/**
+ * Resolve the caller's internal user id from whichever auth succeeded.
+ *
+ * These routes were telegramAuth-only, so a user who signed in through the web
+ * (Google OAuth -> parent-domain session cookie) got 401 on EVERY billing call.
+ * The dashboard therefore rendered an empty shell: it could authenticate, then
+ * could not read a plan, a credit balance or an invoice. flexAuth already
+ * carries the internal id, so no Telegram lookup is needed for those callers.
+ */
+const resolveCallerUserId = (c: any) =>
+	Effect.gen(function* () {
+		const authUser = c.get('authUser')
+		if (authUser?.userId) return authUser.userId as number
+
+		const telegramUser = c.get('telegramUser')
+		if (!telegramUser) {
+			return yield* Effect.fail(new ValidationError({ message: 'Not authenticated' }))
+		}
+		return yield* resolveDbUserId(telegramUser.id)
+	})
+
 const resolveDbUserId = (telegramId: number) =>
 	Effect.gen(function* () {
 		const userService = yield* UserService
@@ -789,13 +809,13 @@ const resolveStripeCustomerId = (dbUserId: number) =>
 	})
 
 // GET /billing/credits — prepaid API credit balance for the caller.
-billingRoutes.get('/credits', telegramAuth(), async (c) => {
+billingRoutes.get('/credits', flexAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser')
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const db = yield* requireDb
-			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+					const dbUserId = yield* resolveCallerUserId(c)
 
 			const [row] = yield* Effect.tryPromise({
 				try: () =>
@@ -831,9 +851,7 @@ const CreditCheckoutSchema = z.object({
 	packId: z.string().min(1).max(32),
 })
 
-billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (c) => {
-	const telegramUser = c.get('telegramUser')
-
+billingRoutes.post('/credits/checkout', ipRateLimit(10), flexAuth(), async (c) => {
 	const parsed = CreditCheckoutSchema.safeParse(await c.req.json().catch(() => ({})))
 	if (!parsed.success) {
 		return c.json({ error: 'Invalid body — expected { packId }' }, 400)
@@ -854,7 +872,7 @@ billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (
 		Effect.gen(function* () {
 			const env = yield* EnvService
 			const stripeService = yield* StripeService
-			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+			const dbUserId = yield* resolveCallerUserId(c)
 			const customerId = yield* resolveStripeCustomerId(dbUserId)
 
 			const baseUrl = env.SHOWCASE_BASE_URL || 'https://suwappu.bot'
@@ -864,7 +882,8 @@ billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (
 				chargeUsd: pack.chargeUsd,
 				balanceUsd: pack.balanceUsd,
 				userId: dbUserId,
-				telegramId: String(telegramUser.id),
+				// Informational only; empty for web callers with no Telegram id.
+				telegramId: c.get('telegramUser') ? String(c.get('telegramUser').id) : '',
 				customerId,
 				successUrl: `${baseUrl}/dashboard?topup=success&pack=${pack.id}`,
 				cancelUrl: `${baseUrl}/dashboard?topup=cancel`,
@@ -882,14 +901,14 @@ billingRoutes.post('/credits/checkout', ipRateLimit(10), telegramAuth(), async (
 })
 
 // POST /billing/portal — Stripe-hosted billing portal (invoices, cards, cancel).
-billingRoutes.post('/portal', ipRateLimit(10), telegramAuth(), async (c) => {
+billingRoutes.post('/portal', ipRateLimit(10), flexAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser')
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const env = yield* EnvService
 			const stripeService = yield* StripeService
-			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+					const dbUserId = yield* resolveCallerUserId(c)
 			const customerId = yield* resolveStripeCustomerId(dbUserId)
 
 			if (!customerId) {
@@ -920,13 +939,13 @@ billingRoutes.post('/portal', ipRateLimit(10), telegramAuth(), async (c) => {
 // GET /billing/invoices — recent Stripe invoices for the caller.
 // Returns an empty list (not an error) for a customer who has never been
 // charged by card, so the dashboard can render an empty state.
-billingRoutes.get('/invoices', telegramAuth(), async (c) => {
+billingRoutes.get('/invoices', flexAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser')
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const stripeService = yield* StripeService
-			const dbUserId = yield* resolveDbUserId(telegramUser.id)
+					const dbUserId = yield* resolveCallerUserId(c)
 			const customerId = yield* resolveStripeCustomerId(dbUserId)
 
 			if (!customerId) return { invoices: [], has_customer: false }

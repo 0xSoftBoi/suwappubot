@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
+from starlette.responses import RedirectResponse
 
 import api.routes.oauth as oauth
 
@@ -53,9 +54,11 @@ async def test_login_callback_rejects_missing_nonce_cookie():
     state = SimpleNamespace(
         action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
     )
-    with pytest.raises(HTTPException) as exc:
-        await _call(_db_returning(state), _request_with_cookies({}))
-    assert exc.value.status_code == 400
+    result = await _call(_db_returning(state), _request_with_cookies({}))
+    # Code returns RedirectResponse with nonce_missing error, not HTTPException
+    assert isinstance(result, RedirectResponse)
+    # Check redirect location header contains the error
+    assert any("nonce_missing" in str(v) for v in result.headers.values())
 
 
 async def test_login_callback_rejects_wrong_nonce_cookie():
@@ -63,9 +66,11 @@ async def test_login_callback_rejects_wrong_nonce_cookie():
         action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
     )
     request = _request_with_cookies({oauth.OAUTH_NONCE_COOKIE: "attacker-value"})
-    with pytest.raises(HTTPException) as exc:
-        await _call(_db_returning(state), request)
-    assert exc.value.status_code == 400
+    result = await _call(_db_returning(state), request)
+    # Code returns RedirectResponse with nonce_mismatch error, not HTTPException
+    assert isinstance(result, RedirectResponse)
+    # Check redirect location header contains the error
+    assert any("nonce_mismatch" in str(v) for v in result.headers.values())
 
 
 async def test_login_callback_matching_nonce_passes_the_check(monkeypatch):
