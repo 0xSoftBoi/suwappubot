@@ -1325,6 +1325,12 @@ class PerpsCancelBody(BaseModel):
     orderId: str
 
 
+class PerpsTpSlBody(BaseModel):
+    positionId: int
+    takeProfit: Optional[float] = None
+    stopLoss: Optional[float] = None
+
+
 # --- Predict request models ---
 
 
@@ -1517,6 +1523,43 @@ async def terminal_perps_cancel(request: Request, body: PerpsCancelBody):
     if not ok:
         raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.")
     return {"ok": True}
+
+
+@router.post("/perps/tpsl")
+async def terminal_perps_tpsl(request: Request, body: PerpsTpSlBody):
+    """Set or move the take profit / stop loss protecting an open position.
+
+    Each leg is a reduce-only trigger order resting on HyperLiquid. The old
+    trigger is cancelled before the new one is placed, and the stored price is
+    only updated once the exchange accepts it — so a price shown in the UI
+    always corresponds to protection that actually exists.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    if body.takeProfit is None and body.stopLoss is None:
+        raise HTTPException(status_code=400, detail="Set a take profit or a stop loss price.")
+    for label, value in (("Take profit", body.takeProfit), ("Stop loss", body.stopLoss)):
+        if value is not None and value <= 0:
+            raise HTTPException(status_code=400, detail=f"{label} must be greater than zero.")
+
+    try:
+        await perps_service.modify_tp_sl(
+            user_id=uid,
+            position_id=body.positionId,
+            tp_price=body.takeProfit,
+            sl_price=body.stopLoss,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("terminal perps tp/sl update failed: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail="HyperLiquid did not accept the change. Your existing protection is unchanged.",
+        )
+
+    return {"ok": True, "takeProfit": body.takeProfit, "stopLoss": body.stopLoss}
 
 
 @router.post("/perps/execute")

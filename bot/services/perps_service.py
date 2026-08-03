@@ -516,7 +516,18 @@ class PerpsService:
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
     ):
-        """Modify take profit / stop loss for a position."""
+        """Replace the reduce-only trigger orders protecting a position.
+
+        Writing tp_price/sl_price to the row is not enough. The protection only
+        exists if HyperLiquid is holding a reduce-only trigger order, so cancel
+        the live trigger, place its replacement, and persist the new price only
+        after the exchange confirms. A failed call must surface as an error
+        rather than leave the user believing in a stop that does not exist.
+        """
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not found")
+
         with get_session() as session:
             position = (
                 session.query(PerpPosition)
@@ -527,12 +538,104 @@ class PerpsService:
             if not position:
                 raise ValueError("Position not found")
 
-            if tp_price is not None:
-                position.tp_price = Decimal(str(tp_price))
-            if sl_price is not None:
-                position.sl_price = Decimal(str(sl_price))
+            market = position.market
+            side = position.side
+            size = float(position.size)
+
+        updates = []
+        if tp_price is not None:
+            updates.append(("take_profit", tp_price))
+        if sl_price is not None:
+            updates.append(("stop_loss", sl_price))
+        if not updates:
+            return
+
+        for order_type, price in updates:
+            # Snapshot the trigger being replaced before placing, so the cancel
+            # below cannot pick up the replacement itself.
+            superseded = self._live_trigger_orders(user_id, position_id, order_type)
+
+            # Place before cancelling. If the new trigger is rejected the old one
+            # is still resting, so a failure never strands the position naked.
+            # The reverse order would open a window with no protection at all.
+            await self._place_tp_sl(
+                user_id,
+                account,
+                market,
+                side,
+                size,
+                order_type,
+                price,
+                position_id,
+                raise_on_error=True,
+            )
+            await self._cancel_trigger_orders(user_id, market, superseded)
+
+            with get_session() as session:
+                position = (
+                    session.query(PerpPosition).filter_by(id=position_id, user_id=user_id).first()
+                )
+                if position:
+                    if order_type == "take_profit":
+                        position.tp_price = Decimal(str(price))
+                    else:
+                        position.sl_price = Decimal(str(price))
 
         logger.info(f"Updated TP/SL for position {position_id}: TP={tp_price}, SL={sl_price}")
+
+    def _live_trigger_orders(
+        self, user_id: int, position_id: int, order_type: str
+    ) -> list[tuple[int, Optional[str]]]:
+        """Rows for the triggers of this type currently resting on the exchange."""
+        with get_session() as session:
+            existing = (
+                session.query(PerpOrder)
+                .filter(
+                    PerpOrder.user_id == user_id,
+                    PerpOrder.position_id == position_id,
+                    PerpOrder.order_type == order_type,
+                    PerpOrder.status.in_(("pending", "open")),
+                )
+                .all()
+            )
+            return [(o.id, o.hl_order_id) for o in existing]
+
+    async def _cancel_trigger_orders(
+        self, user_id: int, market: str, stale: list[tuple[int, Optional[str]]]
+    ):
+        """Cancel superseded triggers so a position never carries two stops."""
+        if not stale:
+            return
+
+        address, api_key, api_secret = self._creds_for(user_id)
+        for row_id, hl_order_id in stale:
+            if hl_order_id:
+                try:
+                    await self._client.cancel_order(
+                        address=address,
+                        api_key=api_key,
+                        api_secret=api_secret,
+                        market=market,
+                        order_id=hl_order_id,
+                    )
+                except Exception as e:
+                    # The replacement is already resting, so the position is
+                    # protected either way. Leaving the old trigger up is the
+                    # safe failure: log it and let the position sync reconcile
+                    # rather than raise and imply the change did not happen.
+                    logger.warning("Cancel of superseded trigger %s failed: %s", hl_order_id, e)
+                    continue
+            with get_session() as session:
+                order = session.query(PerpOrder).filter_by(id=row_id).first()
+                if order:
+                    order.status = "cancelled"
+
+    def _creds_for(self, user_id: int) -> tuple[str, str, str]:
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not found")
+        api_key, api_secret = self._decrypt_credentials(account)
+        return account.hl_address, api_key, api_secret
 
     def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
         """Get user's positions."""
@@ -605,8 +708,14 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
+        raise_on_error: bool = False,
     ):
-        """Place a take profit or stop loss order."""
+        """Place a take profit or stop loss order.
+
+        Best-effort when attached to a freshly opened position (the position is
+        already live and must not be rolled back), strict when the caller is
+        editing protection and needs to know whether it actually landed.
+        """
         try:
             api_key, api_secret = self._decrypt_credentials(account)
             result = await self._client.place_order(
@@ -636,8 +745,12 @@ class PerpsService:
                         hl_order_id=result.order_id,
                     )
                     session.add(order)
+            elif raise_on_error:
+                raise RuntimeError(f"HyperLiquid rejected the {order_type} order")
         except Exception as e:
             logger.error(f"Failed to place {order_type} order: {e}")
+            if raise_on_error:
+                raise
 
     async def ensure_referrer(self, account: HyperLiquidAccount) -> None:
         """Best-effort: attach Suwappu's referral code to the user once.
