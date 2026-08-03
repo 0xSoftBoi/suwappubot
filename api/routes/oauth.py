@@ -226,6 +226,26 @@ async def oauth_authorize(
     return redirect
 
 
+def _oauth_failure_redirect(reason: str, detail: str = "") -> RedirectResponse:
+    """Send a failed login back to the UI with a MACHINE-READABLE reason.
+
+    These paths previously raised HTTPException, so a user whose sign-in failed
+    got a bare JSON body — `{"detail":"Invalid or expired state"}` — rendered as
+    a dead end, with no way to tell which of four distinct causes fired. That
+    made "it failed" unactionable for the user AND for anyone debugging: the
+    four rejections are indistinguishable from the outside, and the server log
+    buffer is short enough to lose the attempt entirely.
+
+    Each cause now carries its own `auth_error` slug on the redirect, so the
+    failure names itself in the address bar. The slug is deliberately coarse —
+    it must never leak whether a given state/nonce existed.
+    """
+    base = settings.oauth_callback_base
+    url = f"{base}/?auth_error={reason}"
+    logger.warning("OAuth login failed: reason=%s %s", reason, detail)
+    return RedirectResponse(url=url, status_code=302)
+
+
 @router.get("/{provider}/callback")
 async def oauth_callback(
     provider: str,
@@ -262,13 +282,15 @@ async def oauth_callback(
     )
 
     if not oauth_state:
-        logger.warning(f"OAuth callback: invalid state {state[:10]}...")
-        raise HTTPException(status_code=400, detail="Invalid or expired state")
+        # Most common real cause: the flow was STARTED on a different origin
+        # than it finished on, so the state row belongs to another host's
+        # request — or the user re-used a stale link.
+        return _oauth_failure_redirect("state_not_found", f"state={state[:10]}...")
 
     if oauth_state.is_expired:
         db.delete(oauth_state)
         db.commit()
-        raise HTTPException(status_code=400, detail="OAuth state expired")
+        return _oauth_failure_redirect("state_expired")
 
     # For account-linking flows the OAuth identity must be bound to the user who
     # actually initiated the flow and is currently authenticated. Without this,
@@ -308,9 +330,14 @@ async def oauth_callback(
             )
             db.delete(oauth_state)
             db.commit()
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or missing login verification",
+            # cookie_present distinguishes the two very different causes:
+            #   absent  -> the browser never got the nonce, i.e. /authorize ran
+            #              on a DIFFERENT ORIGIN than this callback (host-only
+            #              cookie, Path=/auth/oauth)
+            #   present -> a genuine mismatch (replay / crossed flows)
+            return _oauth_failure_redirect(
+                "nonce_missing" if not presented_nonce else "nonce_mismatch",
+                f"state={state[:10]}...",
             )
 
     oauth_service = get_oauth_service()
@@ -330,12 +357,14 @@ async def oauth_callback(
         )
 
     except OAuthError as e:
-        logger.error(f"OAuth flow failed: {e}")
+        # Provider-side rejection: bad/expired code, redirect_uri_mismatch,
+        # unverified app. The provider's message is the ONLY place the real
+        # cause appears, so log it in full — it is not sensitive.
+        logger.error("OAuth token exchange failed: %s", e, exc_info=True)
         db.delete(oauth_state)
         db.commit()
-        # The one-time login nonce has served its purpose; clear it from the browser.
         response.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
-        raise HTTPException(status_code=400, detail=str(e))
+        return _oauth_failure_redirect("provider_rejected", str(e)[:200])
 
     # Find or create user
     is_new_user = False
