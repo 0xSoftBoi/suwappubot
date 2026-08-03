@@ -317,6 +317,7 @@ from bot.handlers.enterprise import (
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
+from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.aegis_scan import aegis_scan_update
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -452,6 +453,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(hl_hub_handler)  # /hl hub
     application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
     application.add_handler(hl_cancel_handler)  # dashboard close button
+    application.add_handler(claim_agent_handler)  # /claim (agent control-plane)
+    application.add_handler(unlink_agent_handler)  # /unlink
     application.add_handler(hl_twap_cancel_handler)  # TWAP cancel button
     application.add_handler(hl_twap_refresh_handler)  # TWAP refresh button
     application.add_handler(hl_hub_cb_handler)  # /hl hub buttons

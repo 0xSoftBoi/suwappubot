@@ -692,6 +692,10 @@ def _ensure_schema(db_engine) -> None:
     _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
     _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
 
+    # --- Agent ownership linking (/claim, /unlink): agents.owner_user_id + agent_link_codes ---
+    _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
+    _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
+
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
@@ -3600,3 +3604,82 @@ def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool
         logger.info("Created agent_webhook_deliveries table")
     except Exception as e:
         logger.warning(f"Failed to create agent_webhook_deliveries table: {e}")
+
+
+def _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add agents.owner_user_id (nullable FK -> users.id) idempotently.
+
+    Shared column: api-ts already ships this on agents.ts's ownerUserId via
+    Drizzle. This migration exists for any Python-provisioned database
+    (sqlite dev/tests, or Postgres where the Python side runs first) so it
+    also gets the column. Additive/nullable; never touches agents creation.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agents" not in tables:
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns("agents")}
+    except Exception as e:
+        logger.warning(f"Could not inspect agents columns: {e}")
+        return
+    if "owner_user_id" in cols:
+        return
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN owner_user_id INTEGER"))
+        logger.info("Added agents.owner_user_id column")
+    except Exception as e:
+        logger.warning(f"Failed to add agents.owner_user_id column: {e}")
+
+
+def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_link_codes idempotently (agent ownership linking).
+
+    Matches api-ts's shipped Drizzle schema (agentLinkCodes.ts) exactly:
+    agent_id is an INTEGER FK to agents.id (NOT agents.uuid), code_hash is a
+    UNIQUE varchar(64) sha256 hex digest of a code minted+shown once by
+    api-ts's POST /v1/agent/link/code, expires_at/used_at/created_at are
+    timestamps. Exists for any Python-provisioned database that hasn't seen
+    api-ts's migration yet.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_link_codes" in tables:
+        return
+
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+    pk_extra = "AUTOINCREMENT" if is_sqlite else ""
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS agent_link_codes ("
+                    f"id INTEGER PRIMARY KEY {pk_extra}, "
+                    f"agent_id INTEGER NOT NULL, "
+                    f"code_hash VARCHAR(64) NOT NULL, "
+                    f"expires_at {ts_type} NOT NULL, "
+                    f"used_at {ts_type}, "
+                    f"created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_link_codes_code_hash "
+                    "ON agent_link_codes (code_hash)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_agent_link_codes_agent_id "
+                    "ON agent_link_codes (agent_id)"
+                )
+            )
+        logger.info("Created agent_link_codes table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_link_codes table: {e}")
