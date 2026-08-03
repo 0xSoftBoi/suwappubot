@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono'
-import { telegramAuth } from '../middleware/auth'
+import { telegramAuth } from '../middleware'
 
 export const webappStubs = new Hono()
 
