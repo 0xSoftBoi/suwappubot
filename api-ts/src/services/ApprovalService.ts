@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, desc, eq, gt, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
+import { agents } from '../db/schema/agents'
 import { approvalRequests, type ApprovalRequest } from '../db/schema/approvals'
 import { approvalStepUpChallenges } from '../db/schema/approvalStepUpChallenges'
 import { organizations } from '../db/schema/organizations'
@@ -153,6 +154,36 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			const payloadHash = hashCoreTerms(input.payload)
 			const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS)
 
+			// Resolve the human who may approve this request. Callers pass the
+			// org owner (organizations.ownerId) as input.userId when an org
+			// context exists — that resolution order is preserved and NOT
+			// overridden here. But an org-less agent (plain agent-token/MCP
+			// auth, no organizationId) has no org owner to resolve, so
+			// input.userId arrives null and the request would otherwise be
+			// created with user_id=null — unapprovable forever, since
+			// listForOwner()/decide() only ever match on user_id. Fall back to
+			// the agent's own linked owner (agents.owner_user_id, set via the
+			// /link/code + /claim flow) so an org-less agent's approvals still
+			// resolve to a real human. Best-effort and null-safe: any lookup
+			// failure here must never fail approval creation, so it degrades to
+			// the pre-existing null (unapprovable) behavior rather than
+			// throwing.
+			let resolvedUserId = input.userId ?? null
+			if (resolvedUserId == null) {
+				const fallbackRows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ ownerUserId: agents.ownerUserId })
+							.from(agents)
+							// agentId may be the stable uuid, or (for pre-uuid agents) the
+							// numeric id stringified — see agentIdentifierOf() in routes/agent.ts.
+							.where(or(eq(agents.uuid, input.agentId), sql`${agents.id}::text = ${input.agentId}`))
+							.limit(1),
+					catch: () => null,
+				}).pipe(Effect.catchAll(() => Effect.succeed([] as { ownerUserId: number | null }[])))
+				resolvedUserId = fallbackRows[0]?.ownerUserId ?? null
+			}
+
 			const rows = yield* Effect.tryPromise({
 				try: () =>
 					db
@@ -160,7 +191,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 						.values({
 							agentId: input.agentId,
 							organizationId: input.organizationId ?? null,
-							userId: input.userId ?? null,
+							userId: resolvedUserId,
 							actionType: input.actionType,
 							payload: input.payload as unknown as Record<string, unknown>,
 							payloadHash,

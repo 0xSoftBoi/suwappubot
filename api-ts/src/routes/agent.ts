@@ -8,6 +8,7 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
+import type { DbClient } from '../db/client'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { agentLinkCodes } from '../db/schema/agentLinkCodes'
 import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
@@ -17,7 +18,7 @@ import { type SpendPermission, validateSpendPermission } from '../lib/spendPermi
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
-import { mapErrorToResponse, ValidationError } from '../errors'
+import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
@@ -532,6 +533,10 @@ agentRoutes.use('/approvals/:id/step-up/challenge', flexAuth())
 agentRoutes.use('/link/code', agentFlexAuth())
 agentRoutes.use('/audit', agentFlexAuth())
 agentRoutes.use('/audit/*', agentFlexAuth())
+// Owner-facing (JWT/session) audit read — human owner via the web dashboard,
+// no API key. Distinct middleware chain from the agent/org-key /audit above.
+agentRoutes.use('/owner/audit', flexAuth())
+agentRoutes.use('/owner/audit/verify', flexAuth())
 // Kill switch is org-API-key only (see handlers below) — apiKeyAuth() is a
 // no-op when no sk_live_ key is present, so the handlers explicitly reject
 // requests that never resolved an apiKeyAuth context (plain agent tokens).
@@ -566,6 +571,8 @@ agentRoutes.use('/approvals/:id/approve', rateLimit())
 agentRoutes.use('/approvals/:id/deny', rateLimit())
 agentRoutes.use('/approvals/:id/step-up/challenge', rateLimit())
 agentRoutes.use('/link/code', rateLimit())
+agentRoutes.use('/owner/audit', rateLimit())
+agentRoutes.use('/owner/audit/verify', rateLimit())
 // Extra per-IP throttle on the owner-facing (JWT) approval endpoints — these
 // gate real money movement, so cap brute-force/scripted approve-spam attempts
 // independent of the per-user rateLimit() above.
@@ -4558,6 +4565,145 @@ agentRoutes.get('/audit/verify', async (c) => {
 	}
 
 	return c.json({ success: true, ...result.right })
+})
+
+/**
+ * Resolve the org id an authenticated human owner is asking about, for the
+ * owner-JWT audit surface below.
+ *
+ * `audit_logs`/the hash chain are keyed by org id (or the org-less 'global'
+ * chain — see services/audit.ts), NOT by user, and a human can own more than
+ * one organization. `?org_id=` lets an owner pick one explicitly; the
+ * ownership check (organizations.ownerId = caller) is mandatory either way so
+ * one owner can never read another owner's org chain. When no `org_id` is
+ * given, this falls back to the caller's single/first owned org (by
+ * createdAt) — a caller who owns zero orgs gets a NotFoundError rather than
+ * silently returning the org-less global chain, since a human owner asking
+ * "show me my org's audit trail" should never be answered with someone else's
+ * org-less agent activity.
+ */
+function resolveOwnerAuditOrgId(
+	db: DbClient,
+	userId: number,
+	requestedOrgId: string | null,
+): Effect.Effect<string, DatabaseError | NotFoundError | ForbiddenError> {
+	return Effect.gen(function* () {
+		if (requestedOrgId) {
+			const owned = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ id: organizations.id })
+						.from(organizations)
+						.where(and(eq(organizations.id, requestedOrgId), eq(organizations.ownerId, userId)))
+						.limit(1),
+				catch: (e) => new DatabaseError({ message: 'Failed to verify org ownership', cause: e }),
+			})
+			if (!owned[0]) {
+				return yield* Effect.fail(
+					new ForbiddenError({ message: 'You do not own this organization' }),
+				)
+			}
+			return owned[0].id
+		}
+
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ id: organizations.id })
+					.from(organizations)
+					.where(eq(organizations.ownerId, userId))
+					.orderBy(organizations.createdAt)
+					.limit(1),
+			catch: (e) => new DatabaseError({ message: 'Failed to load owned organizations', cause: e }),
+		})
+		const org = rows[0]
+		if (!org) {
+			return yield* Effect.fail(new NotFoundError({ resource: 'organization' }))
+		}
+		return org.id
+	})
+}
+
+// GET /v1/agent/owner/audit - Owner (JWT) read of their org's audit trail.
+// Distinct from GET /audit (agent-key/org-API-key scoped): this is for the
+// human owner acting through the web dashboard's session, with no API key.
+agentRoutes.get('/owner/audit', async (c) => {
+	const authUser = c.get('authUser')
+	const requestedOrgId = c.req.query('org_id') ?? null
+	const eventType = c.req.query('event_type')
+	const filterAgentId = c.req.query('agent_id')
+	const since = c.req.query('since')
+	const limitParam = parseInt(c.req.query('limit') ?? '100', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 100, 1), 500)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const orgId = yield* resolveOwnerAuditOrgId(db, authUser.userId, requestedOrgId)
+
+			const conditions = [eq(auditLogs.orgId, orgId)]
+			if (eventType) conditions.push(eq(auditLogs.eventType, eventType))
+			if (filterAgentId) conditions.push(eq(auditLogs.agentId, filterAgentId))
+			if (since) {
+				const sinceDate = new Date(since)
+				if (!Number.isNaN(sinceDate.getTime())) conditions.push(gte(auditLogs.createdAt, sinceDate))
+			}
+
+			const events = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							eventType: auditLogs.eventType,
+							agentId: auditLogs.agentId,
+							orgId: auditLogs.orgId,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(and(...conditions))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => new DatabaseError({ message: 'Failed to list audit events', cause: e }),
+			})
+			return { orgId, events }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const { orgId, events } = result.right
+	return c.json({ success: true, org_id: orgId, events, count: events.length })
+})
+
+// GET /v1/agent/owner/audit/verify - Owner (JWT) hash-chain verification for
+// their org's audit trail. See GET /audit/verify for the agent/API-key
+// equivalent and resolveOwnerAuditOrgId() above for org selection rules.
+agentRoutes.get('/owner/audit/verify', async (c) => {
+	const authUser = c.get('authUser')
+	const requestedOrgId = c.req.query('org_id') ?? null
+	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const orgId = yield* resolveOwnerAuditOrgId(db, authUser.userId, requestedOrgId)
+			const verified = yield* verifyAuditChain(orgId, limit)
+			return { orgId, verified }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const { orgId, verified } = result.right
+	return c.json({ success: true, org_id: orgId, ...verified })
 })
 
 // ===========================================
