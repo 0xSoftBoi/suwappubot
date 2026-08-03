@@ -18,10 +18,12 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 from bot.services.swap_engine import (
     SwapEngine,
     SwapQuote,
+    _apply_speed_tiebreak,
     _derive_input_usd_value,
     _derive_median_output_price,
     _extract_input_usd_value,
     _extract_output_usd_price,
+    _input_usd_sources_disagree,
     _quote_net_score,
     _rank_quotes,
     _rank_quotes_with_price,
@@ -34,26 +36,32 @@ def _quote(
     gas_cost_usd: float = 0.0,
     raw_quote: dict | None = None,
     gas_cost_trusted: bool = False,
+    estimated_time: int = 15,
+    from_chain: str = "arbitrum",
+    to_chain: str = "arbitrum",
+    time_trusted: bool = False,
+    from_amount_human: float = 1.0,
 ) -> SwapQuote:
     return SwapQuote(
         provider=provider,
-        from_chain="arbitrum",
-        to_chain="arbitrum",
+        from_chain=from_chain,
+        to_chain=to_chain,
         from_token="USDT",
         to_token="USDC",
         from_amount="1000000",
-        from_amount_human=1.0,
+        from_amount_human=from_amount_human,
         to_amount=str(int(to_amount_human * 1e6)),
         to_amount_human=to_amount_human,
         to_amount_min=str(int(to_amount_human * 1e6)),
         gas_cost_usd=gas_cost_usd,
         fee_cost_usd=0.0,
         total_cost_usd=gas_cost_usd,
-        estimated_time=15,
+        estimated_time=estimated_time,
         price_impact=0.0,
         exchange_rate=to_amount_human,
         raw_quote=raw_quote or {},
         gas_cost_trusted=gas_cost_trusted,
+        time_trusted=time_trusted,
     )
 
 
@@ -338,6 +346,59 @@ class TestRankQuotes:
         assert out_price is None  # cross-check correctly rejected the price
         assert best.provider == "lifi"  # gross fallback: 0.1 > 0.098
 
+    def test_independent_oracle_catches_self_validating_provider(self):
+        """FIX: a provider's own fromAmountUSD can't be used to validate its
+        own toAmountUSD — that's not independent verification. Repro:
+        Li.Fi reports fromAmountUSD=21 and toAmountUSD=21 on a swap whose
+        real value (per an independent price-service oracle) is $100 — the
+        provider figures agree PERFECTLY with each other (0% deviation) but
+        are both wrong. Without an independent oracle this would have
+        wrongly passed the cross-check and accepted a bogus $0.21/token
+        price; with one, the oracle/provider disagreement (79%) forces
+        gross fallback instead."""
+        quote_a = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=0.01,
+            raw_quote=_lifi_raw_full(21.0, 21.0),  # self-consistent but wrong
+            gas_cost_trusted=True,
+        )
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=98.0,
+            gas_cost_usd=0.01,
+            raw_quote=_kyber_raw(20.58),  # agrees with lifi's (wrong) $0.21/token
+            gas_cost_trusted=True,
+        )
+
+        best, out_price = _rank_quotes_with_price([quote_a, quote_b], input_price_usd=100.0)
+        assert out_price is None  # oracle vs provider disagreement rejected the price
+        assert best.provider == "lifi"  # gross fallback: 100 > 98
+
+    def test_absurd_trusted_gas_triggers_gross_fallback(self):
+        """FIX: unbounded trusted gas — even a genuinely `gas_cost_trusted`
+        figure (e.g. from a corrupted eth_gasPrice read) must not be allowed
+        to dominate ranking when it's an implausible share of the trade.
+        Here gas alone ($60) exceeds 50% of the $100 input value."""
+        quote_a = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=60.0,  # 60% of the $100 input value — absurd
+            raw_quote=_lifi_raw(100.0),  # $1/token
+            gas_cost_trusted=True,
+        )
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=90.0,
+            gas_cost_usd=1.0,
+            raw_quote=_kyber_raw(90.0),  # $1/token — 2nd source
+            gas_cost_trusted=True,
+        )
+
+        best, out_price = _rank_quotes_with_price([quote_a, quote_b], input_price_usd=100.0)
+        assert out_price is None  # absurd-gas guard tripped -> gross fallback
+        assert best.provider == "lifi"  # gross: 100 > 90
+
     def test_wormhole_excluded_unless_sole_quote(self):
         wormhole_q = _quote("wormhole", to_amount_human=1000.0)  # optimistic 1:1, would "win" gross
         real_q = _quote("lifi", to_amount_human=90.0)
@@ -452,10 +513,22 @@ class TestExtractInputUsdValue:
 
 
 class TestDeriveInputUsdValue:
-    def test_prefers_lifi_reported_value(self):
+    def test_prefers_independent_oracle_over_provider_reported_value(self):
+        """FIX: a provider's own fromAmountUSD is NOT independent verification
+        (it's the same source that produced toAmountUSD) — an independent
+        oracle price must win whenever both exist."""
         q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.0))
         q2 = _quote("kyberswap", to_amount_human=98.0)
-        assert _derive_input_usd_value([q1, q2], input_price_usd=1.0) == 99.0
+        # from_amount_human=1.0 (fixture default) -> oracle = 1.0 * 1.0 = 1.0,
+        # NOT lifi's self-reported 99.0.
+        assert _derive_input_usd_value([q1, q2], input_price_usd=1.0) == 1.0
+
+    def test_falls_back_to_provider_reported_value_when_no_oracle(self):
+        """Provider figure alone is still better than nothing — used only
+        when no independent oracle price is supplied at all."""
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.0))
+        q2 = _quote("kyberswap", to_amount_human=98.0)
+        assert _derive_input_usd_value([q1, q2], input_price_usd=None) == 99.0
 
     def test_falls_back_to_caller_supplied_price_times_input_amount(self):
         # No provider exposes fromAmountUSD; from_amount_human=1.0 (fixture default).
@@ -467,6 +540,32 @@ class TestDeriveInputUsdValue:
         q1 = _quote("1inch", to_amount_human=100.0)
         q2 = _quote("0x", to_amount_human=98.0)
         assert _derive_input_usd_value([q1, q2], input_price_usd=None) is None
+
+
+class TestInputUsdSourcesDisagree:
+    def test_true_when_oracle_and_provider_disagree_beyond_25_percent(self):
+        # Reviewer's exact scenario: Li.Fi self-reports fromAmountUSD=21
+        # (matching its own toAmountUSD=21, so it "validates itself" at 0%
+        # deviation) on a swap whose real value (per an independent oracle)
+        # is $100 -> 79% real disagreement.
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(21.0, 21.0))
+        assert _input_usd_sources_disagree([q1], input_price_usd=100.0) is True
+
+    def test_false_when_oracle_and_provider_agree(self):
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(21.0, 99.0))
+        assert _input_usd_sources_disagree([q1], input_price_usd=99.0) is False
+
+    def test_false_when_only_oracle_available(self):
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw(100.0))
+        assert _input_usd_sources_disagree([q1], input_price_usd=99.0) is False
+
+    def test_false_when_only_provider_available(self):
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.0))
+        assert _input_usd_sources_disagree([q1], input_price_usd=None) is False
+
+    def test_false_when_neither_available(self):
+        q1 = _quote("kyberswap", to_amount_human=100.0)
+        assert _input_usd_sources_disagree([q1], input_price_usd=None) is False
 
 
 class TestRealGasCostUsd:
@@ -552,3 +651,346 @@ class TestRealGasCostUsd:
             cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "200000")
         assert trusted is False
         assert cost_usd == 0.0
+
+
+class TestPrewarmGasAndPrice:
+    """`SwapEngine._prewarm_gas_and_price` — fire-and-forget cache warm for
+    `_real_gas_cost_usd`'s two lookups, called once up front in get_quote
+    instead of each same-chain-EVM racer triggering its own cold call."""
+
+    async def test_warms_both_caches_for_evm_chain(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=SimpleNamespace(standard=5.0)),
+            ) as mock_gas,
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=2000.0),
+            ) as mock_price,
+        ):
+            await SwapEngine._prewarm_gas_and_price("arbitrum")
+
+        mock_gas.assert_awaited_once_with("arbitrum")
+        mock_price.assert_awaited_once()
+
+    async def test_no_op_for_non_evm_chain(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=SimpleNamespace(standard=5.0)),
+            ) as mock_gas,
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=2000.0),
+            ) as mock_price,
+        ):
+            await SwapEngine._prewarm_gas_and_price("solana")
+
+        mock_gas.assert_not_called()
+        mock_price.assert_not_called()
+
+    async def test_never_raises_on_failure(self):
+        with patch(
+            "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+            new=AsyncMock(side_effect=RuntimeError("rpc exploded")),
+        ):
+            # Must not raise — this is fire-and-forget telemetry-adjacent
+            # plumbing, never allowed to affect the money path.
+            await SwapEngine._prewarm_gas_and_price("arbitrum")
+
+
+class TestApplySpeedTiebreak:
+    """`_apply_speed_tiebreak` — cross-chain-only speed preference between
+    near-equal-value quotes. Pure + synchronous, no SwapEngine needed."""
+
+    def test_picks_faster_quote_within_10bps_cross_chain(self):
+        winner = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="arbitrum",
+            time_trusted=True,
+        )
+        faster = _quote(
+            "across",
+            to_amount_human=99.95,  # 5bps worse
+            estimated_time=200,  # < 300 (half of 600)
+            from_chain="ethereum",
+            to_chain="arbitrum",
+            time_trusted=True,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, faster], winner, out_price=None, from_chain="ethereum", to_chain="arbitrum"
+        )
+        assert best.provider == "across"
+        assert info is not None
+        assert info["from_provider"] == "lifi"
+        assert info["to_provider"] == "across"
+        assert info["from_estimated_time"] == 600
+        assert info["to_estimated_time"] == 200
+
+    def test_does_not_apply_same_chain(self):
+        winner = _quote("lifi", to_amount_human=100.0, estimated_time=600, time_trusted=True)
+        faster = _quote("across", to_amount_human=99.95, estimated_time=100, time_trusted=True)
+
+        best, info = _apply_speed_tiebreak(
+            [winner, faster], winner, out_price=None, from_chain="arbitrum", to_chain="arbitrum"
+        )
+        assert best is winner
+        assert info is None
+
+    def test_does_not_apply_when_delta_exceeds_10bps(self):
+        winner = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        # 200bps worse (2%) — far outside the 10bps window, even though fast.
+        much_worse_value = _quote(
+            "across",
+            to_amount_human=98.0,
+            estimated_time=100,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, much_worse_value],
+            winner,
+            out_price=None,
+            from_chain="ethereum",
+            to_chain="base",
+        )
+        assert best is winner
+        assert info is None
+
+    def test_does_not_apply_when_time_not_under_half(self):
+        winner = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        # 350s is more than half of 600 (300) — not fast enough to qualify.
+        not_fast_enough = _quote(
+            "across",
+            to_amount_human=99.95,
+            estimated_time=350,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, not_fast_enough],
+            winner,
+            out_price=None,
+            from_chain="ethereum",
+            to_chain="base",
+        )
+        assert best is winner
+        assert info is None
+
+    def test_deterministic_tie_broken_by_provider_name(self):
+        winner = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        # Both candidates qualify with the SAME estimated_time -> provider
+        # name breaks the tie (asyncio.wait returns a set, order is unstable).
+        cand_z = _quote(
+            "zzz_bridge",
+            to_amount_human=99.99,
+            estimated_time=100,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        cand_a = _quote(
+            "aaa_bridge",
+            to_amount_human=99.99,
+            estimated_time=100,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+
+        for ordering in ([winner, cand_z, cand_a], [winner, cand_a, cand_z]):
+            best, info = _apply_speed_tiebreak(
+                ordering, winner, out_price=None, from_chain="ethereum", to_chain="base"
+            )
+            assert best.provider == "aaa_bridge"
+
+    def test_wormhole_never_selected_by_tiebreak(self):
+        """Wormhole's optimistic 1:1 quote + hardcoded 300s estimate must
+        never be picked by the tiebreaker, even when it looks like it trivially
+        wins on both value and speed."""
+        winner = _quote(
+            "lifi",
+            to_amount_human=90.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="solana",
+            time_trusted=True,
+        )
+        wormhole = _quote(
+            "wormhole",
+            to_amount_human=1000.0,
+            estimated_time=10,
+            from_chain="ethereum",
+            to_chain="solana",
+            time_trusted=True,  # even if wormhole claimed a trusted time, it must still lose
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, wormhole], winner, out_price=None, from_chain="ethereum", to_chain="solana"
+        )
+        assert best is winner
+        assert info is None
+
+    def test_full_pipeline_rank_then_tiebreak_wormhole_still_excluded(self):
+        """Sanity: feeding `_rank_quotes_with_price`'s own output through the
+        tiebreaker can't resurrect wormhole even indirectly."""
+        real_q = _quote(
+            "lifi",
+            to_amount_human=90.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="solana",
+            time_trusted=True,
+        )
+        wormhole_q = _quote(
+            "wormhole",
+            to_amount_human=1000.0,
+            estimated_time=10,
+            from_chain="ethereum",
+            to_chain="solana",
+        )
+
+        best, out_price = _rank_quotes_with_price([wormhole_q, real_q])
+        best, info = _apply_speed_tiebreak(
+            [wormhole_q, real_q], best, out_price, from_chain="ethereum", to_chain="solana"
+        )
+        assert best.provider == "lifi"
+        assert info is None
+
+    def test_single_real_quote_no_tiebreak_possible(self):
+        winner = _quote(
+            "lifi",
+            to_amount_human=90.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="solana",
+            time_trusted=True,
+        )
+        best, info = _apply_speed_tiebreak(
+            [winner], winner, out_price=None, from_chain="ethereum", to_chain="solana"
+        )
+        assert best is winner
+        assert info is None
+
+    def test_untrusted_winner_time_blocks_tiebreak(self):
+        """CCTP/CCIP/LayerZero/USDT0/CoW hardcode estimated_time — a winner
+        with an untrusted time must never be tiebroken away from, even if a
+        candidate looks like an easy win on paper."""
+        winner = _quote(
+            "cctp",  # hardcoded 120s/20s in cctp_api.py — NOT provider-reported
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=False,
+        )
+        faster = _quote(
+            "across",
+            to_amount_human=99.95,
+            estimated_time=100,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, faster], winner, out_price=None, from_chain="ethereum", to_chain="base"
+        )
+        assert best is winner
+        assert info is None
+
+    def test_untrusted_candidate_time_blocks_tiebreak(self):
+        """A candidate with a hardcoded (untrusted) estimated_time must never
+        be picked, even if it looks trivially fast/cheap on paper — the
+        "speed" it's winning on isn't real."""
+        winner = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        fake_fast = _quote(
+            "layerzero",  # hardcoded 120s in layerzero_api.py — NOT provider-reported
+            to_amount_human=99.95,
+            estimated_time=100,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=False,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, fake_fast], winner, out_price=None, from_chain="ethereum", to_chain="base"
+        )
+        assert best is winner
+        assert info is None
+
+    def test_negative_winner_score_never_tiebreaks(self):
+        """CRITICAL regression test: a winner whose net score is NEGATIVE
+        (gas exceeds its own output) must never be tiebroken. The original
+        bug divided by winner_score without checking its sign — for a
+        negative winner_score, that flips which side of the "within 10bps"
+        inequality is favorable, letting a quote that's actually WORSE pass
+        the gate. Repro from the review: lifi 9.8 tokens net -5.2 (gas $15
+        against a $1/token out_price) vs cctp 5.0 tokens net -10.0 — cctp is
+        strictly worse (nets to less) but the old code let it win.
+        """
+        winner = _quote(
+            "lifi",
+            to_amount_human=9.8,
+            gas_cost_usd=15.0,  # net = 9.8 - 15/1 = -5.2
+            estimated_time=600,
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+        worse_candidate = _quote(
+            "cctp",
+            to_amount_human=5.0,
+            gas_cost_usd=15.0,  # net = 5.0 - 15/1 = -10.0, strictly worse than winner
+            estimated_time=100,  # < 300 (half of winner's 600) — would qualify on speed alone
+            from_chain="ethereum",
+            to_chain="base",
+            time_trusted=True,
+        )
+
+        best, info = _apply_speed_tiebreak(
+            [winner, worse_candidate],
+            winner,
+            out_price=1.0,
+            from_chain="ethereum",
+            to_chain="base",
+        )
+        assert best is winner
+        assert info is None

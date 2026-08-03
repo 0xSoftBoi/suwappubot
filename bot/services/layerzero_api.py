@@ -201,6 +201,11 @@ class LayerZeroQuote:
     pool_address: str  # Stargate pool contract
     dst_eid: int  # LayerZero destination endpoint ID
     raw_data: dict
+    # True only when native_fee came from a real quoteSend() call AND
+    # native_fee_usd was priced via a live price_service lookup (not the
+    # hardcoded native_prices fallback table or the 0.001 ETH RPC-failure
+    # estimate). See get_quote().
+    fee_trusted: bool = False
 
 
 @dataclass
@@ -313,33 +318,56 @@ class LayerZeroAPI:
             b"",  # oftCmd (empty = taxi mode)
         )
 
+        fee_is_real = True
         try:
             fee = pool.functions.quoteSend(send_param, False).call()
             native_fee = fee[0]  # nativeFee in wei
         except Exception as e:
             logger.warning(f"quoteSend failed for {token_symbol} {src_chain}->{dst_chain}: {e}")
-            # Fallback estimate
+            # Fallback estimate — NOT a real on-chain figure.
             native_fee = web3.to_wei(0.001, "ether")
+            fee_is_real = False
 
-        # Estimate USD cost
-        native_prices = {
-            "ethereum": 2000,
-            "polygon": 0.8,
-            "bsc": 300,
-            "arbitrum": 2000,
-            "optimism": 2000,
-            "base": 2000,
-            "avalanche": 35,
-            "fantom": 0.5,
-            "linea": 2000,
-            "mantle": 0.5,
-            "scroll": 2000,
-            "gnosis": 1,
-            "tempo": 1,  # Gas is in USD stablecoins, so 1 USD = 1 USD
-        }
-        native_price = native_prices.get(src_chain.lower(), 2000)
+        # USD cost: prefer a real, live native-token price (price_service,
+        # cached ~30s); the hardcoded `native_prices` table below is a
+        # fallback only and several entries are visibly stale (e.g.
+        # "polygon": 0.8, "fantom": 0.5) — never trustworthy for ranking.
+        native_price = None
+        price_is_real = False
+        try:
+            from bot.services.price_service import price_service
+
+            if chain and chain.native_token:
+                native_price = await price_service.get_price(chain.native_token)
+                if native_price:
+                    price_is_real = True
+        except Exception as e:
+            logger.debug(f"LayerZero live native price unavailable, using fallback: {e}")
+
+        if not native_price:
+            native_prices = {
+                "ethereum": 2000,
+                "polygon": 0.8,
+                "bsc": 300,
+                "arbitrum": 2000,
+                "optimism": 2000,
+                "base": 2000,
+                "avalanche": 35,
+                "fantom": 0.5,
+                "linea": 2000,
+                "mantle": 0.5,
+                "scroll": 2000,
+                "gnosis": 1,
+                "tempo": 1,  # Gas is in USD stablecoins, so 1 USD = 1 USD
+            }
+            native_price = native_prices.get(src_chain.lower(), 2000)
+
         native_fee_eth = float(web3.from_wei(native_fee, "ether"))
         native_fee_usd = native_fee_eth * native_price
+        # Trusted ONLY when both the fee amount (on-chain quoteSend) and the
+        # USD price (live price_service) are real — never when either fell
+        # back to a hardcoded/estimated value.
+        fee_trusted = fee_is_real and price_is_real
 
         return LayerZeroQuote(
             src_chain=src_chain,
@@ -350,6 +378,7 @@ class LayerZeroAPI:
             amount_out_min=str(min_amount),
             native_fee=str(native_fee),
             native_fee_usd=native_fee_usd,
+            fee_trusted=fee_trusted,
             estimated_time=120,
             pool_address=pool_address,
             dst_eid=dst_eid,

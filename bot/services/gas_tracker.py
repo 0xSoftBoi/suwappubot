@@ -67,7 +67,12 @@ class GasTracker:
             if not rpc_url:
                 return None
 
-            async with aiohttp.ClientSession() as session:
+            # Total timeout so a slow/hanging RPC can't block callers that
+            # race this alongside other quote providers (e.g. OKX/1inch/0x's
+            # real-gas computation in swap_engine._real_gas_cost_usd) past
+            # their own FAST_TIMEOUT — an unbounded session here used to be
+            # able to push the whole race out of its fast path.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2.0)) as session:
                 # Get gas price from RPC
                 payload = {"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}
                 async with session.post(rpc_url, json=payload) as resp:

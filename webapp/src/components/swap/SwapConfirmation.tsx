@@ -18,8 +18,11 @@ export interface SwapConfirmationLegacyProps {
   toChain?: string
   fromAmount: number
   toAmount: number
-  fromAmountUsd: number
-  toAmountUsd: number
+  // Optional: real USD value from the price service, omitted (never a
+  // lying 0) when no price is derivable for the token — always
+  // null-check before use (formatUsd renders '--' for null/undefined).
+  fromAmountUsd?: number
+  toAmountUsd?: number
   priceImpact: number
   networkFeeUsd: number
   route: string
@@ -48,7 +51,8 @@ export interface SwapConfirmationProps {
 
 // ── Helpers ────────────────────────────────────────────
 
-function formatUsd(value: number): string {
+function formatUsd(value: number | null | undefined): string {
+  if (value == null) return '--'
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
