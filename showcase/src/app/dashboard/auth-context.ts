@@ -4,22 +4,31 @@
 import { createContext, useContext } from 'react';
 
 export interface AuthCtx {
-  token: string;
+  auth: AuthState;
   clearToken: () => void;
 }
 
 /**
- * Marks "authenticated by parent-domain cookie" — there is no token to hold.
+ * How this browser is authenticated.
  *
- * Exported so the fetch helper can recognise it and NOT send it as a bearer
- * token. Sending it poisons the request: the server prefers the Authorization
- * header over the cookie, so a sentinel string in that header fails JWT
- * verification and 401s a session that was otherwise valid.
+ * A discriminated union, NOT a nullable token string. It used to be the
+ * latter, with the literal 'cookie-session' stashed in the token slot to mean
+ * "authenticated by cookie" — and the fetch helper duly sent that sentinel as
+ * `Authorization: Bearer cookie-session`, which the server tried to verify as
+ * a JWT and rejected, 401ing a session that was perfectly valid.
+ *
+ * Guarding the one call site that remembered to check was a bandaid. Modelling
+ * the states makes shipping a non-token as a token unrepresentable.
  */
-export const SESSION_SENTINEL = 'cookie-session';
+export type AuthState =
+  | { kind: 'none' }
+  /** Parent-domain HttpOnly cookie carries the session; nothing to send. */
+  | { kind: 'cookie' }
+  /** A real bearer token the user pasted. */
+  | { kind: 'token'; value: string };
 
 export const DashboardAuthContext = createContext<AuthCtx>({
-  token: '',
+  auth: { kind: 'none' },
   clearToken: () => {},
 });
 

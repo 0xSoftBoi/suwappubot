@@ -1144,17 +1144,7 @@
    the wait communicates what is coming rather than merely that something is
    happening. */
 
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+/* No .srOnly here — globals.css already defines .sr-only. */
 
 .skel {
   display: flex;
