@@ -1,23 +1,28 @@
 # Build stage
-FROM node:26-alpine AS builder
+# node 22 (the LTS this lockfile is verified against locally). The Aug 2026
+# build breakage — tailwind 4.3.3 failing to resolve the design-tokens .ts
+# subpath export — appeared on node 26 and not on 22; whether node version or
+# a since-fixed tailwind patch was the trigger, pinning the locally-verified
+# LTS keeps the build reproducible either way.
+FROM node:22-alpine AS builder
 
-WORKDIR /app
+# Mirror the repo layout so package.json's file:../packages/design-tokens and
+# package-lock.json's "resolved": "../packages/design-tokens" BOTH hold, and
+# `npm ci` runs unmodified. The previous image flattened webapp/ into /app and
+# sed-rewrote package.json to an absolute file: path — the lockfile kept the
+# relative path, npm ci failed on the mismatch, and the `npm install` fallback
+# made builds nondeterministic (two builds of identical source produced
+# FAIL then SUCCESS 22 minutes apart as floating deps drifted).
+WORKDIR /app/webapp
 
-# Copy design-tokens dependency first (referenced as file:../packages/design-tokens)
-COPY packages/design-tokens/ /packages/design-tokens/
+# Copy design-tokens dependency at the relative path the lockfile expects
+COPY packages/design-tokens/ /app/packages/design-tokens/
 
 # Copy package files (context is monorepo root, so prefix with webapp/)
 COPY webapp/package.json webapp/bun.lock* webapp/package-lock.json* ./
-RUN sed -i 's|file:../packages/design-tokens|file:/packages/design-tokens|' package.json
 
-# NOTE: intentionally `npm install`, not `npm ci`. The sed above rewrites the
-# `file:` dep path in package.json, but package-lock.json's matching
-# "resolved" entry still points at the original relative path — `npm ci`
-# requires exact package.json/lockfile sync and fails with EUSAGE on that
-# mismatch (verified locally). `npm install` tolerates the drift and
-# re-resolves the local dep correctly. Terminal (bun) doesn't hit this
-# because bun's lockfile resolution isn't as strict about `file:` deps.
-RUN npm install
+# Deterministic install straight from the lockfile
+RUN npm ci
 
 # Copy source files
 COPY webapp/ .
@@ -49,7 +54,7 @@ COPY webapp/nginx.conf /etc/nginx/templates/default.conf.template
 ENV PORT=8080
 
 # Copy built files from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/webapp/dist /usr/share/nginx/html
 RUN chmod -R 755 /usr/share/nginx/html
 
 EXPOSE 8080
