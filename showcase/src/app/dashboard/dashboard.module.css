@@ -1282,3 +1282,15 @@
     transform: none;
   }
 }
+
+/* The two secondary links previously sat adjacent with no separation and read
+   as a single run-on string ("Open the Suwappu botUse an access token
+   instead"). Space them and give them a shared baseline. */
+.loginFooterLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 20px;
+  margin-top: 18px;
+}
