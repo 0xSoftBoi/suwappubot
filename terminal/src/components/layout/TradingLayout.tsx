@@ -16,6 +16,7 @@ import { LendingPanel } from '../lending/LendingPanel'
 import { WalletTrackerPanel } from '../tracker/WalletTrackerPanel'
 import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
 import { WatchlistPanel } from '../watchlist/WatchlistPanel'
+import { BridgeRoute } from '../../routes/BridgeRoute'
 import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
@@ -317,6 +318,15 @@ export function TradingLayout() {
       <div className="h-full">
         <ErrorBoundary label="Perps">
           <PerpsWorkspace />
+        </ErrorBoundary>
+      </div>
+    )
+  }
+  if (tradingMode === 'bridge') {
+    return (
+      <div className="h-full">
+        <ErrorBoundary label="Bridge">
+          <BridgeRoute />
         </ErrorBoundary>
       </div>
     )
