@@ -180,8 +180,12 @@ class PerpsService:
                 mark_price=Decimal(str(mark_price or entry_price)),
                 leverage=leverage,
                 margin=Decimal(str(size * entry_price / leverage)) if entry_price else None,
-                tp_price=Decimal(str(tp_price)) if tp_price else None,
-                sl_price=Decimal(str(sl_price)) if sl_price else None,
+                # Protection levels are written only once the exchange is holding
+                # the trigger (below). Writing them here would commit a row that
+                # advertises a stop nothing is backing, and a concurrent read
+                # would see "protected" in the window before placement.
+                tp_price=None,
+                sl_price=None,
                 status="open",
             )
             session.add(position)
@@ -213,12 +217,11 @@ class PerpsService:
         # live on-chain, so a rejected trigger must not abort the rest of this
         # function and report a failure for a trade the user really has.
         #
-        # The row was written with these levels above. If the exchange refuses a
-        # trigger, clear the level again — a stored price with no resting order
-        # tells the user they are protected when they are not.
-        rejected = []
+        # The row carries no levels yet, so a rejection needs no unwinding: only
+        # a trigger the exchange accepted gets written back.
+        accepted = {}
         if tp_price:
-            if not await self._place_tp_sl(
+            if await self._place_tp_sl(
                 user_id,
                 account,
                 market,
@@ -229,9 +232,9 @@ class PerpsService:
                 position_id,
                 raise_on_error=False,
             ):
-                rejected.append("tp_price")
+                accepted["tp_price"] = tp_price
         if sl_price:
-            if not await self._place_tp_sl(
+            if await self._place_tp_sl(
                 user_id,
                 account,
                 market,
@@ -242,19 +245,23 @@ class PerpsService:
                 position_id,
                 raise_on_error=False,
             ):
-                rejected.append("sl_price")
+                accepted["sl_price"] = sl_price
 
-        if rejected:
-            logger.warning(
-                "Position %s opened but HyperLiquid rejected %s — clearing the stored level(s)",
-                position_id,
-                ", ".join(rejected),
-            )
+        if accepted:
             with get_session() as session:
                 stored = session.query(PerpPosition).filter_by(id=position_id).first()
                 if stored:
-                    for field in rejected:
-                        setattr(stored, field, None)
+                    for field, value in accepted.items():
+                        setattr(stored, field, Decimal(str(value)))
+
+        refused = {"tp_price": tp_price, "sl_price": sl_price}
+        refused = [f for f, v in refused.items() if v and f not in accepted]
+        if refused:
+            logger.warning(
+                "Position %s opened but HyperLiquid refused %s — no level stored for it",
+                position_id,
+                ", ".join(refused),
+            )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
 

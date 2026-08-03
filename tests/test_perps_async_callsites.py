@@ -1,4 +1,4 @@
-"""Regression tests for the async perps call-site contract.
+"""Regression tests for the async perps call-site contract. MONEY-PATH.
 
 `get_positions` / `get_position` became coroutines when they started syncing
 with HyperLiquid before returning. Every caller has to await them — a missed
@@ -12,6 +12,7 @@ and no caller forgets the await.
 
 import ast
 import inspect
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -100,14 +101,16 @@ async def test_open_position_survives_a_rejected_tp_order():
 
 
 @pytest.mark.asyncio
-async def test_rejected_trigger_clears_the_stored_level():
-    """A stored level with no resting order says "protected" when nothing protects it.
+async def test_rejected_trigger_leaves_no_stored_level():
+    """MONEY-PATH. A stored level with no resting order says "protected" when nothing is.
 
-    open_position writes tp_price/sl_price onto the row before the triggers go
-    out, so a rejection has to walk that back.
+    open_position inserts the row with no levels and writes each one back only
+    after the exchange accepts that trigger, so a refusal must leave the column
+    untouched — there is no window in which the row advertises a phantom stop.
     """
     service = PerpsService()
-    stored = MagicMock(tp_price="2500", sl_price="1500")
+    # A fresh row starts with no levels; the test asserts they stay that way.
+    stored = MagicMock(tp_price=None, sl_price=None)
 
     session = MagicMock()
     session.query.return_value.filter_by.return_value.first.return_value = stored
@@ -140,8 +143,53 @@ async def test_rejected_trigger_clears_the_stored_level():
             sl_price=1500.0,
         )
 
-    assert stored.tp_price is None, "rejected take profit must not stay on the row"
-    assert stored.sl_price is None, "rejected stop loss must not stay on the row"
+    assert stored.tp_price is None, "refused take profit must never reach the row"
+    assert stored.sl_price is None, "refused stop loss must never reach the row"
+
+
+@pytest.mark.asyncio
+async def test_accepted_trigger_is_written_back_to_the_row():
+    """MONEY-PATH. The mirror of the test above, so neither can pass vacuously.
+
+    A row that starts empty and stays empty proves nothing unless an accepted
+    trigger demonstrably fills it in.
+    """
+    service = PerpsService()
+    stored = MagicMock(tp_price=None, sl_price=None)
+
+    session = MagicMock()
+    session.query.return_value.filter_by.return_value.first.return_value = stored
+    ctx = MagicMock()
+    ctx.__enter__ = MagicMock(return_value=session)
+    ctx.__exit__ = MagicMock(return_value=False)
+
+    fill = MagicMock(order_id="o1", status="filled", fill_price=2000.0)
+
+    with (
+        patch.object(service._client, "get_market_max_leverage", return_value=20),
+        patch.object(service, "get_account", return_value=MagicMock(hl_address="0xabc")),
+        patch.object(service, "_decrypt_credentials", return_value=("k", "s")),
+        patch.object(service, "ensure_builder_approved", return_value=None),
+        patch.object(service, "ensure_referrer", return_value=None),
+        patch.object(service._client, "place_order", return_value=fill),
+        patch.object(service._client, "get_mark_price", return_value=2000.0),
+        patch.object(service, "_award_xp", return_value=None),
+        patch("bot.services.perps_service.get_session", return_value=ctx),
+        # HyperLiquid accepts both protective triggers.
+        patch.object(service, "_place_tp_sl", return_value=True),
+    ):
+        await service.open_position(
+            user_id=123,
+            market="ETH-USD",
+            side="long",
+            size=1.5,
+            leverage=2,
+            tp_price=2500.0,
+            sl_price=1500.0,
+        )
+
+    assert stored.tp_price == Decimal("2500.0")
+    assert stored.sl_price == Decimal("1500.0")
 
 
 @pytest.mark.asyncio
