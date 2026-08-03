@@ -417,10 +417,34 @@ export default function DashboardPage() {
 
   // ── Render guards ─────────────────────────────────────────────────────────
   if (loading) {
+    // Skeleton that matches the real layout, not a centred spinner. A spinner
+    // says "something is happening somewhere"; a skeleton says "the two
+    // headline figures and a panel are arriving here", so the page does not
+    // visibly reflow when data lands.
     return (
-      <div className={styles.stateBox}>
-        <div className={styles.spinner} aria-hidden="true" />
-        <span>Loading dashboard…</span>
+      <div aria-busy="true" aria-live="polite">
+        <span className={styles.srOnly}>Loading your dashboard</span>
+        <div className={styles.skelTabs} aria-hidden="true">
+          <span /><span /><span />
+        </div>
+        <div className={styles.kpiPrimary} aria-hidden="true">
+          <div className={`${styles.kpiHero} ${styles.skel}`}>
+            <div className={styles.skelLine} style={{ width: '38%' }} />
+            <div className={styles.skelLine} style={{ width: '62%', height: 34 }} />
+            <div className={styles.skelLine} style={{ width: '30%' }} />
+          </div>
+          <div className={`${styles.kpiHero} ${styles.skel}`}>
+            <div className={styles.skelLine} style={{ width: '30%' }} />
+            <div className={styles.skelLine} style={{ width: '46%', height: 34 }} />
+            <div className={styles.skelLine} style={{ width: '52%' }} />
+          </div>
+        </div>
+        <div className={`${styles.card} ${styles.skel}`} aria-hidden="true">
+          <div className={styles.skelLine} style={{ width: '22%' }} />
+          <div className={styles.skelLine} style={{ width: '100%' }} />
+          <div className={styles.skelLine} style={{ width: '84%' }} />
+          <div className={styles.skelLine} style={{ width: '91%' }} />
+        </div>
       </div>
     );
   }
