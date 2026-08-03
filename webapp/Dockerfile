@@ -1,9 +1,5 @@
 # Build stage
-# node 22 LTS, not 26: tailwindcss 4.3.3 (bumped in #671) fails to
-# require.resolve the @suwappu/design-tokens/tailwind .ts subpath export
-# under node 26's module customization hooks — the build breaks in Docker
-# while succeeding on node 22 with the identical lockfile.
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
