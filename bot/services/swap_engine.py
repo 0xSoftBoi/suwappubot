@@ -20,7 +20,7 @@ import asyncio
 import json
 import logging
 from typing import Optional, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from web3 import Web3
 import aiohttp
@@ -172,6 +172,106 @@ class SwapQuote:
     # Platform fee (bps) applied to this quote, so the execution call can
     # re-send the SAME fee param and actually collect it (quote/exec must agree).
     platform_fee_bps: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Quote ranking helpers (pure, synchronous, no network) — kept module-level
+# so they're trivially unit-testable without spinning up SwapEngine or a live
+# quote race. Used by SwapEngine.get_quote() at the top of the file.
+# ---------------------------------------------------------------------------
+
+# Nested USD-value keys different aggregator raw responses use for the
+# destination amount. Checked one level deep too (e.g. raw_quote["okx_quote"]).
+_OUTPUT_USD_KEYS = ("toAmountUSD", "amountOutUsd", "outputUsd", "to_amount_usd")
+
+
+def _extract_output_usd_price(quote: "SwapQuote") -> Optional[float]:
+    """Best-effort implied USD price of `quote`'s output token.
+
+    Derived entirely from the provider's own raw response — never a network
+    call — so quote ranking stays synchronous. Returns None when no USD
+    figure can be found (caller must fall back to gross-amount ranking).
+    """
+    if not quote.to_amount_human or quote.to_amount_human <= 0:
+        return None
+    raw = quote.raw_quote
+    if not isinstance(raw, dict):
+        return None
+
+    usd_value = None
+    if quote.provider == "lifi":
+        usd_value = (raw.get("estimate") or {}).get("toAmountUSD")
+    elif quote.provider == "kyberswap":
+        usd_value = (raw.get("kyberswap_quote") or {}).get("routeSummary", {}).get("amountOutUsd")
+    else:
+        # Generic scan: top level, then one level into any nested dict
+        # (several adapters wrap the provider's raw response under a
+        # "<provider>_quote" key, e.g. raw_quote["okx_quote"]).
+        for key in _OUTPUT_USD_KEYS:
+            if key in raw:
+                usd_value = raw[key]
+                break
+        if usd_value is None:
+            for nested in raw.values():
+                if isinstance(nested, dict):
+                    for key in _OUTPUT_USD_KEYS:
+                        if key in nested:
+                            usd_value = nested[key]
+                            break
+                if usd_value is not None:
+                    break
+
+    if usd_value is None:
+        return None
+    try:
+        usd_value = float(usd_value)
+    except (TypeError, ValueError):
+        return None
+    if usd_value <= 0:
+        return None
+    return usd_value / quote.to_amount_human
+
+
+def _quote_net_score(quote: "SwapQuote", out_price: Optional[float]) -> float:
+    """Net-of-gas score for ranking. Falls back to gross to_amount_human
+    when no USD price for the output token is available."""
+    if not out_price:
+        return quote.to_amount_human
+    gas = quote.gas_cost_usd or 0.0
+    return quote.to_amount_human - (gas / out_price)
+
+
+def _rank_quotes(quotes: List["SwapQuote"]) -> "SwapQuote":
+    """Pick the best quote by net-of-gas value.
+
+    All raced quotes share the same to_token, so an implied USD price
+    derived from any one of them (via `_extract_output_usd_price`) is used
+    to net every quote's gas cost against its output. When no quote exposes
+    a usable USD figure, falls back to the previous gross to_amount_human
+    ranking — this never raises, so it can't crash the money path.
+
+    Wormhole returns an optimistic 1:1 placeholder quote (no real fee
+    netting), so it's excluded from the race unless it's the only quote
+    available. (CCTP's 1:1 is genuine — native USDC, zero fee — so it stays.)
+    """
+    ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
+    if len(ranked) == 1:
+        return ranked[0]
+
+    out_price = None
+    for q in ranked:
+        try:
+            price = _extract_output_usd_price(q)
+        except Exception:
+            price = None
+        if price:
+            out_price = price
+            break
+
+    if out_price is None:
+        return max(ranked, key=lambda q: q.to_amount_human)
+
+    return max(ranked, key=lambda q: _quote_net_score(q, out_price))
 
 
 def _parse_int(value, default: int = 0) -> int:
@@ -775,6 +875,10 @@ class SwapEngine:
 
         # Build list of eligible quote fetchers to race in parallel
         tasks = []
+        # Comparison-only quotes — never eligible to be selected as `best`
+        # (see the CoW counterfactual block below). Kept separate from
+        # `tasks` so they can't affect route selection or timing decisions.
+        counterfactual_tasks = []
 
         if self._is_tempo_only_swap(from_chain, to_chain):
             tasks.append(
@@ -1021,6 +1125,23 @@ class SwapEngine:
                         to_address,
                     )
                 )
+            elif self._is_cow_route(from_chain, to_chain) and charge_platform_fee:
+                # CoW can't carry our fee, so it's excluded from selection —
+                # but we still fetch it comparison-only, to see whether the
+                # intent-based route would have beaten our fee-charging
+                # route and by how much (telemetry below deducts the fee
+                # from its output for a fair, apples-to-apples comparison).
+                counterfactual_tasks.append(
+                    self._get_cow_quote(
+                        from_chain,
+                        from_token,
+                        to_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                    )
+                )
             # Socket: super-aggregator fallback across many EVM chains.
             if self._is_socket_route(from_chain, to_chain) and not charge_platform_fee:
                 tasks.append(
@@ -1039,8 +1160,19 @@ class SwapEngine:
         # Adaptive timeout: 3s fast path, extend to 8s total if no fast results
         FAST_TIMEOUT = 3.0
         EXTENDED_TIMEOUT = 5.0  # additional seconds (8s total)
+        # When we already have ≥1 quote at the 3s mark but other providers are
+        # still in flight, give them a short extra window rather than
+        # cancelling immediately — a slower-but-better aggregator shouldn't
+        # lose just because it landed a beat late. Worst case stays 8s total
+        # (the no-quotes extended path below is unchanged); this only widens
+        # the common "some quotes in, some still pending" case to ≤5s.
+        GRACE_TIMEOUT = 2.0
 
         wrapped_tasks = [asyncio.ensure_future(t) for t in tasks]
+        # Counterfactual (comparison-only) tasks race alongside the real ones
+        # so they get the same wall-clock budget for free, but are collected
+        # separately and can never end up in `quotes`/`best`.
+        cf_wrapped = [asyncio.ensure_future(t) for t in counterfactual_tasks]
         quotes = []
 
         if wrapped_tasks:
@@ -1061,20 +1193,25 @@ class SwapEngine:
                     t.cancel()
                 if still_pending:
                     await asyncio.gather(*still_pending, return_exceptions=True)
-            elif pending:
-                for t in pending:
+            elif quotes and pending:
+                logger.info(
+                    "%d quote(s) in %.0fs fast path, granting %.0fs grace for %d pending providers",
+                    len(quotes),
+                    FAST_TIMEOUT,
+                    GRACE_TIMEOUT,
+                    len(pending),
+                )
+                done3, still_pending = await asyncio.wait(pending, timeout=GRACE_TIMEOUT)
+                quotes.extend(self._extract_quotes(done3))
+                for t in still_pending:
                     t.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
+                if still_pending:
+                    await asyncio.gather(*still_pending, return_exceptions=True)
 
         if not quotes:
             raise SwapError("No provider returned a valid quote. Please try again.")
 
-        # Wormhole returns an optimistic 1:1 placeholder quote (no real fee netting),
-        # so it would unfairly win this max() against aggregators that net out fees.
-        # Prefer real quotes; fall back to Wormhole only when it's the sole route.
-        # (CCTP's 1:1 is genuine — native USDC, zero fee — so it stays in the race.)
-        ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
-        best = max(ranked, key=lambda q: q.to_amount_human)
+        best = _rank_quotes(quotes)
 
         # Fix the displayed receive-amount when buying a token by raw address
         # (its real decimals aren't in the registry). Done after ranking — all
@@ -1082,14 +1219,91 @@ class SwapEngine:
         # before caching so every consumer sees the corrected figure.
         best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
 
-        if len(quotes) > 1:
-            logger.info(
-                f"Best quote: {best.provider} ({best.to_amount_human:.6f} {best.to_token}) "
-                f"from {len(quotes)} providers"
+        # Collect whatever counterfactual (comparison-only) quotes finished
+        # within the same budget the real race just used. Non-blocking check
+        # — no extra latency added to the response. Failures are ignored:
+        # this is telemetry, never allowed to affect the money path.
+        cf_quotes = []
+        if cf_wrapped:
+            cf_done, cf_pending = await asyncio.wait(cf_wrapped, timeout=0)
+            cf_quotes = self._extract_quotes(cf_done)
+            for t in cf_pending:
+                t.cancel()
+            if cf_pending:
+                await asyncio.gather(*cf_pending, return_exceptions=True)
+            if cf_quotes:
+                # Deduct our platform fee from CoW's output for a fair,
+                # apples-to-apples comparison — CoW can't carry the fee param,
+                # so its raw quote is otherwise an unfair (fee-free) baseline.
+                fee_frac = (platform_fee_bps or 0) / 10_000.0
+                cf_quotes = [
+                    replace(q, to_amount_human=q.to_amount_human * (1 - fee_frac))
+                    for q in cf_quotes
+                ]
+
+        if len(quotes) > 1 or cf_quotes:
+            self._log_route_telemetry(
+                from_chain, to_chain, from_token, to_token, amount, quotes, cf_quotes, best
             )
 
         await quote_cache.set(cache_key, best)
         return best
+
+    @staticmethod
+    def _log_route_telemetry(
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        quotes: List["SwapQuote"],
+        cf_quotes: List["SwapQuote"],
+        best: "SwapQuote",
+    ) -> None:
+        """One structured log line comparing every raced provider (plus any
+        comparison-only counterfactual quotes) against the winner. Never
+        raises — telemetry must not be able to break the quote path."""
+        try:
+            out_price = None
+            for q in quotes:
+                price = _extract_output_usd_price(q)
+                if price:
+                    out_price = price
+                    break
+
+            winner_score = _quote_net_score(best, out_price)
+
+            def _entry(q: "SwapQuote", counterfactual: bool) -> dict:
+                score = _quote_net_score(q, out_price)
+                delta_bps = (
+                    ((winner_score - score) / winner_score) * 10_000 if winner_score else 0.0
+                )
+                entry = {
+                    "provider": q.provider,
+                    "to_amount_human": q.to_amount_human,
+                    "gas_cost_usd": q.gas_cost_usd,
+                    "delta_bps": round(delta_bps, 2),
+                }
+                if counterfactual:
+                    entry["counterfactual"] = True
+                return entry
+
+            providers = [_entry(q, counterfactual=False) for q in quotes]
+            providers.extend(_entry(q, counterfactual=True) for q in cf_quotes)
+
+            logger.info(
+                "route_comparison from_chain=%s to_chain=%s from_token=%s to_token=%s "
+                "amount=%s winner=%s providers=%s",
+                from_chain,
+                to_chain,
+                from_token,
+                to_token,
+                amount,
+                best.provider,
+                json.dumps(providers),
+            )
+        except Exception as e:
+            logger.debug(f"Route telemetry failed (non-fatal): {e}")
 
     async def _get_lifi_quote(
         self,
