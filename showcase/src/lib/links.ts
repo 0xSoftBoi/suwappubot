@@ -18,12 +18,22 @@ export const DEMO_CALL_URL = 'https://calendly.com/tsoma4770/suwappu-demo';
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://api.suwappu.bot';
 
-// Base URL for the PYTHON monolith. Distinct from API_BASE_URL, which despite
-// the name resolves to api-ts — api.suwappu.bot serves api-ts, so /auth/* 404s
-// there. Auth, terminal and webapp routes live on the python service.
-export const PYTHON_API_BASE_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL ||
-  'https://python-api-production-8526.up.railway.app';
+// Origin for auth flows.
+//
+// MUST be api.suwappu.bot, not python-api's railway host, even though BOTH
+// serve /auth/* identically. The OAuth state nonce cookie is host-only
+// (Path=/auth/oauth, no Domain), and the provider callback comes back through
+// api.suwappu.bot — because the terminal SPA, which Google redirects to, is
+// built with VITE_API_URL=https://api.suwappu.bot (terminal/Dockerfile).
+//
+// Starting the flow on the railway host set the nonce on THAT host, so the
+// cookie was absent at the callback and every Google sign-in was rejected on
+// state verification. Begin and end the flow on one origin.
+export const AUTH_BASE_URL =
+  process.env.NEXT_PUBLIC_AUTH_URL || 'https://api.suwappu.bot';
+
+/** @deprecated Use AUTH_BASE_URL — see the origin note above. */
+export const PYTHON_API_BASE_URL = AUTH_BASE_URL;
 
 // Telegram bot username, used by the Login Widget on the dashboard sign-in.
 // NOTE: the widget only renders on a domain registered with @BotFather via
