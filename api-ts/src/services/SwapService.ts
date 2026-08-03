@@ -1,5 +1,5 @@
 import { and, desc, eq, notInArray } from 'drizzle-orm'
-import { Context, Effect, Layer } from 'effect'
+import { Context, Effect, Layer, Option } from 'effect'
 import { logger } from '../lib/logger'
 import { captureQuoteRoutes, shouldCapture } from '../lib/routeCapture'
 import {
@@ -244,6 +244,129 @@ function resolveChainId(chain: string | number): number {
 // Native token address placeholder
 const NATIVE_TOKEN = '0x0000000000000000000000000000000000000000'
 
+// ---------------------------------------------------------------------------
+// Multi-provider quote racing (comparison-only)
+//
+// The webapp quote path historically only ever called Li.Fi, while the
+// Telegram bot races 5+ aggregators (Li.Fi, 1inch, 0x, KyberSwap, OKX, CoW).
+// This adds KyberSwap as a second SAME-CHAIN EVM data point so we can see how
+// much routing quality the webapp is leaving on the table.
+//
+// IMPORTANT — comparison-only, not selectable: SwapQuote._rawQuote and
+// transactionRequest are consumed downstream by webapp/execute AND by
+// agent.ts / mcp.ts / publicSwap.ts, all of which reach directly into
+// Li.Fi-specific shapes (`_rawQuote.estimate.approvalAddress`,
+// `_rawQuote.action.toAddress`, `_rawQuote.action.*.priceUSD`). Making the
+// KyberSwap quote executable would mean re-deriving all of those fields (and
+// updating every one of those call sites) for a shape KyberSwap doesn't
+// return the same way — a much larger, higher-risk change than this task's
+// budget. KyberSwap is therefore raced for comparison/telemetry ONLY: it can
+// never win execution. See SwapService.getQuote for the race + log line.
+// ---------------------------------------------------------------------------
+
+const KYBERSWAP_API_BASE = 'https://aggregator-api.kyberswap.com'
+
+// KyberSwap native-token sentinel (differs from Li.Fi's all-zero address).
+const KYBERSWAP_NATIVE_TOKEN = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+
+// Chain ID -> KyberSwap URL slug. Only chains KyberSwap's aggregator covers.
+const KYBERSWAP_CHAIN_SLUGS: Record<number, string> = {
+	1: 'ethereum',
+	10: 'optimism',
+	56: 'bsc',
+	137: 'polygon',
+	8453: 'base',
+	42161: 'arbitrum',
+	43114: 'avalanche',
+	250: 'fantom',
+	59144: 'linea',
+	5000: 'mantle',
+	534352: 'scroll',
+	324: 'zksync',
+}
+
+function toKyberToken(address: string): string {
+	return address.toLowerCase() === NATIVE_TOKEN ? KYBERSWAP_NATIVE_TOKEN : address
+}
+
+interface KyberComparisonQuote {
+	provider: 'kyberswap'
+	toAmount: string
+	toAmountUsd: number | null
+	gasUsd: number | null
+}
+
+interface KyberRoutesResponse {
+	code?: number
+	message?: string
+	data?: {
+		routeSummary?: {
+			amountOut?: string
+			amountOutUsd?: string
+			gasUsd?: string
+		}
+	}
+}
+
+/**
+ * Fetch a KyberSwap Aggregator quote for comparison/telemetry only (GET
+ * /routes — price discovery, no tx calldata). Deliberately does NOT call
+ * /route/build: since this quote is never executed, paying for the build
+ * step would be wasted KyberSwap API budget.
+ *
+ * Carries the SAME platform fee KyberSwap-side (feeAmount/isInBps/
+ * chargeFeeBy/feeReceiver) as we'd charge if we ever did execute through it,
+ * so the comparison is fee-inclusive and honest — never a fee-free quote
+ * artificially beating Li.Fi's fee-inclusive one.
+ */
+function fetchKyberComparisonQuote(
+	params: QuoteParams,
+	feeBps: number,
+	feeReceiver: string,
+): Effect.Effect<KyberComparisonQuote, Error> {
+	const chainId = resolveChainId(params.fromChain)
+	const slug = KYBERSWAP_CHAIN_SLUGS[chainId]
+	if (!slug) {
+		return Effect.fail(new Error(`KyberSwap: unsupported chain ${chainId}`))
+	}
+
+	const qp = new URLSearchParams({
+		tokenIn: toKyberToken(params.fromToken),
+		tokenOut: toKyberToken(params.toToken),
+		amountIn: params.fromAmount,
+		feeAmount: String(feeBps),
+		isInBps: 'true',
+		chargeFeeBy: 'currency_in',
+		feeReceiver,
+	})
+
+	return Effect.tryPromise({
+		try: async () => {
+			const res = await fetch(`${KYBERSWAP_API_BASE}/${slug}/api/v1/routes?${qp.toString()}`, {
+				headers: {
+					Accept: 'application/json',
+					'x-client-id': 'SuwappuProduction',
+				},
+			})
+			const data = (await res.json()) as KyberRoutesResponse
+			if (!res.ok || (data.code !== undefined && data.code !== 0)) {
+				throw new Error(`KyberSwap error: ${data.message || res.statusText}`)
+			}
+			const summary = data.data?.routeSummary
+			if (!summary?.amountOut || summary.amountOut === '0') {
+				throw new Error('KyberSwap: empty route')
+			}
+			return {
+				provider: 'kyberswap' as const,
+				toAmount: summary.amountOut,
+				toAmountUsd: summary.amountOutUsd ? parseFloat(summary.amountOutUsd) : null,
+				gasUsd: summary.gasUsd ? parseFloat(summary.gasUsd) : null,
+			}
+		},
+		catch: (e) => new Error(`KyberSwap comparison fetch failed: ${e}`),
+	})
+}
+
 export const SwapServiceLive = Layer.succeed(SwapService, {
 	getUserSwaps: (userId: number, limit = 20, offset = 0) =>
 		Effect.gen(function* () {
@@ -325,8 +448,10 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 
 			logger.info('[SwapService] Fetching quote: %s', url)
 
-			// Call Li.Fi API
-			const response = yield* Effect.tryPromise({
+			// Li.Fi is the ONLY provider that can be executed today (see the
+			// comparison-only note above SwapServiceLive) — its failure fails the
+			// whole quote, unchanged from prior behavior.
+			const lifiEffect = Effect.tryPromise({
 				try: async () => {
 					const res = await fetch(url, {
 						method: 'GET',
@@ -349,6 +474,35 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					return (await res.json()) as LifiQuote
 				},
 				catch: (e) => new Error(`Failed to fetch quote: ${e}`),
+			})
+
+			// Race a KyberSwap quote alongside Li.Fi for SAME-CHAIN EVM swaps, purely
+			// for comparison/telemetry (see the block above SwapServiceLive for why
+			// it can't be selected for execution yet). Kill switch:
+			// KYBERSWAP_COMPARISON_ENABLED=false disables without a redeploy.
+			// Bounded to ~3.5s (3s race + short grace) so a slow/down KyberSwap never
+			// adds latency to the user's quote — Effect.option swallows both
+			// provider errors and the timeout into `None`.
+			const fromChainId = resolveChainId(params.fromChain)
+			const toChainId = resolveChainId(params.toChain)
+			const kyberComparisonEnabled =
+				(process.env.KYBERSWAP_COMPARISON_ENABLED ?? 'true').toLowerCase() !== 'false' &&
+				fromChainId === toChainId &&
+				KYBERSWAP_CHAIN_SLUGS[fromChainId] !== undefined
+
+			const feeBpsEvm = Math.round(parseFloat(AGENT_FEE_FRACTION_EVM) * 10000)
+			const feeReceiverEvm = process.env.FEE_WALLET_EVM || DEFAULT_FEE_WALLET_EVM
+
+			const kyberEffect: Effect.Effect<Option.Option<KyberComparisonQuote>, never> =
+				kyberComparisonEnabled
+					? fetchKyberComparisonQuote(params, feeBpsEvm, feeReceiverEvm).pipe(
+							Effect.timeout(3500),
+							Effect.option,
+						)
+					: Effect.succeed(Option.none())
+
+			const [response, kyberResultOption] = yield* Effect.all([lifiEffect, kyberEffect], {
+				concurrency: 'unbounded',
 			})
 
 			// Calculate derived values
@@ -412,6 +566,48 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				route,
 				transactionRequest: response.transactionRequest,
 				_rawQuote: response,
+			}
+
+			// Multi-provider race comparison line (mirrors the Python bot's
+			// route_comparison telemetry). Always executes Li.Fi (`executed=lifi`);
+			// `would_win` records which provider had the better fee-inclusive net
+			// output, for later evaluation of whether KyberSwap execution support
+			// is worth building.
+			if (Option.isSome(kyberResultOption)) {
+				const kyber = kyberResultOption.value
+				const lifiToAmountBig = BigInt(response.estimate.toAmount || '0')
+				const kyberToAmountBig = BigInt(kyber.toAmount || '0')
+
+				const lifiNet = toUsd - gasUsd
+				const kyberNet =
+					kyber.toAmountUsd !== null && kyber.gasUsd !== null ? kyber.toAmountUsd - kyber.gasUsd : null
+				const canCompareNet = kyberNet !== null && toUsd > 0
+
+				const deltaBps =
+					lifiToAmountBig > 0n
+						? Number(((kyberToAmountBig - lifiToAmountBig) * 10000n) / lifiToAmountBig)
+						: 0
+
+				const wouldWin: 'lifi' | 'kyberswap' = canCompareNet
+					? (kyberNet as number) > lifiNet
+						? 'kyberswap'
+						: 'lifi'
+					: kyberToAmountBig > lifiToAmountBig
+						? 'kyberswap'
+						: 'lifi'
+
+				logger.info(
+					'[SwapService] route_race executed=lifi would_win=%s from=%s to=%s lifi_out=%s lifi_out_usd=%s kyber_out=%s kyber_out_usd=%s delta_bps=%d net_compared=%s',
+					wouldWin,
+					quote.fromToken.symbol,
+					quote.toToken.symbol,
+					response.estimate.toAmount,
+					toUsd.toFixed(2),
+					kyber.toAmount,
+					kyber.toAmountUsd?.toFixed(2) ?? 'n/a',
+					deltaBps,
+					canCompareNet,
+				)
 			}
 
 			// EXECUTION INTELLIGENCE — fire-and-forget counterfactual capture.
