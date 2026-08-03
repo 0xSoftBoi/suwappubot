@@ -91,16 +91,25 @@ class TestRankQuotes:
     def test_higher_gross_but_gas_heavy_loses_to_net_better_quote(self):
         """Provider A: bigger raw output but expensive gas. Provider B: smaller
         raw output but near-zero gas. Both quotes carry TRUSTED gas figures
-        and a derivable $1/token price (kept under the 20% clamp for both
-        quotes), so B should win net-of-gas even though A wins gross."""
-        # toAmountUSD=100.0 on a 100-unit output -> price = 100/100 = $1/token.
-        raw = _lifi_raw(100.0)
+        and expose a derivable $1/token price (>=2 sources, so the price is
+        actually trusted; each quote's own gas deduction stays under the 5%
+        clamp), so B should win net-of-gas even though A wins gross."""
         quote_a = _quote(
-            "lifi", to_amount_human=100.0, gas_cost_usd=19.0, raw_quote=raw, gas_cost_trusted=True
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=4.9,  # 4.9% of its own 100 -> under the 5% clamp
+            raw_quote=_lifi_raw(100.0),  # $1.00/token
+            gas_cost_trusted=True,
         )
-        quote_b = _quote("kyberswap", to_amount_human=98.0, gas_cost_usd=1.0, gas_cost_trusted=True)
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=98.0,
+            gas_cost_usd=0.5,  # well under 5% of 98
+            raw_quote=_kyber_raw(98.0),  # $1.00/token — 2nd source, price is trusted
+            gas_cost_trusted=True,
+        )
 
-        # a: 100 - 19/1 = 81 ; b: 98 - 1/1 = 97 -> b wins net
+        # a: 100 - 4.9/1 = 95.1 ; b: 98 - 0.5/1 = 97.5 -> b wins net
         best = _rank_quotes([quote_a, quote_b])
         assert best.provider == "kyberswap"
 
@@ -117,6 +126,31 @@ class TestRankQuotes:
 
         best = _rank_quotes([quote_a, quote_b])
         assert best.provider == "kyberswap"
+
+    def test_single_usd_source_falls_back_to_gross(self):
+        """R1 repro: a single-source price ($21 toAmountUSD / 100 units ->
+        $0.21/token) combined with a small-looking $4 gas figure implied a
+        19.05% deduction — just under the OLD 20% clamp — and flipped the
+        winner to the smaller-output route, costing the user ~16%. A price
+        derived from exactly one source is never trusted now, so this must
+        stay on gross ranking and keep the honest (higher-output) winner."""
+        quote_a = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=4.0,
+            raw_quote=_lifi_raw(21.0),  # the ONLY USD source in the race
+            gas_cost_trusted=True,
+        )
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=84.0,
+            gas_cost_usd=0.05,
+            gas_cost_trusted=True,  # trusted gas, but no USD field at all
+        )
+
+        best, out_price = _rank_quotes_with_price([quote_a, quote_b])
+        assert out_price is None  # single-source price is never trusted
+        assert best.provider == "lifi"  # gross: 100 > 84 — NOT flipped
 
     def test_mixed_trusted_and_untrusted_gas_falls_back_to_gross(self):
         """One provider's gas figure is a heuristic (untrusted) — even though
@@ -137,52 +171,60 @@ class TestRankQuotes:
         )
 
         best = _rank_quotes([quote_a, quote_b])
-        # Gross ranking: 100 > 90 -> lifi wins (net ranking would have picked
-        # 1inch: 100 - 50/1 = 50 vs 90 - 0.5/1 = 89.5).
+        # Gross ranking: 100 > 90 -> lifi wins. (This never reaches the price
+        # derivation step at all — the trust gate short-circuits first.)
         assert best.provider == "lifi"
 
     def test_all_trusted_gas_applies_net_ranking(self):
-        """Sanity companion to the mixed-trust test: with every quote trusted,
-        net ranking is actually used (out_price is not None)."""
+        """Sanity companion to the mixed-trust test: with every quote trusted
+        AND >=2 USD price sources, net ranking is actually used (out_price
+        is not None)."""
         quote_a = _quote(
             "lifi",
             to_amount_human=100.0,
-            gas_cost_usd=19.0,
+            gas_cost_usd=4.9,
             raw_quote=_lifi_raw(100.0),
             gas_cost_trusted=True,
         )
-        quote_b = _quote("kyberswap", to_amount_human=98.0, gas_cost_usd=1.0, gas_cost_trusted=True)
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=98.0,
+            gas_cost_usd=0.5,
+            raw_quote=_kyber_raw(98.0),
+            gas_cost_trusted=True,
+        )
         best, out_price = _rank_quotes_with_price([quote_a, quote_b])
         assert out_price is not None
         assert best.provider == "kyberswap"
 
     def test_hostile_outlier_usd_field_does_not_flip_winner(self):
         """A malicious/buggy adapter reporting a wildly positive but wrong USD
-        price (e.g. 100,000x reality) must be discarded as an outlier rather
-        than distorting the shared output-token price used to net every
-        quote's gas. Needs >=2 HONEST sources plus the hostile one — with
-        only 2 candidates total, an extreme value can drag the median enough
-        to survive its own filter (median-of-2 is just their mean), so a
-        median-based outlier filter only works with >=3 candidates.
+        price (100,000x reality) must be discarded as an outlier rather than
+        distorting the shared output-token price used to net every quote's
+        gas. Needs >=2 HONEST sources plus the hostile one — with only 2
+        candidates total, an extreme value can drag the median enough to
+        survive its own filter (median-of-2 is just their mean), so a
+        median-based outlier filter only works with >=3 candidates. Every
+        quote's own gas deduction is kept under the 5% clamp.
         """
         quote_a = _quote(
             "lifi",
-            to_amount_human=100.0,
-            gas_cost_usd=19.0,
-            raw_quote=_lifi_raw(100.0),  # honest: $1.00/token
+            to_amount_human=90.0,
+            gas_cost_usd=0.1,
+            raw_quote=_lifi_raw(90.0),  # honest: $1.00/token
             gas_cost_trusted=True,
         )
         quote_b = _quote(
             "kyberswap",
-            to_amount_human=95.0,
-            gas_cost_usd=15.0,
-            raw_quote=_kyber_raw(9_500_000.0),  # hostile: $100,000/token
+            to_amount_human=93.0,
+            gas_cost_usd=4.6,  # 4.6/93 = 4.9%, just under the 5% clamp
+            raw_quote=_kyber_raw(9_300_000.0),  # hostile: $100,000/token
             gas_cost_trusted=True,
         )
         quote_c = _quote(
             "avnu",
             to_amount_human=50.0,
-            gas_cost_usd=1.0,
+            gas_cost_usd=0.1,
             raw_quote={"toAmountUSD": "50"},  # honest: $1.00/token (generic scan)
             gas_cost_trusted=True,
         )
@@ -193,25 +235,33 @@ class TestRankQuotes:
         assert out_price is not None
         assert abs(out_price - 1.0) < 1e-9
 
-        # Honest netting: a=100-19=81, b=95-15=80, c=50-1=49 -> a wins.
-        # Had the hostile self-reported price been used instead, b's gas
-        # would look nearly free (95 - 15/100_000 ≈ 94.9998) and it would
-        # have won — the outlier filter is what prevents that.
+        # Honest netting: a=90-0.1=89.9 ; b=93-4.6=88.4 ; c=50-0.1=49.9 -> a wins.
+        # Had the hostile self-reported price been used for b's OWN netting
+        # instead, its real $4.60 gas would look nearly free
+        # (93 - 4.6/100_000 ≈ 92.99995) and it would have won on a bogus
+        # number — the outlier filter is what prevents that.
         assert best.provider == "lifi"
 
     def test_clamp_falls_back_to_gross_when_gas_deduction_is_implausible(self):
-        """If netting gas against the derived price would eat more than 20%
-        of a quote's own output (e.g. a raw-address token whose decimals
-        haven't been corrected yet), the price is untrustworthy for the
-        whole race -> gross ranking."""
-        raw = _lifi_raw(100.0)  # $1/token
+        """If netting gas against the derived (trusted, >=2-source) price
+        would eat more than 5% of a quote's own output (e.g. a raw-address
+        token whose decimals haven't been corrected yet), the price is
+        untrustworthy for the whole race -> gross ranking."""
         quote_a = _quote(
-            "lifi", to_amount_human=100.0, gas_cost_usd=15.0, raw_quote=raw, gas_cost_trusted=True
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=4.0,  # 4% — under the clamp
+            raw_quote=_lifi_raw(100.0),  # $1/token
+            gas_cost_trusted=True,
         )
-        # quote_b's gas of $40 against $1/token would eat 40 of its own 90
-        # units of output (>20%) -> clamp trips, whole race falls to gross.
+        # quote_b's gas of $5 against $1/token would eat 5.56% of its own 90
+        # units of output (>5%) -> clamp trips, whole race falls to gross.
         quote_b = _quote(
-            "kyberswap", to_amount_human=90.0, gas_cost_usd=40.0, gas_cost_trusted=True
+            "kyberswap",
+            to_amount_human=90.0,
+            gas_cost_usd=5.0,
+            raw_quote=_kyber_raw(90.0),  # $1/token — 2nd source, so the price IS trusted
+            gas_cost_trusted=True,
         )
 
         best, out_price = _rank_quotes_with_price([quote_a, quote_b])
@@ -240,16 +290,22 @@ class TestRankQuotes:
         quote_a = _quote(
             "lifi",
             to_amount_human=100.0,
-            gas_cost_usd=19.0,
+            gas_cost_usd=4.9,
             raw_quote=_lifi_raw(100.0),  # $1/token
             gas_cost_trusted=True,
         )
-        quote_b = _quote("kyberswap", to_amount_human=98.0, gas_cost_usd=1.0, gas_cost_trusted=True)
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=98.0,
+            gas_cost_usd=0.5,
+            raw_quote=_kyber_raw(98.0),  # 2nd USD source
+            gas_cost_trusted=True,
+        )
         quote_c = _quote(
             "avnu", to_amount_human=80.0, gas_cost_usd=0.1, raw_quote={}, gas_cost_trusted=True
         )
 
-        # a: 100-19=81 ; b: 98-1=97 ; c: 80-0.1=79.9 -> b wins net every time.
+        # a: 100-4.9=95.1 ; b: 98-0.5=97.5 ; c: 80-0.1=79.9 -> b wins net every time.
         base = [quote_a, quote_b, quote_c]
         winners = set()
         prices = set()
@@ -276,6 +332,14 @@ class TestDeriveMedianOutputPrice:
     def test_no_candidates_returns_none(self):
         q1 = _quote("1inch", to_amount_human=100.0)
         q2 = _quote("0x", to_amount_human=100.0)
+        assert _derive_median_output_price([q1, q2]) is None
+
+    def test_single_source_price_not_trusted(self):
+        """A price derived from exactly one quote is never used — with one
+        data point there's nothing to median against or filter as an
+        outlier, honest or not."""
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw(21.0))  # $0.21/token
+        q2 = _quote("kyberswap", to_amount_human=84.0)  # no USD field at all
         assert _derive_median_output_price([q1, q2]) is None
 
     def test_outlier_discarded(self):

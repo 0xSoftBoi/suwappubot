@@ -263,6 +263,11 @@ def _derive_median_output_price(quotes: List["SwapQuote"]) -> Optional[float]:
     values). Outliers more than 2x above or below the raw median are
     discarded before taking the final median, so one adapter's bad USD
     figure can't drag the whole race's price estimate off a cliff.
+
+    A price derived from a SINGLE source is never trusted (returns None) —
+    with only one data point there's nothing to median against or discard
+    as an outlier, so one adapter's figure (honest or not) could otherwise
+    single-handedly decide the race.
     """
     candidates = []
     for q in sorted(quotes, key=lambda q: q.provider):
@@ -273,7 +278,7 @@ def _derive_median_output_price(quotes: List["SwapQuote"]) -> Optional[float]:
         if price:
             candidates.append(price)
 
-    if not candidates:
+    if len(candidates) < 2:
         return None
 
     def _median(values: List[float]) -> float:
@@ -315,11 +320,13 @@ def _rank_quotes_with_price(
          would otherwise look artificially cheap and win unfairly).
       2. A median USD price for the output token can be derived across the
          race (see `_derive_median_output_price`).
-      3. Netting that price against gas doesn't eat more than 20% of any
-         single quote's own to_amount_human — beyond that the derived price
-         is treated as unreliable (e.g. a raw-address token whose decimals
-         haven't been corrected yet — that correction only happens AFTER
-         ranking) and the whole race falls back to gross.
+      3. Netting that price against gas doesn't eat more than 5% of any
+         single quote's own to_amount_human — no honest gas-vs-output
+         tradeoff on a same-chain swap needs a bigger deduction than that;
+         beyond it the derived price is treated as unreliable (e.g. a
+         raw-address token whose decimals haven't been corrected yet — that
+         correction only happens AFTER ranking) and the whole race falls
+         back to gross.
 
     Wormhole returns an optimistic 1:1 placeholder quote (no real fee
     netting), so it's excluded from the race unless it's the only quote
@@ -338,7 +345,7 @@ def _rank_quotes_with_price(
 
     for q in ranked:
         gas = q.gas_cost_usd or 0.0
-        if q.to_amount_human > 0 and (gas / out_price) > 0.20 * q.to_amount_human:
+        if q.to_amount_human > 0 and (gas / out_price) > 0.05 * q.to_amount_human:
             return max(ranked, key=lambda q: q.to_amount_human), None
 
     return max(ranked, key=lambda q: _quote_net_score(q, out_price)), out_price
@@ -1233,12 +1240,13 @@ class SwapEngine:
         # Grace window: only fires when exactly ONE quote is in hand at the
         # 3s mark (≥2 quotes already gives us something real to compare, so
         # we don't wait at all — see the `elif pending:` cancel-now branch
-        # below). Uses return_when=FIRST_COMPLETED, not the default
-        # ALL_COMPLETED, so it exits the instant the NEXT provider lands
-        # rather than burning the full window waiting for every pending task
-        # (some provider routinely hangs out to its own HTTP timeout, which
-        # was turning "grace" into "always wait the full window"). Worst
-        # case stays 8s total (the no-quotes extended path is unchanged).
+        # below). Loops on return_when=FIRST_COMPLETED against a monotonic
+        # deadline rather than one `ALL_COMPLETED`-style wait, and keeps
+        # looping past a completion that ISN'T a real SwapQuote (a failed
+        # provider finishing first would otherwise end the grace window
+        # having gained nothing) — it only exits early once an actual quote
+        # lands, or the deadline passes, whichever is first. Worst case
+        # stays 8s total (the no-quotes extended path is unchanged).
         GRACE_TIMEOUT = 0.75
 
         wrapped_tasks = [asyncio.ensure_future(t) for t in tasks]
@@ -1271,15 +1279,27 @@ class SwapEngine:
                 elif len(quotes) == 1 and pending:
                     logger.info(
                         "1 quote in %.0fs fast path, granting up to %.2fs grace "
-                        "(exits early on next completion) for %d pending providers",
+                        "(exits early once a real quote lands) for %d pending providers",
                         FAST_TIMEOUT,
                         GRACE_TIMEOUT,
                         len(pending),
                     )
-                    done3, still_pending = await asyncio.wait(
-                        pending, timeout=GRACE_TIMEOUT, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    quotes.extend(self._extract_quotes(done3))
+                    loop = asyncio.get_running_loop()
+                    deadline = loop.time() + GRACE_TIMEOUT
+                    still_pending = pending
+                    while still_pending:
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            break
+                        done3, still_pending = await asyncio.wait(
+                            still_pending, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        new_quotes = self._extract_quotes(done3)
+                        quotes.extend(new_quotes)
+                        if new_quotes:
+                            # A real quote landed — stop waiting on the rest
+                            # even if there's grace time left.
+                            break
                     for t in still_pending:
                         t.cancel()
                     if still_pending:
@@ -1301,19 +1321,23 @@ class SwapEngine:
             # before caching so every consumer sees the corrected figure.
             best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
         finally:
-            # Always collect + cancel counterfactual tasks, even when the try
+            # Always cancel + collect counterfactual tasks, even when the try
             # block above raised (e.g. "no provider returned a valid quote")
-            # — otherwise a failed race would leak the in-flight CoW request.
-            # Non-blocking check (timeout=0): no extra latency added to a
-            # successful response. Failures are ignored — this is telemetry,
-            # never allowed to affect the money path.
+            # or was itself cancelled by the caller — otherwise a failed or
+            # cancelled race would leak the in-flight CoW request. Cancel()
+            # is called on EVERY cf task synchronously, before any `await`,
+            # so a cancellation landing on this coroutine mid-finally can't
+            # skip it (an `await asyncio.wait(...)` first, as this used to
+            # do, could raise CancelledError before the pending tasks were
+            # ever told to cancel). Already-completed tasks are unaffected
+            # by cancel() — their real results still come through below.
+            # Failures are ignored — this is telemetry, never allowed to
+            # affect the money path.
             if cf_wrapped:
-                cf_done, cf_pending = await asyncio.wait(cf_wrapped, timeout=0)
-                cf_quotes = self._extract_quotes(cf_done)
-                for t in cf_pending:
+                for t in cf_wrapped:
                     t.cancel()
-                if cf_pending:
-                    await asyncio.gather(*cf_pending, return_exceptions=True)
+                await asyncio.gather(*cf_wrapped, return_exceptions=True)
+                cf_quotes = self._extract_quotes(cf_wrapped)
 
         if cf_quotes:
             # Deduct our platform fee from CoW's output for a fair,
