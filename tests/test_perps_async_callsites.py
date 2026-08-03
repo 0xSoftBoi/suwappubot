@@ -23,16 +23,16 @@ from bot.services.perps_service import PerpsService
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Every module that reads positions through the service.
-CALLER_MODULES = [
-    "api/routes/terminal.py",
-    "bot/handlers/positions.py",
-    "bot/handlers/perps.py",
-    "bot/services/whatsapp_flows/perps_flow.py",
-    "bot/services/whatsapp_flows/positions_flow.py",
-]
-
 AWAITED_METHODS = {"get_positions", "get_position"}
+
+# Scanned rather than listed: a hardcoded list of known callers would not guard
+# the case this test exists for — a *new* caller that forgets the await.
+SCANNED_TREES = ["bot", "api"]
+
+
+def _python_files():
+    for tree in SCANNED_TREES:
+        yield from sorted((REPO_ROOT / tree).rglob("*.py"))
 
 
 def _capturing_session():
@@ -86,11 +86,30 @@ def _unawaited_calls(path: Path) -> list[str]:
     return offenders
 
 
-@pytest.mark.parametrize("module", CALLER_MODULES)
-def test_position_reads_are_awaited(module):
+def test_position_reads_are_awaited():
     """A missed await returns a coroutine, so the caller silently shows nothing."""
-    offenders = _unawaited_calls(REPO_ROOT / module)
+    offenders = []
+    for path in _python_files():
+        offenders.extend(_unawaited_calls(path))
     assert offenders == [], "un-awaited position reads: " + ", ".join(offenders)
+
+
+def test_the_scan_actually_reaches_the_known_callers():
+    """A scan that silently matched nothing would make the test above meaningless."""
+    seen = set()
+    for path in _python_files():
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in AWAITED_METHODS
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "perps_service"
+            ):
+                seen.add(path.name)
+
+    assert "perps.py" in seen and "terminal.py" in seen, f"scan found only {sorted(seen)}"
 
 
 def test_position_readers_are_coroutines():

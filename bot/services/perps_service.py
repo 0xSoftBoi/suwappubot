@@ -253,9 +253,21 @@ class PerpsService:
                 if stored:
                     for field, value in accepted.items():
                         setattr(stored, field, Decimal(str(value)))
+                else:
+                    # The trigger is resting on the exchange but the row it
+                    # belongs to has gone. Don't let that vanish silently — the
+                    # position is protected while the UI will say it is not.
+                    logger.error(
+                        "Position %s vanished before its accepted level(s) %s could be stored",
+                        position_id,
+                        ", ".join(accepted),
+                    )
 
-        refused = {"tp_price": tp_price, "sl_price": sl_price}
-        refused = [f for f, v in refused.items() if v and f not in accepted]
+        refused = [
+            field
+            for field, value in (("tp_price", tp_price), ("sl_price", sl_price))
+            if value and field not in accepted
+        ]
         if refused:
             logger.warning(
                 "Position %s opened but HyperLiquid refused %s — no level stored for it",
