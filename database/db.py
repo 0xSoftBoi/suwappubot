@@ -688,6 +688,14 @@ def _ensure_schema(db_engine) -> None:
     # --- AEGIS per-user trust adaptation (Phase 2.3): aegis_user_trust ---
     _create_aegis_trust_table(db_engine, inspector, is_sqlite)
 
+    # --- Agent control-plane approval notification bookkeeping ---
+    _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
+    _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
+
+    # --- Agent ownership linking (/claim, /unlink): agents.owner_user_id + agent_link_codes ---
+    _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
+    _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
+
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
@@ -3483,3 +3491,195 @@ def _create_aegis_trust_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created aegis_user_trust table")
     except Exception as e:
         logger.warning(f"Failed to create aegis_user_trust table: {e}")
+
+
+def _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Python-owned Telegram-notification bookkeeping columns to
+    ``approval_requests`` (owned/created by api-ts — schema at
+    ``api-ts/src/db/schema/approvals.ts``), idempotently.
+
+    ``notified_at`` / ``notify_chat_id`` / ``notify_message_id`` are
+    PYTHON-OWNED — api-ts must NOT write them. They only track whether/where
+    ``bot/services/approval_notifier.py`` has DM'd the owning Telegram user
+    for a given row, so the notifier never double-sends and the decision
+    handler (``bot/handlers/approvals.py``) can edit the original message in
+    place. No-op (via ``has_table``) until api-ts has actually created the
+    table.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "approval_requests" not in tables:
+        return
+
+    try:
+        cols = {c["name"] for c in inspector.get_columns("approval_requests")}
+    except Exception as e:
+        logger.warning(f"Could not inspect approval_requests columns: {e}")
+        return
+
+    additions = []
+    if "notified_at" not in cols:
+        ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+        additions.append(f"ADD COLUMN notified_at {ts_type}")
+    if "notify_chat_id" not in cols:
+        bigint_type = "BIGINT" if not is_sqlite else "INTEGER"
+        additions.append(f"ADD COLUMN notify_chat_id {bigint_type}")
+    if "notify_message_id" not in cols:
+        additions.append("ADD COLUMN notify_message_id INTEGER")
+
+    if not additions:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                # SQLite doesn't support multi-column ALTER TABLE ADD COLUMN
+                # in one statement.
+                for addition in additions:
+                    conn.execute(text(f"ALTER TABLE approval_requests {addition}"))
+            else:
+                for addition in additions:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE approval_requests "
+                            f"{addition.replace('ADD COLUMN', 'ADD COLUMN IF NOT EXISTS')}"
+                        )
+                    )
+        logger.info(f"Added approval_requests notify columns: {additions}")
+    except Exception as e:
+        logger.warning(f"Failed to add approval_requests notify columns: {e}")
+
+
+def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_webhook_deliveries idempotently (durable approval-decision webhooks).
+
+    Python-owned table — ``approval_requests`` (id: uuid, agent_id: varchar(64))
+    is owned by api-ts (``api-ts/src/db/schema/approvals.ts``); this table only
+    references it by id/agent_id string values, it never creates or alters
+    that table. ``id`` is a text/uuid primary key assigned by this bot on
+    enqueue (not autoincrement) so a delivery row can be created without a
+    round-trip to read back an identity value. Includes ``claimed_at`` from
+    the start (unlike the upstream port, which added it in a follow-up
+    migration) so ``WebhookDispatcher`` can reclaim rows stranded in
+    ``status='sending'`` by a crash mid-POST.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_webhook_deliveries" in tables:
+        return
+
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
+                        id VARCHAR(36) PRIMARY KEY,
+                        approval_id VARCHAR(36) NOT NULL,
+                        agent_id TEXT,
+                        url VARCHAR(1024) NOT NULL,
+                        payload_json {json_type} NOT NULL,
+                        signature_ts VARCHAR(32),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        claimed_at {ts_type},
+                        next_attempt_at {ts_type},
+                        last_error TEXT,
+                        created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        delivered_at {ts_type}
+                    )
+                    """))
+            for idx, cols in (
+                ("ix_agent_webhook_deliveries_status_next", "status, next_attempt_at"),
+                ("ix_agent_webhook_deliveries_approval_id", "approval_id"),
+            ):
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_webhook_deliveries ({cols})")
+                )
+        logger.info("Created agent_webhook_deliveries table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_webhook_deliveries table: {e}")
+
+
+def _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add agents.owner_user_id (nullable FK -> users.id) idempotently.
+
+    Shared column: api-ts already ships this on agents.ts's ownerUserId via
+    Drizzle. This migration exists for any Python-provisioned database
+    (sqlite dev/tests, or Postgres where the Python side runs first) so it
+    also gets the column. Additive/nullable; never touches agents creation.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agents" not in tables:
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns("agents")}
+    except Exception as e:
+        logger.warning(f"Could not inspect agents columns: {e}")
+        return
+    if "owner_user_id" in cols:
+        return
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN owner_user_id INTEGER"))
+        logger.info("Added agents.owner_user_id column")
+    except Exception as e:
+        logger.warning(f"Failed to add agents.owner_user_id column: {e}")
+
+
+def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_link_codes idempotently (agent ownership linking).
+
+    Matches api-ts's shipped Drizzle schema (agentLinkCodes.ts) exactly:
+    agent_id is an INTEGER FK to agents.id (NOT agents.uuid), code_hash is a
+    UNIQUE varchar(64) sha256 hex digest of a code minted+shown once by
+    api-ts's POST /v1/agent/link/code, expires_at/used_at/created_at are
+    timestamps. Exists for any Python-provisioned database that hasn't seen
+    api-ts's migration yet.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_link_codes" in tables:
+        return
+
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+    pk_extra = "AUTOINCREMENT" if is_sqlite else ""
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS agent_link_codes ("
+                    f"id INTEGER PRIMARY KEY {pk_extra}, "
+                    f"agent_id INTEGER NOT NULL, "
+                    f"code_hash VARCHAR(64) NOT NULL, "
+                    f"expires_at {ts_type} NOT NULL, "
+                    f"used_at {ts_type}, "
+                    f"created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_link_codes_code_hash "
+                    "ON agent_link_codes (code_hash)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_agent_link_codes_agent_id "
+                    "ON agent_link_codes (agent_id)"
+                )
+            )
+        logger.info("Created agent_link_codes table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_link_codes table: {e}")

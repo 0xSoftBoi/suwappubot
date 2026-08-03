@@ -279,6 +279,8 @@ from bot.handlers.admin_p2p import (
     p2p_resolve_handler,
     p2p_dispute_handler,
 )
+from bot.handlers.approvals import approval_decision_handler, approvals_command_handler
+from bot.handlers.admin_killswitch import kill_switch_handler
 from bot.handlers.fund import fund_command_handler, fund_callback_handler
 from bot.handlers.hl_ecosystem import (
     twap_handler,
@@ -315,6 +317,7 @@ from bot.handlers.enterprise import (
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
+from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.aegis_scan import aegis_scan_update
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -450,6 +453,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(hl_hub_handler)  # /hl hub
     application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
     application.add_handler(hl_cancel_handler)  # dashboard close button
+    application.add_handler(claim_agent_handler)  # /claim (agent control-plane)
+    application.add_handler(unlink_agent_handler)  # /unlink
     application.add_handler(hl_twap_cancel_handler)  # TWAP cancel button
     application.add_handler(hl_twap_refresh_handler)  # TWAP refresh button
     application.add_handler(hl_hub_cb_handler)  # /hl hub buttons
@@ -500,6 +505,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(p2p_dispute_handler)  # /p2pdispute — party freezes escrow
     application.add_handler(p2p_disputes_handler)  # admin /p2pdisputes — arbiter queue
     application.add_handler(p2p_resolve_handler)  # admin /p2presolve — arbitrate
+    application.add_handler(approvals_command_handler)  # /approvals (agent control-plane)
+    application.add_handler(approval_decision_handler)  # apprv:<id>:yes|no callback
+    application.add_handler(kill_switch_handler)  # admin /ks — agent-policy kill switch
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa

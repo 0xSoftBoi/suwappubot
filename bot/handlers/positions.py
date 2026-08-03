@@ -106,7 +106,7 @@ async def _build_positions(user_id: int) -> tuple[str, list[tuple[str, str]]]:
     # ---- Perps ----
     perps_lines: list[str] = []
     try:
-        positions = perps_service.get_positions(user_id)
+        positions = await perps_service.get_positions(user_id)
     except Exception:
         positions = []
     for pos in positions or []:

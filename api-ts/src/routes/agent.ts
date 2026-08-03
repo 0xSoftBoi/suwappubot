@@ -1,5 +1,6 @@
 import crypto from 'crypto'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { randomBytes, createHash } from 'node:crypto'
+import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
@@ -7,7 +8,9 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, organizations, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import type { DbClient } from '../db/client'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agentLinkCodes } from '../db/schema/agentLinkCodes'
 import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
@@ -15,12 +18,14 @@ import { type SpendPermission, validateSpendPermission } from '../lib/spendPermi
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
-import { mapErrorToResponse, ValidationError } from '../errors'
+import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { flexAuth } from '../middleware/flexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
+import { apiKeyAuth } from '../middleware/apiKeyAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
@@ -28,7 +33,7 @@ import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
-import { writeAuditLog } from '../services/audit'
+import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
@@ -522,6 +527,21 @@ agentRoutes.use('/approvals/:id', agentBearerAuth())
 agentRoutes.use('/approvals', flexAuth())
 agentRoutes.use('/approvals/:id/approve', flexAuth())
 agentRoutes.use('/approvals/:id/deny', flexAuth())
+agentRoutes.use('/approvals/:id/step-up/challenge', flexAuth())
+// Agent<->owner linking: an agent key mints a short-lived code the human
+// owner redeems via /claim <code> in the Telegram bot.
+agentRoutes.use('/link/code', agentFlexAuth())
+agentRoutes.use('/audit', agentFlexAuth())
+agentRoutes.use('/audit/*', agentFlexAuth())
+// Owner-facing (JWT/session) audit read — human owner via the web dashboard,
+// no API key. Distinct middleware chain from the agent/org-key /audit above.
+agentRoutes.use('/owner/audit', flexAuth())
+agentRoutes.use('/owner/audit/verify', flexAuth())
+// Kill switch is org-API-key only (see handlers below) — apiKeyAuth() is a
+// no-op when no sk_live_ key is present, so the handlers explicitly reject
+// requests that never resolved an apiKeyAuth context (plain agent tokens).
+agentRoutes.use('/killswitch', apiKeyAuth())
+agentRoutes.use('/killswitch', requireScope('admin'))
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -549,12 +569,17 @@ agentRoutes.use('/approvals', rateLimit())
 agentRoutes.use('/approvals/:id', rateLimit())
 agentRoutes.use('/approvals/:id/approve', rateLimit())
 agentRoutes.use('/approvals/:id/deny', rateLimit())
+agentRoutes.use('/approvals/:id/step-up/challenge', rateLimit())
+agentRoutes.use('/link/code', rateLimit())
+agentRoutes.use('/owner/audit', rateLimit())
+agentRoutes.use('/owner/audit/verify', rateLimit())
 // Extra per-IP throttle on the owner-facing (JWT) approval endpoints — these
 // gate real money movement, so cap brute-force/scripted approve-spam attempts
 // independent of the per-user rateLimit() above.
 agentRoutes.use('/approvals', ipRateLimit(30))
 agentRoutes.use('/approvals/:id/approve', ipRateLimit(30))
 agentRoutes.use('/approvals/:id/deny', ipRateLimit(30))
+agentRoutes.use('/approvals/:id/step-up/challenge', ipRateLimit(30))
 
 // ===========================================
 // PAY-PER-CALL METERING (x402 prepaid credits)
@@ -594,6 +619,11 @@ agentRoutes.get('/me', async (c) => {
 			name: agent.name,
 			description: agent.description,
 			rate_limit_tier: agent.rateLimitTier,
+			// True when this agent carries org context (agents.organizationId set)
+			// — org-scoped policies AND org kill switches apply to its requests,
+			// including via the MCP surface. See PolicyService + routes/mcp.ts.
+			org_linked: agent.organizationId != null,
+			owner_linked: agent.ownerUserId != null,
 			stats: {
 				total_requests: agent.totalRequests,
 				total_swaps: agent.totalSwaps,
@@ -1097,8 +1127,11 @@ async function buildSwapTxResponse(
  * sign+broadcast path) — both are the SAME swap-execution action and MUST be
  * gated identically. /swap/execute forwarding straight to the internal
  * signer with no gate here was the money-path bypass this closes.
+ * Exported so routes/mcp.ts's execute_swap tool can reuse the exact same gate
+ * (including approval-request creation) instead of a parallel implementation
+ * — it converts the returned Response into the MCP isError envelope.
  */
-async function enforcePolicyGateForFreshQuote(
+export async function enforcePolicyGateForFreshQuote(
 	c: Context,
 	agentIdentifier: string,
 	orgId: string | null,
@@ -1106,7 +1139,19 @@ async function enforcePolicyGateForFreshQuote(
 	isSolana: boolean,
 	walletAddress: string,
 ): Promise<Response | null> {
-	if (!orgId) return null
+	// Every caller of this function is an agent-authenticated route, so
+	// agentIdentifier is always present — but guard anyway rather than assume.
+	// PolicyService.evaluate() only truly no-ops (fully unscoped 'allow', no
+	// query at all) when BOTH organizationId and agentId are absent; a bare
+	// agentId with no org still matches org-less per-agent policy rows
+	// (policies.organization_id IS NULL AND agent_id = X) and kill switches
+	// (global + agent scope), so it MUST still run the gate. Do not
+	// short-circuit on `!orgId` here — that was the bug (per-agent grants
+	// silently never enforced). What genuinely stays org-conditional is
+	// further down: the require_approval branch's org-owner lookup (there's
+	// no organizations row to look up without an orgId) — it falls back to
+	// the agent's linked owner instead (see ApprovalService.create()).
+	if (!agentIdentifier) return null
 
 	let policyIntent: PolicyIntent
 	if (isSolana) {
@@ -1150,6 +1195,10 @@ async function enforcePolicyGateForFreshQuote(
 			toToken: evmQuote.toToken?.address ?? null,
 			valueUsd,
 			gasUsd: parseFloat(evmQuote.estimatedGasUsd ?? '0') || 0,
+			// The router/contract this trade would actually call. Without it an
+			// operator's allowedContracts allowlist can never match — a configured
+			// control that silently enforces nothing.
+			contractAddress: evmQuote.transactionRequest?.to ?? null,
 		}
 	}
 
@@ -1220,20 +1269,42 @@ async function enforcePolicyGateForFreshQuote(
 		const created = await runEffectEither(
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const orgOwnerRows = yield* Effect.tryPromise({
-					try: () =>
-						db
-							.select({ ownerId: organizations.ownerId })
-							.from(organizations)
-							.where(eq(organizations.id, orgId))
-							.limit(1),
-					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-				})
+				// Org-owner lookup is genuinely org-conditional — there's no
+				// organizations row to resolve for an org-less agent. In that case
+				// leave userId null; ApprovalService.create() falls back to the
+				// agent's own linked owner (agents.owner_user_id) so the request is
+				// still approvable by a real human.
+				let orgOwnerId: number | null = null
+				if (orgId) {
+					const orgOwnerRows = yield* Effect.tryPromise({
+						try: () =>
+							db
+								.select({ ownerId: organizations.ownerId })
+								.from(organizations)
+								.where(eq(organizations.id, orgId))
+								.limit(1),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+					if (orgOwnerRows.length === 0) {
+						// Org context is set but the owner lookup found no row —
+						// fail closed rather than falling through to
+						// ApprovalService.create()'s org-less fallback, which would
+						// let this org-scoped approval resolve to the agent's own
+						// personally-linked human (who may have no relationship to
+						// this org at all).
+						return yield* Effect.fail(
+							new ValidationError({
+								message: 'Unable to resolve an approver for this organization',
+							}),
+						)
+					}
+					orgOwnerId = orgOwnerRows[0]?.ownerId ?? null
+				}
 				const approvals = yield* ApprovalService
 				return yield* approvals.create({
 					agentId: agentIdentifier,
 					organizationId: orgId,
-					userId: orgOwnerRows[0]?.ownerId ?? null,
+					userId: orgOwnerId,
 					actionType: 'swap_execute',
 					payload: economicTerms,
 					policyDecisionId: policyDecisionId ?? null,
@@ -1486,6 +1557,15 @@ async function resolveApprovalResubmit(
 			toToken: freshTerms.toToken,
 			valueUsd: freshTerms.valueUsd,
 			gasUsd: freshGasUsd,
+			// The router/contract this trade would actually call. Without it an
+			// operator's allowedContracts allowlist can never match on resubmit —
+			// mirrors the first evaluation above. `undefined` (not `null`) for
+			// Solana: allowedContracts is an EVM-only concept, so Solana intents
+			// must signal "not applicable" rather than "unresolved" (see
+			// PolicyService's fail-closed branch).
+			contractAddress: isSolana
+				? undefined
+				: ((freshQuote as SwapQuote).transactionRequest?.to ?? null),
 		}
 		const verdict = await runEffectEither(
 			Effect.gen(function* () {
@@ -4144,6 +4224,76 @@ agentRoutes.post('/billing/recurring', async (c) => {
 })
 
 // ===========================================
+// AGENT <-> OWNER LINKING
+// ===========================================
+
+// POST /v1/agent/link/code - agent mints a short-lived link code; the human
+// owner redeems it via /claim <code> in the Telegram bot to set
+// agents.ownerUserId. Only the sha256 hash of the code is ever persisted.
+agentRoutes.post('/link/code', async (c) => {
+	const agent = c.get('agent')
+
+	if (agent.ownerUserId != null) {
+		writeAuditLog({
+			userId: 0,
+			agentId: agentIdentifierOf(agent),
+			eventType: 'agent.link_code_rejected',
+			details: { reason: 'already_linked' },
+		})
+		return c.json(
+			{
+				success: false,
+				error: 'Agent is already linked to an owner. Ask the owner to /unlink first.',
+			},
+			409,
+		)
+	}
+
+	const code = randomBytes(8).toString('hex')
+	const codeHash = createHash('sha256').update(code).digest('hex')
+	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(agentLinkCodes)
+						.values({ agentId: agent.id, codeHash, expiresAt })
+						.returning(),
+				catch: (e) => new ValidationError({ message: `Failed to create link code: ${e}` }),
+			})
+			const row = rows[0]
+			if (!row) {
+				return yield* Effect.fail(new ValidationError({ message: 'Link code insert returned no row' }))
+			}
+			return row
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	writeAuditLog({
+		userId: 0,
+		agentId: agentIdentifierOf(agent),
+		eventType: 'agent.link_code_minted',
+		details: { linkCodeId: result.right.id },
+	})
+
+	return c.json({
+		success: true,
+		code,
+		expires_at: expiresAt.toISOString(),
+		instructions:
+			'Send /claim <code> to the Suwappu Telegram bot within 10 minutes to link this agent to your account.',
+	})
+})
+
+// ===========================================
 // HUMAN-IN-THE-LOOP APPROVALS
 // ===========================================
 
@@ -4224,22 +4374,91 @@ agentRoutes.get('/approvals', async (c) => {
 	})
 })
 
-// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
-// Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
-// status='pending' so a duplicate click can only ever succeed once.
-agentRoutes.post('/approvals/:id/approve', async (c) => {
+// POST /v1/agent/approvals/:id/step-up/challenge - owner (JWT) issues a
+// fresh single-use step-up nonce for a pending approval they own. Required
+// before approve when APPROVAL_STEP_UP_REQUIRED='true'.
+agentRoutes.post('/approvals/:id/step-up/challenge', async (c) => {
 	const authUser = c.get('authUser')
 	const id = c.req.param('id')
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.decide(id, authUser.userId, 'approved')
+			return yield* approvals.issueStepUpChallenge(id, authUser.userId)
 		}),
 	)
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const row = result.right
+	writeAuditLog({
+		userId: authUser.userId,
+		agentId: null,
+		eventType: 'approval.step_up_issued',
+		details: { approvalId: id, stepUpChallengeId: row.insertedId },
+	})
+
+	return c.json({
+		success: true,
+		challenge: row.challenge,
+		expires_at: row.expiresAt.toISOString(),
+	})
+})
+
+// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
+// Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
+// status='pending' so a duplicate click can only ever succeed once. When
+// APPROVAL_STEP_UP_REQUIRED='true' a valid, unexpired, unused step-up
+// challenge (see POST .../step-up/challenge) must also be presented.
+agentRoutes.post('/approvals/:id/approve', async (c) => {
+	const authUser = c.get('authUser')
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const approvals = yield* ApprovalService
+
+			if (env.APPROVAL_STEP_UP_REQUIRED === 'true') {
+				const body = yield* Effect.tryPromise({
+					try: () => c.req.json(),
+					catch: () => new ValidationError({ message: 'Invalid JSON body' }),
+				})
+				const stepUpChallenge =
+					body && typeof body === 'object' && 'step_up_challenge' in body
+						? (body as Record<string, unknown>).step_up_challenge
+						: undefined
+				if (typeof stepUpChallenge !== 'string' || stepUpChallenge.length === 0) {
+					return yield* Effect.fail(
+						new ValidationError({ message: 'step_up_challenge is required' }),
+					)
+				}
+				return yield* approvals.decideApproveWithStepUp(id, authUser.userId, stepUpChallenge)
+			}
+
+			return yield* approvals.decide(id, authUser.userId, 'approved')
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const err = result.left
+		if (err instanceof ValidationError && err.message.startsWith(STEP_UP_REJECTED_PREFIX)) {
+			return c.json(
+				{
+					success: false,
+					code: 'STEP_UP_REQUIRED',
+					error: err.message.slice(STEP_UP_REJECTED_PREFIX.length),
+				},
+				400,
+			)
+		}
+		if (err instanceof ValidationError && err.message === 'step_up_challenge is required') {
+			return c.json({ success: false, code: 'STEP_UP_REQUIRED', error: err.message }, 400)
+		}
+		const { status, body } = mapErrorToResponse(err)
 		return c.json({ success: false, ...body }, status)
 	}
 
@@ -4293,6 +4512,411 @@ agentRoutes.post('/approvals/:id/deny', async (c) => {
 		status: row.status,
 		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
 	})
+})
+
+// ===========================================
+// AUDIT TRAIL (hash-chained)
+// ===========================================
+
+/**
+ * Resolve the caller's audit scope from context set by agentFlexAuth: an org
+ * API key scopes to that org's chain; a plain agent bearer token scopes to
+ * the global (org-less) chain and further narrows to that agent's own rows.
+ */
+function resolveAuditScope(c: Context): { orgId: string | null; agentId: string | null } {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (apiKeyCtx) return { orgId: apiKeyCtx.orgId, agentId: null }
+	const agent = c.get('agent') as Agent | undefined
+	const agentId = agent ? (agent.uuid ?? String(agent.id)) : null
+	return { orgId: null, agentId }
+}
+
+// GET /v1/agent/audit - List audit events visible to the caller
+agentRoutes.get('/audit', async (c) => {
+	const { orgId, agentId } = resolveAuditScope(c)
+
+	const eventType = c.req.query('event_type')
+	const filterAgentId = c.req.query('agent_id')
+	const since = c.req.query('since')
+	const limitParam = parseInt(c.req.query('limit') ?? '100', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 100, 1), 500)
+
+	const conditions: ReturnType<typeof eq>[] = []
+	if (orgId) {
+		// Org key: own org's rows only.
+		conditions.push(eq(auditLogs.orgId, orgId))
+	} else if (agentId) {
+		// Plain agent token: own agentId only (global/org-less chain).
+		conditions.push(isNull(auditLogs.orgId))
+		conditions.push(eq(auditLogs.agentId, agentId))
+	} else {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Authentication required')
+	}
+	if (eventType) conditions.push(eq(auditLogs.eventType, eventType))
+	// agent_id filter only meaningful/allowed for org-key callers — a plain
+	// agent token is already pinned to its own agentId above.
+	if (orgId && filterAgentId) conditions.push(eq(auditLogs.agentId, filterAgentId))
+	if (since) {
+		const sinceDate = new Date(since)
+		if (!Number.isNaN(sinceDate.getTime())) conditions.push(gte(auditLogs.createdAt, sinceDate))
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							eventType: auditLogs.eventType,
+							agentId: auditLogs.agentId,
+							orgId: auditLogs.orgId,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(and(...conditions))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	return c.json({ success: true, events: result.right, count: result.right.length })
+})
+
+// GET /v1/agent/audit/verify - Walk the hash chain and confirm no tampering
+agentRoutes.get('/audit/verify', async (c) => {
+	const { orgId, agentId } = resolveAuditScope(c)
+	if (!orgId && !agentId) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Authentication required')
+	}
+	if (!orgId) {
+		// Org-less callers (plain agent-token/MCP auth) share ONE global
+		// hash-chain across every org-less agent — verifyAuditChain(null, ...)
+		// would walk and return counts/firstBreakId derived from OTHER agents'
+		// rows (cross-tenant metadata leak), and a caller could force scanning
+		// up to 5000 rows that aren't theirs. Chain verification is inherently
+		// a whole-chain operation (each row's integrity depends on its
+		// neighbor), so there's no correct way to scope it to just this
+		// agent's own rows. Refuse rather than leak or fake a per-agent result.
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'Chain verification requires org context — register this agent under an organization to use /audit/verify.',
+		)
+	}
+
+	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+	const result = await runEffectEither(verifyAuditChain(orgId, limit))
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	return c.json({ success: true, ...result.right })
+})
+
+/**
+ * Resolve the org id an authenticated human owner is asking about, for the
+ * owner-JWT audit surface below.
+ *
+ * `audit_logs`/the hash chain are keyed by org id (or the org-less 'global'
+ * chain — see services/audit.ts), NOT by user, and a human can own more than
+ * one organization. `?org_id=` lets an owner pick one explicitly; the
+ * ownership check (organizations.ownerId = caller) is mandatory either way so
+ * one owner can never read another owner's org chain. When no `org_id` is
+ * given, this falls back to the caller's single/first owned org (by
+ * createdAt) — a caller who owns zero orgs gets a NotFoundError rather than
+ * silently returning the org-less global chain, since a human owner asking
+ * "show me my org's audit trail" should never be answered with someone else's
+ * org-less agent activity.
+ */
+function resolveOwnerAuditOrgId(
+	db: DbClient,
+	userId: number,
+	requestedOrgId: string | null,
+): Effect.Effect<string, DatabaseError | NotFoundError | ForbiddenError> {
+	return Effect.gen(function* () {
+		if (requestedOrgId) {
+			const owned = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ id: organizations.id })
+						.from(organizations)
+						.where(and(eq(organizations.id, requestedOrgId), eq(organizations.ownerId, userId)))
+						.limit(1),
+				catch: (e) => new DatabaseError({ message: 'Failed to verify org ownership', cause: e }),
+			})
+			if (!owned[0]) {
+				return yield* Effect.fail(
+					new ForbiddenError({ message: 'You do not own this organization' }),
+				)
+			}
+			return owned[0].id
+		}
+
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ id: organizations.id })
+					.from(organizations)
+					.where(eq(organizations.ownerId, userId))
+					.orderBy(organizations.createdAt)
+					.limit(1),
+			catch: (e) => new DatabaseError({ message: 'Failed to load owned organizations', cause: e }),
+		})
+		const org = rows[0]
+		if (!org) {
+			return yield* Effect.fail(new NotFoundError({ resource: 'organization' }))
+		}
+		return org.id
+	})
+}
+
+// GET /v1/agent/owner/audit - Owner (JWT) read of their org's audit trail.
+// Distinct from GET /audit (agent-key/org-API-key scoped): this is for the
+// human owner acting through the web dashboard's session, with no API key.
+agentRoutes.get('/owner/audit', async (c) => {
+	const authUser = c.get('authUser')
+	const requestedOrgId = c.req.query('org_id') ?? null
+	const eventType = c.req.query('event_type')
+	const filterAgentId = c.req.query('agent_id')
+	const since = c.req.query('since')
+	const limitParam = parseInt(c.req.query('limit') ?? '100', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 100, 1), 500)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const orgId = yield* resolveOwnerAuditOrgId(db, authUser.userId, requestedOrgId)
+
+			const conditions = [eq(auditLogs.orgId, orgId)]
+			if (eventType) conditions.push(eq(auditLogs.eventType, eventType))
+			if (filterAgentId) conditions.push(eq(auditLogs.agentId, filterAgentId))
+			if (since) {
+				const sinceDate = new Date(since)
+				if (!Number.isNaN(sinceDate.getTime())) conditions.push(gte(auditLogs.createdAt, sinceDate))
+			}
+
+			const events = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							eventType: auditLogs.eventType,
+							agentId: auditLogs.agentId,
+							orgId: auditLogs.orgId,
+							details: auditLogs.details,
+							createdAt: auditLogs.createdAt,
+							entryHash: auditLogs.entryHash,
+						})
+						.from(auditLogs)
+						.where(and(...conditions))
+						.orderBy(desc(auditLogs.id))
+						.limit(limit),
+				catch: (e) => new DatabaseError({ message: 'Failed to list audit events', cause: e }),
+			})
+			return { orgId, events }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const { orgId, events } = result.right
+	return c.json({ success: true, org_id: orgId, events, count: events.length })
+})
+
+// GET /v1/agent/owner/audit/verify - Owner (JWT) hash-chain verification for
+// their org's audit trail. See GET /audit/verify for the agent/API-key
+// equivalent and resolveOwnerAuditOrgId() above for org selection rules.
+agentRoutes.get('/owner/audit/verify', async (c) => {
+	const authUser = c.get('authUser')
+	const requestedOrgId = c.req.query('org_id') ?? null
+	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)
+	const limit = Math.min(Math.max(Number.isFinite(limitParam) ? limitParam : 1000, 1), 5000)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const orgId = yield* resolveOwnerAuditOrgId(db, authUser.userId, requestedOrgId)
+			const verified = yield* verifyAuditChain(orgId, limit)
+			return { orgId, verified }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json({ success: false, ...body }, status)
+	}
+
+	const { orgId, verified } = result.right
+	return c.json({ success: true, org_id: orgId, ...verified })
+})
+
+// ===========================================
+// KILL SWITCH
+// ===========================================
+
+const KillSwitchSchema = z.object({
+	scope: z.enum(['org', 'agent']),
+	scope_id: z.string().optional(),
+	active: z.boolean(),
+	reason: z.string().max(300).optional(),
+})
+
+// POST /v1/agent/killswitch - Activate/deactivate a kill switch (org API key only)
+agentRoutes.post('/killswitch', async (c) => {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (!apiKeyCtx) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Org API key required for kill-switch management')
+	}
+
+	const body = await c.req.json().catch(() => ({}))
+	const parsed = KillSwitchSchema.safeParse(body)
+	if (!parsed.success) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
+	}
+	const { scope, active, reason } = parsed.data
+
+	// Org keys may only manage their OWN org's org-scope switch. There is no
+	// agent->org ownership mapping in this schema, so agent-scope kill switches
+	// via an org key are not permitted (would let one org silence an arbitrary
+	// agentId it doesn't control). Global scope is admin/bot-only, never via
+	// this API.
+	if (scope !== 'org') {
+		return agentError(c, 403, 'POLICY_VIOLATION', "Org API keys may only manage scope='org' kill switches")
+	}
+	if (parsed.data.scope_id && parsed.data.scope_id !== apiKeyCtx.orgId) {
+		return agentError(c, 403, 'POLICY_VIOLATION', 'Cannot set a kill switch for another organization')
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [org] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ ownerId: organizations.ownerId })
+						.from(organizations)
+						.where(eq(organizations.id, apiKeyCtx.orgId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			if (!org) return yield* Effect.fail(new ValidationError({ message: 'Organization not found' }))
+
+			const [existing] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ id: policyKillSwitches.id })
+						.from(policyKillSwitches)
+						.where(and(eq(policyKillSwitches.scope, 'org'), eq(policyKillSwitches.scopeId, apiKeyCtx.orgId)))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			if (existing) {
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(policyKillSwitches)
+							.set({
+								active,
+								reason: reason ?? null,
+								activatedBy: org.ownerId,
+								activatedAt: new Date(),
+								deactivatedAt: active ? null : new Date(),
+							})
+							.where(eq(policyKillSwitches.id, existing.id)),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+			} else {
+				yield* Effect.tryPromise({
+					try: () =>
+						db.insert(policyKillSwitches).values({
+							scope: 'org',
+							scopeId: apiKeyCtx.orgId,
+							active,
+							reason: reason ?? null,
+							activatedBy: org.ownerId,
+							deactivatedAt: active ? null : new Date(),
+						}),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+			}
+
+			return { scope: 'org' as const, scopeId: apiKeyCtx.orgId, active }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	writeAuditLog({
+		userId: 0,
+		orgId: apiKeyCtx.orgId,
+		eventType: active ? 'killswitch.activated' : 'killswitch.deactivated',
+		details: { scope: 'org', scopeId: apiKeyCtx.orgId, reason: reason ?? null },
+	})
+
+	return c.json({ success: true, killswitch: result.right })
+})
+
+// GET /v1/agent/killswitch - List active kill switches visible to the caller
+agentRoutes.get('/killswitch', async (c) => {
+	const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+	if (!apiKeyCtx) {
+		return agentError(c, 401, 'UNAUTHORIZED', 'Org API key required for kill-switch visibility')
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							scope: policyKillSwitches.scope,
+							scopeId: policyKillSwitches.scopeId,
+							active: policyKillSwitches.active,
+							reason: policyKillSwitches.reason,
+							activatedAt: policyKillSwitches.activatedAt,
+							deactivatedAt: policyKillSwitches.deactivatedAt,
+						})
+						.from(policyKillSwitches)
+						.where(
+							and(
+								eq(policyKillSwitches.active, true),
+								or(
+									eq(policyKillSwitches.scope, 'global'),
+									and(eq(policyKillSwitches.scope, 'org'), eq(policyKillSwitches.scopeId, apiKeyCtx.orgId)),
+								),
+							),
+						)
+						.orderBy(desc(policyKillSwitches.activatedAt)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+
+	return c.json({ success: true, killswitches: result.right })
 })
 
 // ===========================================

@@ -1377,6 +1377,27 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Agent control-plane approvals: DM the owning Telegram user an
+    # Approve/Deny prompt for pending api-ts approval_requests rows. Defaults
+    # off so this is a no-op until intentionally enabled; the notifier and
+    # handlers are defensive either way (tolerate the table not existing).
+    agent_approvals_enabled: bool = Field(
+        default=False,
+        description="Enable the agent-approval Telegram notifier + /approvals command",
+    )
+
+    # Mirrors api-ts's APPROVAL_STEP_UP_REQUIRED (api-ts/src/config/EnvService.ts).
+    # When true, the web POST /approvals/:id/approve demands a server-issued
+    # step-up nonce before honoring an approve decision. The Telegram inline
+    # Approve button must enforce an equivalent re-confirmation (a first tap
+    # only re-prompts with a fresh confirm callback; a second tap within a
+    # short TTL actually decides) so turning this flag on is a real guarantee
+    # across both surfaces, not just the web one. Deny never needs step-up.
+    approval_step_up_required: bool = Field(
+        default=False,
+        description="Require re-confirmation before Telegram/web approve decisions are honored",
+    )
+
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )

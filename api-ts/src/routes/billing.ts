@@ -61,15 +61,15 @@ const FEE_RATES: Record<string, number> = {
 	enterprise: 0.1,
 }
 
-// GET /billing/stripe/checkout?tier=pro[&format=json]
+// GET /billing/stripe/checkout?tier=pro|premium|enterprise[&format=json]
 // Creates a Stripe checkout session. By default redirects to it (direct-link
 // flow); with ?format=json (or Accept: application/json) returns { url } so the
 // Telegram Mini App can open it via WebApp.openLink (a redirect can't be
 // followed cross-origin from a fetch).
 billingRoutes.get('/stripe/checkout', ipRateLimit(5), flexAuth(), async (c) => {
-	const tier = c.req.query('tier') as 'pro' | 'premium'
-	if (!['pro', 'premium'].includes(tier)) {
-		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
+	const tier = c.req.query('tier') as 'pro' | 'premium' | 'enterprise'
+	if (!['pro', 'premium', 'enterprise'].includes(tier)) {
+		return c.json({ error: 'Invalid tier. Must be pro, premium, or enterprise.' }, 400)
 	}
 
 	const wantsJson =
@@ -114,7 +114,7 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), flexAuth(), async (c) => {
 	return c.redirect(result.right.url)
 })
 
-// GET /billing/checkout-web?tier=pro|premium[&format=json]
+// GET /billing/checkout-web?tier=pro|premium|enterprise[&format=json]
 // Public (no telegram/webapp auth) checkout entry point for anonymous
 // showcase visitors — used by the pricing page CTA. Stripe collects the
 // email on its hosted page; we never see the visitor's identity up front.
@@ -141,9 +141,9 @@ billingRoutes.get('/stripe/checkout-web', ipRateLimit(10), async (c) => {
 		)
 	}
 
-	const tier = c.req.query('tier') as 'pro' | 'premium'
-	if (!['pro', 'premium'].includes(tier)) {
-		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
+	const tier = c.req.query('tier') as 'pro' | 'premium' | 'enterprise'
+	if (!['pro', 'premium', 'enterprise'].includes(tier)) {
+		return c.json({ error: 'Invalid tier. Must be pro, premium, or enterprise.' }, 400)
 	}
 
 	const wantsJson =
@@ -353,7 +353,7 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				// in db/schema/webCheckouts.ts.
 				if (source === 'web' && tier) {
 					const email = session.customer_email ?? session.customer_details?.email ?? null
-					const tierValue = tier as 'pro' | 'premium'
+					const tierValue = tier as 'pro' | 'premium' | 'enterprise'
 
 					// Check first so we can log loudly if the pre-checkout insert
 					// (in GET /stripe/checkout-web) never landed — that's the
@@ -705,24 +705,16 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 
 // GET /billing/status - current subscription tier and fee rate
 billingRoutes.get('/status', flexAuth(), async (c) => {
-	const telegramUser = c.get('telegramUser')
-
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const db = yield* requireDb
-			const userService = yield* UserService
 
-			// Resolve the real DB user ID
-			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
-			if (Option.isNone(userOption)) {
-				return {
-					tier: 'free' as string,
-					fee_rate_percent: FEE_RATES.free,
-					expires_at: null as Date | null,
-					active: true,
-				}
-			}
-			const dbUserId = userOption.value.id
+			// resolveCallerUserId, NOT a direct telegramUser dereference. This
+			// route resolved the user INLINE rather than through the shared
+			// helper, so switching it to flexAuth left it reading
+			// `telegramUser.id` on a caller that has no Telegram identity —
+			// a 500 on the one endpoint the dashboard needs to render a plan.
+			const dbUserId = yield* resolveCallerUserId(c)
 
 			const [sub] = yield* Effect.tryPromise({
 				try: () =>
