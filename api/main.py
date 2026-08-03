@@ -59,6 +59,7 @@ from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
 from bot.services.approval_notifier import approval_notifier
+from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
@@ -324,6 +325,12 @@ async def lifespan(app: FastAPI):
         # AGENT_APPROVALS_ENABLED, no-op otherwise).
         await approval_notifier.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Durable retry + dead-letter for approval-decision webhooks enqueued
+        # by approval_webhook.notify_approval_decided. Same feature flag as
+        # approval_notifier since it's part of the same agent control-plane
+        # feature.
+        await webhook_dispatcher.start()
+        await asyncio.sleep(2)
         # Post-trade execution scoring (execution intelligence, phase 2).
         # Marks out completed swaps at fixed horizons so realized-vs-quoted
         # (ours) can be separated from markout (the market's).
@@ -465,6 +472,7 @@ async def lifespan(app: FastAPI):
         await health_monitor.stop()
         await balance_refresher.stop()
         await approval_notifier.stop()
+        await webhook_dispatcher.stop()
         await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()

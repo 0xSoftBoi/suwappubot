@@ -23,6 +23,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from bot.services.approval_webhook import notify_approval_decided
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,13 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
     if decided_now:
         outcome = "✅ Approved" if new_status == "approved" else "❌ Denied"
         await query.edit_message_text(f"{outcome} — agent `{label}`.", parse_mode="Markdown")
+        # Fire the agent's decision webhook (durable — enqueued first inside
+        # notify_approval_decided so the decision is never lost even if the
+        # inline POST attempt fails). Never blocks/crashes this handler.
+        try:
+            await notify_approval_decided(approval_id, new_status, None)
+        except Exception as e:  # noqa: BLE001 — webhook delivery must never break the decide flow
+            logger.warning("approval webhook dispatch failed for %s: %s", approval_id, e)
     elif status in ("approved", "denied"):
         await query.edit_message_text(
             f"Already {status} (by user #{existing_decided_by or 'someone'}) — agent `{label}`.",

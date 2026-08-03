@@ -690,6 +690,7 @@ def _ensure_schema(db_engine) -> None:
 
     # --- Agent control-plane approval notification bookkeeping ---
     _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
+    _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -3545,3 +3546,57 @@ def _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite: bool)
         logger.info(f"Added approval_requests notify columns: {additions}")
     except Exception as e:
         logger.warning(f"Failed to add approval_requests notify columns: {e}")
+
+
+def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_webhook_deliveries idempotently (durable approval-decision webhooks).
+
+    Python-owned table — ``approval_requests`` (id: uuid, agent_id: varchar(64))
+    is owned by api-ts (``api-ts/src/db/schema/approvals.ts``); this table only
+    references it by id/agent_id string values, it never creates or alters
+    that table. ``id`` is a text/uuid primary key assigned by this bot on
+    enqueue (not autoincrement) so a delivery row can be created without a
+    round-trip to read back an identity value. Includes ``claimed_at`` from
+    the start (unlike the upstream port, which added it in a follow-up
+    migration) so ``WebhookDispatcher`` can reclaim rows stranded in
+    ``status='sending'`` by a crash mid-POST.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_webhook_deliveries" in tables:
+        return
+
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
+                        id VARCHAR(36) PRIMARY KEY,
+                        approval_id VARCHAR(36) NOT NULL,
+                        agent_id TEXT,
+                        url VARCHAR(1024) NOT NULL,
+                        payload_json {json_type} NOT NULL,
+                        signature_ts VARCHAR(32),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        claimed_at {ts_type},
+                        next_attempt_at {ts_type},
+                        last_error TEXT,
+                        created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        delivered_at {ts_type}
+                    )
+                    """))
+            for idx, cols in (
+                ("ix_agent_webhook_deliveries_status_next", "status, next_attempt_at"),
+                ("ix_agent_webhook_deliveries_approval_id", "approval_id"),
+            ):
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_webhook_deliveries ({cols})")
+                )
+        logger.info("Created agent_webhook_deliveries table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_webhook_deliveries table: {e}")

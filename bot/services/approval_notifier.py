@@ -30,6 +30,7 @@ from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
 
 from bot.config.settings import settings
+from bot.services.approval_webhook import notify_approval_decided
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -166,10 +167,16 @@ class ApprovalNotifier:
             logger.error("Failed to expire stale approval_requests: %s", e)
             return
 
-        if self._bot is None:
-            return
         for row_id, chat_id, message_id in rows:
-            if not (chat_id and message_id):
+            # Fire the agent's decision webhook regardless of whether we have
+            # a Telegram message to edit — the agent side doesn't care about
+            # the human's DM state, only the terminal decision.
+            try:
+                await notify_approval_decided(row_id, "expired", None)
+            except Exception as e:  # noqa: BLE001 — webhook delivery must never break the sweep
+                logger.warning("approval webhook dispatch failed for %s: %s", row_id, e)
+
+            if self._bot is None or not (chat_id and message_id):
                 continue
             try:
                 await self._bot.edit_message_text(
