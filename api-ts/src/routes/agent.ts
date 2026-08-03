@@ -1274,22 +1274,37 @@ export async function enforcePolicyGateForFreshQuote(
 				// leave userId null; ApprovalService.create() falls back to the
 				// agent's own linked owner (agents.owner_user_id) so the request is
 				// still approvable by a real human.
-				const orgOwnerRows = orgId
-					? yield* Effect.tryPromise({
-							try: () =>
-								db
-									.select({ ownerId: organizations.ownerId })
-									.from(organizations)
-									.where(eq(organizations.id, orgId))
-									.limit(1),
-							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-						})
-					: []
+				let orgOwnerId: number | null = null
+				if (orgId) {
+					const orgOwnerRows = yield* Effect.tryPromise({
+						try: () =>
+							db
+								.select({ ownerId: organizations.ownerId })
+								.from(organizations)
+								.where(eq(organizations.id, orgId))
+								.limit(1),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+					if (orgOwnerRows.length === 0) {
+						// Org context is set but the owner lookup found no row —
+						// fail closed rather than falling through to
+						// ApprovalService.create()'s org-less fallback, which would
+						// let this org-scoped approval resolve to the agent's own
+						// personally-linked human (who may have no relationship to
+						// this org at all).
+						return yield* Effect.fail(
+							new ValidationError({
+								message: 'Unable to resolve an approver for this organization',
+							}),
+						)
+					}
+					orgOwnerId = orgOwnerRows[0]?.ownerId ?? null
+				}
 				const approvals = yield* ApprovalService
 				return yield* approvals.create({
 					agentId: agentIdentifier,
 					organizationId: orgId,
-					userId: orgOwnerRows[0]?.ownerId ?? null,
+					userId: orgOwnerId,
 					actionType: 'swap_execute',
 					payload: economicTerms,
 					policyDecisionId: policyDecisionId ?? null,
@@ -4572,6 +4587,22 @@ agentRoutes.get('/audit/verify', async (c) => {
 	const { orgId, agentId } = resolveAuditScope(c)
 	if (!orgId && !agentId) {
 		return agentError(c, 401, 'UNAUTHORIZED', 'Authentication required')
+	}
+	if (!orgId) {
+		// Org-less callers (plain agent-token/MCP auth) share ONE global
+		// hash-chain across every org-less agent — verifyAuditChain(null, ...)
+		// would walk and return counts/firstBreakId derived from OTHER agents'
+		// rows (cross-tenant metadata leak), and a caller could force scanning
+		// up to 5000 rows that aren't theirs. Chain verification is inherently
+		// a whole-chain operation (each row's integrity depends on its
+		// neighbor), so there's no correct way to scope it to just this
+		// agent's own rows. Refuse rather than leak or fake a per-agent result.
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'Chain verification requires org context — register this agent under an organization to use /audit/verify.',
+		)
 	}
 
 	const limitParam = parseInt(c.req.query('limit') ?? '1000', 10)

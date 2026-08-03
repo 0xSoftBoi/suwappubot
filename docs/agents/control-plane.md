@@ -253,6 +253,17 @@ authentication factor. Gated entirely off by default
 (`APPROVAL_STEP_UP_REQUIRED` env, default `'false'`). Treat it as
 brute-force/replay hardening on the approve click, not as MFA.
 
+**Telegram mirrors the same flag** via `settings.approval_step_up_required`
+(`bot/config/settings.py`, env `APPROVAL_STEP_UP_REQUIRED`) — when on, the
+inline `✅ Approve` button is a two-tap flow: the first tap issues a fresh
+single-use ~2-minute challenge (stored in the same shared
+`approval_step_up_challenges` table as the web flow) and re-prompts with a
+`✅ Confirm approve` / `❌ Cancel` keyboard bound to that challenge; only the
+second tap consumes the challenge and performs the decision. `❌ Deny` is
+always one-tap on both surfaces. Without this mirror, turning the flag on
+would give a false sense that every approval had been re-confirmed, when in
+fact the Telegram path could still decide on a single bare tap.
+
 ## 5. Agent ↔ owner linking
 
 ```
@@ -274,6 +285,27 @@ refused —
 Without this, a leaked bearer token could re-link an already-owned agent to
 an attacker's Telegram account, who could then approve that agent's own
 future spend as its "owner." The current owner must `/unlink` first.
+
+> **⚠️ Provisioning requirement — bootstrap-window self-approval.** The 409
+> guard above only protects an agent that is **already linked**
+> (`ownerUserId != null`). For a **fresh, org-less agent that has never been
+> claimed yet**, whoever holds that agent's API key can call
+> `POST /v1/agent/link/code` themselves, `/claim` the resulting code into
+> their *own* Telegram account, and become that agent's approver — i.e. the
+> same party that controls the agent's spending also controls the human
+> maker-checker gate on it, which defeats the point of requiring human
+> approval. This is not a bug in the 409 check; it is an inherent gap in the
+> unclaimed state, so **link every agent to its intended human owner at
+> provisioning time, before granting it any policy that relies on human
+> approval** (i.e. before enabling `require_approval` thresholds for that
+> agent). Do not treat "the agent has a `callback_url`/API key" as evidence
+> that a trustworthy human is on the other end of its approvals until
+> `/claim` has actually been run by that human.
+>
+> The **org-scoped** approval path is unaffected by this gap: an org's
+> approver is resolved from the organization's owner/admin membership
+> independently of who holds the agent's API key, so an agent operator
+> cannot self-appoint as approver for an org-owned agent the same way.
 
 ```
 /claim <code>     (Telegram, bot/handlers/claim_agent.py)
@@ -309,6 +341,7 @@ Fired by `bot/services/approval_webhook.py::notify_approval_decided` when an
 {
   "event": "approval.decided",
   "approval_id": "6f2b1c3a-...",
+  "delivery_id": "9d1e7a44-...",
   "status": "approved",
   "decided_at": "2026-08-02T12:41:02.000000+00:00",
   "payload_hash": "…sha256 hex of the approval's core economic terms…"
@@ -319,6 +352,19 @@ Fired by `bot/services/approval_webhook.py::notify_approval_decided` when an
 `approval_requests.payload_hash` (the same `hashCoreTerms()` value used at
 resubmit-time validation) — a receiver can confirm the decision refers to
 the exact trade shape it expects.
+
+**Delivery is at-least-once, not exactly-once — receivers must dedupe on
+`delivery_id`.** `delivery_id` is generated once per decision (in
+`notify_approval_decided`, before signing) and folded into the *signed* body,
+so every delivery attempt for the same decision — the inline best-effort
+POST and every `webhook_dispatcher` retry off `agent_webhook_deliveries` —
+carries the identical `delivery_id`. A receiver can therefore see the same
+decision more than once (e.g. the inline POST succeeds but the
+enqueue/mark-delivered bookkeeping fails and the row gets retried) and
+should treat a repeated `delivery_id` as a no-op rather than reprocessing.
+`approval_id` + `status` is **not** a safe dedupe key on its own — it is
+identical across every retry of the same decision and cannot distinguish
+"redelivered" from "a second distinct event."
 
 **Headers:**
 

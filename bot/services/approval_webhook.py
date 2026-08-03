@@ -210,6 +210,7 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash=Non
                     "SELECT a.callback_url, a.api_key_hash, ap.agent_id, ap.payload_hash "
                     "FROM approval_requests ap "
                     "JOIN agents a ON CAST(a.uuid AS TEXT) = ap.agent_id "
+                    "OR CAST(a.id AS TEXT) = ap.agent_id "
                     "WHERE ap.id = :approval_id"
                 ),
                 {"approval_id": approval_id},
@@ -224,6 +225,17 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash=Non
         return
 
     if not row:
+        # approval_requests.agent_id may hold either agents.uuid (normal
+        # path) or a stringified numeric agents.id (pre-uuid/legacy rows) --
+        # the OR leg above already covers both. If neither matches, the
+        # agent record itself is genuinely unresolvable, so this decision
+        # silently never gets a webhook -- log it so that's visible instead
+        # of a quiet no-op.
+        logger.warning(
+            "approval webhook for %s found no matching agent (join failed on both uuid and "
+            "id legs) -- no webhook will be sent",
+            approval_id,
+        )
         return
     callback_url, api_key_hash, agent_id, payload_hash = row
     if not callback_url or not api_key_hash:
@@ -237,9 +249,19 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash=Non
         )
         return
 
+    # Generated BEFORE signing and folded into the signed body as
+    # "delivery_id" so it's the same value on every delivery attempt for
+    # this decision -- the inline attempt here and every dispatcher retry
+    # re-send the SAME stored payload_json (see webhook_dispatcher._attempt_one),
+    # so a receiver can dedupe at-least-once redelivery (e.g. inline POST
+    # succeeds but the enqueue/mark bookkeeping fails and gets retried) on
+    # this id rather than on approval_id+status, which is identical across
+    # every retry of the same decision and can't distinguish them.
+    delivery_id = str(uuid.uuid4())
     body_dict = {
         "event": "approval.decided",
         "approval_id": approval_id,
+        "delivery_id": delivery_id,
         "status": status,
         "decided_at": _now_iso(),
         # The hash of the economic terms the human actually approved, so a
@@ -254,14 +276,15 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash=Non
         logger.warning("approval webhook for %s has invalid api_key_hash: %s", approval_id, e)
         return
 
-    delivery_id = enqueue_delivery(
+    enqueued_id = enqueue_delivery(
         approval_id=approval_id,
         agent_id=agent_id,
         url=callback_url,
         payload_json=body_dict,
         signature_ts=timestamp,
+        delivery_id=delivery_id,
     )
-    if delivery_id is None:
+    if enqueued_id is None:
         # Enqueue itself failed (e.g. table missing on a partial deploy) --
         # nothing further we can durably retry, so fall back to the old
         # single-shot behavior rather than silently dropping the decision.
@@ -269,7 +292,7 @@ async def notify_approval_decided(approval_id: str, status: str, intent_hash=Non
         return
 
     delivered = await _post_once(callback_url, raw_body, headers, approval_id)
-    _mark_delivery_result(delivery_id, delivered)
+    _mark_delivery_result(enqueued_id, delivered)
 
 
 async def _post_once(callback_url: str, raw_body: bytes, headers: dict, approval_id: str) -> bool:
@@ -298,15 +321,25 @@ async def _post_once(callback_url: str, raw_body: bytes, headers: dict, approval
 
 
 def enqueue_delivery(
-    *, approval_id: str, agent_id, url: str, payload_json: dict, signature_ts: str
+    *,
+    approval_id: str,
+    agent_id,
+    url: str,
+    payload_json: dict,
+    signature_ts: str,
+    delivery_id: str | None = None,
 ) -> str | None:
     """Insert a pending ``agent_webhook_deliveries`` row. Returns the new id, or None on failure.
 
     Called both from the immediate-attempt path above and can be called
     standalone by any other decision path (e.g. future channels) that wants
-    durable delivery without an inline POST attempt.
+    durable delivery without an inline POST attempt. ``delivery_id`` should be
+    passed explicitly (and already folded into ``payload_json["delivery_id"]``
+    by the caller) whenever the same id needs to be signed into the body as a
+    receiver-facing dedupe key -- see ``notify_approval_decided``. Falls back
+    to generating one only for callers that don't care about that.
     """
-    delivery_id = str(uuid.uuid4())
+    delivery_id = delivery_id or str(uuid.uuid4())
     try:
         with get_session() as session:
             is_sqlite = session.get_bind().dialect.name == "sqlite"

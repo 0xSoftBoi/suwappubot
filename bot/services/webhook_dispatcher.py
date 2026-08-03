@@ -262,11 +262,26 @@ class WebhookDispatcher:
 
             with get_session() as session:
                 row = session.execute(
-                    text("SELECT api_key_hash FROM agents WHERE CAST(uuid AS TEXT) = :agent_id"),
+                    text(
+                        "SELECT api_key_hash FROM agents "
+                        "WHERE CAST(uuid AS TEXT) = :agent_id OR CAST(id AS TEXT) = :agent_id"
+                    ),
                     {"agent_id": agent_id},
                 ).fetchone()
             api_key_hash = row[0] if row else None
             if not api_key_hash:
+                # agent_id may be a stringified numeric agents.id (pre-uuid
+                # rows) or a uuid -- the OR above covers both. Neither
+                # matching means the agent record is genuinely gone, so this
+                # delivery can never be re-signed; log so a silent drop is
+                # visible instead of just another generic backoff/dead-letter.
+                logger.warning(
+                    "webhook delivery %s (approval %s) found no agent for agent_id=%s on "
+                    "re-sign -- will back off/dead-letter",
+                    delivery_id,
+                    approval_id,
+                    agent_id,
+                )
                 raise ValueError("agent api_key_hash not found for re-signing")
             # Re-sign per attempt: signatures are timestamp-bound, so a stale
             # signature from an earlier attempt would be rejected by the

@@ -1,4 +1,4 @@
-import { index, integer, pgTable, serial, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, serial, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
 import { approvalRequests } from './approvals'
 import { users } from './users'
 
@@ -35,6 +35,12 @@ export const approvalStepUpChallenges = pgTable(
 	},
 	(table) => ({
 		approvalIdIdx: index('ix_approval_step_up_challenges_approval_id').on(table.approvalId),
+		// Challenge values are server-generated random nonces meant to be
+		// single-use; a non-unique column left room for a duplicate-generation
+		// collision (or a bug) to let one challenge value satisfy two rows.
+		challengeUniqueIdx: uniqueIndex('ux_approval_step_up_challenges_challenge').on(
+			table.challenge,
+		),
 	}),
 )
 

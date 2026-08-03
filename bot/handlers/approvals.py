@@ -16,17 +16,28 @@ not existing yet.
 """
 
 import logging
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from bot.config.settings import settings
 from bot.services.approval_webhook import notify_approval_decided
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+# Short-TTL window for the second ("confirm") tap of the step-up approve
+# flow. Mirrors the intent of api-ts's approval_step_up_challenges (see
+# api-ts/src/db/schema/approvalStepUpChallenges.ts) — this is not
+# WebAuthn/passkey proof, just evidence that the same human round-tripped a
+# freshly server-issued value shortly before the decision was made, as a
+# defense against a stale/forwarded callback deciding without the human
+# actually seeing the re-confirm prompt.
+STEP_UP_CONFIRM_TTL_MINUTES = 2
 
 
 def _table_missing(e: Exception) -> bool:
@@ -57,73 +68,222 @@ def _resolve_user_id(session, telegram_id: int):
     return row[0] if row else None
 
 
+def _issue_step_up_challenge(session, *, user_id: int, approval_id: str) -> str:
+    """Insert a fresh single-use step-up row and return its challenge token.
+
+    Shares the ``approval_step_up_challenges`` table with api-ts's web
+    step-up flow (schema: ``api-ts/src/db/schema/approvalStepUpChallenges.ts``)
+    so both surfaces' re-confirmation nonces live in one place. Token is kept
+    short (hex) because Telegram callback_data is capped at 64 bytes and the
+    approval_id (a uuid) plus prefix already consumes most of that budget.
+    """
+    token = secrets.token_hex(8)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=STEP_UP_CONFIRM_TTL_MINUTES)
+    session.execute(
+        text(
+            "INSERT INTO approval_step_up_challenges "
+            "(user_id, approval_id, challenge, expires_at) "
+            "VALUES (:user_id, :approval_id, :challenge, :expires_at)"
+        ),
+        {
+            "user_id": user_id,
+            "approval_id": approval_id,
+            "challenge": token,
+            "expires_at": expires_at,
+        },
+    )
+    session.commit()
+    return token
+
+
+def _consume_step_up_challenge(session, *, user_id: int, approval_id: str, token: str) -> bool:
+    """Atomically mark a still-valid, unused challenge as used. Returns whether it matched."""
+    result = session.execute(
+        text(
+            "UPDATE approval_step_up_challenges SET used_at = CURRENT_TIMESTAMP "
+            "WHERE approval_id = :approval_id AND user_id = :user_id AND challenge = :challenge "
+            "AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP"
+        ),
+        {"approval_id": approval_id, "user_id": user_id, "challenge": token},
+    )
+    session.commit()
+    return (result.rowcount or 0) > 0
+
+
+def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_status: str):
+    """Atomic guarded UPDATE + re-read, shared by the one-tap and step-up-confirm paths.
+
+    Only flips a row that is STILL pending, not yet past its own expiry, AND
+    owned by the tapping user (resolved to users.id), so a double-tap, a
+    race with the expiry sweep, a lapsed-but-unswept row, or a forwarded
+    callback payload can never decide it more than once, past expiry, or for
+    someone else.
+    """
+    result = session.execute(
+        text(
+            "UPDATE approval_requests "
+            "SET status = :new_status, decided_by = :decided_by, "
+            "decided_at = CURRENT_TIMESTAMP "
+            "WHERE id = :id AND status = 'pending' AND user_id = :caller_user_id "
+            "AND expires_at > CURRENT_TIMESTAMP"
+        ),
+        {
+            "new_status": new_status,
+            "decided_by": caller_user_id,
+            "id": approval_id,
+            "caller_user_id": caller_user_id,
+        },
+    )
+    decided_now = (result.rowcount or 0) > 0
+    session.commit()
+
+    row = session.execute(
+        text(
+            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id "
+            "FROM approval_requests ar "
+            "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
+            "WHERE ar.id = :id"
+        ),
+        {"id": approval_id},
+    ).fetchone()
+    return decided_now, row
+
+
 async def approval_decision_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle apprv:<id>:yes / apprv:<id>:no callback taps."""
+    """Handle apprv:<id>:yes / apprv:<id>:no / apprvc:<id>:<token> callback taps.
+
+    When ``settings.approval_step_up_required`` is on, an "approve" tap
+    (``apprv:<id>:yes``) is a two-tap flow: the first tap issues a fresh
+    short-TTL confirm challenge and re-prompts rather than deciding anything;
+    only the second tap (``apprvc:<id>:<token>``) — consuming that
+    single-use challenge — actually performs the guarded UPDATE. Deny
+    (``apprv:<id>:no``) is always one-tap regardless of the flag.
+    """
     query = update.callback_query
     if not query or not query.data:
         return
     await query.answer()
 
-    try:
-        _, approval_id, decision = query.data.split(":", 2)
-    except ValueError:
+    parts = query.data.split(":", 2)
+    if len(parts) != 3:
         return
+    prefix, approval_id, decision_or_token = parts
 
-    new_status = "approved" if decision == "yes" else "denied"
     user = update.effective_user
     if user is None:
         await query.edit_message_text("Couldn't identify who tapped this button. Try again.")
         return
 
-    try:
-        with get_session() as session:
-            caller_user_id = _resolve_user_id(session, user.id)
-            if caller_user_id is None:
-                # No linked Suwappu account for this Telegram user — can never
-                # own an approval_requests row (user_id is a real FK), so no
-                # guarded UPDATE can possibly match. Don't leak row existence.
-                await query.edit_message_text("This approval belongs to another user.")
-                return
-
-            # Atomic guarded UPDATE: only flips a row that is STILL pending
-            # AND owned by the tapping user (resolved to users.id), so a
-            # double-tap, a race with the expiry sweep, or a forwarded
-            # callback payload can never decide it more than once or for
-            # someone else.
-            result = session.execute(
-                text(
-                    "UPDATE approval_requests "
-                    "SET status = :new_status, decided_by = :decided_by, "
-                    "decided_at = CURRENT_TIMESTAMP "
-                    "WHERE id = :id AND status = 'pending' AND user_id = :caller_user_id"
-                ),
-                {
-                    "new_status": new_status,
-                    "decided_by": caller_user_id,
-                    "id": approval_id,
-                    "caller_user_id": caller_user_id,
-                },
-            )
-            decided_now = (result.rowcount or 0) > 0
-            session.commit()
-
-            # Re-read the row's current status (whatever decided it) for the reply.
-            row = session.execute(
-                text(
-                    "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id "
-                    "FROM approval_requests ar "
-                    "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
-                    "WHERE ar.id = :id"
-                ),
-                {"id": approval_id},
-            ).fetchone()
-    except SQLAlchemyError as e:
-        if _table_missing(e):
-            await query.edit_message_text("This approval system isn't set up yet.")
-            return
-        logger.error("Failed to decide approval %s: %s", approval_id, e)
-        await query.edit_message_text("Something went wrong recording your decision. Try again.")
+    if prefix == "apprvx":
+        # Cancel the step-up re-confirm prompt without deciding anything —
+        # the underlying approval_requests row is untouched and still
+        # pending, so the human can tap Approve again later (a fresh
+        # /approvals reminder or the original message state, if still
+        # editable, will still work).
+        await query.edit_message_text(
+            "Cancelled — this request is still pending. Use /approvals to act on it."
+        )
         return
+
+    if prefix == "apprvc":
+        # Second tap of the step-up flow: decision_or_token is the challenge.
+        try:
+            with get_session() as session:
+                caller_user_id = _resolve_user_id(session, user.id)
+                if caller_user_id is None:
+                    await query.edit_message_text("This approval belongs to another user.")
+                    return
+                challenge_ok = _consume_step_up_challenge(
+                    session,
+                    user_id=caller_user_id,
+                    approval_id=approval_id,
+                    token=decision_or_token,
+                )
+                if not challenge_ok:
+                    await query.edit_message_text(
+                        "This confirmation expired or was already used. Tap Approve again to retry."
+                    )
+                    return
+                decided_now, row = _decide_approval(
+                    session,
+                    approval_id=approval_id,
+                    caller_user_id=caller_user_id,
+                    new_status="approved",
+                )
+        except SQLAlchemyError as e:
+            if _table_missing(e):
+                await query.edit_message_text("This approval system isn't set up yet.")
+                return
+            logger.error("Failed to confirm step-up approval %s: %s", approval_id, e)
+            await query.edit_message_text(
+                "Something went wrong recording your decision. Try again."
+            )
+            return
+        new_status = "approved"
+    else:
+        decision = decision_or_token
+        new_status = "approved" if decision == "yes" else "denied"
+
+        try:
+            with get_session() as session:
+                caller_user_id = _resolve_user_id(session, user.id)
+                if caller_user_id is None:
+                    # No linked Suwappu account for this Telegram user — can never
+                    # own an approval_requests row (user_id is a real FK), so no
+                    # guarded UPDATE can possibly match. Don't leak row existence.
+                    await query.edit_message_text("This approval belongs to another user.")
+                    return
+
+                if new_status == "approved" and settings.approval_step_up_required:
+                    # First tap of the step-up flow: issue a fresh challenge
+                    # and re-prompt instead of deciding anything yet.
+                    try:
+                        token = _issue_step_up_challenge(
+                            session, user_id=caller_user_id, approval_id=approval_id
+                        )
+                    except SQLAlchemyError as e:
+                        if _table_missing(e):
+                            await query.edit_message_text(
+                                "Step-up confirmation isn't set up yet — ask an admin to enable "
+                                "approval_step_up_challenges before approving."
+                            )
+                            return
+                        raise
+                    keyboard = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "✅ Confirm approve",
+                                    callback_data=f"apprvc:{approval_id}:{token}",
+                                ),
+                                InlineKeyboardButton(
+                                    "❌ Cancel", callback_data=f"apprvx:{approval_id}:_"
+                                ),
+                            ]
+                        ]
+                    )
+                    await query.edit_message_text(
+                        "Please confirm you want to approve this agent action "
+                        f"(expires in {STEP_UP_CONFIRM_TTL_MINUTES}m).",
+                        reply_markup=keyboard,
+                    )
+                    return
+
+                decided_now, row = _decide_approval(
+                    session,
+                    approval_id=approval_id,
+                    caller_user_id=caller_user_id,
+                    new_status=new_status,
+                )
+        except SQLAlchemyError as e:
+            if _table_missing(e):
+                await query.edit_message_text("This approval system isn't set up yet.")
+                return
+            logger.error("Failed to decide approval %s: %s", approval_id, e)
+            await query.edit_message_text(
+                "Something went wrong recording your decision. Try again."
+            )
+            return
 
     if not row:
         await query.edit_message_text("This approval request no longer exists.")
@@ -216,5 +376,5 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
-approval_decision_handler = CallbackQueryHandler(approval_decision_callback, pattern=r"^apprv:")
+approval_decision_handler = CallbackQueryHandler(approval_decision_callback, pattern=r"^apprv")
 approvals_command_handler = CommandHandler("approvals", approvals_command)

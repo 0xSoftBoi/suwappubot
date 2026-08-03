@@ -168,7 +168,14 @@ function evalStateless(
 	if (p.allowedContracts && p.allowedContracts.length > 0) {
 		const allowedContracts = p.allowedContracts.map((c) => c.toLowerCase())
 		const contract = lc(intent.contractAddress)
-		if (contract && !allowedContracts.includes(contract)) {
+		if (!contract) {
+			// Fail CLOSED: an allowlist is configured but this intent carries no
+			// resolvable contract address (e.g. transactionRequest.to missing) —
+			// we cannot verify it against the allowlist, so block rather than
+			// silently letting it through.
+			return { block: 'contract address unknown — cannot verify allowlist' }
+		}
+		if (!allowedContracts.includes(contract)) {
 			return { block: `contract ${contract} is not in the allowlist` }
 		}
 	}

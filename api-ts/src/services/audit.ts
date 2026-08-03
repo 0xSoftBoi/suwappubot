@@ -130,6 +130,7 @@ export const auditLog = (event: AuditEvent) =>
 						createdAt: now,
 						prevHash,
 						entryHash,
+						tsRaw: ts,
 					})
 				}),
 			catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -170,6 +171,7 @@ export const verifyAuditChain = (orgId: string | null, limit: number) =>
 						createdAt: auditLogs.createdAt,
 						prevHash: auditLogs.prevHash,
 						entryHash: auditLogs.entryHash,
+						tsRaw: auditLogs.tsRaw,
 					})
 					.from(auditLogs)
 					.where(orgId ? eq(auditLogs.orgId, orgId) : isNull(auditLogs.orgId))
@@ -182,8 +184,16 @@ export const verifyAuditChain = (orgId: string | null, limit: number) =>
 		let firstBreakId: number | undefined
 		// Rows are newest-first; walk oldest->newest logically by iterating in
 		// reverse so each row's expected prevHash is the previous row's entryHash.
-		let expectedPrevHash: string | null = null
+		//
+		// The query above is windowed (LIMIT `limit`, newest-first), so when the
+		// chain is longer than the window, the oldest row IN the window has a
+		// non-null prevHash that points to a row OUTSIDE the window — we never
+		// fetched it, so we can't (and shouldn't try to) verify that link. Seed
+		// the expectation from the window's own boundary row rather than `null`,
+		// so verification only asserts chain integrity WITHIN the fetched window.
+		// A genuine tamper elsewhere in the window is still caught below.
 		const oldestFirst = [...rows].reverse()
+		let expectedPrevHash: string | null = oldestFirst[0]?.prevHash ?? null
 		for (const row of oldestFirst) {
 			// Rows written before this migration have null hashes — skip them
 			// (chain starts fresh at the first hashed row) rather than flagging a
@@ -203,7 +213,14 @@ export const verifyAuditChain = (orgId: string | null, limit: number) =>
 				agentId: row.agentId,
 				eventType: row.eventType,
 				details: row.details,
-				ts: row.createdAt ? new Date(row.createdAt).toISOString() : '',
+				// Prefer the exact string hashed at insert time (tsRaw) over
+				// recomputing from createdAt — the latter is a `timestamp`
+				// WITHOUT time zone column, so round-tripping it through
+				// `new Date(...).toISOString()` is process-TZ-dependent and
+				// would flag every historical row as tampered after a TZ
+				// change. Rows written before this column existed (tsRaw
+				// null) fall back to the old recomputation.
+				ts: row.tsRaw ?? (row.createdAt ? new Date(row.createdAt).toISOString() : ''),
 				prevHash: row.prevHash,
 			})
 			if (recomputed !== row.entryHash) {

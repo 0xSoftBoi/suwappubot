@@ -16,6 +16,12 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from bot.handlers.approvals import (
+    _consume_step_up_challenge,
+    _decide_approval,
+    _issue_step_up_challenge,
+)
+
 OWNER_TG_ID = 555  # matches the seeded users row for the owning user
 OTHER_TG_ID = 999  # a different Telegram user, no approval ownership
 
@@ -51,6 +57,24 @@ def _make_session():
                     notified_at TIMESTAMP,
                     notify_chat_id INTEGER,
                     notify_message_id INTEGER
+                )
+                """))
+        conn.execute(text("""
+                CREATE TABLE agents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid TEXT UNIQUE,
+                    name TEXT
+                )
+                """))
+        conn.execute(text("""
+                CREATE TABLE approval_step_up_challenges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    approval_id TEXT NOT NULL REFERENCES approval_requests(id),
+                    challenge TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    used_at TIMESTAMP
                 )
                 """))
         conn.commit()
@@ -228,3 +252,95 @@ def test_expiry_sweep_flips_pending_past_expiry_to_expired(session):
     # An expired row can no longer be decided by anyone, including the owner.
     rowcount = _decide(session, expired_id, "approved", tapper_telegram_id=OWNER_TG_ID)
     assert rowcount == 0
+
+
+# --- bot/handlers/approvals.py's real _decide_approval / step-up helpers ---
+# (as opposed to the hand-rolled _decide() mirror above, which predates the
+# expires_at guard and the step-up two-tap flow)
+
+
+def test_decide_approval_rejects_lapsed_but_unswept_row(session):
+    """_decide_approval (the actual function used by the Telegram callback)
+    must not flip a row that is still status='pending' in the DB but whose
+    expires_at has already passed and simply hasn't been swept yet -- the
+    guard is `AND expires_at > CURRENT_TIMESTAMP` on the UPDATE itself, not
+    reliant on the sweep having run first."""
+    approval_id = _insert_pending(session, expires_in_min=-1)  # lapsed, still 'pending' in DB
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+
+    decided_now, row = _decide_approval(
+        session, approval_id=approval_id, caller_user_id=owner_user_id, new_status="approved"
+    )
+
+    assert decided_now is False
+    status = row[0]
+    assert status == "pending"  # untouched -- the expiry guard blocked the flip
+
+
+def test_decide_approval_succeeds_for_live_row(session):
+    approval_id = _insert_pending(session, expires_in_min=15)
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+
+    decided_now, row = _decide_approval(
+        session, approval_id=approval_id, caller_user_id=owner_user_id, new_status="approved"
+    )
+
+    assert decided_now is True
+    assert row[0] == "approved"
+
+
+def test_step_up_challenge_is_single_use_and_owner_scoped(session):
+    approval_id = _insert_pending(session)
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+    other_user_id = _resolve_user_id(session, OTHER_TG_ID)
+
+    token = _issue_step_up_challenge(session, user_id=owner_user_id, approval_id=approval_id)
+
+    # Wrong user can't consume someone else's challenge.
+    assert (
+        _consume_step_up_challenge(
+            session, user_id=other_user_id, approval_id=approval_id, token=token
+        )
+        is False
+    )
+    # Wrong token doesn't match.
+    assert (
+        _consume_step_up_challenge(
+            session, user_id=owner_user_id, approval_id=approval_id, token="not-the-token"
+        )
+        is False
+    )
+    # Correct owner + token consumes it exactly once.
+    assert (
+        _consume_step_up_challenge(
+            session, user_id=owner_user_id, approval_id=approval_id, token=token
+        )
+        is True
+    )
+    # A second attempt with the same (now-used) token fails.
+    assert (
+        _consume_step_up_challenge(
+            session, user_id=owner_user_id, approval_id=approval_id, token=token
+        )
+        is False
+    )
+
+
+def test_step_up_challenge_expires(session):
+    approval_id = _insert_pending(session)
+    owner_user_id = _resolve_user_id(session, OWNER_TG_ID)
+
+    token = _issue_step_up_challenge(session, user_id=owner_user_id, approval_id=approval_id)
+    # Force it into the past, simulating the 2-minute TTL having elapsed.
+    session.execute(
+        text("UPDATE approval_step_up_challenges SET expires_at = :past WHERE challenge = :c"),
+        {"past": datetime.now(timezone.utc) - timedelta(seconds=1), "c": token},
+    )
+    session.commit()
+
+    assert (
+        _consume_step_up_challenge(
+            session, user_id=owner_user_id, approval_id=approval_id, token=token
+        )
+        is False
+    )

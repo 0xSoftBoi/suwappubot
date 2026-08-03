@@ -183,7 +183,14 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			// the pre-existing null (unapprovable) behavior rather than
 			// throwing.
 			let resolvedUserId = input.userId ?? null
-			if (resolvedUserId == null) {
+			// Only fall back to the agent's own linked owner for ORG-LESS
+			// requests. An org-scoped request (organizationId set) with no
+			// resolved owner means the org-owner lookup failed to find a row —
+			// that must surface as an unapprovable (null) request rather than
+			// silently handing decision power to whatever human happens to be
+			// personally linked to the agent, who may have no relationship to
+			// the org at all.
+			if (resolvedUserId == null && (input.organizationId ?? null) == null) {
 				const fallbackRows = yield* Effect.tryPromise({
 					try: () =>
 						db
