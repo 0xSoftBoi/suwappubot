@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import productStats from '@/data/stats.generated.json';
 
 /**
  * AgentHandoff: the copy-and-paste-into-your-agent block.
@@ -17,7 +18,12 @@ import { useState } from 'react';
 
 const MCP_URL = 'https://api.suwappu.bot/mcp';
 
-/** Plain text, no code fences, so it survives being pasted into any chat box. */
+/**
+ * Plain text, no code fences, so it survives being pasted into any chat box.
+ * Counts interpolate from stats.generated.json: this text ends up inside other
+ * people's agents, so a hand-typed number that silently rots is worse here than
+ * anywhere else on the site.
+ */
 const BRIEF = `You are setting up Suwappu, a cross-chain trading API built for AI agents.
 Do this for me end to end.
 
@@ -51,7 +57,7 @@ Do this for me end to end.
        "headers": { "Authorization": "Bearer <my key>" } } }
 
 4. WHAT YOU CAN DO ONCE CONNECTED
-   Best-price spot swaps across 41 chains. 18 routing providers are integrated
+   Best-price spot swaps across ${productStats.platformChains} chains. ${productStats.routerCount} routing providers are integrated
    (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole, CCTP and
    more); providers are chain-gated, so each swap races the subset that
    supports its route.
