@@ -144,7 +144,7 @@ describe('POST /v1/webapp/swap/execute — decimal handling + balance check', ()
 		})
 
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.swap_id).toBe(12345)
 		expect(body.tx_hash).toBeDefined()
 		expect(body.status).toBe('pending')
@@ -164,7 +164,7 @@ describe('POST /v1/webapp/swap/execute — decimal handling + balance check', ()
 		})
 
 		expect(res.status).toBe(402)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('balance')
 	})
 
@@ -182,7 +182,7 @@ describe('POST /v1/webapp/swap/execute — decimal handling + balance check', ()
 		})
 
 		expect(res.status).toBe(422)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('Slippage')
 	})
 
@@ -198,7 +198,7 @@ describe('POST /v1/webapp/swap/execute — decimal handling + balance check', ()
 		})
 
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('required')
 	})
 
@@ -216,7 +216,7 @@ describe('POST /v1/webapp/swap/execute — decimal handling + balance check', ()
 		})
 
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('amount')
 	})
 })

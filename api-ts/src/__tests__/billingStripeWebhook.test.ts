@@ -127,7 +127,7 @@ describe('POST /billing/stripe/webhook — MONEY-PATH signature verification', (
 		})
 
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.received).toBe(true)
 	})
 
@@ -181,7 +181,7 @@ describe('POST /billing/stripe/webhook — MONEY-PATH signature verification', (
 
 		// Should still return 200 but log the error and not grant credits
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.received).toBe(true)
 	})
 })

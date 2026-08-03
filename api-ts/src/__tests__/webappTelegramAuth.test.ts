@@ -90,7 +90,7 @@ describe('POST /webapp/telegram/auth — Telegram Mini App authentication', () =
 		})
 
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('required')
 	})
 
@@ -106,7 +106,7 @@ describe('POST /webapp/telegram/auth — Telegram Mini App authentication', () =
 		})
 
 		expect(res.status).toBe(401)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('Telegram')
 	})
 
@@ -122,7 +122,7 @@ describe('POST /webapp/telegram/auth — Telegram Mini App authentication', () =
 		})
 
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.sessionToken).toBeDefined()
 		expect(body.sessionToken).toContain('jwt')
 		expect(body.userId).toBe(123456)

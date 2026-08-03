@@ -109,7 +109,7 @@ describe('POST /public/swap/execute — unauthenticated MONEY-PATH', () => {
 			body: JSON.stringify({}),
 		})
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.error).toContain('required')
 	})
 
@@ -120,7 +120,7 @@ describe('POST /public/swap/execute — unauthenticated MONEY-PATH', () => {
 			body: JSON.stringify({ quoteId: 'quote-expired-xyz' }),
 		})
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('expired')
 	})
 
@@ -134,7 +134,7 @@ describe('POST /public/swap/execute — unauthenticated MONEY-PATH', () => {
 			}),
 		})
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('signing')
 	})
 })

@@ -90,7 +90,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => 
 		})
 
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.id).toBeDefined()
 		expect(body.ownerAddress).toBe('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045')
 	})
@@ -106,7 +106,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => 
 		})
 
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('signature')
 	})
 
@@ -122,7 +122,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => 
 		})
 
 		expect(res.status).toBe(401)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('Unauthorized')
 	})
 
@@ -138,7 +138,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => 
 		})
 
 		expect(res.status).toBe(200)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.success).toBe(true)
 	})
 
@@ -153,7 +153,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => 
 		})
 
 		expect(res.status).toBe(400)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.message).toContain('required')
 	})
 })
