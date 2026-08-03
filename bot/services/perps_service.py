@@ -212,11 +212,27 @@ class PerpsService:
         # Place TP/SL orders if specified
         if tp_price:
             await self._place_tp_sl(
-                user_id, account, market, side, size, "take_profit", tp_price, position_id
+                user_id,
+                account,
+                market,
+                side,
+                size,
+                "take_profit",
+                tp_price,
+                position_id,
+                raise_on_error=False,
             )
         if sl_price:
             await self._place_tp_sl(
-                user_id, account, market, side, size, "stop_loss", sl_price, position_id
+                user_id,
+                account,
+                market,
+                side,
+                size,
+                "stop_loss",
+                sl_price,
+                position_id,
+                raise_on_error=False,
             )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
@@ -587,38 +603,6 @@ class PerpsService:
                     else:
                         position.sl_price = Decimal(str(price))
 
-            session.flush()  # commit changes to DB before placing orders
-
-        # Get account for order placement
-        account = self.get_account(user_id)
-        if not account:
-            raise ValueError("HyperLiquid account not set up")
-
-        # Place TP/SL orders on HyperLiquid (matching the flow in open_position)
-        # MONEY-PATH: failure to place orders is now propagated (not silently logged)
-        if tp_price is not None:
-            await self._place_tp_sl(
-                user_id,
-                account,
-                position.market,
-                position.side,
-                float(position.size),
-                "take_profit",
-                tp_price,
-                position_id,
-            )
-        if sl_price is not None:
-            await self._place_tp_sl(
-                user_id,
-                account,
-                position.market,
-                position.side,
-                float(position.size),
-                "stop_loss",
-                sl_price,
-                position_id,
-            )
-
         logger.info(
             f"Modified TP/SL for position {position_id}: TP={tp_price}, SL={sl_price} (orders placed on HyperLiquid)"
         )
@@ -753,15 +737,15 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
-        raise_on_error: bool = False,
+        raise_on_error: bool = True,
     ) -> bool:
         """Place a take profit or stop loss order. MONEY-PATH.
 
-        Strict when the caller is editing protection and needs to know whether
-        the trigger actually landed. Best-effort when attached to a freshly
-        opened position: that position is already live on-chain, so raising
-        here would abort the rest of open_position and report a failure for a
-        trade the user really has. Returns True when the trigger is resting.
+        Raises by default: a caller editing protection must know whether the
+        trigger actually landed. open_position opts out via raise_on_error
+        because its position is already live on-chain — raising there would
+        abort the rest of the open and report a failure for a trade the user
+        really has. Returns True when the trigger is resting.
         """
         try:
             api_key, api_secret = self._decrypt_credentials(account)
