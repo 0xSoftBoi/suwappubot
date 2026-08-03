@@ -1,11 +1,50 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../lib/api'
+import type { SwapToken } from '../types/api'
 import {
   approvalsApi,
   ApprovalApiError,
   type AuditQueryParams,
   type PendingApproval,
 } from '../lib/approvalsApi'
+
+const NATIVE_SENTINELS = new Set([
+  '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  '0x0000000000000000000000000000000000000000',
+])
+
+/**
+ * Resolves a single token's decimals/symbol for a given chain+address by
+ * reusing the same token search the swap UI's TokenInput/useTokenSelectorTokens
+ * hits (GET /webapp/tokens/search, wrapping api.searchTokens — see
+ * terminal/src/lib/api.ts and terminal/src/hooks/useTokens usage in
+ * TokenInput.tsx). No separate decimals table is maintained here: if the
+ * search endpoint can't resolve the address, the caller must fall back to a
+ * clearly-labelled raw/unscaled display rather than guessing.
+ */
+export function useApprovalTokenMetadata(chain: string, address: string) {
+  const normalizedChain = chain === 'solana' ? 'solana' : chain
+  const normalizedAddress = address?.toLowerCase?.() ?? address
+
+  return useQuery<SwapToken | null>({
+    queryKey: ['agent-control-plane', 'token-meta', normalizedChain, normalizedAddress],
+    queryFn: async () => {
+      if (!address) return null
+      const results = await api.searchTokens(address, normalizedChain)
+      const match = results.find((t) => {
+        const tAddr = t.address?.toLowerCase?.() ?? t.address
+        if (NATIVE_SENTINELS.has(normalizedAddress) && NATIVE_SENTINELS.has(tAddr)) return true
+        return tAddr === normalizedAddress
+      })
+      return match ?? null
+    },
+    enabled: Boolean(address),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: false,
+  })
+}
 
 export function usePendingApprovals() {
   const { isAuthenticated } = useAuth()

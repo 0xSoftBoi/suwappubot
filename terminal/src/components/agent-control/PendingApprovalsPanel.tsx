@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
+import { formatUnits } from 'viem'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
-import { usePendingApprovals, useApprovalDecision } from '../../hooks/useAgentControlPlane'
+import {
+  usePendingApprovals,
+  useApprovalDecision,
+  useApprovalTokenMetadata,
+} from '../../hooks/useAgentControlPlane'
 import type { PendingApproval } from '../../lib/approvalsApi'
+import type { SwapToken } from '../../types/api'
 import {
   TerminalPanel,
   TerminalPanelHeader,
@@ -22,12 +28,32 @@ function shortAddr(addr: string): string {
   return addr.length > 14 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr
 }
 
-/** Raw base-unit amount as a lightly-formatted decimal string. No token
- * decimals are stored on the approval row (see ApprovalPayload doc comment),
- * so this shows the raw integer amount — accurate, just not human-scaled. */
-function formatRawAmount(raw: string): string {
+/** Human-scaled amount for a token whose decimals/symbol we resolved via
+ * useApprovalTokenMetadata (same token search the swap UI uses). Falls back
+ * to a raw-and-labelled display — never a guessed decimals count — when the
+ * token can't be resolved, so the human reviewing the approval always knows
+ * whether the number in front of them is real or a placeholder. */
+function formatTokenAmount(
+  raw: string,
+  meta: SwapToken | null | undefined,
+  metaLoading: boolean,
+  fallbackAddr: string,
+): string {
   if (!raw) return '—'
-  return raw
+  if (meta) {
+    try {
+      const scaled = formatUnits(BigInt(raw), meta.decimals)
+      const num = Number(scaled)
+      const display = Number.isFinite(num)
+        ? num.toLocaleString(undefined, { maximumFractionDigits: 6 })
+        : scaled
+      return `${display} ${meta.symbol}`
+    } catch {
+      // raw wasn't a valid integer string — fall through to raw display
+    }
+  }
+  if (metaLoading) return `${raw} ${shortAddr(fallbackAddr)} (resolving…)`
+  return `${raw} (raw, unknown decimals) ${shortAddr(fallbackAddr)}`
 }
 
 function chainLabel(chain: string): string {
@@ -90,7 +116,16 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
   }
 
   const { payload } = approval
-  const amountLine = `${formatRawAmount(payload.amountIn)} ${shortAddr(payload.fromToken)} → ${shortAddr(payload.toToken)}`
+  const fromMeta = useApprovalTokenMetadata(payload.fromChain, payload.fromToken)
+  const toMeta = useApprovalTokenMetadata(payload.toChain, payload.toToken)
+  const fromAmountLabel = formatTokenAmount(
+    payload.amountIn,
+    fromMeta.data,
+    fromMeta.isLoading,
+    payload.fromToken,
+  )
+  const toTokenLabel = toMeta.data ? toMeta.data.symbol : shortAddr(payload.toToken)
+  const amountLine = `${fromAmountLabel} → ${toTokenLabel}`
   const urgent = !expired && totalSec !== null && totalSec <= URGENT_THRESHOLD_SEC
 
   const handleApproveClick = () => {
