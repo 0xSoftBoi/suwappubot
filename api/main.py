@@ -881,13 +881,22 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 
-def create_jwt_token(address: str, user_id: int) -> str:
-    """Create a JWT token for authenticated user."""
+def create_jwt_token(address: str, user_id: int, src: str) -> str:
+    """Create a JWT token for authenticated user.
+
+    ``src`` records what this session actually proved possession of, so
+    downstream consumers (e.g. api-ts's requireProofOfPossession guard on the
+    agent-approvals surface) can distinguish strong wallet/account proofs
+    ('siwe', 'passkey', 'telegram') from sessions that didn't prove wallet
+    possession at all ('weak'). No default is provided — every call site must
+    state its provenance explicitly.
+    """
     payload = {
         "address": address.lower(),
         "user_id": user_id,
         # camelCase alias so api-ts (which reads `userId`) accepts Python-issued tokens.
         "userId": user_id,
+        "src": src,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -1210,7 +1219,7 @@ async def auth_verify(
         db.commit()
 
     # Create JWT token
-    token = create_jwt_token(address, user.id)
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     # Set secure HTTP-only cookie
@@ -1309,7 +1318,7 @@ async def auth_solana_verify(
         db.add(wallet)
         db.commit()
 
-    token = create_jwt_token(address, user.id)
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1450,7 +1459,7 @@ async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, 
 
     # Mint the same session JWT the passkey/oauth flows mint.
     session_address = wallet_address or f"telegram:{telegram_id}"
-    token = create_jwt_token(address=session_address, user_id=user.id)
+    token = create_jwt_token(address=session_address, user_id=user.id, src="telegram")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1641,7 +1650,7 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user_id, address, new_refresh, _expires = rotated
-    access_token = create_jwt_token(address or "", user_id)
+    access_token = create_jwt_token(address or "", user_id, src="weak")
     _set_session_cookies(response, access_token, new_refresh)
     return {"success": True, "token": access_token, "refresh_token": new_refresh}
 
@@ -1925,6 +1934,7 @@ async def passkey_register_complete(
         token = create_jwt_token(
             address=wallet_address or f"passkey:{request.credentialId[:16]}",
             user_id=existing_user.id,
+            src="passkey",
         )
         expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
         response.set_cookie(
@@ -1982,6 +1992,7 @@ async def passkey_register_complete(
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
@@ -2083,6 +2094,7 @@ async def passkey_auth_complete(
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 

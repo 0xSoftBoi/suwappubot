@@ -19,7 +19,7 @@ import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
-import { flexAuth } from '../middleware/flexAuth'
+import { requireProofOfPossession } from '../middleware/flexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
@@ -519,9 +519,9 @@ agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 // - Everything else (list / approve / deny) is the human owner acting on it -> JWT
 //   auth ONLY, never an agent key, since agent keys must never self-approve.
 agentRoutes.use('/approvals/:id', agentBearerAuth())
-agentRoutes.use('/approvals', flexAuth())
-agentRoutes.use('/approvals/:id/approve', flexAuth())
-agentRoutes.use('/approvals/:id/deny', flexAuth())
+agentRoutes.use('/approvals', requireProofOfPossession())
+agentRoutes.use('/approvals/:id/approve', requireProofOfPossession())
+agentRoutes.use('/approvals/:id/deny', requireProofOfPossession())
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())

@@ -126,11 +126,21 @@ webappRoutes.post('/telegram/auth', async (c) => {
 			if (!jwtSecret) {
 				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
 			}
+			// `src: 'telegram'` marks this token as backed by a verified Telegram
+			// initData signature (proof of possession of the Telegram session).
+			// This is the claim that distinguishes it from the JWT minted by
+			// POST /public/swap/auth (src/routes/publicSwap.ts), which trusts a
+			// bare `{subOrgId, walletAddress}` body with NO proof of possession —
+			// any known wallet address mints a valid 7-day token for that
+			// wallet's victim there. Endpoints that authorize spend-affecting
+			// actions (agent approvals) must require this claim; see
+			// requireProofOfPossession() in middleware/flexAuth.ts.
 			const token = jwt.sign(
 				{
 					userId: user.id,
 					telegramId: telegramUser.id,
 					walletAddress,
+					src: 'telegram',
 				},
 				jwtSecret,
 				{ expiresIn: '7d' },

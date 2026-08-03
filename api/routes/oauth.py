@@ -386,6 +386,7 @@ async def oauth_callback(
     jwt_token = create_jwt_token(
         address=session_address,
         user_id=user.id,
+        src="weak",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
