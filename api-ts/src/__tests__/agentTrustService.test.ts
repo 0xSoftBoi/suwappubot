@@ -358,12 +358,14 @@ describe('AgentTrustService wiring — aegisScan onVerdict feeds recordVerdict (
 		expect(row?.threatCount).toBe(1)
 	})
 
-	it('a clean verdict fires onVerdict but the seam gate skips the DB write (threat-only)', async () => {
-		// Mirrors the route seams (agent.ts/a2a.ts/mcp.ts), which gate recordVerdict
-		// to `isThreat` so common clean traffic never issues a no-op UPDATE.
+	it('a clean verdict fires onVerdict and recordVerdict creates no row (real service path)', async () => {
+		// Exercises the REAL recordVerdict clean path through the wiring, so a
+		// regression in its write-amplification guard is caught here. (The route
+		// seams additionally gate recordVerdict to `isThreat` so common clean
+		// traffic skips the DB entirely — see each seam's comment; that gate is a
+		// route concern, deliberately not re-encoded in this plumbing test.)
 		const { db, getRow, insertedRows } = makeFakeDb()
 		let onVerdictFired = false
-		let recordFired = false
 		let pending: Promise<unknown> | undefined
 		scanValueObserveOnly(
 			{ command: 'swap 1 eth to usdc on base' },
@@ -371,17 +373,14 @@ describe('AgentTrustService wiring — aegisScan onVerdict feeds recordVerdict (
 			undefined,
 			(isThreat) => {
 				onVerdictFired = true
-				if (!isThreat) return // seam gate: clean verdicts do not touch the DB
-				recordFired = true
-				pending = runRecordVerdict(db, 7, true)
+				pending = runRecordVerdict(db, 7, isThreat) // unconditional — hits the real guard
 			},
 		)
-		await pending
-		// The scan actually reached the callback (not a vacuous pass), and a clean
-		// verdict wrote nothing.
+		// Non-vacuous: the scan actually reached the callback and kicked off the write.
 		expect(onVerdictFired).toBe(true)
-		expect(recordFired).toBe(false)
-		expect(getRow()).toBeNull()
+		expect(pending).toBeDefined()
+		await pending
+		expect(getRow()).toBeNull() // clean verdict → recordVerdict creates no row
 		expect(insertedRows).toHaveLength(0)
 	})
 
