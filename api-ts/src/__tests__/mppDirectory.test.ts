@@ -40,6 +40,19 @@ describe('parseMppDirectoryResponse', () => {
 		)
 	})
 
+	it('drops an entry whose required url/name sanitizes to empty (control-only)', () => {
+		const allControls = String.fromCharCode(0x1b) + String.fromCharCode(0x07)
+		const r = parseMppDirectoryResponse({
+			services: [
+				{ url: allControls, name: 'ok' }, // url scrubs to '' -> dropped
+				{ url: 'https://ok', name: allControls }, // name scrubs to '' -> dropped
+				{ url: 'https://good', name: 'Good' }, // survives
+			],
+		})
+		expect(r.services).toHaveLength(1)
+		expect(r.services[0]!.url).toBe('https://good')
+	})
+
 	it('fails safe (empty) on a non-object or missing services array', () => {
 		expect(parseMppDirectoryResponse(null).services).toEqual([])
 		expect(parseMppDirectoryResponse('nope').services).toEqual([])

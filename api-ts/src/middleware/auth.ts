@@ -6,7 +6,7 @@ import { inArray } from 'drizzle-orm'
 import { requireDb } from '../db/DrizzleService'
 import { agents } from '../db/schema'
 import { runEffect, runEffectEither } from '../runtime'
-import { AgentService, AgentTrustService } from '../services'
+import { AgentService } from '../services'
 import { writeAuditLog } from '../services/audit'
 
 // Batch agent activity updates: collect IDs and flush every 60s
@@ -179,31 +179,13 @@ export function agentBearerAuth() {
 		// Store agent in context for route handlers
 		c.set('agent', agent)
 
-		// RECORD-ONLY trust read (Phase 2.3 analogue, api-ts agent surface — see
-		// services/AgentTrustService.ts). Stashed on the context for future use;
-		// nothing today gates or denies on it. AgentTrustService.getTrust is
-		// itself fail-open (Effect<number, never, ...>, defaults to 100), but
-		// auth must never STALL on a locked row / degraded DB either — bound the
-		// read with a short timeout that falls back to the same default, and keep
-		// the try/catch around the whole thing as a second, unconditional guard.
-		let agentTrustScore = 100
-		try {
-			agentTrustScore = await runEffect(
-				Effect.gen(function* () {
-					const trustService = yield* AgentTrustService
-					return yield* trustService.getTrust(agent.id)
-				}).pipe(
-					Effect.timeoutTo({
-						duration: '200 millis',
-						onSuccess: (score) => score,
-						onTimeout: () => 100,
-					}),
-				),
-			)
-		} catch {
-			agentTrustScore = 100
-		}
-		c.set('agentTrust', agentTrustScore)
+		// NB: agent trust (services/AgentTrustService.ts, wired write path via the
+		// scanner seams) is intentionally NOT read here. It is record-only and
+		// nothing gates on it yet, so a per-request read would add a DB round-trip
+		// — and a stall/pool-exhaustion vector on a degraded DB (the client's
+		// statement_timeout is 30s) — to the auth hot path for data no consumer
+		// uses. When enforcement is designed (post-telemetry-review), the consumer
+		// reads getTrust() at the point of use with an appropriately bounded query.
 
 		await next()
 	}

@@ -641,10 +641,13 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	// or denies on it; the call isn't awaited and recordVerdict is itself
 	// fail-open, so a trust-write failure can never affect this response).
 	scanForThreatsObserveOnly(userText, { source: 'a2a_message_send', agentId: agent?.id }, undefined, (isThreat) => {
+		// Threat-only write (see agent.ts /execute for the rationale) — clean
+		// verdicts skip the DB; recovery is a deferred periodic-job concern.
+		if (!isThreat) return
 		runEffectEither(
 			Effect.gen(function* () {
 				const trustService = yield* AgentTrustService
-				yield* trustService.recordVerdict(agent.id, isThreat)
+				yield* trustService.recordVerdict(agent.id, true)
 			}),
 		)
 	})

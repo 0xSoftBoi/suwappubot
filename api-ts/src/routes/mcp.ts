@@ -1551,11 +1551,13 @@ mcpRoutes.post('/', async (c) => {
 				},
 				undefined,
 				(isThreat) => {
-					if (!agent) return
+					// Threat-only write (see agent.ts /execute); skip when there's no
+					// agent (PUBLIC_READ_TOOLS).
+					if (!isThreat || !agent) return
 					runEffectEither(
 						Effect.gen(function* () {
 							const trustService = yield* AgentTrustService
-							yield* trustService.recordVerdict(agent.id, isThreat)
+							yield* trustService.recordVerdict(agent.id, true)
 						}),
 					)
 				},

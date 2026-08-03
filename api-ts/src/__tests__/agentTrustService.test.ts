@@ -358,18 +358,29 @@ describe('AgentTrustService wiring — aegisScan onVerdict feeds recordVerdict (
 		expect(row?.threatCount).toBe(1)
 	})
 
-	it('a clean verdict from scanValueObserveOnly never creates a row for a first-time-clean agent', async () => {
+	it('a clean verdict fires onVerdict but the seam gate skips the DB write (threat-only)', async () => {
+		// Mirrors the route seams (agent.ts/a2a.ts/mcp.ts), which gate recordVerdict
+		// to `isThreat` so common clean traffic never issues a no-op UPDATE.
 		const { db, getRow, insertedRows } = makeFakeDb()
+		let onVerdictFired = false
+		let recordFired = false
 		let pending: Promise<unknown> | undefined
 		scanValueObserveOnly(
 			{ command: 'swap 1 eth to usdc on base' },
 			{ source: 'test', agentId: 7 },
 			undefined,
 			(isThreat) => {
-				pending = runRecordVerdict(db, 7, isThreat)
+				onVerdictFired = true
+				if (!isThreat) return // seam gate: clean verdicts do not touch the DB
+				recordFired = true
+				pending = runRecordVerdict(db, 7, true)
 			},
 		)
 		await pending
+		// The scan actually reached the callback (not a vacuous pass), and a clean
+		// verdict wrote nothing.
+		expect(onVerdictFired).toBe(true)
+		expect(recordFired).toBe(false)
 		expect(getRow()).toBeNull()
 		expect(insertedRows).toHaveLength(0)
 	})

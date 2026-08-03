@@ -2058,10 +2058,15 @@ agentRoutes.post('/execute', async (c) => {
 	// trust-write failure can never affect this response since recordVerdict is
 	// itself fail-open and this call isn't awaited).
 	scanForThreatsObserveOnly(command, { source: 'agent_execute', agentId: agent.id }, undefined, (isThreat) => {
+		// Only threats hit the DB — a clean verdict is the common case and its
+		// recordVerdict would be a no-op UPDATE (row absent, or recovery interval
+		// not elapsed), so gating here keeps the hot path free of a per-request
+		// write. Clean-path recovery is deferred to a future periodic job.
+		if (!isThreat) return
 		runEffectEither(
 			Effect.gen(function* () {
 				const trustService = yield* AgentTrustService
-				yield* trustService.recordVerdict(agent.id, isThreat)
+				yield* trustService.recordVerdict(agent.id, true)
 			}),
 		)
 	})

@@ -34,18 +34,24 @@ const MAX_FEE_TOKEN_LENGTH = 50
  * otherwise carry ANSI/control/multiline content straight to an agent caller.
  */
 const MppServiceEntrySchema = z.object({
+	// url/name are required. Sanitizing AFTER min(1) means a control-only value
+	// would pass min(1) then sanitize to empty — so re-assert min(1) on the
+	// sanitized output via .pipe(); an entry whose url/name scrubs to empty
+	// fails validation and is dropped rather than returned empty to a caller.
 	url: z
 		.string()
 		.trim()
 		.min(1)
 		.max(MAX_STRING_LENGTH)
-		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH)),
+		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH))
+		.pipe(z.string().min(1)),
 	name: z
 		.string()
 		.trim()
 		.min(1)
 		.max(MAX_STRING_LENGTH)
-		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH)),
+		.transform((s) => sanitizeReflectedText(s, MAX_STRING_LENGTH))
+		.pipe(z.string().min(1)),
 	description: z
 		.string()
 		.max(MAX_DESCRIPTION_LENGTH)
