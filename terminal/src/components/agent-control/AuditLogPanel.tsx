@@ -64,10 +64,10 @@ function VerifyBadge() {
     return <TerminalStatusPill tone="neutral">Verifying chain...</TerminalStatusPill>
   }
   if (isError || !data) {
-    // Neutral state — this endpoint requires an agent/org API key, which the
-    // terminal's session does not hold (see AuditLogPanel's banner below).
-    // Never render this as "valid".
     return <TerminalStatusPill tone="neutral">Verification unavailable</TerminalStatusPill>
+  }
+  if (data.noOrg) {
+    return <TerminalStatusPill tone="neutral">No organization to verify</TerminalStatusPill>
   }
   if (data.note) {
     return <TerminalStatusPill tone="neutral">Not applicable — {data.note}</TerminalStatusPill>
@@ -121,12 +121,6 @@ export function AuditLogPanel() {
         meta={<VerifyBadge />}
       />
 
-      <div className="border-b border-terminal-border bg-terminal-bg-secondary/40 px-4 py-2 text-[11px] text-terminal-text-muted">
-        GET /v1/agent/audit currently requires an agent or organization API key — your terminal
-        session cannot authenticate to it yet, so this list may show as unavailable below. Contact
-        support if you need audit visibility from here rather than the bot/API directly.
-      </div>
-
       <div className="flex flex-wrap items-center gap-3 border-b border-terminal-border px-4 py-2 shrink-0">
         <label className="flex items-center gap-2 text-xs text-terminal-text-muted">
           Event type
@@ -168,7 +162,16 @@ export function AuditLogPanel() {
             <TerminalPanel>
               <TerminalEmptyState
                 title="Could not load audit log"
-                description="Your session isn't authorized for this endpoint (it currently requires an agent/org API key), or the server hit an error. See the banner above."
+                description="The server hit an error loading your audit trail. Try again in a moment."
+              />
+            </TerminalPanel>
+          </div>
+        ) : data?.noOrg ? (
+          <div className="p-4">
+            <TerminalPanel>
+              <TerminalEmptyState
+                title="No organization audit chain for this account"
+                description="This account doesn't own an organization yet, so there's no agent policy/approval history to show."
               />
             </TerminalPanel>
           </div>

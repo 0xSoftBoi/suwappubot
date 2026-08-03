@@ -6,8 +6,8 @@
  *   POST /v1/agent/approvals/:id/approve
  *   POST /v1/agent/approvals/:id/deny
  *   POST /v1/agent/approvals/:id/step-up/challenge
- *   GET  /v1/agent/audit
- *   GET  /v1/agent/audit/verify
+ *   GET  /v1/agent/owner/audit
+ *   GET  /v1/agent/owner/audit/verify
  *
  * These routes are gated by flexAuth() (api-ts/src/middleware/flexAuth.ts),
  * which accepts EITHER X-Telegram-Init-Data OR `Authorization: Bearer <jwt>`
@@ -129,12 +129,18 @@ export interface AuditEvent {
 
 export interface AuditListResult {
   success: boolean
+  orgId?: string
   events: AuditEvent[]
   count: number
+  /** True when the caller owns zero organizations (owner/audit 404s). This is
+   * a first-class empty state, not an error — UI must render "no org audit
+   * chain for this account", never a generic error banner. */
+  noOrg?: boolean
 }
 
 export interface AuditVerifyResult {
   success: boolean
+  orgId?: string
   valid: boolean
   checked: number
   firstBreakId?: string
@@ -142,6 +148,10 @@ export interface AuditVerifyResult {
    * org context). UI must render a neutral "not applicable" state here, not a
    * false "valid" badge. */
   note?: string
+  /** True when the caller owns zero organizations (owner/audit/verify 404s).
+   * Distinct from `valid: false` — this is "nothing to verify", not "chain
+   * verification failed". */
+  noOrg?: boolean
 }
 
 export interface AuditQueryParams {
@@ -220,18 +230,10 @@ export const approvalsApi = {
   },
 
   /**
-   * GET /v1/agent/audit — ** AUTH MISMATCH, NOT SATISFIED BY THE TERMINAL'S
-   * CREDENTIAL. ** This route (and /audit/verify below) is gated by
-   * agentFlexAuth() (api-ts/src/middleware/agentFlexAuth.ts), which accepts
-   * ONLY an org API key (X-API-Key / Bearer sk_live_...) or an agent bearer
-   * token (Bearer suwappu_sk_...) — it does NOT accept the human session JWT
-   * the terminal holds (that's flexAuth(), used by the approvals endpoints
-   * above). There is no owner-facing/webapp audit route in this branch to
-   * fall back to. Calling this with the terminal's token will 401. Left
-   * wired (not faked) so the panel surfaces the real server error rather
-   * than a fabricated result — see AuditLogPanel's banner. Fix requires
-   * either a new owner-JWT-gated audit route server-side, or accepting JWT
-   * in agentFlexAuth for read-only audit scope.
+   * GET /v1/agent/owner/audit — owner (JWT/session) read of the caller's
+   * owned org's audit trail. Scoped to orgs the caller owns; 404s when the
+   * caller owns zero orgs, which is treated as a first-class empty state
+   * (`noOrg: true`) rather than an error.
    */
   async getAuditLog(params: AuditQueryParams = {}): Promise<AuditListResult> {
     const search = new URLSearchParams()
@@ -239,15 +241,49 @@ export const approvalsApi = {
     if (params.since) search.set('since', params.since)
     if (params.limit) search.set('limit', String(params.limit))
     const qs = search.toString()
-    return agentRequest<AuditListResult>(`/v1/agent/audit${qs ? `?${qs}` : ''}`)
+    try {
+      const res = await agentRequest<{ success: boolean; org_id: string; events: AuditEvent[]; count: number }>(
+        `/v1/agent/owner/audit${qs ? `?${qs}` : ''}`,
+      )
+      return { success: res.success, orgId: res.org_id, events: res.events, count: res.count }
+    } catch (err) {
+      if (err instanceof ApprovalApiError && err.status === 404) {
+        return { success: true, events: [], count: 0, noOrg: true }
+      }
+      throw err
+    }
   },
 
   /**
-   * GET /v1/agent/audit/verify — walk the hash chain the caller can see.
+   * GET /v1/agent/owner/audit/verify — owner (JWT/session) hash-chain
+   * verification for the caller's owned org. Same zero-org 404 -> noOrg
+   * empty-state handling as getAuditLog above.
    */
   async verifyAuditChain(limit?: number): Promise<AuditVerifyResult> {
     const qs = limit ? `?limit=${limit}` : ''
-    return agentRequest<AuditVerifyResult>(`/v1/agent/audit/verify${qs}`)
+    try {
+      const res = await agentRequest<{
+        success: boolean
+        org_id: string
+        valid: boolean
+        checked: number
+        firstBreakId?: string
+        note?: string
+      }>(`/v1/agent/owner/audit/verify${qs}`)
+      return {
+        success: res.success,
+        orgId: res.org_id,
+        valid: res.valid,
+        checked: res.checked,
+        firstBreakId: res.firstBreakId,
+        note: res.note,
+      }
+    } catch (err) {
+      if (err instanceof ApprovalApiError && err.status === 404) {
+        return { success: true, valid: false, checked: 0, noOrg: true }
+      }
+      throw err
+    }
   },
 }
 
