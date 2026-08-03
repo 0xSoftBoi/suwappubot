@@ -297,15 +297,56 @@ def _derive_median_output_price(quotes: List["SwapQuote"]) -> Optional[float]:
     return _median(filtered)
 
 
-def _rank_quotes(quotes: List["SwapQuote"]) -> "SwapQuote":
+def _extract_input_usd_value(quote: "SwapQuote") -> Optional[float]:
+    """Best-effort REAL USD value of `quote`'s INPUT (from_amount_human),
+    read directly from the provider's raw response — never a network call.
+    Currently only Li.Fi's estimate exposes this (`fromAmountUSD`)."""
+    raw = quote.raw_quote
+    if not isinstance(raw, dict):
+        return None
+    if quote.provider == "lifi":
+        val = (raw.get("estimate") or {}).get("fromAmountUSD")
+        if val is None:
+            return None
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return None
+        return v if v > 0 else None
+    return None
+
+
+def _derive_input_usd_value(
+    quotes: List["SwapQuote"], input_price_usd: Optional[float] = None
+) -> Optional[float]:
+    """Real USD value of the swap's INPUT amount — shared across the whole
+    race, since every raced quote was given the SAME user-specified
+    from_amount_human. Prefers a provider-reported figure (Li.Fi's
+    fromAmountUSD); falls back to `input_price_usd` (typically the price
+    service's cached quote for from_token) x that shared input amount, when
+    the caller supplies one. Returns None when neither is available.
+    """
+    for q in quotes:
+        v = _extract_input_usd_value(q)
+        if v:
+            return v
+    if input_price_usd and input_price_usd > 0 and quotes:
+        from_amount_human = quotes[0].from_amount_human
+        if from_amount_human and from_amount_human > 0:
+            return input_price_usd * from_amount_human
+    return None
+
+
+def _rank_quotes(quotes: List["SwapQuote"], input_price_usd: Optional[float] = None) -> "SwapQuote":
     """Pick the best quote. See `_rank_quotes_with_price` for the full
     net-of-gas ranking logic and its gross-ranking fallback conditions."""
-    best, _out_price = _rank_quotes_with_price(quotes)
+    best, _out_price = _rank_quotes_with_price(quotes, input_price_usd)
     return best
 
 
 def _rank_quotes_with_price(
     quotes: List["SwapQuote"],
+    input_price_usd: Optional[float] = None,
 ) -> tuple["SwapQuote", Optional[float]]:
     """Pick the best quote by net-of-gas value, and return the USD price (if
     any) actually used to net it — so callers (telemetry) can report the
@@ -320,13 +361,18 @@ def _rank_quotes_with_price(
          would otherwise look artificially cheap and win unfairly).
       2. A median USD price for the output token can be derived across the
          race (see `_derive_median_output_price`).
-      3. Netting that price against gas doesn't eat more than 5% of any
-         single quote's own to_amount_human — no honest gas-vs-output
-         tradeoff on a same-chain swap needs a bigger deduction than that;
-         beyond it the derived price is treated as unreliable (e.g. a
-         raw-address token whose decimals haven't been corrected yet — that
-         correction only happens AFTER ranking) and the whole race falls
-         back to gross.
+      3. A price SANITY CROSS-CHECK passes: the implied output USD value
+         (to_amount_human * out_price) for every quote is within ~25% of
+         the swap's known input USD value (Li.Fi's fromAmountUSD, or
+         `input_price_usd` x the shared input amount — see
+         `_derive_input_usd_value`). This validates out_price directly
+         against a real number instead of proxying via a gas-fraction
+         clamp, which used to reject perfectly legitimate gas-heavy trades
+         (e.g. a small swap on an expensive chain, where gas can honestly
+         be >5% of output) purely because the deduction looked "too big" —
+         not because the price was actually wrong. When no input-side USD
+         figure is available at all, falls back to the coarser "gas eats
+         <=5% of output" clamp as a guard of last resort.
 
     Wormhole returns an optimistic 1:1 placeholder quote (no real fee
     netting), so it's excluded from the race unless it's the only quote
@@ -343,10 +389,21 @@ def _rank_quotes_with_price(
     if out_price is None:
         return max(ranked, key=lambda q: q.to_amount_human), None
 
-    for q in ranked:
-        gas = q.gas_cost_usd or 0.0
-        if q.to_amount_human > 0 and (gas / out_price) > 0.05 * q.to_amount_human:
-            return max(ranked, key=lambda q: q.to_amount_human), None
+    input_usd = _derive_input_usd_value(ranked, input_price_usd)
+    if input_usd is not None:
+        for q in ranked:
+            implied_output_usd = q.to_amount_human * out_price
+            if implied_output_usd <= 0:
+                return max(ranked, key=lambda q: q.to_amount_human), None
+            deviation = abs(implied_output_usd - input_usd) / input_usd
+            if deviation > 0.25:
+                return max(ranked, key=lambda q: q.to_amount_human), None
+    else:
+        # No input-side USD figure at all — fall back to the coarser clamp.
+        for q in ranked:
+            gas = q.gas_cost_usd or 0.0
+            if q.to_amount_human > 0 and (gas / out_price) > 0.05 * q.to_amount_human:
+                return max(ranked, key=lambda q: q.to_amount_human), None
 
     return max(ranked, key=lambda q: _quote_net_score(q, out_price)), out_price
 
@@ -863,6 +920,50 @@ class SwapEngine:
                 results.append(r)
         return results
 
+    @staticmethod
+    async def _real_gas_cost_usd(from_chain: str, estimated_gas) -> tuple[float, bool]:
+        """Best-effort REAL USD gas cost for a same-chain EVM aggregator quote
+        (OKX/1inch/0x — they all return raw gas UNITS in `estimated_gas`, but
+        the adapters historically converted them with a hardcoded "1 gwei *
+        $2000 ETH" heuristic that's wrong on every non-Ethereum chain and
+        stale the moment ETH moves). Multiplies real gas units x a live gas
+        price (`gas_tracker`, itself cached ~15s — same cache the /gas
+        command uses, so this never adds an RPC round trip when a fresh
+        entry exists) x the chain's native token USD price (`price_service`,
+        cached ~30s).
+
+        Returns (cost_usd, trusted). `trusted` is True ONLY when every input
+        was real: gas units parsed, the RPC gas-price lookup succeeded, AND
+        the native-token price cache/fetch hit. On ANY failure this returns
+        (0.0, False) so the caller keeps its own heuristic estimate and the
+        quote stays untrusted for net-of-gas ranking purposes. Never raises.
+        """
+        try:
+            gas_units = float(estimated_gas)
+            if gas_units <= 0:
+                return 0.0, False
+
+            chain = get_chain_by_name(from_chain)
+            if not chain or chain.chain_type != ChainType.EVM:
+                return 0.0, False
+
+            from bot.services.gas_tracker import gas_tracker
+            from bot.services.price_service import price_service
+
+            gas_price = await gas_tracker.get_evm_gas_price(from_chain)
+            if not gas_price or not gas_price.standard or gas_price.standard <= 0:
+                return 0.0, False
+
+            native_price = await price_service.get_price(chain.native_token)
+            if not native_price or native_price <= 0:
+                return 0.0, False
+
+            cost_usd = gas_units * gas_price.standard * 1e-9 * native_price
+            return cost_usd, True
+        except Exception as e:
+            logger.debug(f"Real gas cost unavailable for {from_chain} (using heuristic): {e}")
+            return 0.0, False
+
     @track_time(MetricNames.SWAP_QUOTE)
     async def get_quote(
         self,
@@ -1313,7 +1414,23 @@ class SwapEngine:
             if not quotes:
                 raise SwapError("No provider returned a valid quote. Please try again.")
 
-            best, out_price_used = _rank_quotes_with_price(quotes)
+            # Best-effort input-side USD price for the R2 price sanity
+            # cross-check in `_rank_quotes_with_price` (see its docstring).
+            # price_service caches ~30s, so this is usually a cache hit and
+            # adds no real latency; only fetched when ranking will actually
+            # run (single-quote races short-circuit before using it).
+            # Failure here must never block quoting — falls back to the
+            # coarser 5% clamp inside the ranker.
+            input_price_usd = None
+            if len(quotes) > 1:
+                try:
+                    from bot.services.price_service import price_service
+
+                    input_price_usd = await price_service.get_price(from_token)
+                except Exception:
+                    input_price_usd = None
+
+            best, out_price_used = _rank_quotes_with_price(quotes, input_price_usd)
 
             # Fix the displayed receive-amount when buying a token by raw address
             # (its real decimals aren't in the registry). Done after ranking — all
@@ -2139,7 +2256,8 @@ class SwapEngine:
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
-        # Estimate gas cost in USD (rough: gas units * gas price)
+        # Estimate gas cost in USD (rough: gas units * gas price) — kept as
+        # the fallback whenever the real computation below can't complete.
         gas_cost_usd = 0.0
         try:
             gas_cost_usd = float(quote.estimated_gas) * 1e-9 * 2000  # Very rough ETH estimate
@@ -2151,6 +2269,16 @@ class SwapEngine:
                 gas_cost_usd = 0.001
         except (ValueError, TypeError):
             pass
+
+        # Real gas cost (live RPC gas price x cached native-token USD price)
+        # — replaces the heuristic above and marks the quote gas_cost_trusted
+        # ONLY when every input was real. Same-chain-only + EVM-only, so this
+        # is a no-op (untrusted) for OKX's TRON/Solana routes.
+        gas_cost_trusted = False
+        real_gas_usd, real_trusted = await self._real_gas_cost_usd(from_chain, quote.estimated_gas)
+        if real_trusted:
+            gas_cost_usd = real_gas_usd
+            gas_cost_trusted = True
 
         return SwapQuote(
             provider="okx_dex",
@@ -2176,6 +2304,7 @@ class SwapEngine:
                 "slippage": slippage,
             },
             platform_fee_bps=platform_fee_bps,
+            gas_cost_trusted=gas_cost_trusted,
         )
 
     @staticmethod
@@ -2223,7 +2352,8 @@ class SwapEngine:
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
-        # Rough gas estimate in USD (1inch returns gas units when includeGas=true).
+        # Rough gas estimate in USD (1inch returns gas units when includeGas=true)
+        # — fallback whenever the real computation below can't complete.
         gas_cost_usd = 0.0
         try:
             gas_cost_usd = float(quote.estimated_gas) * 1e-9 * 2000  # rough ETH estimate
@@ -2231,6 +2361,14 @@ class SwapEngine:
                 gas_cost_usd *= 0.01
         except (ValueError, TypeError):
             pass
+
+        # Real gas cost (live RPC gas price x cached native-token USD price) —
+        # replaces the heuristic and marks gas_cost_trusted only when real.
+        gas_cost_trusted = False
+        real_gas_usd, real_trusted = await self._real_gas_cost_usd(from_chain, quote.estimated_gas)
+        if real_trusted:
+            gas_cost_usd = real_gas_usd
+            gas_cost_trusted = True
 
         return SwapQuote(
             provider="1inch",
@@ -2256,6 +2394,7 @@ class SwapEngine:
                 "chain_id": chain_id,
                 "slippage": slippage,
             },
+            gas_cost_trusted=gas_cost_trusted,
         )
 
     @staticmethod
@@ -2303,7 +2442,8 @@ class SwapEngine:
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
-        # Rough gas estimate in USD (0x returns gas units in the response).
+        # Rough gas estimate in USD (0x returns gas units in the response) —
+        # fallback whenever the real computation below can't complete.
         gas_cost_usd = 0.0
         try:
             gas_cost_usd = float(quote.estimated_gas) * 1e-9 * 2000  # rough ETH estimate
@@ -2311,6 +2451,14 @@ class SwapEngine:
                 gas_cost_usd *= 0.01
         except (ValueError, TypeError):
             pass
+
+        # Real gas cost (live RPC gas price x cached native-token USD price) —
+        # replaces the heuristic and marks gas_cost_trusted only when real.
+        gas_cost_trusted = False
+        real_gas_usd, real_trusted = await self._real_gas_cost_usd(from_chain, quote.estimated_gas)
+        if real_trusted:
+            gas_cost_usd = real_gas_usd
+            gas_cost_trusted = True
 
         return SwapQuote(
             provider="0x",
@@ -2336,6 +2484,7 @@ class SwapEngine:
                 "chain_id": chain_id,
                 "slippage": slippage,
             },
+            gas_cost_trusted=gas_cost_trusted,
         )
 
     @staticmethod

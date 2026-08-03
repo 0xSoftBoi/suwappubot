@@ -440,8 +440,8 @@ class WebAppSwapQuoteResponse(BaseModel):
     toToken: WebAppSwapToken
     fromAmount: str
     toAmount: str
-    fromAmountUsd: float
-    toAmountUsd: float
+    fromAmountUsd: Optional[float] = None
+    toAmountUsd: Optional[float] = None
     exchangeRate: float
     priceImpact: float
     estimatedGas: str
@@ -3325,14 +3325,41 @@ async def create_terminal_swap_quote(
         seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
     )
 
+    # Real USD values (was: `float(quote.to_amount_human)` — a TOKEN amount
+    # reported as if it were USD, e.g. quoting 1000 PEPE would have shown
+    # "$1000"). Priced via the same cached price service used for balances/
+    # portfolio; None (never 0, never the old lie) when a price genuinely
+    # isn't available — the webapp is expected to omit the "~$X" line
+    # rather than render a wrong number.
+    from_amount_usd = None
+    to_amount_usd = None
+    try:
+        from bot.services.price_service import price_service
+
+        from_price, to_price = None, None
+        try:
+            from_price = await price_service.get_price(from_symbol)
+        except Exception:
+            from_price = None
+        try:
+            to_price = await price_service.get_price(to_symbol)
+        except Exception:
+            to_price = None
+        if from_price:
+            from_amount_usd = quote.from_amount_human * from_price
+        if to_price:
+            to_amount_usd = quote.to_amount_human * to_price
+    except Exception as exc:
+        logger.debug(f"Terminal quote USD pricing unavailable (non-fatal): {exc}")
+
     return WebAppSwapQuoteResponse(
         id=quote_id,
         fromToken=from_token,
         toToken=to_token,
         fromAmount=str(quote.from_amount_human),
         toAmount=str(quote.to_amount_human),
-        fromAmountUsd=float(quote.from_amount_human),
-        toAmountUsd=float(quote.to_amount_human),
+        fromAmountUsd=from_amount_usd,
+        toAmountUsd=to_amount_usd,
         exchangeRate=float(quote.exchange_rate),
         priceImpact=float(quote.price_impact),
         estimatedGas=str(quote.gas_cost_usd),

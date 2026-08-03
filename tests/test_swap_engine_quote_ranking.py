@@ -8,14 +8,19 @@ they're tested directly here.
 
 import os
 import random
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 from bot.services.swap_engine import (
+    SwapEngine,
     SwapQuote,
+    _derive_input_usd_value,
     _derive_median_output_price,
+    _extract_input_usd_value,
     _extract_output_usd_price,
     _quote_net_score,
     _rank_quotes,
@@ -58,6 +63,10 @@ def _lifi_raw(to_amount_usd: float) -> dict:
 
 def _kyber_raw(amount_out_usd: float) -> dict:
     return {"kyberswap_quote": {"routeSummary": {"amountOutUsd": amount_out_usd}}}
+
+
+def _lifi_raw_full(to_amount_usd: float, from_amount_usd: float) -> dict:
+    return {"estimate": {"toAmountUSD": str(to_amount_usd), "fromAmountUSD": str(from_amount_usd)}}
 
 
 class TestExtractOutputUsdPrice:
@@ -243,15 +252,15 @@ class TestRankQuotes:
         assert best.provider == "lifi"
 
     def test_clamp_falls_back_to_gross_when_gas_deduction_is_implausible(self):
-        """If netting gas against the derived (trusted, >=2-source) price
-        would eat more than 5% of a quote's own output (e.g. a raw-address
-        token whose decimals haven't been corrected yet), the price is
-        untrustworthy for the whole race -> gross ranking."""
+        """R2 fallback path: when NO input-side USD figure is available at
+        all (no Li.Fi fromAmountUSD in the race, no caller-supplied
+        input_price_usd), the coarser "gas eats <=5% of output" clamp is
+        still used as a guard of last resort."""
         quote_a = _quote(
             "lifi",
             to_amount_human=100.0,
             gas_cost_usd=4.0,  # 4% — under the clamp
-            raw_quote=_lifi_raw(100.0),  # $1/token
+            raw_quote=_lifi_raw(100.0),  # $1/token (toAmountUSD only, no fromAmountUSD)
             gas_cost_trusted=True,
         )
         # quote_b's gas of $5 against $1/token would eat 5.56% of its own 90
@@ -267,6 +276,67 @@ class TestRankQuotes:
         best, out_price = _rank_quotes_with_price([quote_a, quote_b])
         assert out_price is None
         assert best.provider == "lifi"  # gross: 100 > 90
+
+    def test_cross_check_agreeing_price_allows_net_ranking_despite_big_gas(self):
+        """R2: the input-vs-output USD cross-check REPLACES the clamp as the
+        primary guard. A quote whose gas eats 20% of its own output — which
+        would have tripped the old 5%-of-output clamp and forced gross
+        ranking — must still get net-ranked when its price is independently
+        validated against a REAL input USD value (a small swap on an
+        expensive chain is a legitimate case where gas can honestly be a
+        large fraction of output)."""
+        # input_price_usd=100.0 x from_amount_human=1.0 (fixture default) -> $100 input.
+        quote_a = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=20.0,  # 20% of its own output — would trip the OLD clamp
+            raw_quote=_lifi_raw(100.0),  # $1/token
+            gas_cost_trusted=True,
+        )
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=98.0,
+            gas_cost_usd=0.5,
+            raw_quote=_kyber_raw(98.0),  # $1/token — 2nd source
+            gas_cost_trusted=True,
+        )
+
+        best, out_price = _rank_quotes_with_price([quote_a, quote_b], input_price_usd=100.0)
+        # Cross-check passes for both (implied output ~$100 and ~$98 vs a
+        # $100 input — both well within 25%) -> net ranking actually ran.
+        assert out_price is not None
+        # a: 100-20=80 ; b: 98-0.5=97.5 -> b wins net (gross alone favored a).
+        assert best.provider == "kyberswap"
+
+    def test_cross_check_disagreeing_price_falls_back_to_gross(self):
+        """R2: two providers can agree WITH EACH OTHER (so the outlier
+        filter alone doesn't catch it) while both being wrong relative to
+        the swap's real input value — e.g. a shared decimals bug scaling
+        every quote's to_amount_human down by the same factor. The
+        input-vs-output cross-check catches this precisely because it
+        checks against an independent, real number instead of only
+        comparing quotes against each other."""
+        # Both quotes "agree" at an internally-consistent ~$10/token, but
+        # the swap's real input is $100 and their tiny to_amount_human
+        # values only imply ~$1 of output each -> wildly inconsistent.
+        quote_a = _quote(
+            "lifi",
+            to_amount_human=0.1,
+            gas_cost_usd=0.001,  # negligible — would never trip the 5% clamp
+            raw_quote=_lifi_raw(1.0),  # implies $10/token given to_amount_human=0.1
+            gas_cost_trusted=True,
+        )
+        quote_b = _quote(
+            "kyberswap",
+            to_amount_human=0.098,
+            gas_cost_usd=0.0005,
+            raw_quote=_kyber_raw(0.98),  # implies ~$10/token too — agrees with a
+            gas_cost_trusted=True,
+        )
+
+        best, out_price = _rank_quotes_with_price([quote_a, quote_b], input_price_usd=100.0)
+        assert out_price is None  # cross-check correctly rejected the price
+        assert best.provider == "lifi"  # gross fallback: 0.1 > 0.098
 
     def test_wormhole_excluded_unless_sole_quote(self):
         wormhole_q = _quote("wormhole", to_amount_human=1000.0)  # optimistic 1:1, would "win" gross
@@ -365,3 +435,120 @@ class TestQuoteNetScore:
         q = _quote("lifi", to_amount_human=10.0, gas_cost_usd=2.0)
         # out_price=$2/token -> gas of $2 costs 1 token -> net = 9
         assert _quote_net_score(q, 2.0) == 9.0
+
+
+class TestExtractInputUsdValue:
+    def test_lifi_from_amount_usd_derived(self):
+        q = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.5))
+        assert _extract_input_usd_value(q) == 99.5
+
+    def test_lifi_without_from_amount_usd_returns_none(self):
+        q = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw(100.0))
+        assert _extract_input_usd_value(q) is None
+
+    def test_non_lifi_provider_returns_none(self):
+        q = _quote("kyberswap", to_amount_human=100.0, raw_quote=_kyber_raw(100.0))
+        assert _extract_input_usd_value(q) is None
+
+
+class TestDeriveInputUsdValue:
+    def test_prefers_lifi_reported_value(self):
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw_full(100.0, 99.0))
+        q2 = _quote("kyberswap", to_amount_human=98.0)
+        assert _derive_input_usd_value([q1, q2], input_price_usd=1.0) == 99.0
+
+    def test_falls_back_to_caller_supplied_price_times_input_amount(self):
+        # No provider exposes fromAmountUSD; from_amount_human=1.0 (fixture default).
+        q1 = _quote("lifi", to_amount_human=100.0, raw_quote=_lifi_raw(100.0))
+        q2 = _quote("kyberswap", to_amount_human=98.0)
+        assert _derive_input_usd_value([q1, q2], input_price_usd=1.23) == 1.23
+
+    def test_returns_none_when_nothing_available(self):
+        q1 = _quote("1inch", to_amount_human=100.0)
+        q2 = _quote("0x", to_amount_human=98.0)
+        assert _derive_input_usd_value([q1, q2], input_price_usd=None) is None
+
+
+class TestRealGasCostUsd:
+    """`SwapEngine._real_gas_cost_usd` — OKX/1inch/0x's real gas computation
+    (live RPC gas price x cached native-token USD price). A @staticmethod,
+    so no SwapEngine instance is needed."""
+
+    async def test_trusted_when_all_inputs_real(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=SimpleNamespace(standard=5.0)),
+            ),
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=2000.0),
+            ),
+        ):
+            cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "200000")
+        # 200,000 gas units * 5 gwei * 1e-9 * $2000/ETH = $2.00
+        assert trusted is True
+        assert abs(cost_usd - 2.0) < 1e-9
+
+    async def test_untrusted_when_gas_price_rpc_fails(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=2000.0),
+            ),
+        ):
+            cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "200000")
+        assert trusted is False
+        assert cost_usd == 0.0
+
+    async def test_untrusted_when_native_price_cache_miss(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=SimpleNamespace(standard=5.0)),
+            ),
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "200000")
+        assert trusted is False
+        assert cost_usd == 0.0
+
+    async def test_untrusted_for_non_evm_chain(self):
+        with (
+            patch(
+                "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+                new=AsyncMock(return_value=SimpleNamespace(standard=5.0)),
+            ) as mock_gas,
+            patch(
+                "bot.services.price_service.price_service.get_price",
+                new=AsyncMock(return_value=2000.0),
+            ),
+        ):
+            cost_usd, trusted = await SwapEngine._real_gas_cost_usd("solana", "200000")
+        assert trusted is False
+        assert cost_usd == 0.0
+        mock_gas.assert_not_called()  # short-circuits before any RPC/price lookup
+
+    async def test_untrusted_when_estimated_gas_unparseable(self):
+        cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "not-a-number")
+        assert trusted is False
+        assert cost_usd == 0.0
+
+    async def test_never_raises_on_unexpected_exception(self):
+        """Failures must never break quoting — even an unexpected exception
+        deep in the gas-tracker call must degrade to (0.0, False), not
+        propagate."""
+        with patch(
+            "bot.services.gas_tracker.gas_tracker.get_evm_gas_price",
+            new=AsyncMock(side_effect=RuntimeError("rpc exploded")),
+        ):
+            cost_usd, trusted = await SwapEngine._real_gas_cost_usd("arbitrum", "200000")
+        assert trusted is False
+        assert cost_usd == 0.0

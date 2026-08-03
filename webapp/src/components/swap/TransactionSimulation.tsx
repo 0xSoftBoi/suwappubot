@@ -16,7 +16,8 @@ export interface TransactionSimulationProps {
 
 // ── Helpers ────────────────────────────────────────────
 
-function formatUsd(value: number): string {
+function formatUsd(value: number | null | undefined): string {
+  if (value == null) return '--'
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
