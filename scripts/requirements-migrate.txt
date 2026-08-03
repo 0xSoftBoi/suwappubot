@@ -3,4 +3,4 @@
 #   pip install -r requirements.txt -r scripts/requirements-migrate.txt
 # boto3 is kept out of the runtime image (see requirements.txt) to avoid a
 # botocore<->urllib3 conflict and to slim the image once we're on KMS_PROVIDER=local.
-boto3>=1.43.40
+boto3>=1.43.60
