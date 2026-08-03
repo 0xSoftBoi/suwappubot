@@ -158,6 +158,38 @@ export function flexAuth() {
 				return
 			}
 
+			// The header token failed. If a DIFFERENT token arrived in the
+			// cookie, try it before rejecting: a stale or malformed bearer must
+			// not be able to veto an otherwise valid session.
+			//
+			// This is not hypothetical. The dashboard briefly sent a sentinel
+			// string as a bearer while ALSO holding a good cookie; the header
+			// won, failed verification, and 401'd a valid session — bouncing
+			// the user to sign-in the instant they signed in.
+			if (cookieToken && cookieToken !== token) {
+				const cookieResult = await runEffectEither(
+					Effect.gen(function* () {
+						const env = yield* EnvService
+						if (!env.JWT_SECRET) {
+							return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+						}
+						const decoded = yield* Effect.try({
+							try: () => verifyAuthJwt(cookieToken, env.JWT_SECRET as string),
+							catch: () => new Error('Invalid JWT token'),
+						})
+						return {
+							userId: decoded.userId,
+							walletAddress: decoded.walletAddress || null,
+						} as AuthUser
+					}),
+				)
+				if (Either.isRight(cookieResult)) {
+					c.set('authUser', cookieResult.right)
+					await next()
+					return
+				}
+			}
+
 			throw new HTTPException(401, { message: 'Invalid authentication token' })
 		}
 

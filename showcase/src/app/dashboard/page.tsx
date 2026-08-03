@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { API_BASE_URL } from '@/lib/links';
-import { useDashboardAuth } from './auth-context';
+import { SESSION_SENTINEL, useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
 import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
@@ -163,8 +163,16 @@ function useApiFetch(token: string) {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          // Only sent when a token was pasted manually — the legacy fallback.
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Only a REAL pasted token goes in the header. The cookie-session
+          // sentinel must never be sent: flexAuth prefers the Authorization
+          // header over the cookie, so shipping the literal string
+          // 'cookie-session' as a bearer made the server try to verify it as
+          // a JWT, fail, and 401 — with a perfectly valid cookie sitting
+          // right there on the same request. The user was bounced to sign-in
+          // immediately after signing in.
+          ...(token && token !== SESSION_SENTINEL
+            ? { Authorization: `Bearer ${token}` }
+            : {}),
           ...(opts.headers ?? {}),
         },
       });

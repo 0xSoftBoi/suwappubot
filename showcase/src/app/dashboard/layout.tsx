@@ -4,13 +4,12 @@ import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
-import { DashboardAuthContext } from './auth-context';
+import { DashboardAuthContext, SESSION_SENTINEL } from './auth-context';
 import styles from './dashboard.module.css';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
 
-/** Marks "authenticated by cookie" — there is no token to store. */
-const SESSION_SENTINEL = 'cookie-session';
+// SESSION_SENTINEL lives in auth-context so the fetch helper can recognise it.
 
 // ── Login screen ────────────────────────────────────────────────────────────
 
