@@ -120,3 +120,33 @@ Regression: api-ts full suite 352 pass / 0 fail; `test_tempo.py` +
   `robinhood` to start accepting USDG.
 - **Tokenized equities are registered but not surfaced in any UI.** Deliberate: see
   the compliance note above — they must never be presented as "buying stock".
+
+## Bug found and fixed during self-review
+
+`chargeAgentForCall()` passed `challenge.accepts[0]` to the facilitator no matter
+which network the payer chose. `crossCheckSignedRequirements()` compares the
+signed asset against those requirements, so once a second network was advertised
+every payment made on it failed with `asset_mismatch` and could never settle.
+
+Failed CLOSED, not open — the cross-check is what caught it, so there was no
+fund-loss path — but it made the second network unusable, defeating the point of
+advertising it.
+
+Fix: `selectRequirementsForPayment()` in `services/FacilitatorService.ts` picks
+the advertised entry matching the payer's signed payload — network first, then
+asset, since two networks can share a token address (Plasma reuses mainnet's
+USDC address). Undecodable/unmatched headers fall back to `accepts[0]`, where the
+existing cross-check rejects them; it never selects an entry the payer did not
+sign for. Covered by 7 tests.
+
+## Follow-ups (deliberately not done)
+
+- **Alchemy RPC not wired.** Alchemy publishes `robinhood-mainnet.g.alchemy.com`,
+  which would help given the 2-validator set, but the mapping could not be
+  verified without a key — and a wrong entry in `alchemy_networks` would hijack
+  ~70% of RPC calls (see `settings.get_rpc_url` priority). Add it only after
+  confirming the endpoint against a real key.
+- **`X402_EXTRA_NETWORKS` is empty in prod.** Set to `robinhood` to switch the
+  rail on.
+- **Tokenized equities are not surfaced in any UI.** Needs a product/compliance
+  decision on presentation before they are exposed.
