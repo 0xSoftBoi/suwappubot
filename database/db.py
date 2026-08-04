@@ -574,6 +574,7 @@ def _ensure_schema(db_engine) -> None:
     _add_bridge_transfer_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
+    _add_user_llm_model_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -1022,6 +1023,22 @@ def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) 
             logger.info("Added users.language_preference")
     except Exception as e:
         logger.warning(f"Failed to add users.language_preference: {e}")
+
+
+def _add_user_llm_model_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.llm_model for per-user LLM model preference, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "llm_model" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN llm_model VARCHAR(64)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_model VARCHAR(64)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.llm_model")
+    except Exception as e:
+        logger.warning(f"Failed to add users.llm_model: {e}")
 
 
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:

@@ -983,6 +983,50 @@ class Settings(BaseSettings):
         description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
+    # Multi-provider LLM (direct provider keys, no aggregator) + credit
+    # metering. OFF by default: with the flag off, NL parsing keeps today's
+    # single env-provider behavior and no credits are debited. See
+    # bot/config/llm_providers.py, bot/config/llm_models.py,
+    # bot/services/llm_credit_service.py.
+    LLM_MULTI_PROVIDER_ENABLED: bool = Field(
+        default=False,
+        description="Route LLM calls per-user via the model catalog and meter paid models",
+    )
+    LLM_CREDIT_MARKUP: float = Field(
+        default=1.5,
+        description="Multiplier on provider list price when debiting api_credits for LLM usage",
+    )
+    LLM_BUDGET_PER_USER_DAILY_USD: float = Field(
+        default=0.25,
+        description=(
+            "Rolling 24h per-user ceiling on RAW provider spend in USD (cost-weighted, "
+            "Redis-backed, excludes LLM_CREDIT_MARKUP). This is the FREE-tier figure — "
+            "PRO gets 5x, PREMIUM 20x, ENTERPRISE 100x. At FREE it buys roughly 850 "
+            "deepseek-flash calls, 27 claude-sonnet, or 15 gpt-flagship. 0 disables."
+        ),
+    )
+    LLM_BUDGET_GLOBAL_DAILY_USD: float = Field(
+        default=25.0,
+        description=(
+            "Rolling 24h platform-wide ceiling on RAW provider spend in USD. Backstop "
+            "against a coordinated drain; 0 disables the limit."
+        ),
+    )
+    LLM_ALLOW_UNVERIFIED_PROVIDERS: bool = Field(
+        default=False,
+        description=(
+            "Allow LLM providers whose forced-tool-call support is unverified "
+            "(gemini/xai/qwen/kimi). Off by default: an unsupported tool_choice "
+            "makes every parse silently degrade. Enable only after a live smoke test."
+        ),
+    )
+    XAI_API_KEY: str = Field(default="", description="xAI (Grok) API key for LLM calls")
+    GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key for LLM calls")
+    QWEN_API_KEY: str = Field(
+        default="", description="Alibaba DashScope (Qwen) API key for LLM calls"
+    )
+    KIMI_API_KEY: str = Field(default="", description="Moonshot (Kimi) API key for LLM calls")
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")

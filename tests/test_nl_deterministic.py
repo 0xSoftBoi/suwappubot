@@ -23,15 +23,13 @@ from bot.services.nl_deterministic_parser import parse_deterministic
 
 @pytest.fixture(autouse=True)
 def _reset_nl_state():
-    nl_intent_service._client = None
-    nl_intent_service._openai_client = None
-    nl_intent_service._openai_client_key = None
+    nl_intent_service._anthropic_clients = {}
+    nl_intent_service._openai_clients = {}
     nl_intent_service._fallback_counts_by_user.clear()
     nl_intent_service._fallback_counts_global.clear()
     yield
-    nl_intent_service._client = None
-    nl_intent_service._openai_client = None
-    nl_intent_service._openai_client_key = None
+    nl_intent_service._anthropic_clients = {}
+    nl_intent_service._openai_clients = {}
     nl_intent_service._fallback_counts_by_user.clear()
     nl_intent_service._fallback_counts_global.clear()
 

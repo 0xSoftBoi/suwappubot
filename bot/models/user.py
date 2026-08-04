@@ -38,6 +38,10 @@ class User(Base):
     # Language preference (IETF tag, e.g. "en", "es", "fr", "zh")
     language_preference = Column(String(10), nullable=True, default="en")
 
+    # Preferred LLM model (friendly name from bot/config/llm_models.py catalog).
+    # None = catalog default. Only honored when settings.LLM_MULTI_PROVIDER_ENABLED.
+    llm_model = Column(String(64), nullable=True)
+
     # Region (ISO-3166 alpha-2, e.g. "US", "GB"). Set by onboarding/KYC. Used to
     # gate region-restricted features (e.g. HyperUnit native deposits, which are
     # not available to US users). None = unknown -> treated as restricted.

@@ -20,6 +20,7 @@ from typing import Any, Dict, Hashable, Literal, Optional
 
 from bot.config.settings import settings
 from bot.services.aegis_service import get_aegis
+from bot.services.llm_usage import TokenUsage, billable_usage
 
 logger = logging.getLogger(__name__)
 
@@ -39,35 +40,40 @@ CAPPED_CLARIFICATION = (
     "use /s <amount> <token> <chain> to swap directly."
 )
 
-_client: Optional["anthropic.AsyncAnthropic"] = None
+_anthropic_clients: Dict[str, Any] = {}
 
 
-def _get_client():
-    """Lazily construct and cache a single AsyncAnthropic client for reuse
-    across calls, instead of constructing a new client per request."""
-    global _client
-    if _client is None:
+def _get_client(api_key: Optional[str] = None):
+    """Lazily construct and cache AsyncAnthropic clients keyed by api_key,
+    instead of constructing a new client per request. Defaults to the
+    env-configured key; callers on the multi-provider path pass the key they
+    resolved so a future separate platform key can't silently be ignored."""
+    key = api_key or settings.ANTHROPIC_API_KEY
+    client = _anthropic_clients.get(key)
+    if client is None:
         import anthropic
 
-        _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    return _client
+        client = anthropic.AsyncAnthropic(api_key=key)
+        _anthropic_clients[key] = client
+    return client
 
 
-_openai_client = None
-_openai_client_key: Optional[tuple] = None
+_openai_clients: Dict[tuple, Any] = {}
 
 
 def _get_openai_client(api_key: str, base_url: Optional[str]):
-    """Lazily construct and cache a single AsyncOpenAI-compatible client,
-    re-creating it if the (api_key, base_url) pair changes."""
-    global _openai_client, _openai_client_key
+    """Lazily construct and cache one AsyncOpenAI-compatible client per
+    (api_key, base_url) pair. With multi-provider routing enabled, requests
+    from different users can alternate providers back-to-back, so a
+    single-slot cache would rebuild the client on nearly every call."""
     key = (api_key, base_url)
-    if _openai_client is None or _openai_client_key != key:
+    client = _openai_clients.get(key)
+    if client is None:
         import openai
 
-        _openai_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
-        _openai_client_key = key
-    return _openai_client
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+        _openai_clients[key] = client
+    return client
 
 
 _TOOL_NAME = "record_trade_intent"
@@ -273,7 +279,9 @@ def _resolve_provider_config() -> tuple:
         return provider, settings.OPENAI_API_KEY, settings.NL_TRADING_BASE_URL or None, model
 
     if provider == "deepseek":
-        model = "deepseek-chat" if is_default_model else settings.NL_TRADING_MODEL
+        # deepseek-chat / deepseek-reasoner were retired 2026-07-24 and now
+        # error rather than redirecting. v4-flash is the current cheap model.
+        model = "deepseek-v4-flash" if is_default_model else settings.NL_TRADING_MODEL
         base_url = settings.NL_TRADING_BASE_URL or "https://api.deepseek.com"
         return provider, settings.DEEPSEEK_API_KEY, base_url, model
 
@@ -327,10 +335,81 @@ def _record_llm_fallback_call(user_id: Optional[Hashable]) -> None:
         per_user[today] = per_user.get(today, 0) + 1
 
 
+def _i(value) -> int:
+    """Coerce a possibly-missing usage field to a non-negative int."""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _anthropic_usage(response) -> TokenUsage:
+    """Normalize an Anthropic Messages usage object.
+
+    Anthropic reports three SEPARATE input counters — `input_tokens` excludes
+    both cache buckets — so the uncached count is used as-is and the cache
+    buckets are added alongside. Reading only `input_tokens` would
+    under-count (and therefore under-bill) every cached call.
+    """
+    usage = getattr(response, "usage", None)
+    return TokenUsage(
+        input_tokens=_i(getattr(usage, "input_tokens", 0)),
+        cached_read_tokens=_i(getattr(usage, "cache_read_input_tokens", 0)),
+        cache_write_tokens=_i(getattr(usage, "cache_creation_input_tokens", 0)),
+        output_tokens=_i(getattr(usage, "output_tokens", 0)),
+    )
+
+
+def _openai_usage(response) -> TokenUsage:
+    """Normalize an OpenAI-compatible usage object, including DeepSeek's shape.
+
+    Two different conventions, both of which report cached tokens as part of
+    `prompt_tokens` rather than in addition to it:
+
+      * OpenAI/xAI: `prompt_tokens_details.cached_tokens` is a SUBSET of
+        `prompt_tokens`.
+      * DeepSeek: `prompt_cache_hit_tokens` + `prompt_cache_miss_tokens`
+        sum to `prompt_tokens`.
+
+    Either way the cached portion must be SUBTRACTED from the headline count,
+    or it gets billed at full input price despite costing ~0.1x (OpenAI) or
+    ~0.02x (DeepSeek).
+    """
+    usage = getattr(response, "usage", None)
+    prompt_tokens = _i(getattr(usage, "prompt_tokens", 0))
+
+    hit = _i(getattr(usage, "prompt_cache_hit_tokens", None))
+    if hit:
+        cached = hit
+    else:
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached = _i(getattr(details, "cached_tokens", 0)) if details else 0
+
+    # Clamp: never let a malformed payload produce negative billable input.
+    if cached > prompt_tokens:
+        # Nonsensical payload. Clamping would move the ENTIRE prompt into the
+        # discounted bucket (0.02x on DeepSeek) — the unsafe direction. Bill it
+        # all at full input rate instead; see llm_models.py "round the price UP".
+        logger.warning(
+            "nl_intent_service: provider reported %d cached tokens > %d prompt "
+            "tokens — billing the whole prompt at full input rate",
+            cached,
+            prompt_tokens,
+        )
+        cached = 0
+    return TokenUsage(
+        input_tokens=prompt_tokens - cached,
+        cached_read_tokens=cached,
+        # No OpenAI-compatible provider bills a separate cache-write bucket.
+        cache_write_tokens=0,
+        output_tokens=_i(getattr(usage, "completion_tokens", 0)),
+    )
+
+
 async def _parse_with_anthropic(
     text: str, context: Optional[Dict[str, Any]], *, api_key: str, model: str
-) -> TradeIntent:
-    client = _get_client()
+) -> tuple:
+    client = _get_client(api_key)
 
     user_content = _build_user_content(text, context)
 
@@ -344,30 +423,39 @@ async def _parse_with_anthropic(
         messages=[{"role": "user", "content": user_content}],
     )
 
-    tool_use_block = None
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use":
-            tool_use_block = block
-            break
+    # Everything past the network call is parse-stage: the provider has
+    # already billed us for this response, so a malformed payload must still
+    # surface `usage` to the caller for metering — never raise past here.
+    # The content walk is INSIDE the guard: a malformed `content` would
+    # otherwise escape into the caller's failure path, which does not bill.
+    try:
+        tool_use_block = None
+        for block in response.content:
+            if getattr(block, "type", None) == "tool_use":
+                tool_use_block = block
+                break
 
-    if tool_use_block is None:
-        logger.warning("nl_intent_service: no tool_use block in response")
-        return _fallback()
+        if tool_use_block is None:
+            logger.warning("nl_intent_service: no tool_use block in response")
+            return _fallback(), _anthropic_usage(response)
 
-    data = tool_use_block.input or {}
+        data = tool_use_block.input or {}
 
-    intent = TradeIntent(
-        action=data.get("action", "unknown"),
-        token_in=data.get("token_in"),
-        token_out=data.get("token_out"),
-        amount=data.get("amount"),
-        amount_unit=data.get("amount_unit", "native"),
-        chain=data.get("chain"),
-        confidence=float(data.get("confidence", 0.0) or 0.0),
-        clarification=data.get("clarification"),
-    )
+        intent = TradeIntent(
+            action=data.get("action", "unknown"),
+            token_in=data.get("token_in"),
+            token_out=data.get("token_out"),
+            amount=data.get("amount"),
+            amount_unit=data.get("amount_unit", "native"),
+            chain=data.get("chain"),
+            confidence=float(data.get("confidence", 0.0) or 0.0),
+            clarification=data.get("clarification"),
+        )
 
-    return _apply_confidence_gate(intent)
+        return _apply_confidence_gate(intent), _anthropic_usage(response)
+    except Exception:
+        logger.exception("nl_intent_service: anthropic response parse failed")
+        return _fallback(), _anthropic_usage(response)
 
 
 async def _parse_with_openai_compatible(
@@ -377,7 +465,7 @@ async def _parse_with_openai_compatible(
     api_key: str,
     base_url: Optional[str],
     model: str,
-) -> TradeIntent:
+) -> tuple:
     user_content = _build_user_content(text, context)
     client = _get_openai_client(api_key, base_url)
     response = await client.chat.completions.create(
@@ -400,21 +488,141 @@ async def _parse_with_openai_compatible(
             {"role": "user", "content": user_content},
         ],
     )
-    tool_calls = response.choices[0].message.tool_calls
-    if not tool_calls:
-        return _fallback()
-    data = json.loads(tool_calls[0].function.arguments or "{}")
-    intent = TradeIntent(
-        action=data.get("action", "unknown"),
-        token_in=data.get("token_in"),
-        token_out=data.get("token_out"),
-        amount=data.get("amount"),
-        amount_unit=data.get("amount_unit", "native"),
-        chain=data.get("chain"),
-        confidence=float(data.get("confidence", 0.0) or 0.0),
-        clarification=data.get("clarification"),
+    # Parse-stage (post-billing) — same contract as the Anthropic path: a
+    # truncated/malformed tool call (e.g. JSON cut off by max_tokens) must
+    # still return usage so the caller debits the already-spent tokens.
+    try:
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls:
+            return _fallback(), _openai_usage(response)
+        data = json.loads(tool_calls[0].function.arguments or "{}")
+        intent = TradeIntent(
+            action=data.get("action", "unknown"),
+            token_in=data.get("token_in"),
+            token_out=data.get("token_out"),
+            amount=data.get("amount"),
+            amount_unit=data.get("amount_unit", "native"),
+            chain=data.get("chain"),
+            confidence=float(data.get("confidence", 0.0) or 0.0),
+            clarification=data.get("clarification"),
+        )
+        return _apply_confidence_gate(intent), _openai_usage(response)
+    except Exception:
+        logger.exception("nl_intent_service: openai-compatible response parse failed")
+        return _fallback(), _openai_usage(response)
+
+
+def _log_llm_cost(
+    *,
+    user_key,
+    spec,
+    usage,
+    raw_usd: float,
+    metered: bool,
+    wire_model=None,
+    wire_provider=None,
+    estimated=False,
+) -> None:
+    """Emit one structured cost record per LLM call.
+
+    This is the raw material for reconciling our metering against the
+    provider's invoice — the "our metering said X, the bill said Y" check.
+    Includes the price-table version because a stale table is one of the main
+    sources of drift. See docs/research/llm-credits/04-metering-architecture.md §5.
+
+    On the legacy env-provider path the real model isn't a catalog entry, so
+    `spec` is only a worst-case cost BASIS. Logging its provider/model there
+    would invent invoice line items for a model that was never called and
+    inflate the "our metering" side of the reconciliation, so the wire model
+    actually invoked is logged instead and the cost is marked `estimated` with
+    a null `raw_cost_usd`.
+    """
+    from bot.config.llm_models import PRICE_TABLE_VERIFIED
+
+    cost_basis = "worst_case" if estimated else "catalog"
+    logged_model = wire_model or spec.model_id
+    logger.info(
+        "llm_cost provider=%s model=%s in=%d cached=%d cache_write=%d out=%d "
+        "raw_usd=%s basis=%s metered=%s price_table=%s",
+        wire_provider or spec.provider,
+        logged_model,
+        usage.input_tokens,
+        usage.cached_read_tokens,
+        usage.cache_write_tokens,
+        usage.output_tokens,
+        "?" if estimated else f"{raw_usd:.8f}",
+        cost_basis,
+        metered,
+        PRICE_TABLE_VERIFIED.isoformat(),
+        extra={
+            "event": "llm_cost",
+            "user_key": str(user_key),
+            "provider": wire_provider or spec.provider,
+            "model": logged_model,
+            "input_tokens": usage.input_tokens,
+            "cached_read_tokens": usage.cached_read_tokens,
+            "cache_write_tokens": usage.cache_write_tokens,
+            "output_tokens": usage.output_tokens,
+            # None on the legacy path: pricing a model we never called would
+            # poison invoice reconciliation.
+            "raw_cost_usd": None if estimated else raw_usd,
+            "cost_basis": cost_basis,
+            "metered": metered,
+            "price_table_version": PRICE_TABLE_VERIFIED.isoformat(),
+        },
     )
-    return _apply_confidence_gate(intent)
+
+
+def _is_preflight_failure(exc: BaseException) -> bool:
+    """True only when the request provably never reached the provider.
+
+    Refunding a spend reservation is safe exclusively in that case. Anything
+    ambiguous — timeouts, 5xx, malformed responses — may have been billed
+    upstream (SDK retries mean one logical call can be several billed
+    attempts), so the reservation is kept.
+    """
+    name = type(exc).__name__
+    if name in {"APIConnectionError", "APITimeoutError"}:
+        # APITimeoutError is deliberately NOT treated as pre-flight by the
+        # SDKs' semantics, but a connection error is: no bytes were accepted.
+        return name == "APIConnectionError"
+    if name in {"AuthenticationError", "PermissionDeniedError", "NotFoundError"}:
+        return True  # rejected before any generation
+    status = getattr(exc, "status_code", None)
+    return status in (401, 403, 404)
+
+
+async def _resolve_user_model(user_id):
+    """Multi-provider resolution: (LLMUserContext, ModelSpec) for this user,
+    or None to fall back to the legacy env-provider path.
+
+    A paid-tier model is only kept if the user's api_credits balance clears
+    the pre-flight estimate; otherwise we degrade to the FREE-tier default
+    rather than refusing the parse outright.
+    """
+    from bot.config.llm_models import resolve_model
+    from bot.services import llm_credit_service
+
+    try:
+        user_ctx = await llm_credit_service.get_llm_user_context(user_id)
+        if user_ctx is None:
+            return None
+        spec = resolve_model(user_ctx.tier, user_ctx.llm_model_pref)
+        # Billing gates on spec.metered, NOT min_tier: a FREE-selectable model
+        # (claude-haiku, gpt-4o-mini) is still metered — otherwise any FREE
+        # user could burn the platform's expensive keys for nothing.
+        if spec.metered and not await llm_credit_service.check_allowance(user_ctx.db_user_id, spec):
+            logger.info(
+                "nl_intent_service: insufficient credits for %s, degrading to default model",
+                spec.friendly_name,
+            )
+            spec = resolve_model(user_ctx.tier, None)
+            if spec.metered:
+                return None
+        return user_ctx, spec
+    except Exception:
+        logger.exception("nl_intent_service: multi-provider resolution failed")
+        return None
 
 
 async def parse_trade_intent(
@@ -451,7 +659,22 @@ async def parse_trade_intent(
         return deterministic_intent
 
     # 2. LLM fallback — gated by the daily caps (deterministic misses only).
-    if _llm_fallback_cap_exceeded(user_id):
+    #
+    # These counters are process-local and call-counted. When the cost-weighted
+    # Redis budget is active it supersedes them entirely: leaving both in place
+    # would hard-stop every user at 30 calls per replica per day, so the
+    # tier-scaled spend allowance (and the whole point of PREMIUM headroom)
+    # could never be reached. The budget below is strictly better — shared
+    # across replicas, survives deploys, and prices a flagship call at ~14x a
+    # cheap one instead of counting both as "1".
+    # The budget only supersedes this cap when it is actually enforcing
+    # something. With both ceilings set to 0 the budget is disabled, so
+    # dropping the legacy cap too would leave LLM calls entirely unbounded.
+    _budget_active = settings.LLM_MULTI_PROVIDER_ENABLED and (
+        (settings.LLM_BUDGET_PER_USER_DAILY_USD or 0) > 0
+        or (settings.LLM_BUDGET_GLOBAL_DAILY_USD or 0) > 0
+    )
+    if not _budget_active and _llm_fallback_cap_exceeded(user_id):
         logger.info(
             "nl_intent_service: LLM fallback daily cap exceeded, degrading without LLM call",
             extra={"source": "fallback-capped"},
@@ -459,6 +682,24 @@ async def parse_trade_intent(
         return _capped_fallback()
 
     provider, api_key, base_url, model = _resolve_provider_config()
+
+    # Multi-provider routing (platform-funded, credit-metered). When enabled
+    # and the user resolves to a catalog model, override the env-provider
+    # choice; on any resolution failure fall back to the legacy path above.
+    user_ctx = None
+    spec = None
+    if settings.LLM_MULTI_PROVIDER_ENABLED and user_id is not None:
+        resolved = await _resolve_user_model(user_id)
+        if resolved is not None:
+            from bot.config.llm_providers import ANTHROPIC, PROVIDERS, get_api_key
+
+            user_ctx, spec = resolved
+            provider_cfg = PROVIDERS[spec.provider]
+            provider = "anthropic" if provider_cfg.call_style == ANTHROPIC else spec.provider
+            api_key = get_api_key(spec.provider)
+            base_url = provider_cfg.base_url
+            model = spec.model_id
+
     if not api_key:
         return _fallback()
 
@@ -469,19 +710,120 @@ async def parse_trade_intent(
         text, source="nl_intent", user_id=str(user_id) if user_id is not None else None
     )
 
+    # Rolling cost-weighted spend budget (Redis-backed, shared across
+    # replicas). Reserve a conservative estimate BEFORE the call so a burst of
+    # concurrent messages can't all clear a check against the same stale
+    # balance; the unused remainder is returned after settlement below.
+    # Applies to every catalog model — even a free-to-the-user call costs the
+    # platform money.
+    reserved_micros = 0
+    budget_user_key = None
+    budget_spec = spec
+    budget_tier = user_ctx.tier if user_ctx is not None else None
+    if settings.LLM_MULTI_PROVIDER_ENABLED:
+        from bot.services import llm_credit_service
+
+        if spec is not None and user_ctx is not None:
+            budget_user_key = user_ctx.db_user_id
+        else:
+            # Resolution fell through to the legacy env-provider path — an
+            # unknown user, or a transient DB error swallowed by
+            # _resolve_user_model. That path previously had NO budget and NO
+            # metering, so a database blip silently converted the fleet to
+            # unmetered LLM calls. Budget it anyway: key off the Telegram id
+            # (namespaced so it can't collide with a db user id) and reserve
+            # against the priciest catalog model, since the real cost basis
+            # is unknown here.
+            budget_user_key = f"tg:{user_id}"
+            budget_spec = llm_credit_service.worst_case_spec()
+            logger.warning(
+                "nl_intent_service: LLM call on the legacy env-provider path — "
+                "budgeting conservatively, no per-user credit metering applies"
+            )
+
+        allowed, reserved_micros = await llm_credit_service.reserve_budget(
+            budget_user_key, budget_spec, budget_tier
+        )
+        if not allowed:
+            # Degrade rather than wall: a trading bot that stops understanding
+            # messages reads as broken. The deterministic parser and /s remain.
+            return _capped_fallback()
+
     try:
         _record_llm_fallback_call(user_id)
         if provider == "anthropic":
-            intent = await _parse_with_anthropic(text, context, api_key=api_key, model=model)
+            intent, usage = await _parse_with_anthropic(text, context, api_key=api_key, model=model)
         else:
-            intent = await _parse_with_openai_compatible(
+            intent, usage = await _parse_with_openai_compatible(
                 text, context, api_key=api_key, base_url=base_url, model=model
             )
         logger.info("nl_intent_service: parsed via LLM path", extra={"source": "llm"})
-        return intent
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "nl_intent_service: failed to parse trade intent",
             extra={"source": "fallback-fail"},
         )
+        # Do NOT blanket-refund here. The SDKs retry internally, so a failure
+        # can mean up to three provider-billed attempts, and a read timeout
+        # arrives after generation already completed. Refunding on every
+        # exception would make failed calls free and repeatable. Only a
+        # provably pre-flight failure (never reached the provider) is refunded;
+        # everything else keeps the conservative reservation, which is exactly
+        # what it was reserved for.
+        if reserved_micros and budget_user_key is not None and _is_preflight_failure(exc):
+            from bot.services import llm_credit_service
+
+            await llm_credit_service.settle_budget(
+                budget_user_key, reserved_micros, 0.0, budget_tier
+            )
         return _fallback()
+
+    # MONEY-PATH: meter metered catalog models against api_credits, and settle
+    # the spend reservation to actual. Debit failures are logged loudly inside
+    # record_usage; the parsed intent is still returned — provider tokens are
+    # already spent, and eating the user's parse on an internal accounting
+    # error would double the damage.
+    if budget_user_key is not None:
+        from bot.services import llm_credit_service
+
+        try:
+            # Normalize ONCE so the ledger debit and the budget settlement
+            # price the identical usage. Doing this inside record_usage let a
+            # provider with missing usage fields settle the budget at $0 and
+            # refund the whole reservation while the ledger charged an estimate.
+            billable = billable_usage(
+                usage,
+                llm_credit_service.ESTIMATED_INPUT_TOKENS,
+                llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
+            )
+            actual_usd = llm_credit_service.raw_cost_usd(budget_spec, billable)
+            try:
+                _log_llm_cost(
+                    user_key=budget_user_key,
+                    spec=budget_spec,
+                    usage=billable,
+                    raw_usd=actual_usd,
+                    metered=bool(spec is not None and spec.metered),
+                    wire_model=model,
+                    wire_provider=provider,
+                    estimated=spec is None,
+                )
+            except Exception:
+                # Never let a logging failure forfeit the settlement below.
+                logger.exception("nl_intent_service: llm_cost logging failed")
+            try:
+                # The ledger only ever charges a real, resolved catalog model
+                # to a real DB user — never the legacy path's stand-in spec.
+                if spec is not None and user_ctx is not None and spec.metered:
+                    await llm_credit_service.record_usage(user_ctx.db_user_id, spec, billable)
+            except Exception:
+                logger.exception("nl_intent_service: record_usage failed after LLM call")
+            finally:
+                await llm_credit_service.settle_budget(
+                    budget_user_key, reserved_micros, actual_usd, budget_tier
+                )
+        except Exception:
+            # parse_trade_intent must never raise (module contract).
+            logger.exception("nl_intent_service: settlement failed after LLM call")
+
+    return intent

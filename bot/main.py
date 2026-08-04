@@ -63,6 +63,7 @@ from bot.handlers.paste_trade import (
     paste_check_hint_callback,
 )
 from bot.handlers.nl_trade import handle_nl_text
+from bot.handlers.llm_model import llm_model_command
 from bot.handlers.trending import (
     trending_command,
     trending_open_callback,
@@ -532,6 +533,9 @@ def add_handlers(application: Application) -> None:
         CallbackQueryHandler(paste_check_hint_callback, pattern="^paste_check_hint$")
     )
 
+    # LLM model preference for natural-language trading (multi-provider routing)
+    application.add_handler(CommandHandler("model", llm_model_command))
+
     # Trending (pull-only discovery): /trending + inline tile + token-view-to-buy.
     # Buy buttons funnel through paste_token + the swap "^pbuy_" entry_point.
     application.add_handler(CommandHandler("trending", trending_command))
@@ -807,6 +811,7 @@ async def post_init(application) -> None:
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("model", "🤖 AI model for natural-language trading"),
             BotCommand("support", "🆘 Contact support"),
             BotCommand("bug", "🐞 Report a bug"),
             BotCommand("set", "⚙️ Settings"),
