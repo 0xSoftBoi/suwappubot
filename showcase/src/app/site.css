@@ -6,7 +6,14 @@
    most one eyebrow per three sections.
    ========================================================================== */
 
-.sw { background: var(--bg); }
+/* Whisper-quiet dot-grid texture (D1): 1px dots at ~5% opacity, tiled under
+   the flat canvas colour. Barely visible at rest — the point is depth, not
+   pattern. */
+.sw {
+  background:
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1.6px) 0 0 / 26px 26px,
+    var(--bg);
+}
 
 .sw__sec {
   position: relative;
@@ -16,8 +23,67 @@
   border-top: 1px solid var(--line);
 }
 
+/* Full-height hairline rules framing the content column (D1/G1): each
+   section draws its own edge-to-edge pair, but since every section shares
+   the same max-width and centring, they line up into one continuous pair of
+   rules running the height of the page. */
+.sw__sec::before,
+.sw__sec::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+.sw__sec::before { left: 0; }
+.sw__sec::after { right: 0; }
+
+@media (max-width: 1024px) {
+  /* The framing rules read as noise once the column fills the viewport. */
+  .sw__sec::before, .sw__sec::after { display: none; }
+}
+
 /* The hero already ends on a field, so the first section needs no rule. */
 .sw__sec:first-of-type { border-top: 0; }
+
+/* ── Ruled section boundary (D1/G2): a tight stack of hairlines with tick
+   marks at a couple of major transitions, standing in for a designed
+   boundary object rather than a plain margin gap. Full-bleed, decorative. */
+.sw__ruler {
+  position: relative;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  height: 20px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--line) 0px, var(--line) 1px, transparent 1px, transparent 4px
+  );
+  background-size: 100% 18px;
+  background-repeat: no-repeat;
+  background-position: top;
+}
+
+.sw__ruler::before,
+.sw__ruler::after {
+  content: '+';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-faint);
+}
+.sw__ruler::before { left: clamp(1rem, 4vw, 2.5rem); }
+.sw__ruler::after { right: clamp(1rem, 4vw, 2.5rem); }
+
+@media (max-width: 640px) {
+  .sw__ruler { display: none; }
+}
 
 .sw__h2 {
   margin: 0;
@@ -38,6 +104,24 @@
   font-size: clamp(2.5rem, 5.4vw, 4rem);
   font-style: italic;
   line-height: 1.08;
+}
+
+.sw__quote { padding-top: clamp(3.5rem, 7vw, 5.5rem); }
+
+.sw__quote .sw__h2--quote {
+  position: relative;
+  padding-left: 0.15em;
+}
+
+/* A single oversized quotation mark, the way a testimonial would carry one —
+   this section is "quoting" a live API response instead of a person. */
+.sw__quote .sw__h2--quote::before {
+  content: '\201C';
+  position: absolute;
+  left: -0.5rem;
+  top: -0.35em;
+  font-size: 1.6em;
+  color: var(--sw-accent-subtle, rgba(229, 141, 43, 0.22));
 }
 
 .sw__lead {
@@ -219,6 +303,56 @@
   color: var(--fg-dim);
 }
 
+/* ── Security split panel (D7/E5) ────────────────────────────────
+   Full-bleed two-panel section: a textured dark panel carrying the eyebrow
+   and headline, a lighter panel carrying the fact rows. Breaks out of the
+   standard column, so the framing hairlines (.sw__sec::before/::after) and
+   fixed max-width don't apply here. */
+.sw__split-panel {
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+.sw__split-panel::before,
+.sw__split-panel::after { display: none; }
+
+.sw__split-panel > .reveal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.sw__split-panel__left,
+.sw__split-panel__right {
+  padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 4vw, 4rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sw__split-panel__left {
+  background:
+    radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1.6px) 0 0 / 22px 22px,
+    var(--bg);
+}
+.sw__split-panel__left .sw__h2 { max-width: 15ch; }
+.sw__split-panel__left .sw__lead { max-width: 36ch; }
+
+.sw__split-panel__right {
+  background: var(--bg-elev);
+  border-left: 1px solid var(--line);
+}
+.sw__split-panel__right .sw__cmds--security {
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin-top: 0;
+}
+.sw__split-panel__right .hd__btn { margin-top: 1.75rem; align-self: flex-start; }
+
+@media (max-width: 900px) {
+  .sw__split-panel > .reveal { grid-template-columns: 1fr; }
+  .sw__split-panel__right { border-left: 0; border-top: 1px solid var(--line); }
+}
+
 /* ── Split sections ──────────────────────────────────────────── */
 .sw__split > .reveal,
 .sw__split > div:first-child {
@@ -302,18 +436,28 @@
 
 .sw__tools li span { color: var(--fg-faint); }
 
+/* True-black code blocks (D9): floated on the section background rather than
+   matching it, so the syntax colour actually pops instead of blending into
+   --bg-elev like the rest of the page's panels. */
 .sw__code {
   margin: 0;
   padding: 1.25rem;
   border: 1px solid var(--line);
   border-radius: var(--r);
-  background: var(--bg-elev);
+  background: #050505;
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.85);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.7;
   color: var(--fg-dim);
   overflow-x: auto;
 }
+
+.sw__code .tok-str { color: #9FD8A0; }
+.sw__code .tok-kw { color: var(--sw-accent-muted, #BD7526); }
+.sw__code .tok-num { color: #7FB8D8; }
+.sw__code .tok-key { color: #E8C27A; }
+.sw__code .tok-punc { color: var(--fg-faint); }
 
 .sw__close { text-align: center; }
 .sw__close .sw__h2, .sw__close .sw__lead { margin-left: auto; margin-right: auto; }
@@ -389,6 +533,59 @@
 @media (max-width: 560px) {
   .sw__bignums-list { grid-template-columns: 1fr; }
   .sw__bignums-list li:nth-child(odd) { border-right: 0; padding-right: 0; }
+}
+
+/* ── Vendor facts (D8/E6) ─────────────────────────────────────────
+   One-line partner facts: name, one giant verified number (or a verified
+   word-fact where no number exists), one sentence. Held to a whisper of
+   depth — a top hairline and a faint wash, not a bordered card — so the
+   number stays the thing you look at. */
+.sw__vendors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+
+.sw__vendors li {
+  padding: 1.5rem 1.75rem 0 0;
+  border-top: 2px solid var(--sw-accent-subtle);
+}
+
+.sw__vendors li + li { margin-left: 1.75rem; border-left: 1px solid var(--line); padding-left: 1.75rem; }
+
+.sw__vendors-name {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.sw__vendors-big {
+  display: block;
+  margin-top: 0.4rem;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  line-height: 1;
+  color: var(--fg);
+}
+
+.sw__vendors p {
+  margin: 0.65rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 30ch;
+}
+
+@media (max-width: 900px) {
+  .sw__vendors { grid-template-columns: 1fr; gap: 1.75rem; }
+  .sw__vendors li + li { margin-left: 0; border-left: 0; padding-left: 0; }
 }
 
 /* ── Scale-boast row ───────────────────────────────────────────────
@@ -633,9 +830,18 @@
   border-bottom: 1px solid var(--line);
 }
 
-.stages__tok { color: var(--fg); font-size: 0.8125rem; font-weight: 600; }
-.stages__chain { color: var(--fg-faint); }
-.stages__arrow { color: var(--accent); padding: 0 0.2rem; }
+.stages__tok { color: var(--fg-faint); font-size: 0.6875rem; }
+/* Giant chain-name headers (D5): the two real chains a journey actually
+   moves between — Base, Solana, Tron — given the oversized-entity-name
+   treatment, sized well past the token/venue labels around them. */
+.stages__chain {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.35rem;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+.stages__arrow { color: var(--accent); padding: 0 0.3rem; font-size: 1.1rem; }
 
 .stages__list { list-style: none; margin: 0; padding: 0.5rem 0 0; }
 
@@ -852,39 +1058,15 @@
    bordered panel (matches .sw__panel's weight) so they read as a single
    fetched object, with the fetch link as its own row rather than a button —
    this is a citation, not a CTA. */
+/* The JSON artifact now carries the frame (.sw__code), so this wrapper is
+   just a measure + the fetch link underneath — a citation, not a card. */
 .sw__proof-card {
   margin-top: 2rem;
-  padding: 1.75rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--bg-elev);
+  max-width: 30rem;
 }
 
-.sw__proof-fields {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.25rem 1rem;
-  margin: 0 0 1.5rem;
-  padding: 0 0 1.5rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.sw__proof-fields dt {
-  margin: 0 0 0.35rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--fg-faint);
-}
-
-.sw__proof-fields dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--fg);
-  word-break: break-word;
-}
+.sw__code--card { font-size: 0.875rem; }
+.sw__proof-card .sw__proof-link { margin-top: 1.1rem; }
 
 .sw__proof-link {
   display: inline-flex;
@@ -903,7 +1085,10 @@
 /* ── Proof-not-promises grid ─────────────────────────────────────
    Reuses .sw__surface's card treatment (see Surfaces, above) so three real,
    checkable links get the same weight as the three product entry points —
-   the point of the section is that this is not a lesser claim. */
+   the point of the section is that this is not a lesser claim. Restyled as
+   product output (D5): a dashed frame instead of the solid one everywhere
+   else on the page, plus corner registration marks, so these three read as
+   captured artifacts rather than more marketing cards. */
 .sw__artifacts {
   list-style: none;
   margin: 2.5rem 0 0;
@@ -912,6 +1097,24 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
 }
+
+.sw__artifacts .sw__surface {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+
+.sw__artifacts .sw__surface::before,
+.sw__artifacts .sw__surface::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--fg-faint);
+  opacity: 0.6;
+  pointer-events: none;
+}
+.sw__artifacts .sw__surface::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; }
+.sw__artifacts .sw__surface::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
 
 /* ── Security list ───────────────────────────────────────────────
    The security bullets reuse .sw__cmds's row treatment, just with longer

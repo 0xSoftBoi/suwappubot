@@ -12,6 +12,7 @@ import FaqAccordion from '@/components/FaqAccordion';
 import { getTranslations } from 'next-intl/server';
 import productStats from '@/data/stats.generated.json';
 import { TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import { highlightTs, highlightJson, type Token } from '@/lib/highlight';
 import './hero-e/hero-e.css';
 import './site.css';
 
@@ -127,6 +128,22 @@ const AGENT_CARD_FIELDS = [
   { k: 'auth', v: 'bearer · suwappu_sk_…' },
 ];
 
+/** Same fields as AGENT_CARD_FIELDS, formatted the way they actually come
+ *  back from the agent card, for the pull-quote section's JSON artifact. */
+const AGENT_CARD_JSON = `{\n${AGENT_CARD_FIELDS.map((f) => `  "${f.k}": "${f.v}"`).join(',\n')}\n}`;
+
+/** Renders pre-tokenized code (see src/lib/highlight.ts) as coloured spans
+ *  inside a true-black block (D9) — small enough not to need a dependency. */
+function Code({ tokens }: { tokens: Token[] }) {
+  return (
+    <>
+      {tokens.map((t, i) =>
+        t.cls ? <span key={i} className={`tok-${t.cls}`}>{t.text}</span> : <span key={i}>{t.text}</span>
+      )}
+    </>
+  );
+}
+
 /** Real, checkable endpoints — no invented data. Each row is something a
  *  visitor can open in a new tab and read the raw response of. */
 const PROOF_ARTIFACTS = [
@@ -147,6 +164,29 @@ const PROOF_ARTIFACTS = [
     meta: 'GET /llms.txt',
     href: '/llms.txt',
     d: 'A plain-text map of the whole API, built for an LLM to ingest directly.',
+  },
+];
+
+/** One verified fact per integration partner (D8), each with the single
+ *  giant number that backs it — or, where no verified number exists
+ *  (Jupiter), a verified word-fact instead. Sourced from bot/config/settings.py
+ *  (HyperLiquid builder fee) and the Tempo copy already stated below (gasless
+ *  swap cost) — never a new, uncited number. */
+const VENDORS = [
+  {
+    name: 'HyperLiquid',
+    big: '1bp',
+    d: 'Default builder fee on every perp trade routed through Suwappu, before any referral reward.',
+  },
+  {
+    name: 'Tempo',
+    big: '~$0.001',
+    d: 'Suwappu-sponsored gas per swap on Tempo. Falls back to a normal swap if sponsorship is unavailable.',
+  },
+  {
+    name: 'Jupiter',
+    big: 'Native',
+    d: `The default router for every Solana swap, with fee collection through Jupiter's own referral accounts.`,
   },
 ];
 
@@ -242,24 +282,22 @@ export default async function Home() {
           </Reveal>
         </section>
 
-        {/* ── Proof card ───────────────────────────────────────── */}
-        <section className="sw__sec sw__proof" aria-label="Verifiable agent registry entry">
+        {/* ── Pull-quote moment: the A2A registry entry ───────────
+             The statement carries the section on its own, full-width italic
+             serif, the way a testimonial would — except what it's quoting
+             is a live API response, not a person. */}
+        <section className="sw__sec sw__proof sw__quote" aria-label="Verifiable agent registry entry">
           <Reveal>
             <p className="sw__eyebrow">Registered, not claimed</p>
-            <h2 className="sw__h2">A live entry in the A2A agent registry, not a screenshot of one.</h2>
+            <h2 className="sw__h2 sw__h2--quote">
+              A live entry in the A2A agent registry, not a screenshot of one.
+            </h2>
             <p className="sw__lead">
-              The fields below are the actual response from the agent card, fetched at build
+              The object below is the actual response from the agent card, fetched at build
               time. Open the link and compare it yourself; nothing here is written for this page.
             </p>
             <div className="sw__proof-card">
-              <dl className="sw__proof-fields">
-                {AGENT_CARD_FIELDS.map((f) => (
-                  <div key={f.k}>
-                    <dt>{f.k}</dt>
-                    <dd>{f.v}</dd>
-                  </div>
-                ))}
-              </dl>
+              <pre className="sw__code sw__code--card"><code><Code tokens={highlightJson(AGENT_CARD_JSON)} /></code></pre>
               <a
                 className="sw__proof-link"
                 href="https://api.suwappu.bot/.well-known/agent.json"
@@ -271,6 +309,8 @@ export default async function Home() {
             </div>
           </Reveal>
         </section>
+
+        <div className="sw__ruler" aria-hidden="true" />
 
         {/* ── Engine ───────────────────────────────────────────── */}
         <section id="engine" className="sw__sec sw__sec--wide" aria-label="How the engine works">
@@ -306,6 +346,21 @@ export default async function Home() {
                   <span className="sw__bignums-v">{s.v}</span>
                   <span className="sw__bignums-l">{s.l}</span>
                   <p className="sw__bignums-d">{s.d}</p>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+        </section>
+
+        {/* ── Vendor facts (D8) ─────────────────────────────────── */}
+        <section className="sw__sec sw__sec--quiet" aria-label="Verified integration facts">
+          <Reveal>
+            <ul className="sw__vendors">
+              {VENDORS.map((v) => (
+                <li key={v.name}>
+                  <span className="sw__vendors-name">{v.name}</span>
+                  <span className="sw__vendors-big">{v.big}</span>
+                  <p>{v.d}</p>
                 </li>
               ))}
             </ul>
@@ -449,28 +504,37 @@ export default async function Home() {
                 </a>
               </div>
             </div>
-            <pre className="sw__code"><code>{SDK}</code></pre>
+            <pre className="sw__code"><code><Code tokens={highlightTs(SDK)} /></code></pre>
           </Reveal>
         </section>
 
-        {/* ── Security ─────────────────────────────────────────── */}
-        <section id="security" className="sw__sec" aria-label="Security and custody">
+        <div className="sw__ruler" aria-hidden="true" />
+
+        {/* ── Security: split panel (D7) ───────────────────────────
+             Left: dark textured panel carrying the mono eyebrow + serif
+             headline. Right: the four fact rows on a lighter ground, the way
+             a real chart sits opposite the statement in the reference. */}
+        <section id="security" className="sw__sec sw__split-panel" aria-label="Security and custody">
           <Reveal>
-            <p className="sw__eyebrow">Security &amp; trust</p>
-            <h2 className="sw__h2">Built to move money safely.</h2>
-            <p className="sw__lead">
-              Real funds move across {productStats.platformChains} chains through this. Here is
-              exactly what protects them, and what is still on the roadmap rather than done.
-            </p>
-            <dl className="sw__cmds sw__cmds--security">
-              {SECURITY.map((s) => (
-                <div key={s.k}>
-                  <dt>{s.k}</dt>
-                  <dd>{s.d}</dd>
-                </div>
-              ))}
-            </dl>
-            <a className="hd__btn hd__btn--ghost" href="/security">Read the full security page</a>
+            <div className="sw__split-panel__left">
+              <p className="sw__eyebrow">Security &amp; trust</p>
+              <h2 className="sw__h2">Built to move money safely.</h2>
+              <p className="sw__lead">
+                Real funds move across {productStats.platformChains} chains through this. Here is
+                exactly what protects them, and what is still on the roadmap rather than done.
+              </p>
+            </div>
+            <div className="sw__split-panel__right">
+              <dl className="sw__cmds sw__cmds--security">
+                {SECURITY.map((s) => (
+                  <div key={s.k}>
+                    <dt>{s.k}</dt>
+                    <dd>{s.d}</dd>
+                  </div>
+                ))}
+              </dl>
+              <a className="hd__btn hd__btn--ghost" href="/security">Read the full security page</a>
+            </div>
           </Reveal>
         </section>
 
