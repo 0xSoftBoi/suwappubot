@@ -322,29 +322,49 @@ export default function BillingPanel({
               {credits ? 'Available for metered API usage' : ''}
             </span>
           </div>
-          <div className={styles.creditStats}>
-            <div>
-              <span className={styles.billingMeta}>Purchased</span>
-              <span className={styles.mono}>
-                {credits ? fmtUsd(credits.lifetime_purchased_usd) : '—'}
-              </span>
-            </div>
-            <div>
-              <span className={styles.billingMeta}>Used</span>
-              <span className={styles.mono}>
-                {credits ? fmtUsd(credits.lifetime_used_usd) : '—'}
-              </span>
-            </div>
-          </div>
+          {/* Lifetime totals are only meaningful once something has happened.
+              At zero they are three stacked $0.00s that teach nothing and
+              compete with the balance for attention. */}
+          {credits != null &&
+            (credits.lifetime_purchased_usd > 0 || credits.lifetime_used_usd > 0) && (
+              <div className={styles.creditStats}>
+                <div>
+                  <span className={styles.billingMeta}>Purchased</span>
+                  <span className={styles.mono}>
+                    {fmtUsd(credits.lifetime_purchased_usd)}
+                  </span>
+                </div>
+                <div>
+                  <span className={styles.billingMeta}>Used</span>
+                  <span className={styles.mono}>{fmtUsd(credits.lifetime_used_usd)}</span>
+                </div>
+              </div>
+            )}
         </div>
 
         <div className={styles.packGrid}>
           {(credits?.packs ?? []).map((p) => (
-            <div key={p.id} className={styles.packCard}>
+            // Highlight the best-value pack rather than shipping three
+            // identical cards and making the reader do the arithmetic. Chosen
+            // by bonus, not hardcoded, so it follows CREDIT_PACKS.
+            <div
+              key={p.id}
+              className={styles.packCard}
+              data-recommended={
+                p.bonusPct > 0 &&
+                p.bonusPct === Math.max(...(credits?.packs ?? []).map((x) => x.bonusPct))
+                  ? true
+                  : undefined
+              }
+            >
               <div className={styles.packHead}>
                 <span className={styles.packName}>{fmtUsd(p.balanceUsd)} balance</span>
                 <span className={styles.packPrice}>{fmtUsd(p.chargeUsd)}</span>
               </div>
+              {p.bonusPct > 0 &&
+                p.bonusPct === Math.max(...(credits?.packs ?? []).map((x) => x.bonusPct)) && (
+                  <span className={styles.packFlag}>Best value</span>
+                )}
               <p className={styles.packBlurb}>
                 {p.bonusPct > 0
                   ? `+${p.bonusPct}% bonus — pay ${fmtUsd(p.chargeUsd)}, get ${fmtUsd(p.balanceUsd)}`
@@ -373,18 +393,19 @@ export default function BillingPanel({
           <h3 className={styles.billingBlockTitle} style={{ margin: 0 }}>
             Invoices
           </h3>
-          <button
-            className={styles.actionBtn}
-            onClick={() => void openPortal()}
-            disabled={anyBusy || invoices?.has_customer === false}
-            title={
-              invoices?.has_customer === false
-                ? 'Available once you have completed a card payment'
-                : 'Manage payment methods, download receipts, or cancel'
-            }
-          >
-            {busy === 'portal' ? 'Opening Stripe…' : 'Manage payment methods'}
-          </button>
+          {/* Only rendered once there is something to manage. A permanently
+              greyed-out button with the reason hidden in a title attribute
+              reads as broken — the reason is stated in the empty state below
+              instead, where it is actually visible. */}
+          {invoices?.has_customer !== false && (
+            <button
+              className={styles.actionBtn}
+              onClick={() => void openPortal()}
+              disabled={anyBusy}
+            >
+              {busy === 'portal' ? 'Opening Stripe…' : 'Manage payment methods'}
+            </button>
+          )}
         </div>
 
         {invoices && invoices.invoices.length > 0 ? (
