@@ -1016,6 +1016,27 @@ def _compute_source_fingerprint() -> str:
 SOURCE_FINGERPRINT = _compute_source_fingerprint()
 
 
+@app.get("/admin/activation-funnel", tags=["Admin"], summary="Activation funnel")
+async def admin_activation_funnel(_: str = Depends(get_admin_key)):
+    """Where new users stop: signup -> wallet -> quote -> swap.
+
+    Built because the product had 43 users, 77 wallets and zero completed swaps,
+    and nothing could say WHICH step they stopped at. `biggest_drop` names the
+    worst step by retention against the one before it.
+
+    `not_instrumented` lists stages that cannot be measured at all — currently
+    "funded", because no table persists a balance. That is reported explicitly
+    so a missing stage is never read as a stage with zero users.
+    """
+    from bot.services.activation_funnel import activation_funnel
+
+    try:
+        return activation_funnel.compute()
+    except Exception as e:
+        logger.error(f"activation funnel failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Funnel unavailable")
+
+
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
 async def health_live():
     """K8s/ECS liveness probe — confirms the process is alive.

@@ -927,6 +927,10 @@ agentRoutes.post('/quote', async (c) => {
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
+				// Attribution for the counterfactual capture. This is what makes
+				// the agent-vs-human split real — without it every captured
+				// route is anonymous.
+				agentId: agent.id,
 			}
 
 			// Get quote from Li.Fi
