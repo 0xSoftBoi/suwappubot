@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { registerAuth } from "./commands/auth.js";
 import { registerBilling } from "./commands/billing.js";
@@ -12,6 +13,10 @@ import { registerSwap } from "./commands/swap.js";
 import { registerSwapStatus } from "./commands/swapStatus.js";
 import { registerTokens } from "./commands/tokens.js";
 
+// Read the real version at runtime — a hardcoded literal here drifted to 0.2.0
+// while the package was 0.5.2. Depth is the same from src/cli/ and dist/cli/.
+const { version } = createRequire(import.meta.url)("../../package.json") as { version: string };
+
 const program = new Command();
 
 program
@@ -19,7 +24,7 @@ program
   .description(
     "Suwappu CLI — cross-chain DEX quotes, swaps, and agent account management from your terminal",
   )
-  .version("0.2.0")
+  .version(version)
   .option("-o, --output <format>", "Output format: human or json", "human")
   .option("--api-key <key>", "Suwappu API key (overrides SUWAPPU_API_KEY and saved config)")
   .option("--base-url <url>", "Override the API base URL (overrides SUWAPPU_API_URL)");

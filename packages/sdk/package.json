@@ -2,9 +2,19 @@
   "name": "@suwappu/sdk",
   "version": "0.5.2",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "description": "TypeScript client for the Suwappu cross-chain DEX API",
+  "homepage": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xSoftBoi/suwappubot.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/0xSoftBoi/suwappubot/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +29,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
