@@ -308,6 +308,118 @@
 .sw__close .sw__h2, .sw__close .sw__lead { margin-left: auto; margin-right: auto; }
 .sw__close .hd__cta { justify-content: center; }
 
+/* ── Oversized-numeral stat band ──────────────────────────────────
+   Typography, not a chart: four giant tabular numerals with a mono label
+   and a one-line literal caption. No icons, no cards — the ramp gives the
+   numerals depth (a tinted wash behind, an accent-muted top rule) instead
+   of the flat on/off accent used elsewhere on the page. */
+.sw__bignums {
+  background:
+    radial-gradient(120% 160% at 50% 0%, var(--sw-accent-faint), transparent 60%);
+}
+
+.sw__bignums-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+.sw__bignums-list li {
+  padding: 0 1.5rem 0 0;
+  border-top: 2px solid var(--sw-accent-subtle);
+  padding-top: 1.25rem;
+}
+
+.sw__bignums-list li + li { border-left: 1px solid var(--line); padding-left: 1.5rem; }
+
+.sw__bignums-v {
+  display: block;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.75rem, 7vw, 4.75rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--fg);
+  background: linear-gradient(160deg, var(--fg) 55%, var(--sw-accent-muted) 130%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.sw__bignums-l {
+  display: block;
+  margin-top: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sw-accent-muted);
+}
+
+.sw__bignums-d {
+  margin: 0.5rem 0 0;
+  max-width: 22ch;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--fg-faint);
+  text-wrap: balance;
+}
+
+@media (max-width: 900px) {
+  .sw__bignums-list { grid-template-columns: repeat(2, 1fr); gap: 1.75rem 0; }
+  .sw__bignums-list li + li { border-left: 0; padding-left: 0; }
+  .sw__bignums-list li:nth-child(odd) { padding-right: 1.5rem; border-right: 1px solid var(--line); }
+}
+
+@media (max-width: 560px) {
+  .sw__bignums-list { grid-template-columns: 1fr; }
+  .sw__bignums-list li:nth-child(odd) { border-right: 0; padding-right: 0; }
+}
+
+/* ── Scale-boast row ───────────────────────────────────────────────
+   One quiet row above the Close CTA — the closing credibility flex.
+   Understated on purpose: mono, no borders around each item, just a
+   single hairline under the whole row. */
+.sw__scalerow-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem 3rem;
+  margin: 0;
+  padding: 0 0 1.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.sw__scalerow-list > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+}
+
+.sw__scalerow-list dd {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--sw-accent-muted);
+}
+
+.sw__scalerow-list dt {
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+@media (max-width: 560px) {
+  .sw__scalerow-list { gap: 1rem 1.5rem; justify-content: flex-start; }
+}
+
 /* ── The agent handoff, restyled for the dark register ───────── */
 .sw .sw-handoff { margin-top: 2.25rem; }
 

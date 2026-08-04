@@ -87,6 +87,27 @@ const PERPS = [
   { c: '/spot', d: 'Trade HyperLiquid spot and move USDC between spot and perp wallets instantly.' },
 ];
 
+/** Oversized-numeral stat band, after Engine. Every value here is either
+ *  read live from stats.generated.json/MCP_TOOLS, or hardcoded against a
+ *  verified count noted inline — never estimated. */
+const BIG_STATS = [
+  { v: String(productStats.platformChains), l: 'chains', d: 'Bot and terminal surface, testnets excluded.' },
+  { v: String(productStats.routerCount), l: 'venues', d: 'Quote providers raced per swap, chain-gated.' },
+  // 53 distinct symbols registered in bot/config/tokens.py.
+  { v: '53', l: 'tokens', d: 'Symbols registered across every supported chain.' },
+  { v: String(MCP_TOOLS.length), l: 'MCP tools', d: 'One remote server, callable by any agent.' },
+];
+
+/** Closing credibility row, reusing the same verified counts above plus the
+ *  bot's i18n language count (bot/i18n.py: en, es, fr, zh). */
+const SCALE_ROW = [
+  { v: String(productStats.routerCount), l: 'venues routed' },
+  { v: String(productStats.platformChains), l: 'chains' },
+  { v: '53', l: 'tokens listed' },
+  { v: String(MCP_TOOLS.length), l: 'MCP tools' },
+  { v: '4', l: 'languages' },
+];
+
 const SDK = `import { Suwappu } from "@suwappu/sdk";
 
 const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
@@ -276,6 +297,21 @@ export default async function Home() {
           </Reveal>
         </section>
 
+        {/* ── Scale, in numerals ───────────────────────────────── */}
+        <section className="sw__sec sw__sec--quiet sw__bignums" aria-label="Platform scale">
+          <Reveal>
+            <ul className="sw__bignums-list">
+              {BIG_STATS.map((s) => (
+                <li key={s.l}>
+                  <span className="sw__bignums-v">{s.v}</span>
+                  <span className="sw__bignums-l">{s.l}</span>
+                  <p className="sw__bignums-d">{s.d}</p>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+        </section>
+
         {/* ── Proof, not promises ──────────────────────────────── */}
         <section className="sw__sec" aria-label="Live artifacts you can check yourself">
           <Reveal>
@@ -444,6 +480,20 @@ export default async function Home() {
             <p className="sw__eyebrow">Questions</p>
             <h2 className="sw__h2">Before you connect a wallet.</h2>
             <FaqAccordion items={FAQ} />
+          </Reveal>
+        </section>
+
+        {/* ── Scale boast ──────────────────────────────────────── */}
+        <section className="sw__sec sw__sec--quiet sw__scalerow" aria-label="Infrastructure at a glance">
+          <Reveal>
+            <dl className="sw__scalerow-list">
+              {SCALE_ROW.map((s) => (
+                <div key={s.l}>
+                  <dt>{s.l}</dt>
+                  <dd>{s.v}</dd>
+                </div>
+              ))}
+            </dl>
           </Reveal>
         </section>
 
