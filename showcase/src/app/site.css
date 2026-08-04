@@ -68,6 +68,35 @@
   background-position: top;
 }
 
+/* ── Micro-text strip (item 5): a thin repeating mono all-caps band marking
+   a section boundary, in muted leaf at low opacity — our version of
+   greptile's lavender "TEST · RUN · EXECUTE" strip. Static (no marquee):
+   the point is texture, not motion, and it sidesteps a reduced-motion
+   branch entirely. Full-bleed like .sw__ruler above. */
+.sw__microstrip {
+  position: relative;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.sw__microstrip span {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--sw-leaf-muted);
+  opacity: 0.55;
+}
+@media (max-width: 640px) {
+  .sw__microstrip { padding: 0.6rem 0; }
+}
+
 .sw__ruler::before,
 .sw__ruler::after {
   content: '+';
@@ -211,6 +240,12 @@
   font-weight: 600;
   color: var(--fg);
 }
+
+/* Route coding (labels/numbers only): same three-way system as the
+   quote-race stages above — Quote≈SWAP, Simulate≈BRIDGE, Sign=SIGN. */
+.sw__step--swap .sw__step-n, .sw__step--swap h3 { color: var(--sw-accent-bright); }
+.sw__step--bridge .sw__step-n, .sw__step--bridge h3 { color: var(--sw-leaf-bright); }
+.sw__step--sign .sw__step-n, .sw__step--sign h3 { color: var(--sw-cream); }
 
 .sw__steps p {
   margin: 0;
@@ -444,7 +479,9 @@
   padding: 1.25rem;
   border: 1px solid var(--line);
   border-radius: var(--r);
-  background: #050505;
+  /* Still near-black (D9: syntax colour needs to pop against something
+     darker than the surrounding soil section), but warm-tinted to match. */
+  background: #100B08;
   box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.85);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
@@ -453,7 +490,7 @@
   overflow-x: auto;
 }
 
-.sw__code .tok-str { color: #9FD8A0; }
+.sw__code .tok-str { color: var(--sw-leaf-bright, #8FCC9E); }
 .sw__code .tok-kw { color: var(--sw-accent-muted, #BD7526); }
 .sw__code .tok-num { color: #7FB8D8; }
 .sw__code .tok-key { color: #E8C27A; }
@@ -498,8 +535,10 @@
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
-  color: var(--fg);
-  background: linear-gradient(160deg, var(--fg) 55%, var(--sw-accent-muted) 130%);
+  color: var(--sw-cream, #FAF3E6);
+  /* Cream (P3), not pure white — the oversized numerals get the same fruit-
+     flesh tone as the inverted chips and footer band. */
+  background: linear-gradient(160deg, var(--sw-cream, #FAF3E6) 55%, var(--sw-accent-muted) 130%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -855,11 +894,18 @@
   transition: background 0.25s ease, color 0.25s ease;
 }
 
-.stages__on { background: rgba(246, 169, 60, 0.08); }
-.stages__on .stages__kind, .stages__on .stages__venue { color: var(--accent); }
+/* Active-row highlight is a neutral wash — the semantic colour lives on the
+   kind label below, not on the row, so a leaf-coded BRIDGE row never sits on
+   a persimmon-tinted background. */
+.stages__on { background: rgba(255, 255, 255, 0.05); }
+.stages__on .stages__venue { color: var(--fg); }
 
 .stages__n { color: var(--fg-faint); opacity: 0.6; }
 .stages__kind { text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-dim); }
+/* Route coding (labels only): SWAP=persimmon, BRIDGE=leaf. Same system as
+   the Engine steps below. */
+.stages__kind--swap { color: var(--sw-accent-bright); }
+.stages__kind--bridge { color: var(--sw-leaf-bright); }
 .stages__venue { color: var(--fg-dim); }
 .stages__note { color: var(--fg-faint); }
 
@@ -1015,7 +1061,7 @@
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 12px;
   overflow: hidden;
-  background: #0a0a0b;
+  background: var(--sw-soil-0, #1C1310);
   /* Tinted to the page ground rather than pure black. */
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,

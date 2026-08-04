@@ -42,18 +42,24 @@ const RAIL = [
   { v: 'Sub-second', l: 'quote latency' },
 ];
 
+/** `role` drives the same three-way route coding used in RouteStages
+ *  (SWAP=persimmon, BRIDGE=leaf, SIGN=cream): Quote kicks off the route
+ *  decision, Simulate is the cross-chain middle step, Sign is literal. */
 const ENGINE = [
   {
     // Token count from bot/config/tokens.py (53 symbols registered).
     k: 'Quote',
+    role: 'swap',
     d: `Every venue that supports your route quotes it: ${productStats.routerCount} venues covering 53 tokens, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
   },
   {
     k: 'Simulate',
+    role: 'bridge',
     d: 'The winning path is simulated before you confirm. Bad fills, sandwich exposure and excess slippage surface while they are still avoidable.',
   },
   {
     k: 'Sign',
+    role: 'sign',
     d: 'You sign. Managed keys are secured by envelope encryption (kms_aesgcm_v2) or a hardware-backed TEE via Turnkey, per key, never a plaintext key Suwappu can read. Bring your own keys through the agent API for full self-custody.',
   },
 ];
@@ -108,6 +114,10 @@ const SCALE_ROW = [
   { v: String(MCP_TOOLS.length), l: 'MCP tools' },
   { v: '4', l: 'languages' },
 ];
+
+/** Micro-text boundary strip (item 5): a decorative repeating band, not
+ *  content — purely a section-boundary marker, so it is aria-hidden. */
+const MICRO_STRIP = 'QUOTE · SIMULATE · SIGN · '.repeat(24);
 
 const SDK = `import { Suwappu } from "@suwappu/sdk";
 
@@ -284,6 +294,8 @@ export default async function Home() {
           </Reveal>
         </section>
 
+        <div className="sw__microstrip" aria-hidden="true"><span>{MICRO_STRIP}</span></div>
+
         {/* ── Pull-quote moment: the A2A registry entry ───────────
              The statement carries the section on its own, full-width italic
              serif, the way a testimonial would — except what it's quoting
@@ -320,7 +332,7 @@ export default async function Home() {
             <h2 className="sw__h2">Three steps, every trade.</h2>
             <ol className="sw__steps sw__steps--cols">
               {ENGINE.map((s, i) => (
-                <li key={s.k}>
+                <li key={s.k} className={`sw__step--${s.role}`}>
                   <span className="sw__step-n">STEP {String(i + 1).padStart(2, '0')}</span>
                   <div>
                     <h3>{s.k}</h3>
@@ -368,6 +380,8 @@ export default async function Home() {
             </ul>
           </Reveal>
         </section>
+
+        <div className="sw__microstrip" aria-hidden="true"><span>{MICRO_STRIP}</span></div>
 
         {/* ── Proof, not promises ──────────────────────────────── */}
         <section className="sw__sec" aria-label="Live artifacts you can check yourself">

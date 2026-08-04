@@ -90,7 +90,9 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
   return (
     <div className={c}>
       <div className="lq__bar">
-        <span className="lq__title">
+        <span
+          className={`lq__title lq__title--${quote?.stale ? 'stale' : quote?.captured ? 'captured' : 'live'}`}
+        >
           {quote?.stale ? 'Last quote' : quote?.captured ? 'Captured quote' : 'Live quote'}
         </span>
         <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
