@@ -245,7 +245,9 @@ export default async function Home() {
           </p>
           <div className="hd__cta">
             <a className="hd__btn" href={TELEGRAM_URL}>{t('cta_bot')}</a>
-            <a className="hd__btn hd__btn--ghost" href={TERMINAL_URL}>{t('cta_terminal')}</a>
+            <a className="hd__textlink" href={TERMINAL_URL}>
+              {t('cta_terminal')} <span aria-hidden="true">→</span>
+            </a>
           </div>
 
           <Reveal className="hd__stage"><LiveQuote variant="dark" /></Reveal>

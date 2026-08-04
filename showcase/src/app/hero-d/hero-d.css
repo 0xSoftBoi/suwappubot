@@ -131,6 +131,23 @@
   box-shadow: inset 0 0 0 2px currentColor;
 }
 
+/* One text link beside the one primary CTA (D4) — no second button shape
+   competing with the primary. */
+.hd__textlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.72rem 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-decoration: none;
+  transition: color 0.18s ease, gap 0.18s ease;
+}
+.hd__textlink span { transition: transform 0.18s ease; }
+.hd__textlink:hover { color: var(--fg); }
+.hd__textlink:hover span { transform: translateX(3px); }
+
 /* ── The product ─────────────────────────────────────────────── */
 .hd__stage {
   position: relative;
