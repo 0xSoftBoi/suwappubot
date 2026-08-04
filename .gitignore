@@ -51,3 +51,6 @@ contracts/lib/openzeppelin-contracts/package-lock.json
 
 # AEGIS runtime state/telemetry (bot/services/aegis_service.py)
 .aegis/
+
+# MCP registry publish tokens (were committed once — never again)
+.mcpregistry_*

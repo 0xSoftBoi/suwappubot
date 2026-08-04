@@ -34,6 +34,23 @@ jobs:
       - name: Build @suwappu/openclaw
         run: cd packages/openclaw && bun install && bun run build
 
+      - name: Build @suwappu/mcp-server
+        run: cd packages/mcp-server && bun install && bun run build
+
+      # The bundled binary must actually start. A duplicated shebang once made
+      # dist/index.js a SyntaxError, which no build step would have caught.
+      - name: Smoke-test mcp-server binary
+        run: |
+          cd packages/mcp-server
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | SUWAPPU_API_KEY=ci_dummy timeout 30 node dist/index.js > /tmp/mcp-out.json
+          grep -q '"serverInfo"' /tmp/mcp-out.json
+          grep -q '"tools"' /tmp/mcp-out.json
+          echo "mcp-server responds to initialize + tools/list"
+
       # Publishes are version-guarded so a re-run (or a tag covering an
       # already-published package) is a no-op instead of a hard failure.
       - name: Publish @suwappu/sdk
@@ -54,6 +71,18 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           if npm view "@suwappu/openclaw@$VERSION" version >/dev/null 2>&1; then
             echo "@suwappu/openclaw@$VERSION already published — skipping."
+          else
+            npm publish --access public --provenance
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @suwappu/mcp-server
+        run: |
+          cd packages/mcp-server
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@suwappu/mcp-server@$VERSION" version >/dev/null 2>&1; then
+            echo "@suwappu/mcp-server@$VERSION already published — skipping."
           else
             npm publish --access public --provenance
           fi
