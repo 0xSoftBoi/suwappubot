@@ -12,6 +12,86 @@ html {
 }
 
 /* ================================================================
+   PHASE 1 — dark / monochrome + persimmon design system
+   Canvas near-black, off-white text, one accent. Shared shell
+   (Navigation, SummerFooter, layout) and the homepage run on this.
+   Legacy pages (pricing/agents/etc.) keep .summer-page below until
+   their Phase 2/3 passes land — do not remove that block.
+   ================================================================ */
+:root {
+  --canvas-0: #0a0b0d;
+  --canvas-1: #111318;
+  --canvas-2: #1a1d23;
+  --ink-0: #f5f6f7;
+  --ink-1: #8b92a0;
+  --accent: #e58d2b;
+  --accent-hover: #f2a04a;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-panel: 16px;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark-shell {
+  background: var(--canvas-0);
+  color: var(--ink-0);
+  min-height: 100vh;
+}
+
+/* Vercel-style subtle dot grid texture. Fixed so it doesn't scroll with content. */
+.bg-dot-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(245, 246, 247, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 100%);
+}
+
+/* Kinetic word-swap for the hero headline — one word fades/slides out, next fades in. */
+@keyframes kinetic-swap-out {
+  0% { opacity: 1; transform: translateY(0); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(-0.4em); filter: blur(4px); }
+}
+@keyframes kinetic-swap-in {
+  0% { opacity: 0; transform: translateY(0.4em); filter: blur(4px); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.kinetic-word {
+  display: inline-block;
+  animation: kinetic-swap-in 0.5s var(--ease-standard) both;
+}
+.kinetic-word--out {
+  animation: kinetic-swap-out 0.4s var(--ease-standard) both;
+}
+
+/* Scroll fade-up utility — pair with an IntersectionObserver/whileInView toggle of .is-visible. */
+.fade-up {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s var(--ease-standard), transform 0.6s var(--ease-standard);
+}
+.fade-up.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kinetic-word,
+  .kinetic-word--out {
+    animation: none !important;
+  }
+  .fade-up {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+/* ================================================================
    Summer Breeze production homepage
    ================================================================ */
 .summer-page {
@@ -496,77 +576,8 @@ html {
   max-width: 560px;
 }
 
-/* /for-agents page — "three ways to connect" + discovery row. */
-.agents-connect {
-  display: grid;
-  gap: 16px;
-  margin-top: 1rem;
-}
-.agents-connect__item {
-  padding: 20px;
-  border: 1px solid var(--summer-line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
-}
-.agents-connect__item > h2 {
-  margin: 0 0 4px;
-  color: var(--summer-ink);
-  font-size: 1.05rem;
-}
-.agents-connect__item > p {
-  margin: 0 0 14px;
-  color: var(--summer-muted);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-.agents-connect .summer-code {
-  border: 1px solid var(--summer-line);
-  border-radius: 10px;
-}
-.agents-connect .summer-code code {
-  white-space: pre;
-}
-.agents-connect .summer-code pre {
-  overflow-x: auto;
-}
-.agents-verify {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 1rem;
-}
-.agents-verify a {
-  display: block;
-  padding: 16px;
-  border: 1px solid var(--summer-line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
-  text-decoration: none;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.agents-verify a:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 30px rgba(33, 88, 110, 0.12);
-}
-.agents-verify b {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--summer-ink);
-  font-size: 0.95rem;
-  font-family: var(--font-mono);
-}
-.agents-verify span {
-  color: var(--summer-muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
-}
-@media (max-width: 720px) {
-  .agents-verify {
-    grid-template-columns: 1fr 1fr;
-  }
-}
+/* /for-agents page rebuilt on Tailwind utilities (see app/agents/page.tsx) —
+   .agents-connect / .agents-verify removed, no longer referenced. */
 
 /* Founder credibility byline — published book + verified upstream contributions. */
 .summer-hero__byline {

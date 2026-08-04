@@ -6,33 +6,32 @@ import { motion, AnimatePresence } from 'framer-motion';
 export type FaqItem = { q: string; a: string };
 
 /**
- * Generic single-open FAQ accordion. Used on the /agents landing page —
- * follows the same expand/collapse + chevron-rotate pattern as
- * components/docs/DocsAccordion.tsx, but for flat Q/A pairs instead of
- * doc-section trees.
+ * Generic single-open FAQ accordion, styled on the Phase 1 dark system
+ * (Tailwind utilities + --canvas/--ink/--accent tokens). Used on /agents
+ * and /pricing.
  */
 export default function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <div className="faq-accordion">
+    <div className="divide-y divide-white/10 rounded-card border border-white/10 bg-[var(--canvas-2)]">
       {items.map((item, i) => {
         const isOpen = openIndex === i;
         const panelId = `faq-panel-${i}`;
         const headerId = `faq-header-${i}`;
         return (
-          <div className={`faq-accordion__item${isOpen ? ' faq-accordion__item--open' : ''}`} key={item.q}>
-            <h3 className="faq-accordion__title">
+          <div key={item.q}>
+            <h3 className="m-0">
               <button
                 id={headerId}
-                className="faq-accordion__header"
+                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5 md:text-base"
                 onClick={() => setOpenIndex(isOpen ? null : i)}
                 aria-expanded={isOpen}
                 aria-controls={panelId}
               >
                 <span>{item.q}</span>
                 <motion.span
-                  className="faq-accordion__chevron"
+                  className="shrink-0 text-[var(--ink-1)]"
                   animate={{ rotate: isOpen ? 180 : 0 }}
                   transition={{ duration: 0.2 }}
                   aria-hidden="true"
@@ -49,13 +48,13 @@ export default function FaqAccordion({ items }: { items: FaqItem[] }) {
                   id={panelId}
                   role="region"
                   aria-labelledby={headerId}
-                  className="faq-accordion__content"
+                  className="overflow-hidden"
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.25, 0.4, 0.25, 1] }}
                 >
-                  <p className="faq-accordion__answer">{item.a}</p>
+                  <p className="px-5 pb-5 text-sm leading-relaxed text-[var(--ink-1)]">{item.a}</p>
                 </motion.div>
               )}
             </AnimatePresence>

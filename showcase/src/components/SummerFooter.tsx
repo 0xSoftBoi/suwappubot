@@ -59,31 +59,37 @@ const columns: { title: string; links: { label: string; href: string; external?:
 
 export default function SummerFooter() {
   return (
-    <footer className="summer-footer" aria-label="Site footer">
-      <div className="summer-footer__inner">
-        <div className="summer-footer__brand">
-          <a href="/" className="summer-footer__logo">
-            <img src="/logo.svg" alt="" aria-hidden="true" />
+    <footer aria-label="Site footer" className="border-t border-white/10 bg-[var(--canvas-1)]">
+      <div className="mx-auto grid max-w-7xl gap-12 px-6 py-16 md:grid-cols-[1.3fr_2.7fr] md:gap-8">
+        <div className="flex flex-col gap-4">
+          <a href="/" className="flex items-center gap-2 font-display text-lg font-medium text-[var(--ink-0)]">
+            <img src="/logo.svg" alt="" aria-hidden="true" className="h-6 w-6" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.</p>
-          <div className="summer-footer__social">
-            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
-            <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub">GitHub</a>
+          <p className="max-w-xs text-sm leading-relaxed text-[var(--ink-1)]">
+            Cross-chain execution for agents and humans — best-price swaps, HyperLiquid perps, and
+            gasless trades across 40+ chains.
+          </p>
+          <div className="flex gap-4 text-sm text-[var(--ink-1)]">
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)" className="hover:text-[var(--ink-0)]">X</a>
+            <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram" className="hover:text-[var(--ink-0)]">Telegram</a>
+            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="hover:text-[var(--ink-0)]">GitHub</a>
           </div>
         </div>
 
-        <nav className="summer-footer__cols" aria-label="Footer navigation">
+        <nav aria-label="Footer navigation" className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:grid-cols-5">
           {columns.map((col) => (
-            <div className="summer-footer__col" key={col.title}>
-              <h3>{col.title}</h3>
-              <ul>
+            <div key={col.title}>
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--ink-1)]">
+                {col.title}
+              </h3>
+              <ul className="flex flex-col gap-2">
                 {col.links.map((l) => (
                   <li key={l.label}>
                     <a
                       href={l.href}
                       {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                      className="text-sm text-[var(--ink-0)] transition-colors hover:text-[var(--accent)]"
                     >
                       {l.label}
                     </a>
@@ -95,7 +101,7 @@ export default function SummerFooter() {
         </nav>
       </div>
 
-      <div className="summer-footer__bottom">
+      <div className="mx-auto flex max-w-7xl flex-col gap-2 border-t border-white/5 px-6 py-6 text-xs text-[var(--ink-1)] md:flex-row md:justify-between">
         <span>&copy; 2026 Suwappu. All rights reserved.</span>
         <span>Non-custodial where you bring your own keys. Crypto trading carries risk.</span>
       </div>

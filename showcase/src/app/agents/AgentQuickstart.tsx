@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 
-// Tab definitions for "add your key" — same shape as the old /agents tab
-// widget, kept for the visual pattern (agents-tabs / agents-panel / agents-code).
+// Tab definitions for "add your key" — same shape as before, restyled onto
+// the Phase 1 dark system with Tailwind utilities.
 const TABS = [
   {
     id: 'mcp',
@@ -59,8 +59,8 @@ export default function AgentQuickstart() {
   const tab = TABS.find((t) => t.id === active)!;
 
   return (
-    <section className="agents-qs" aria-label="Add your key">
-      <div className="agents-tabs" role="tablist" aria-label="Integration surface">
+    <section aria-label="Add your key">
+      <div className="flex flex-wrap gap-1 rounded-control border border-white/10 bg-[var(--canvas-1)] p-1" role="tablist" aria-label="Integration surface">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -68,7 +68,11 @@ export default function AgentQuickstart() {
             aria-selected={active === t.id}
             aria-controls={`agents-panel-${t.id}`}
             id={`agents-tab-${t.id}`}
-            className={`agents-tab${active === t.id ? ' agents-tab--active' : ''}`}
+            className={`rounded-control px-3 py-1.5 text-xs font-medium transition-colors ${
+              active === t.id
+                ? 'bg-[var(--accent)] text-[#1a1108]'
+                : 'text-[var(--ink-1)] hover:text-[var(--ink-0)]'
+            }`}
             onClick={() => setActive(t.id)}
           >
             {t.label}
@@ -80,20 +84,20 @@ export default function AgentQuickstart() {
         id={`agents-panel-${tab.id}`}
         role="tabpanel"
         aria-labelledby={`agents-tab-${tab.id}`}
-        className="agents-panel"
+        className="mt-3"
       >
-        <div className="summer-code agents-code">
-          <div className="summer-code__bar">
-            <span />
-            <span />
-            <span />
-            <b>{tab.file}</b>
+        <div className="overflow-hidden rounded-card border border-white/10 bg-[var(--canvas-2)]">
+          <div className="flex items-center gap-1.5 border-b border-white/10 bg-[var(--canvas-1)] px-4 py-2.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+            <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+            <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+            <b className="ml-2 font-mono text-xs font-normal text-[var(--ink-1)]">{tab.file}</b>
           </div>
-          <pre>
-            <code>{tab.code}</code>
+          <pre className="overflow-x-auto p-4">
+            <code className="font-mono text-xs leading-relaxed text-[var(--ink-0)]">{tab.code}</code>
           </pre>
         </div>
-        {tab.caption && <p className="agents-caption">{tab.caption}</p>}
+        {tab.caption && <p className="mt-2 text-xs text-[var(--ink-1)]">{tab.caption}</p>}
       </div>
     </section>
   );

@@ -117,7 +117,8 @@ export default async function RootLayout({
         <link rel="author" type="text/plain" href="/llms.txt" />
         <link rel="canonical" href="https://suwappu.bot" />
       </head>
-      <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
+      <body className="dark-shell font-sans antialiased">
+        <div className="bg-dot-grid" aria-hidden="true" />
         <a href="#main-content" className="skip-to-content">Skip to content</a>
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}

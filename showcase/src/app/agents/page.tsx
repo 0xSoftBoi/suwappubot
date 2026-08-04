@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     'Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across 15+ chains. Self-serve registration, pay-per-call with x402, no signup required.',
 };
 
-// ── b. Capability grid ──────────────────────────────────────────────
+// ── Capability grid ──────────────────────────────────────────────
 const CAPABILITIES = [
   {
     title: '15+ chains',
@@ -39,7 +39,7 @@ const CAPABILITIES = [
   },
 ];
 
-// ── d. Integration comparison matrix ────────────────────────────────
+// ── Integration comparison matrix ────────────────────────────────
 const MATRIX_COLUMNS: { key: string; label: string; sub: string }[] = [
   { key: 'rest', label: 'REST API', sub: '/v1/agent/*' },
   { key: 'mcp', label: 'MCP', sub: 'POST /mcp' },
@@ -50,6 +50,11 @@ const MATRIX_COLUMNS: { key: string; label: string; sub: string }[] = [
 type Cell = 'yes' | 'partial' | 'no';
 const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '–' };
 const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'No' };
+const CELL_CLASS: Record<Cell, string> = {
+  yes: 'text-[var(--accent)]',
+  partial: 'text-[var(--ink-1)]',
+  no: 'text-[var(--ink-1)]/50',
+};
 
 const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
   { label: 'Quotes', cells: { rest: 'yes', mcp: 'yes', a2a: 'yes', sdk: 'yes' } },
@@ -61,7 +66,7 @@ const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
   { label: 'Pay-per-call (x402)', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'no' } },
 ];
 
-// ── e. Agentic payments ─────────────────────────────────────────────
+// ── Agentic payments ─────────────────────────────────────────────
 const PAYMENT_MODES = [
   {
     title: 'Pay-per-call (x402)',
@@ -77,7 +82,7 @@ const PAYMENT_MODES = [
   },
 ];
 
-// ── f. FAQ ───────────────────────────────────────────────────────────
+// ── FAQ ───────────────────────────────────────────────────────────
 const FAQS = [
   {
     q: 'What is the Suwappu MCP server?',
@@ -113,98 +118,120 @@ const FAQS = [
   },
 ];
 
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-card border border-white/10 bg-[var(--canvas-2)] p-6 ${className}`}>{children}</div>
+  );
+}
+
+function CodeBlock({ file, code }: { file: string; code: string }) {
+  return (
+    <div className="overflow-hidden rounded-card border border-white/10 bg-[var(--canvas-2)]">
+      <div className="flex items-center gap-1.5 border-b border-white/10 bg-[var(--canvas-1)] px-4 py-2.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+        <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+        <b className="ml-2 font-mono text-xs font-normal text-[var(--ink-1)]">{file}</b>
+      </div>
+      <pre className="overflow-x-auto p-4">
+        <code className="font-mono text-xs leading-relaxed text-[var(--ink-0)]">{code}</code>
+      </pre>
+    </div>
+  );
+}
+
 export default function AgentsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="min-h-screen bg-[var(--canvas-0)] text-[var(--ink-0)]">
       <Navigation />
-      <div className="summer-shell mkt-page">
-        {/* ── a. HERO ── */}
-        <header className="mkt-hero mkt-hero--center agents-hero">
-          <p className="summer-kicker">Built for AI agents</p>
-          <h1>Onchain execution for AI agents.</h1>
-          <p className="mkt-hero__lead">
-            Quote, swap, and manage a portfolio across 15+ chains from a REST API, an MCP
-            server, or the A2A protocol — self-serve registration, no signup required, and
-            pay only for the calls you make.
+      <div className="mx-auto max-w-7xl px-6 pb-24">
+        {/* ── HERO ── */}
+        <header className="mx-auto max-w-2xl pt-16 pb-12 text-center md:pt-24">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Built for AI agents</p>
+          <h1 className="mt-3 text-4xl font-medium tracking-tight md:text-5xl">
+            Onchain execution for AI agents.
+          </h1>
+          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-[var(--ink-1)]">
+            Quote, swap, and manage a portfolio across 15+ chains from a REST API, an MCP server, or
+            the A2A protocol — self-serve registration, no signup required, pay only for the calls
+            you make.
           </p>
-          <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/protocols/mcp">
+          <div className="mt-7 flex flex-wrap justify-center gap-3">
+            <a
+              href="/docs/protocols/mcp"
+              className="rounded-control bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#1a1108] transition-colors hover:bg-[var(--accent-hover)] active:scale-[0.98]"
+            >
               Connect MCP
             </a>
-            <a className="summer-button summer-button--secondary" href="/docs/quick-start/overview">
+            <a
+              href="/docs/quick-start/overview"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
               Get an API key
             </a>
           </div>
         </header>
 
-        {/* ── b. CAPABILITIES ── */}
-        <section className="agents-caps" aria-label="Capabilities">
-          <h2 className="mkt-h2">Everything your agent needs to transact onchain.</h2>
-          <div className="agents-caps__grid">
+        {/* ── CAPABILITIES ── */}
+        <section aria-label="Capabilities">
+          <h2 className="text-2xl font-medium tracking-tight">Everything your agent needs to transact onchain.</h2>
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {CAPABILITIES.map((cap) => (
-              <article className="agents-cap" key={cap.title}>
-                <h3>{cap.title}</h3>
-                <p>{cap.body}</p>
-              </article>
+              <Card key={cap.title}>
+                <h3 className="text-base font-medium">{cap.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">{cap.body}</p>
+              </Card>
             ))}
           </div>
         </section>
 
-        {/* ── c. GET STARTED IN MINUTES ── */}
-        <section className="agent-steps" aria-label="Get started in minutes">
-          <p className="summer-kicker">Get started in minutes</p>
-          <h2 className="mkt-h2">Three calls from zero to a settled swap.</h2>
+        {/* ── GET STARTED IN MINUTES ── */}
+        <section className="mt-20" aria-label="Get started in minutes">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Get started in minutes</p>
+          <h2 className="mt-2 text-2xl font-medium tracking-tight">Three calls from zero to a settled swap.</h2>
 
-          <div className="agents-connect">
-            <article className="agents-connect__item">
-              <div className="agent-steps__num">1</div>
-              <h2>Register an agent — no signup</h2>
-              <p>
-                POST your agent&apos;s name and get an API key back in the same response. No
-                email, no approval queue, no human in the loop.
+          <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
+            <article>
+              <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--accent)]/40 font-mono text-sm text-[var(--accent)]">1</div>
+              <h3 className="text-base font-medium">Register an agent — no signup</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">
+                POST your agent&apos;s name and get an API key back in the same response. No email,
+                no approval queue, no human in the loop.
               </p>
-              <div className="summer-code" aria-label="register.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>register.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/register \\
+              <div className="mt-4">
+                <CodeBlock
+                  file="register.sh"
+                  code={`curl -X POST https://api.suwappu.bot/v1/agent/register \\
   -H "Content-Type: application/json" \\
   -d '{"name": "my-agent"}'
-# { "success": true, "api_key": "suwappu_sk_..." }`}</code>
-                </pre>
+# { "success": true, "api_key": "suwappu_sk_..." }`}
+                />
               </div>
             </article>
 
-            <article className="agents-connect__item">
-              <div className="agent-steps__num">2</div>
-              <h2>Add your key to MCP or an SDK</h2>
-              <p>
-                Drop the key into an MCP client config, or install the TypeScript or Python
-                SDK and authenticate with a bearer token.
+            <article>
+              <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--accent)]/40 font-mono text-sm text-[var(--accent)]">2</div>
+              <h3 className="text-base font-medium">Add your key to MCP or an SDK</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">
+                Drop the key into an MCP client config, or install the TypeScript or Python SDK and
+                authenticate with a bearer token.
               </p>
-              <AgentQuickstart />
+              <div className="mt-4">
+                <AgentQuickstart />
+              </div>
             </article>
 
-            <article className="agents-connect__item">
-              <div className="agent-steps__num">3</div>
-              <h2>Get a quote, then swap</h2>
-              <p>
-                Every swap is two calls: a quote, then an execute against your managed
-                wallet — or request an unsigned transaction to sign yourself.
+            <article>
+              <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--accent)]/40 font-mono text-sm text-[var(--accent)]">3</div>
+              <h3 className="text-base font-medium">Get a quote, then swap</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">
+                Every swap is two calls: a quote, then an execute against your managed wallet — or
+                request an unsigned transaction to sign yourself.
               </p>
-              <div className="summer-code" aria-label="quote-and-swap.sh">
-                <div className="summer-code__bar">
-                  <span />
-                  <span />
-                  <span />
-                  <b>quote-and-swap.sh</b>
-                </div>
-                <pre>
-                  <code>{`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
+              <div className="mt-4">
+                <CodeBlock
+                  file="quote-and-swap.sh"
+                  code={`curl -X POST https://api.suwappu.bot/v1/agent/quote \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"from_token":"USDC","to_token":"ETH","chain":"base","amount":"100"}'
@@ -213,49 +240,45 @@ export default function AgentsPage() {
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"quote_id": "q_abc123"}'`}</code>
-                </pre>
+  -d '{"quote_id": "q_abc123"}'`}
+                />
               </div>
             </article>
           </div>
         </section>
 
-        {/* ── d. INTEGRATION COMPARISON MATRIX ── */}
-        <section className="compare" aria-labelledby="agents-matrix">
-          <h2 id="agents-matrix" className="compare__title">
+        {/* ── INTEGRATION COMPARISON MATRIX ── */}
+        <section className="mt-20" aria-labelledby="agents-matrix">
+          <h2 id="agents-matrix" className="text-2xl font-medium tracking-tight">
             Pick your surface. Same execution engine underneath.
           </h2>
-          <div className="compare__scroll" role="region" aria-label="Integration comparison table" tabIndex={0}>
-            <table className="compare-table">
+          <div className="mt-6 overflow-x-auto rounded-card border border-white/10" role="region" aria-label="Integration comparison table" tabIndex={0}>
+            <table className="w-full min-w-[560px] border-collapse text-sm">
               <caption className="sr-only">
                 Capabilities available through the REST API, MCP server, A2A protocol, and SDKs.
               </caption>
               <thead>
-                <tr>
-                  <th scope="col" className="compare-table__rowhead">
-                    Capability
-                  </th>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Capability</th>
                   {MATRIX_COLUMNS.map((c) => (
-                    <th key={c.key} scope="col" className="compare-table__colhead">
-                      <span className="compare-table__colname">{c.label}</span>
-                      <span className="compare-table__colsub">{c.sub}</span>
+                    <th key={c.key} scope="col" className="px-4 py-3 text-left font-medium">
+                      <span className="block">{c.label}</span>
+                      <span className="block font-mono text-xs font-normal text-[var(--ink-1)]">{c.sub}</span>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {MATRIX_ROWS.map((row) => (
-                  <tr key={row.label}>
-                    <th scope="row" className="compare-table__rowhead">
+                  <tr key={row.label} className="border-b border-white/5 last:border-0">
+                    <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">
                       {row.label}
                     </th>
                     {MATRIX_COLUMNS.map((c) => {
                       const v = row.cells[c.key];
                       return (
-                        <td key={c.key} className={`compare-cell compare-cell--${v}`}>
-                          <span className="compare-cell__glyph" aria-hidden="true">
-                            {CELL_GLYPH[v]}
-                          </span>
+                        <td key={c.key} className={`px-4 py-3 text-center ${CELL_CLASS[v]}`}>
+                          <span aria-hidden="true">{CELL_GLYPH[v]}</span>
                           <span className="sr-only">{CELL_WORD[v]}</span>
                         </td>
                       );
@@ -265,62 +288,66 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
               </tbody>
             </table>
           </div>
-          <p className="compare__legend">
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--yes" aria-hidden="true">✓</span> Available
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered on this surface
-            </span>
+          <p className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ink-1)]">
+            <span><span className="text-[var(--accent)]">✓</span> Available</span>
+            <span>~ Partial</span>
+            <span>– Not offered on this surface</span>
           </p>
-          <p className="compare__note">
+          <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--ink-1)]">
             Every surface shares the same auth, wallets, and execution engine — pick REST for full
             control, MCP to drop into an agent host, A2A for agent-to-agent messaging, or an SDK for
             typed calls in TypeScript or Python. Full endpoint list at{' '}
-            <a href="/docs/api-reference/overview">/docs/api-reference</a> and{' '}
-            <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
+            <a href="/docs/api-reference/overview" className="text-[var(--accent)] hover:underline">/docs/api-reference</a> and{' '}
+            <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">
               the OpenAPI spec
             </a>
             .
           </p>
         </section>
 
-        {/* ── e. AGENTIC PAYMENTS ── */}
-        <section className="agents-caps" aria-label="Agentic payments">
-          <p className="summer-kicker">Agentic payments</p>
-          <h2 className="mkt-h2">Pay however your agent transacts.</h2>
-          <div className="agents-caps__grid">
+        {/* ── AGENTIC PAYMENTS ── */}
+        <section className="mt-20" aria-label="Agentic payments">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Agentic payments</p>
+          <h2 className="mt-2 text-2xl font-medium tracking-tight">Pay however your agent transacts.</h2>
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
             {PAYMENT_MODES.map((p) => (
-              <article className="agents-cap" key={p.title}>
-                <h3>{p.title}</h3>
-                <p>{p.body}</p>
-              </article>
+              <Card key={p.title}>
+                <h3 className="text-base font-medium">{p.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">{p.body}</p>
+              </Card>
             ))}
           </div>
-          <p className="agents-caption agent-payments__note">
+          <p className="mt-4 text-sm text-[var(--ink-1)]">
             Full credit costs, rate limits, and fee rates by tier are on the{' '}
-            <a href="/pricing#agent-api">Agent API pricing</a> section.
+            <a href="/pricing#agent-api" className="text-[var(--accent)] hover:underline">Agent API pricing</a> section.
           </p>
         </section>
 
-        {/* ── f. FAQ ── */}
-        <section className="mkt-faq" aria-label="Frequently asked questions">
-          <h2 className="mkt-h2">Agent API FAQ</h2>
-          <FaqAccordion items={FAQS} />
+        {/* ── FAQ ── */}
+        <section className="mt-20" aria-label="Frequently asked questions">
+          <h2 className="text-2xl font-medium tracking-tight">Agent API FAQ</h2>
+          <div className="mt-6">
+            <FaqAccordion items={FAQS} />
+          </div>
         </section>
 
-        {/* ── g. ENTERPRISE CTA BAND ── */}
-        <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise">
-          <p className="mkt-callout__eyebrow">Enterprise</p>
-          <p className="mkt-callout__body">
-            Running an agent fleet or a trading desk at volume? Enterprise adds a 0.1% swap fee,
-            multi-user org accounts with RBAC, scoped programmatic API keys, higher per-org rate
-            limits, and a dedicated support SLA.
-          </p>
-          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+        {/* ── ENTERPRISE CTA BAND ── */}
+        <section
+          className="mt-20 flex flex-col items-start gap-4 rounded-panel border border-white/10 bg-[var(--canvas-1)] p-8 md:flex-row md:items-center md:justify-between"
+          aria-label="Enterprise"
+        >
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Enterprise</p>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--ink-1)]">
+              Running an agent fleet or a trading desk at volume? Enterprise adds a 0.1% swap fee,
+              multi-user org accounts with RBAC, scoped programmatic API keys, higher per-org rate
+              limits, and a dedicated support SLA.
+            </p>
+          </div>
+          <a
+            href={ENTERPRISE_CONTACT_PATH}
+            className="shrink-0 rounded-control border border-white/10 px-4 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+          >
             Talk to Sales
           </a>
         </section>

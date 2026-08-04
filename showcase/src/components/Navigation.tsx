@@ -5,6 +5,9 @@ import { useTranslations } from 'next-intl';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 import LanguageSwitcher from './LanguageSwitcher';
 
+const TERMINAL_URL = 'https://terminal.suwappu.bot';
+const ROLE_STORAGE_KEY = 'suwappu_nav_role';
+
 /** Read current locale from cookie (set by LanguageSwitcher) or localStorage fallback. */
 function getCurrentLocale(): string {
   try {
@@ -17,10 +20,38 @@ function getCurrentLocale(): string {
   return match?.[1] ?? 'en';
 }
 
+export type NavRole = 'trade' | 'build';
+
+/**
+ * Trade/Build audience toggle — local state persisted in localStorage,
+ * not a route split (per the Phase 1 plan). Avoids useSearchParams so
+ * this stays static-renderable without a Suspense boundary on every page.
+ */
+function useRole(): [NavRole, (role: NavRole) => void] {
+  const [role, setRoleState] = useState<NavRole>('trade');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ROLE_STORAGE_KEY);
+      if (stored === 'build' || stored === 'trade') setRoleState(stored);
+    } catch {}
+  }, []);
+
+  const setRole = useCallback((next: NavRole) => {
+    setRoleState(next);
+    try {
+      localStorage.setItem(ROLE_STORAGE_KEY, next);
+    } catch {}
+  }, []);
+
+  return [role, setRole];
+}
+
 export default function Navigation() {
   const t = useTranslations('nav');
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [role, setRole] = useRole();
   const [locale, setLocale] = useState<string>(() =>
     typeof window === 'undefined' ? 'en' : getCurrentLocale()
   );
@@ -47,26 +78,119 @@ export default function Navigation() {
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
+  const isBuild = role === 'build';
+  const primaryHref = isBuild ? '/docs' : TELEGRAM_URL;
+  const primaryLabel = isBuild ? 'Read the docs' : t('openBot');
+  const primaryExternal = !isBuild;
+
+  // Role-ordered nav links — Trade surfaces product entry points first,
+  // Build surfaces the developer surface first. Same set, reordered.
+  const tradeLinks = [
+    { href: '/#hyperliquid', label: t('hyperliquid') },
+    { href: '/#tempo', label: t('tempo') },
+    { href: '/pricing', label: t('pricing') },
+    { href: '/compare', label: t('compare') },
+    { href: '/agents', label: t('forAgents') },
+    { href: '/docs', label: t('docs') },
+  ];
+  const buildLinks = [
+    { href: '/agents', label: t('forAgents') },
+    { href: '/docs', label: t('docs') },
+    { href: '/pricing', label: t('pricing') },
+    { href: '/solutions', label: t('solutions') },
+    { href: '/#hyperliquid', label: t('hyperliquid') },
+    { href: '/compare', label: t('compare') },
+  ];
+  const links = isBuild ? buildLinks : tradeLinks;
+
   return (
-    <nav className={`nav ${scrolled ? 'nav--scrolled' : ''}`} role="navigation" aria-label="Main navigation">
-      <a href="/" className="nav__logo">suwappu</a>
+    <nav
+      className={`sticky top-0 z-50 flex h-16 items-center gap-6 border-b px-6 backdrop-blur-md transition-colors md:h-[72px] ${
+        scrolled
+          ? 'border-white/10 bg-[var(--canvas-0)]/85'
+          : 'border-transparent bg-[var(--canvas-0)]/40'
+      }`}
+      role="navigation"
+      aria-label="Main navigation"
+    >
+      <a href="/" className="shrink-0 font-display text-lg font-medium tracking-tight text-[var(--ink-0)]">
+        suwappu
+      </a>
+
+      {/* Trade / Build role toggle — relabels the primary CTA + reorders nav, no route change */}
+      <div
+        className="hidden shrink-0 items-center gap-0.5 rounded-full border border-white/10 bg-white/5 p-0.5 md:flex"
+        role="group"
+        aria-label="View site for"
+      >
+        <button
+          type="button"
+          onClick={() => setRole('trade')}
+          aria-pressed={!isBuild}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            !isBuild ? 'bg-[var(--accent)] text-[#1a1108]' : 'text-[var(--ink-1)] hover:text-[var(--ink-0)]'
+          }`}
+        >
+          Trade
+        </button>
+        <button
+          type="button"
+          onClick={() => setRole('build')}
+          aria-pressed={isBuild}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            isBuild ? 'bg-[var(--accent)] text-[#1a1108]' : 'text-[var(--ink-1)] hover:text-[var(--ink-0)]'
+          }`}
+        >
+          Build
+        </button>
+      </div>
 
       {/* Desktop links */}
-      <div className="nav__links">
-        <a href="/#hyperliquid" className="nav__link">{t('hyperliquid')}</a>
-        <a href="/#tempo" className="nav__link">{t('tempo')}</a>
-        <a href="/agents" className="nav__link">{t('forAgents')}</a>
-        <a href="/solutions" className="nav__link">{t('solutions')}</a>
-        <a href="/compare" className="nav__link">{t('compare')}</a>
-        <a href="/pricing" className="nav__link">{t('pricing')}</a>
-        <a href="/docs" className="nav__link">{t('docs')}</a>
-        <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
+      <div className="hidden flex-1 items-center gap-5 md:flex">
+        {links.map((l) => (
+          <a
+            key={l.href}
+            href={l.href}
+            className="text-sm text-[var(--ink-1)] transition-colors hover:text-[var(--ink-0)]"
+          >
+            {l.label}
+          </a>
+        ))}
+        <a
+          href="https://github.com/0xSoftBoi/suwappubot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-[var(--ink-1)] transition-colors hover:text-[var(--ink-0)]"
+        >
+          GitHub
+        </a>
+      </div>
+
+      <div className="ml-auto hidden shrink-0 items-center gap-3 md:flex">
         <LanguageSwitcher current={locale} />
-        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
-          {t('openBot')}
+        {!isBuild && (
+          <a
+            href={TERMINAL_URL}
+            className="text-sm text-[var(--ink-1)] transition-colors hover:text-[var(--ink-0)]"
+          >
+            Open Terminal
+          </a>
+        )}
+        <a
+          href={primaryHref}
+          target={primaryExternal ? '_blank' : undefined}
+          rel={primaryExternal ? 'noopener noreferrer' : undefined}
+          className="rounded-control bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[#1a1108] transition-colors hover:bg-[var(--accent-hover)] active:scale-[0.98]"
+        >
+          {primaryLabel}
         </a>
         {WHATSAPP_ENABLED && (
-          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
+          <a
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-control border border-white/10 px-4 py-2 text-sm text-[var(--ink-0)] hover:bg-white/5"
+          >
             {t('whatsapp')}
           </a>
         )}
@@ -74,46 +198,96 @@ export default function Navigation() {
 
       {/* Mobile hamburger */}
       <button
-        className="nav__hamburger"
+        className="ml-auto flex flex-col gap-1.5 md:hidden"
         onClick={() => setMenuOpen(!menuOpen)}
         aria-expanded={menuOpen}
         aria-controls="mobile-menu"
         aria-label={menuOpen ? 'Close menu' : 'Open menu'}
       >
-        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
-        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
-        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
+        <span
+          className={`h-[1.5px] w-5 bg-[var(--ink-0)] transition-transform ${
+            menuOpen ? 'translate-y-[6.5px] rotate-45' : ''
+          }`}
+        />
+        <span className={`h-[1.5px] w-5 bg-[var(--ink-0)] transition-opacity ${menuOpen ? 'opacity-0' : ''}`} />
+        <span
+          className={`h-[1.5px] w-5 bg-[var(--ink-0)] transition-transform ${
+            menuOpen ? '-translate-y-[6.5px] -rotate-45' : ''
+          }`}
+        />
       </button>
 
       {/* Mobile drawer */}
-      {menuOpen && <div className="nav__backdrop" onClick={closeMenu} aria-hidden="true" />}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={closeMenu}
+          aria-hidden="true"
+        />
+      )}
       <div
         id="mobile-menu"
-        className={`nav__drawer ${menuOpen ? 'nav__drawer--open' : ''}`}
+        className={`fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col gap-1 border-l border-white/10 bg-[var(--canvas-1)] p-6 transition-transform duration-300 md:hidden ${
+          menuOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
         role="dialog"
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <div style={{ padding: '12px 20px 4px' }}>
+        <div className="mb-4 flex gap-1 rounded-full border border-white/10 bg-white/5 p-0.5">
+          <button
+            type="button"
+            onClick={() => setRole('trade')}
+            className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium ${
+              !isBuild ? 'bg-[var(--accent)] text-[#1a1108]' : 'text-[var(--ink-1)]'
+            }`}
+          >
+            Trade
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('build')}
+            className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium ${
+              isBuild ? 'bg-[var(--accent)] text-[#1a1108]' : 'text-[var(--ink-1)]'
+            }`}
+          >
+            Build
+          </button>
+        </div>
+        <div className="mb-2">
           <LanguageSwitcher current={locale} />
         </div>
-        <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>{t('hyperliquid')}</a>
-        <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>{t('tempo')}</a>
-        <a href="/agents" className="nav__drawer-link" onClick={closeMenu}>{t('forAgents')}</a>
-        <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>{t('solutions')}</a>
-        <a href="/compare" className="nav__drawer-link" onClick={closeMenu}>{t('compare')}</a>
-        <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>{t('pricing')}</a>
-        <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>{t('docs')}</a>
-        <a href="/status" className="nav__drawer-link" onClick={closeMenu}>{t('status')}</a>
-        <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__drawer-link" onClick={closeMenu}>GitHub</a>
-        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
-          {t('openBot')}
-        </a>
-        {WHATSAPP_ENABLED && (
-          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
-            {t('whatsapp')}
+        {links.map((l) => (
+          <a
+            key={l.href}
+            href={l.href}
+            onClick={closeMenu}
+            className="border-b border-white/5 py-3 text-sm text-[var(--ink-0)]"
+          >
+            {l.label}
           </a>
-        )}
+        ))}
+        <a href="/status" onClick={closeMenu} className="border-b border-white/5 py-3 text-sm text-[var(--ink-0)]">
+          {t('status')}
+        </a>
+        <a
+          href="https://github.com/0xSoftBoi/suwappubot"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={closeMenu}
+          className="border-b border-white/5 py-3 text-sm text-[var(--ink-0)]"
+        >
+          GitHub
+        </a>
+        <a
+          href={primaryHref}
+          target={primaryExternal ? '_blank' : undefined}
+          rel={primaryExternal ? 'noopener noreferrer' : undefined}
+          onClick={closeMenu}
+          className="mt-4 rounded-control bg-[var(--accent)] px-4 py-3 text-center text-sm font-medium text-[#1a1108]"
+        >
+          {primaryLabel}
+        </a>
       </div>
     </nav>
   );

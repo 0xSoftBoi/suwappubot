@@ -62,7 +62,7 @@ const tiers: {
     cta: 'Contact Sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
-    badge: 'Industry-First',
+    badge: 'Industry-first',
     features: [
       'Everything in Premium',
       '0.1% swap fee (vs 1% industry standard)',
@@ -88,7 +88,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
       { label: 'Swap fee', values: ['1.0%', '0.5%', '0.3%', '0.1%'] },
       { label: 'Cross-chain routing (9 aggregators)', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Limit orders & DCA', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Copy trading', values: ['—', '✓', '✓', '✓'] },
+      { label: 'Copy trading', values: ['–', '✓', '✓', '✓'] },
     ],
   },
   {
@@ -107,14 +107,14 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     ],
   },
   {
-    category: 'Team & Org (Enterprise only)',
+    category: 'Team & org (Enterprise only)',
     rows: [
-      { label: 'Multi-user org accounts', values: ['—', '—', '—', '✓'] },
-      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['—', '—', '—', '✓'] },
-      { label: 'Programmatic API keys with scoped access', values: ['—', '—', '—', '✓'] },
-      { label: 'Usage dashboard & rate-limit monitoring', values: ['—', '—', '—', '✓'] },
-      { label: 'Custom RPC / dedicated node', values: ['—', '—', '—', 'Contact'] },
-      { label: 'White-label', values: ['—', '—', '—', 'Contact'] },
+      { label: 'Multi-user org accounts', values: ['–', '–', '–', '✓'] },
+      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['–', '–', '–', '✓'] },
+      { label: 'Programmatic API keys with scoped access', values: ['–', '–', '–', '✓'] },
+      { label: 'Usage dashboard & rate-limit monitoring', values: ['–', '–', '–', '✓'] },
+      { label: 'Custom RPC / dedicated node', values: ['–', '–', '–', 'Contact'] },
+      { label: 'White-label', values: ['–', '–', '–', 'Contact'] },
     ],
   },
   {
@@ -126,7 +126,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     ],
   },
   {
-    category: 'Security & Support',
+    category: 'Security & support',
     rows: [
       { label: 'KMS-backed key management', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Spending limits, 2FA, withdrawal allowlist', values: ['✓', '✓', '✓', '✓'] },
@@ -207,184 +207,247 @@ const agentPaymentModes = [
   },
 ];
 
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-card border border-white/10 bg-[var(--canvas-2)] p-6 ${className}`}>{children}</div>
+  );
+}
+
 export default function PricingPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="min-h-screen bg-[var(--canvas-0)] text-[var(--ink-0)]">
       <Navigation />
-      <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Pricing</p>
-          <h1>One subscription. A lower fee on every swap.</h1>
-          <p className="mkt-hero__lead">
-            No seat counts, no hidden fees. Pick a tier to drop your swap fee — everything
-            else is included on every plan.
+      <div className="mx-auto max-w-7xl px-6 pb-24">
+        {/* ── HERO ── */}
+        <header className="mx-auto max-w-2xl pt-16 pb-12 text-center md:pt-24">
+          <h1 className="text-4xl font-medium tracking-tight md:text-5xl">
+            One subscription. A lower fee on every swap.
+          </h1>
+          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-[var(--ink-1)]">
+            No seat counts, no hidden fees. Pick a tier to drop your swap fee — everything else is
+            included on every plan.
           </p>
-          {/* Clerk-pattern anxiety removal — free to start, no card required. */}
-          <p className="mkt-hero__clerk">
+          <p className="mt-3 text-sm text-[var(--ink-1)]">
             Free to start. No credit card. Your first trades are on us.
           </p>
         </header>
 
-        <section className="pricing-grid" aria-label="Plans">
+        {/* ── PRICING GRID ── */}
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Plans">
           {tiers.map((t) => {
             const ctaHref = t.href ?? TELEGRAM_URL;
             const isInternal = ctaHref.startsWith('/');
             return (
-            <article className={`pricing-card${t.highlight ? ' pricing-card--featured' : ''}`} key={t.name}>
-              {t.badge && <span className="pricing-card__badge">{t.badge}</span>}
-              <h2>{t.name}</h2>
-              <p className="pricing-card__price">
-                {t.price}
-                <span>{t.cadence}</span>
-              </p>
-              <p className="pricing-card__fee">
-                <b>{t.fee}</b> swap fee
-              </p>
-              <p className="pricing-card__blurb">{t.blurb}</p>
-              <a
-                className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
-                href={ctaHref}
-                {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+              <article
+                key={t.name}
+                className={`relative flex flex-col rounded-card border p-6 ${
+                  t.highlight
+                    ? 'border-[var(--accent)]/50 bg-[var(--canvas-2)] shadow-[0_0_0_1px_rgba(229,141,43,0.15),0_20px_40px_-20px_rgba(229,141,43,0.25)]'
+                    : 'border-white/10 bg-[var(--canvas-2)]'
+                }`}
               >
-                {t.cta}
-              </a>
-              <ul className="pricing-card__features">
-                {t.features.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-            </article>
+                {t.badge && (
+                  <span
+                    className={`absolute -top-3 left-6 rounded-full px-3 py-1 text-xs font-medium ${
+                      t.highlight ? 'bg-[var(--accent)] text-[#1a1108]' : 'bg-white/10 text-[var(--ink-0)]'
+                    }`}
+                  >
+                    {t.badge}
+                  </span>
+                )}
+                <h2 className="mt-2 text-lg font-medium">{t.name}</h2>
+                <p className="mt-3 flex items-baseline gap-1">
+                  <span className="text-3xl font-medium tracking-tight">{t.price}</span>
+                  <span className="text-sm text-[var(--ink-1)]">{t.cadence}</span>
+                </p>
+                <p className="mt-1 text-sm text-[var(--ink-1)]">
+                  <b className="text-[var(--ink-0)]">{t.fee}</b> swap fee
+                </p>
+                <p className="mt-3 text-sm text-[var(--ink-1)]">{t.blurb}</p>
+                <a
+                  href={ctaHref}
+                  {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                  className={`mt-5 inline-flex items-center justify-center rounded-control px-4 py-2.5 text-sm font-medium transition-colors active:scale-[0.98] ${
+                    t.highlight
+                      ? 'bg-[var(--accent)] text-[#1a1108] hover:bg-[var(--accent-hover)]'
+                      : 'border border-white/10 text-[var(--ink-0)] hover:bg-white/5'
+                  }`}
+                >
+                  {t.cta}
+                </a>
+                <ul className="mt-6 flex flex-1 flex-col gap-2.5 border-t border-white/5 pt-5 text-sm text-[var(--ink-1)]">
+                  {t.features.map((f) => (
+                    <li key={f} className="flex gap-2">
+                      <span className="text-[var(--accent)]" aria-hidden="true">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
             );
           })}
         </section>
 
-        <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise differentiator">
-          <p className="mkt-callout__eyebrow">Industry-First</p>
-          <p className="mkt-callout__body">
-            BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom offer zero enterprise tier — no team
-            accounts, no API keys, no SLA. Suwappu is the only DeFi trading platform purpose-built for
-            trading desks, agent fleets, and institutions.
-          </p>
-          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+        {/* ── ENTERPRISE CALLOUT ── */}
+        <section
+          className="mt-16 flex flex-col items-start gap-4 rounded-panel border border-white/10 bg-[var(--canvas-1)] p-8 md:flex-row md:items-center md:justify-between"
+          aria-label="Enterprise differentiator"
+        >
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Industry-first</p>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--ink-1)]">
+              BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom offer zero enterprise tier — no team
+              accounts, no API keys, no SLA. Suwappu is the only DeFi trading platform purpose-built for
+              trading desks, agent fleets, and institutions.
+            </p>
+          </div>
+          <a
+            href={ENTERPRISE_CONTACT_PATH}
+            className="shrink-0 rounded-control border border-white/10 px-4 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+          >
             Talk to Sales
           </a>
         </section>
 
-        <section className="pricing-compare" aria-label="Plan comparison">
-          <h2 className="mkt-h2">Compare plans</h2>
-          <div className="pricing-table">
-            <div className="pricing-table__row pricing-table__row--head">
-              <span>Features</span>
-              <span>Free</span>
-              <span>Pro</span>
-              <span>Premium</span>
-              <span>Enterprise</span>
-            </div>
-            {comparison.map((group) => (
-              <div className="pricing-table__group" key={group.category}>
-                <div className="pricing-table__cat">{group.category}</div>
-                {group.rows.map((row) => (
-                  <div className="pricing-table__row" key={row.label}>
-                    <span>{row.label}</span>
-                    {row.values.map((v, i) => (
-                      <span key={i} className="pricing-table__val">{v}</span>
+        {/* ── PLAN COMPARISON TABLE ── */}
+        <section className="mt-20" aria-label="Plan comparison">
+          <h2 className="text-2xl font-medium tracking-tight">Compare plans</h2>
+          <div className="mt-6 overflow-x-auto rounded-card border border-white/10">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Features</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Free</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Pro</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--accent)]">Premium</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Enterprise</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((group) => (
+                  <>
+                    <tr key={`${group.category}-head`} className="bg-[var(--canvas-1)]">
+                      <th scope="colgroup" colSpan={5} className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-[var(--ink-1)]">
+                        {group.category}
+                      </th>
+                    </tr>
+                    {group.rows.map((row) => (
+                      <tr key={row.label} className="border-b border-white/5 last:border-0">
+                        <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">{row.label}</th>
+                        {row.values.map((v, i) => (
+                          <td key={i} className="px-4 py-3 text-[var(--ink-0)]">{v}</td>
+                        ))}
+                      </tr>
                     ))}
-                  </div>
+                  </>
                 ))}
-              </div>
-            ))}
+              </tbody>
+            </table>
           </div>
         </section>
 
-        <section className="compare" id="agent-api" aria-label="Agent API pricing">
-          <p className="summer-kicker">Agent API</p>
-          <h2 className="compare__title">Three ways for an agent to pay.</h2>
-          <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
+        {/* ── AGENT API PRICING ── */}
+        <section className="mt-20" id="agent-api" aria-label="Agent API pricing">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Agent API</p>
+          <h2 className="mt-2 text-2xl font-medium tracking-tight">Three ways for an agent to pay.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--ink-1)]">
             No human sign-up required. Register at{' '}
-            <code>POST /v1/agent/register</code> and start on pay-per-call, or add credits or a
-            subscription when your agent needs a higher rate limit.
+            <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-xs">POST /v1/agent/register</code> and
+            start on pay-per-call, or add credits or a subscription when your agent needs a higher rate limit.
           </p>
 
-          <div className="security-grid">
+          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
             {agentPaymentModes.map((p) => (
-              <article className="security-card" key={p.title}>
-                <h2>{p.title}</h2>
-                <p>{p.body}</p>
-              </article>
+              <Card key={p.title}>
+                <h3 className="text-base font-medium">{p.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">{p.body}</p>
+              </Card>
             ))}
           </div>
 
-          <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
-            Credit costs
-          </h3>
-          <div className="compare__scroll" role="region" aria-label="Credit costs table" tabIndex={0}>
-            <table className="compare-table">
+          <h3 className="mt-12 text-lg font-medium">Credit costs</h3>
+          <div className="mt-4 overflow-x-auto rounded-card border border-white/10">
+            <table className="w-full min-w-[480px] border-collapse text-sm">
               <caption className="sr-only">Prepaid credit cost per Agent API call type.</caption>
               <thead>
-                <tr>
-                  <th scope="col" className="compare-table__rowhead">Call type</th>
-                  <th scope="col" className="compare-table__colhead">Credits</th>
-                  <th scope="col" className="compare-table__colhead">≈ USD</th>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Call type</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Credits</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">≈ USD</th>
                 </tr>
               </thead>
               <tbody>
                 {creditCosts.map((row) => (
-                  <tr key={row.action}>
-                    <th scope="row" className="compare-table__rowhead">{row.action}</th>
-                    <td className="compare-cell">{row.credits}</td>
-                    <td className="compare-cell">{row.usd}</td>
+                  <tr key={row.action} className="border-b border-white/5 last:border-0">
+                    <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">{row.action}</th>
+                    <td className="px-4 py-3">{row.credits}</td>
+                    <td className="px-4 py-3">{row.usd}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
-            Rate limits &amp; swap fee by tier
-          </h3>
-          <div className="compare__scroll" role="region" aria-label="Agent API tier table" tabIndex={0}>
-            <table className="compare-table">
+          <h3 className="mt-12 text-lg font-medium">Rate limits &amp; swap fee by tier</h3>
+          <div className="mt-4 overflow-x-auto rounded-card border border-white/10">
+            <table className="w-full min-w-[480px] border-collapse text-sm">
               <caption className="sr-only">Rate limit and swap fee for each Agent API tier.</caption>
               <thead>
-                <tr>
-                  <th scope="col" className="compare-table__rowhead">Tier</th>
-                  <th scope="col" className="compare-table__colhead">Rate limit</th>
-                  <th scope="col" className="compare-table__colhead">Swap fee</th>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Tier</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Rate limit</th>
+                  <th scope="col" className="px-4 py-3 text-left font-medium">Swap fee</th>
                 </tr>
               </thead>
               <tbody>
                 {agentTiers.map((row) => (
-                  <tr key={row.tier}>
-                    <th scope="row" className="compare-table__rowhead">{row.tier}</th>
-                    <td className="compare-cell">{row.rateLimit}</td>
-                    <td className="compare-cell">{row.swapFee}</td>
+                  <tr key={row.tier} className="border-b border-white/5 last:border-0">
+                    <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">{row.tier}</th>
+                    <td className="px-4 py-3">{row.rateLimit}</td>
+                    <td className="px-4 py-3">{row.swapFee}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="compare__note">
-            Subscriptions are 30-day prepaid and stackable, and work as crypto payment or Stripe
-            fiat checkout. Full endpoint list at{' '}
-            <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
+          <p className="mt-4 text-sm text-[var(--ink-1)]">
+            Subscriptions are 30-day prepaid and stackable, and work as crypto payment or Stripe fiat
+            checkout. Full endpoint list at{' '}
+            <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">
               the OpenAPI spec
             </a>{' '}
-            or the <a href="/agents">Agents page</a>.
+            or the <a href="/agents" className="text-[var(--accent)] hover:underline">Agents page</a>.
           </p>
         </section>
 
-        <section className="mkt-faq" aria-label="Frequently asked questions">
-          <h2 className="mkt-h2">Pricing FAQ</h2>
-          <FaqAccordion items={faqs} />
+        {/* ── FAQ ── */}
+        <section className="mt-20" aria-label="Frequently asked questions">
+          <h2 className="text-2xl font-medium tracking-tight">Pricing FAQ</h2>
+          <div className="mt-6">
+            <FaqAccordion items={faqs} />
+          </div>
         </section>
 
-        <section className="mkt-cta">
-          <h2>Start with Free. Upgrade when it pays for itself.</h2>
-          <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+        {/* ── CTA ── */}
+        <section className="mt-20 flex flex-col items-center gap-6 rounded-panel border border-white/10 bg-[var(--canvas-1)] px-6 py-14 text-center">
+          <h2 className="max-w-lg text-2xl font-medium tracking-tight md:text-3xl">
+            Start with Free. Upgrade when it pays for itself.
+          </h2>
+          <div className="flex flex-wrap justify-center gap-3">
+            <a
+              href={TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-control bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#1a1108] transition-colors hover:bg-[var(--accent-hover)] active:scale-[0.98]"
+            >
               Open Telegram Bot
             </a>
-            <a className="summer-button summer-button--secondary" href="/docs">Read the docs</a>
+            <a
+              href="/docs"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
+              Read the docs
+            </a>
           </div>
         </section>
       </div>

@@ -413,10 +413,10 @@ export default async function Home() {
           {/* ── NON-CUSTODIAL PLEDGE ── */}
           <section className="summer-pledge" aria-label="Non-custodial">
             <span className="summer-flower summer-flower--soft summer-pledge__mark" aria-hidden="true" />
-            <p className="summer-kicker">Non-custodial by design</p>
             <p className="summer-pledge__body">
-              Suwappu is non-custodial. We never hold your keys or your funds. We provide
-              the routing and settlement layer — your tokens stay yours, end to end.
+              <strong>Non-custodial by design.</strong> Suwappu never holds your keys or your
+              funds. We provide the routing and settlement layer — your tokens stay yours,
+              end to end.
             </p>
           </section>
 
@@ -424,7 +424,6 @@ export default async function Home() {
           <section id="agents" className="summer-agents" aria-label="Built for the agentic era">
             <div className="summer-flower summer-flower--soft summer-agents__flower" aria-hidden="true" />
             <div className="summer-agents__head">
-              <p className="summer-kicker">Built for the agentic era</p>
               <h2>Let an agent execute. You set the limits.</h2>
               <p>
                 Suwappu exposes the same execution surface as an MCP server, a

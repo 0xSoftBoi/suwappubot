@@ -84,54 +84,67 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
   },
 ];
 
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-card border border-white/10 bg-[var(--canvas-2)] p-6 ${className}`}>{children}</div>
+  );
+}
+
 export default function SolutionsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="min-h-screen bg-[var(--canvas-0)] text-[var(--ink-0)]">
       <Navigation />
-      <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Solutions</p>
-          <h1>One API. Every agent job to be done.</h1>
-          <p className="mkt-hero__lead">
+      <div className="mx-auto max-w-7xl px-6 pb-24">
+        {/* ── HERO ── */}
+        <header className="mx-auto max-w-2xl pt-16 pb-12 text-center md:pt-24">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Solutions</p>
+          <h1 className="mt-3 text-4xl font-medium tracking-tight md:text-5xl">
+            One API. Every agent job to be done.
+          </h1>
+          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-[var(--ink-1)]">
             Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
             to secure itself — the same REST API, MCP server, and A2A protocol cover all four.
           </p>
         </header>
 
-        <div className="solutions-list">
+        {/* ── SOLUTION SECTIONS ── */}
+        <div className="mt-8 flex flex-col gap-20 md:mt-16 md:gap-28">
           {solutions.map((s, i) => (
-            <section className="solution-row" id={s.id} key={s.id}>
-              <div className="solution-row__copy">
-                <p className="summer-kicker">{s.eyebrow}</p>
-                <h2>{s.title}</h2>
-                <p>{s.body}</p>
-                <div className="summer-flow">
+            <section
+              id={s.id}
+              key={s.id}
+              className="grid grid-cols-1 items-center gap-10 scroll-mt-24 md:grid-cols-2 md:gap-14"
+            >
+              <div className={i % 2 ? 'md:order-2' : ''}>
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">{s.eyebrow}</p>
+                <h2 className="mt-2 text-2xl font-medium tracking-tight md:text-3xl">{s.title}</h2>
+                <p className="mt-4 text-sm leading-relaxed text-[var(--ink-1)] md:text-base">{s.body}</p>
+                <div className="mt-6 grid grid-cols-2 gap-3">
                   {s.flow.map((step, idx) => (
-                    <div key={step}>
-                      <span>0{idx + 1}</span>
-                      <strong>{step}</strong>
+                    <div key={step} className="rounded-control border border-white/10 bg-[var(--canvas-1)] px-3 py-2.5">
+                      <span className="text-xs font-medium text-[var(--accent)]">0{idx + 1}</span>
+                      <p className="mt-0.5 text-sm font-medium text-[var(--ink-0)]">{step}</p>
                     </div>
                   ))}
                 </div>
                 <a
-                  className="summer-button summer-button--secondary"
                   href={s.cta.href}
                   {...(s.cta.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  style={{ marginTop: '20px' }}
+                  className="mt-6 inline-flex items-center justify-center rounded-control border border-white/10 px-4 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
                 >
                   {s.cta.label}
                 </a>
               </div>
-              <div className={`solution-row__code${i % 2 ? ' solution-row__code--alt' : ''}`}>
-                <div className="summer-code" aria-label={s.file}>
-                  <div className="summer-code__bar">
-                    <span />
-                    <span />
-                    <span />
-                    <b>{s.file}</b>
+              <div className={i % 2 ? 'md:order-1' : ''}>
+                <div className="overflow-hidden rounded-card border border-white/10 bg-[var(--canvas-2)]">
+                  <div className="flex items-center gap-2 border-b border-white/10 bg-[var(--canvas-1)] px-4 py-3">
+                    <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+                    <b className="ml-2 font-mono text-xs text-[var(--ink-1)]">{s.file}</b>
                   </div>
-                  <pre>
-                    <code>{s.code}</code>
+                  <pre className="overflow-x-auto p-4 text-xs leading-relaxed">
+                    <code className="font-mono text-[var(--ink-0)]">{s.code}</code>
                   </pre>
                 </div>
               </div>
@@ -139,16 +152,32 @@ export default function SolutionsPage() {
           ))}
         </div>
 
-        <section className="mkt-cta">
-          <h2>Pick your lane. Start in a minute.</h2>
-          <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/quick-start/overview">
+        {/* ── CTA ── */}
+        <section className="mt-20 flex flex-col items-center gap-6 rounded-panel border border-white/10 bg-[var(--canvas-1)] px-6 py-14 text-center">
+          <h2 className="max-w-lg text-2xl font-medium tracking-tight md:text-3xl">
+            Pick your lane. Start in a minute.
+          </h2>
+          <div className="flex flex-wrap justify-center gap-3">
+            <a
+              href="/docs/quick-start/overview"
+              className="rounded-control bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#1a1108] transition-colors hover:bg-[var(--accent-hover)] active:scale-[0.98]"
+            >
               Get an API key
             </a>
-            <a className="summer-button summer-button--secondary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+            <a
+              href={TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
               Open Telegram Bot
             </a>
-            <a className="summer-button summer-button--secondary" href="/pricing">See pricing</a>
+            <a
+              href="/pricing"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
+              See pricing
+            </a>
           </div>
         </section>
       </div>

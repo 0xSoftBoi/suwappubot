@@ -73,39 +73,57 @@ export default async function MarketProof() {
   });
 
   return (
-    <section id="bot" className="summer-proof" aria-label="Live market prices">
-      <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
-      <div className="summer-proof__head">
-        <div>
-          <p className="summer-kicker">Live routing</p>
-          <h2>Real prices. Best-route execution.</h2>
-        </div>
-        <p>
+    <section
+      id="bot"
+      aria-label="Live market prices"
+      className="mx-auto max-w-5xl px-6 py-20 md:py-28"
+    >
+      <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <h2 className="font-display text-2xl font-medium tracking-tight text-[var(--ink-0)] md:text-3xl">
+          Real prices. Best-route execution.
+        </h2>
+        <p className="max-w-md text-sm leading-relaxed text-[var(--ink-1)]">
           The markets you can trade right now — spot across chains plus a gasless stable swap
           on Tempo. Suwappu routes each to the best available venue.
         </p>
       </div>
-      <div className="summer-table">
-        <div className="summer-table__row summer-table__row--head">
+
+      <div className="overflow-hidden rounded-[var(--radius-panel)] border border-white/10 bg-[var(--canvas-1)]">
+        <div className="grid grid-cols-4 gap-4 border-b border-white/10 px-5 py-3 text-xs uppercase tracking-wide text-[var(--ink-1)]">
           <span>Pair</span>
           <span>Price</span>
           <span>24h</span>
           <span>Route</span>
         </div>
         {rows.map((r) => (
-          <div className="summer-table__row" key={r.pair}>
+          <div
+            key={r.pair}
+            className="grid grid-cols-4 gap-4 border-b border-white/5 px-5 py-3 text-sm text-[var(--ink-0)] last:border-b-0"
+          >
             <span>{r.pair}</span>
-            <span>{r.price}</span>
-            <span className={`summer-proof__chg summer-proof__chg--${r.dir}`}>{r.change}</span>
-            <span>{r.route}</span>
+            <span className="font-mono">{r.price}</span>
+            <span
+              className={
+                r.dir === 'up'
+                  ? 'font-mono text-emerald-400'
+                  : r.dir === 'down'
+                    ? 'font-mono text-rose-400'
+                    : 'font-mono text-[var(--ink-1)]'
+              }
+            >
+              {r.change}
+            </span>
+            <span className="text-[var(--ink-1)]">{r.route}</span>
           </div>
         ))}
       </div>
-      <p className="summer-proof__note">
+
+      <p className="mt-4 flex items-center gap-2 text-xs text-[var(--ink-1)]">
         {live ? (
           <>
-            <span className="summer-proof__live" aria-hidden="true">
-              <i />
+            <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
             </span>
             Live spot prices via CoinGecko · updated {updated} UTC, refreshes every minute. Routes
             shown are typical best venues (illustrative).

@@ -106,6 +106,11 @@ const GROUPS: {
 
 const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '–' };
 const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'No' };
+const CELL_CLASS: Record<Cell, string> = {
+  yes: 'text-[var(--accent)]',
+  partial: 'text-[var(--ink-1)]',
+  no: 'text-[var(--ink-1)]/50',
+};
 
 // ── Agent infrastructure comparison — a distinct competitive set from the
 // trading-bot matrix above: platforms that specifically target AI agents
@@ -182,6 +187,12 @@ const AGENT_CELL_WORD: Record<AgentCell, string> = {
   no: 'Not offered',
   unclear: 'Not publicly confirmed',
 };
+const AGENT_CELL_CLASS: Record<AgentCell, string> = {
+  yes: 'text-[var(--accent)]',
+  partial: 'text-[var(--ink-1)]',
+  no: 'text-[var(--ink-1)]/50',
+  unclear: 'text-[var(--ink-1)]/70',
+};
 
 const HIGHLIGHTS = [
   {
@@ -204,44 +215,58 @@ const HIGHLIGHTS = [
   },
 ];
 
+function Legend({ items }: { items: { glyph: string; label: string; className?: string }[] }) {
+  return (
+    <p className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ink-1)]">
+      {items.map((it) => (
+        <span key={it.label}>
+          <span className={it.className} aria-hidden="true">{it.glyph}</span> {it.label}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 export default function ComparePage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="min-h-screen bg-[var(--canvas-0)] text-[var(--ink-0)]">
       <Navigation />
-      <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Compare</p>
-          <h1>One product where the others pick a lane.</h1>
-          <p className="mkt-hero__lead">
+      <div className="mx-auto max-w-7xl px-6 pb-24">
+        {/* ── HERO ── */}
+        <header className="mx-auto max-w-2xl pt-16 pb-12 text-center md:pt-24">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">Compare</p>
+          <h1 className="mt-3 text-4xl font-medium tracking-tight md:text-5xl">
+            One product where the others pick a lane.
+          </h1>
+          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-[var(--ink-1)]">
             Telegram bots, trading terminals, and cross-chain infrastructure each do one part well.
             Suwappu is the only one that unifies cross-chain spot, HyperLiquid perps, and gasless
             swaps — in a bot, a terminal, and an SDK.
           </p>
         </header>
 
-        <section className="compare" aria-labelledby="compare-matrix">
-          <h2 id="compare-matrix" className="compare__title">
+        {/* ── CAPABILITY MATRIX ── */}
+        <section aria-labelledby="compare-matrix">
+          <h2 id="compare-matrix" className="text-2xl font-medium tracking-tight">
             Capability comparison
           </h2>
-          <div className="compare__scroll" role="region" aria-label="Capability comparison table" tabIndex={0}>
-            <table className="compare-table">
+          <div className="mt-6 overflow-x-auto rounded-card border border-white/10" role="region" aria-label="Capability comparison table" tabIndex={0}>
+            <table className="w-full min-w-[640px] border-collapse text-sm">
               <caption className="sr-only">
                 Capabilities of Suwappu compared with Telegram trading bots, trading terminals, and
                 cross-chain infrastructure providers.
               </caption>
               <thead>
-                <tr>
-                  <th scope="col" className="compare-table__rowhead">
-                    Capability
-                  </th>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Capability</th>
                   {COLUMNS.map((c) => (
                     <th
                       key={c.key}
                       scope="col"
-                      className={`compare-table__colhead${c.highlight ? ' compare-table__colhead--us' : ''}`}
+                      className={`px-4 py-3 text-left font-medium ${c.highlight ? 'text-[var(--accent)]' : ''}`}
                     >
-                      <span className="compare-table__colname">{c.label}</span>
-                      <span className="compare-table__colsub">{c.sub}</span>
+                      <span className="block">{c.label}</span>
+                      <span className="block font-mono text-xs font-normal text-[var(--ink-1)]">{c.sub}</span>
                     </th>
                   ))}
                 </tr>
@@ -249,14 +274,14 @@ export default function ComparePage() {
               <tbody>
                 {GROUPS.map((group) => (
                   <Fragment key={group.category}>
-                    <tr className="compare-table__cat">
-                      <th scope="colgroup" colSpan={COLUMNS.length + 1}>
+                    <tr className="bg-[var(--canvas-1)]">
+                      <th scope="colgroup" colSpan={COLUMNS.length + 1} className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-[var(--ink-1)]">
                         {group.category}
                       </th>
                     </tr>
                     {group.rows.map((row) => (
-                      <tr key={row.label}>
-                        <th scope="row" className="compare-table__rowhead">
+                      <tr key={row.label} className="border-b border-white/5 last:border-0">
+                        <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">
                           {row.label}
                         </th>
                         {COLUMNS.map((c) => {
@@ -264,11 +289,9 @@ export default function ComparePage() {
                           return (
                             <td
                               key={c.key}
-                              className={`compare-cell compare-cell--${v}${c.highlight ? ' compare-cell--us' : ''}`}
+                              className={`px-4 py-3 text-center ${CELL_CLASS[v]}${c.highlight ? ' bg-[var(--accent)]/5' : ''}`}
                             >
-                              <span className="compare-cell__glyph" aria-hidden="true">
-                                {CELL_GLYPH[v]}
-                              </span>
+                              <span aria-hidden="true">{CELL_GLYPH[v]}</span>
                               <span className="sr-only">{CELL_WORD[v]}</span>
                             </td>
                           );
@@ -280,64 +303,59 @@ export default function ComparePage() {
               </tbody>
             </table>
           </div>
-          <p className="compare__legend">
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--yes" aria-hidden="true">✓</span> Available
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial / varies by product
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered
-            </span>
-          </p>
-          <p className="compare__note">
+          <Legend
+            items={[
+              { glyph: '✓', label: 'Available', className: 'text-[var(--accent)]' },
+              { glyph: '~', label: 'Partial / varies by product' },
+              { glyph: '–', label: 'Not offered' },
+            ]}
+          />
+          <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--ink-1)]">
             Comparison reflects each category&apos;s publicly documented capabilities as of June 2026.
             Named products are examples of their category, not exhaustive. Product features change
             frequently — verify current capabilities on each provider&apos;s own site.
           </p>
         </section>
 
-        <section className="compare-why">
+        {/* ── WHY IT MATTERS ── */}
+        <section className="mt-20 grid grid-cols-1 gap-4 md:grid-cols-3">
           {HIGHLIGHTS.map((h) => (
-            <div className="compare-why__card" key={h.title}>
-              <p className="summer-kicker">{h.eyebrow}</p>
-              <h3>{h.title}</h3>
-              <p>{h.body}</p>
+            <div key={h.title} className="rounded-card border border-white/10 bg-[var(--canvas-2)] p-6">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">{h.eyebrow}</p>
+              <h3 className="mt-2 text-lg font-medium">{h.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--ink-1)]">{h.body}</p>
             </div>
           ))}
         </section>
 
         {/* ── AGENT INFRASTRUCTURE COMPARISON — a second, distinct competitive set ── */}
-        <section className="compare" aria-labelledby="agent-compare-matrix">
-          <p className="summer-kicker">For builders</p>
-          <h2 id="agent-compare-matrix" className="compare__title">
+        <section className="mt-20" aria-labelledby="agent-compare-matrix">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--accent)]">For builders</p>
+          <h2 id="agent-compare-matrix" className="mt-2 text-2xl font-medium tracking-tight">
             Agent infrastructure comparison
           </h2>
-          <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
-            Analytics platforms, wallet frameworks, and single-purpose swap MCPs each cover part
-            of what an onchain agent needs. Suwappu is the only one that pairs execution — swaps,
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--ink-1)]">
+            Analytics platforms, wallet frameworks, and single-purpose swap MCPs each cover part of
+            what an onchain agent needs. Suwappu is the only one that pairs execution — swaps,
             perps, predictions, lending — with managed wallets, MCP, A2A, and x402 in one API.
           </p>
-          <div className="compare__scroll" role="region" aria-label="Agent infrastructure comparison table" tabIndex={0}>
-            <table className="compare-table">
+          <div className="mt-6 overflow-x-auto rounded-card border border-white/10" role="region" aria-label="Agent infrastructure comparison table" tabIndex={0}>
+            <table className="w-full min-w-[720px] border-collapse text-sm">
               <caption className="sr-only">
                 Capabilities of Suwappu compared with Dune Agents, Coinbase AgentKit, Bankr, and
                 1inch/LI.FI MCP offerings.
               </caption>
               <thead>
-                <tr>
-                  <th scope="col" className="compare-table__rowhead">
-                    Capability
-                  </th>
+                <tr className="border-b border-white/10 bg-[var(--canvas-2)]">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-[var(--ink-1)]">Capability</th>
                   {AGENT_COLUMNS.map((c) => (
                     <th
                       key={c.key}
                       scope="col"
-                      className={`compare-table__colhead${c.highlight ? ' compare-table__colhead--us' : ''}`}
+                      className={`px-4 py-3 text-left font-medium ${c.highlight ? 'text-[var(--accent)]' : ''}`}
                     >
-                      <span className="compare-table__colname">{c.label}</span>
-                      <span className="compare-table__colsub">{c.sub}</span>
+                      <span className="block">{c.label}</span>
+                      <span className="block font-mono text-xs font-normal text-[var(--ink-1)]">{c.sub}</span>
                     </th>
                   ))}
                 </tr>
@@ -345,14 +363,14 @@ export default function ComparePage() {
               <tbody>
                 {AGENT_GROUPS.map((group) => (
                   <Fragment key={group.category}>
-                    <tr className="compare-table__cat">
-                      <th scope="colgroup" colSpan={AGENT_COLUMNS.length + 1}>
+                    <tr className="bg-[var(--canvas-1)]">
+                      <th scope="colgroup" colSpan={AGENT_COLUMNS.length + 1} className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-[var(--ink-1)]">
                         {group.category}
                       </th>
                     </tr>
                     {group.rows.map((row) => (
-                      <tr key={row.label}>
-                        <th scope="row" className="compare-table__rowhead">
+                      <tr key={row.label} className="border-b border-white/5 last:border-0">
+                        <th scope="row" className="px-4 py-3 text-left font-normal text-[var(--ink-1)]">
                           {row.label}
                         </th>
                         {AGENT_COLUMNS.map((c) => {
@@ -360,11 +378,9 @@ export default function ComparePage() {
                           return (
                             <td
                               key={c.key}
-                              className={`compare-cell compare-cell--${v}${c.highlight ? ' compare-cell--us' : ''}`}
+                              className={`px-4 py-3 text-center ${AGENT_CELL_CLASS[v]}${c.highlight ? ' bg-[var(--accent)]/5' : ''}`}
                             >
-                              <span className="compare-cell__glyph" aria-hidden="true">
-                                {AGENT_CELL_GLYPH[v]}
-                              </span>
+                              <span aria-hidden="true">{AGENT_CELL_GLYPH[v]}</span>
                               <span className="sr-only">{AGENT_CELL_WORD[v]}</span>
                             </td>
                           );
@@ -376,45 +392,48 @@ export default function ComparePage() {
               </tbody>
             </table>
           </div>
-          <p className="compare__legend">
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--yes" aria-hidden="true">✓</span> Available
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial / varies
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered
-            </span>
-            <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--unclear" aria-hidden="true">?</span> Not publicly confirmed
-            </span>
-          </p>
-          <p className="compare__note">
-            Dune Agents is an analytics layer for AI agents (read-only market and onchain data,
-            no execution) and has announced it is sunsetting its real-time Sim API on August 1,
-            2026. Coinbase AgentKit is a self-hosted wallet and action-provider framework, not a
-            hosted execution API. Reflects each provider&apos;s publicly documented capabilities;
-            cells marked &ldquo;not publicly confirmed&rdquo; are conservative placeholders, not
-            claims of absence — verify current capabilities on each provider&apos;s own site.
+          <Legend
+            items={[
+              { glyph: '✓', label: 'Available', className: 'text-[var(--accent)]' },
+              { glyph: '~', label: 'Partial / varies' },
+              { glyph: '–', label: 'Not offered' },
+              { glyph: '?', label: 'Not publicly confirmed' },
+            ]}
+          />
+          <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--ink-1)]">
+            Dune Agents is an analytics layer for AI agents (read-only market and onchain data, no
+            execution) and has announced it is sunsetting its real-time Sim API on August 1, 2026.
+            Coinbase AgentKit is a self-hosted wallet and action-provider framework, not a hosted
+            execution API. Reflects each provider&apos;s publicly documented capabilities; cells
+            marked &ldquo;not publicly confirmed&rdquo; are conservative placeholders, not claims of
+            absence — verify current capabilities on each provider&apos;s own site.
           </p>
         </section>
 
-        <section className="mkt-cta">
-          <h2>See it for yourself.</h2>
-          <div className="summer-actions summer-cta__actions">
+        {/* ── CTA ── */}
+        <section className="mt-20 flex flex-col items-center gap-6 rounded-panel border border-white/10 bg-[var(--canvas-1)] px-6 py-14 text-center">
+          <h2 className="max-w-lg text-2xl font-medium tracking-tight md:text-3xl">See it for yourself.</h2>
+          <div className="flex flex-wrap justify-center gap-3">
             <a
-              className="summer-button summer-button--primary"
               href={TELEGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
+              className="rounded-control bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#1a1108] transition-colors hover:bg-[var(--accent-hover)] active:scale-[0.98]"
             >
               Open Telegram Bot
             </a>
-            <a className="summer-button summer-button--secondary" href={TERMINAL_URL} target="_blank" rel="noopener noreferrer">
+            <a
+              href={TERMINAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
               Open the terminal
             </a>
-            <a className="summer-button summer-button--secondary" href="/docs">
+            <a
+              href="/docs"
+              className="rounded-control border border-white/10 px-5 py-2.5 text-sm font-medium text-[var(--ink-0)] transition-colors hover:bg-white/5"
+            >
               Read the docs
             </a>
           </div>
