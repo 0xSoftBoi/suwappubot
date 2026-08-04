@@ -716,3 +716,96 @@
 @media (max-width: 760px) {
   .sw__sec--quiet { padding-top: 48px; padding-bottom: 48px; }
 }
+
+/* ── Proof card ──────────────────────────────────────────────────
+   "Registered, not claimed": the live agent-card fields sit inside one
+   bordered panel (matches .sw__panel's weight) so they read as a single
+   fetched object, with the fetch link as its own row rather than a button —
+   this is a citation, not a CTA. */
+.sw__proof-card {
+  margin-top: 2rem;
+  padding: 1.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg-elev);
+}
+
+.sw__proof-fields {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem 1rem;
+  margin: 0 0 1.5rem;
+  padding: 0 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.sw__proof-fields dt {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.sw__proof-fields dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+.sw__proof-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.sw__proof-link span { transition: transform 0.18s ease; }
+.sw__proof-link:hover span { transform: translateX(3px); }
+.sw__proof-link:hover { color: var(--accent); }
+
+/* ── Proof-not-promises grid ─────────────────────────────────────
+   Reuses .sw__surface's card treatment (see Surfaces, above) so three real,
+   checkable links get the same weight as the three product entry points —
+   the point of the section is that this is not a lesser claim. */
+.sw__artifacts {
+  list-style: none;
+  margin: 2.5rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+/* ── Security list ───────────────────────────────────────────────
+   The security bullets reuse .sw__cmds's row treatment, just with longer
+   single-word labels than the /perps slash-commands, so the label column
+   needs a touch more room. */
+.sw__cmds--security > div { grid-template-columns: 6.5rem 1fr; }
+.sw__cmds--security + .hd__btn { margin-top: 1.75rem; }
+
+/* ── FAQ ──────────────────────────────────────────────────────────
+   FaqAccordion ships its own hairline-row styling (see
+   components/FaqAccordion.module.css); the .sw-dark wrapper on <main>
+   retokenises it into this page's dark register, so no colour rules are
+   needed here — only width, to match the measure of the copy above it. */
+.sw__faq .faq-accordion {
+  margin-top: 2rem;
+  max-width: 760px;
+}
+
+@media (max-width: 900px) {
+  .sw__proof-fields { grid-template-columns: repeat(2, 1fr); }
+  .sw__artifacts { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .sw__proof-fields { grid-template-columns: 1fr; }
+  .sw__cmds--security > div { grid-template-columns: 1fr; gap: 0.3rem; }
+}

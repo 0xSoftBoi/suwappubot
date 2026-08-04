@@ -8,6 +8,7 @@ import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
 import AgentHandoff from '@/components/AgentHandoff';
+import FaqAccordion from '@/components/FaqAccordion';
 import { getTranslations } from 'next-intl/server';
 import productStats from '@/data/stats.generated.json';
 import { TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
@@ -127,6 +128,15 @@ const PROOF_ARTIFACTS = [
   },
 ];
 
+/** Condensed from /security — same vetted claims, same hedges. Don't add a
+ *  claim here that isn't already stated (and qualified) on that page. */
+const SECURITY = [
+  { k: 'Keys', d: 'Signing keys live in a hardware-backed TEE (Turnkey). Anything encrypted at rest uses envelope encryption (kms_aesgcm_v2): a per-record data key wrapped by a KMS-managed key, not a plaintext key Suwappu can read.' },
+  { k: 'Custody', d: 'Bring your own keys through the agent API for full self-custody, Suwappu never sees them, or use a managed wallet that signs server-side so your agent never handles a private key.' },
+  { k: 'Controls', d: 'Per-key spend limits, chain and pair allowlists, withdrawal allowlists and TOTP two-factor authentication, enforced server-side so an agent can’t exceed the rails you set.' },
+  { k: 'Review', d: 'Wallet and key-management paths have had independent red-team review, findings tracked and remediated. SOC 2 and public protocol audits are on the roadmap, not yet complete.' },
+];
+
 const FAQ = [
   {
     q: 'Do you custody my funds?',
@@ -159,7 +169,7 @@ export default async function Home() {
   return (
     <>
       <StructuredData />
-      <main id="main-content" className="hd he sw">
+      <main id="main-content" className="hd he sw sw-dark">
         <SummerNav />
 
         {/* ── Hero ─────────────────────────────────────────────── */}
@@ -273,8 +283,8 @@ export default async function Home() {
             <ul className="sw__artifacts">
               {PROOF_ARTIFACTS.map((a) => (
                 <li key={a.label}>
-                  <a href={a.href} target="_blank" rel="noopener noreferrer">
-                    <span className="sw__artifact-meta">{a.meta}</span>
+                  <a className="sw__surface" href={a.href} target="_blank" rel="noopener noreferrer">
+                    <span className="sw__surface-meta">{a.meta}</span>
                     <h3>{a.label}</h3>
                     <p>{a.d}</p>
                     <span className="sw__arrow" aria-hidden="true">→</span>
@@ -392,6 +402,36 @@ export default async function Home() {
               <a className="hd__btn hd__btn--ghost" href="/docs">Read the docs</a>
             </div>
             <pre className="sw__code"><code>{SDK}</code></pre>
+          </Reveal>
+        </section>
+
+        {/* ── Security ─────────────────────────────────────────── */}
+        <section id="security" className="sw__sec" aria-label="Security and custody">
+          <Reveal>
+            <p className="sw__eyebrow">Security &amp; trust</p>
+            <h2 className="sw__h2">Built to move money safely.</h2>
+            <p className="sw__lead">
+              Real funds move across {productStats.platformChains} chains through this. Here is
+              exactly what protects them, and what is still on the roadmap rather than done.
+            </p>
+            <dl className="sw__cmds sw__cmds--security">
+              {SECURITY.map((s) => (
+                <div key={s.k}>
+                  <dt>{s.k}</dt>
+                  <dd>{s.d}</dd>
+                </div>
+              ))}
+            </dl>
+            <a className="hd__btn hd__btn--ghost" href="/security">Read the full security page</a>
+          </Reveal>
+        </section>
+
+        {/* ── FAQ ──────────────────────────────────────────────── */}
+        <section className="sw__sec sw__sec--quiet sw__faq" aria-label="Frequently asked questions">
+          <Reveal>
+            <p className="sw__eyebrow">Questions</p>
+            <h2 className="sw__h2">Before you connect a wallet.</h2>
+            <FaqAccordion items={FAQ} />
           </Reveal>
         </section>
 
