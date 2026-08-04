@@ -15,7 +15,7 @@ export function generateStaticParams(): Params[] {
 
 const INDEX_POINTER =
   '> Suwappu API documentation. The complete machine-readable index is at ' +
-  'https://suwappu.bot/llms.txt — and the full corpus at https://suwappu.bot/llms-full.txt\n\n';
+  'https://suwappu.bot/llms.txt, and the full corpus at https://suwappu.bot/llms-full.txt\n\n';
 
 export async function GET(_req: Request, { params }: { params: Promise<Params> }) {
   const { section: sectionId, slug } = await params;

@@ -727,13 +727,39 @@ class X402Service:
             return credits.balance if credits else 0
 
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
-        """Add API credits to user account."""
-        with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+        """Add API credits to user account.
 
+        Takes the same row lock as every other balance mutation. Locking only
+        the debit side still loses updates: an unlocked top-up
+        read-modify-write can interleave with a concurrent LLM debit and write
+        back a balance computed before that debit, silently erasing it.
+        """
+        with get_session() as session:
+
+            def _locked():
+                return (
+                    session.query(APICredit)
+                    .filter(APICredit.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
+
+            credits = _locked()
             if not credits:
-                credits = APICredit(user_id=user_id)
-                session.add(credits)
+                # FOR UPDATE cannot lock a row that doesn't exist yet: two
+                # concurrent first-time grants both reach the INSERT and
+                # user_id is UNIQUE, so the loser raises IntegrityError. That
+                # would consume an on-chain payment without crediting it, so
+                # recover and re-read the winner's row under the lock.
+                try:
+                    credits = APICredit(user_id=user_id)
+                    session.add(credits)
+                    session.flush()
+                except IntegrityError:
+                    session.rollback()
+                    credits = _locked()
+                    if credits is None:
+                        raise
 
             credits.balance += amount
             credits.lifetime_purchased += amount
@@ -741,7 +767,15 @@ class X402Service:
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+            # Row lock: llm_credit_service.record_usage debits this same row
+            # under FOR UPDATE; an unlocked read-modify-write here could
+            # interleave and silently erase a concurrent LLM debit.
+            credits = (
+                session.query(APICredit)
+                .filter(APICredit.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not credits or credits.balance < amount:
                 return False

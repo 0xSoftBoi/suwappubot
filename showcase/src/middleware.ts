@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 /**
  * Agent-native middleware.
  *
- * Security headers are owned by `next.config.mjs` (applied to every route) — this
+ * Security headers are owned by `next.config.mjs` (applied to every route): this
  * middleware deliberately does NOT set them, so it can't introduce a CSP the rest
  * of the site never had. Its only job is the agent-native docs layer:
  *

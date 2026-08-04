@@ -31,6 +31,7 @@ import {
 	swapRoutes,
 	tokenRoutes,
 	webappRoutes,
+	webappStubs,
 } from './routes'
 
 /**
@@ -156,6 +157,9 @@ export function createApp(config: AppConfig) {
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Webapp feature stubs - intentional placeholders for in-development features
+	app.route('/webapp', webappStubs)
 
 	// Staking routes - SUWP token staking dashboard
 	app.route('/staking', stakingRoutes)

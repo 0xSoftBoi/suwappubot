@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Admin — Suwappu',
+  title: 'Admin | Suwappu',
   robots: { index: false, follow: false },
 };
 
 /**
- * Admin shell — strips public nav/footer and forces a dark surface.
+ * Admin shell: strips public nav/footer and forces a dark surface.
  * Nested layouts must not re-export <html>/<body> in the App Router;
  * the root layout owns those. We apply the dark override via an inline
  * style on a wrapping div instead.

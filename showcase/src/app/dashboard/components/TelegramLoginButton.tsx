@@ -15,13 +15,21 @@
  * interchangeable.
  *
  * REQUIRES: the serving domain must be registered with @BotFather via
- * /setdomain, or Telegram silently refuses to render the button. `onUnavailable`
- * fires if the widget has not drawn itself, so the UI can fall back rather
- * than showing an empty space.
+ * /setdomain. Until that is done Telegram DOES render its iframe — it just
+ * fills it with the words "Bot domain invalid" in its own serif font, which
+ * landed in the middle of the sign-in card in production.
+ *
+ * That error is unreadable to us: the iframe is cross-origin, so its contents
+ * cannot be inspected, and checking merely that an iframe EXISTS (the previous
+ * guard) passes happily while the user stares at an error.
+ *
+ * So the widget is OPT-IN via NEXT_PUBLIC_TELEGRAM_LOGIN_ENABLED. It stays
+ * hidden until the domain is actually registered, rather than rendering a
+ * broken third-party error into a designed surface.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { PYTHON_API_BASE_URL, TELEGRAM_BOT_USERNAME } from '@/lib/links';
+import { AUTH_BASE_URL, TELEGRAM_BOT_USERNAME } from '@/lib/links';
 
 export interface TelegramWidgetUser {
   id: number;
@@ -44,17 +52,25 @@ declare global {
   }
 }
 
+/**
+ * Off unless explicitly enabled. A hidden widget is strictly better than one
+ * showing Telegram's own error text inside our card.
+ */
+const TELEGRAM_LOGIN_ENABLED =
+  process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_ENABLED === 'true';
+
 export default function TelegramLoginButton({ onToken, onError }: Props) {
   const holder = useRef<HTMLDivElement | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
+    if (!TELEGRAM_LOGIN_ENABLED) return;
     const node = holder.current;
     if (!node) return;
 
     window.__suwappuTelegramAuth = async (user: TelegramWidgetUser) => {
       try {
-        const res = await fetch(`${PYTHON_API_BASE_URL}/auth/telegram/widget`, {
+        const res = await fetch(`${AUTH_BASE_URL}/auth/telegram/widget`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -103,6 +119,8 @@ export default function TelegramLoginButton({ onToken, onError }: Props) {
       node.replaceChildren();
     };
   }, [onToken, onError]);
+
+  if (!TELEGRAM_LOGIN_ENABLED) return null;
 
   return (
     <div>

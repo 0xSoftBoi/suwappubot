@@ -7,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        `Cross-chain DeFi SDK for AI agents — swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
+        `Cross-chain DeFi SDK for AI agents: swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -25,7 +25,7 @@ export default function StructuredData() {
         'REST API with OpenAPI spec',
         'Telegram trading bot',
         'MEV-shielded routing',
-        'Non-custodial execution',
+        'User-signed execution with TEE-backed and self-custody key options',
       ],
     },
     // Organization
@@ -71,15 +71,15 @@ export default function StructuredData() {
           name: 'How do I integrate Suwappu with Claude or other AI agents?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu provides an MCP server with 10 tools. Add the MCP server URL to your Claude Desktop config or use the npm package @suwappu/mcp-server for local stdio transport.',
+            text: 'Suwappu runs a remote MCP server at https://api.suwappu.bot/mcp exposing 22 tools over Streamable HTTP. There is nothing to install locally: in Claude Code run "claude mcp add --transport http suwappu https://api.suwappu.bot/mcp", in Codex add it to ~/.codex/config.toml, or point any MCP client at the URL with an Authorization: Bearer header.',
           },
         },
         {
           '@type': 'Question',
-          name: 'Is Suwappu non-custodial?',
+          name: 'Who holds the keys on Suwappu?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API — the non-custodial path is always available.',
+            text: 'By default you sign every swap yourself. Managed-wallet keys are secured by envelope encryption (kms_aesgcm_v2) or signed inside a hardware-backed TEE via Turnkey, never as a plaintext key Suwappu can read. Bring your own keys via the agent API for full self-custody.',
           },
         },
         {

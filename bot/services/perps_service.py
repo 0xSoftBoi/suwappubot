@@ -180,8 +180,12 @@ class PerpsService:
                 mark_price=Decimal(str(mark_price or entry_price)),
                 leverage=leverage,
                 margin=Decimal(str(size * entry_price / leverage)) if entry_price else None,
-                tp_price=Decimal(str(tp_price)) if tp_price else None,
-                sl_price=Decimal(str(sl_price)) if sl_price else None,
+                # Protection levels are written only once the exchange is holding
+                # the trigger (below). Writing them here would commit a row that
+                # advertises a stop nothing is backing, and a concurrent read
+                # would see "protected" in the window before placement.
+                tp_price=None,
+                sl_price=None,
                 status="open",
             )
             session.add(position)
@@ -209,14 +213,55 @@ class PerpsService:
 
             session.expunge(position)
 
-        # Place TP/SL orders if specified
-        if tp_price:
-            await self._place_tp_sl(
-                user_id, account, market, side, size, "take_profit", tp_price, position_id
+        # Protection rode along with the entry in the same signed action, so
+        # there was never a window where the position was live and unprotected.
+        # Record only the legs the exchange came back with an id for — asking
+        # for a stop is not the same as having one.
+        accepted = {}
+        if tp_price and result.tp_order_id:
+            accepted["tp_price"] = tp_price
+            self._record_trigger_order(
+                user_id,
+                position_id,
+                market,
+                side,
+                size,
+                "take_profit",
+                tp_price,
+                result.tp_order_id,
             )
-        if sl_price:
-            await self._place_tp_sl(
-                user_id, account, market, side, size, "stop_loss", sl_price, position_id
+        if sl_price and result.sl_order_id:
+            accepted["sl_price"] = sl_price
+            self._record_trigger_order(
+                user_id, position_id, market, side, size, "stop_loss", sl_price, result.sl_order_id
+            )
+
+        if accepted:
+            with get_session() as session:
+                stored = session.query(PerpPosition).filter_by(id=position_id).first()
+                if stored:
+                    for field, value in accepted.items():
+                        setattr(stored, field, Decimal(str(value)))
+                else:
+                    # The trigger is resting on the exchange but the row it
+                    # belongs to has gone. Don't let that vanish silently — the
+                    # position is protected while the UI will say it is not.
+                    logger.error(
+                        "Position %s vanished before its accepted level(s) %s could be stored",
+                        position_id,
+                        ", ".join(accepted),
+                    )
+
+        refused = [
+            field
+            for field, value in (("tp_price", tp_price), ("sl_price", sl_price))
+            if value and field not in accepted
+        ]
+        if refused:
+            logger.warning(
+                "Position %s opened but HyperLiquid refused %s — no level stored for it",
+                position_id,
+                ", ".join(refused),
             )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
@@ -516,7 +561,23 @@ class PerpsService:
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
     ):
-        """Modify take profit / stop loss for a position."""
+        """Replace the reduce-only triggers protecting a position. MONEY-PATH.
+
+        The stored level is only true if HyperLiquid is holding the trigger, so
+        the order goes out first and the row is written after it is accepted.
+        The trigger being replaced is cancelled afterwards, so a position never
+        carries two stops and a rejection never strands it with none.
+        """
+        # Validate price ranges before any action
+        if tp_price is not None and tp_price <= 0:
+            raise ValueError("TP price must be positive")
+        if sl_price is not None and sl_price <= 0:
+            raise ValueError("SL price must be positive")
+
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not set up")
+
         with get_session() as session:
             position = (
                 session.query(PerpPosition)
@@ -527,15 +588,95 @@ class PerpsService:
             if not position:
                 raise ValueError("Position not found")
 
-            if tp_price is not None:
-                position.tp_price = Decimal(str(tp_price))
-            if sl_price is not None:
-                position.sl_price = Decimal(str(sl_price))
+            market = position.market
+            side = position.side
+            size = float(position.size)
 
-        logger.info(f"Updated TP/SL for position {position_id}: TP={tp_price}, SL={sl_price}")
+        updates = []
+        if tp_price is not None:
+            updates.append(("take_profit", "tp_price", tp_price))
+        if sl_price is not None:
+            updates.append(("stop_loss", "sl_price", sl_price))
 
-    def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
-        """Get user's positions."""
+        for order_type, field, price in updates:
+            # Snapshot before placing, so the cancel below cannot pick up the
+            # replacement it is meant to supersede.
+            superseded = self._live_trigger_orders(user_id, position_id, order_type)
+
+            # Place first: if the exchange refuses, the existing trigger is still
+            # resting. Cancelling first would open a gap with no protection.
+            await self._place_tp_sl(
+                user_id, account, market, side, size, order_type, price, position_id
+            )
+            await self._cancel_trigger_orders(user_id, market, superseded)
+
+            with get_session() as session:
+                stored = (
+                    session.query(PerpPosition).filter_by(id=position_id, user_id=user_id).first()
+                )
+                if stored:
+                    setattr(stored, field, Decimal(str(price)))
+
+        logger.info(
+            f"Modified TP/SL for position {position_id}: TP={tp_price}, SL={sl_price} (orders placed on HyperLiquid)"
+        )
+
+    def _live_trigger_orders(
+        self, user_id: int, position_id: int, order_type: str
+    ) -> list[tuple[int, Optional[str]]]:
+        """Rows for the triggers of this type currently resting on the exchange."""
+        with get_session() as session:
+            existing = (
+                session.query(PerpOrder)
+                .filter(
+                    PerpOrder.user_id == user_id,
+                    PerpOrder.position_id == position_id,
+                    PerpOrder.order_type == order_type,
+                    PerpOrder.status.in_(("pending", "open")),
+                )
+                .all()
+            )
+            return [(o.id, o.hl_order_id) for o in existing]
+
+    async def _cancel_trigger_orders(
+        self, user_id: int, market: str, stale: list[tuple[int, Optional[str]]]
+    ):
+        """Cancel superseded triggers so a position never carries two stops."""
+        if not stale:
+            return
+
+        account = self.get_account(user_id)
+        if not account:
+            return
+        api_key, api_secret = self._decrypt_credentials(account)
+
+        for row_id, hl_order_id in stale:
+            if hl_order_id:
+                try:
+                    await self._client.cancel_order(
+                        address=account.hl_address,
+                        api_key=api_key,
+                        api_secret=api_secret,
+                        market=market,
+                        order_id=hl_order_id,
+                    )
+                except Exception as e:
+                    # The replacement is already resting, so the position is
+                    # protected either way. Over-protection is the safe failure:
+                    # log it and let the position sync reconcile, rather than
+                    # raise and imply the change did not happen.
+                    logger.warning("Cancel of superseded trigger %s failed: %s", hl_order_id, e)
+                    continue
+            with get_session() as session:
+                order = session.query(PerpOrder).filter_by(id=row_id).first()
+                if order:
+                    order.status = "cancelled"
+
+    async def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
+        """Get user's positions. MONEY-PATH: syncs with HyperLiquid state before returning (detects liquidations/closures)."""
+        # Sync positions with HyperLiquid first to ensure accuracy
+        await self.sync_positions(user_id)
+
         with get_session() as session:
             positions = (
                 session.query(PerpPosition)
@@ -547,8 +688,10 @@ class PerpsService:
                 session.expunge(p)
             return positions
 
-    def get_position(self, user_id: int, position_id: int) -> Optional[PerpPosition]:
-        """Get a specific position."""
+    async def get_position(self, user_id: int, position_id: int) -> Optional[PerpPosition]:
+        """Get a specific position. MONEY-PATH: syncs with HyperLiquid state before returning."""
+        await self.sync_positions(user_id)
+
         with get_session() as session:
             position = (
                 session.query(PerpPosition).filter_by(id=position_id, user_id=user_id).first()
@@ -595,6 +738,38 @@ class PerpsService:
                     )
                     local_pos.closed_at = datetime.now(timezone.utc)
 
+    def _record_trigger_order(
+        self,
+        user_id: int,
+        position_id: int,
+        market: str,
+        side: str,
+        size: float,
+        order_type: str,
+        price: float,
+        hl_order_id: str,
+    ):
+        """Record a trigger the exchange is already holding.
+
+        Used for protection attached to an entry, where the order exists before
+        this row does — so the row is a record of fact, not a request.
+        """
+        with get_session() as session:
+            session.add(
+                PerpOrder(
+                    user_id=user_id,
+                    position_id=position_id,
+                    exchange="hyperliquid",
+                    market=market,
+                    side=side,
+                    order_type=order_type,
+                    size=Decimal(str(size)),
+                    price=Decimal(str(price)),
+                    status="pending",
+                    hl_order_id=hl_order_id,
+                )
+            )
+
     async def _place_tp_sl(
         self,
         user_id: int,
@@ -605,39 +780,70 @@ class PerpsService:
         order_type: str,
         price: float,
         position_id: int,
-    ):
-        """Place a take profit or stop loss order."""
-        try:
-            api_key, api_secret = self._decrypt_credentials(account)
-            result = await self._client.place_order(
-                address=account.hl_address,
-                api_key=api_key,
-                api_secret=api_secret,
-                market=market,
-                side=side,
-                size=size,
-                price=price,
-                order_type=order_type,
-                reduce_only=True,
-            )
+        raise_on_error: bool = True,
+    ) -> bool:
+        """Place a take profit or stop loss order. MONEY-PATH: propagates errors (not silently logged).
 
-            if result:
-                with get_session() as session:
-                    order = PerpOrder(
-                        user_id=user_id,
-                        position_id=position_id,
-                        exchange="hyperliquid",
-                        market=market,
-                        side=side,
-                        order_type=order_type,
-                        size=Decimal(str(size)),
-                        price=Decimal(str(price)),
-                        status="pending",
-                        hl_order_id=result.order_id,
-                    )
-                    session.add(order)
+        Raises by default: a caller editing protection must know whether the
+        trigger actually landed. ``open_position`` opts out, because its
+        position is already live on-chain — raising there would abort the rest
+        of the open and report a failure for a trade the user really has.
+        Returns True when the trigger is resting.
+        """
+        try:
+            return await self._place_tp_sl_inner(
+                user_id, account, market, side, size, order_type, price, position_id
+            )
         except Exception as e:
             logger.error(f"Failed to place {order_type} order: {e}")
+            if raise_on_error:
+                raise
+            return False
+
+    async def _place_tp_sl_inner(
+        self,
+        user_id: int,
+        account: HyperLiquidAccount,
+        market: str,
+        side: str,
+        size: float,
+        order_type: str,
+        price: float,
+        position_id: int,
+    ) -> bool:
+        api_key, api_secret = self._decrypt_credentials(account)
+        result = await self._client.place_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            side=side,
+            size=size,
+            price=price,
+            order_type=order_type,
+            reduce_only=True,
+        )
+
+        if not result:
+            raise Exception(f"Failed to place {order_type} order on HyperLiquid")
+
+        with get_session() as session:
+            order = PerpOrder(
+                user_id=user_id,
+                position_id=position_id,
+                exchange="hyperliquid",
+                market=market,
+                side=side,
+                order_type=order_type,
+                size=Decimal(str(size)),
+                price=Decimal(str(price)),
+                status="pending",
+                hl_order_id=result.order_id,
+            )
+            session.add(order)
+
+        logger.info(f"Placed {order_type} order for position {position_id} at {price}")
+        return True
 
     async def ensure_referrer(self, account: HyperLiquidAccount) -> None:
         """Best-effort: attach Suwappu's referral code to the user once.

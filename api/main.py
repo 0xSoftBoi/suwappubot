@@ -58,6 +58,8 @@ from bot.services.tx_poller import tx_poller
 from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
+from bot.services.approval_notifier import approval_notifier
+from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
@@ -318,6 +320,17 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Agent control-plane approval notifier: DMs the owning Telegram user
+        # for pending api-ts approval_requests rows (gated on
+        # AGENT_APPROVALS_ENABLED, no-op otherwise).
+        await approval_notifier.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        # Durable retry + dead-letter for approval-decision webhooks enqueued
+        # by approval_webhook.notify_approval_decided. Same feature flag as
+        # approval_notifier since it's part of the same agent control-plane
+        # feature.
+        await webhook_dispatcher.start()
+        await asyncio.sleep(2)
         # Post-trade execution scoring (execution intelligence, phase 2).
         # Marks out completed swaps at fixed horizons so realized-vs-quoted
         # (ours) can be separated from markout (the market's).
@@ -458,6 +471,8 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await approval_notifier.stop()
+        await webhook_dispatcher.stop()
         await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
@@ -1008,6 +1023,27 @@ def _compute_source_fingerprint() -> str:
 
 
 SOURCE_FINGERPRINT = _compute_source_fingerprint()
+
+
+@app.get("/admin/activation-funnel", tags=["Admin"], summary="Activation funnel")
+async def admin_activation_funnel(_: str = Depends(get_admin_key)):
+    """Where new users stop: signup -> wallet -> quote -> swap.
+
+    Built because the product had 43 users, 77 wallets and zero completed swaps,
+    and nothing could say WHICH step they stopped at. `biggest_drop` names the
+    worst step by retention against the one before it.
+
+    `not_instrumented` lists stages that cannot be measured at all — currently
+    "funded", because no table persists a balance. That is reported explicitly
+    so a missing stage is never read as a stage with zero users.
+    """
+    from bot.services.activation_funnel import activation_funnel
+
+    try:
+        return activation_funnel.compute()
+    except Exception as e:
+        logger.error(f"activation funnel failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Funnel unavailable")
 
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")

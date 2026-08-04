@@ -27,7 +27,12 @@ import {
 export type PolicyVerdict = 'allow' | 'block' | 'require_approval'
 
 export interface PolicyIntent {
-	/** Org context. When absent, the request is un-orged (retail) and is allowed. */
+	/**
+	 * Org context. When BOTH organizationId and agentId are absent, the request
+	 * is fully un-orged (retail) and is allowed with no evaluation. A bare
+	 * agentId with no organizationId (plain agent-token/MCP auth) IS gated —
+	 * org-less per-agent policy rows (organizationId null, agentId set) apply.
+	 */
 	organizationId?: string | null
 	agentId?: string | null
 	/** Chain key/id, lowercased for comparison (e.g. '1', 'solana', 'base'). */
@@ -37,6 +42,8 @@ export interface PolicyIntent {
 	toToken?: string | null
 	/** Destination/counterparty address, if the route sends to a third party. */
 	destinationAddress?: string | null
+	/** Contract/router address the tx calls into, if known (allowedContracts gate). */
+	contractAddress?: string | null
 	/** USD value of the trade. */
 	valueUsd: number
 	slippageBps?: number | null
@@ -158,6 +165,38 @@ function evalStateless(
 			return { block: `destination ${dest} is not whitelisted` }
 		}
 	}
+	if (p.allowedContracts && p.allowedContracts.length > 0) {
+		// `contractAddress === undefined` means "not applicable on this chain"
+		// (e.g. Solana/Jupiter trades have no EVM router to check) — allowedContracts
+		// is an EVM-router allowlist concept, so those intents are simply not
+		// subject to it. `contractAddress === null` means "expected but unresolved"
+		// (an EVM quote whose transactionRequest.to is missing) — that DOES fail
+		// closed below, since we configured a control we can't verify.
+		if (intent.contractAddress !== undefined) {
+			const allowedContracts = p.allowedContracts.map((c) => c.toLowerCase())
+			const contract = lc(intent.contractAddress)
+			if (!contract) {
+				// Fail CLOSED: an allowlist is configured but this intent carries no
+				// resolvable contract address (e.g. transactionRequest.to missing) —
+				// we cannot verify it against the allowlist, so block rather than
+				// silently letting it through.
+				return { block: 'contract address unknown — cannot verify allowlist' }
+			}
+			if (!allowedContracts.includes(contract)) {
+				return { block: `contract ${contract} is not in the allowlist` }
+			}
+		}
+	}
+
+	// Approval escalation. 'autonomous' never escalates (caps/blocks above still
+	// apply); 'always_ask' escalates unconditionally; default 'above_limit' keeps
+	// the existing threshold behavior.
+	if (p.approvalMode === 'autonomous') {
+		return {}
+	}
+	if (p.approvalMode === 'always_ask') {
+		return { approval: 'policy requires approval for every transaction (always_ask)' }
+	}
 	if (p.requireApprovalAboveUsd != null && intent.valueUsd > p.requireApprovalAboveUsd) {
 		return { approval: `tx $${intent.valueUsd.toFixed(2)} exceeds approval threshold $${p.requireApprovalAboveUsd}` }
 	}
@@ -171,11 +210,18 @@ export const PolicyServiceLive = Layer.succeed(
 			Effect.gen(function* () {
 				const db = yield* requireDb
 
-				// Un-orged requests (retail) are not gated by the institutional engine.
-				if (!intent.organizationId) {
+				// Fully un-orged, un-agented requests (retail) are not gated by the
+				// institutional engine. A bare agentId (plain agent-token/MCP auth, no
+				// org) IS gated below — an org-less per-agent policy row
+				// (organizationId null, agentId set) applies to it.
+				if (!intent.organizationId && !intent.agentId) {
 					return { decision: 'allow' as PolicyVerdict }
 				}
-				const orgId = intent.organizationId
+				const orgId = intent.organizationId ?? null
+				// Stable per-scope key for the cap-check advisory lock below — orgId
+				// when present, else the agent id (org-less per-agent grants still need
+				// serialized cap reads).
+				const lockKey = orgId ?? `agent:${intent.agentId}`
 
 				const log = (
 					result: PolicyDecisionResult,
@@ -208,12 +254,16 @@ export const PolicyServiceLive = Layer.succeed(
 				// 1. Kill switches (global / org / agent) — any active match blocks.
 				const killScopes: Array<ReturnType<typeof and>> = [
 					and(eq(policyKillSwitches.scope, 'global'), eq(policyKillSwitches.active, true)),
-					and(
-						eq(policyKillSwitches.scope, 'org'),
-						eq(policyKillSwitches.scopeId, orgId),
-						eq(policyKillSwitches.active, true),
-					),
 				]
+				if (orgId) {
+					killScopes.push(
+						and(
+							eq(policyKillSwitches.scope, 'org'),
+							eq(policyKillSwitches.scopeId, orgId),
+							eq(policyKillSwitches.active, true),
+						),
+					)
+				}
 				if (intent.agentId) {
 					killScopes.push(
 						and(
@@ -240,8 +290,12 @@ export const PolicyServiceLive = Layer.succeed(
 					})
 				}
 
-				// 2. Load enabled policies for this org, applying to all (agentId null)
-				//    or to this specific agent. Lowest priority first.
+				// 2. Load enabled policies scoped to this org (applying to all agents
+				//    or narrowed to this one) OR, when there's no org, to org-less
+				//    per-agent policy rows for this agent. Lowest priority first. An
+				//    org query must still pin organizationId = orgId and must NOT match
+				//    org-less rows for other tenants — org-less rows only surface on the
+				//    no-org (bare agent-token) branch.
 				const rows = yield* Effect.tryPromise({
 					try: () =>
 						db
@@ -249,24 +303,34 @@ export const PolicyServiceLive = Layer.succeed(
 							.from(policies)
 							.where(
 								and(
-									eq(policies.organizationId, orgId),
 									eq(policies.enabled, true),
-									intent.agentId
-										? or(isNull(policies.agentId), eq(policies.agentId, intent.agentId))
-										: isNull(policies.agentId),
+									orgId
+										? and(
+												eq(policies.organizationId, orgId),
+												intent.agentId
+													? or(isNull(policies.agentId), eq(policies.agentId, intent.agentId))
+													: isNull(policies.agentId),
+											)
+										: and(
+												isNull(policies.organizationId),
+												eq(policies.agentId, intent.agentId as string),
+											),
 								),
 							)
 							.orderBy(policies.priority),
 					catch: (e) => new DatabaseError({ message: `policy query failed: ${e}`, cause: e }),
 				})
 
-				if (rows.length === 0) {
-					return yield* log({ decision: 'allow', reason: 'no policies configured' })
+				// Expired grants are skipped entirely (treated as if not configured).
+				const activeRows = rows.filter((p) => !p.expiresAt || p.expiresAt.getTime() > Date.now())
+
+				if (activeRows.length === 0) {
+					return yield* log({ decision: 'allow', reason: 'no active policies configured' })
 				}
 
 				// 3. Stateless evaluation — first BLOCK wins; remember any approval.
 				let pendingApproval: PolicyDecisionResult | null = null
-				for (const p of rows) {
+				for (const p of activeRows) {
 					const r = evalStateless(p, intent)
 					if (r.block) {
 						return yield* log({ decision: 'block', reason: r.block, matchedPolicyId: p.id })
@@ -297,13 +361,16 @@ export const PolicyServiceLive = Layer.succeed(
 				const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
 				const hourAgo = new Date(now - 60 * 60 * 1000)
 
-				const needsDaily = rows.some((p) => p.dailyCapUsd != null)
-				const needsSession = rows.some((p) => p.sessionCapUsd != null)
-				const needsVelocity = rows.some((p) => p.maxTxPerHour != null)
+				const needsDaily = activeRows.some((p) => p.dailyCapUsd != null)
+				const needsSession = activeRows.some((p) => p.sessionCapUsd != null)
+				const needsVelocity = activeRows.some((p) => p.maxTxPerHour != null)
 
+				// orgId is guaranteed non-null whenever intent.agentId is falsy here —
+				// the only way to reach this point with both null is the fully-unscoped
+				// early return above.
 				const agentFilter = intent.agentId
 					? eq(policyDecisions.agentId, intent.agentId)
-					: eq(policyDecisions.organizationId, orgId)
+					: eq(policyDecisions.organizationId, orgId as string)
 
 				// Captured from inside the transaction so a write failure AFTER the
 				// verdict is computed can fail closed (return the computed block with
@@ -313,7 +380,7 @@ export const PolicyServiceLive = Layer.succeed(
 				const capChecked = yield* Effect.tryPromise({
 					try: () =>
 						db.transaction(async (tx) => {
-							await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId})::bigint)`)
+							await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`)
 
 							let verdict: PolicyDecisionResult = pendingApproval ?? { decision: 'allow' }
 
@@ -336,7 +403,7 @@ export const PolicyServiceLive = Layer.succeed(
 								const hourSum = Number(agg?.hourSum ?? 0)
 								const hourCount = Number(agg?.hourCount ?? 0)
 
-								for (const p of rows) {
+								for (const p of activeRows) {
 									if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
 										verdict = {
 											decision: 'block',
@@ -429,6 +496,11 @@ export const PolicyServiceLive = Layer.succeed(
 							const now = Date.now()
 							const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
 							const hourAgo = new Date(now - 60 * 60 * 1000)
+							// Expired grants are skipped entirely here too, for consistency
+							// with evaluate()'s activeRows filtering.
+							const activeRows = rows.filter(
+								(p) => !p.expiresAt || p.expiresAt.getTime() > now,
+							)
 							const agentFilter = intent.agentId
 								? eq(policyDecisions.agentId, intent.agentId)
 								: eq(policyDecisions.organizationId, orgId)
@@ -452,7 +524,7 @@ export const PolicyServiceLive = Layer.succeed(
 							const hourSum = Number(agg?.hourSum ?? 0)
 							const hourCount = Number(agg?.hourCount ?? 0)
 
-							for (const p of rows) {
+							for (const p of activeRows) {
 								if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
 									return {
 										blocked: true as const,

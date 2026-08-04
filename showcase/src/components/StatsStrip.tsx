@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { animate, useInView, useReducedMotion } from 'framer-motion';
 
 /**
- * StatsStrip — the homepage "at a glance" row.
+ * StatsStrip: the homepage "at a glance" row.
  *
  * The final value is what renders on the server and on first client paint, so
  * it is always present in the HTML for SEO and no-JS readers; the count-up only

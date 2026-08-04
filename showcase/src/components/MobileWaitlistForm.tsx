@@ -65,7 +65,7 @@ export default function MobileWaitlistForm() {
         const body = await res.json();
         if (typeof body?.position === 'number') nextPosition = body.position;
       } catch {
-        /* older backend / no JSON body — fall back to generic success copy */
+        /* older backend / no JSON body: fall back to generic success copy */
       }
       setPosition(nextPosition);
       setStatus('success');
@@ -93,8 +93,8 @@ export default function MobileWaitlistForm() {
               <span>on the list</span>
             </div>
             <p>
-              You&rsquo;re on the list. We&rsquo;ll email you the moment the app — and
-              the Suwappu Card by Rain — is ready for your device.
+              You&rsquo;re on the list. We&rsquo;ll email you the moment the app: and
+              the Suwappu Card by Rain: is ready for your device.
             </p>
           </>
         ) : (
@@ -104,7 +104,7 @@ export default function MobileWaitlistForm() {
             </div>
             <h3>You&rsquo;re on the list.</h3>
             <p>
-              We&rsquo;ll email you the moment the app — and the Suwappu Card by Rain —
+              We&rsquo;ll email you the moment the app, and the Suwappu Card by Rain -
               is ready for your device.
             </p>
           </>

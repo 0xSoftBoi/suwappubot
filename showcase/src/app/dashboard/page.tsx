@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/links';
-import { useDashboardAuth } from './auth-context';
+import { type AuthState, useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
 import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
@@ -58,7 +57,9 @@ interface UsageData {
 }
 
 interface DashboardData {
-  org: OrgMe;
+  /** null when the signed-in user has no enterprise organisation — the normal
+      case for someone who just signed up with Google. NOT an error state. */
+  org: OrgMe | null;
   members: Member[];
   apiKeys: ApiKey[];
   usage: UsageData;
@@ -148,8 +149,9 @@ const ENTERPRISE_SOFT_WARN = 500_000;
 
 // ── Fetch helper: clears token + redirects on 401 ────────────────────────────
 
-function useApiFetch(token: string, clearToken: () => void) {
-  const router = useRouter();
+// clearToken is intentionally NOT a parameter here: this helper must never
+// end the session on its own. See the note in the 401 branch below.
+function useApiFetch(auth: AuthState) {
   return useCallback(
     async (path: string, opts: RequestInit = {}): Promise<Response> => {
       const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -161,15 +163,27 @@ function useApiFetch(token: string, clearToken: () => void) {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          // Only sent when a token was pasted manually — the legacy fallback.
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Only a real pasted token becomes a bearer header. A cookie
+          // session has no token to send — the browser attaches it. The type
+          // makes the old bug (shipping a sentinel string as a bearer)
+          // unrepresentable rather than merely guarded against.
+          ...(auth.kind === 'token' ? { Authorization: `Bearer ${auth.value}` } : {}),
           ...(opts.headers ?? {}),
         },
       });
-      if (res.status === 401) { clearToken(); router.replace('/dashboard'); }
+      // Deliberately does NOT sign the user out on 401.
+      //
+      // It used to. That meant a 401 from ANY endpoint ended the session — and
+      // the organisation sub-routes (/orgs/me/members, /api-keys, /usage) 401
+      // for a user who has no organisation, which is the normal state for a
+      // fresh Google sign-up. So the dashboard signed people out milliseconds
+      // after they signed in, and the login screen reappeared with no
+      // explanation. Only the session probe in layout.tsx decides whether the
+      // session is actually dead; a feature endpoint refusing one request is
+      // not evidence of that.
       return res;
     },
-    [token, clearToken, router]
+    [auth]
   );
 }
 
@@ -285,8 +299,8 @@ function parseUsage(payload: Record<string, unknown>): UsageData {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { token, clearToken } = useDashboardAuth();
-  const apiFetch              = useApiFetch(token, clearToken);
+  const { auth, clearToken } = useDashboardAuth();
+  const apiFetch              = useApiFetch(auth);
 
   const [data, setData]         = useState<DashboardData | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -300,6 +314,7 @@ export default function DashboardPage() {
   // did not ask for. These three groups map to the three jobs people come
   // here to do: monitor, administer, pay.
   const [tab, setTab] = useState<'overview' | 'team' | 'billing'>('overview');
+  // Snapped to Billing below when the account has no organisation.
 
   const [period, setPeriod] = useState<'7d' | '30d'>('7d');
   const [periodUsage, setPeriodUsage] = useState<UsageData | null>(null);
@@ -312,25 +327,43 @@ export default function DashboardPage() {
 
     async function load() {
       try {
-        const [orgRes, membersRes, keysRes, usageRes] = await Promise.all([
-          apiFetch('/enterprise/orgs/me'),
-          apiFetch('/enterprise/orgs/me/members'),
-          apiFetch('/enterprise/orgs/me/api-keys'),
-          apiFetch('/enterprise/orgs/me/usage?period=7d'),
-        ]);
+        // Resolve the org FIRST. The sub-routes are meaningless without one,
+        // and firing them regardless produced a burst of 401s in the console
+        // for every user who has no organisation.
+        const orgRes = await apiFetch('/enterprise/orgs/me');
         if (cancelled) return;
-        if (orgRes.status === 401) return;
 
-        const org: OrgMe = orgRes.ok
-          ? await orgRes.json()
-          : { id: 'unknown', name: 'Your Org', tier: 'Enterprise' };
+        const orgOk = orgRes.ok;
+        const [membersRes, keysRes, usageRes] = orgOk
+          ? await Promise.all([
+              apiFetch('/enterprise/orgs/me/members'),
+              apiFetch('/enterprise/orgs/me/api-keys'),
+              apiFetch('/enterprise/orgs/me/usage?period=7d'),
+            ])
+          : [null, null, null];
+        if (cancelled) return;
 
-        const membersPayload = membersRes.ok ? await membersRes.json() : [];
+        // 401 = the session is genuinely invalid; bounce to sign-in.
+        if (orgRes.status === 401) {
+          clearToken();
+          return;
+        }
+
+        // Anything else non-OK (402 tier gate, 403, 404) means the user simply
+        // has no enterprise organisation — which is the NORMAL state for a
+        // fresh Google sign-up. Previously this fell through to a fabricated
+        // org called "Your Org" on tier "Enterprise", or bailed out entirely
+        // and left `data` null so the render threw and the page went blank.
+        // Neither is acceptable: a paying-or-not user must still reach their
+        // plan and billing.
+        const org: OrgMe | null = orgRes.ok ? await orgRes.json() : null;
+
+        const membersPayload = membersRes?.ok ? await membersRes.json() : [];
         const members: Member[] = Array.isArray(membersPayload)
           ? membersPayload
           : (membersPayload?.members ?? []);
 
-        const keysPayload = keysRes.ok ? await keysRes.json() : [];
+        const keysPayload = keysRes?.ok ? await keysRes.json() : [];
         const apiKeys: ApiKey[] = Array.isArray(keysPayload)
           ? keysPayload
           : (keysPayload?.keys ?? []);
@@ -343,7 +376,7 @@ export default function DashboardPage() {
           return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
         });
 
-        const usagePayload = usageRes.ok ? await usageRes.json() : {};
+        const usagePayload = usageRes?.ok ? await usageRes.json() : {};
         const usage = parseUsage(usagePayload as Record<string, unknown>);
 
         const callerRole: DashboardData['callerRole'] =
@@ -383,7 +416,7 @@ export default function DashboardPage() {
   // ── Key / member mutations ────────────────────────────────────────────────
   async function revokeKey(keyId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org.id}/api-keys/${keyId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id}/api-keys/${keyId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? {
         ...prev,
@@ -396,7 +429,7 @@ export default function DashboardPage() {
 
   async function removeMember(userId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org.id}/members/${userId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id}/members/${userId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? { ...prev, members: prev.members.filter((m) => m.userId !== userId) } : prev
     );
@@ -404,10 +437,34 @@ export default function DashboardPage() {
 
   // ── Render guards ─────────────────────────────────────────────────────────
   if (loading) {
+    // Skeleton that matches the real layout, not a centred spinner. A spinner
+    // says "something is happening somewhere"; a skeleton says "the two
+    // headline figures and a panel are arriving here", so the page does not
+    // visibly reflow when data lands.
     return (
-      <div className={styles.stateBox}>
-        <div className={styles.spinner} aria-hidden="true" />
-        <span>Loading dashboard…</span>
+      <div aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading your dashboard</span>
+        <div className={styles.skelTabs} aria-hidden="true">
+          <span /><span /><span />
+        </div>
+        <div className={styles.kpiPrimary} aria-hidden="true">
+          <div className={`${styles.kpiHero} ${styles.skel}`}>
+            <div className={styles.skelLine} style={{ width: '38%' }} />
+            <div className={styles.skelLine} style={{ width: '62%', height: 34 }} />
+            <div className={styles.skelLine} style={{ width: '30%' }} />
+          </div>
+          <div className={`${styles.kpiHero} ${styles.skel}`}>
+            <div className={styles.skelLine} style={{ width: '30%' }} />
+            <div className={styles.skelLine} style={{ width: '46%', height: 34 }} />
+            <div className={styles.skelLine} style={{ width: '52%' }} />
+          </div>
+        </div>
+        <div className={`${styles.card} ${styles.skel}`} aria-hidden="true">
+          <div className={styles.skelLine} style={{ width: '22%' }} />
+          <div className={styles.skelLine} style={{ width: '100%' }} />
+          <div className={styles.skelLine} style={{ width: '84%' }} />
+          <div className={styles.skelLine} style={{ width: '91%' }} />
+        </div>
       </div>
     );
   }
@@ -422,6 +479,12 @@ export default function DashboardPage() {
   }
 
   const { org, members, apiKeys, usage, callerRole } = data;
+  // Team and API keys are ORGANISATION features. Without an org those tabs
+  // lead to empty tables, so they are hidden rather than shown broken.
+  const hasOrg = org !== null;
+  // Without an org the only meaningful tab is Billing, so never leave the user
+  // staring at an Overview built entirely from organisation usage data.
+  const activeTab = hasOrg ? tab : 'billing';
   const activeUsage = periodUsage ?? usage;
   const canManage   = callerRole === 'owner' || callerRole === 'admin';
   const activeKeys  = apiKeys.filter((k) => !k.revokedAt);
@@ -429,9 +492,9 @@ export default function DashboardPage() {
   // Billing helpers
   const totalCalls   = usage.callsThisMonth;
   const seatUsed     = members.length;
-  const seatLimit    = org.subscription?.seatLimit ?? null;
-  const rateLimit    = org.subscription?.rateLimitPerMin ?? 1000;
-  const subStatus    = org.subscription?.status ?? 'active';
+  const seatLimit    = org?.subscription?.seatLimit ?? null;
+  const rateLimit    = org?.subscription?.rateLimitPerMin ?? 1000;
+  const subStatus    = org?.subscription?.status ?? 'active';
   const usagePct     = Math.min((totalCalls / ENTERPRISE_SOFT_WARN) * 100, 100);
 
   // Top endpoints total (for percentage bars)
@@ -441,10 +504,10 @@ export default function DashboardPage() {
     <>
       {/* ── Header bar ── */}
       <header className={styles.header}>
-        <h1 className={styles.orgName}>{org.name}</h1>
+        <h1 className={styles.orgName}>{org?.name ?? 'Your account'}</h1>
         {/* The real tier. This was hardcoded to "Enterprise", so every
             customer saw a plan they might not be on — on a billing page. */}
-        <span className={styles.tierBadge}>{(org.tier ?? 'free').toUpperCase()}</span>
+        <span className={styles.tierBadge}>{(org?.tier ?? 'free').toUpperCase()}</span>
         <div className={styles.headerSep} />
         <div className={styles.userInfo}>
           <span className={styles.userName}>{members[0]?.name ?? 'You'}</span>
@@ -457,17 +520,20 @@ export default function DashboardPage() {
 
       {/* ── Tab nav ── */}
       <nav className={styles.tabs} aria-label="Dashboard sections">
-        {([
-          ['overview', 'Overview'],
-          ['team', 'Team & API keys'],
-          ['billing', 'Billing'],
-        ] as const).map(([id, label]) => (
+        {(hasOrg
+          ? ([
+              ['overview', 'Overview'],
+              ['team', 'Team & API keys'],
+              ['billing', 'Billing'],
+            ] as const)
+          : ([['billing', 'Billing']] as const)
+        ).map(([id, label]) => (
           <button
             key={id}
             type="button"
             className={styles.tab}
-            data-active={tab === id || undefined}
-            aria-current={tab === id ? 'page' : undefined}
+            data-active={activeTab === id || undefined}
+            aria-current={activeTab === id ? 'page' : undefined}
             onClick={() => setTab(id)}
           >
             {label}
@@ -475,7 +541,7 @@ export default function DashboardPage() {
         ))}
       </nav>
 
-      {tab === 'overview' && (<>
+      {activeTab === 'overview' && (<>
       {/* ── KPI hierarchy ──
           Was six identical tiles in a six-column grid, which gave calls,
           errors, latency, team size and key count all the same weight — so
@@ -535,7 +601,7 @@ export default function DashboardPage() {
 
         <div className={styles.kpiCompact}>
           <span className={styles.kpiCompactLabel}>Plan</span>
-          <span className={styles.kpiCompactValue}>{(org.tier ?? 'free').toUpperCase()}</span>
+          <span className={styles.kpiCompactValue}>{(org?.tier ?? 'free').toUpperCase()}</span>
         </div>
 
         <div className={styles.kpiCompact}>
@@ -615,7 +681,7 @@ export default function DashboardPage() {
 
       </>)}
 
-      {tab === 'team' && (<>
+      {activeTab === 'team' && (<>
       {/* ── Team table ── */}
       <section className={styles.card} aria-label="Team members">
         <div className={styles.cardHead}>
@@ -750,7 +816,20 @@ export default function DashboardPage() {
 
       </>)}
 
-      {tab === 'billing' && (<>
+      {/* No organisation: say so plainly. Silently showing only a Billing tab
+          reads as a broken page — the user cannot tell whether features are
+          missing, still loading, or failed. */}
+      {!hasOrg && (
+        <section className={styles.card} aria-label="Account">
+          <p className={styles.billingMeta} style={{ margin: 0, lineHeight: 1.6 }}>
+            Team management, API keys and usage analytics are organisation
+            features &mdash; they appear here once your account belongs to one.
+            Your plan, credits and payments are below.
+          </p>
+        </section>
+      )}
+
+      {activeTab === 'billing' && (<>
       {/* ── Billing ──
           Previously TWO stacked billing sections: this card and BillingPanel
           directly below it, each showing the plan and each with its own
@@ -759,8 +838,8 @@ export default function DashboardPage() {
           the plan they belong to. */}
       <BillingPanel
         apiFetch={apiFetch}
-        fallbackTier={org.tier}
-        renewsAt={org.subscription?.renewsAt}
+        fallbackTier={org?.tier}
+        renewsAt={org?.subscription?.renewsAt}
         rateLimitPerMin={rateLimit}
         seatsUsed={seatUsed}
         seatLimit={seatLimit}
@@ -771,7 +850,7 @@ export default function DashboardPage() {
       {/* ── New key modal ── */}
       {showNewKey && (
         <NewKeyModal
-          orgId={org.id}
+          orgId={org?.id ?? ''}
           onClose={() => setShowNewKey(false)}
           onCreated={(key) => {
             setData((prev) => prev ? { ...prev, apiKeys: [key, ...prev.apiKeys] } : prev);

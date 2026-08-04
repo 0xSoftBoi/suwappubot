@@ -9,7 +9,7 @@ type Status = 'idle' | 'submitting' | 'success' | 'error';
 
 /**
  * Compact newsletter capture for the footer. Kept as its own client
- * component so SummerFooter itself can stay a server component — only this
+ * component so SummerFooter itself can stay a server component: only this
  * small island hydrates.
  */
 export default function FooterNewsletterForm() {
@@ -60,7 +60,7 @@ export default function FooterNewsletterForm() {
   if (status === 'success') {
     return (
       <p className="summer-footer__newsletter-status summer-footer__newsletter-status--success" role="status">
-        You&rsquo;re subscribed — watch your inbox.
+        You&rsquo;re subscribed: watch your inbox.
       </p>
     );
   }

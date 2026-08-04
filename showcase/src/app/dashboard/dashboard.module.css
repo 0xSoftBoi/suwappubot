@@ -1137,3 +1137,173 @@
     font-size: 2.1rem;
   }
 }
+
+/* ── Loading skeleton ───────────────────────────────────────────────────────
+   Replaces a centred spinner. The shapes mirror the real layout (two hero
+   figures + a panel), so content does not visibly reflow when data lands and
+   the wait communicates what is coming rather than merely that something is
+   happening. */
+
+/* No .srOnly here — globals.css already defines .sr-only. */
+
+.skel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skelLine {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(207, 227, 234, 0.45) 25%,
+    rgba(232, 244, 248, 0.85) 37%,
+    rgba(207, 227, 234, 0.45) 63%
+  );
+  background-size: 400% 100%;
+  animation: skelShimmer 1.4s ease-in-out infinite;
+}
+
+.skelTabs {
+  display: flex;
+  gap: 22px;
+  margin-bottom: 22px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+}
+
+.skelTabs > span {
+  height: 12px;
+  width: 84px;
+  border-radius: 6px;
+  background: rgba(207, 227, 234, 0.5);
+}
+
+@keyframes skelShimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Respect users who have asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .skelLine {
+    animation: none;
+    background: rgba(207, 227, 234, 0.55);
+  }
+}
+
+/* ── Numerals ───────────────────────────────────────────────────────────────
+   Every figure on this page is data. Proportional digits have variable
+   widths, so a value ticking 1,199 -> 1,200 shifts horizontally and columns
+   of numbers fail to align down the page. Tabular figures fix both. */
+
+.kpiHeroValue,
+.kpiCompactValue,
+.kpiValue,
+.creditBalanceValue,
+.mono,
+.packPrice,
+.table td {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Right-align numeric table cells so magnitudes line up on the decimal. */
+.table td.mono {
+  text-align: right;
+}
+
+/* ── Pressed + focus states ─────────────────────────────────────────────────
+   The page had hover styling but NO :active anywhere, so clicks felt inert —
+   nothing acknowledged the press until the network replied. And only one
+   element had a visible focus ring, leaving keyboard users unable to see
+   where they were. */
+
+.actionBtn:active,
+.signOutBtn:active,
+.tokenSubmit:active,
+.loginAdvancedToggle:active {
+  transform: translateY(1px);
+}
+
+.actionBtn,
+.signOutBtn,
+.tokenSubmit {
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.actionBtn:disabled,
+.signOutBtn:disabled,
+.tokenSubmit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* One consistent focus treatment for every interactive element. */
+.actionBtn:focus-visible,
+.signOutBtn:focus-visible,
+.tokenSubmit:focus-visible,
+.tokenInput:focus-visible,
+.loginAdvancedToggle:focus-visible,
+.invoiceLink:focus-visible,
+.packCard button:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actionBtn,
+  .signOutBtn,
+  .tokenSubmit,
+  .packCard {
+    transition: none;
+  }
+  .actionBtn:active,
+  .signOutBtn:active,
+  .tokenSubmit:active,
+  .loginAdvancedToggle:active {
+    transform: none;
+  }
+}
+
+/* The two secondary links previously sat adjacent with no separation and read
+   as a single run-on string ("Open the Suwappu botUse an access token
+   instead"). Space them and give them a shared baseline. */
+.loginFooterLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 20px;
+  margin-top: 18px;
+}
+
+/* Recommended top-up pack.
+   Three identical cards make the reader compute which is best. Emphasis does
+   that work for them — via colour and a label, not extra height, so the row
+   keeps a single baseline. */
+.packCard[data-recommended] {
+  border-color: rgba(14, 149, 189, 0.55);
+  background: rgba(240, 249, 252, 0.9);
+  box-shadow: 0 12px 26px rgba(14, 149, 189, 0.12);
+}
+
+.packFlag {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(14, 149, 189, 0.12);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

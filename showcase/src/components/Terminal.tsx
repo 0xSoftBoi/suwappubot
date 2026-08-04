@@ -81,11 +81,12 @@ export default function Terminal() {
     return () => clearInterval(id);
   }, []);
 
+  // One source of truth: --sw-term-* group in globals.css.
   const lineColor = (type: Line['type']) => {
     switch (type) {
-      case 'input': return '#93c5fd';    // blue-300
-      case 'success': return '#86efac';  // green-300
-      case 'output': return '#d4d4d8';   // zinc-300
+      case 'input': return 'var(--sw-term-input)';
+      case 'success': return 'var(--sw-term-success)';
+      case 'output': return 'var(--sw-term-output)';
     }
   };
 
@@ -117,7 +118,7 @@ export default function Terminal() {
         </AnimatePresence>
 
         {typing !== '' && (
-          <div style={{ color: '#93c5fd' }}>
+          <div style={{ color: 'var(--sw-term-input)' }}>
             <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
             {typing}
             <span
@@ -127,14 +128,14 @@ export default function Terminal() {
                 height: 14,
                 marginLeft: 2,
                 marginBottom: -2,
-                background: cursor ? '#93c5fd' : 'transparent',
+                background: cursor ? 'var(--sw-term-input)' : 'transparent',
               }}
             />
           </div>
         )}
 
         {typing === '' && lines.length === 0 && (
-          <div style={{ color: '#93c5fd' }}>
+          <div style={{ color: 'var(--sw-term-input)' }}>
             <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
             <span
               style={{
@@ -143,7 +144,7 @@ export default function Terminal() {
                 height: 14,
                 marginLeft: 2,
                 marginBottom: -2,
-                background: cursor ? '#93c5fd' : 'transparent',
+                background: cursor ? 'var(--sw-term-input)' : 'transparent',
               }}
             />
           </div>

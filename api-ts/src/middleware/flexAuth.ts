@@ -128,30 +128,30 @@ export function flexAuth() {
 			// If Telegram auth fails, fall through to try JWT
 		}
 
-		// 2. Try JWT — from the Authorization header OR the session cookie.
+		// 2. Try JWT — from the Authorization header, then the session cookie.
 		//
-		// The cookie source exists because the web dashboard had NO working
-		// sign-in at all: it sent `Authorization: Bearer <token>` to routes
-		// guarded by telegramAuth(), which reads only X-Telegram-Init-Data, so
-		// every request 401'd with "Missing Telegram authentication" and the
-		// login screen reported the token as rejected. Nobody could get in.
+		// Both are the SAME token format (python-api mints this JWT on every
+		// auth flow: Google OAuth, Telegram, passkey, SIWE), so they are tried
+		// as an ordered list of candidates through one verification path rather
+		// than two near-identical blocks. Adding a third source later means
+		// appending to this array, not writing another branch.
 		//
-		// python-api mints this JWT on every auth flow (Google OAuth, Telegram,
-		// passkey, SIWE) and sets it as an HttpOnly cookie scoped to the parent
-		// domain, so it reaches api-ts as a same-site request. Reading it here
-		// means the browser never has to hold a bearer token in JS — which is
-		// what the old paste-a-token flow trained people to do.
-		//
-		// The header is tried first so machine clients are unaffected.
+		// Order matters twice over: the header wins so machine clients are
+		// unaffected, and the cookie is still tried when the header FAILS —
+		// a stale or malformed bearer must not be able to veto an otherwise
+		// valid session. (It did: the dashboard briefly sent a sentinel string
+		// as a bearer while holding a good cookie, and 401'd itself.)
 		const authHeader = c.req.header('Authorization')
-		const headerToken = authHeader?.startsWith('Bearer ')
-			? authHeader.slice(7)
-			: undefined
+		const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
 		const cookieToken = getCookie(c, SESSION_COOKIE)
-		const token = headerToken ?? cookieToken
 
-		if (token) {
+		const candidates = [headerToken, cookieToken].filter(
+			(t, i, all): t is string => Boolean(t) && all.indexOf(t) === i,
+		)
 
+		if (candidates.length > 0) {
+			// EnvService is resolved ONCE for all candidates rather than per
+			// attempt — the secret cannot differ between them.
 			const result = await runEffectEither(
 				Effect.gen(function* () {
 					const env = yield* EnvService
@@ -160,15 +160,21 @@ export function flexAuth() {
 					}
 					const jwtSecret = env.JWT_SECRET
 
-					const decoded = yield* Effect.try({
-						try: () => verifyAuthJwt(token, jwtSecret),
-						catch: () => new Error('Invalid JWT token'),
-					})
-
-					return {
-						userId: decoded.userId,
-						walletAddress: decoded.walletAddress || null,
-					} as AuthUser
+					for (const token of candidates) {
+						const decoded = yield* Effect.either(
+							Effect.try({
+								try: () => verifyAuthJwt(token, jwtSecret),
+								catch: () => new Error('Invalid JWT token'),
+							}),
+						)
+						if (Either.isRight(decoded)) {
+							return {
+								userId: decoded.right.userId,
+								walletAddress: decoded.right.walletAddress || null,
+							} as AuthUser
+						}
+					}
+					return yield* Effect.fail(new Error('Invalid JWT token'))
 				}),
 			)
 

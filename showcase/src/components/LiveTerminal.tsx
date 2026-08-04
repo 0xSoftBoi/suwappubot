@@ -5,9 +5,9 @@ import stats from '@/data/stats.generated.json';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 /**
- * LiveTerminal — the dark, data-dense "pro terminal" in the hero.
+ * LiveTerminal: the dark, data-dense "pro terminal" in the hero.
  * The marketing page stays light (Summer Breeze); the embedded product
- * surface goes near-black and dense — the premium signal in this category.
+ * surface goes near-black and dense: the premium signal in this category.
  * Left: animated command stream (real Suwappu flows). Right: live-looking
  * market data (quote, order book, open position). Bottom: route status bar.
  */
@@ -43,11 +43,13 @@ const FLOWS: Line[][] = [
   ],
 ];
 
+// One source of truth: --sw-term-* group in globals.css. Read here (not
+// duplicated) so the terminal and its cursor/sparkline stay in sync with it.
 const COLORS: Record<LineType, string> = {
-  cmd: '#7dd3fc', // sky-300
-  out: '#8b9aa6',
-  ok: '#4ade80', // green-400
-  gas: '#fbbf24', // amber-400
+  cmd: 'var(--sw-term-cmd)',
+  out: 'var(--sw-term-out)',
+  ok: 'var(--sw-term-ok)',
+  gas: 'var(--sw-term-gas)',
 };
 
 // Static order-book rows (asks high→low, then bids) for the data sidebar.
@@ -158,7 +160,7 @@ export default function LiveTerminal({ className = '' }: { className?: string })
       <div className="pro-term__grid">
         {/* Command stream */}
         <div className="pro-term__log" role="log" aria-live="off">
-          <div className="pro-term__intro">suwappu — best-route execution · {stats.platformChains} chains</div>
+          <div className="pro-term__intro">suwappu best-route execution · {stats.platformChains} chains</div>
           <AnimatePresence initial={false}>
             {lines.map((line, i) => (
               <motion.div
@@ -184,7 +186,7 @@ export default function LiveTerminal({ className = '' }: { className?: string })
               {typing}
               <span
                 className="pro-term__cursor"
-                style={{ background: cursor ? '#7dd3fc' : 'transparent' }}
+                style={{ background: cursor ? 'var(--sw-term-cmd)' : 'transparent' }}
               />
             </div>
           )}
@@ -201,7 +203,7 @@ export default function LiveTerminal({ className = '' }: { className?: string })
             <svg className="pro-term__spark" viewBox="0 0 120 32" preserveAspectRatio="none">
               <polyline
                 fill="none"
-                stroke="#4ade80"
+                stroke="var(--sw-term-ok)"
                 strokeWidth="1.5"
                 points="0,24 14,22 28,25 42,16 56,19 70,11 84,14 98,7 112,9 120,5"
               />

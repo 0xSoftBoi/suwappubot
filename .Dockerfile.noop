@@ -1,0 +1,2 @@
+FROM alpine:latest
+CMD ["echo", "This service is deprecated and should be deleted from Railway dashboard"]

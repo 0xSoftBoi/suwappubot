@@ -9,7 +9,7 @@ import stats from '@/data/stats.generated.json';
 import styles from './agents.module.css';
 
 export const metadata: Metadata = {
-  title: 'Agents — Suwappu API, MCP & A2A for AI agents',
+  title: 'Agents | Suwappu API, MCP & A2A for AI agents',
   description:
     `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, pay-per-call with x402, no signup required.`,
 };
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 const CAPABILITIES = [
   {
     title: `${stats.agentApiChains} chains`,
-    body: 'EVM (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo — one API, one bearer token.',
+    body: 'EVM (Base, Ethereum, Arbitrum, Optimism, Polygon, BSC and more), Solana, TRON, and Tempo: one API, one bearer token.',
   },
   {
     title: 'Swap execution',
@@ -26,7 +26,7 @@ const CAPABILITIES = [
   },
   {
     title: 'Managed wallets & spending policies',
-    body: 'Server-side wallets signed via Turnkey — your agent never touches a private key. Set per-key spend limits and allowed chains/pairs.',
+    body: 'Server-side wallets signed via Turnkey: your agent never touches a private key. Set per-key spend limits and allowed chains/pairs.',
   },
   {
     title: 'Real-time prices & portfolio',
@@ -34,7 +34,7 @@ const CAPABILITIES = [
   },
   {
     title: 'Perps, predictions & lending',
-    body: 'HyperLiquid perpetuals, Polymarket prediction markets, and Morpho lending markets — all callable from the same key.',
+    body: 'HyperLiquid perpetuals, Polymarket prediction markets, and Morpho lending markets: all callable from the same key.',
   },
   {
     title: 'Webhooks & swap history',
@@ -68,7 +68,7 @@ const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
 const PAYMENT_MODES = [
   {
     title: 'Pay-per-call (x402)',
-    body: 'Pay per request over HTTP 402 — no signup, no subscription, no API key handshake. Fund a wallet, call the endpoint, get charged for exactly what you use.',
+    body: 'Pay per request over HTTP 402: no signup, no subscription, no API key handshake. Fund a wallet, call the endpoint, get charged for exactly what you use.',
   },
   {
     title: 'Prepaid credits',
@@ -76,7 +76,7 @@ const PAYMENT_MODES = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro ($9.99/mo), Premium ($29.99/mo), or Enterprise ($99.99/mo) — 30-day prepaid, stackable, and each tier raises your rate limit and lowers your swap fee.',
+    body: 'Crypto or Stripe fiat checkout for Pro ($9.99/mo), Premium ($29.99/mo), or Enterprise ($99.99/mo): 30-day prepaid, stackable, and each tier raises your rate limit and lowers your swap fee.',
   },
 ];
 
@@ -84,15 +84,15 @@ const PAYMENT_MODES = [
 const FAQS = [
   {
     q: 'What is the Suwappu MCP server?',
-    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp that exposes 16+ tools — quotes, swap execution, portfolio, prices, chains, tokens, prediction markets, perps, lending, and Tempo tokens — as agent-callable tools over JSON-RPC 2.0. Any MCP-compatible client can call it without custom integration code.',
+    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp that exposes 16+ tools: quotes, swap execution, portfolio, prices, chains, tokens, prediction markets, perps, lending, and Tempo tokens: as agent-callable tools over JSON-RPC 2.0. Any MCP-compatible client can call it without custom integration code.',
   },
   {
     q: 'Which AI clients work with it?',
-    a: 'Any MCP-compatible host — Claude Desktop, Claude Code, Cursor, and Windsurf all connect with the same server block. Add the URL and your API key and the client discovers the tool list automatically.',
+    a: 'Any MCP-compatible host: Claude Desktop, Claude Code, Cursor, and Windsurf all connect with the same server block. Add the URL and your API key and the client discovers the tool list automatically.',
   },
   {
     q: "What's the difference between REST, MCP, and A2A?",
-    a: 'REST is the full, typed surface — every endpoint, every parameter, for custom backends and SDKs. MCP wraps a subset of that surface as LLM tool calls for agent hosts. A2A is JSON-RPC for agent-to-agent messaging — send natural language like "swap 0.5 ETH to USDC on base" and get back a structured task. All three share the same auth, wallets, and execution engine.',
+    a: 'REST is the full, typed surface: every endpoint, every parameter, for custom backends and SDKs. MCP wraps a subset of that surface as LLM tool calls for agent hosts. A2A is JSON-RPC for agent-to-agent messaging: send natural language like "swap 0.5 ETH to USDC on base" and get back a structured task. All three share the same auth, wallets, and execution engine.',
   },
   {
     q: 'Which chains are supported?',
@@ -100,15 +100,15 @@ const FAQS = [
   },
   {
     q: 'What does it cost?',
-    a: 'Three ways to pay: pay-per-call over HTTP 402 (x402) with no signup, prepaid credits (1 credit ≈ $0.001 — reads cost 1 credit, swaps cost 5), or a monthly subscription (Pro/Premium/Enterprise) that raises your rate limit and lowers your swap fee. See the Agent API section on the pricing page for the full breakdown.',
+    a: 'Three ways to pay: pay-per-call over HTTP 402 (x402) with no signup, prepaid credits (1 credit ≈ $0.001: reads cost 1 credit, swaps cost 5), or a monthly subscription (Pro/Premium/Enterprise) that raises your rate limit and lowers your swap fee. See the Agent API section on the pricing page for the full breakdown.',
   },
   {
     q: 'How do managed wallets work?',
-    a: 'Create a managed wallet with POST /v1/agent/wallets and Suwappu provisions a server-side wallet signed via Turnkey — your agent sends a quote_id, never a private key. Set spending policies (per-key limits, allowed chains and pairs) so an autonomous agent can never move more than you allow. You can also bring your own keys and request an unsigned transaction instead.',
+    a: 'Create a managed wallet with POST /v1/agent/wallets and Suwappu provisions a server-side wallet signed via Turnkey: your agent sends a quote_id, never a private key. Set spending policies (per-key limits, allowed chains and pairs) so an autonomous agent can never move more than you allow. You can also bring your own keys and request an unsigned transaction instead.',
   },
   {
     q: 'Do I need an account?',
-    a: 'No. POST /v1/agent/register with just a name and you get back an API key (suwappu_sk_...) immediately — no email, no approval queue, no human in the loop. That key authenticates every other call.',
+    a: 'No. POST /v1/agent/register with just a name and you get back an API key (suwappu_sk_...) immediately: no email, no approval queue, no human in the loop. That key authenticates every other call.',
   },
   {
     q: 'How do webhooks work?',
@@ -118,7 +118,7 @@ const FAQS = [
 
 export default function AgentsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell sw-dark">
       <Navigation />
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
@@ -127,7 +127,7 @@ export default function AgentsPage() {
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
             Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
-            server, or the A2A protocol — self-serve registration, no signup required, and
+            server, or the A2A protocol: self-serve registration, no signup required, and
             pay only for the calls you make.
           </p>
           <div className="summer-actions summer-cta__actions">
@@ -161,7 +161,7 @@ export default function AgentsPage() {
           <div className="agents-connect">
             <article className={`agents-connect__item ${styles.connectItem}`}>
               <div className="agent-steps__num">1</div>
-              <h2>Register an agent — no signup</h2>
+              <h2>Register an agent: no signup</h2>
               <p>
                 POST your agent&apos;s name and get an API key back in the same response. No
                 email, no approval queue, no human in the loop.
@@ -199,7 +199,7 @@ export default function AgentsPage() {
               <h2>Get a quote, then swap</h2>
               <p>
                 Every swap is two calls: a quote, then an execute against your managed
-                wallet — or request an unsigned transaction to sign yourself.
+                wallet, or request an unsigned transaction to sign yourself.
               </p>
               <div className={`${styles.codeDark} sw-card-dark`}>
                 <div className="summer-code" aria-label="quote-and-swap.sh">
@@ -284,7 +284,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             </span>
           </p>
           <p className="compare__note">
-            Every surface shares the same auth, wallets, and execution engine — pick REST for full
+            Every surface shares the same auth, wallets, and execution engine: pick REST for full
             control, MCP to drop into an agent host, A2A for agent-to-agent messaging, or an SDK for
             typed calls in TypeScript or Python. Full endpoint list at{' '}
             <a href="/docs/api-reference/overview">/docs/api-reference</a> and{' '}

@@ -92,7 +92,7 @@ export default function EnterpriseContactForm() {
             />
           </svg>
         </div>
-        <h2>Thanks — we&rsquo;ve got it.</h2>
+        <h2>Thanks: we&rsquo;ve got it.</h2>
         <p>
           Your request is in front of our team now. We reply within one business day, often much
           faster. Want to talk sooner?
