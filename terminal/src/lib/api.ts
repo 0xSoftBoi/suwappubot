@@ -565,6 +565,13 @@ export const api = {
     })
   },
 
+  setPerpsTpSl(params: { positionId: number; takeProfit?: number; stopLoss?: number }) {
+    return request<{ ok: boolean; takeProfit: number | null; stopLoss: number | null }>(
+      '/terminal/perps/tpsl',
+      { method: 'POST', body: JSON.stringify(params) },
+    )
+  },
+
   getTerminalPerpsOrders() {
     return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
       (r) => r.orders ?? []

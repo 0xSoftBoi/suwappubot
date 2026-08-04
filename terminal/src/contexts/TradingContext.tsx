@@ -15,7 +15,7 @@ type Side = 'buy' | 'sell'
 // Top-level workspace mode. 'spot' is the classic swap terminal; 'perps' is the
 // HyperLiquid perps desk; 'predict' is the Polymarket prediction desk. Switched
 // from the Header and read by TradingLayout to swap the whole workspace.
-export type TradingMode = 'spot' | 'perps' | 'predict'
+export type TradingMode = 'spot' | 'bridge' | 'perps' | 'predict'
 
 interface TradingContextType {
   // Top-level workspace mode (spot / perps / predict)
