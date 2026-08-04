@@ -89,6 +89,53 @@ markets = await client.lend.markets(chain_id=8453)
 detail = await client.lend.market("0xMarketId")
 ```
 
+### Wallets & swap safety
+
+```python
+await client.agent.create_wallet()   # idempotent — returns the existing one if any
+await client.agent.list_wallets()
+
+# Dry-run before you commit. Surfaces reverts and gas while nothing is at stake.
+sim = await client.simulate_swap(quote_id=quote.quote_id, wallet_address="0x…")
+if not sim.success:
+    raise RuntimeError(sim.reason)
+
+history = await client.list_swaps(status="completed", limit=20)
+```
+
+### Agent control plane — `client.approvals` / `client.audit` / `client.killswitch`
+
+Guardrails for agents that move real money: a human approves risky actions, every
+action lands in a tamper-evident log, and one call halts everything.
+
+```python
+# Approvals. Listing/deciding is an OWNER action — authenticate as the linked
+# human (Mini App / owner JWT), not the agent API key. Only get() takes an agent key.
+pending = await owner.approvals.list(status="pending")
+await owner.approvals.approve(pending[0].id)
+await owner.approvals.deny(pending[0].id)
+
+# If the deployment sets APPROVAL_STEP_UP_REQUIRED=true, challenge first:
+challenge = await owner.approvals.step_up_challenge(approval_id)
+await owner.approvals.approve(approval_id, step_up_challenge=challenge.challenge)
+
+# Audit chain. list() works with an agent or org key; verify() needs an ORG key
+# (the chain is verified whole, so per-agent verification would leak other tenants).
+await client.audit.list(event_type="swap.executed", since="2026-01-01", limit=100)
+await org_client.audit.verify()   # -> valid / count / first_break_id
+
+# Kill switch — org API key required. Halts execution for the scope.
+await org_client.killswitch.set(scope="org", active=True, reason="incident")
+await org_client.killswitch.list()
+```
+
+To link an agent to a human owner, mint a code the owner redeems:
+
+```python
+link = await client.agent.link_code()   # 409 if already linked
+print(link.code, link.expires_at)
+```
+
 ## Error handling
 
 Non-2xx responses raise `SuwappuError`, which carries `status` and `body`:

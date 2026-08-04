@@ -25,6 +25,16 @@ from suwappu.types import (
     RotateKeysResult,
     SuwappuConfig,
     SwapResult,
+    AgentWallet,
+    Approval,
+    AuditEvent,
+    AuditVerifyResult,
+    KillSwitch,
+    LinkCodeResult,
+    StepUpChallenge,
+    SwapHistoryItem,
+    SwapHistoryResult,
+    SwapSimulation,
     Token,
     TokenBalance,
     TokenPrice,
@@ -36,7 +46,7 @@ from suwappu.types import (
     WebhookTestResult,
 )
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 __all__ = [
     "DEFAULT_BASE_URL",
@@ -47,6 +57,16 @@ __all__ = [
     "SuwappuConfig",
     "Quote",
     "SwapResult",
+    "AgentWallet",
+    "Approval",
+    "AuditEvent",
+    "AuditVerifyResult",
+    "KillSwitch",
+    "LinkCodeResult",
+    "StepUpChallenge",
+    "SwapHistoryItem",
+    "SwapHistoryResult",
+    "SwapSimulation",
     "TokenBalance",
     "TokenPrice",
     "Chain",

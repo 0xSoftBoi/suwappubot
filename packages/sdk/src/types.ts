@@ -407,3 +407,115 @@ export interface AgentTopupArgs {
   chain?: string;
   amount: number | string;
 }
+
+// --- Swap simulation & history ---
+
+export interface SwapSimulation {
+  /** Whether the simulated execution succeeded. */
+  success: boolean;
+  /** Human-readable reason when the simulation reverted. */
+  reason?: string;
+  gasEstimate?: string;
+  amountOut?: string;
+  [key: string]: unknown;
+}
+
+export interface SwapHistoryItem {
+  id: number | string;
+  status: string;
+  fromToken?: string;
+  toToken?: string;
+  fromAmount?: string;
+  toAmount?: string;
+  chain?: string;
+  txHash?: string | null;
+  createdAt?: string;
+  [key: string]: unknown;
+}
+
+export interface SwapHistoryResult {
+  swaps: SwapHistoryItem[];
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+}
+
+// --- Agent wallets ---
+
+export interface AgentWallet {
+  address: string;
+  chainType?: string;
+  provider?: string;
+  [key: string]: unknown;
+}
+
+export interface LinkCodeResult {
+  code: string;
+  expiresAt?: string;
+  [key: string]: unknown;
+}
+
+// --- Approvals (human-in-the-loop control plane) ---
+
+export type ApprovalStatus = "pending" | "approved" | "denied" | "expired" | (string & {});
+
+export interface Approval {
+  id: string;
+  status: ApprovalStatus;
+  agentId?: string;
+  action?: string;
+  reason?: string | null;
+  createdAt?: string;
+  decidedAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface StepUpChallenge {
+  challenge: string;
+  expiresAt?: string;
+  [key: string]: unknown;
+}
+
+// --- Audit chain ---
+
+export interface AuditEvent {
+  id: number | string;
+  eventType: string;
+  agentId?: string | null;
+  orgId?: string | null;
+  details?: Record<string, unknown>;
+  createdAt?: string;
+  [key: string]: unknown;
+}
+
+export interface AuditListArgs {
+  eventType?: string;
+  agentId?: string;
+  /** ISO-8601 timestamp; only events at or after this are returned. */
+  since?: string;
+  /** 1–500, clamped server-side. */
+  limit?: number;
+}
+
+export interface AuditVerifyResult {
+  valid: boolean;
+  count?: number;
+  firstBreakId?: number | string | null;
+  [key: string]: unknown;
+}
+
+// --- Kill switch ---
+
+export type KillSwitchScope = "org" | "agent" | "global" | (string & {});
+
+export interface KillSwitch {
+  scope: KillSwitchScope;
+  scopeId?: string | null;
+  active: boolean;
+  reason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface SetKillSwitchArgs {
+  scope: KillSwitchScope;
+  active: boolean;
+  reason?: string;
+}

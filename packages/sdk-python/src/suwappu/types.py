@@ -251,3 +251,110 @@ class BillingCheckoutResult(BaseModel):
 
 class BillingCryptoResult(BaseModel):
     model_config = {"extra": "allow"}
+
+
+# --- Swap simulation & history ---
+
+
+class SwapSimulation(BaseModel):
+    """Result of POST /v1/agent/swap/simulate — a dry run, nothing broadcast."""
+
+    success: bool = False
+    reason: str | None = None
+    gas_estimate: str | None = None
+    amount_out: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class SwapHistoryItem(BaseModel):
+    id: int | str
+    status: str
+    from_token: str | None = None
+    to_token: str | None = None
+    from_amount: str | None = None
+    to_amount: str | None = None
+    chain: str | None = None
+    tx_hash: str | None = None
+    created_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class SwapHistoryPagination(BaseModel):
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+    has_more: bool = False
+
+
+class SwapHistoryResult(BaseModel):
+    swaps: list[SwapHistoryItem] = []
+    pagination: SwapHistoryPagination = SwapHistoryPagination()
+
+
+# --- Agent wallets ---
+
+
+class AgentWallet(BaseModel):
+    address: str
+    chain_type: str | None = None
+    provider: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class LinkCodeResult(BaseModel):
+    code: str
+    expires_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+# --- Approvals (human-in-the-loop control plane) ---
+
+ApprovalStatus = Literal["pending", "approved", "denied", "expired"]
+
+
+class Approval(BaseModel):
+    id: str
+    status: str
+    agent_id: str | None = None
+    action: str | None = None
+    reason: str | None = None
+    created_at: str | None = None
+    decided_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class StepUpChallenge(BaseModel):
+    challenge: str
+    expires_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+# --- Audit chain ---
+
+
+class AuditEvent(BaseModel):
+    id: int | str
+    event_type: str
+    agent_id: str | None = None
+    org_id: str | None = None
+    details: dict | None = None
+    created_at: str | None = None
+    model_config = {"extra": "allow"}
+
+
+class AuditVerifyResult(BaseModel):
+    valid: bool = False
+    count: int | None = None
+    first_break_id: int | str | None = None
+    model_config = {"extra": "allow"}
+
+
+# --- Kill switch ---
+
+
+class KillSwitch(BaseModel):
+    scope: str
+    scope_id: str | None = None
+    active: bool = False
+    reason: str | None = None
+    model_config = {"extra": "allow"}
