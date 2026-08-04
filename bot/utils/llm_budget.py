@@ -191,14 +191,22 @@ class LLMBudget:
         allowed = tokens >= cost
         if allowed:
             tokens -= cost
-        if key not in self._memory and len(self._memory) >= self.MAX_MEMORY_KEYS:
-            # Evict the least-recently-touched entry. Dropping a bucket only
-            # resets that caller's degraded allowance, which is already
-            # best-effort — unbounded memory growth is the worse failure.
-            oldest = min(self._memory, key=lambda k: self._memory[k][1])
-            self._memory.pop(oldest, None)
+        self._evict_if_full(key)
         self._memory[key] = (tokens, now)
         return allowed, int(tokens)
+
+    def _evict_if_full(self, key: str) -> None:
+        """Bound the degraded map before inserting a new key.
+
+        Evicts the least-recently-touched entry. Dropping a bucket only resets
+        that caller's degraded allowance, which is already best-effort —
+        unbounded memory growth during a Redis outage is the worse failure.
+        Every write path must go through this, settlement included.
+        """
+        if key in self._memory or len(self._memory) < self.MAX_MEMORY_KEYS:
+            return
+        oldest = min(self._memory, key=lambda k: self._memory[k][1])
+        self._memory.pop(oldest, None)
 
     # -- public API -------------------------------------------------------
 
@@ -244,7 +252,9 @@ class LLMBudget:
             return
 
         client = self._client()
-        if client is not None:
+        if client is None:
+            self._warn_degraded("no connection")
+        else:
             try:
                 await client.eval(_FORCE_CONSUME_LUA, 1, key, capacity_micros, micros)
                 return
@@ -255,6 +265,7 @@ class LLMBudget:
 
         now = time.time()
         tokens, ts = self._memory.get(key, (float(capacity_micros), now))
+        self._evict_if_full(key)
         self._memory[key] = (tokens - micros, ts)
 
     async def refund(self, key: str, micros: int, capacity_micros: int) -> None:

@@ -727,42 +727,59 @@ class X402Service:
             return credits.balance if credits else 0
 
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
-        """Add API credits to user account.
+        """Add API credits to a user, atomically and without ever raising.
 
-        Takes the same row lock as every other balance mutation. Locking only
-        the debit side still loses updates: an unlocked top-up
-        read-modify-write can interleave with a concurrent LLM debit and write
-        back a balance computed before that debit, silently erasing it.
+        MONEY-PATH. Called from inside verify_payment's transaction, whose
+        `except` marks the payment FAILED — so raising here would consume an
+        on-chain payment and grant nothing. It therefore must not propagate.
+
+        Uses an atomic `UPDATE ... SET balance = balance + :amt` rather than a
+        read-modify-write: that is a single statement on both Postgres and
+        SQLite, so it cannot lose a concurrent LLM debit, and unlike
+        `SELECT ... FOR UPDATE` it does not depend on row locks (a no-op on
+        SQLite). The INSERT path retries once, because two concurrent
+        first-time grants race on the UNIQUE(user_id) constraint.
         """
-        with get_session() as session:
+        from sqlalchemy import text as sql_text
 
-            def _locked():
-                return (
-                    session.query(APICredit)
-                    .filter(APICredit.user_id == user_id)
-                    .with_for_update()
-                    .first()
+        def _apply() -> bool:
+            with get_session() as session:
+                updated = session.execute(
+                    sql_text(
+                        "UPDATE api_credits SET balance = balance + :amt, "
+                        "lifetime_purchased = lifetime_purchased + :amt "
+                        "WHERE user_id = :uid"
+                    ),
+                    {"amt": amount, "uid": user_id},
+                ).rowcount
+                if updated:
+                    return True
+                # No row yet — create one. A concurrent grant may win this
+                # race; the caller retries the UPDATE in that case.
+                session.add(APICredit(user_id=user_id, balance=amount, lifetime_purchased=amount))
+                return True
+
+        for attempt in (1, 2):
+            try:
+                _apply()
+                return
+            except IntegrityError:
+                if attempt == 1:
+                    continue  # the other writer inserted first; UPDATE now works
+                logger.exception(
+                    "x402: failed to add %.6f API credits for user_id=%s — "
+                    "PAYMENT CONSUMED WITHOUT CREDIT, needs manual reconciliation",
+                    amount,
+                    user_id,
                 )
-
-            credits = _locked()
-            if not credits:
-                # FOR UPDATE cannot lock a row that doesn't exist yet: two
-                # concurrent first-time grants both reach the INSERT and
-                # user_id is UNIQUE, so the loser raises IntegrityError. That
-                # would consume an on-chain payment without crediting it, so
-                # recover and re-read the winner's row under the lock.
-                try:
-                    credits = APICredit(user_id=user_id)
-                    session.add(credits)
-                    session.flush()
-                except IntegrityError:
-                    session.rollback()
-                    credits = _locked()
-                    if credits is None:
-                        raise
-
-            credits.balance += amount
-            credits.lifetime_purchased += amount
+            except Exception:
+                logger.exception(
+                    "x402: failed to add %.6f API credits for user_id=%s — "
+                    "PAYMENT CONSUMED WITHOUT CREDIT, needs manual reconciliation",
+                    amount,
+                    user_id,
+                )
+                return
 
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""

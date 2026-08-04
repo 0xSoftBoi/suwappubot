@@ -716,6 +716,91 @@ async def test_force_consume_applies_to_a_missing_bucket():
     assert remaining <= cap - 400, "overrun was dropped on a missing bucket"
 
 
+@pytest.mark.asyncio
+async def test_budget_disabled_keeps_the_legacy_daily_cap(monkeypatch):
+    """P1: with multi-provider ON but BOTH ceilings 0, the budget enforces
+    nothing — dropping the legacy cap too left LLM calls entirely unbounded.
+    Exercised for real, not by matching source text."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from bot.services import nl_intent_service as n
+
+    resp = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                input={"action": "unknown", "confidence": 0.1, "amount_unit": "native"},
+            )
+        ],
+        usage=SimpleNamespace(input_tokens=1100, output_tokens=90),
+    )
+    fake = MagicMock()
+    fake.messages.create = AsyncMock(return_value=resp)
+
+    n._fallback_counts_by_user.clear()
+    n._fallback_counts_global.clear()
+    with (
+        patch.object(n.settings, "LLM_MULTI_PROVIDER_ENABLED", True),
+        patch.object(n.settings, "LLM_BUDGET_PER_USER_DAILY_USD", 0.0),
+        patch.object(n.settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 0.0),
+        patch.object(n.settings, "NL_LLM_FALLBACK_PER_USER_DAILY", 1),
+        patch.object(n.settings, "NL_LLM_FALLBACK_GLOBAL_DAILY", 5000),
+        patch.object(n.settings, "ANTHROPIC_API_KEY", "k"),
+        patch.object(n.settings, "NL_TRADING_PROVIDER", "anthropic"),
+        patch("anthropic.AsyncAnthropic", return_value=fake),
+        patch.object(n, "_resolve_user_model", AsyncMock(return_value=None)),
+    ):
+        await n.parse_trade_intent("please swap some of my crypto around", user_id=901)
+        assert fake.messages.create.await_count == 1
+        await n.parse_trade_intent("please swap some of my crypto around", user_id=901)
+
+    # Cap of 1 must still bite: with the budget disabled it is the ONLY bound.
+    assert fake.messages.create.await_count == 1
+    n._fallback_counts_by_user.clear()
+    n._fallback_counts_global.clear()
+
+
+@pytest.mark.asyncio
+async def test_negative_whisper_duration_cannot_refund_more_than_reserved(monkeypatch):
+    """P2: a negative duration produced a negative cost, so settlement would
+    refund MORE than was reserved. Verified by driving handle_voice."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bot.services import whatsapp_voice
+    from bot.services.whatsapp_voice import WhatsAppVoiceHandler
+
+    h = WhatsAppVoiceHandler()
+    h._api_key = "k"
+    monkeypatch.setattr(h, "_download_audio", AsyncMock(return_value=b"x" * 96_000))
+    monkeypatch.setattr(h, "_transcribe", AsyncMock(return_value=("hi", -500.0)))
+    monkeypatch.setattr(
+        h, "_reserve_transcription_budget", AsyncMock(return_value=(True, 50, 0.01))
+    )
+    seen = {}
+
+    async def capture(from_number, reserved, actual):
+        seen["actual"] = actual
+
+    monkeypatch.setattr(h, "_settle_transcription_budget", capture)
+    await h.handle_voice(SimpleNamespace(audio_id="a", from_number="+1555"))
+    assert seen["actual"] > 0, "negative duration produced a negative (refunding) cost"
+
+
+@pytest.mark.asyncio
+async def test_force_consume_applies_to_a_missing_bucket():
+    """P1: force_consume routed through the refund path, whose Lua returns -1
+    WITHOUT writing when the hash is absent — silently dropping an
+    already-incurred charge."""
+    b = LLMBudget()
+    cap = 1000
+    # No prior try_consume: the bucket does not exist yet.
+    await b.force_consume("never-seen", 400, cap)
+    allowed, remaining = await b.try_consume("never-seen", 0, cap)
+    assert remaining <= cap - 400, "overrun was dropped on a missing bucket"
+
+
 def test_budget_disabled_keeps_the_legacy_daily_cap(monkeypatch):
     """P1: with multi-provider on but BOTH ceilings set to 0, the budget
     enforces nothing — dropping the legacy cap too would leave LLM calls
@@ -740,3 +825,23 @@ def test_negative_whisper_duration_cannot_refund_more_than_reserved():
 
     src = inspect.getsource(whatsapp_voice.WhatsAppVoiceHandler.handle_voice)
     assert "duration_s >= 0" in src
+
+
+@pytest.mark.asyncio
+async def test_force_consume_respects_the_eviction_cap():
+    """P2: settlement's in-memory path bypassed the bounded map, so a Redis
+    outage could grow it past MAX_MEMORY_KEYS."""
+    b = LLMBudget()
+    b.MAX_MEMORY_KEYS = 25
+    for i in range(100):
+        await b.force_consume(f"settle:{i}", 5, 1000)
+    assert len(b._memory) <= 25
+
+
+@pytest.mark.asyncio
+async def test_force_consume_without_redis_is_counted_as_degraded():
+    """P2: the no-connection branch silently skipped the degraded warning and
+    counter, hiding that the cap had gone per-replica."""
+    b = LLMBudget()
+    await b.force_consume("k", 10, 1000)
+    assert b.degraded_calls >= 1
