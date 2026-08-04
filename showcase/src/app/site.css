@@ -72,6 +72,13 @@
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.32rem 0.7rem;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.sw__chips li:hover {
+  border-color: var(--sw-accent-subtle);
+  background: var(--sw-accent-fainter);
+  color: var(--fg);
 }
 
 .sw__note {

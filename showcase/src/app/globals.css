@@ -22,6 +22,16 @@
   --sw-accent-wash: rgba(229, 141, 43, 0.08);
   --sw-accent-glow: rgba(229, 141, 43, 0.40);
 
+  /* Persimmon tint RAMP — one hue, stepped, so depth (borders, hovers,
+     tinted washes, stat numerals) doesn't have to fall back to a second
+     colour. accent/bright/deep/wash/glow above stay as the load-bearing
+     three-value system; these fill the gaps between them. */
+  --sw-accent-dark: #7A4413;
+  --sw-accent-muted: #BD7526;
+  --sw-accent-subtle: rgba(229, 141, 43, 0.22);
+  --sw-accent-faint: rgba(229, 141, 43, 0.11);
+  --sw-accent-fainter: rgba(229, 141, 43, 0.045);
+
   /* Light register (content pages) */
   --sw-canvas: #FFFEFB;
   --sw-ink: #17324A;
