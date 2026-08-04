@@ -17,6 +17,7 @@ from bot.config.llm_models import MODEL_CATALOG, ModelSpec, resolve_model
 from bot.models.subscription import APICredit, Subscription, SubscriptionTier
 from bot.models.user import User
 from bot.services import llm_credit_service
+from bot.services.llm_usage import TokenUsage
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -102,7 +103,9 @@ async def test_record_usage_debits_existing_balance(db_session_factory, monkeypa
     session.commit()
     session.close()
 
-    result = await llm_credit_service.record_usage(uid, CHEAP, 1_000_000, 500_000)
+    result = await llm_credit_service.record_usage(
+        uid, CHEAP, TokenUsage(input_tokens=1_000_000, output_tokens=500_000)
+    )
 
     assert result.cost_usd == pytest.approx(3.0)
     assert result.new_balance_usd == pytest.approx(7.0)
@@ -118,7 +121,7 @@ async def test_record_usage_creates_row_and_allows_negative(db_session_factory, 
     monkeypatch.setattr(llm_credit_service.settings, "LLM_CREDIT_MARKUP", 1.5, raising=False)
     uid = _mk_user(db_session_factory)
 
-    result = await llm_credit_service.record_usage(uid, CHEAP, 1_000_000, 0)
+    result = await llm_credit_service.record_usage(uid, CHEAP, TokenUsage(input_tokens=1_000_000))
 
     # No pre-existing row: created on the fly, balance goes negative (tokens
     # were already spent — the debit must be recorded, not refused).
@@ -224,7 +227,7 @@ async def test_record_usage_zero_usage_debits_estimate(db_session_factory, monke
     monkeypatch.setattr(llm_credit_service.settings, "LLM_CREDIT_MARKUP", 1.5, raising=False)
     uid = _mk_user(db_session_factory, telegram_id=6666)
 
-    result = await llm_credit_service.record_usage(uid, CHEAP, 0, 0)
+    result = await llm_credit_service.record_usage(uid, CHEAP, TokenUsage())
 
     expected = llm_credit_service.estimate_cost_usd(
         CHEAP,
@@ -364,13 +367,15 @@ def test_anthropic_usage_shape():
     from bot.services.nl_intent_service import _anthropic_usage
 
     resp = _Obj(usage=_Obj(input_tokens=120, output_tokens=45))
-    assert _anthropic_usage(resp) == (120, 45)
-    assert _anthropic_usage(_Obj()) == (0, 0)
+    u = _anthropic_usage(resp)
+    assert (u.input_tokens, u.output_tokens) == (120, 45)
+    assert _anthropic_usage(_Obj()).is_empty
 
 
 def test_openai_usage_shape():
     from bot.services.nl_intent_service import _openai_usage
 
     resp = _Obj(usage=_Obj(prompt_tokens=200, completion_tokens=80))
-    assert _openai_usage(resp) == (200, 80)
-    assert _openai_usage(_Obj(usage=None)) == (0, 0)
+    u = _openai_usage(resp)
+    assert (u.input_tokens, u.output_tokens) == (200, 80)
+    assert _openai_usage(_Obj(usage=None)).is_empty

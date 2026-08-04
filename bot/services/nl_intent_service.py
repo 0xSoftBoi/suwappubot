@@ -20,6 +20,7 @@ from typing import Any, Dict, Hashable, Literal, Optional
 
 from bot.config.settings import settings
 from bot.services.aegis_service import get_aegis
+from bot.services.llm_usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -334,21 +335,64 @@ def _record_llm_fallback_call(user_id: Optional[Hashable]) -> None:
         per_user[today] = per_user.get(today, 0) + 1
 
 
-def _anthropic_usage(response) -> tuple:
-    """(input_tokens, output_tokens) from an Anthropic Messages response."""
+def _i(value) -> int:
+    """Coerce a possibly-missing usage field to a non-negative int."""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _anthropic_usage(response) -> TokenUsage:
+    """Normalize an Anthropic Messages usage object.
+
+    Anthropic reports three SEPARATE input counters — `input_tokens` excludes
+    both cache buckets — so the uncached count is used as-is and the cache
+    buckets are added alongside. Reading only `input_tokens` would
+    under-count (and therefore under-bill) every cached call.
+    """
     usage = getattr(response, "usage", None)
-    return (
-        int(getattr(usage, "input_tokens", 0) or 0),
-        int(getattr(usage, "output_tokens", 0) or 0),
+    return TokenUsage(
+        input_tokens=_i(getattr(usage, "input_tokens", 0)),
+        cached_read_tokens=_i(getattr(usage, "cache_read_input_tokens", 0)),
+        cache_write_tokens=_i(getattr(usage, "cache_creation_input_tokens", 0)),
+        output_tokens=_i(getattr(usage, "output_tokens", 0)),
     )
 
 
-def _openai_usage(response) -> tuple:
-    """(input_tokens, output_tokens) from an OpenAI-compatible response."""
+def _openai_usage(response) -> TokenUsage:
+    """Normalize an OpenAI-compatible usage object, including DeepSeek's shape.
+
+    Two different conventions, both of which report cached tokens as part of
+    `prompt_tokens` rather than in addition to it:
+
+      * OpenAI/xAI: `prompt_tokens_details.cached_tokens` is a SUBSET of
+        `prompt_tokens`.
+      * DeepSeek: `prompt_cache_hit_tokens` + `prompt_cache_miss_tokens`
+        sum to `prompt_tokens`.
+
+    Either way the cached portion must be SUBTRACTED from the headline count,
+    or it gets billed at full input price despite costing ~0.1x (OpenAI) or
+    ~0.02x (DeepSeek).
+    """
     usage = getattr(response, "usage", None)
-    return (
-        int(getattr(usage, "prompt_tokens", 0) or 0),
-        int(getattr(usage, "completion_tokens", 0) or 0),
+    prompt_tokens = _i(getattr(usage, "prompt_tokens", 0))
+
+    hit = _i(getattr(usage, "prompt_cache_hit_tokens", None))
+    if hit:
+        cached = hit
+    else:
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached = _i(getattr(details, "cached_tokens", 0)) if details else 0
+
+    # Clamp: never let a malformed payload produce negative billable input.
+    cached = min(cached, prompt_tokens)
+    return TokenUsage(
+        input_tokens=prompt_tokens - cached,
+        cached_read_tokens=cached,
+        # No OpenAI-compatible provider bills a separate cache-write bucket.
+        cache_write_tokens=0,
+        output_tokens=_i(getattr(usage, "completion_tokens", 0)),
     )
 
 
@@ -559,6 +603,24 @@ async def parse_trade_intent(
         text, source="nl_intent", user_id=str(user_id) if user_id is not None else None
     )
 
+    # Rolling cost-weighted spend budget (Redis-backed, shared across
+    # replicas). Reserve a conservative estimate BEFORE the call so a burst of
+    # concurrent messages can't all clear a check against the same stale
+    # balance; the unused remainder is returned after settlement below.
+    # Applies to every catalog model — even a free-to-the-user call costs the
+    # platform money.
+    reserved_micros = 0
+    if spec is not None and user_ctx is not None:
+        from bot.services import llm_credit_service
+
+        allowed, reserved_micros = await llm_credit_service.reserve_budget(
+            user_ctx.db_user_id, spec
+        )
+        if not allowed:
+            # Degrade rather than wall: a trading bot that stops understanding
+            # messages reads as broken. The deterministic parser and /s remain.
+            return _capped_fallback()
+
     try:
         _record_llm_fallback_call(user_id)
         if provider == "anthropic":
@@ -573,18 +635,30 @@ async def parse_trade_intent(
             "nl_intent_service: failed to parse trade intent",
             extra={"source": "fallback-fail"},
         )
+        # The call may have failed before consuming anything; hand the whole
+        # reservation back rather than charging a user for a call that never
+        # produced a response.
+        if reserved_micros and spec is not None and user_ctx is not None:
+            from bot.services import llm_credit_service
+
+            await llm_credit_service.settle_budget(user_ctx.db_user_id, reserved_micros, 0.0)
         return _fallback()
 
-    # MONEY-PATH: meter metered catalog models against api_credits. Debit
-    # failures are logged loudly inside record_usage; the parsed intent is
-    # still returned — provider tokens are already spent, and eating the
-    # user's parse on an internal accounting error would double the damage.
-    if spec is not None and user_ctx is not None and spec.metered:
+    # MONEY-PATH: meter metered catalog models against api_credits, and settle
+    # the spend reservation to actual. Debit failures are logged loudly inside
+    # record_usage; the parsed intent is still returned — provider tokens are
+    # already spent, and eating the user's parse on an internal accounting
+    # error would double the damage.
+    if spec is not None and user_ctx is not None:
         from bot.services import llm_credit_service
 
+        actual_usd = llm_credit_service.cost_of_usage(spec, usage)
         try:
-            await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage[0], usage[1])
+            if spec.metered:
+                await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage)
         except Exception:
             logger.exception("nl_intent_service: record_usage failed after LLM call")
+        finally:
+            await llm_credit_service.settle_budget(user_ctx.db_user_id, reserved_micros, actual_usd)
 
     return intent

@@ -58,6 +58,21 @@ class ModelSpec:
     # by min_tier — a FREE-selectable model can still be metered. Only the
     # cheap default rides the free daily caps unmetered.
     metered: bool = True
+    # Cached-input multipliers relative to price_per_1m_input_usd. Defaults are
+    # the no-caching case (read == full price, no write premium) so a model
+    # whose caching behavior is unverified is never under-billed.
+    cache_read_multiplier: float = 1.0
+    cache_write_multiplier: float = 1.0
+    # Minimum prefix length before the provider will cache at all. Our fixed
+    # prefix is ~794 tokens, so anything above that means caching never
+    # engages today — informational, see docs/research/llm-credits/.
+    cache_min_prefix_tokens: int = 0
+
+    def price_cached_read_per_1m(self) -> float:
+        return self.price_per_1m_input_usd * self.cache_read_multiplier
+
+    def price_cache_write_per_1m(self) -> float:
+        return self.price_per_1m_input_usd * self.cache_write_multiplier
 
     def is_tier_allowed(self, user_tier: SubscriptionTier) -> bool:
         return _TIER_RANK.get(user_tier, 0) >= _TIER_RANK.get(self.min_tier, 0)
@@ -74,6 +89,10 @@ MODEL_CATALOG: dict = {
         price_per_1m_input_usd=0.14,
         price_per_1m_output_usd=0.28,
         metered=False,  # the free default — covered by the daily fallback caps
+        # Automatic caching, 64-token granularity, so our ~794-token prefix
+        # DOES cache here. Hits cost ~0.02x of a miss. No write premium.
+        cache_read_multiplier=0.02,
+        cache_min_prefix_tokens=64,
     ),
     "qwen-turbo": ModelSpec(
         friendly_name="qwen-turbo",
@@ -100,6 +119,8 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.PRO,
         price_per_1m_input_usd=0.435,
         price_per_1m_output_usd=0.87,
+        cache_read_multiplier=0.02,
+        cache_min_prefix_tokens=64,
     ),
     "qwen-plus": ModelSpec(
         friendly_name="qwen-plus",
@@ -116,6 +137,10 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.PRO,
         price_per_1m_input_usd=0.25,
         price_per_1m_output_usd=2.00,
+        # Automatic, but needs a >=1024-token prefix; ours is ~794 so it
+        # never engages today without padding the prompt.
+        cache_read_multiplier=0.1,
+        cache_min_prefix_tokens=1024,
     ),
     "claude-haiku": ModelSpec(
         friendly_name="claude-haiku",
@@ -124,6 +149,11 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.PRO,
         price_per_1m_input_usd=1.00,
         price_per_1m_output_usd=5.00,
+        # Opt-in caching; haiku-4-5 requires a >=4096-token prefix (ours is
+        # ~794), so caching cannot engage today.
+        cache_read_multiplier=0.1,
+        cache_write_multiplier=1.25,
+        cache_min_prefix_tokens=4096,
     ),
     "grok-build": ModelSpec(
         friendly_name="grok-build",
@@ -144,6 +174,9 @@ MODEL_CATALOG: dict = {
         # intro rate would silently under-charge from 2026-09-01 onward.
         price_per_1m_input_usd=3.00,
         price_per_1m_output_usd=15.00,
+        cache_read_multiplier=0.1,
+        cache_write_multiplier=1.25,
+        cache_min_prefix_tokens=1024,
     ),
     "gpt-flagship": ModelSpec(
         friendly_name="gpt-flagship",
@@ -152,6 +185,8 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.PREMIUM,
         price_per_1m_input_usd=5.00,
         price_per_1m_output_usd=30.00,
+        cache_read_multiplier=0.1,
+        cache_min_prefix_tokens=1024,
     ),
     "grok-4.5": ModelSpec(
         friendly_name="grok-4.5",

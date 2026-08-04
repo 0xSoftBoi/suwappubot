@@ -996,6 +996,20 @@ class Settings(BaseSettings):
         default=1.5,
         description="Multiplier on provider list price when debiting api_credits for LLM usage",
     )
+    LLM_BUDGET_PER_USER_DAILY_USD: float = Field(
+        default=0.25,
+        description=(
+            "Rolling 24h per-user LLM spend ceiling in USD (cost-weighted, Redis-backed). "
+            "~470 cheap-model calls or ~35 flagship calls. 0 disables the limit."
+        ),
+    )
+    LLM_BUDGET_GLOBAL_DAILY_USD: float = Field(
+        default=25.0,
+        description=(
+            "Rolling 24h platform-wide LLM spend ceiling in USD. Backstop against a "
+            "coordinated drain; 0 disables the limit."
+        ),
+    )
     LLM_ALLOW_UNVERIFIED_PROVIDERS: bool = Field(
         default=False,
         description=(
