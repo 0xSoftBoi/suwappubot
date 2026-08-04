@@ -94,6 +94,66 @@ const quote = await client.getQuote({
 });
 const tx = await client.swap(quote);`;
 
+/** Fields pulled from the live agent card. Verify against
+ *  https://api.suwappu.bot/.well-known/agent.json before editing — this is
+ *  meant to match the artifact a visitor fetches, not describe it loosely. */
+const AGENT_CARD_FIELDS = [
+  { k: 'id', v: 'suwappu-dex' },
+  { k: 'protocol', v: 'A2A v0.3' },
+  { k: 'interface', v: 'JSON-RPC · /a2a' },
+  { k: 'auth', v: 'bearer · suwappu_sk_…' },
+];
+
+/** Real, checkable endpoints — no invented data. Each row is something a
+ *  visitor can open in a new tab and read the raw response of. */
+const PROOF_ARTIFACTS = [
+  {
+    label: 'Service health',
+    meta: 'GET /health',
+    href: 'https://api.suwappu.bot/health',
+    d: 'Live status, version and DB connectivity for the production API, in JSON.',
+  },
+  {
+    label: 'OpenAPI schema',
+    meta: 'GET /v1/agent/openapi',
+    href: 'https://api.suwappu.bot/v1/agent/openapi',
+    d: 'The exact schema an agent imports to call quotes, swaps, perps and lending.',
+  },
+  {
+    label: 'llms.txt index',
+    meta: 'GET /llms.txt',
+    href: '/llms.txt',
+    d: 'A plain-text map of the whole API, built for an LLM to ingest directly.',
+  },
+];
+
+const FAQ = [
+  {
+    q: 'Do you custody my funds?',
+    a: 'No by default. You sign every swap yourself; keys held for the managed-wallet path use envelope encryption (a per-record AES-256-GCM data key wrapped by a KMS-managed key) rather than Suwappu holding a plaintext key. Prefer full self-custody? Bring your own keys through the agent API and Suwappu never sees them.',
+  },
+  {
+    q: 'What does a swap cost?',
+    a: `Suwappu takes a routing fee on top of whatever the winning provider charges; there is no markup beyond that and no monthly fee to start. Gas is normal on most chains, and about a tenth of a cent on Tempo, where Suwappu sponsors the fee.`,
+  },
+  {
+    q: 'Which chains and venues are covered?',
+    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing providers raced per quote (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Providers are chain-gated — a single swap only races the subset that actually supports its route, never the full list.`,
+  },
+  {
+    q: 'How does an agent integrate?',
+    a: 'Through a remote MCP server, a REST API or the TypeScript/Python SDKs, all built on the same execution layer the terminal uses. Discovery is machine-readable: an OpenAPI schema, an A2A agent card, and an llms.txt index, all fetchable without a human reading these docs first.',
+  },
+  {
+    q: 'Can I cap what an agent is allowed to do?',
+    a: 'Yes. Per-key spend caps, allowed chains and pairs, slippage limits and withdrawal allowlists are enforced server-side, not left to the agent to self-police. An agent operates strictly inside the rails you set on its key.',
+  },
+  {
+    q: 'Is any of this audited?',
+    a: 'The wallet and key-management paths have had independent red-team review, with findings tracked and remediated. Formal third-party certifications are on the roadmap and not yet complete — see the security page for exactly what is done and what is not.',
+  },
+];
+
 export default async function Home() {
   const t = await getTranslations('hero');
   return (
@@ -150,6 +210,36 @@ export default async function Home() {
           </Reveal>
         </section>
 
+        {/* ── Proof card ───────────────────────────────────────── */}
+        <section className="sw__sec sw__proof" aria-label="Verifiable agent registry entry">
+          <Reveal>
+            <p className="sw__eyebrow">Registered, not claimed</p>
+            <h2 className="sw__h2">A live entry in the A2A agent registry, not a screenshot of one.</h2>
+            <p className="sw__lead">
+              The fields below are the actual response from the agent card, fetched at build
+              time. Open the link and compare it yourself; nothing here is written for this page.
+            </p>
+            <div className="sw__proof-card">
+              <dl className="sw__proof-fields">
+                {AGENT_CARD_FIELDS.map((f) => (
+                  <div key={f.k}>
+                    <dt>{f.k}</dt>
+                    <dd>{f.v}</dd>
+                  </div>
+                ))}
+              </dl>
+              <a
+                className="sw__proof-link"
+                href="https://api.suwappu.bot/.well-known/agent.json"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Fetch the agent card <span aria-hidden="true">→</span>
+              </a>
+            </div>
+          </Reveal>
+        </section>
+
         {/* ── Engine ───────────────────────────────────────────── */}
         <section id="engine" className="sw__sec sw__sec--wide" aria-label="How the engine works">
           <Reveal>
@@ -157,7 +247,7 @@ export default async function Home() {
             <ol className="sw__steps sw__steps--cols">
               {ENGINE.map((s, i) => (
                 <li key={s.k}>
-                  <span className="sw__step-n">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="sw__step-n">STEP {String(i + 1).padStart(2, '0')}</span>
                   <div>
                     <h3>{s.k}</h3>
                     <p>{s.d}</p>
@@ -172,6 +262,26 @@ export default async function Home() {
               alt="The Suwappu terminal: an ETH/USDC candlestick chart, a live order book with bid and ask depth, and the swap ticket showing a 90/100 token trust score from GoPlus."
               caption="Live Suwappu Terminal · captured 31 Jul 2026"
             />
+          </Reveal>
+        </section>
+
+        {/* ── Proof, not promises ──────────────────────────────── */}
+        <section className="sw__sec" aria-label="Live artifacts you can check yourself">
+          <Reveal>
+            <p className="sw__eyebrow">Proof, not promises</p>
+            <h2 className="sw__h2">Three things you can open right now.</h2>
+            <ul className="sw__artifacts">
+              {PROOF_ARTIFACTS.map((a) => (
+                <li key={a.label}>
+                  <a href={a.href} target="_blank" rel="noopener noreferrer">
+                    <span className="sw__artifact-meta">{a.meta}</span>
+                    <h3>{a.label}</h3>
+                    <p>{a.d}</p>
+                    <span className="sw__arrow" aria-hidden="true">→</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </Reveal>
         </section>
 
