@@ -220,7 +220,7 @@ const FAQ = [
   },
   {
     q: 'Which chains and venues are covered?',
-    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing venues raced per quote across 53 tokens (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Venues are chain-gated — a single swap only races the subset that actually supports its route, never the full list.`,
+    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing venues raced per quote across 53 tokens (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Venues are chain-gated: a single swap only races the subset that actually supports its route, never the full list.`,
   },
   {
     q: 'How does an agent integrate?',
@@ -232,7 +232,7 @@ const FAQ = [
   },
   {
     q: 'Is any of this audited?',
-    a: 'The wallet and key-management paths have had independent red-team review, with findings tracked and remediated. SOC 2 and public third-party protocol audits are on the roadmap and not yet complete — see the security page for exactly what is done and what is not.',
+    a: 'The wallet and key-management paths have had independent red-team review, with findings tracked and remediated. SOC 2 and public third-party protocol audits are on the roadmap and not yet complete. See the security page for exactly what is done and what is not.',
   },
 ];
 
@@ -302,7 +302,6 @@ export default async function Home() {
              is a live API response, not a person. */}
         <section className="sw__sec sw__proof sw__quote" aria-label="Verifiable agent registry entry">
           <Reveal>
-            <p className="sw__eyebrow">Registered, not claimed</p>
             <h2 className="sw__h2 sw__h2--quote">
               A live entry in the A2A agent registry, not a screenshot of one.
             </h2>
@@ -465,7 +464,6 @@ export default async function Home() {
         {/* ── Agents ───────────────────────────────────────────── */}
         <section id="agents" className="sw__sec" aria-label="Built for agents">
           <Reveal>
-            <p className="sw__eyebrow">Built for the agentic era</p>
             <h2 className="sw__h2">Hand your trading layer to an agent.</h2>
             <p className="sw__lead">
               A remote MCP server, a REST API and typed SDKs, discoverable through llms.txt and
@@ -557,7 +555,6 @@ export default async function Home() {
         {/* ── FAQ ──────────────────────────────────────────────── */}
         <section className="sw__sec sw__sec--quiet sw__faq" aria-label="Frequently asked questions">
           <Reveal>
-            <p className="sw__eyebrow">Questions</p>
             <h2 className="sw__h2">Before you connect a wallet.</h2>
             <FaqAccordion items={FAQ} />
           </Reveal>

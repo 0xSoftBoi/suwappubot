@@ -145,7 +145,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
           {quote.captured && (
             // Never present a checked-in fixture as live either.
             <p className="lq__stale">
-              captured {CAPTURED_AT} from api.suwappu.bot — not live right now.
+              captured {CAPTURED_AT} from api.suwappu.bot, not live right now.
             </p>
           )}
 
@@ -156,7 +156,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
             <div>
               <dt>Quote expires</dt>
               <dd className={!quote.captured && left <= 10 ? 'lq__warn' : undefined}>
-                {quote.captured ? '—' : left > 0 ? `${left}s` : 'expired'}
+                {quote.captured ? '-' : left > 0 ? `${left}s` : 'expired'}
               </dd>
             </div>
           </dl>

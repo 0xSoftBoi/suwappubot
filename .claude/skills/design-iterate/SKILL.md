@@ -77,3 +77,25 @@ Append anything unfixed to `docs/design/backlog.md` with a one-line repro.
    Keep only if it reads as semantic product-stage wayfinding; consider limiting to one.
 5. Vendor-chip categorization (needs verified DEX/bridge/aggregator source first).
 6. Footer band literal-cream retint (deferred from color pass).
+
+## Rubric v2 (from design-engineering research, 2026-08-04)
+Additional checkable criteria for Lens A/B (sources: Emil Kowalski's animation tips,
+Rauno Freiberg's interaction-design essays, Anthropic frontend-design skill, shadcn theming):
+- Motion budget: UI transitions <= 300ms; enter/exit uses ease-out or custom cubic-bezier,
+  never bare `ease`/`linear`. Press feedback: `:active` scale ~0.97 on every clickable.
+- Frequency rule: HIGH-frequency UI (nav, menus, accordion toggles) gets zero/near-zero
+  animation; motion flourish is reserved for LOW-frequency moments (hero, one orchestrated
+  reveal). One memorable moment beats scattered micro-animation.
+- Never animate scale from 0 (start >= 0.9). transform-origin = trigger, not center.
+- Type roles: >= 2 faces with named CSS vars (--font-*), no literal font-family strings in
+  component CSS. Palette: 4-6 named hex tokens, every component color traces to a token
+  (`grep` raw hex literals in components = drift).
+- Line length 50-75ch on body; `text-wrap: balance` on headlines / `pretty` on body.
+- Shadows tinted toward bg hue, one light direction; no `rgba(0,0,0,.1)` boilerplate.
+- Focus: no `outline:none` without a `:focus-visible` replacement.
+- Dead-end audit: zero `href="#"` / no-op buttons; 404 page exists.
+- Next-specific: fonts via next/font with CSS-var export (never <link>/@import);
+  check per-route `opengraph-image.tsx` (next/og Satori pattern) exists for key pages.
+- CWV: no CLS from font swap or unsized images; hero image priority-loaded.
+- Guard: restyling EnterpriseContactForm must never touch its submit handler without
+  flagging MONEY-PATH (lead-data path to support_notifier).

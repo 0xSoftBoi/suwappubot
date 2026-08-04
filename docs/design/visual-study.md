@@ -46,3 +46,12 @@ Correction to earlier "one accent" doctrine: both sites use a TINTED base + 2-3 
 - Semantic route coding (like exa's pairs): SWAP=persimmon, BRIDGE=leaf, SIGN=cream — apply to quote-race stages + step numbers
 - Micro-text strips: mono all-caps "QUOTE · SIMULATE · SIGN" repeating band in muted leaf between major sections (our version of their lavender strips)
 - Rules: each color exactly ONE role; never two saturated colors adjacent at equal weight; contrast >= 4.5:1 for text
+
+## Serif justification (taste-skill 4.1 compliance note, 2026-08-04)
+Instrument Serif is on the taste-skill banned-as-DEFAULT list. It is retained here as a
+JUSTIFIED choice, not a default reach: the direction came from an explicit user brief to
+adopt the editorial-serif register of a named reference (exa.ai), the brand voice of the
+page is deliberately editorial ("proof, not promises" evidence-journal), and the face is
+already shipped across hero/sections/pull-quote with tuned tracking. Backlog item: evaluate
+a rotation-pool alternative (e.g. Tiempos Headline, Saol Display class) in a later loop
+iteration and compare screenshots before any swap.
