@@ -21,12 +21,23 @@
 
 .sw__h2 {
   margin: 0;
-  font-size: clamp(1.9rem, 3.6vw, 2.75rem);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: clamp(2.1rem, 4.2vw, 3.1rem);
+  line-height: 1.1;
+  letter-spacing: -0.005em;
+  font-weight: 400;
   color: var(--fg);
   max-width: 20ch;
+}
+
+/* ── Pull-quote moment: the A2A section's statement, given the weight of a
+   full "moment" rather than a heading — near-full-width italic serif,
+   sized well past the other section headlines. ── */
+.sw__h2--quote {
+  max-width: 30ch;
+  font-size: clamp(2.5rem, 5.4vw, 4rem);
+  font-style: italic;
+  line-height: 1.08;
 }
 
 .sw__lead {

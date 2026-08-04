@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Geist, JetBrains_Mono } from 'next/font/google';
+import { Geist, Instrument_Serif, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -22,6 +22,18 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   weight: ['400', '500'],
   variable: '--font-mono',
+  display: 'swap',
+});
+
+// Display-only serif: hero + section headlines and the A2A pull-quote on the
+// homepage. Never used for body copy or UI — Geist and JetBrains Mono keep
+// carrying those. Instrument Serif ships one weight (400) with a true
+// italic, which is what the pull-quote treatment needs.
+const instrumentSerif = Instrument_Serif({
+  subsets: ['latin'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  variable: '--font-serif',
   display: 'swap',
 });
 
@@ -106,7 +118,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable}`}>
+    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />

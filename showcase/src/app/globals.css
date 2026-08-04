@@ -63,6 +63,14 @@
   --sw-r-lg: 20px;
   --sw-r-pill: 999px;
 
+  /* Button silhouette — the site's one consistent CTA shape: top-left and
+     bottom-right corners cut at 45°. Applied to every button-styled CTA
+     (nav, hero, in-page) so the shape reads as identity, not decoration on
+     one page. Kept small enough to still work at the 36px-tall nav size. */
+  --btn-cut: polygon(
+    9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px
+  );
+
   /* Rhythm (4px base grid) */
   --sw-section: clamp(64px, 8vw, 112px);
   --sw-gap: clamp(16px, 2vw, 28px);
@@ -376,11 +384,13 @@ h2 {
 
 .summer-nav__cta {
   justify-self: end;
-  padding: 0 14px;
+  padding: 0 16px 0 14px;
   border: 1px solid #d17a1e;
   color: #17324a;
   background: linear-gradient(180deg, #f6a93c, #e58d2b);
   box-shadow: 0 8px 18px rgba(229, 141, 43, 0.24);
+  /* Shared CTA silhouette, see --btn-cut in the tokens block above. */
+  clip-path: var(--btn-cut);
 }
 
 /* Secondary header CTA (e.g. Open Terminal next to the solid Open Bot) */
@@ -389,6 +399,14 @@ h2 {
   background: rgba(255, 255, 255, 0.62);
   border-color: rgba(13, 149, 189, 0.4);
   box-shadow: none;
+  clip-path: var(--btn-cut);
+}
+
+/* clip-path clips the page-wide outer ring (--sw-focus draws outside the
+   border box), so these two need their own inset ring to stay visible. */
+.summer-nav__cta:focus-visible,
+.summer-nav__cta--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 /* ── Features grid (ported from the old homepage into the Summer Breeze design) ── */
@@ -3024,10 +3042,17 @@ button:focus:not(:focus-visible) {
   background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
   border: 1px solid var(--sw-accent-deep);
   padding: 0.875rem 1.25rem;
-  border-radius: var(--sw-r-pill);
+  /* Same silhouette as every other CTA on the site — was a full pill, which
+     read as a second, unrelated button family next to the nav/hero shape. */
+  clip-path: var(--btn-cut);
   text-decoration: none;
   margin-top: 1rem;
   transition: background 0.16s var(--sw-ease), transform 0.16s var(--sw-ease);
+}
+
+.nav__drawer-cta:focus-visible,
+.nav__drawer-cta--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 .nav__drawer-cta:hover {
@@ -3043,6 +3068,7 @@ button:focus:not(:focus-visible) {
   background: transparent;
   border-color: var(--sw-hairline-strong);
   margin-top: 0.6rem;
+  clip-path: var(--btn-cut);
 }
 
 .nav__drawer-cta--ghost:hover {
