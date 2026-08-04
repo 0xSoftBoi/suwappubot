@@ -33,7 +33,7 @@ const MCP_TOOLS = [
   'get_quote', 'simulate_swap', 'execute_swap', 'get_swap_status', 'get_swap_history',
   'get_portfolio', 'get_prices', 'list_chains', 'list_tokens', 'get_tempo_tokens',
   'list_wallet_policies', 'browse_mpp_directory', 'perps_markets', 'perps_quote',
-  'perps_positions', 'predict_markets', 'predict_market', 'predict_market_detail',
+  'perps_positions', 'predict_markets', 'predict_market',
   'predict_book', 'predict_price', 'predict_trades', 'lend_markets', 'lend_market',
 ];
 
@@ -62,7 +62,7 @@ const ENGINE = [
   {
     k: 'Sign',
     role: 'sign',
-    d: 'You sign. Managed keys are secured by envelope encryption (kms_aesgcm_v2) or a hardware-backed TEE via Turnkey, per key, never a plaintext key Suwappu can read. Bring your own keys through the agent API for full self-custody.',
+    d: 'You sign. Managed keys sit under envelope encryption (kms_aesgcm_v2) or a hardware-backed TEE via Turnkey, per key — encrypted at rest, never stored in plaintext. If Turnkey is unreachable, a logged and rate-capped fallback decrypts the backup key in-process to sign. Bring your own keys through the agent API for full self-custody.',
   },
 ];
 
@@ -133,16 +133,15 @@ const tx = await client.swap(quote);`;
 /** Fields pulled from the live agent card. Verify against
  *  https://api.suwappu.bot/.well-known/agent.json before editing — this is
  *  meant to match the artifact a visitor fetches, not describe it loosely. */
-const AGENT_CARD_FIELDS = [
-  { k: 'id', v: 'suwappu-dex' },
-  { k: 'protocol', v: 'A2A v0.3' },
-  { k: 'interface', v: 'JSON-RPC · /a2a' },
-  { k: 'auth', v: 'bearer · suwappu_sk_…' },
-];
-
-/** Same fields as AGENT_CARD_FIELDS, formatted the way they actually come
- *  back from the agent card, for the pull-quote section's JSON artifact. */
-const AGENT_CARD_JSON = `{\n${AGENT_CARD_FIELDS.map((f) => `  "${f.k}": "${f.v}"`).join(',\n')}\n}`;
+const AGENT_CARD_JSON = `{
+  "id": "suwappu-dex",
+  "name": "Suwappu",
+  "version": "0.5.0",
+  "protocolVersions": ["0.3"],
+  "interfaces": [
+    { "type": "JSON-RPC", "baseUrl": "https://api.suwappu.bot/a2a", "version": "1.0" }
+  ]
+}`;
 
 /** Renders pre-tokenized code (see src/lib/highlight.ts) as coloured spans
  *  inside a true-black block (D9) — small enough not to need a dependency. */
@@ -188,7 +187,7 @@ const VENDORS = [
   {
     name: 'HyperLiquid',
     big: '1bp',
-    d: 'Default builder fee on every perp trade routed through Suwappu, before any referral reward.',
+    d: 'Builder fee on perp trades routed through Suwappu when a builder wallet is configured, before any referral reward.',
   },
   {
     name: 'Tempo',
@@ -356,8 +355,9 @@ export default async function Home() {
               A live entry in the A2A agent registry, not a screenshot of one.
             </h2>
             <p className="sw__lead">
-              The object below is the actual response from the agent card, fetched at build
-              time. Open the link and compare it yourself; nothing here is written for this page.
+              Below is a verbatim excerpt of the agent card served at{' '}
+              <code>/.well-known/agent.json</code> — trimmed for length, not reworded. Open
+              the link and compare it yourself.
             </p>
             <div className="sw__proof-card">
               <pre className="sw__code sw__code--card"><code><Code tokens={highlightJson(AGENT_CARD_JSON)} /></code></pre>
