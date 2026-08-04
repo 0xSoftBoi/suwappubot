@@ -117,3 +117,23 @@ Rauno Freiberg's interaction-design essays, Anthropic frontend-design skill, sha
 - CWV: no CLS from font swap or unsized images; hero image priority-loaded.
 - Guard: restyling EnterpriseContactForm must never touch its submit handler without
   flagging MONEY-PATH (lead-data path to support_notifier).
+
+## Section objects: what shipped and what didn't (2026-08-04)
+Shipped and rendering: `ToolConstellationGL` (#agents, 23 real MCP tool nodes +
+labels) and `DepthSurfaceGL` (#hyperliquid, abstract bid/ask ridge).
+
+`QuoteRaceGL` is BUILT but NOT WIRED into page.tsx. Two independent problems,
+both verified by isolating the canvas at full opacity and screenshotting:
+1. WebGL `gl.drawArrays(gl.LINES, ...)` never produced visible output in this
+   component while `gl.POINTS` from the same VAO/program pair rendered fine.
+   Shaders compile and link, stride/offsets are correct, viewport/clear/blend
+   ordering matches the working ChainSphereGL. Root cause not found.
+2. As a full-section field, 19 lanes spread over ~1368x856 read as scattered
+   dots, not a race. Reshaping it to a bounded ~430x200 corner figure fixed the
+   density but tripped `.sw__sec:has(.sw__field)`, which narrows the section
+   body to 54% - that squeezed the three-column step grid into unreadable
+   strips (a regression, reverted).
+
+If picked up again: start from the POINTS-only dotted-rail approach (already in
+the component), and give #engine its own field rule that does NOT inherit the
+:has() narrowing, since its body is a step grid rather than a headline column.

@@ -6,7 +6,6 @@ import LiveQuote from '@/components/LiveQuote';
 import ProofShot from '@/components/ProofShot';
 import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
-import QuoteRaceGL from '@/components/QuoteRaceGL';
 import DepthSurfaceGL from '@/components/DepthSurfaceGL';
 import ToolConstellationGL from '@/components/ToolConstellationGL';
 import Reveal from '@/components/Reveal';
@@ -378,7 +377,6 @@ export default async function Home() {
 
         {/* ── Engine ───────────────────────────────────────────── */}
         <section id="engine" className="sw__sec sw__sec--wide sw__sec--engine" aria-label="How the engine works">
-          <QuoteRaceGL className="sw__engine-field" venues={productStats.routerCount} />
           <Reveal>
             <h2 className="sw__h2">Three steps, every trade.</h2>
             <ol className="sw__steps sw__steps--cols">

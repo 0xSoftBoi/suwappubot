@@ -821,6 +821,7 @@
 .sw__sec:has(.sw__field) .sw__lead,
 .sw__sec:has(.sw__field) .sw__steps { max-width: min(54%, 620px); }
 
+
 .sw__sec:has(.sw__field) .sw__steps p { max-width: 100%; }
 
 /* The hero graph is the page's hero object, so it stays full-bleed and large,
@@ -1265,19 +1266,9 @@
 /* Engine: the race sits full-bleed behind the three step columns, well
    under body-text contrast so STEP 01/02/03 stay legible. */
 .sw__sec--engine { overflow: hidden; }
-.sw__engine-field {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.8;
-  pointer-events: none;
-}
 .sw__sec--engine > .reveal { position: relative; z-index: 1; }
 
 @media (max-width: 768px) {
-  .sw__engine-field { display: none; }
 }
 
 /* HyperLiquid / Agents: both figures use the existing .sw__field corner-box

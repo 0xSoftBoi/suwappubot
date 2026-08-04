@@ -173,7 +173,8 @@ export default function QuoteRaceGL({
     };
 
     const lineData = new Float32Array(venues * 2 * 7);
-    const pointData = new Float32Array(venues * 7);
+    const TRACK_DOTS = 30;
+    const pointData = new Float32Array(venues * (TRACK_DOTS + 1) * 7);
 
     const draw = (t: number) => {
       if (!ok || !w || !h) return;
@@ -192,6 +193,7 @@ export default function QuoteRaceGL({
       const resolved = tLocal >= arrivals[winner];
       const fadeT = resolved ? Math.min(1, (tLocal - arrivals[winner]) / 700) : 0;
 
+      let pi = 0;
       const padX = w * 0.06, padY = h * 0.14;
       const trackW = w - padX * 2;
 
@@ -204,14 +206,19 @@ export default function QuoteRaceGL({
 
         // Static lane track: a hairline, almost invisible, slightly brighter
         // once the winner is decided so the winning row still reads.
-        const trackAlpha = isWinner && resolved ? 0.34 : 0.13;
-        const lo = i * 2 * 7;
-        lineData[lo] = padX; lineData[lo + 1] = y;
-        lineData[lo + 2] = leaf[0]; lineData[lo + 3] = leaf[1]; lineData[lo + 4] = leaf[2];
-        lineData[lo + 5] = trackAlpha; lineData[lo + 6] = 1;
-        lineData[lo + 7] = padX + trackW; lineData[lo + 8] = y;
-        lineData[lo + 9] = leaf[0]; lineData[lo + 10] = leaf[1]; lineData[lo + 11] = leaf[2];
-        lineData[lo + 12] = trackAlpha; lineData[lo + 13] = 1;
+        const trackAlpha = isWinner && resolved ? 0.5 : 0.2;
+        for (let d = 0; d < TRACK_DOTS; d++) {
+          const to = (pi++) * 7;
+          const covered = d / (TRACK_DOTS - 1) <= eased;
+          pointData[to] = padX + (trackW * d) / (TRACK_DOTS - 1);
+          pointData[to + 1] = y;
+          const tc = covered && isWinner ? accent : leaf;
+          pointData[to + 2] = tc[0]; pointData[to + 3] = tc[1]; pointData[to + 4] = tc[2];
+          // The rail behind a quote is brighter than the rail ahead of it, so
+          // each lane reads as progress rather than a static dotted line.
+          pointData[to + 5] = covered ? trackAlpha : trackAlpha * 0.4;
+          pointData[to + 6] = 1.6 * dpr;
+        }
 
         // Travelling quote: persimmon and growing for the winner, leaf and
         // fading out for the field once the race is decided.
@@ -219,32 +226,26 @@ export default function QuoteRaceGL({
         let alpha: number, size: number;
         if (isWinner) {
           alpha = resolved ? 0.95 + 0.05 * Math.sin(t * 0.0016) : 0.5 + 0.45 * eased;
-          size = (resolved ? 7.4 : 5 + 2.2 * eased) * dpr;
+          size = (resolved ? 5.6 : 3.6 + 1.6 * eased) * dpr;
         } else {
           alpha = (0.72 - 0.42 * fadeT);
-          size = 4.2 * dpr;
+          size = 3.2 * dpr;
         }
 
-        const po = i * 7;
+        const po = (pi++) * 7;
         pointData[po] = x; pointData[po + 1] = y;
         pointData[po + 2] = col[0]; pointData[po + 3] = col[1]; pointData[po + 4] = col[2];
         pointData[po + 5] = Math.max(0, alpha);
         pointData[po + 6] = size;
       }
 
-      gl.bindVertexArray(vaoLine);
-      gl.bindBuffer(gl.ARRAY_BUFFER, bufLine);
-      gl.bufferData(gl.ARRAY_BUFFER, lineData, gl.STREAM_DRAW);
-      gl.useProgram(progLine);
-      gl.uniform2f(gl.getUniformLocation(progLine, 'uViewport'), cv.width, cv.height);
-      gl.drawArrays(gl.LINES, 0, venues * 2);
 
       gl.bindVertexArray(vaoPoint);
       gl.bindBuffer(gl.ARRAY_BUFFER, bufPoint);
-      gl.bufferData(gl.ARRAY_BUFFER, pointData, gl.STREAM_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, pointData.subarray(0, pi * 7), gl.STREAM_DRAW);
       gl.useProgram(progPoint);
       gl.uniform2f(gl.getUniformLocation(progPoint, 'uViewport'), cv.width, cv.height);
-      gl.drawArrays(gl.POINTS, 0, venues);
+      gl.drawArrays(gl.POINTS, 0, pi);
       gl.bindVertexArray(null);
 
       if (running && !reduce) raf = requestAnimationFrame(draw);
