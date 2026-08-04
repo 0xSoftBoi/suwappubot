@@ -31,7 +31,7 @@ from bot.config.settings import settings
 from bot.config.llm_models import ModelSpec
 from bot.models.subscription import APICredit, Subscription, SubscriptionTier
 from bot.models.user import User
-from bot.services.llm_usage import TokenUsage
+from bot.services.llm_usage import TokenUsage, billable_usage
 from bot.utils.llm_budget import (
     GLOBAL_BUDGET_KEY,
     llm_budget,
@@ -192,7 +192,43 @@ async def check_allowance(
     return balance >= estimated_cost
 
 
-async def reserve_budget(user_id: int, model: ModelSpec) -> Tuple[bool, int]:
+# Per-user spend budget multiplier by tier. The budget bounds PLATFORM spend;
+# a paying subscriber with a funded balance must not be throttled to the same
+# ceiling as an anonymous free user who has never swapped.
+_TIER_BUDGET_MULTIPLIER = {
+    SubscriptionTier.FREE: 1.0,
+    SubscriptionTier.PRO: 5.0,
+    SubscriptionTier.PREMIUM: 20.0,
+    SubscriptionTier.ENTERPRISE: 100.0,
+}
+
+
+def raw_cost_usd(model: ModelSpec, usage: TokenUsage) -> float:
+    """UNMARKED-UP provider cost — what the platform actually pays.
+
+    The spend budget is denominated in real provider dollars, so
+    LLM_BUDGET_*_USD means what it says. `cost_of_usage` (marked up) is what
+    the *user* is charged; the two are deliberately different numbers.
+    """
+    markup = _markup()
+    return cost_of_usage(model, usage) / markup if markup else 0.0
+
+
+def user_budget_capacity_micros(tier: Optional[SubscriptionTier] = None) -> int:
+    base = getattr(settings, "LLM_BUDGET_PER_USER_DAILY_USD", 0.0) or 0.0
+    if base <= 0:
+        return 0  # disabled / unlimited
+    multiplier = _TIER_BUDGET_MULTIPLIER.get(tier or SubscriptionTier.FREE, 1.0)
+    return usd_to_micros(base * multiplier)
+
+
+def global_budget_capacity_micros() -> int:
+    return usd_to_micros(getattr(settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 0.0) or 0.0)
+
+
+async def reserve_budget(
+    user_id: int, model: ModelSpec, tier: Optional[SubscriptionTier] = None
+) -> Tuple[bool, int]:
     """Reserve a conservative cost estimate against the rolling spend buckets.
 
     Applies to EVERY catalog model, including the free default: the budget
@@ -205,11 +241,14 @@ async def reserve_budget(user_id: int, model: ModelSpec) -> Tuple[bool, int]:
     bucket already consumed, the user's reservation is returned so a global
     backstop can't silently burn individual allowances.
     """
-    estimated = estimate_cost_usd(model, ESTIMATED_INPUT_TOKENS, ESTIMATED_OUTPUT_TOKENS)
+    estimated = raw_cost_usd(
+        model,
+        TokenUsage(input_tokens=ESTIMATED_INPUT_TOKENS, output_tokens=ESTIMATED_OUTPUT_TOKENS),
+    )
     reserved = usd_to_micros(estimated)
 
-    user_cap = usd_to_micros(getattr(settings, "LLM_BUDGET_PER_USER_DAILY_USD", 0.0) or 0.0)
-    global_cap = usd_to_micros(getattr(settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 0.0) or 0.0)
+    user_cap = user_budget_capacity_micros(tier)
+    global_cap = global_budget_capacity_micros()
 
     ok, remaining = await llm_budget.try_consume(user_budget_key(user_id), reserved, user_cap)
     if not ok:
@@ -238,22 +277,46 @@ async def reserve_budget(user_id: int, model: ModelSpec) -> Tuple[bool, int]:
     return True, reserved
 
 
-async def settle_budget(user_id: int, reserved_micros: int, actual_usd: float) -> None:
-    """Return the unused part of a reservation after the call completes.
+async def settle_budget(
+    user_id: int,
+    reserved_micros: int,
+    actual_usd: float,
+    tier: Optional[SubscriptionTier] = None,
+) -> None:
+    """Reconcile a reservation against actual raw provider cost.
 
-    Only ever refunds; if actual exceeded the estimate the extra was already
-    consumed by definition (the bucket went down by the reservation), and the
-    authoritative debit still happens in `record_usage`.
+    Refunds the unused remainder, and — critically — CONSUMES the overrun when
+    actual exceeded the estimate. The bucket went down by the reservation, not
+    by actual, so without this an under-estimated call is silently free from
+    the budget's perspective (SDK retries alone can bill the provider up to
+    three times against one reservation).
+
+    `actual_usd` must be RAW provider cost, matching the reservation's
+    denomination — not the marked-up figure the user is charged.
     """
     if reserved_micros <= 0:
         return
-    unused = reserved_micros - usd_to_micros(actual_usd)
-    if unused <= 0:
+    user_cap = user_budget_capacity_micros(tier)
+    global_cap = global_budget_capacity_micros()
+
+    delta = reserved_micros - usd_to_micros(actual_usd)
+    if delta > 0:
+        await llm_budget.refund(user_budget_key(user_id), delta, user_cap)
+        await llm_budget.refund(GLOBAL_BUDGET_KEY, delta, global_cap)
         return
-    user_cap = usd_to_micros(getattr(settings, "LLM_BUDGET_PER_USER_DAILY_USD", 0.0) or 0.0)
-    global_cap = usd_to_micros(getattr(settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 0.0) or 0.0)
-    await llm_budget.refund(user_budget_key(user_id), unused, user_cap)
-    await llm_budget.refund(GLOBAL_BUDGET_KEY, unused, global_cap)
+    if delta < 0:
+        # Overrun: charge the difference. The allowed flag is ignored on
+        # purpose — the spend already happened; this debits it against the
+        # user's next-call headroom rather than letting it escape the cap.
+        overrun = -delta
+        logger.info(
+            "llm_credit_service: user_id=%s call exceeded its reservation by "
+            "%d micros — charging the overrun to the budget",
+            user_id,
+            overrun,
+        )
+        await llm_budget.try_consume(user_budget_key(user_id), overrun, user_cap)
+        await llm_budget.try_consume(GLOBAL_BUDGET_KEY, overrun, global_cap)
 
 
 async def record_usage(user_id: int, model: ModelSpec, usage: TokenUsage) -> UsageResult:
@@ -265,7 +328,9 @@ async def record_usage(user_id: int, model: ModelSpec, usage: TokenUsage) -> Usa
     if usage.is_empty:
         # A metered call that reports zero usage is a provider-shim quirk
         # (several OpenAI-compat endpoints omit/rename usage fields), not a
-        # free call. Debit the pre-flight estimate instead of $0.
+        # free call. Callers should already have normalized via
+        # billable_usage() so the budget settles against the same number;
+        # this is a defensive backstop for any other caller.
         logger.warning(
             "llm_credit_service: provider=%s model=%s returned no usage data — "
             "debiting pre-flight estimate (%d in / %d out) for user_id=%s",
@@ -275,9 +340,7 @@ async def record_usage(user_id: int, model: ModelSpec, usage: TokenUsage) -> Usa
             ESTIMATED_OUTPUT_TOKENS,
             user_id,
         )
-        usage = TokenUsage(
-            input_tokens=ESTIMATED_INPUT_TOKENS, output_tokens=ESTIMATED_OUTPUT_TOKENS
-        )
+        usage = billable_usage(usage, ESTIMATED_INPUT_TOKENS, ESTIMATED_OUTPUT_TOKENS)
 
     input_tokens = usage.input_tokens
     output_tokens = usage.output_tokens

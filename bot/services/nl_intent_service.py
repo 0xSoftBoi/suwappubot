@@ -20,7 +20,7 @@ from typing import Any, Dict, Hashable, Literal, Optional
 
 from bot.config.settings import settings
 from bot.services.aegis_service import get_aegis
-from bot.services.llm_usage import TokenUsage
+from bot.services.llm_usage import TokenUsage, billable_usage
 
 logger = logging.getLogger(__name__)
 
@@ -386,7 +386,17 @@ def _openai_usage(response) -> TokenUsage:
         cached = _i(getattr(details, "cached_tokens", 0)) if details else 0
 
     # Clamp: never let a malformed payload produce negative billable input.
-    cached = min(cached, prompt_tokens)
+    if cached > prompt_tokens:
+        # Nonsensical payload. Clamping would move the ENTIRE prompt into the
+        # discounted bucket (0.02x on DeepSeek) — the unsafe direction. Bill it
+        # all at full input rate instead; see llm_models.py "round the price UP".
+        logger.warning(
+            "nl_intent_service: provider reported %d cached tokens > %d prompt "
+            "tokens — billing the whole prompt at full input rate",
+            cached,
+            prompt_tokens,
+        )
+        cached = 0
     return TokenUsage(
         input_tokens=prompt_tokens - cached,
         cached_read_tokens=cached,
@@ -413,16 +423,18 @@ async def _parse_with_anthropic(
         messages=[{"role": "user", "content": user_content}],
     )
 
-    tool_use_block = None
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use":
-            tool_use_block = block
-            break
-
     # Everything past the network call is parse-stage: the provider has
     # already billed us for this response, so a malformed payload must still
     # surface `usage` to the caller for metering — never raise past here.
+    # The content walk is INSIDE the guard: a malformed `content` would
+    # otherwise escape into the caller's failure path, which does not bill.
     try:
+        tool_use_block = None
+        for block in response.content:
+            if getattr(block, "type", None) == "tool_use":
+                tool_use_block = block
+                break
+
         if tool_use_block is None:
             logger.warning("nl_intent_service: no tool_use block in response")
             return _fallback(), _anthropic_usage(response)
@@ -498,6 +510,25 @@ async def _parse_with_openai_compatible(
     except Exception:
         logger.exception("nl_intent_service: openai-compatible response parse failed")
         return _fallback(), _openai_usage(response)
+
+
+def _is_preflight_failure(exc: BaseException) -> bool:
+    """True only when the request provably never reached the provider.
+
+    Refunding a spend reservation is safe exclusively in that case. Anything
+    ambiguous — timeouts, 5xx, malformed responses — may have been billed
+    upstream (SDK retries mean one logical call can be several billed
+    attempts), so the reservation is kept.
+    """
+    name = type(exc).__name__
+    if name in {"APIConnectionError", "APITimeoutError"}:
+        # APITimeoutError is deliberately NOT treated as pre-flight by the
+        # SDKs' semantics, but a connection error is: no bytes were accepted.
+        return name == "APIConnectionError"
+    if name in {"AuthenticationError", "PermissionDeniedError", "NotFoundError"}:
+        return True  # rejected before any generation
+    status = getattr(exc, "status_code", None)
+    return status in (401, 403, 404)
 
 
 async def _resolve_user_model(user_id):
@@ -614,7 +645,7 @@ async def parse_trade_intent(
         from bot.services import llm_credit_service
 
         allowed, reserved_micros = await llm_credit_service.reserve_budget(
-            user_ctx.db_user_id, spec
+            user_ctx.db_user_id, spec, user_ctx.tier
         )
         if not allowed:
             # Degrade rather than wall: a trading bot that stops understanding
@@ -630,18 +661,25 @@ async def parse_trade_intent(
                 text, context, api_key=api_key, base_url=base_url, model=model
             )
         logger.info("nl_intent_service: parsed via LLM path", extra={"source": "llm"})
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "nl_intent_service: failed to parse trade intent",
             extra={"source": "fallback-fail"},
         )
-        # The call may have failed before consuming anything; hand the whole
-        # reservation back rather than charging a user for a call that never
-        # produced a response.
+        # Do NOT blanket-refund here. The SDKs retry internally, so a failure
+        # can mean up to three provider-billed attempts, and a read timeout
+        # arrives after generation already completed. Refunding on every
+        # exception would make failed calls free and repeatable. Only a
+        # provably pre-flight failure (never reached the provider) is refunded;
+        # everything else keeps the conservative reservation, which is exactly
+        # what it was reserved for.
         if reserved_micros and spec is not None and user_ctx is not None:
             from bot.services import llm_credit_service
 
-            await llm_credit_service.settle_budget(user_ctx.db_user_id, reserved_micros, 0.0)
+            if _is_preflight_failure(exc):
+                await llm_credit_service.settle_budget(
+                    user_ctx.db_user_id, reserved_micros, 0.0, user_ctx.tier
+                )
         return _fallback()
 
     # MONEY-PATH: meter metered catalog models against api_credits, and settle
@@ -652,13 +690,28 @@ async def parse_trade_intent(
     if spec is not None and user_ctx is not None:
         from bot.services import llm_credit_service
 
-        actual_usd = llm_credit_service.cost_of_usage(spec, usage)
         try:
-            if spec.metered:
-                await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage)
+            # Normalize ONCE so the ledger debit and the budget settlement
+            # price the identical usage. Doing this inside record_usage let a
+            # provider with missing usage fields settle the budget at $0 and
+            # refund the whole reservation while the ledger charged an estimate.
+            billable = billable_usage(
+                usage,
+                llm_credit_service.ESTIMATED_INPUT_TOKENS,
+                llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
+            )
+            actual_usd = llm_credit_service.raw_cost_usd(spec, billable)
+            try:
+                if spec.metered:
+                    await llm_credit_service.record_usage(user_ctx.db_user_id, spec, billable)
+            except Exception:
+                logger.exception("nl_intent_service: record_usage failed after LLM call")
+            finally:
+                await llm_credit_service.settle_budget(
+                    user_ctx.db_user_id, reserved_micros, actual_usd, user_ctx.tier
+                )
         except Exception:
-            logger.exception("nl_intent_service: record_usage failed after LLM call")
-        finally:
-            await llm_credit_service.settle_budget(user_ctx.db_user_id, reserved_micros, actual_usd)
+            # parse_trade_intent must never raise (module contract).
+            logger.exception("nl_intent_service: settlement failed after LLM call")
 
     return intent

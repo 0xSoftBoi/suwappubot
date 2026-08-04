@@ -999,15 +999,17 @@ class Settings(BaseSettings):
     LLM_BUDGET_PER_USER_DAILY_USD: float = Field(
         default=0.25,
         description=(
-            "Rolling 24h per-user LLM spend ceiling in USD (cost-weighted, Redis-backed). "
-            "~470 cheap-model calls or ~35 flagship calls. 0 disables the limit."
+            "Rolling 24h per-user ceiling on RAW provider spend in USD (cost-weighted, "
+            "Redis-backed, excludes LLM_CREDIT_MARKUP). This is the FREE-tier figure — "
+            "PRO gets 5x, PREMIUM 20x, ENTERPRISE 100x. At FREE it buys roughly 850 "
+            "deepseek-flash calls, 27 claude-sonnet, or 15 gpt-flagship. 0 disables."
         ),
     )
     LLM_BUDGET_GLOBAL_DAILY_USD: float = Field(
         default=25.0,
         description=(
-            "Rolling 24h platform-wide LLM spend ceiling in USD. Backstop against a "
-            "coordinated drain; 0 disables the limit."
+            "Rolling 24h platform-wide ceiling on RAW provider spend in USD. Backstop "
+            "against a coordinated drain; 0 disables the limit."
         ),
     )
     LLM_ALLOW_UNVERIFIED_PROVIDERS: bool = Field(

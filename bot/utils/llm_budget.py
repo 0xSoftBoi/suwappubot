@@ -62,8 +62,14 @@ def usd_to_micros(usd: float) -> int:
 _CONSUME_LUA = """
 local capacity = tonumber(ARGV[1])
 local window_s = tonumber(ARGV[2])
-local now_ms   = tonumber(ARGV[3])
-local cost     = tonumber(ARGV[4])
+local cost     = tonumber(ARGV[3])
+
+-- Time comes from the SERVER, not the caller. Using each replica's own clock
+-- let skew be harvested: a fast replica sees inflated elapsed time, refills
+-- accordingly, and rewrites ts backwards, so alternating replicas could mint
+-- refill indefinitely. Redis >=5 replicates script effects, so TIME is safe.
+local t = redis.call('TIME')
+local now_ms = t[1] * 1000 + math.floor(t[2] / 1000)
 
 local state  = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
 local tokens = tonumber(state[1])
@@ -105,11 +111,17 @@ return math.floor(tokens)
 class LLMBudget:
     """Cost-weighted token bucket, Redis-backed with in-memory fallback."""
 
+    # Re-warn at most this often while degraded, so a persistent outage stays
+    # visible in logs instead of being announced once and never again.
+    DEGRADED_WARN_INTERVAL_S = 60.0
+
     def __init__(self):
         # key -> (tokens, last_refill_epoch_seconds); only used when Redis is
         # unavailable. Per-process, so it is a safety net, not a real limit.
         self._memory: dict = {}
-        self._warned_degraded = False
+        self._last_degraded_warning = 0.0
+        # Running count of calls served by the degraded per-process bucket.
+        self.degraded_calls = 0
 
     # -- internals --------------------------------------------------------
 
@@ -125,15 +137,26 @@ class LLMBudget:
         return None
 
     def _warn_degraded(self, reason: str) -> None:
-        # Log the degradation once per process, not once per call.
-        if not self._warned_degraded:
-            logger.warning(
-                "llm_budget: Redis unavailable (%s) — falling back to a "
-                "PER-PROCESS budget. With multiple replicas the effective "
-                "ceiling is this budget x replica count.",
-                reason,
-            )
-            self._warned_degraded = True
+        """Warn that the cap is no longer fleet-wide, at most once per minute.
+
+        Latching this for the whole process (the previous behavior) meant a
+        single blip at startup permanently silenced every later flap, leaving
+        operators with no signal that the effective ceiling had become
+        `cap x replicas`. `degraded_calls` is a running counter for health
+        surfaces to expose.
+        """
+        self.degraded_calls += 1
+        now = time.time()
+        if now - self._last_degraded_warning < self.DEGRADED_WARN_INTERVAL_S:
+            return
+        self._last_degraded_warning = now
+        logger.warning(
+            "llm_budget: Redis unavailable (%s) — falling back to a "
+            "PER-PROCESS budget (%d degraded calls so far). With multiple "
+            "replicas the effective ceiling is this budget x replica count.",
+            reason,
+            self.degraded_calls,
+        )
 
     def _memory_consume(
         self, key: str, capacity: int, window_s: int, cost: int
@@ -173,7 +196,6 @@ class LLMBudget:
                 key,
                 capacity_micros,
                 window_seconds,
-                int(time.time() * 1000),
                 cost_micros,
             )
             return bool(int(allowed)), int(remaining)
@@ -201,7 +223,8 @@ class LLMBudget:
     def reset(self) -> None:
         """Clear the in-memory fallback state (tests)."""
         self._memory.clear()
-        self._warned_degraded = False
+        self._last_degraded_warning = 0.0
+        self.degraded_calls = 0
 
 
 # Module-level singleton, mirroring bot.utils.redis_cache.redis_cache.

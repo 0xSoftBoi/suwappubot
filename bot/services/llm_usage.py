@@ -46,3 +46,18 @@ class TokenUsage:
         nothing must be billed at estimate rather than silently at $0.
         """
         return self.total_input == 0 and self.output_tokens == 0
+
+
+def billable_usage(usage: TokenUsage, est_input: int, est_output: int) -> TokenUsage:
+    """Normalize usage to what should actually be charged.
+
+    MUST be applied ONCE, at the call site, before *both* the ledger debit and
+    the spend-budget settlement. Doing this substitution privately inside the
+    debit path is what let a provider with missing usage fields report $0 to
+    the budget — which refunded the entire reservation and turned the spend
+    caps into a no-op, while the ledger separately charged the estimate.
+    Pricing the same TokenUsage in both places is the invariant.
+    """
+    if usage.is_empty:
+        return TokenUsage(input_tokens=est_input, output_tokens=est_output)
+    return usage

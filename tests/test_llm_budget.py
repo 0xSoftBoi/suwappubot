@@ -168,8 +168,11 @@ def test_malformed_cached_count_cannot_go_negative():
 
     resp = _O(usage=_O(prompt_tokens=100, completion_tokens=0, prompt_cache_hit_tokens=999))
     u = _openai_usage(resp)
-    assert u.input_tokens == 0  # clamped, never negative
-    assert u.cached_read_tokens == 100
+    # A nonsensical payload must round the price UP: bill the whole prompt at
+    # full input rate rather than moving it all into the 0.02x cached bucket.
+    assert u.input_tokens == 100
+    assert u.cached_read_tokens == 0
+    assert u.total_input == 100
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +283,120 @@ async def test_reserve_then_settle_returns_unused(monkeypatch):
     await llm_credit_service.settle_budget(1, reserved, 0.0)
     ok2, _ = await llm_credit_service.reserve_budget(1, CACHED)
     assert ok2
+
+
+@pytest.mark.asyncio
+async def test_empty_usage_does_not_refund_the_whole_reservation(monkeypatch):
+    """Regression (CRITICAL): a provider that omits usage fields reported $0
+    to the budget, refunding the entire reservation and making both spend caps
+    a no-op. billable_usage must substitute the estimate BEFORE settlement."""
+    from bot.services.llm_usage import billable_usage
+
+    monkeypatch.setattr(
+        llm_credit_service.settings, "LLM_BUDGET_PER_USER_DAILY_USD", 1.0, raising=False
+    )
+    monkeypatch.setattr(
+        llm_credit_service.settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 100.0, raising=False
+    )
+    ok, reserved = await llm_credit_service.reserve_budget(7, CACHED)
+    assert ok
+
+    billable = billable_usage(
+        TokenUsage(),
+        llm_credit_service.ESTIMATED_INPUT_TOKENS,
+        llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
+    )
+    assert not billable.is_empty  # estimate substituted
+    actual = llm_credit_service.raw_cost_usd(CACHED, billable)
+    assert actual > 0
+    await llm_credit_service.settle_budget(7, reserved, actual)
+
+    # The reservation must be substantially consumed, not handed back whole.
+    from bot.utils.llm_budget import user_budget_key
+
+    cap = usd_to_micros(1.0)
+    allowed, remaining = await budget_mod.llm_budget.try_consume(user_budget_key(7), 0, cap)
+    assert remaining < cap, "empty usage refunded the full reservation"
+
+
+@pytest.mark.asyncio
+async def test_overrun_is_charged_not_free(monkeypatch):
+    """Regression (HIGH): settle only refunded, so a call costing more than
+    its reservation was silently free from the budget's perspective."""
+    monkeypatch.setattr(
+        llm_credit_service.settings, "LLM_BUDGET_PER_USER_DAILY_USD", 1.0, raising=False
+    )
+    monkeypatch.setattr(
+        llm_credit_service.settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 100.0, raising=False
+    )
+    from bot.utils.llm_budget import user_budget_key
+
+    cap = usd_to_micros(1.0)
+    ok, reserved = await llm_credit_service.reserve_budget(8, CACHED)
+    assert ok
+    _, after_reserve = await budget_mod.llm_budget.try_consume(user_budget_key(8), 0, cap)
+
+    # Actual came in at 10x the reservation.
+    await llm_credit_service.settle_budget(8, reserved, (reserved * 10) / 1_000_000)
+    _, after_settle = await budget_mod.llm_budget.try_consume(user_budget_key(8), 0, cap)
+    assert after_settle < after_reserve, "overrun escaped the budget"
+
+
+def test_budget_uses_raw_cost_not_marked_up(monkeypatch):
+    """The budget bounds PLATFORM spend, so it must exclude the user markup —
+    otherwise LLM_BUDGET_*_USD silently means 1/markup of what it says."""
+    monkeypatch.setattr(llm_credit_service.settings, "LLM_CREDIT_MARKUP", 2.0, raising=False)
+    usage = TokenUsage(input_tokens=1_000_000)
+    assert llm_credit_service.cost_of_usage(CACHED, usage) == pytest.approx(2.0)
+    assert llm_credit_service.raw_cost_usd(CACHED, usage) == pytest.approx(1.0)
+
+
+def test_budget_capacity_scales_with_tier(monkeypatch):
+    """A paying subscriber must not be throttled to the free-tier ceiling."""
+    monkeypatch.setattr(
+        llm_credit_service.settings, "LLM_BUDGET_PER_USER_DAILY_USD", 0.25, raising=False
+    )
+    free = llm_credit_service.user_budget_capacity_micros(SubscriptionTier.FREE)
+    pro = llm_credit_service.user_budget_capacity_micros(SubscriptionTier.PRO)
+    premium = llm_credit_service.user_budget_capacity_micros(SubscriptionTier.PREMIUM)
+    assert free < pro < premium
+    assert free == usd_to_micros(0.25)
+
+
+def test_preflight_failure_classification():
+    """Only provably-never-sent failures may refund; ambiguous ones (timeout,
+    5xx) may already have been billed upstream."""
+    from bot.services.nl_intent_service import _is_preflight_failure
+
+    class APIConnectionError(Exception):
+        pass
+
+    class APITimeoutError(Exception):
+        pass
+
+    class RateLimitError(Exception):
+        status_code = 429
+
+    assert _is_preflight_failure(APIConnectionError())
+    assert not _is_preflight_failure(APITimeoutError())
+    assert not _is_preflight_failure(RateLimitError())
+    assert not _is_preflight_failure(RuntimeError("malformed response"))
+
+
+@pytest.mark.asyncio
+async def test_degradation_warning_is_not_latched_forever(monkeypatch, caplog):
+    """Regression (MEDIUM): warning latched once per process hid every later
+    Redis flap, so operators never learned the cap went per-replica."""
+    b = LLMBudget()
+    monkeypatch.setattr(LLMBudget, "_client", lambda self: None)
+    await b.try_consume("k", 1, 1000)
+    await b.try_consume("k", 1, 1000)
+    assert b.degraded_calls == 2  # counter always increments
+
+    b._last_degraded_warning = 0.0  # simulate the interval elapsing
+    with caplog.at_level("WARNING"):
+        await b.try_consume("k", 1, 1000)
+    assert any("PER-PROCESS budget" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
