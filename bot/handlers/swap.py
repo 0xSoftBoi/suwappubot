@@ -21,6 +21,7 @@ from bot.utils.exceptions import SwapError
 from bot.services.error_guidance import classify_swap_failure, ErrorGuidance
 from bot.services.wallet import WalletService
 from bot.services.fee_service import fee_service
+from bot.services import capture_service
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_tokens_for_chain, get_token_address
 from bot.utils.formatters import format_amount, format_usd, format_time_estimate, format_tx_link
@@ -773,7 +774,19 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not allowed:
         return ConversationHandler.END
 
-    amount = validate_amount(update.message.text)
+    raw_amount_text = update.message.text
+    amount = validate_amount(raw_amount_text)
+
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=context.user_data.get("user_id"),
+            surface="telegram",
+            raw_text=raw_amount_text,
+            session_key=f"swap:{context.user_data.get('user_id')}",
+            intent_type="swap",
+            resolution_status="resolved" if amount is not None else "clarified",
+        )
+    )
 
     if amount is None:
         await update.message.reply_text(
@@ -1440,6 +1453,25 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     fee_usd=fee_usd,
                 )
                 total_points += points_earned
+
+                capture_service.fire(
+                    capture_service.record_intent(
+                        user_id=user_id,
+                        surface="telegram",
+                        raw_text=None,
+                        session_key=f"swap:{user_id}",
+                        intent_type="swap",
+                        resolved_action={
+                            "from_chain": swap_data.get("from_chain"),
+                            "from_token": swap_data.get("from_token"),
+                            "to_chain": swap_data.get("to_chain"),
+                            "to_token": swap_data.get("to_token"),
+                            "amount": swap_data.get("amount"),
+                        },
+                        resolution_status="resolved",
+                        swap_id=swap_tx.id,
+                    )
+                )
 
         num_fail = len(selected_wallet_ids) - num_success
 

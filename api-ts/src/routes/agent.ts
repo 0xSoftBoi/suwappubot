@@ -35,7 +35,8 @@ import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
-import { runEffectEither } from '../runtime'
+import { runEffect, runEffectEither } from '../runtime'
+import { CaptureService } from '../services'
 import {
 	AgentService,
 	AgentTrustService,
@@ -2898,6 +2899,32 @@ agentRoutes.post('/swap/execute', async (c) => {
 			details: { approvalId: approvalToFinalize.id, swapId: swapResult.swap_id },
 		})
 	}
+
+	// Bank the (input -> resolved structured action) pair for the future
+	// fine-tune dataset. Failure-isolated inside CaptureService — fire and
+	// forget, never blocks or fails this response. No free-text input on this
+	// path (quote_id/approval_id are opaque), so rawText is omitted.
+	void runEffect(
+		Effect.gen(function* () {
+			const captureService = yield* CaptureService
+			// SECURITY: raw_quote is the COMPLETE unmodified LI.FI/Jupiter response
+			// and can embed credentialed RPC URLs (Alchemy/Helius/QuickNode) inside
+			// nested route/step objects. Drop it here — the flattened fields above
+			// are the actual training signal. CaptureService also runs
+			// resolvedAction through a defense-in-depth recursive secret screen,
+			// but this call site should never hand it the raw blob to begin with.
+			const { raw_quote: _rawQuote, ...quoteDataForCapture } = quoteData
+			yield* captureService.recordIntent({
+				userId: internalUserId,
+				surface: 'api',
+				sessionKey: `swap:${swapResult.swap_id}`,
+				intentType: 'swap',
+				resolvedAction: quoteDataForCapture,
+				resolutionStatus: 'resolved',
+				swapId: Number(swapResult.swap_id),
+			})
+		}),
+	).catch(() => {})
 
 	return c.json({
 		success: true,

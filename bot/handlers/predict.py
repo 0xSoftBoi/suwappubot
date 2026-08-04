@@ -21,6 +21,7 @@ Flow:
     -> MY_POSITIONS -> Open positions with PnL
 """
 
+import asyncio
 import logging
 from decimal import Decimal
 from typing import Optional
@@ -44,6 +45,7 @@ from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.telegram_safe import safe_md
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
+from bot.services import capture_service
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,17 @@ async def receive_search_query(update: Update, context: ContextTypes.DEFAULT_TYP
         return BROWSE_MARKETS
 
     search_text = update.message.text.strip()
+
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=pred_data.get("user_id"),
+            surface="telegram",
+            raw_text=search_text,
+            session_key=f"predict:{pred_data.get('user_id')}",
+            intent_type="predict_search",
+        )
+    )
+
     pred_data["awaiting_search"] = False
     pred_data["page"] = 0
 
@@ -878,6 +891,27 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
                 session.commit()
 
         if result.success:
+            # Fired only after the DB transaction above has committed — capturing
+            # before that commit would record a trade that a subsequent commit
+            # failure could still roll back, banking a fine-tune row for a trade
+            # that never actually happened.
+            capture_service.fire(
+                capture_service.record_intent(
+                    user_id=user_id,
+                    surface="telegram",
+                    raw_text=None,
+                    session_key=f"predict:{user_id}",
+                    intent_type="predict_order",
+                    resolved_action={
+                        "market_id": market.condition_id,
+                        "outcome": outcome,
+                        "side": "BUY",
+                        "amount_usdc": amount,
+                        "price": price,
+                    },
+                )
+            )
+
             shares = amount / price if price > 0 else 0
             potential_payout = shares * 1.0
 

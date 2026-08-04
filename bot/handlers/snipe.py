@@ -59,6 +59,7 @@ from bot.utils.tos_utils import enforce_tos
 from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from database.db import get_session
+from bot.services import capture_service
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,17 @@ async def snipe_token_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def receive_contract(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle contract address input."""
     text = update.message.text.strip()
+
+    _snipe_user_id = context.user_data.get("snipe", {}).get("user_id")
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=_snipe_user_id,
+            surface="telegram",
+            raw_text=text,
+            session_key=f"snipe:{_snipe_user_id}",
+            intent_type="snipe",
+        )
+    )
 
     if not is_solana_address(text):
         await update.message.reply_text(
@@ -603,6 +615,25 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 session.commit()
 
         if result.success:
+            # Fired only after the DB transaction above has committed — capturing
+            # before that commit would record a trade that a subsequent commit
+            # failure could still roll back, banking a fine-tune row for a trade
+            # that never actually happened.
+            capture_service.fire(
+                capture_service.record_intent(
+                    user_id=user_id,
+                    surface="telegram",
+                    raw_text=None,
+                    session_key=f"snipe:{user_id}",
+                    intent_type="snipe",
+                    resolved_action={
+                        "token_mint": token_mint,
+                        "sol_amount": sol_amount,
+                        "mode": "instant",
+                    },
+                )
+            )
+
             await query.edit_message_text(
                 f"*Snipe Successful!*\n\n"
                 f"Token: `{token_mint[:8]}...{token_mint[-4:]}`\n"

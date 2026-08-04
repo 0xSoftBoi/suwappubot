@@ -25,13 +25,18 @@ const MAX_DEPTH = 20
 const CREDENTIALED_URL =
 	/(https?:\/\/[A-Za-z0-9.-]*\.?(?:alchemy\.com|helius[-.]?(?:rpc|xyz)?\.[a-z]+|infura\.io|quicknode\.(?:pro|com)|blastapi\.io|ankr\.com|chainstack\.com)[^\s"']*)/gi
 
+// Exported so other secret-shaped-value screens (e.g. utils/captureRedaction.ts)
+// can reuse the unambiguous patterns (JWT, AWS key) without duplicating them.
+export const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g
+export const AWS_ACCESS_KEY_PATTERN = /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g
+
 const SECRET_VALUE_PATTERNS: RegExp[] = [
 	// Telegram bot token
 	/\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,
 	// JWT / JWS compact serialization
-	/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g,
+	JWT_PATTERN,
 	// AWS access key id
-	/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+	AWS_ACCESS_KEY_PATTERN,
 	// Long hex runs — EVM keys (64), ed25519 hex (128), any key-length blob.
 	// Deliberately not anchored at exactly 64: a \b-anchored 64 pattern cannot
 	// match inside a longer hex run, so 128-hex secrets would slip through.

@@ -518,6 +518,9 @@ def _ensure_schema(db_engine) -> None:
     _create_swap_execution_marks_table(db_engine, inspector, is_sqlite)
     _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite)
 
+    # --- data capture: user_intents + interaction_events (fine-tuning dataset) ---
+    _create_data_capture_tables(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -3384,6 +3387,97 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
         )
 
     logger.info("Created swap_execution_marks table")
+
+
+def _create_data_capture_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create user_intents + interaction_events idempotently.
+
+    APPEND-ONLY tables backing a future fine-tuning / model-training dataset.
+    No update/delete path exists for either table and none should be added.
+
+    ``user_intents`` is the (input -> output) training pair: verbatim user
+    text (or a redaction marker), the resolved structured action, and a link
+    to the swap it produced, if any. ``interaction_events`` is broad
+    telemetry for anything that isn't intent-shaped.
+
+    Written by both stacks (python bot + api-ts), so this is the
+    authoritative shared-DB creation path. Additive and idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    pk = "id INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "id SERIAL PRIMARY KEY"
+    bool_default = "0" if is_sqlite else "FALSE"
+    json_type = "TEXT" if is_sqlite else "JSONB"
+
+    if "user_intents" not in tables:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS user_intents (
+                        {pk},
+                        user_id INTEGER,
+                        surface VARCHAR(20) NOT NULL,
+                        raw_text TEXT,
+                        redacted BOOLEAN NOT NULL DEFAULT {bool_default},
+                        redaction_reason VARCHAR(40),
+                        intent_type VARCHAR(40),
+                        resolved_action {json_type},
+                        resolution_status VARCHAR(20) NOT NULL DEFAULT 'resolved',
+                        turn_index INTEGER NOT NULL DEFAULT 0,
+                        session_key VARCHAR(128) NOT NULL,
+                        swap_id INTEGER,
+                        model_version VARCHAR(40),
+                        parser_version VARCHAR(40),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        -- Mirror the model's ForeignKeys (see note in
+                        -- _create_swap_route_candidates_table above).
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (swap_id) REFERENCES swap_transactions (id)
+                    )
+                    """))
+
+            for idx, cols in (
+                ("ix_user_intents_user_id", "user_id"),
+                ("ix_user_intents_swap_id", "swap_id"),
+                ("ix_user_intents_intent_type", "intent_type"),
+                ("ix_user_intents_session_key", "session_key"),
+                ("ix_user_intents_created_at", "created_at"),
+                # Export-query composite index.
+                ("ix_user_intents_user_id_created_at", "user_id, created_at"),
+            ):
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx} ON user_intents ({cols})"))
+
+        logger.info("Created user_intents table")
+
+    if "interaction_events" not in tables:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS interaction_events (
+                        {pk},
+                        user_id INTEGER,
+                        surface VARCHAR(20) NOT NULL,
+                        event_type VARCHAR(60) NOT NULL,
+                        payload {json_type},
+                        session_key VARCHAR(128),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                    """))
+
+            for idx, cols in (
+                ("ix_interaction_events_user_id", "user_id"),
+                ("ix_interaction_events_event_type", "event_type"),
+                ("ix_interaction_events_session_key", "session_key"),
+                ("ix_interaction_events_created_at", "created_at"),
+                ("ix_interaction_events_user_id_created_at", "user_id, created_at"),
+            ):
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {idx} ON interaction_events ({cols})")
+                )
+
+        logger.info("Created interaction_events table")
 
 
 def _backfill_execution_timestamp_defaults(db_engine, inspector, is_sqlite: bool) -> None:

@@ -1,5 +1,7 @@
 """Limit order and DCA handlers."""
 
+import asyncio
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -18,6 +20,7 @@ from bot.services.wallet import WalletService
 from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from database.db import get_session
+from bot.services import capture_service
 
 
 from bot.config.chains import CHAINS, get_chain_by_name
@@ -28,6 +31,25 @@ from bot.config.tokens import get_tokens_for_chain, get_token_address, get_token
 # referenced in dca_confirm() and lo_confirm() without ever being defined,
 # which raised NameError and crashed every order confirmation.
 wallet_service = WalletService()
+
+
+def _resolve_capture_user_id(telegram_id):
+    """Resolve the DB `users.id` for a Telegram id, for capture purposes only.
+
+    `user_intents.user_id` is an INTEGER FK to `users.id`, not the raw
+    Telegram id. `context.user_data["user_id"]` is never populated in the
+    limit-order conversation (unlike swap.py), so earlier capture calls here
+    always wrote `user_id=None`, silently dropping attribution.
+    """
+    if telegram_id is None:
+        return None
+    try:
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            return db_user.id if db_user else None
+    except Exception:  # noqa: BLE001 — capture must never break the flow
+        return None
+
 
 # States
 LO_TYPE, LO_FROM_CHAIN, LO_FROM_TOKEN, LO_TO_CHAIN, LO_TO_TOKEN, LO_AMOUNT, LO_PRICE, LO_CONFIRM = (
@@ -512,6 +534,18 @@ async def lo_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def lo_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle amount entry."""
+    _capture_user_id = _resolve_capture_user_id(
+        update.effective_user.id if update.effective_user else None
+    )
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=_capture_user_id,
+            surface="telegram",
+            raw_text=update.message.text,
+            session_key=f"limit_order:{_capture_user_id}",
+            intent_type="limit_order",
+        )
+    )
     try:
         amount = float(update.message.text.strip())
         lo = context.user_data.get("lo")
@@ -529,6 +563,18 @@ async def lo_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def lo_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle price entry."""
+    _capture_user_id = _resolve_capture_user_id(
+        update.effective_user.id if update.effective_user else None
+    )
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=_capture_user_id,
+            surface="telegram",
+            raw_text=update.message.text,
+            session_key=f"limit_order:{_capture_user_id}",
+            intent_type="limit_order",
+        )
+    )
     try:
         price = float(update.message.text.strip().replace("$", ""))
         lo = context.user_data.get("lo")
@@ -604,6 +650,25 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         to_token=lo["to_token"],
         amount=amount_raw,
         trigger_price=lo["trigger_price"],
+    )
+
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=user_id,
+            surface="telegram",
+            raw_text=None,
+            session_key=f"limit_order:{user_id}",
+            intent_type="limit_order",
+            resolved_action={
+                "order_type": lo["type"],
+                "from_chain": lo["from_chain"],
+                "from_token": lo["from_token"],
+                "to_chain": lo["to_chain"],
+                "to_token": lo["to_token"],
+                "amount_human": lo["amount_human"],
+                "trigger_price": lo["trigger_price"],
+            },
+        )
     )
 
     await query.edit_message_text(

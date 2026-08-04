@@ -8,9 +8,10 @@ import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } fro
 import { fetchWithRetry } from '../lib/retry'
 import { telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
-import { runEffectEither } from '../runtime'
+import { runEffect, runEffectEither } from '../runtime'
 import {
 	cacheKeys,
+	CaptureService,
 	QUOTE_TTL,
 	type QuoteParams,
 	RedisService,
@@ -617,6 +618,34 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Clean up cached quote
 			yield* deleteCachedQuote(redis, quoteId)
+
+			// Bank the (input -> resolved structured action) pair for the future
+			// fine-tune dataset. Failure-isolated inside CaptureService, AND
+			// fire-and-forget here (not yield*'d into the main Effect.gen): this
+			// point in the flow runs AFTER the tx is signed and broadcast, so a
+			// stalled DB pool must never hang a response for a swap that already
+			// went on-chain. Matches the pattern at agent.ts's execute-swap route.
+			void runEffect(
+				Effect.gen(function* () {
+					const captureService = yield* CaptureService
+					yield* captureService.recordIntent({
+						userId: user.id,
+						surface: 'webapp',
+						sessionKey: `swap:${swapRecord.id}`,
+						intentType: 'swap',
+						resolvedAction: {
+							fromChain: quote.fromChain,
+							toChain: quote.toChain,
+							fromToken: quote.fromToken.symbol,
+							toToken: quote.toToken.symbol,
+							fromAmount: quote.fromAmount,
+							toAmount: quote.toAmount,
+						},
+						resolutionStatus: 'resolved',
+						swapId: swapRecord.id,
+					})
+				}),
+			).catch(() => {})
 
 			// SECURITY: The raw signedTransaction hex is intentionally NOT returned —
 			// no client consumes it and exposing a replayable signed tx over HTTP is

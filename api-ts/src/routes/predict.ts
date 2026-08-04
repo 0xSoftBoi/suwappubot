@@ -5,7 +5,8 @@ import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
-import { runEffectEither } from '../runtime'
+import { runEffect, runEffectEither } from '../runtime'
+import { CaptureService } from '../services/CaptureService'
 import { PolymarketService } from '../services/PolymarketService'
 import { PolymarketCredentialService } from '../services/PolymarketCredentialService'
 import { TurnkeyService } from '../services/TurnkeyService'
@@ -330,6 +331,43 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 					service: 'polymarket-clob',
 				})),
 			)
+
+			// Bank the (input -> resolved structured action) pair for the future
+			// fine-tune dataset. Failure-isolated inside CaptureService, AND
+			// fire-and-forget here (not yield*'d into the main Effect.gen) so a
+			// stalled DB pool can never hang this response after the order has
+			// already been submitted to the CLOB. Matches the pattern at
+			// agent.ts's execute-swap route.
+			//
+			// userId: agents carry no direct userId column; the linked Suwappu
+			// user id (if any) lives at agent.metadata.internal_user_id, same as
+			// the execute-swap route in agent.ts.
+			const internalUserId = (agent.metadata as Record<string, unknown> | null)
+				?.internal_user_id as number | undefined
+			// resolutionStatus reflects the ACTUAL CLOB outcome, not just that the
+			// order was built and submitted without throwing: placeOrder can return
+			// a non-throwing 'failed'/'pending' status in clobOrder.status.
+			const captureResolutionStatus =
+				clobOrder.status === 'failed' ? 'failed' : 'resolved'
+			void runEffect(
+				Effect.gen(function* () {
+					const captureService = yield* CaptureService
+					yield* captureService.recordIntent({
+						userId: internalUserId ?? null,
+						surface: 'api',
+						sessionKey: `predict:${agentId}`,
+						intentType: 'predict_order',
+						resolvedAction: {
+							tokenId: orderParams.tokenId,
+							side: orderParams.side,
+							size: orderParams.size,
+							price: orderParams.price,
+							orderStatus: clobOrder.status,
+						},
+						resolutionStatus: captureResolutionStatus,
+					})
+				}),
+			).catch(() => {})
 
 			return clobOrder
 		}),

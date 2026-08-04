@@ -6,6 +6,7 @@ import { AgentTrustServiceLive } from './AgentTrustService'
 import { AlertServiceLive } from './AlertService'
 import { ApprovalServiceLive } from './ApprovalService'
 import { BalanceServiceLive } from './BalanceService'
+import { CaptureServiceLive } from './CaptureService'
 import { CopyTradingServiceLive } from './CopyTradingService'
 import { DCAServiceLive } from './DCAService'
 import { EventBusLive } from './EventBus'
@@ -89,6 +90,7 @@ export const ServicesLayer = Layer.mergeAll(
 	MorphoServiceLive,
 	P2PServiceLive,
 	PolicyServiceLive,
+	CaptureServiceLive,
 )
 
 // Full application layer with all services

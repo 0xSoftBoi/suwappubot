@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 # Conversation states
 WALLET_TYPE, WALLET_KEY, WALLET_NAME = range(3)
 
+# States where the raw message body is a private key / seed material. The
+# data-capture pipeline (bot/services/capture_service.py) hard-denylists
+# these — raw_text is NEVER persisted for a turn in one of these states,
+# independent of the secret screen. Exposed here (rather than duplicated in
+# capture_service) so this stays the single source of truth as import flows
+# change.
+CAPTURE_DENYLISTED_STATES = frozenset({WALLET_KEY})
+
 wallet_service = WalletService()
 
 

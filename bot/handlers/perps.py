@@ -1,5 +1,6 @@
 """Telegram handler for perpetual trading commands."""
 
+import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,8 +15,32 @@ from telegram.ext import (
 from bot.services.perps_service import perps_service
 from bot.services.hyperliquid_client import hyperliquid_client
 from bot.utils.telegram_safe import safe_md, send_md_safe
+from bot.services import capture_service
+from database.db import get_session
+from bot.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_capture_user_id(telegram_id):
+    """Resolve the DB `users.id` for a Telegram id, for capture purposes only.
+
+    `user_intents.user_id` is an INTEGER FK to `users.id`, not the raw
+    Telegram id (which can exceed the INTEGER range and collide across
+    users). perps_service itself is keyed by Telegram id throughout this
+    module (pre-existing, out of scope here) — this helper is only used to
+    get a safe value into the capture pipeline.
+    """
+    if telegram_id is None:
+        return None
+    try:
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            return db_user.id if db_user else None
+    except Exception:  # noqa: BLE001 — capture must never break the flow
+        logger.debug("perps: could not resolve db user id for capture", exc_info=True)
+        return None
+
 
 # Conversation states
 PERPS_MENU, PERPS_MARKET, PERPS_SIDE, PERPS_AMOUNT, PERPS_LEVERAGE, PERPS_CONFIRM = range(6)
@@ -243,6 +268,18 @@ async def perps_market_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def perps_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle amount input."""
+    _capture_user_id = _resolve_capture_user_id(
+        update.effective_user.id if update.effective_user else None
+    )
+    capture_service.fire(
+        capture_service.record_intent(
+            user_id=_capture_user_id,
+            surface="telegram",
+            raw_text=update.message.text,
+            session_key=f"perps:{_capture_user_id}",
+            intent_type="perps_open",
+        )
+    )
     try:
         amount = float(update.message.text.strip().replace("$", "").replace(",", ""))
         if amount < perps_service.MIN_MARGIN_USD:
@@ -385,6 +422,23 @@ async def perps_execute_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
 
         if position:
+            _capture_user_id = _resolve_capture_user_id(query.from_user.id)
+            capture_service.fire(
+                capture_service.record_intent(
+                    user_id=_capture_user_id,
+                    surface="telegram",
+                    raw_text=None,
+                    session_key=f"perps:{_capture_user_id}",
+                    intent_type="perps_open",
+                    resolved_action={
+                        "market": market,
+                        "side": side,
+                        "amount_usd": amount,
+                        "leverage": leverage,
+                        "size": size,
+                    },
+                )
+            )
             await query.edit_message_text(
                 f"\u2705 **Position Opened!**\n\n"
                 f"Market: {market} {side.upper()} {leverage}x\n"

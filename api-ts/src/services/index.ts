@@ -15,6 +15,14 @@ export {
 } from './ApprovalService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
+	CaptureService,
+	CaptureServiceLive,
+	type CaptureServiceInterface,
+	type CaptureSurface,
+	type RecordEventInput,
+	type RecordIntentInput,
+} from './CaptureService'
+export {
 	AgentTrustService,
 	AgentTrustServiceLive,
 	type AgentTrustServiceInterface,

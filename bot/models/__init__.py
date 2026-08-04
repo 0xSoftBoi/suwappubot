@@ -48,6 +48,7 @@ from .tracking import TrackedTwitterAccount, TrackedWallet
 from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
 from .tempo_access_key import TempoAccessKey
+from .data_capture import UserIntent, InteractionEvent
 
 __all__ = [
     "User",
@@ -112,4 +113,7 @@ __all__ = [
     # Tempo (chain 4217)
     "TempoSponsorship",
     "TempoAccessKey",
+    # Data capture (fine-tuning dataset)
+    "UserIntent",
+    "InteractionEvent",
 ]
