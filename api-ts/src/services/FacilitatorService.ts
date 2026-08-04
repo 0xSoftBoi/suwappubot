@@ -94,6 +94,58 @@ export function crossCheckSignedRequirements(
 }
 
 /**
+ * Pick which advertised PaymentRequirements a payment was made against.
+ *
+ * The 402 challenge can advertise several networks (see config/x402Networks.ts),
+ * and the payer picks ONE. Handing the facilitator the wrong entry makes
+ * crossCheckSignedRequirements fail with asset_mismatch, so a payment on any
+ * network other than the first would never settle.
+ *
+ * Matching is on `network` first (the payer's actual choice) and then `asset`,
+ * because two networks can legitimately share a token address — Plasma reuses
+ * mainnet's USDC address, for example, so asset alone is not a unique key.
+ *
+ * Falls back to the first entry when the header can't be decoded or nothing
+ * matches: the caller's cross-check then rejects it, which is the safe outcome.
+ * This never selects an entry the payer did not sign for.
+ */
+export function selectRequirementsForPayment(
+	paymentHeader: string,
+	accepts: PaymentRequirements[],
+): PaymentRequirements {
+	const fallback = accepts[0]
+	if (accepts.length <= 1) return fallback
+
+	let accepted: { network?: string; asset?: string } | undefined
+	try {
+		accepted = decodePaymentSignatureHeader(paymentHeader)?.accepted as typeof accepted
+	} catch {
+		return fallback
+	}
+	if (!accepted) return fallback
+
+	const network = accepted.network ? String(accepted.network).toLowerCase() : undefined
+	const asset = accepted.asset ? String(accepted.asset).toLowerCase() : undefined
+
+	if (network) {
+		const byNetwork = accepts.filter((a) => a.network.toLowerCase() === network)
+		if (byNetwork.length === 1) return byNetwork[0]
+		if (byNetwork.length > 1 && asset) {
+			const exact = byNetwork.find((a) => a.asset.toLowerCase() === asset)
+			if (exact) return exact
+		}
+		if (byNetwork.length > 1) return byNetwork[0]
+	}
+
+	if (asset) {
+		const byAsset = accepts.find((a) => a.asset.toLowerCase() === asset)
+		if (byAsset) return byAsset
+	}
+
+	return fallback
+}
+
+/**
  * Verify + settle a single call's payment via the configured facilitator.
  * Returns { ok: false } on any failure (never throws) so callers can fall
  * through to a 402 challenge.

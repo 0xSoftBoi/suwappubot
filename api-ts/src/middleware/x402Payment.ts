@@ -10,6 +10,7 @@ import {
 	facilitatorVerifyAndSettle,
 	isFacilitatorEnabled,
 	type PaymentRequirements,
+	selectRequirementsForPayment,
 } from '../services/FacilitatorService'
 
 /**
@@ -257,7 +258,13 @@ export async function chargeAgentForCall(params: {
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
 		// facilitator is enabled, settle this single call directly on-chain.
 		if (paymentHeader && isFacilitatorEnabled(env.right)) {
-			const requirements = challenge.accepts[0] as PaymentRequirements
+			// Select the entry the payer actually signed for — with several networks
+			// advertised, always using accepts[0] would reject every payment made on
+			// any other network (asset_mismatch in the cross-check).
+			const requirements = selectRequirementsForPayment(
+				paymentHeader,
+				challenge.accepts as PaymentRequirements[],
+			)
 			const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
 			if (settle.ok) {
 				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
