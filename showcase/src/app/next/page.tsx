@@ -7,7 +7,7 @@ import styles from './next.module.css';
 export const metadata: Metadata = {
   title: 'Suwappu | the cross-chain execution terminal',
   description:
-    'Nine routers race for every swap. Non-custodial, sub-second, 41 chains. The best price wins, and you sign.',
+    'Nine routers race for every swap. Non-custodial, sub-second, 42 chains. The best price wins, and you sign.',
 };
 
 const jb = JetBrains_Mono({
@@ -265,7 +265,7 @@ export default function KakisPage() {
                       │
              ┌────────▼────────┐
              │  suwappu engine │
-             │  41 chains · 9  │
+             │  42 chains · 9  │
              │  routers · MPC  │
              └────────┬────────┘
                       │

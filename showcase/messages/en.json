@@ -34,7 +34,7 @@
       "miniAppTitle": "Mini App",
       "miniAppDesc": "Suwappu inside Telegram",
       "swapsTitle": "Cross-chain swaps",
-      "swapsDesc": "Best price across 41 chains",
+      "swapsDesc": "Best price across 42 chains",
       "perpsTitle": "Perps",
       "perpsDesc": "HyperLiquid, up to 20x",
       "tempoTitle": "Gasless on Tempo",
@@ -66,7 +66,7 @@
     }
   },
   "hero": {
-    "kicker": "Now in open beta · 41 chains",
+    "kicker": "Now in open beta · 42 chains",
     "h1": "The best price, proven every trade.",
     "h1_accent": "No limits.",
     "lead": "Every venue that supports your route competes for the order: {chains} chains, {venues} routing venues raced per quote. You hold the keys the whole way.",
@@ -81,7 +81,7 @@
   "cta": {
     "kicker": "Start free",
     "heading": "Your first trade takes 30 seconds.",
-    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 41 chains, no wallet setup required.",
+    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 42 chains, no wallet setup required.",
     "open_bot": "Start trading free",
     "whatsapp": "Chat on WhatsApp",
     "docs": "Read the docs"

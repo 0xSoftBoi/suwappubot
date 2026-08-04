@@ -30,7 +30,7 @@ export default function HeroD() {
         </h1>
 
         <p className="hd__lead">
-          Nine routing providers compete for every order across 41 chains.
+          Nine routing providers compete for every order across 42 chains.
           You hold the keys the whole way.
         </p>
 

@@ -13,7 +13,7 @@ export default function HeroB() {
           <p className="hb__kicker">Now in open beta</p>
           <h1>Trade anything.<br /><span>No limits.</span></h1>
           <p className="hb__lead">
-            Suwappu routes every trade across 41 chains to find the best price.
+            Suwappu routes every trade across 42 chains to find the best price.
             Non-custodial, no KYC.
           </p>
           <div className="hb__cta">
