@@ -1451,7 +1451,7 @@ async def terminal_perps_positions(request: Request):
         live = []
 
     # Local rows give us the stable PerpPosition.id for closing.
-    local = perps_service.get_positions(uid, status="open")
+    local = await perps_service.get_positions(uid, status="open")
     local_by_key = {(p.market, p.side): p for p in local}
 
     positions = []

@@ -76,7 +76,7 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return PERPS_MENU
 
     # Show positions and trading menu
-    positions = perps_service.get_positions(update.effective_user.id)
+    positions = await perps_service.get_positions(update.effective_user.id)
 
     text = "\U0001f4ca **Perpetual Trading**\n\n"
 
@@ -174,7 +174,7 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return PERPS_MARKET
 
     elif data == "perps_positions":
-        positions = perps_service.get_positions(query.from_user.id)
+        positions = await perps_service.get_positions(query.from_user.id)
 
         if not positions:
             await query.edit_message_text("No open positions.")
@@ -547,7 +547,7 @@ async def perps_tpsl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return PERPS_MENU
 
     # Verify position belongs to this user
-    positions = perps_service.get_positions(query.from_user.id)
+    positions = await perps_service.get_positions(query.from_user.id)
     position = next((p for p in positions if p.id == position_id), None)
     if not position:
         await query.edit_message_text("❌ Position not found.")
