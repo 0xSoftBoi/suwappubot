@@ -18,24 +18,34 @@ import './site.css';
 export const metadata: Metadata = {
   title: 'Suwappu | Cross-chain execution for agents and humans',
   description:
-    `Best-price routing across ${productStats.platformChains} chains, HyperLiquid perps, and gasless swaps. Non-custodial, with an MCP server and REST API built for agents.`,
+    `Best-price routing across ${productStats.platformChains} chains and ${productStats.routerCount} venues, HyperLiquid perps, and gasless swaps. You hold the keys; MCP server and REST API built for agents.`,
 };
 
 export const revalidate = 60;
 
 /* ── Verified facts. Numbers come from stats.generated.json, never inline. ── */
 
+/** Mirrors the TOOLS registry in api-ts/src/routes/mcp.ts. */
+const MCP_TOOLS = [
+  'get_quote', 'simulate_swap', 'execute_swap', 'get_swap_status', 'get_swap_history',
+  'get_portfolio', 'get_prices', 'list_chains', 'list_tokens', 'get_tempo_tokens',
+  'list_wallet_policies', 'browse_mpp_directory', 'perps_markets', 'perps_quote',
+  'perps_positions', 'predict_markets', 'predict_market', 'predict_market_detail',
+  'predict_book', 'predict_price', 'predict_trades', 'lend_markets', 'lend_market',
+];
+
 const RAIL = [
   { v: String(productStats.platformChains), l: 'chains' },
-  { v: String(productStats.routerCount), l: 'routing providers' },
-  { v: '22', l: 'MCP tools' },
+  { v: String(productStats.routerCount), l: 'routing venues' },
+  { v: String(MCP_TOOLS.length), l: 'MCP tools' },
   { v: 'Sub-second', l: 'quote latency' },
 ];
 
 const ENGINE = [
   {
+    // Token count from bot/config/tokens.py (53 symbols registered).
     k: 'Quote',
-    d: `Every provider that supports your route races to quote it. ${productStats.routerCount} are integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
+    d: `Every venue that supports your route quotes it: ${productStats.routerCount} venues covering 53 tokens, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
   },
   {
     k: 'Simulate',
@@ -43,7 +53,7 @@ const ENGINE = [
   },
   {
     k: 'Sign',
-    d: 'You sign. MPC keys with KMS envelope encryption, non-custodial end to end. Bring your own keys through the agent API for full self-custody.',
+    d: 'You sign. Managed keys are secured by envelope encryption (kms_aesgcm_v2) or a hardware-backed TEE via Turnkey, per key, never a plaintext key Suwappu can read. Bring your own keys through the agent API for full self-custody.',
   },
 ];
 
@@ -57,7 +67,7 @@ const SURFACES = [
   {
     name: 'Telegram bot',
     href: TELEGRAM_URL,
-    d: 'The fast lane. Quote, swap, snipe, run perps, stake, set DCA, copy traders or watch a wallet without leaving the chat.',
+    d: 'The fast lane. Quote, swap, snipe, run perps, stake, set DCA, copy traders or watch a wallet without leaving the chat, in English, Spanish, French or Chinese.',
     meta: '@suwappu_bot',
   },
   {
@@ -75,15 +85,6 @@ const PERPS = [
   { c: '/vault', d: 'Deposit to HLP and user vaults with live APR, TVL and PnL surfaced in the flow.' },
   { c: '/twap', d: 'Split a large order evenly over time with randomisation, monitored in the background.' },
   { c: '/spot', d: 'Trade HyperLiquid spot and move USDC between spot and perp wallets instantly.' },
-];
-
-/** Mirrors the TOOLS registry in api-ts/src/routes/mcp.ts. */
-const MCP_TOOLS = [
-  'get_quote', 'simulate_swap', 'execute_swap', 'get_swap_status', 'get_swap_history',
-  'get_portfolio', 'get_prices', 'list_chains', 'list_tokens', 'get_tempo_tokens',
-  'list_wallet_policies', 'browse_mpp_directory', 'perps_markets', 'perps_quote',
-  'perps_positions', 'predict_markets', 'predict_market', 'predict_book',
-  'predict_price', 'predict_trades', 'lend_markets', 'lend_market',
 ];
 
 const SDK = `import { Suwappu } from "@suwappu/sdk";
@@ -140,19 +141,19 @@ const SECURITY = [
 const FAQ = [
   {
     q: 'Do you custody my funds?',
-    a: 'No by default. You sign every swap yourself; keys held for the managed-wallet path use envelope encryption (a per-record AES-256-GCM data key wrapped by a KMS-managed key) rather than Suwappu holding a plaintext key. Prefer full self-custody? Bring your own keys through the agent API and Suwappu never sees them.',
+    a: 'No by default. You sign every swap yourself; keys held for the managed-wallet path are secured by envelope encryption (kms_aesgcm_v2: a per-record data key wrapped by a KMS-managed key) or signed inside a hardware-backed TEE via Turnkey, never a plaintext key Suwappu can read. Prefer full self-custody? Bring your own keys through the agent API and Suwappu never sees them.',
   },
   {
     q: 'What does a swap cost?',
-    a: `Suwappu takes a routing fee on top of whatever the winning provider charges; there is no markup beyond that and no monthly fee to start. Gas is normal on most chains, and about a tenth of a cent on Tempo, where Suwappu sponsors the fee.`,
+    a: `A routing fee on top of whatever the winning venue charges, tiered by volume: 1.0% on Free, 0.5% on Pro, 0.3% on Premium, 0.1% on Enterprise, with no markup beyond that and no monthly fee to start. Refer a trader with /ref and you earn 30% of the fees they generate, paid automatically. Gas is normal on most chains, and about a tenth of a cent on Tempo, where Suwappu sponsors the fee.`,
   },
   {
     q: 'Which chains and venues are covered?',
-    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing providers raced per quote (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Providers are chain-gated — a single swap only races the subset that actually supports its route, never the full list.`,
+    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing venues raced per quote across 53 tokens (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Venues are chain-gated — a single swap only races the subset that actually supports its route, never the full list.`,
   },
   {
     q: 'How does an agent integrate?',
-    a: 'Through a remote MCP server, a REST API or the TypeScript/Python SDKs, all built on the same execution layer the terminal uses. Discovery is machine-readable: an OpenAPI schema, an A2A agent card, and an llms.txt index, all fetchable without a human reading these docs first.',
+    a: `Through a remote MCP server (${MCP_TOOLS.length} tools), a REST API or the TypeScript/Python SDKs, all built on the same execution layer the terminal uses. Discovery is machine-readable: an OpenAPI schema, an A2A agent card, and an llms.txt index, all fetchable without a human reading these docs first.`,
   },
   {
     q: 'Can I cap what an agent is allowed to do?',
@@ -160,7 +161,7 @@ const FAQ = [
   },
   {
     q: 'Is any of this audited?',
-    a: 'The wallet and key-management paths have had independent red-team review, with findings tracked and remediated. Formal third-party certifications are on the roadmap and not yet complete — see the security page for exactly what is done and what is not.',
+    a: 'The wallet and key-management paths have had independent red-team review, with findings tracked and remediated. SOC 2 and public third-party protocol audits are on the roadmap and not yet complete — see the security page for exactly what is done and what is not.',
   },
 ];
 
@@ -209,13 +210,13 @@ export default async function Home() {
           <Reveal>
             <p className="sw__strip-h">
               Routing across {productStats.platformChains} chains and{' '}
-              {productStats.routerCount} liquidity providers
+              {productStats.routerCount} venues
             </p>
             <ul className="sw__chips">
               {productStats.routers.map((r) => <li key={r}>{r}</li>)}
             </ul>
             <p className="sw__note">
-              Providers are chain-gated. Any single swap races the subset that supports its route.
+              Venues are chain-gated. Any single swap races the subset that supports its route.
             </p>
           </Reveal>
         </section>
@@ -398,8 +399,19 @@ export default async function Home() {
               <p className="sw__lead">
                 The same execution layer the terminal runs on. Swap, perps, predict and lending
                 through one typed client across {productStats.agentApiChains} agent-ready chains.
+                Published as <code>@suwappu/sdk</code> on npm.
               </p>
-              <a className="hd__btn hd__btn--ghost" href="/docs">Read the docs</a>
+              <div className="hd__cta">
+                <a className="hd__btn hd__btn--ghost" href="/docs">Read the docs</a>
+                <a
+                  className="hd__btn hd__btn--ghost"
+                  href="https://www.npmjs.com/package/@suwappu/sdk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Install the SDK
+                </a>
+              </div>
             </div>
             <pre className="sw__code"><code>{SDK}</code></pre>
           </Reveal>
@@ -440,7 +452,7 @@ export default async function Home() {
           <Reveal>
             <h2 className="sw__h2">Start in thirty seconds.</h2>
             <p className="sw__lead">
-              Free to start, no card. Non-custodial, and no KYC for basic swaps.
+              Free to start, no card. You sign every swap, and no KYC for basic swaps.
             </p>
             <div className="hd__cta">
               <a className="hd__btn" href={TELEGRAM_URL}>Start trading free</a>
