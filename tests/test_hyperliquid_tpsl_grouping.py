@@ -128,6 +128,26 @@ async def test_a_refused_leg_reports_no_id():
 
 
 @pytest.mark.asyncio
+async def test_unexpected_status_arity_reports_no_protection():
+    """Fail closed. Nothing in a leg says which order it is, so position is all we have.
+
+    Re-placing a stop that already exists is recoverable; pinning the take
+    profit's id to the stop loss and cancelling the wrong order later is not.
+    """
+    hl, http = _client_with(
+        [
+            {"filled": {"oid": 1, "avgPx": "2000", "totalSz": "1.5"}},
+            {"resting": {"oid": 2}},
+        ]  # two statuses for three orders
+    )
+    result, _ = await _place(hl, http)
+
+    assert result.order_id == "1", "the entry is still reported"
+    assert result.tp_order_id is None
+    assert result.sl_order_id is None
+
+
+@pytest.mark.asyncio
 async def test_no_protection_requested_stays_ungrouped():
     hl, http = _client_with([{"filled": {"oid": 1, "avgPx": "2000", "totalSz": "1.5"}}])
     result, action = await _place(hl, http, tp_price=None, sl_price=None)

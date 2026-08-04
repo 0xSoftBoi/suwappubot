@@ -395,23 +395,36 @@ class HyperLiquidClient:
                 statuses = status_data.get("statuses", [{}])
 
                 if statuses:
-                    # statuses[0] is the entry; the protective legs follow in the
-                    # order they were appended. Report only the ids the exchange
-                    # actually returned — a rejected leg comes back as an error
-                    # and must not read as protection.
+                    # statuses comes back parallel to the orders we sent, and
+                    # nothing in a leg identifies which order it belongs to. So
+                    # attribute by position only when the arity matches exactly.
+                    #
+                    # Fail closed if it does not: reporting no protection makes a
+                    # caller re-place a stop it already has, which is recoverable.
+                    # Guessing could pin the take-profit's id to the stop-loss and
+                    # cancel the wrong order later, which is not.
                     attached = {}
-                    for offset, kind in enumerate(protective, start=1):
-                        leg = statuses[offset] if offset < len(statuses) else {}
-                        oid = (leg.get("resting") or leg.get("filled") or {}).get("oid")
-                        if oid:
-                            attached[kind] = str(oid)
-                        else:
-                            logger.warning(
-                                "HyperLiquid did not accept the %s leg for %s: %s",
-                                kind,
-                                market,
-                                leg,
-                            )
+                    if protective and len(statuses) != len(orders):
+                        logger.error(
+                            "HyperLiquid returned %d statuses for %d orders on %s; "
+                            "cannot safely attribute the protective legs",
+                            len(statuses),
+                            len(orders),
+                            market,
+                        )
+                    else:
+                        for offset, kind in enumerate(protective, start=1):
+                            leg = statuses[offset]
+                            oid = (leg.get("resting") or leg.get("filled") or {}).get("oid")
+                            if oid:
+                                attached[kind] = str(oid)
+                            else:
+                                logger.warning(
+                                    "HyperLiquid did not accept the %s leg for %s: %s",
+                                    kind,
+                                    market,
+                                    leg,
+                                )
 
                     order_status = statuses[0]
                     if "resting" in order_status:
