@@ -811,6 +811,7 @@ async def post_init(application) -> None:
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("model", "🤖 AI model for natural-language trading"),
             BotCommand("support", "🆘 Contact support"),
             BotCommand("bug", "🐞 Report a bug"),
             BotCommand("set", "⚙️ Settings"),

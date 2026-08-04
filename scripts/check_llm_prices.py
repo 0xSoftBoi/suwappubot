@@ -97,8 +97,11 @@ def lookup_litellm_price(litellm_mod, provider: str, model_id: str):
 
 
 def pct_delta(ours: float, theirs: float) -> float:
+    """Percent delta of `ours` vs `theirs`. Only 0-vs-0 counts as "no drift" —
+    a zero LiteLLM price against a non-zero catalog price (or vice versa) is
+    infinite drift, not silently-passing 0%."""
     if theirs == 0:
-        return 0.0
+        return 0.0 if ours == 0 else float("inf")
     return (ours - theirs) / theirs * 100
 
 
@@ -111,6 +114,15 @@ def main() -> int:
         "--require-litellm",
         action="store_true",
         help="Exit non-zero if litellm isn't installed, instead of skipping",
+    )
+    parser.add_argument(
+        "--strict-completeness",
+        action="store_true",
+        help=(
+            "Exit non-zero if any catalog model is missing from LiteLLM's cost map "
+            "(default: warn only, so a retired/renamed model doesn't silently bypass "
+            "the drift gate)"
+        ),
     )
     args = parser.parse_args()
 
@@ -134,12 +146,16 @@ def main() -> int:
     drift_found = False
     expected_notes: list = []
     missing_found = False
+    missing_count = 0
+    checked_count = 0
     for name, spec in sorted(MODEL_CATALOG.items()):
         result = lookup_litellm_price(litellm_mod, spec.provider, spec.model_id)
         if result is None:
             rows.append((name, spec.model_id, spec.price_per_1m_input_usd, None, None, "MISSING"))
             missing_found = True
+            missing_count += 1
             continue
+        checked_count += 1
         lite_in, lite_out = result
         d_in = pct_delta(spec.price_per_1m_input_usd, lite_in)
         d_out = pct_delta(spec.price_per_1m_output_usd, lite_out)
@@ -168,14 +184,26 @@ def main() -> int:
         print(f"{name:<22}{model_id:<26}{ours:>10.4f}{theirs_s:>10}{delta_s:>10}  {flag}")
 
     print()
+    total = checked_count + missing_count
     if missing_found:
-        print("Some models not found in LiteLLM's cost map (threshold check n/a for them).")
+        print(
+            f"Summary: {checked_count}/{total} catalog models checked against LiteLLM's cost "
+            f"map, {missing_count} UNCHECKED (missing from the cost map — "
+            f"{'FAILING' if args.strict_completeness else 'not failing the gate'} "
+            f"the {args.threshold}% drift threshold check for them)."
+        )
     if expected_notes:
         print("\nEXPECTED deviations (documented in llm_models.py, not failures):")
         for note in expected_notes:
             print(note)
     if drift_found:
         print(f"DRIFT: one or more prices differ from LiteLLM by more than {args.threshold}%.")
+        return 1
+    if missing_found and args.strict_completeness:
+        print(
+            f"MISSING: {missing_count} model(s) not found in LiteLLM's cost map and "
+            "--strict-completeness was passed."
+        )
         return 1
 
     print(f"No drift over {args.threshold}% threshold.")

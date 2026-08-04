@@ -134,8 +134,3 @@ def is_provider_available(provider: str) -> bool:
     """True if `provider` has a configured API key AND can be trusted with the
     forced-tool-call contract nl_intent_service depends on."""
     return bool(get_api_key(provider)) and supports_forced_tools(provider)
-
-
-def available_providers() -> list:
-    """List of provider names that are currently usable."""
-    return [name for name in PROVIDERS if is_provider_available(name)]

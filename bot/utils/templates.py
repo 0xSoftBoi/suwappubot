@@ -125,6 +125,7 @@ HELP_MESSAGE = r"""
 • /a \- Price alerts   • /g \- Gas tracker
 • /f \- Favorites   • /tax \- Tax export
 • /set \- Settings   • /digest \- Weekly summary
+• /model \- Choose your AI model 🤖
 • /intel \<address\> \- Deployer \& holder report 🔎
 • /devwatch \- Track deployer wallets 👁
 

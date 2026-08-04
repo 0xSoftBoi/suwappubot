@@ -2,15 +2,25 @@
 
 All figures accessed 2026-08-04. **UNVERIFIED** marks anything without a primary source.
 
-## Urgent: dead / at-risk model IDs in our catalog
+## Model-ID findings — ALL RESOLVED IN THIS PR
 
-| # | Finding | Our code | Status |
+These were live bugs when researched on 2026-08-04. Every row has since been
+fixed in `bot/config/llm_models.py` / `llm_providers.py`; the table is kept as
+the record of what was found, not as an open issue list.
+
+| # | Finding | Status | Now |
 |---|---|---|---|
-| 1 | **`deepseek-chat` + `deepseek-reasoner` RETIRED 2026-07-24 15:59 UTC.** Requests now error; they do *not* fall through to V4-Flash. | `llm_models.py:57,66`, `llm_providers.py:84` — and `deepseek-chat` is our **`DEFAULT_MODEL_NAME`, `metered=False`** | **DEAD** |
-| 2 | **`gemini-2.0-flash` hard shutdown 2026-06-01.** | `llm_models.py:114` | **DEAD** |
-| 3 | `gpt-4o-mini` / `gpt-4o` absent from OpenAI's current pricing page (lists gpt-5.5, 5.4, 5.4-mini, 5-mini, 5-nano). API availability post-Feb-2026 retirement reported to continue. | `llm_models.py:81,89` | **AT RISK** (unverified if still 200s) |
-| 4 | `grok-2-latest` — no formal retirement notice, but xAI retired several slugs 2026-05-15 (auto-redirect to `grok-4.3`, billed at 4.3 rates) and `grok-2-image-1212` vanished from the served list. | `llm_models.py:100`, `llm_providers.py:56` | **AT RISK** |
-| 5 | **Qwen base_url is the China/Beijing endpoint**, not international — a different region *and billing account*. | `llm_providers.py:69` | **WRONG REGION** |
+| 1 | **`deepseek-chat` + `deepseek-reasoner` RETIRED 2026-07-24 15:59 UTC.** Requests error; they do *not* fall through to V4-Flash. `deepseek-chat` was our default model AND the id the legacy `NL_TRADING_PROVIDER=deepseek` branch sent. | **RESOLVED** | `deepseek-v4-flash` (default, `metered=False`) and `deepseek-v4-pro`; the legacy branch sends `deepseek-v4-flash` |
+| 2 | **`gemini-2.0-flash` hard shutdown 2026-06-01.** | **RESOLVED** | `gemini-3.5-flash-lite` |
+| 3 | `gpt-4o-mini` / `gpt-4o` absent from OpenAI's current pricing page. | **RESOLVED** | `gpt-5-mini`, `gpt-5.5` |
+| 4 | `grok-2-latest` at risk — xAI retired several slugs 2026-05-15. | **RESOLVED** | `grok-build-0.1`, `grok-4.5` |
+| 5 | **Qwen base_url was the China/Beijing endpoint**, a different region *and billing entity*. | **RESOLVED** | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
+
+Guard added so this class of drift surfaces instead of silently rotting:
+`PRICE_TABLE_VERIFIED` + `assert_price_table_fresh()` warn past 60 days, and
+`scripts/check_llm_prices.py` diffs every catalog price against LiteLLM's cost
+map (`--strict-completeness` also fails on models LiteLLM doesn't know, which
+is the signal a model was retired).
 
 Sources: [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing),
 [Gemini deprecations](https://ai.google.dev/gemini-api/docs/deprecations),
