@@ -97,6 +97,19 @@ PROVIDERS: dict = {
         env_key_attr="KIMI_API_KEY",
         forced_tool_choice_verified=False,
     ),
+    "groq": ProviderConfig(
+        name="groq",
+        call_style=OPENAI_COMPATIBLE,
+        base_url="https://api.groq.com/openai/v1",
+        env_key_attr="GROQ_API_KEY",
+        # Verified 2026-08-04 against a live call with the production key:
+        # tool_choice={"type":"function","function":{"name":...}} came back as
+        # the forced tool_call, and usage used OpenAI-standard
+        # prompt_tokens/completion_tokens. No prompt_tokens_details is returned
+        # (no cached-input reporting), so the cache multipliers stay at the 1.0
+        # default and a cached read is never under-billed.
+        forced_tool_choice_verified=True,
+    ),
     "deepseek": ProviderConfig(
         name="deepseek",
         call_style=OPENAI_COMPATIBLE,

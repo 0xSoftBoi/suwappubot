@@ -68,6 +68,7 @@ _PROVIDER_PREFIXES = {
     "qwen": ["qwen/", "dashscope/", ""],
     "kimi": ["moonshot/", "kimi/", ""],
     "deepseek": ["deepseek/", ""],
+    "groq": ["groq/", ""],
 }
 
 
