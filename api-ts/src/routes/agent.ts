@@ -23,7 +23,10 @@ import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
-import { flexAuth } from '../middleware/flexAuth'
+// flexAuth is still used by the owner-facing audit reads that landed on main
+// after this branch was cut; the approval endpoints below use the stricter
+// requireProofOfPossession instead.
+import { flexAuth, requireProofOfPossession } from '../middleware/flexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { apiKeyAuth } from '../middleware/apiKeyAuth'
 import { recordUsage } from '../middleware/recordUsage'
@@ -524,10 +527,16 @@ agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 // - Everything else (list / approve / deny) is the human owner acting on it -> JWT
 //   auth ONLY, never an agent key, since agent keys must never self-approve.
 agentRoutes.use('/approvals/:id', agentBearerAuth())
-agentRoutes.use('/approvals', flexAuth())
-agentRoutes.use('/approvals/:id/approve', flexAuth())
-agentRoutes.use('/approvals/:id/deny', flexAuth())
-agentRoutes.use('/approvals/:id/step-up/challenge', flexAuth())
+agentRoutes.use('/approvals', requireProofOfPossession())
+agentRoutes.use('/approvals/:id/approve', requireProofOfPossession())
+agentRoutes.use('/approvals/:id/deny', requireProofOfPossession())
+// step-up/challenge landed on main after this branch was cut, on flexAuth().
+// It belongs to the same human maker-checker surface — it mints the challenge
+// /approve consumes when APPROVAL_STEP_UP_REQUIRED='true' — so it takes the same
+// gate. Not exploitable by itself once /approve is hardened, but on flexAuth a
+// forged publicSwap session could still mint challenges and write
+// approval.step_up_issued audit entries as the victim.
+agentRoutes.use('/approvals/:id/step-up/challenge', requireProofOfPossession())
 // Agent<->owner linking: an agent key mints a short-lived code the human
 // owner redeems via /claim <code> in the Telegram bot.
 agentRoutes.use('/link/code', agentFlexAuth())
