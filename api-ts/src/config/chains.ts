@@ -12,6 +12,8 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
 	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
+	// Robinhood Chain — Arbitrum Orbit L2 (chain 4663), native gas ETH.
+	robinhood: process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
 	// Read-only: Starknet signing/broadcast is owned by the Python bot backend
 	starknet: process.env.STARKNET_RPC_URL || 'https://rpc.starknet.lava.build',
 	// GOAT Network — plain EVM chain (chain id 2345), native token is BTC
@@ -28,6 +30,7 @@ export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decim
 	solana: { symbol: 'SOL', name: 'Solana', decimals: 9 },
 	tempo: { symbol: 'USD', name: 'USD Stablecoin', decimals: 6 },
 	plasma: { symbol: 'XPL', name: 'Plasma', decimals: 18 },
+	robinhood: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
 	starknet: { symbol: 'STRK', name: 'Starknet', decimals: 18 },
 	// GOAT native BTC is ETH-style: 18 decimals at the EVM level (not 8 like UTXO BTC)
 	goat: { symbol: 'BTC', name: 'Bitcoin', decimals: 18 },
@@ -61,6 +64,7 @@ export const CHAIN_ID_TO_KEY: Record<number, string> = {
 	4217: 'tempo',
 	9745: 'plasma',
 	2345: 'goat',
+	4663: 'robinhood',
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -74,6 +78,7 @@ const EXPLORER_URLS: Record<number, string> = {
 	4217: 'https://explore.tempo.xyz',
 	9745: 'https://plasmascan.to',
 	2345: 'https://explorer.goat.network',
+	4663: 'https://robinhoodchain.blockscout.com',
 }
 
 export function getRpcUrl(chainId: number): string | null {

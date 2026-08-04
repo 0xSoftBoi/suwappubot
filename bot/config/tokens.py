@@ -280,6 +280,20 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="🔷",
         is_stablecoin=True,
     ),
+    # === Robinhood Chain (4663) anchor stablecoin ===
+    # There is NO USDC on Robinhood Chain. Paxos USDG is the anchor. Two contracts
+    # report symbol "USDG"; we pin the one with real supply (338.7M vs 1.1k when
+    # verified on 2026-08-04 via totalSupply()). Do not swap these without re-checking.
+    "USDG": TokenConfig(
+        symbol="USDG",
+        name="Paxos USDG",
+        decimals=6,
+        addresses={
+            "robinhood": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        },
+        logo_emoji="🪶",
+        is_stablecoin=True,
+    ),
     # === Major Tokens (Non-Stablecoins) ===
     "WETH": TokenConfig(
         symbol="WETH",
@@ -890,3 +904,74 @@ def get_decimals_by_address(address: str, chain_name: str) -> int:
         if chain_addr and chain_addr.lower() == addr_lower:
             return _chain_decimals(token.symbol, chain_name, token.decimals)
     return 18
+
+
+# === Robinhood Chain tokenized equities (chain 4663) ===
+# Robinhood Chain's defining feature: ~100 tokenized stocks/ETFs trade as ordinary
+# ERC-20s on open DEX liquidity, reachable through the normal Li.Fi swap path.
+# Addresses pulled from the Li.Fi token list and spot-verified on-chain via
+# eth_getCode + symbol() on 2026-08-04. All are 18-decimal.
+#
+# IMPORTANT (compliance): these are secondary-market *token* representations. Buying
+# one is NOT buying equity — no shareholder/voting rights, and Robinhood's own
+# issuance/redemption flow stays KYC-gated (EU/EEA brokerage product). Surface them
+# as tokens, never as "real stock". See docs/plans/robinhood-chain-native.md.
+#
+# symbol -> (address, decimals, display name)
+ROBINHOOD_EQUITIES: dict[str, tuple[str, int, str]] = {
+    "AAPL": ("0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", 18, "Apple"),
+    "TSLA": ("0x322F0929c4625eD5bAd873c95208D54E1c003b2d", 18, "Tesla"),
+    "NVDA": ("0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", 18, "NVIDIA"),
+    "GOOGL": ("0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", 18, "Alphabet Class A"),
+    "AMZN": ("0x12f190a9F9d7D37a250758b26824B97CE941bF54", 18, "Amazon"),
+    "MSFT": ("0xe93237C50D904957Cf27E7B1133b510C669c2e74", 18, "Microsoft"),
+    "META": ("0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35", 18, "Meta Platforms"),
+    "NFLX": ("0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8", 18, "Netflix"),
+    "AMD": ("0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", 18, "AMD"),
+    "INTC": ("0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", 18, "Intel"),
+    "ORCL": ("0xb0992820E760d836549ba69BC7598b4af75dEE03", 18, "Oracle"),
+    "AVGO": ("0x156E175DD063a8cE274C50654eF40e0032b3fbcF", 18, "Broadcom"),
+    "ASML": ("0x47F93d52cBeC7C6D2CfC080e154002370a60dAEA", 18, "ASML Holding NV"),
+    "TSM": ("0x58FfE4a942d3885bAa22D7520691F611EF09e7AA", 18, "Taiwan Semiconductor Manufacturing"),
+    "PLTR": ("0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", 18, "Palantir Technologies"),
+    "COIN": ("0x6330D8C3178a418788dF01a47479c0ce7CCF450b", 18, "Coinbase"),
+    "MSTR": ("0xec262a75e413fAfD0dF80480274532C79D42da09", 18, "Strategy Inc."),
+    "HOOD": ("0x1FcBc77a759e502E36836b7787C9A8B4f5Da666c", 18, "SwapHood Token"),
+    "GME": ("0x1b0E319c6A659F002271B69dB8A7df2F911c153E", 18, "GameStop"),
+    "RIVN": ("0xB1BF26c1D20ff267A4f93550d1E0d06ac40a114B", 18, "Rivian Automotive"),
+    "LLY": ("0x8005d266423c7ea827372c9c864491e5786600ea", 18, "Eli Lilly"),
+    "XOM": ("0xf9B46d3D1B22199D4D1025a9cEDB540A33F1a2d5", 18, "Exxon Mobil"),
+    "BA": ("0x4D21483a44Bf67a86b77E3dA301411880797D452", 18, "Boeing"),
+    "F": ("0x25C288E6D899b9BC30160965aD9644c67e73bE0C", 18, "Ford Motor"),
+    "COST": ("0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2", 18, "Costco"),
+    "SHOP": ("0xF53F66751B1Eff985311b693531E3290F600c410", 18, "Shopify"),
+    "RBLX": ("0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8", 18, "Roblox"),
+    "CRWD": ("0xea72Ecca2d0f6bFA1394DBBCff85b52CD4233931", 18, "CrowdStrike Holdings"),
+    "SPY": ("0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", 18, "SPDR S&P 500 ETF Trust"),
+    "QQQ": ("0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", 18, "Invesco QQQ"),
+    "SGOV": (
+        "0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5",
+        18,
+        "iShares 0-3 Month Treasury Bond ETF",
+    ),
+    "SLV": ("0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f", 18, "iShares Silver Trust"),
+    "USO": ("0xa30FA36Db767ad9eD3f7a60fC79526fB4d56D344", 18, "United States Oil Fund"),
+    "SOXX": ("0x75742c18BC1f1C5c5f448f4C9D9C6F66dafAAa38", 18, "iShares Semiconductor ETF"),
+    "XLK": (
+        "0x15Cd20759CE7F3285c29A319dE2D1A2e098c6f43",
+        18,
+        "State Street Technology Select Sector SPDR ETF",
+    ),
+}
+
+
+def get_robinhood_equity(symbol: str) -> Optional[tuple[str, int, str]]:
+    """Look up a tokenized equity on Robinhood Chain by ticker. None if unknown."""
+    if not symbol:
+        return None
+    return ROBINHOOD_EQUITIES.get(symbol.strip().upper())
+
+
+def is_robinhood_equity(symbol: str) -> bool:
+    """True if the ticker is a Robinhood Chain tokenized equity."""
+    return get_robinhood_equity(symbol) is not None

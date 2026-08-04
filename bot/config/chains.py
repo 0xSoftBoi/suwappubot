@@ -246,6 +246,24 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="⚡",
         lifi_chain_id=4217,
     ),
+    # Robinhood Chain — Arbitrum Orbit (Nitro) L2, EVM-equivalent, native gas ETH.
+    # First-class native: Li.Fi supports chain 4663 directly (diamond
+    # 0xB477751B76CF82d00a686A1232f5fCD772414Af3, permit2 deployed), so the standard
+    # Li.Fi swap path works unchanged — no bespoke execution engine like Tempo needs.
+    # Notable: the anchor stablecoin is Paxos USDG, NOT USDC (no USDC exists on 4663),
+    # and ~100 tokenized equities (AAPL/TSLA/NVDA/SPY/...) trade as ordinary ERC-20s.
+    "robinhood": ChainConfig(
+        chain_id=4663,
+        name="robinhood",
+        display_name="Robinhood",
+        chain_type=ChainType.EVM,
+        native_token="ETH",
+        native_decimals=18,
+        rpc_url_env="ROBINHOOD_RPC_URL",
+        explorer_url="https://robinhoodchain.blockscout.com",
+        logo_emoji="🪶",
+        lifi_chain_id=4663,
+    ),
     "plasma": ChainConfig(
         chain_id=9745,
         name="plasma",
@@ -581,6 +599,18 @@ TEMPO_TESTNETS: dict[str, dict] = {
         "rpc_url": "https://42429.rpc.thirdweb.com",
         "explorer_url": "https://explore.tempo.xyz",
     },
+}
+
+
+# Robinhood Chain testnet — intentionally NOT in CHAINS (not user-selectable).
+# For tooling / integration tests only. Chain id verified live via eth_chainId
+# (0xb626 == 46630) against the public RPC on 2026-08-04. Faucet:
+# https://faucet.testnet.chain.robinhood.com
+ROBINHOOD_TESTNET: dict = {
+    "chain_id": 46630,
+    "rpc_url": "https://rpc.testnet.chain.robinhood.com",
+    "ws_url": "wss://feed.testnet.chain.robinhood.com",
+    "explorer_url": "https://explorer.testnet.chain.robinhood.com",
 }
 
 

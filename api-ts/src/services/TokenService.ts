@@ -127,6 +127,20 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'USD',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	robinhood: {
+		id: 4663,
+		key: 'robinhood',
+		name: 'Robinhood Chain',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	hood: {
+		id: 4663,
+		key: 'robinhood',
+		name: 'Robinhood Chain',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 	plasma: {
 		id: 9745,
 		key: 'plasma',
@@ -253,6 +267,15 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		BetaUSD: '0x20c0000000000000000000000000000000000002',
 		ThetaUSD: '0x20c0000000000000000000000000000000000003',
 	},
+	// Robinhood Chain — anchor stablecoin is Paxos USDG, there is NO USDC here.
+	// The two on-chain contracts both report symbol "USDG"; 0x5fc5... is the real
+	// one (338.7M supply vs 1.1k) — verified via totalSupply() on 2026-08-04.
+	4663: {
+		ETH: '0x0000000000000000000000000000000000000000',
+		WETH: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',
+		USDG: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
+		USDe: '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34',
+	},
 	// Plasma (zero-fee stablecoin L1)
 	9745: {
 		XPL: '0x0000000000000000000000000000000000000000',
@@ -272,6 +295,16 @@ export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
 	AlphaUSD: 18,
 	BetaUSD: 18,
 	ThetaUSD: 18,
+}
+
+// Decimals for Robinhood Chain (4663) tokens. USDG is 6dp like USDC; the ~100
+// tokenized equities (AAPL/TSLA/NVDA/...) are all 18dp. Mirrors
+// bot/config/tokens.py ROBINHOOD_EQUITIES. Verified on-chain via decimals().
+export const ROBINHOOD_TOKEN_DECIMALS: Record<string, number> = {
+	USDG: 6,
+	USDe: 18,
+	WETH: 18,
+	ETH: 18,
 }
 
 // In-memory cache for Li.Fi token resolution results
@@ -344,8 +377,10 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
-			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo)
-			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD'])
+			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo, USDG on Robinhood Chain).
+			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
+			// misprice every Robinhood Chain quote by 1e12.
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG'])
 
 			if (chainTokens && chainTokens[normalized]) {
 				return {
