@@ -512,38 +512,53 @@ async def _parse_with_openai_compatible(
         return _fallback(), _openai_usage(response)
 
 
-def _log_llm_cost(*, user_key, spec, usage, raw_usd: float, metered: bool) -> None:
+def _log_llm_cost(
+    *, user_key, spec, usage, raw_usd: float, metered: bool, wire_model=None, estimated=False
+) -> None:
     """Emit one structured cost record per LLM call.
 
     This is the raw material for reconciling our metering against the
     provider's invoice — the "our metering said X, the bill said Y" check.
     Includes the price-table version because a stale table is one of the main
     sources of drift. See docs/research/llm-credits/04-metering-architecture.md §5.
+
+    On the legacy env-provider path the real model isn't a catalog entry, so
+    `spec` is only a worst-case cost BASIS. Logging its provider/model there
+    would invent invoice line items for a model that was never called and
+    inflate the "our metering" side of the reconciliation, so the wire model
+    actually invoked is logged instead and the cost is marked `estimated` with
+    a null `raw_cost_usd`.
     """
     from bot.config.llm_models import PRICE_TABLE_VERIFIED
 
+    cost_basis = "worst_case" if estimated else "catalog"
+    logged_model = wire_model or spec.model_id
     logger.info(
         "llm_cost provider=%s model=%s in=%d cached=%d cache_write=%d out=%d "
-        "raw_usd=%.8f metered=%s price_table=%s",
-        spec.provider,
-        spec.model_id,
+        "raw_usd=%s basis=%s metered=%s price_table=%s",
+        spec.provider if not estimated else "env",
+        logged_model,
         usage.input_tokens,
         usage.cached_read_tokens,
         usage.cache_write_tokens,
         usage.output_tokens,
-        raw_usd,
+        "?" if estimated else f"{raw_usd:.8f}",
+        cost_basis,
         metered,
         PRICE_TABLE_VERIFIED.isoformat(),
         extra={
             "event": "llm_cost",
             "user_key": str(user_key),
-            "provider": spec.provider,
-            "model": spec.model_id,
+            "provider": "env" if estimated else spec.provider,
+            "model": logged_model,
             "input_tokens": usage.input_tokens,
             "cached_read_tokens": usage.cached_read_tokens,
             "cache_write_tokens": usage.cache_write_tokens,
             "output_tokens": usage.output_tokens,
-            "raw_cost_usd": raw_usd,
+            # None on the legacy path: pricing a model we never called would
+            # poison invoice reconciliation.
+            "raw_cost_usd": None if estimated else raw_usd,
+            "cost_basis": cost_basis,
             "metered": metered,
             "price_table_version": PRICE_TABLE_VERIFIED.isoformat(),
         },
@@ -759,13 +774,19 @@ async def parse_trade_intent(
                 llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
             )
             actual_usd = llm_credit_service.raw_cost_usd(budget_spec, billable)
-            _log_llm_cost(
-                user_key=budget_user_key,
-                spec=budget_spec,
-                usage=billable,
-                raw_usd=actual_usd,
-                metered=bool(spec is not None and spec.metered),
-            )
+            try:
+                _log_llm_cost(
+                    user_key=budget_user_key,
+                    spec=budget_spec,
+                    usage=billable,
+                    raw_usd=actual_usd,
+                    metered=bool(spec is not None and spec.metered),
+                    wire_model=model,
+                    estimated=spec is None,
+                )
+            except Exception:
+                # Never let a logging failure forfeit the settlement below.
+                logger.exception("nl_intent_service: llm_cost logging failed")
             try:
                 # The ledger only ever charges a real, resolved catalog model
                 # to a real DB user — never the legacy path's stand-in spec.

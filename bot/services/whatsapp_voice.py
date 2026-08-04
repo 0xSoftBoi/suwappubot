@@ -68,7 +68,7 @@ class WhatsAppVoiceHandler:
         # 1b. Spend budget. Whisper is billed per audio-MINUTE, not per token,
         # so it needs its own cost basis — but it is real provider spend on the
         # same OpenAI key and was previously entirely unmetered and unbounded.
-        allowed, est_usd = await self._reserve_transcription_budget(
+        allowed, reserved_micros, est_usd = await self._reserve_transcription_budget(
             message.from_number, len(audio_bytes)
         )
         if not allowed:
@@ -77,16 +77,20 @@ class WhatsAppVoiceHandler:
                 "Please type your command instead."
             )
 
-        # 2. Transcribe via OpenAI Whisper. There is no settle step: Whisper
-        # returns no usage object, so the estimate IS the charge. On failure the
-        # reservation is deliberately kept — the request may still have been
-        # billed upstream, and refunding would make failures free.
-        text = await self._transcribe(audio_bytes)
+        # 2. Transcribe via OpenAI Whisper, then settle the reservation against
+        # the REAL duration the API reports. On failure the reservation is
+        # deliberately kept — the request may still have been billed upstream,
+        # and refunding would make failures free.
+        text, duration_s = await self._transcribe(audio_bytes)
         if text is None:
             return (
                 "Sorry, I couldn't transcribe your voice message. Please type your command instead."
             )
-        self._log_transcription_cost(message.from_number, len(audio_bytes), est_usd)
+        actual_usd = est_usd
+        if duration_s is not None:
+            actual_usd = (duration_s / 60.0) * _WHISPER_USD_PER_MINUTE
+        await self._settle_transcription_budget(message.from_number, reserved_micros, actual_usd)
+        self._log_transcription_cost(message.from_number, len(audio_bytes), actual_usd, duration_s)
 
         text = text.strip()
         if not text:
@@ -114,55 +118,68 @@ class WhatsAppVoiceHandler:
         return bits / (_ASSUMED_OPUS_BITRATE_BPS * 60.0)
 
     async def _reserve_transcription_budget(self, from_number, audio_bytes_len: int):
-        """Reserve estimated Whisper spend. Returns (allowed, est_usd)."""
+        """Reserve estimated Whisper spend. Returns (allowed, reserved_micros, est_usd).
+
+        Whisper is priced per audio-minute rather than per token, so the cost
+        basis is computed here — but the two-bucket reserve-and-unwind itself
+        is `llm_credit_service.reserve_spend`, shared with the token-priced
+        LLM path so the two can't drift apart.
+        """
         try:
-            from bot.config.settings import settings
             from bot.services import llm_credit_service
-            from bot.utils.llm_budget import (
-                GLOBAL_BUDGET_KEY,
-                llm_budget,
-                user_budget_key,
-                usd_to_micros,
-            )
 
-            if not getattr(settings, "LLM_MULTI_PROVIDER_ENABLED", False):
-                return True, 0.0
+            # Gated on the BUDGET settings, not the model-catalog flag: Whisper
+            # runs on OPENAI_API_KEY and has nothing to do with multi-provider
+            # routing, so tying it to that flag would leave it unmetered by
+            # default — exactly the hole this closes.
+            if (
+                llm_credit_service.user_budget_capacity_micros() <= 0
+                and llm_credit_service.global_budget_capacity_micros() <= 0
+            ):
+                return True, 0, 0.0
 
-            minutes = self._estimate_minutes(audio_bytes_len)
-            est_usd = minutes * _WHISPER_USD_PER_MINUTE
-            micros = usd_to_micros(est_usd)
-
-            key = user_budget_key(f"wa:{from_number}")
-            user_cap = llm_credit_service.user_budget_capacity_micros()
-            ok, _ = await llm_budget.try_consume(key, micros, user_cap)
-            if not ok:
-                return False, est_usd
-            ok_global, _ = await llm_budget.try_consume(
-                GLOBAL_BUDGET_KEY, micros, llm_credit_service.global_budget_capacity_micros()
-            )
-            if not ok_global:
-                await llm_budget.refund(key, micros, user_cap)
-                return False, est_usd
-            return True, est_usd
+            est_usd = self._estimate_minutes(audio_bytes_len) * _WHISPER_USD_PER_MINUTE
+            # `wa:` namespaces the bucket away from Telegram ids and DB user
+            # ids, which share the same integer space.
+            allowed, reserved = await llm_credit_service.reserve_spend(f"wa:{from_number}", est_usd)
+            return allowed, reserved, est_usd
         except Exception:
             # A budget failure must not take voice transcription offline.
             logger.exception("whatsapp_voice: transcription budget check failed")
-            return True, 0.0
+            return True, 0, 0.0
 
-    def _log_transcription_cost(self, from_number, audio_bytes_len: int, est_usd: float) -> None:
+    async def _settle_transcription_budget(self, from_number, reserved_micros: int, actual_usd):
+        """Reconcile the reservation against real billed duration."""
+        if not reserved_micros:
+            return
+        try:
+            from bot.services import llm_credit_service
+
+            await llm_credit_service.settle_budget(f"wa:{from_number}", reserved_micros, actual_usd)
+        except Exception:
+            logger.exception("whatsapp_voice: transcription budget settle failed")
+
+    def _log_transcription_cost(
+        self, from_number, audio_bytes_len: int, cost_usd: float, duration_s=None
+    ) -> None:
+        source = "provider" if duration_s is not None else "estimated"
         logger.info(
-            "llm_cost provider=openai model=%s audio_bytes=%d est_usd=%.6f metered=False",
+            "llm_cost provider=openai model=%s audio_bytes=%d duration_s=%s "
+            "raw_usd=%.6f source=%s metered=False",
             WHISPER_MODEL,
             audio_bytes_len,
-            est_usd,
+            f"{duration_s:.1f}" if duration_s is not None else "?",
+            cost_usd,
+            source,
             extra={
                 "event": "llm_cost",
                 "user_key": f"wa:{from_number}",
                 "provider": "openai",
                 "model": WHISPER_MODEL,
                 "audio_bytes": audio_bytes_len,
-                "raw_cost_usd": est_usd,
-                "usage_source": "estimated",
+                "duration_seconds": duration_s,
+                "raw_cost_usd": cost_usd,
+                "usage_source": source,
             },
         )
 
@@ -177,8 +194,16 @@ class WhatsAppVoiceHandler:
             logger.error(f"Failed to download audio {audio_id}: {e}")
             return None
 
-    async def _transcribe(self, audio_bytes: bytes) -> Optional[str]:
-        """Send audio to OpenAI Whisper and return the transcribed text."""
+    async def _transcribe(self, audio_bytes: bytes):
+        """Send audio to OpenAI Whisper.
+
+        Returns (text, duration_seconds). `verbose_json` is requested purely so
+        the response carries the REAL audio duration: Whisper bills per second,
+        and inferring duration from byte count is codec-dependent — the sender
+        chooses the codec, so a low-bitrate format (AMR-NB, or Opus with DTX
+        comfort-noise frames) can hold many times more audio in the same bytes
+        than any fixed-bitrate assumption predicts.
+        """
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 files = {
@@ -186,6 +211,7 @@ class WhatsAppVoiceHandler:
                 }
                 data = {
                     "model": WHISPER_MODEL,
+                    "response_format": "verbose_json",
                 }
                 headers = {
                     "Authorization": f"Bearer {self._api_key}",
@@ -200,17 +226,22 @@ class WhatsAppVoiceHandler:
 
                 if resp.status_code != 200:
                     logger.error(f"Whisper API error {resp.status_code}: {resp.text[:200]}")
-                    return None
+                    return None, None
 
                 result = resp.json()
-                return result.get("text")
+                duration = result.get("duration")
+                try:
+                    duration = float(duration) if duration is not None else None
+                except (TypeError, ValueError):
+                    duration = None
+                return result.get("text"), duration
 
         except httpx.TimeoutException:
             logger.error("Whisper API request timed out")
-            return None
+            return None, None
         except Exception as e:
             logger.error(f"Whisper transcription error: {e}")
-            return None
+            return None, None
 
 
 # Singleton

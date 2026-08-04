@@ -531,3 +531,108 @@ def test_structured_cost_logs_have_no_reserved_attribute_collisions():
 
     for key in ("event", "user_key", "provider", "model", "input_tokens", "raw_cost_usd"):
         assert key not in reserved
+
+
+# ---------------------------------------------------------------------------
+# Final review fixes (F1-F6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_force_consume_can_drive_the_bucket_negative():
+    """F4: an overrun larger than what's left must still land. try_consume
+    no-ops in exactly that case, which is the case that matters."""
+    b = LLMBudget()
+    cap = 1000
+    await b.try_consume("k", 950, cap)  # 50 left
+    await b.force_consume("k", 500, cap)  # overrun far exceeds remaining
+    allowed, _ = await b.try_consume("k", 1, cap)
+    assert not allowed, "overrun evaporated instead of eating future headroom"
+
+
+def test_worst_case_spec_uses_the_real_token_mix(monkeypatch):
+    """F5: ranking by an unweighted price sum can pick the wrong model when
+    the mix is input-heavy (~1100 in / ~100 out)."""
+    from bot.config import llm_models as lm
+
+    output_heavy = ModelSpec(
+        friendly_name="output-heavy",
+        provider="deepseek",
+        model_id="oh",
+        min_tier=SubscriptionTier.FREE,
+        price_per_1m_input_usd=0.5,
+        price_per_1m_output_usd=60.0,  # sum = 60.5 (highest)
+    )
+    input_heavy = ModelSpec(
+        friendly_name="input-heavy",
+        provider="deepseek",
+        model_id="ih",
+        min_tier=SubscriptionTier.FREE,
+        price_per_1m_input_usd=30.0,
+        price_per_1m_output_usd=30.0,  # sum = 60.0 (lower) but costlier for us
+    )
+    monkeypatch.setattr(
+        lm, "MODEL_CATALOG", {"output-heavy": output_heavy, "input-heavy": input_heavy}
+    )
+    # 1100 in / 300 out: input-heavy = 0.0429, output-heavy = 0.0186
+    assert llm_credit_service.worst_case_spec().friendly_name == "input-heavy"
+
+
+def test_legacy_path_cost_log_does_not_invent_invoice_lines(caplog):
+    """F3: on the legacy path the catalog spec is only a cost BASIS. Logging
+    its provider/model would fabricate rows that can never match an invoice."""
+    from bot.config.llm_models import MODEL_CATALOG
+    from bot.services.nl_intent_service import _log_llm_cost
+
+    with caplog.at_level("INFO"):
+        _log_llm_cost(
+            user_key="tg:1",
+            spec=MODEL_CATALOG["gpt-flagship"],
+            usage=TokenUsage(input_tokens=1100, output_tokens=100),
+            raw_usd=0.0085,
+            metered=False,
+            wire_model="claude-haiku-4-5-20251001",
+            estimated=True,
+        )
+    rec = next(r for r in caplog.records if getattr(r, "event", None) == "llm_cost")
+    assert rec.model == "claude-haiku-4-5-20251001", "logged the stand-in, not the real model"
+    assert rec.raw_cost_usd is None, "priced a model that was never called"
+    assert rec.cost_basis == "worst_case"
+
+
+def test_whisper_settles_against_provider_duration(monkeypatch):
+    """F1: byte-count duration is codec-dependent and the SENDER picks the
+    codec, so the reservation must be reconciled against Whisper's reported
+    duration rather than trusted."""
+    import asyncio
+
+    from bot.services.whatsapp_voice import _WHISPER_USD_PER_MINUTE, WhatsAppVoiceHandler
+
+    h = WhatsAppVoiceHandler()
+    # 4.5 MB assumed at 16kbps -> 37.5 min estimate.
+    est = h._estimate_minutes(4_500_000) * _WHISPER_USD_PER_MINUTE
+    # Real content was 126 minutes (AMR-NB in the same bytes): 3.4x the estimate.
+    actual = (126 * 60 / 60.0) * _WHISPER_USD_PER_MINUTE
+    assert actual > est * 3, "test premise: real duration far exceeds the estimate"
+
+    settled = {}
+
+    async def fake_settle(key, reserved, actual_usd):
+        settled["actual"] = actual_usd
+
+    monkeypatch.setattr(llm_credit_service, "settle_budget", fake_settle)
+    asyncio.run(h._settle_transcription_budget("+1555", 1000, actual))
+    assert settled["actual"] == pytest.approx(actual)
+
+
+def test_whisper_budget_not_gated_on_unrelated_catalog_flag(monkeypatch):
+    """F2: Whisper runs on OPENAI_API_KEY and has nothing to do with
+    multi-provider routing — gating it on that flag left it unmetered by
+    default, which is the hole it was supposed to close."""
+    import inspect
+
+    from bot.services import whatsapp_voice
+
+    src = inspect.getsource(whatsapp_voice.WhatsAppVoiceHandler._reserve_transcription_budget)
+    assert "LLM_MULTI_PROVIDER_ENABLED" not in src
+    assert "budget_capacity_micros" in src

@@ -40,7 +40,7 @@ does not retroactively un-throttle an already-drained user.
 import logging
 import math
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -203,10 +203,26 @@ class LLMBudget:
             self._warn_degraded(str(e))
             return self._memory_consume(key, capacity_micros, window_seconds, cost_micros)
 
-    async def refund(self, key: str, micros: int, capacity_micros: int) -> None:
-        """Return unspent reservation to the bucket. Best-effort, never raises."""
+    async def force_consume(self, key: str, micros: int, capacity_micros: int) -> None:
+        """Deduct `micros` even if the bucket lacks them, allowing it to go
+        negative. Used to settle an overrun: the money is already spent, so the
+        deduction must land rather than being dropped because the bucket is
+        nearly empty. Implemented as a negative refund — `_REFUND_LUA` only
+        clamps at the TOP (capacity), never at zero.
+        """
         micros = int(micros)
         if micros <= 0 or capacity_micros <= 0:
+            return
+        await self.refund(key, -micros, capacity_micros)
+
+    async def refund(self, key: str, micros: int, capacity_micros: int) -> None:
+        """Return unspent reservation to the bucket. Best-effort, never raises.
+
+        A NEGATIVE `micros` deducts (see `force_consume`) and may drive the
+        bucket below zero; the Lua clamps only at capacity, never at zero.
+        """
+        micros = int(micros)
+        if micros == 0 or capacity_micros <= 0:
             return
 
         client = self._client()

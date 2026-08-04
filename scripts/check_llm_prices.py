@@ -156,7 +156,7 @@ def main() -> int:
             flag = "ok"
         rows.append((name, spec.model_id, spec.price_per_1m_input_usd, lite_in, d_in, flag))
         rows.append(
-            (f"  (output)", spec.model_id, spec.price_per_1m_output_usd, lite_out, d_out, flag)
+            ("  (output)", spec.model_id, spec.price_per_1m_output_usd, lite_out, d_out, flag)
         )
 
     header = f"{'model':<22}{'wire id':<26}{'ours':>10}{'litellm':>10}{'delta%':>10}  flag"
@@ -169,7 +169,7 @@ def main() -> int:
 
     print()
     if missing_found:
-        print(f"Some models not found in LiteLLM's cost map (>5% threshold check n/a for them).")
+        print("Some models not found in LiteLLM's cost map (threshold check n/a for them).")
     if expected_notes:
         print("\nEXPECTED deviations (documented in llm_models.py, not failures):")
         for note in expected_notes:

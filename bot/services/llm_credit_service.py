@@ -233,45 +233,44 @@ def worst_case_spec() -> ModelSpec:
     "Round the price UP": reserving against the most expensive model can only
     over-reserve, and the settlement returns the difference. Reserving against
     a cheap model would let an expensive unknown call slip the cap.
+
+    Ranked by cost under OUR actual token mix, not by an unweighted price sum:
+    with ~1100 input and ~100 output tokens, an output-heavy model can rank
+    highest on the sum while genuinely costing less than an input-heavy one
+    (and vice versa, which would let the true worst case slip).
     """
     from bot.config.llm_models import MODEL_CATALOG
 
-    return max(
-        MODEL_CATALOG.values(),
-        key=lambda s: s.price_per_1m_input_usd + s.price_per_1m_output_usd,
-    )
+    probe = TokenUsage(input_tokens=ESTIMATED_INPUT_TOKENS, output_tokens=ESTIMATED_OUTPUT_TOKENS)
+    return max(MODEL_CATALOG.values(), key=lambda spec: raw_cost_usd(spec, probe))
 
 
-async def reserve_budget(
-    user_id: int, model: ModelSpec, tier: Optional[SubscriptionTier] = None
+async def reserve_spend(
+    user_key, estimated_usd: float, tier: Optional[SubscriptionTier] = None
 ) -> Tuple[bool, int]:
-    """Reserve a conservative cost estimate against the rolling spend buckets.
+    """Reserve `estimated_usd` of RAW provider spend against the rolling buckets.
 
-    Applies to EVERY catalog model, including the free default: the budget
-    bounds what the *platform* spends, and a free-to-the-user call still costs
-    real money. Distinct from `check_allowance`, which is about what the user
-    can afford.
+    The single implementation of the two-bucket reserve-and-unwind dance, shared
+    by every spend path regardless of how its cost was derived — token-priced
+    LLM calls (`reserve_budget`) and minute-priced Whisper transcription alike.
+    Keeping one copy matters: two hand-rolled versions of a money-path guard
+    will eventually disagree about the unwind.
 
     Returns (allowed, reserved_micros). Both the per-user and platform-wide
     buckets must allow the call; if the global bucket refuses after the user
     bucket already consumed, the user's reservation is returned so a global
     backstop can't silently burn individual allowances.
     """
-    estimated = raw_cost_usd(
-        model,
-        TokenUsage(input_tokens=ESTIMATED_INPUT_TOKENS, output_tokens=ESTIMATED_OUTPUT_TOKENS),
-    )
-    reserved = usd_to_micros(estimated)
-
+    reserved = usd_to_micros(estimated_usd)
     user_cap = user_budget_capacity_micros(tier)
     global_cap = global_budget_capacity_micros()
 
-    ok, remaining = await llm_budget.try_consume(user_budget_key(user_id), reserved, user_cap)
+    ok, remaining = await llm_budget.try_consume(user_budget_key(user_key), reserved, user_cap)
     if not ok:
         logger.info(
-            "llm_credit_service: user_id=%s hit the rolling LLM spend budget "
+            "llm_credit_service: user_key=%s hit the rolling LLM spend budget "
             "(need %d micros, %d left)",
-            user_id,
+            user_key,
             reserved,
             remaining,
         )
@@ -281,7 +280,7 @@ async def reserve_budget(
         GLOBAL_BUDGET_KEY, reserved, global_cap
     )
     if not ok_global:
-        await llm_budget.refund(user_budget_key(user_id), reserved, user_cap)
+        await llm_budget.refund(user_budget_key(user_key), reserved, user_cap)
         logger.warning(
             "llm_credit_service: PLATFORM-WIDE LLM spend budget exhausted "
             "(need %d micros, %d left) — degrading all callers",
@@ -293,8 +292,25 @@ async def reserve_budget(
     return True, reserved
 
 
+async def reserve_budget(
+    user_key, model: ModelSpec, tier: Optional[SubscriptionTier] = None
+) -> Tuple[bool, int]:
+    """Reserve a conservative token-priced estimate for one LLM call.
+
+    Applies to EVERY catalog model, including the free default: the budget
+    bounds what the *platform* spends, and a free-to-the-user call still costs
+    real money. Distinct from `check_allowance`, which is about what the user
+    can afford.
+    """
+    estimated = raw_cost_usd(
+        model,
+        TokenUsage(input_tokens=ESTIMATED_INPUT_TOKENS, output_tokens=ESTIMATED_OUTPUT_TOKENS),
+    )
+    return await reserve_spend(user_key, estimated, tier)
+
+
 async def settle_budget(
-    user_id: int,
+    user_key,
     reserved_micros: int,
     actual_usd: float,
     tier: Optional[SubscriptionTier] = None,
@@ -317,22 +333,24 @@ async def settle_budget(
 
     delta = reserved_micros - usd_to_micros(actual_usd)
     if delta > 0:
-        await llm_budget.refund(user_budget_key(user_id), delta, user_cap)
+        await llm_budget.refund(user_budget_key(user_key), delta, user_cap)
         await llm_budget.refund(GLOBAL_BUDGET_KEY, delta, global_cap)
         return
     if delta < 0:
-        # Overrun: charge the difference. The allowed flag is ignored on
-        # purpose — the spend already happened; this debits it against the
-        # user's next-call headroom rather than letting it escape the cap.
+        # Overrun: charge the difference unconditionally. try_consume would
+        # silently no-op when the overrun exceeds what's left in the bucket,
+        # which is exactly the case that matters — the spend already happened,
+        # so it must land on the user's next-call headroom (even negative)
+        # rather than evaporating.
         overrun = -delta
         logger.info(
-            "llm_credit_service: user_id=%s call exceeded its reservation by "
+            "llm_credit_service: user_key=%s call exceeded its reservation by "
             "%d micros — charging the overrun to the budget",
-            user_id,
+            user_key,
             overrun,
         )
-        await llm_budget.try_consume(user_budget_key(user_id), overrun, user_cap)
-        await llm_budget.try_consume(GLOBAL_BUDGET_KEY, overrun, global_cap)
+        await llm_budget.force_consume(user_budget_key(user_key), overrun, user_cap)
+        await llm_budget.force_consume(GLOBAL_BUDGET_KEY, overrun, global_cap)
 
 
 async def record_usage(user_id: int, model: ModelSpec, usage: TokenUsage) -> UsageResult:

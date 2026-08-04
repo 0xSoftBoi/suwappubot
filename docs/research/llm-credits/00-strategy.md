@@ -110,27 +110,44 @@ as a "credit price" — if credits ever become purchasable, publish the conversi
 catalog with verified prices, `/model` selection, atomic metering with money-path fixes,
 provider-capability gating, price-table staleness guard.
 
-**Remaining, in priority order:**
+**Done since this doc was written** (PR #736):
 
-1. **Redis-backed, cost-weighted rate limits.** Current counters are in-memory **per replica**
-   and reset on deploy — so the real ceiling is `30 × replicas` per user/day with a free reset
-   each deploy. This is the actual hole in cost control. Use a Redis Lua script for atomic
-   check-and-decrement.
-2. **Prompt caching.** 794 of ~1,100 input tokens are an identical prefix every call. Anthropic
-   cache reads are 0.1x (writes cost 1.25–2x, so it only pays above a volume threshold);
-   DeepSeek cache hits are ~0.02x and automatic. Potentially ~60% off input cost.
-3. **Source prices from LiteLLM's `model_prices_and_context_window.json`** instead of
-   hand-maintaining. Importable standalone (`pip install litellm`, no proxy needed);
-   cross-check against OpenRouter's `/models` as a free price oracle. **This session proved the
-   need: two hand-entered model ids were already dead.**
-4. **Append-only ledger with integer micro-dollars.** Both `api_credits.balance` (Python,
+1. ~~Redis-backed, cost-weighted rate limits.~~ Shipped as `bot/utils/llm_budget.py`: a Redis
+   token bucket in integer micro-dollars with a Lua check-and-consume, rolling refill, and
+   reserve-then-settle. Server-side `TIME` so replica clock skew can't mint refill. Degrades to
+   a per-process bucket when Redis is down, with a rate-limited warning and a `degraded_calls`
+   counter.
+2. ~~Prompt caching.~~ Partially: the *billing* half shipped (`bot/services/llm_usage.py`
+   normalizes the three incompatible provider conventions; all four token buckets price
+   separately). Caching itself only engages on DeepSeek — our fixed prefix is ~794 tokens and
+   the minimums are 1024 (OpenAI, Sonnet), 4096 (Haiku), 2048–4096 (Gemini). DeepSeek is the
+   default and caches from 64 tokens. **Padding the prompt to reach the other minimums is NOT
+   done** — it adds tokens to every call and is worse on a cache miss (Anthropic's write
+   premium is 1.25x); it needs a call-volume measurement first.
+3. ~~Price sourcing from LiteLLM.~~ Partially: `scripts/check_llm_prices.py` cross-checks the
+   catalog against LiteLLM's cost map (optional dep, never imported at bot runtime). 11 of 13
+   models match exactly. Prices are still *authored* by hand — the checker only detects drift.
+   `ModelSpec.price_deviation_reason` marks deliberate deviations so they don't fail CI.
+6. ~~Meter Whisper voice transcription.~~ Shipped: priced per audio-minute from an estimated
+   duration (deliberately low assumed bitrate, so it over-reserves), sharing
+   `llm_credit_service.reserve_spend` with the token-priced path.
+
+**Still remaining, in priority order:**
+
+1. **Append-only ledger with integer micro-dollars.** Both `api_credits.balance` (Python,
    `Float`) and `api-ts/src/db/schema/payments.ts:36,59` (`real`) are mutable float columns —
-   no audit trail, unsafe under concurrent debit/refund. MONEY-PATH; needs `db-migrate` then
-   `money-path-reviewer`.
-5. **Live smoke tests** for Gemini/xAI/Qwen/Kimi forced tool-calling (currently gated off) and
-   a daily three-way reconciliation job (ledger vs usage log vs provider invoice).
-6. **Meter Whisper voice transcription** (`bot/services/whatsapp_voice.py:94`) — currently an
-   entirely unmetered LLM-adjacent spend path.
+   no audit trail, unsafe under concurrent debit/refund. Deliberately NOT in PR #736: it is
+   shared billing schema used by the x402 and Stripe paths too, so it belongs in its own PR.
+   MONEY-PATH; needs `db-migrate` then `money-path-reviewer`.
+2. **Live smoke tests** for Gemini/xAI/Qwen/Kimi forced tool-calling. These providers are gated
+   off behind `LLM_ALLOW_UNVERIFIED_PROVIDERS` because Gemini's OpenAI-compat endpoint
+   reportedly rejects forced `tool_choice`, which would silently degrade every parse. Requires
+   real API keys.
+3. **Daily three-way reconciliation job** (ledger vs the new `llm_cost` log line vs provider
+   invoice). The log line ships with the fields needed; the job does not exist yet.
+4. **Tie the allowance to swap activity**, not just tier — the crypto-native version of this,
+   and the highest-leverage idea in this doc. A user who swapped this week has already paid for
+   their AI many times over; a user who has never swapped is the abuse case.
 
 ## Open decisions for you
 

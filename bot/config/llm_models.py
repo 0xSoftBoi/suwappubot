@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from bot.config.llm_providers import PROVIDERS, is_provider_available
+from bot.config.llm_providers import is_provider_available
 from bot.models.subscription import SubscriptionTier
 
 logger = logging.getLogger(__name__)
