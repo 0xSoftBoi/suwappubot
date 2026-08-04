@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Optional, Dict, List, Any
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import jwt
@@ -233,6 +234,62 @@ class NewsletterSignupRequest(BaseModel):
 class NewsletterSignupResponse(BaseModel):
     ok: bool
     error: Optional[str] = None
+
+
+class WaitlistAvailabilityResponse(BaseModel):
+    ok: bool
+    handle: str
+    available: bool
+    reason: Optional[str] = None  # null | "taken" | "invalid" | "reserved"
+
+
+class WaitlistReserveRequest(BaseModel):
+    """Inbound handle reservation for the waitlist referral leaderboard.
+
+    Public (no auth). ``website`` is the honeypot (same pattern as
+    MobileWaitlistRequest). ``ref`` is an optional inviter referral code.
+    """
+
+    handle: str
+    email: str
+    telegram: Optional[str] = None
+    ref: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None
+
+
+class WaitlistReserveResponse(BaseModel):
+    ok: bool
+    handle: Optional[str] = None
+    position: Optional[int] = None
+    referral_code: Optional[str] = None
+    referral_url: Optional[str] = None
+    referral_count: Optional[int] = None
+    total_signups: Optional[int] = None
+    seed: Optional[int] = None
+    already: Optional[bool] = None
+
+
+class WaitlistStatusResponse(BaseModel):
+    ok: bool
+    handle: str
+    position: int
+    referral_count: int
+    total_signups: int
+    referrals_to_next_rank: int
+    seed: int
+
+
+class WaitlistLeaderboardEntry(BaseModel):
+    rank: int
+    handle: str
+    referral_count: int
+
+
+class WaitlistLeaderboardResponse(BaseModel):
+    ok: bool
+    total_signups: int
+    entries: List[WaitlistLeaderboardEntry]
 
 
 class TelegramUser(BaseModel):
@@ -1359,6 +1416,249 @@ async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
         logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
 
     return MobileWaitlistResponse(ok=True, id=waitlist_id, position=position)
+
+
+# ---------------------------------------------------------------------------
+# Handle-reservation waitlist + referral leaderboard.
+#
+# A DIFFERENT feature from /mobile-waitlist above: visitors reserve a handle
+# pre-launch, get a referral code, and climb a live-ranked leaderboard by
+# inviting friends. Backed by the dedicated `waitlist_signups` table (see
+# bot/models/waitlist.py + bot/services/waitlist_service.py), not
+# SupportTicket. API contract is fixed — field names/status codes/ranking
+# rule must not change without updating the frontend in lockstep.
+# ---------------------------------------------------------------------------
+
+
+async def _waitlist_rate_limit(
+    endpoint_func, request: Request, max_requests: int, window_seconds: int
+):
+    """Per-IP rate limit for a waitlist route. Same UserRateLimiter pattern as
+    terminal_token_intel (api/routes/terminal.py) — lazy-inits one limiter
+    per endpoint function and keys it by client IP."""
+    from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
+
+    limiter = getattr(endpoint_func, "_limiter", None)
+    if limiter is None:
+        limiter = UserRateLimiter(max_requests=max_requests, window_seconds=window_seconds)
+        endpoint_func._limiter = limiter
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        await limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded, try again shortly",
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 60))))},
+        )
+
+
+@router.get("/waitlist/availability", response_model=WaitlistAvailabilityResponse)
+async def waitlist_availability(request: Request, handle: str = Query(...)):
+    """Live handle-availability check for the reservation waitlist's keystroke
+    debounce. Public, no auth. Rate-limited per IP (called on every keystroke,
+    must respond fast) — see contract at /webapp/waitlist/availability."""
+    # 60/min per IP: generous enough for keystroke debounce, still bounds abuse.
+    await _waitlist_rate_limit(waitlist_availability, request, 60, 60)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import normalize_handle, validate_handle_format
+
+    norm = normalize_handle(handle)
+    reason = validate_handle_format(norm)
+    if reason is not None:
+        return WaitlistAvailabilityResponse(ok=True, handle=norm, available=False, reason=reason)
+
+    with get_session() as session:
+        taken = (
+            session.query(WaitlistSignup.id).filter(WaitlistSignup.handle == norm).first()
+            is not None
+        )
+
+    if taken:
+        return WaitlistAvailabilityResponse(ok=True, handle=norm, available=False, reason="taken")
+    return WaitlistAvailabilityResponse(ok=True, handle=norm, available=True, reason=None)
+
+
+@router.post("/waitlist/reserve", response_model=WaitlistReserveResponse)
+async def waitlist_reserve(payload: WaitlistReserveRequest, request: Request):
+    """Reserve a handle on the waitlist referral leaderboard.
+
+    Public, no auth. One reservation per email — a repeat submission from
+    the same email returns the existing record with ``already: true``
+    instead of erroring or creating a second row. ``website`` is the
+    honeypot (same pattern as /mobile-waitlist): a non-empty value returns a
+    fake success and persists nothing.
+    """
+    await _waitlist_rate_limit(waitlist_reserve, request, 10, 60)
+
+    if (payload.website or "").strip():
+        return WaitlistReserveResponse(ok=True)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import (
+        derive_seed,
+        generate_referral_code,
+        get_ranked_row,
+        get_total_signups,
+        hash_ip,
+        normalize_handle,
+        referral_url as build_referral_url,
+        validate_handle_format,
+    )
+
+    email = (payload.email or "").strip().lower()
+    if not email or "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_email"})
+
+    handle = normalize_handle(payload.handle)
+    reason = validate_handle_format(handle)
+    if reason is not None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_handle"})
+
+    telegram = (payload.telegram or "").strip()[:64] or None
+    attribution_json = (
+        json.dumps(payload.attribution) if isinstance(payload.attribution, dict) else None
+    )
+    client_ip = request.client.host if request.client else None
+    ip_hash_val = hash_ip(client_ip)
+
+    try:
+        with get_session() as session:
+            existing = session.query(WaitlistSignup).filter(WaitlistSignup.email == email).first()
+            already = existing is not None
+
+            if not already:
+                taken = (
+                    session.query(WaitlistSignup.id).filter(WaitlistSignup.handle == handle).first()
+                )
+                if taken is not None:
+                    return JSONResponse(
+                        status_code=409, content={"ok": False, "error": "handle_taken"}
+                    )
+
+                # Referral credit rules: unknown ref code -> ignore silently;
+                # self-referral (same email as the inviter) -> ignore, no credit.
+                referred_by_id = None
+                ref_code = (payload.ref or "").strip()
+                if ref_code:
+                    ref_row = (
+                        session.query(WaitlistSignup)
+                        .filter(WaitlistSignup.referral_code == ref_code)
+                        .first()
+                    )
+                    if ref_row is not None and ref_row.email != email:
+                        referred_by_id = ref_row.id
+
+                existing = WaitlistSignup(
+                    handle=handle,
+                    email=email,
+                    telegram=telegram,
+                    referral_code=generate_referral_code(session, handle),
+                    referred_by_id=referred_by_id,
+                    seed=derive_seed(handle),
+                    attribution_json=attribution_json,
+                    ip_hash=ip_hash_val,
+                )
+                session.add(existing)
+                session.flush()
+
+            signup_id = existing.id
+            result_handle = existing.handle
+            result_referral_code = existing.referral_code
+            result_seed = existing.seed
+        # `with` block above has committed (get_session commits on exit).
+
+        with get_session() as session2:
+            ranked = get_ranked_row(session2, signup_id)
+            total = get_total_signups(session2)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist waitlist reservation")
+        raise HTTPException(
+            status_code=500, detail="Could not reserve right now. Please try again."
+        )
+
+    if not already:
+        logger.info("Waitlist reservation #%s captured: handle=%s", signup_id, result_handle)
+        try:
+            from bot.services.waitlist_email import send_waitlist_confirmation
+
+            await send_waitlist_confirmation(email, ranked.position if ranked else 0, None)
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
+
+    return WaitlistReserveResponse(
+        ok=True,
+        handle=result_handle,
+        position=ranked.position if ranked else None,
+        referral_code=result_referral_code,
+        referral_url=build_referral_url(result_referral_code),
+        referral_count=ranked.referral_count if ranked else 0,
+        total_signups=total,
+        seed=result_seed,
+        already=already,
+    )
+
+
+@router.get("/waitlist/status", response_model=WaitlistStatusResponse)
+async def waitlist_status(request: Request, code: str = Query(...)):
+    """Look up a waitlist signup's live rank/referral stats by referral code.
+
+    Public, no auth. Never exposes email/telegram/attribution/ip_hash.
+    """
+    await _waitlist_rate_limit(waitlist_status, request, 30, 60)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import (
+        get_ranked_row,
+        get_row_above,
+        get_total_signups,
+        referrals_to_next_rank,
+    )
+
+    code = (code or "").strip()
+    with get_session() as session:
+        row = session.query(WaitlistSignup).filter(WaitlistSignup.referral_code == code).first()
+        if row is None:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "not_found"})
+
+        ranked = get_ranked_row(session, row.id)
+        if ranked is None:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "not_found"})
+
+        above = get_row_above(session, ranked.position)
+        total = get_total_signups(session)
+        to_next = referrals_to_next_rank(ranked, above)
+
+    return WaitlistStatusResponse(
+        ok=True,
+        handle=row.handle,
+        position=ranked.position,
+        referral_count=ranked.referral_count,
+        total_signups=total,
+        referrals_to_next_rank=to_next,
+        seed=row.seed,
+    )
+
+
+@router.get("/waitlist/leaderboard", response_model=WaitlistLeaderboardResponse)
+async def waitlist_leaderboard(request: Request, limit: int = Query(10)):
+    """Public referral leaderboard. Only ever exposes rank/handle/referral_count
+    — never email, telegram, or attribution."""
+    await _waitlist_rate_limit(waitlist_leaderboard, request, 30, 60)
+
+    from bot.services.waitlist_service import get_leaderboard, get_total_signups
+
+    clamped_limit = max(1, min(50, limit))
+    with get_session() as session:
+        rows = get_leaderboard(session, clamped_limit)
+        total = get_total_signups(session)
+
+    entries = [
+        WaitlistLeaderboardEntry(rank=r.position, handle=r.handle, referral_count=r.referral_count)
+        for r in rows
+    ]
+    return WaitlistLeaderboardResponse(ok=True, total_signups=total, entries=entries)
 
 
 @router.post("/newsletter", response_model=NewsletterSignupResponse)
