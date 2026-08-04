@@ -236,6 +236,43 @@ const FAQ = [
   },
 ];
 
+/** Venue-chip category, verified from repo code — never guessed. A name stays
+ *  'neutral' unless a specific file/dispatch path proves its role:
+ *  - 'bridge': dedicated provider under bot/services/bridge/, or a
+ *    bot/services/*_api.py client whose swap_engine.py dispatch executes it
+ *    as a cross-chain transfer (_execute_*_bridge / _execute_*_transfer),
+ *    never a same-chain swap. (usdt0, Across, CCIP, CCTP, LayerZero, Wormhole)
+ *  - 'dex': the chain-exclusive router for a single non-EVM/L2 chain in
+ *    swap_engine.py's race-building block (one fetcher per chain, not raced
+ *    against the EVM aggregator set). (GoatSwap, JuiceSwap, Jupiter, SunSwap,
+ *    Tempo DEX)
+ *  - 'aggregator': self-described as an aggregator in its own module
+ *    docstring AND grouped under swap_engine.py's "Swap aggregators ready"
+ *    log line / EVM aggregator set. (0x, 1inch, AVNU, CoW, KyberSwap, Li.Fi,
+ *    OKX, Socket)
+ *  Full evidence table lives in the showcase-dev report for this iteration. */
+const VENUE_CLASS: Record<string, 'bridge' | 'dex' | 'aggregator'> = {
+  Across: 'bridge',
+  CCIP: 'bridge',
+  CCTP: 'bridge',
+  LayerZero: 'bridge',
+  usdt0: 'bridge',
+  Wormhole: 'bridge',
+  GoatSwap: 'dex',
+  JuiceSwap: 'dex',
+  Jupiter: 'dex',
+  SunSwap: 'dex',
+  'Tempo DEX': 'dex',
+  '0x': 'aggregator',
+  '1inch': 'aggregator',
+  AVNU: 'aggregator',
+  CoW: 'aggregator',
+  KyberSwap: 'aggregator',
+  'Li.Fi': 'aggregator',
+  OKX: 'aggregator',
+  Socket: 'aggregator',
+};
+
 export default async function Home() {
   const t = await getTranslations('hero');
   return (
@@ -286,8 +323,19 @@ export default async function Home() {
               {productStats.routerCount} venues
             </p>
             <ul className="sw__chips">
-              {productStats.routers.map((r) => <li key={r}>{r}</li>)}
+              {productStats.routers.map((r) => {
+                const cls = VENUE_CLASS[r];
+                return (
+                  <li key={r} className={cls ? `sw__chip--${cls}` : undefined}>
+                    {r}
+                  </li>
+                );
+              })}
             </ul>
+            <p className="sw__chip-legend">
+              <span className="sw__chip-legend-item sw__chip-legend-item--bridge">bridge</span>
+              <span className="sw__chip-legend-item sw__chip-legend-item--aggregator">aggregator</span>
+            </p>
             <p className="sw__note">
               Venues are chain-gated. Any single swap races the subset that supports its route.
             </p>

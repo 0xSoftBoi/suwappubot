@@ -205,6 +205,60 @@
   color: var(--fg);
 }
 
+/* Venue-chip category tints (verified classes only — see VENUE_CLASS in
+ * page.tsx). Role-strict per docs/design/visual-study.md: leaf = bridge,
+ * persimmon-faint = aggregator, DEX and unverified names stay neutral. */
+.sw__chip--bridge {
+  border-color: var(--sw-leaf-deep);
+}
+.sw__chip--bridge:hover {
+  border-color: var(--sw-leaf);
+  background: var(--sw-leaf-fainter);
+  color: var(--sw-leaf-bright);
+}
+
+.sw__chip--aggregator {
+  border-color: var(--sw-accent-subtle);
+}
+.sw__chip--aggregator:hover {
+  border-color: var(--sw-accent);
+  background: var(--sw-accent-fainter);
+  color: var(--sw-accent-muted);
+}
+
+.sw__chip-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.25rem;
+  margin: 0.75rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sw__chip-legend-item {
+  position: relative;
+  padding-left: 1rem;
+  color: var(--fg-faint);
+}
+.sw__chip-legend-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+.sw__chip-legend-item--bridge::before {
+  background: var(--sw-leaf);
+}
+.sw__chip-legend-item--aggregator::before {
+  background: var(--sw-accent);
+}
+
 .sw__note {
   margin: 1.25rem auto 0;
   max-width: 56ch;

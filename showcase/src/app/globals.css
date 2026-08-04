@@ -77,6 +77,21 @@
   --sw-cosmic-ink: #E8EEF6;
   --sw-cosmic-muted: #93A5BC;
 
+  /* Terminal / data-viz — syntax-style colours for LiveTerminal.tsx and
+     Terminal.tsx (command stream, sparkline, prompt caret). Kept as their
+     own semantic group rather than forced onto the brand ramps above:
+     these are chart/console conventions (sky = command, green = success/
+     up, amber = gas/warning), not brand accents. Values unchanged from the
+     hardcoded hex previously inline in the components — this is a token
+     refactor, not a recolor. */
+  --sw-term-cmd: #7dd3fc;    /* sky-300 — typed command / prompt caret */
+  --sw-term-out: #8b9aa6;    /* neutral output text */
+  --sw-term-ok: #4ade80;     /* green-400 — success / filled / up */
+  --sw-term-gas: #fbbf24;    /* amber-400 — gas / sponsored */
+  --sw-term-input: #93c5fd;  /* blue-300 — SDK input line / caret */
+  --sw-term-success: #86efac; /* green-300 — SDK success line */
+  --sw-term-output: #d4d4d8;  /* zinc-300 — SDK output line */
+
   /* Hairlines */
   --sw-hairline: rgba(23, 50, 74, 0.10);
   --sw-hairline-strong: rgba(23, 50, 74, 0.18);
