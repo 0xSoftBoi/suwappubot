@@ -29,6 +29,15 @@ export interface QuoteParams {
 	slippage?: number // 0.01 = 1%, default 0.03
 	order?: 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST' | 'SAFEST'
 	integrator?: string
+
+	// Who is asking. Optional so no existing caller breaks, but WITHOUT these
+	// the counterfactual capture records an anonymous row: every quote we had
+	// stored carried user_id = NULL, which made the activation funnel
+	// unmeasurable (0 attributable quotes against 563 captured routes) and left
+	// the agent-vs-human split — the one genuinely differentiated thing in the
+	// dataset — permanently empty.
+	userId?: number | null
+	agentId?: number | null
 }
 
 // Token info from Li.Fi
@@ -437,6 +446,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					fromAmount: quote.fromAmount,
 					fromAmountUsd: parseFloat(quote.fromAmountUsd) || null,
 					fromAddress: params.fromAddress,
+					userId: params.userId ?? null,
+					agentId: params.agentId ?? null,
 					selectedTool: response.toolDetails?.name ?? response.tool ?? null,
 				})
 			}
