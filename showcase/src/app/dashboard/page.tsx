@@ -821,9 +821,6 @@ export default function DashboardPage() {
           missing, still loading, or failed. */}
       {!hasOrg && (
         <section className={styles.card} aria-label="Account">
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Your account</h2>
-          </div>
           <p className={styles.billingMeta} style={{ margin: 0, lineHeight: 1.6 }}>
             Team management, API keys and usage analytics are organisation
             features &mdash; they appear here once your account belongs to one.
