@@ -53,21 +53,22 @@ def _get_client():
     return _client
 
 
-_openai_client = None
-_openai_client_key: Optional[tuple] = None
+_openai_clients: Dict[tuple, Any] = {}
 
 
 def _get_openai_client(api_key: str, base_url: Optional[str]):
-    """Lazily construct and cache a single AsyncOpenAI-compatible client,
-    re-creating it if the (api_key, base_url) pair changes."""
-    global _openai_client, _openai_client_key
+    """Lazily construct and cache one AsyncOpenAI-compatible client per
+    (api_key, base_url) pair. With multi-provider routing enabled, requests
+    from different users can alternate providers back-to-back, so a
+    single-slot cache would rebuild the client on nearly every call."""
     key = (api_key, base_url)
-    if _openai_client is None or _openai_client_key != key:
+    client = _openai_clients.get(key)
+    if client is None:
         import openai
 
-        _openai_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
-        _openai_client_key = key
-    return _openai_client
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+        _openai_clients[key] = client
+    return client
 
 
 _TOOL_NAME = "record_trade_intent"
@@ -327,9 +328,27 @@ def _record_llm_fallback_call(user_id: Optional[Hashable]) -> None:
         per_user[today] = per_user.get(today, 0) + 1
 
 
+def _anthropic_usage(response) -> tuple:
+    """(input_tokens, output_tokens) from an Anthropic Messages response."""
+    usage = getattr(response, "usage", None)
+    return (
+        int(getattr(usage, "input_tokens", 0) or 0),
+        int(getattr(usage, "output_tokens", 0) or 0),
+    )
+
+
+def _openai_usage(response) -> tuple:
+    """(input_tokens, output_tokens) from an OpenAI-compatible response."""
+    usage = getattr(response, "usage", None)
+    return (
+        int(getattr(usage, "prompt_tokens", 0) or 0),
+        int(getattr(usage, "completion_tokens", 0) or 0),
+    )
+
+
 async def _parse_with_anthropic(
     text: str, context: Optional[Dict[str, Any]], *, api_key: str, model: str
-) -> TradeIntent:
+) -> tuple:
     client = _get_client()
 
     user_content = _build_user_content(text, context)
@@ -352,7 +371,7 @@ async def _parse_with_anthropic(
 
     if tool_use_block is None:
         logger.warning("nl_intent_service: no tool_use block in response")
-        return _fallback()
+        return _fallback(), _anthropic_usage(response)
 
     data = tool_use_block.input or {}
 
@@ -367,7 +386,7 @@ async def _parse_with_anthropic(
         clarification=data.get("clarification"),
     )
 
-    return _apply_confidence_gate(intent)
+    return _apply_confidence_gate(intent), _anthropic_usage(response)
 
 
 async def _parse_with_openai_compatible(
@@ -377,7 +396,7 @@ async def _parse_with_openai_compatible(
     api_key: str,
     base_url: Optional[str],
     model: str,
-) -> TradeIntent:
+) -> tuple:
     user_content = _build_user_content(text, context)
     client = _get_openai_client(api_key, base_url)
     response = await client.chat.completions.create(
@@ -402,7 +421,7 @@ async def _parse_with_openai_compatible(
     )
     tool_calls = response.choices[0].message.tool_calls
     if not tool_calls:
-        return _fallback()
+        return _fallback(), _openai_usage(response)
     data = json.loads(tool_calls[0].function.arguments or "{}")
     intent = TradeIntent(
         action=data.get("action", "unknown"),
@@ -414,7 +433,40 @@ async def _parse_with_openai_compatible(
         confidence=float(data.get("confidence", 0.0) or 0.0),
         clarification=data.get("clarification"),
     )
-    return _apply_confidence_gate(intent)
+    return _apply_confidence_gate(intent), _openai_usage(response)
+
+
+async def _resolve_user_model(user_id):
+    """Multi-provider resolution: (LLMUserContext, ModelSpec) for this user,
+    or None to fall back to the legacy env-provider path.
+
+    A paid-tier model is only kept if the user's api_credits balance clears
+    the pre-flight estimate; otherwise we degrade to the FREE-tier default
+    rather than refusing the parse outright.
+    """
+    from bot.config.llm_models import resolve_model
+    from bot.models.subscription import SubscriptionTier
+    from bot.services import llm_credit_service
+
+    try:
+        user_ctx = await llm_credit_service.get_llm_user_context(user_id)
+        if user_ctx is None:
+            return None
+        spec = resolve_model(user_ctx.tier, user_ctx.llm_model_pref)
+        if spec.min_tier != SubscriptionTier.FREE and not await llm_credit_service.check_allowance(
+            user_ctx.db_user_id, spec
+        ):
+            logger.info(
+                "nl_intent_service: insufficient credits for %s, degrading to default model",
+                spec.friendly_name,
+            )
+            spec = resolve_model(user_ctx.tier, None)
+            if spec.min_tier != SubscriptionTier.FREE:
+                return None
+        return user_ctx, spec
+    except Exception:
+        logger.exception("nl_intent_service: multi-provider resolution failed")
+        return None
 
 
 async def parse_trade_intent(
@@ -459,6 +511,24 @@ async def parse_trade_intent(
         return _capped_fallback()
 
     provider, api_key, base_url, model = _resolve_provider_config()
+
+    # Multi-provider routing (platform-funded, credit-metered). When enabled
+    # and the user resolves to a catalog model, override the env-provider
+    # choice; on any resolution failure fall back to the legacy path above.
+    user_ctx = None
+    spec = None
+    if settings.LLM_MULTI_PROVIDER_ENABLED and user_id is not None:
+        resolved = await _resolve_user_model(user_id)
+        if resolved is not None:
+            from bot.config.llm_providers import ANTHROPIC, PROVIDERS, get_api_key
+
+            user_ctx, spec = resolved
+            provider_cfg = PROVIDERS[spec.provider]
+            provider = "anthropic" if provider_cfg.call_style == ANTHROPIC else spec.provider
+            api_key = get_api_key(spec.provider)
+            base_url = provider_cfg.base_url
+            model = spec.model_id
+
     if not api_key:
         return _fallback()
 
@@ -472,16 +542,31 @@ async def parse_trade_intent(
     try:
         _record_llm_fallback_call(user_id)
         if provider == "anthropic":
-            intent = await _parse_with_anthropic(text, context, api_key=api_key, model=model)
+            intent, usage = await _parse_with_anthropic(text, context, api_key=api_key, model=model)
         else:
-            intent = await _parse_with_openai_compatible(
+            intent, usage = await _parse_with_openai_compatible(
                 text, context, api_key=api_key, base_url=base_url, model=model
             )
         logger.info("nl_intent_service: parsed via LLM path", extra={"source": "llm"})
-        return intent
     except Exception:
         logger.exception(
             "nl_intent_service: failed to parse trade intent",
             extra={"source": "fallback-fail"},
         )
         return _fallback()
+
+    # MONEY-PATH: meter paid-tier catalog models against api_credits. Debit
+    # failures are logged loudly inside record_usage; the parsed intent is
+    # still returned — provider tokens are already spent, and eating the
+    # user's parse on an internal accounting error would double the damage.
+    if spec is not None and user_ctx is not None:
+        from bot.models.subscription import SubscriptionTier
+        from bot.services import llm_credit_service
+
+        if spec.min_tier != SubscriptionTier.FREE:
+            try:
+                await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage[0], usage[1])
+            except Exception:
+                logger.exception("nl_intent_service: record_usage failed after LLM call")
+
+    return intent

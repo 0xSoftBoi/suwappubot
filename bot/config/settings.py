@@ -983,6 +983,26 @@ class Settings(BaseSettings):
         description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
+    # Multi-provider LLM (direct provider keys, no aggregator) + credit
+    # metering. OFF by default: with the flag off, NL parsing keeps today's
+    # single env-provider behavior and no credits are debited. See
+    # bot/config/llm_providers.py, bot/config/llm_models.py,
+    # bot/services/llm_credit_service.py.
+    LLM_MULTI_PROVIDER_ENABLED: bool = Field(
+        default=False,
+        description="Route LLM calls per-user via the model catalog and meter paid models",
+    )
+    LLM_CREDIT_MARKUP: float = Field(
+        default=1.5,
+        description="Multiplier on provider list price when debiting api_credits for LLM usage",
+    )
+    XAI_API_KEY: str = Field(default="", description="xAI (Grok) API key for LLM calls")
+    GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key for LLM calls")
+    QWEN_API_KEY: str = Field(
+        default="", description="Alibaba DashScope (Qwen) API key for LLM calls"
+    )
+    KIMI_API_KEY: str = Field(default="", description="Moonshot (Kimi) API key for LLM calls")
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")

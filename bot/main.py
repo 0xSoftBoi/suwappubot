@@ -63,6 +63,7 @@ from bot.handlers.paste_trade import (
     paste_check_hint_callback,
 )
 from bot.handlers.nl_trade import handle_nl_text
+from bot.handlers.llm_model import llm_model_command
 from bot.handlers.trending import (
     trending_command,
     trending_open_callback,
@@ -531,6 +532,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(
         CallbackQueryHandler(paste_check_hint_callback, pattern="^paste_check_hint$")
     )
+
+    # LLM model preference for natural-language trading (multi-provider routing)
+    application.add_handler(CommandHandler("model", llm_model_command))
 
     # Trending (pull-only discovery): /trending + inline tile + token-view-to-buy.
     # Buy buttons funnel through paste_token + the swap "^pbuy_" entry_point.
