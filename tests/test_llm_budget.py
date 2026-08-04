@@ -445,3 +445,89 @@ async def test_global_denial_refunds_the_user_bucket(monkeypatch):
     cap = usd_to_micros(1.0)
     allowed, _ = await budget_mod.llm_budget.try_consume(user_budget_key(42), cap - 1000, cap)
     assert allowed, "user allowance was burned by a global-backstop denial"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end wiring (these verify the budget actually FIRES, not just compiles)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_legacy_env_provider_path_is_budgeted(monkeypatch):
+    """Regression: the legacy fallthrough had no budget and no metering, so a
+    transient DB error in _resolve_user_model silently converted the fleet to
+    unmetered LLM calls."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from bot.services import nl_intent_service as n
+    from bot.utils.llm_budget import user_budget_key
+
+    resp = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                input={"action": "unknown", "confidence": 0.1, "amount_unit": "native"},
+            )
+        ],
+        usage=SimpleNamespace(input_tokens=1100, output_tokens=90),
+    )
+    fake = MagicMock()
+    fake.messages.create = AsyncMock(return_value=resp)
+
+    cap = usd_to_micros(1.0)
+    with (
+        patch.object(n.settings, "LLM_MULTI_PROVIDER_ENABLED", True),
+        patch.object(n.settings, "ANTHROPIC_API_KEY", "k"),
+        patch.object(n.settings, "NL_TRADING_PROVIDER", "anthropic"),
+        patch.object(n.settings, "LLM_BUDGET_PER_USER_DAILY_USD", 1.0),
+        patch.object(n.settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 100.0),
+        patch("anthropic.AsyncAnthropic", return_value=fake),
+        patch.object(n, "_resolve_user_model", AsyncMock(return_value=None)),
+    ):
+        await n.parse_trade_intent("please swap some of my crypto around", user_id=777)
+
+    assert fake.messages.create.await_count == 1
+    _, remaining = await budget_mod.llm_budget.try_consume(user_budget_key("tg:777"), 0, cap)
+    assert remaining < cap, "legacy env-provider path escaped the spend budget"
+
+
+@pytest.mark.asyncio
+async def test_telegram_and_db_user_buckets_do_not_collide():
+    """The legacy path keys on `tg:<telegram_id>` while the resolved path keys
+    on the DB user id. Both are ints in practice, so the namespace prefix is
+    what stops user A draining user B's allowance."""
+    from bot.utils.llm_budget import user_budget_key
+
+    cap = 1000
+    await budget_mod.llm_budget.try_consume(user_budget_key("tg:777"), 400, cap)
+    _, db_remaining = await budget_mod.llm_budget.try_consume(user_budget_key(777), 0, cap)
+    assert db_remaining == cap, "tg:<id> and <id> resolved to the same bucket"
+
+
+def test_structured_cost_logs_have_no_reserved_attribute_collisions():
+    """logging raises KeyError if an `extra` key shadows a LogRecord attribute
+    — that would crash the money path at the moment it records a charge."""
+    import logging
+
+    from bot.config.llm_models import MODEL_CATALOG
+    from bot.services.nl_intent_service import _log_llm_cost
+    from bot.services.whatsapp_voice import WhatsAppVoiceHandler
+
+    reserved = set(vars(logging.LogRecord("n", 1, "p", 1, "m", (), None)).keys()) | {
+        "message",
+        "asctime",
+        "taskName",
+    }
+
+    _log_llm_cost(
+        user_key="tg:1",
+        spec=MODEL_CATALOG["deepseek-flash"],
+        usage=TokenUsage(input_tokens=900, cached_read_tokens=200, output_tokens=80),
+        raw_usd=0.00042,
+        metered=True,
+    )
+    WhatsAppVoiceHandler()._log_transcription_cost("+15551234567", 96000, 0.006)
+
+    for key in ("event", "user_key", "provider", "model", "input_tokens", "raw_cost_usd"):
+        assert key not in reserved
