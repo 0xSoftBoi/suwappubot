@@ -5317,11 +5317,21 @@ button:focus:not(:focus-visible) {
 .legal-page a { color: var(--suwappu-summer-accent); }
 @media (max-width: 640px) { .legal-page__card { padding: 1.75rem 1.5rem; } }
 
-/* Footer */
+/* Footer — inverted-cream band (backlog item 6). Derives from the same
+   --sw-cream family as chips/stat washes instead of a white/sky mix, so the
+   footer joins the persimmon-orchard palette. The gradient stays inside the
+   lightest 20% of the cream->cream-dim range (contrast-checked against
+   --summer-muted body text: >=4.6:1 at the darkest stop) so text reads
+   cleanly top to bottom, including the legal/bottom bands lower in the
+   element. */
 .summer-footer {
   margin-top: 2.5rem;
-  border-top: 1px solid var(--sw-hairline);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(237, 248, 250, 0.7));
+  border-top: 1px solid var(--sw-cream-dim);
+  background: linear-gradient(
+    180deg,
+    var(--sw-cream) 0%,
+    color-mix(in srgb, var(--sw-cream) 80%, var(--sw-cream-dim) 20%) 100%
+  );
 }
 .summer-footer__inner {
   max-width: 1180px;
@@ -5397,7 +5407,9 @@ button:focus:not(:focus-visible) {
   flex: 1;
   min-width: 0;
   padding: 9px 12px;
-  border: 1px solid var(--summer-line);
+  /* Warm cream-family border instead of the sky-tinted --summer-line, so the
+     input doesn't clash against the retinted cream footer band. */
+  border: 1px solid var(--sw-cream-dim);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.7);
   color: var(--summer-ink);
@@ -7602,6 +7614,10 @@ a.summer-button:active,
 
 /* Headings and body copy that hardcode the light ink. */
 .sw-dark h1, .sw-dark h2, .sw-dark h3, .sw-dark h4 { color: #FAFAFA; }
+/* Cream footer exception: headings inside the footer keep warm ink even in dark context. */
+.sw-dark .summer-footer h1, .sw-dark .summer-footer h2, .sw-dark .summer-footer h3, .sw-dark .summer-footer h4,
+.sw-dark .summer-footer p, .sw-dark .summer-footer label { color: var(--summer-ink); }
+.sw-dark .summer-footer p, .sw-dark .summer-footer .summer-footer__col a { color: var(--summer-muted); }
 .sw-dark p, .sw-dark li, .sw-dark dd { color: #A1A1A1; }
 .sw-dark strong, .sw-dark b { color: #FAFAFA; }
 
@@ -7895,4 +7911,19 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
   font-size: 0.75rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* Footer token scope: the footer is always the cream band, so its ink/muted/
+   hairline tokens must resolve to warm-dark values even when the page wraps it
+   in a dark context (.sw-dark redefines --summer-* for dark surfaces, which
+   went light-on-light after the cream retint). Persimmon-orchard warm ink. */
+.summer-footer {
+  --summer-ink: #2b1d12;
+  --summer-muted: #6e5b49;
+  --sw-hairline: rgba(43, 29, 18, 0.16);
+}
+.summer-footer__logo,
+.summer-footer__logo span {
+  color: var(--summer-ink);
+  text-decoration: none;
 }

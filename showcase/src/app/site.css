@@ -775,14 +775,12 @@
 .sw .sw-handoff__mini { color: var(--accent); border-color: var(--line); }
 
 /* ── Footer in the dark register ─────────────────────────────── */
-.sw .summer-footer {
-  background: var(--bg);
-  border-top: 1px solid var(--line);
-  color: var(--fg-dim);
-}
-
-.sw .summer-footer a { color: var(--fg-dim); }
-.sw .summer-footer a:hover { color: var(--fg); }
+/* Previously forced the homepage footer to the dark canvas (var(--bg)),
+   diverging from every other sw-dark page and from the cream-footer-band
+   doctrine in docs/design/visual-study.md ("cream = inverted surfaces...
+   footer band"). Removed so the homepage picks up the same retinted
+   .summer-footer cream band (globals.css) as /pricing, /security, etc. —
+   one footer treatment across all 16 pages that render it. */
 
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 900px) {
