@@ -4,12 +4,11 @@ import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
-import { DashboardAuthContext, SESSION_SENTINEL } from './auth-context';
+import { type AuthState, DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
 
-// SESSION_SENTINEL lives in auth-context so the fetch helper can recognise it.
 
 // ── Login screen ────────────────────────────────────────────────────────────
 
@@ -134,13 +133,14 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
 // ── Layout root ─────────────────────────────────────────────────────────────
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null); // null = not yet checked
+  // null = not yet probed. See AuthState — a cookie session carries no token.
+  const [auth, setAuth] = useState<AuthState | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY) ?? '';
     if (stored) {
-      setToken(stored);
+      setAuth({ kind: 'token', value: stored });
       setReady(true);
       return;
     }
@@ -155,10 +155,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (cancelled) return;
         // Any non-401 means the cookie authenticated us. SESSION is a sentinel:
         // there is no token to hold, and holding one would defeat HttpOnly.
-        setToken(r.status === 401 ? '' : SESSION_SENTINEL);
+        setAuth(r.status === 401 ? { kind: 'none' } : { kind: 'cookie' });
       })
       .catch(() => {
-        if (!cancelled) setToken('');
+        if (!cancelled) setAuth({ kind: 'none' });
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -170,12 +170,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const handleToken = useCallback((t: string) => {
     localStorage.setItem(TOKEN_KEY, t);
-    setToken(t);
+    setAuth({ kind: 'token', value: t });
   }, []);
 
   const clearToken = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
-    setToken('');
+    setAuth({ kind: 'none' });
     // Also end the server session, or a cookie-authenticated user would be
     // signed straight back in by the probe above on the next page load.
     fetch(`${AUTH_BASE_URL}/auth/logout`, {
@@ -187,12 +187,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // SSR / hydration guard
   if (!ready) return null;
 
-  if (!token) {
+  if (!auth || auth.kind === 'none') {
     return <LoginScreen onToken={handleToken} />;
   }
 
   return (
-    <DashboardAuthContext.Provider value={{ token, clearToken }}>
+    <DashboardAuthContext.Provider value={{ auth, clearToken }}>
       <div className="summer-page">
         <div className={styles.shell} style={{ paddingTop: 24 }}>
           {children}

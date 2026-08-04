@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { API_BASE_URL } from '@/lib/links';
-import { SESSION_SENTINEL, useDashboardAuth } from './auth-context';
+import { type AuthState, useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
 import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
@@ -151,7 +151,7 @@ const ENTERPRISE_SOFT_WARN = 500_000;
 
 // clearToken is intentionally NOT a parameter here: this helper must never
 // end the session on its own. See the note in the 401 branch below.
-function useApiFetch(token: string) {
+function useApiFetch(auth: AuthState) {
   return useCallback(
     async (path: string, opts: RequestInit = {}): Promise<Response> => {
       const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -163,16 +163,11 @@ function useApiFetch(token: string) {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          // Only a REAL pasted token goes in the header. The cookie-session
-          // sentinel must never be sent: flexAuth prefers the Authorization
-          // header over the cookie, so shipping the literal string
-          // 'cookie-session' as a bearer made the server try to verify it as
-          // a JWT, fail, and 401 — with a perfectly valid cookie sitting
-          // right there on the same request. The user was bounced to sign-in
-          // immediately after signing in.
-          ...(token && token !== SESSION_SENTINEL
-            ? { Authorization: `Bearer ${token}` }
-            : {}),
+          // Only a real pasted token becomes a bearer header. A cookie
+          // session has no token to send — the browser attaches it. The type
+          // makes the old bug (shipping a sentinel string as a bearer)
+          // unrepresentable rather than merely guarded against.
+          ...(auth.kind === 'token' ? { Authorization: `Bearer ${auth.value}` } : {}),
           ...(opts.headers ?? {}),
         },
       });
@@ -188,7 +183,7 @@ function useApiFetch(token: string) {
       // not evidence of that.
       return res;
     },
-    [token]
+    [auth]
   );
 }
 
@@ -304,8 +299,8 @@ function parseUsage(payload: Record<string, unknown>): UsageData {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { token, clearToken } = useDashboardAuth();
-  const apiFetch              = useApiFetch(token);
+  const { auth, clearToken } = useDashboardAuth();
+  const apiFetch              = useApiFetch(auth);
 
   const [data, setData]         = useState<DashboardData | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -448,7 +443,7 @@ export default function DashboardPage() {
     // visibly reflow when data lands.
     return (
       <div aria-busy="true" aria-live="polite">
-        <span className={styles.srOnly}>Loading your dashboard</span>
+        <span className="sr-only">Loading your dashboard</span>
         <div className={styles.skelTabs} aria-hidden="true">
           <span /><span /><span />
         </div>
