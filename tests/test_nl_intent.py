@@ -281,7 +281,8 @@ def test_resolve_provider_config_deepseek():
     assert provider == "deepseek"
     assert api_key == "dk"
     assert base_url == "https://api.deepseek.com"
-    assert model == "deepseek-chat"
+    # deepseek-chat was retired 2026-07-24 and now errors — v4-flash replaces it.
+    assert model == "deepseek-v4-flash"
 
 
 @pytest.mark.asyncio

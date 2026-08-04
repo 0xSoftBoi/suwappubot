@@ -996,6 +996,14 @@ class Settings(BaseSettings):
         default=1.5,
         description="Multiplier on provider list price when debiting api_credits for LLM usage",
     )
+    LLM_ALLOW_UNVERIFIED_PROVIDERS: bool = Field(
+        default=False,
+        description=(
+            "Allow LLM providers whose forced-tool-call support is unverified "
+            "(gemini/xai/qwen/kimi). Off by default: an unsupported tool_choice "
+            "makes every parse silently degrade. Enable only after a live smoke test."
+        ),
+    )
     XAI_API_KEY: str = Field(default="", description="xAI (Grok) API key for LLM calls")
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key for LLM calls")
     QWEN_API_KEY: str = Field(

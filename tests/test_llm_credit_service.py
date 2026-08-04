@@ -63,7 +63,7 @@ def _mk_user(factory, telegram_id=1111, llm_model=None):
 CHEAP = ModelSpec(
     friendly_name="test-cheap",
     provider="deepseek",
-    model_id="deepseek-chat",
+    model_id="deepseek-v4-flash",
     min_tier=SubscriptionTier.FREE,
     price_per_1m_input_usd=1.0,
     price_per_1m_output_usd=2.0,
@@ -238,9 +238,9 @@ async def test_record_usage_zero_usage_debits_estimate(db_session_factory, monke
 def test_billing_gates_on_metered_flag_not_tier():
     """Regression: FREE-selectable but expensive models must be metered; only
     the cheap default rides the daily caps for free."""
-    assert MODEL_CATALOG["deepseek-chat"].metered is False
+    assert MODEL_CATALOG["deepseek-flash"].metered is False
     for name, spec in MODEL_CATALOG.items():
-        if name != "deepseek-chat":
+        if name != "deepseek-flash":
             assert spec.metered, f"{name} must be metered"
 
 
@@ -263,31 +263,81 @@ def _enable_keys(monkeypatch, providers):
 def test_resolve_model_default_free(monkeypatch):
     _enable_keys(monkeypatch, {"deepseek"})
     spec = resolve_model(SubscriptionTier.FREE, None)
-    assert spec.friendly_name == "deepseek-chat"
+    assert spec.friendly_name == "deepseek-flash"
 
 
 def test_resolve_model_pref_honored_for_entitled_tier(monkeypatch):
     _enable_keys(monkeypatch, {"deepseek", "xai"})
-    spec = resolve_model(SubscriptionTier.PRO, "grok-2")
-    assert spec.friendly_name == "grok-2"
+    spec = resolve_model(SubscriptionTier.PRO, "grok-build")
+    assert spec.friendly_name == "grok-build"
 
 
 def test_resolve_model_pref_denied_below_tier(monkeypatch):
     _enable_keys(monkeypatch, {"deepseek", "xai"})
-    spec = resolve_model(SubscriptionTier.FREE, "grok-2")
-    assert spec.friendly_name == "deepseek-chat"
+    spec = resolve_model(SubscriptionTier.FREE, "grok-build")
+    assert spec.friendly_name == "deepseek-flash"
 
 
 def test_resolve_model_skips_keyless_provider(monkeypatch):
+    """Pref names a model whose provider has no key -> fall through to another
+    usable provider the tier is entitled to."""
     _enable_keys(monkeypatch, {"openai"})
-    spec = resolve_model(SubscriptionTier.FREE, "deepseek-chat")
+    spec = resolve_model(SubscriptionTier.PRO, "deepseek-flash")
     assert spec.provider == "openai"
+
+
+def test_free_tier_has_no_openai_model(monkeypatch):
+    """OpenAI carries no FREE-tier entry, so a FREE user with only an OpenAI
+    key must get nothing rather than silently escalating to a paid model."""
+    _enable_keys(monkeypatch, {"openai"})
+    with pytest.raises(RuntimeError):
+        resolve_model(SubscriptionTier.FREE, "deepseek-flash")
 
 
 def test_resolve_model_no_provider_raises(monkeypatch):
     _enable_keys(monkeypatch, set())
     with pytest.raises(RuntimeError):
         resolve_model(SubscriptionTier.ENTERPRISE, None)
+
+
+def test_price_table_freshness_guard():
+    """The staleness warning must fire once the table ages past the max — this
+    catalog shipped two already-dead model ids on day one."""
+    from datetime import timedelta
+
+    from bot.config.llm_models import (
+        PRICE_TABLE_MAX_AGE_DAYS,
+        PRICE_TABLE_VERIFIED,
+        assert_price_table_fresh,
+        price_table_age_days,
+    )
+
+    fresh_day = PRICE_TABLE_VERIFIED + timedelta(days=PRICE_TABLE_MAX_AGE_DAYS - 1)
+    stale_day = PRICE_TABLE_VERIFIED + timedelta(days=PRICE_TABLE_MAX_AGE_DAYS + 1)
+    assert assert_price_table_fresh(fresh_day) is True
+    assert assert_price_table_fresh(stale_day) is False
+    assert price_table_age_days(stale_day) == PRICE_TABLE_MAX_AGE_DAYS + 1
+
+
+def test_unverified_providers_gated_off_by_default(monkeypatch):
+    """Providers whose forced-tool-call support is unverified must be unusable
+    unless explicitly opted in — an unsupported tool_choice silently degrades
+    every parse to the fail-safe clarification."""
+    from bot.config import llm_providers
+
+    monkeypatch.setattr(llm_providers, "get_api_key", lambda p: "k")
+    monkeypatch.setattr(
+        llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", False, raising=False
+    )
+    assert llm_providers.is_provider_available("anthropic")
+    assert llm_providers.is_provider_available("deepseek")
+    assert not llm_providers.is_provider_available("gemini")
+    assert not llm_providers.is_provider_available("qwen")
+
+    monkeypatch.setattr(
+        llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", True, raising=False
+    )
+    assert llm_providers.is_provider_available("gemini")
 
 
 def test_catalog_tier_gating_consistency():

@@ -278,7 +278,9 @@ def _resolve_provider_config() -> tuple:
         return provider, settings.OPENAI_API_KEY, settings.NL_TRADING_BASE_URL or None, model
 
     if provider == "deepseek":
-        model = "deepseek-chat" if is_default_model else settings.NL_TRADING_MODEL
+        # deepseek-chat / deepseek-reasoner were retired 2026-07-24 and now
+        # error rather than redirecting. v4-flash is the current cheap model.
+        model = "deepseek-v4-flash" if is_default_model else settings.NL_TRADING_MODEL
         base_url = settings.NL_TRADING_BASE_URL or "https://api.deepseek.com"
         return provider, settings.DEEPSEEK_API_KEY, base_url, model
 
