@@ -77,11 +77,24 @@ Append anything unfixed to `docs/design/backlog.md` with a one-line repro.
 5. DONE (iter 3): vendor chips classified from bot service code, 6 bridge / 5 dex / 8 aggregator.
 6. DONE (iter 3): footer cream retint, incl. dark-context contrast fixes.
 
-Open:
-7. Hero at 390px now wraps to 3 lines after the serif swap (in-rule, desktop-only cap)
-   but worth an eye: consider a mobile-specific clamp if it crowds the demo card.
-8. Consider a 500-weight pass over remaining serif usages (.sw__vendors-big, .stages__chain)
-   for optical consistency with the new h1/h2 weight.
+7. CLOSED (iter 5, no change needed): mobile 3-line hero verified by screenshot -
+   it does not crowd the demo card; subhead, CTAs and card all remain reachable.
+8. DONE (iter 5): .sw__vendors-big and .stages__chain moved to weight 500; all four
+   serif roles (h1, h2, vendors-big, stages-chain) now report 500.
+
+Open: none. Iteration 5 was the first pass with no open fix-level findings beyond
+item 8. Per the convergence rule, ONE more clean full pass and the loop reports
+converged and should be stopped with ScheduleWakeup/CronDelete.
+
+## Iteration log
+- iter 1: em-dashes removed, eyebrows 6 -> 3, rubric v2 added
+- iter 2: :active press states, easing tokenized, micro-strips 2 -> 1
+- iter 3: venue chips classified from code, --sw-term-* tokens, footer cream retint
+          (+ caught a .sw override and a dark-context contrast bug)
+- iter 4: display serif Instrument -> EB Garamond via A/B render; fixed the 3-line
+          hero regression it caused (clamp + grid ratio)
+- iter 5: full regression sweep after the face change (no overflow at 1440/390,
+          Lens A clean); serif weight unified at 500; backlog emptied
 
 ## Rubric v2 (from design-engineering research, 2026-08-04)
 Additional checkable criteria for Lens A/B (sources: Emil Kowalski's animation tips,
