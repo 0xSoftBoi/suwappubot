@@ -24,15 +24,13 @@ from bot.handlers import nl_trade
 
 @pytest.fixture(autouse=True)
 def _reset_nl_client_cache():
-    """The Anthropic client is now a lazily-cached module-level singleton;
-    reset it between tests so each test's patched client is actually used."""
-    nl_intent_service._client = None
-    nl_intent_service._openai_client = None
-    nl_intent_service._openai_client_key = None
+    """Clients are lazily cached in per-(key/base_url) dicts; reset them
+    between tests so each test's patched client is actually used."""
+    nl_intent_service._anthropic_clients = {}
+    nl_intent_service._openai_clients = {}
     yield
-    nl_intent_service._client = None
-    nl_intent_service._openai_client = None
-    nl_intent_service._openai_client_key = None
+    nl_intent_service._anthropic_clients = {}
+    nl_intent_service._openai_clients = {}
 
 
 # handle_nl_text is wrapped in @enforce_tos, which hits the DB to check

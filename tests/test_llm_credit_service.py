@@ -177,6 +177,73 @@ async def test_user_context_unknown_user_is_none(db_session_factory):
     assert await llm_credit_service.get_llm_user_context(999999) is None
 
 
+@pytest.mark.asyncio
+async def test_user_context_naive_expired_subscription_is_free(db_session_factory):
+    """expires_at is stored tz-naive; comparison must not raise TypeError and
+    an expired sub must resolve to FREE (regression: money-path review)."""
+    from datetime import datetime, timedelta
+
+    uid = _mk_user(db_session_factory, telegram_id=4444)
+    session = db_session_factory()
+    session.add(
+        Subscription(
+            user_id=uid,
+            tier=SubscriptionTier.PREMIUM,
+            expires_at=datetime.utcnow() - timedelta(days=1),  # naive, past
+        )
+    )
+    session.commit()
+    session.close()
+    ctx = await llm_credit_service.get_llm_user_context(4444)
+    assert ctx.tier == SubscriptionTier.FREE
+
+
+@pytest.mark.asyncio
+async def test_user_context_naive_active_subscription_keeps_tier(db_session_factory):
+    from datetime import datetime, timedelta
+
+    uid = _mk_user(db_session_factory, telegram_id=5555)
+    session = db_session_factory()
+    session.add(
+        Subscription(
+            user_id=uid,
+            tier=SubscriptionTier.PRO,
+            expires_at=datetime.utcnow() + timedelta(days=30),  # naive, future
+        )
+    )
+    session.commit()
+    session.close()
+    ctx = await llm_credit_service.get_llm_user_context(5555)
+    assert ctx.tier == SubscriptionTier.PRO
+
+
+@pytest.mark.asyncio
+async def test_record_usage_zero_usage_debits_estimate(db_session_factory, monkeypatch):
+    """A metered call reporting no usage (provider-shim quirk) must debit the
+    pre-flight estimate, not $0 (regression: money-path review)."""
+    monkeypatch.setattr(llm_credit_service.settings, "LLM_CREDIT_MARKUP", 1.5, raising=False)
+    uid = _mk_user(db_session_factory, telegram_id=6666)
+
+    result = await llm_credit_service.record_usage(uid, CHEAP, 0, 0)
+
+    expected = llm_credit_service.estimate_cost_usd(
+        CHEAP,
+        llm_credit_service.ESTIMATED_INPUT_TOKENS,
+        llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
+    )
+    assert result.cost_usd == pytest.approx(expected)
+    assert result.cost_usd > 0
+
+
+def test_billing_gates_on_metered_flag_not_tier():
+    """Regression: FREE-selectable but expensive models must be metered; only
+    the cheap default rides the daily caps for free."""
+    assert MODEL_CATALOG["deepseek-chat"].metered is False
+    for name, spec in MODEL_CATALOG.items():
+        if name != "deepseek-chat":
+            assert spec.metered, f"{name} must be metered"
+
+
 # ---------------------------------------------------------------------------
 # Catalog resolution
 # ---------------------------------------------------------------------------

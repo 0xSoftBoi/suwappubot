@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
+
 from database.db import get_session, run_in_db
 from bot.config.settings import settings
 from bot.config.llm_models import ModelSpec
@@ -76,7 +78,13 @@ async def get_llm_user_context(telegram_id) -> Optional[LLMUserContext]:
             tier = SubscriptionTier.FREE
             sub = session.query(Subscription).filter(Subscription.user_id == user.id).first()
             if sub is not None:
-                expired = sub.expires_at and sub.expires_at < datetime.now(timezone.utc)
+                # expires_at is a tz-naive DateTime column: comparing it raw
+                # against an aware utcnow raises TypeError for every subscriber
+                # with a non-NULL expiry. Normalize to aware-UTC first.
+                exp = sub.expires_at
+                if exp is not None and exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                expired = exp is not None and exp < datetime.now(timezone.utc)
                 if not expired:
                     tier = sub.tier
             return LLMUserContext(db_user_id=user.id, tier=tier, llm_model_pref=user.llm_model)
@@ -127,11 +135,19 @@ async def get_balance(user_id: int) -> float:
     return await run_in_db(_read)
 
 
+# Pre-flight token estimates. Real NL-intent calls ship the system prompt
+# (~500 tok) plus the tool schema (~400 tok) plus user text/context, so 500
+# would systematically underestimate by ~2-3x; calls are capped at
+# max_tokens=300 output.
+ESTIMATED_INPUT_TOKENS = 1500
+ESTIMATED_OUTPUT_TOKENS = 300
+
+
 async def check_allowance(
     user_id: int,
     model: ModelSpec,
-    estimated_input_tokens: int = 500,
-    estimated_output_tokens: int = 300,
+    estimated_input_tokens: int = ESTIMATED_INPUT_TOKENS,
+    estimated_output_tokens: int = ESTIMATED_OUTPUT_TOKENS,
 ) -> bool:
     """Pre-flight advisory check: does the user have enough balance to cover
     a call of roughly this size? Does NOT reserve/debit anything — callers
@@ -150,20 +166,47 @@ async def record_usage(
     balance (the tokens are already spent) — it records the negative balance
     and logs loudly so operators can catch it, rather than silently eating
     the cost or raising after real work was already done."""
+    if input_tokens <= 0 and output_tokens <= 0:
+        # A metered call that reports zero usage is a provider-shim quirk
+        # (several OpenAI-compat endpoints omit/rename usage fields), not a
+        # free call. Debit the pre-flight estimate instead of $0.
+        logger.warning(
+            "llm_credit_service: provider=%s model=%s returned no usage data — "
+            "debiting pre-flight estimate (%d in / %d out) for user_id=%s",
+            model.provider,
+            model.model_id,
+            ESTIMATED_INPUT_TOKENS,
+            ESTIMATED_OUTPUT_TOKENS,
+            user_id,
+        )
+        input_tokens = ESTIMATED_INPUT_TOKENS
+        output_tokens = ESTIMATED_OUTPUT_TOKENS
+
     cost_usd = estimate_cost_usd(model, input_tokens, output_tokens)
+
+    def _locked_row(session):
+        return (
+            session.query(APICredit).filter(APICredit.user_id == user_id).with_for_update().first()
+        )
 
     def _debit():
         with get_session() as session:
-            credits = (
-                session.query(APICredit)
-                .filter(APICredit.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
+            credits = _locked_row(session)
             if not credits:
-                credits = APICredit(user_id=user_id, balance=0.0)
-                session.add(credits)
-                session.flush()
+                # FOR UPDATE can't lock a row that doesn't exist: two
+                # concurrent first-time calls can both reach the INSERT, and
+                # user_id is UNIQUE — loser gets IntegrityError. Roll back
+                # and re-read the winner's row under the lock instead of
+                # dropping the debit.
+                try:
+                    credits = APICredit(user_id=user_id, balance=0.0)
+                    session.add(credits)
+                    session.flush()
+                except IntegrityError:
+                    session.rollback()
+                    credits = _locked_row(session)
+                    if credits is None:
+                        raise
 
             credits.balance -= cost_usd
             credits.lifetime_used = (credits.lifetime_used or 0.0) + cost_usd

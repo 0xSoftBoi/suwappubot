@@ -741,7 +741,15 @@ class X402Service:
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+            # Row lock: llm_credit_service.record_usage debits this same row
+            # under FOR UPDATE; an unlocked read-modify-write here could
+            # interleave and silently erase a concurrent LLM debit.
+            credits = (
+                session.query(APICredit)
+                .filter(APICredit.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not credits or credits.balance < amount:
                 return False

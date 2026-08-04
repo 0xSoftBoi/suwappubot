@@ -37,6 +37,11 @@ class ModelSpec:
     min_tier: SubscriptionTier
     price_per_1m_input_usd: float
     price_per_1m_output_usd: float
+    # Whether usage debits api_credits. Billing is governed by THIS flag, not
+    # by min_tier — a FREE-selectable model can still be metered (e.g.
+    # claude-haiku costs 12x deepseek output). Only the cheap default rides
+    # the free daily caps unmetered.
+    metered: bool = True
 
     def is_tier_allowed(self, user_tier: SubscriptionTier) -> bool:
         return _TIER_RANK.get(user_tier, 0) >= _TIER_RANK.get(self.min_tier, 0)
@@ -53,6 +58,7 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.FREE,
         price_per_1m_input_usd=0.28,
         price_per_1m_output_usd=0.42,
+        metered=False,  # the free default — covered by the daily fallback caps
     ),
     "deepseek-reasoner": ModelSpec(
         friendly_name="deepseek-reasoner",

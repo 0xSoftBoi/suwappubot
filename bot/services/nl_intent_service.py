@@ -39,18 +39,22 @@ CAPPED_CLARIFICATION = (
     "use /s <amount> <token> <chain> to swap directly."
 )
 
-_client: Optional["anthropic.AsyncAnthropic"] = None
+_anthropic_clients: Dict[str, Any] = {}
 
 
-def _get_client():
-    """Lazily construct and cache a single AsyncAnthropic client for reuse
-    across calls, instead of constructing a new client per request."""
-    global _client
-    if _client is None:
+def _get_client(api_key: Optional[str] = None):
+    """Lazily construct and cache AsyncAnthropic clients keyed by api_key,
+    instead of constructing a new client per request. Defaults to the
+    env-configured key; callers on the multi-provider path pass the key they
+    resolved so a future separate platform key can't silently be ignored."""
+    key = api_key or settings.ANTHROPIC_API_KEY
+    client = _anthropic_clients.get(key)
+    if client is None:
         import anthropic
 
-        _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    return _client
+        client = anthropic.AsyncAnthropic(api_key=key)
+        _anthropic_clients[key] = client
+    return client
 
 
 _openai_clients: Dict[tuple, Any] = {}
@@ -349,7 +353,7 @@ def _openai_usage(response) -> tuple:
 async def _parse_with_anthropic(
     text: str, context: Optional[Dict[str, Any]], *, api_key: str, model: str
 ) -> tuple:
-    client = _get_client()
+    client = _get_client(api_key)
 
     user_content = _build_user_content(text, context)
 
@@ -369,24 +373,31 @@ async def _parse_with_anthropic(
             tool_use_block = block
             break
 
-    if tool_use_block is None:
-        logger.warning("nl_intent_service: no tool_use block in response")
+    # Everything past the network call is parse-stage: the provider has
+    # already billed us for this response, so a malformed payload must still
+    # surface `usage` to the caller for metering — never raise past here.
+    try:
+        if tool_use_block is None:
+            logger.warning("nl_intent_service: no tool_use block in response")
+            return _fallback(), _anthropic_usage(response)
+
+        data = tool_use_block.input or {}
+
+        intent = TradeIntent(
+            action=data.get("action", "unknown"),
+            token_in=data.get("token_in"),
+            token_out=data.get("token_out"),
+            amount=data.get("amount"),
+            amount_unit=data.get("amount_unit", "native"),
+            chain=data.get("chain"),
+            confidence=float(data.get("confidence", 0.0) or 0.0),
+            clarification=data.get("clarification"),
+        )
+
+        return _apply_confidence_gate(intent), _anthropic_usage(response)
+    except Exception:
+        logger.exception("nl_intent_service: anthropic response parse failed")
         return _fallback(), _anthropic_usage(response)
-
-    data = tool_use_block.input or {}
-
-    intent = TradeIntent(
-        action=data.get("action", "unknown"),
-        token_in=data.get("token_in"),
-        token_out=data.get("token_out"),
-        amount=data.get("amount"),
-        amount_unit=data.get("amount_unit", "native"),
-        chain=data.get("chain"),
-        confidence=float(data.get("confidence", 0.0) or 0.0),
-        clarification=data.get("clarification"),
-    )
-
-    return _apply_confidence_gate(intent), _anthropic_usage(response)
 
 
 async def _parse_with_openai_compatible(
@@ -419,21 +430,28 @@ async def _parse_with_openai_compatible(
             {"role": "user", "content": user_content},
         ],
     )
-    tool_calls = response.choices[0].message.tool_calls
-    if not tool_calls:
+    # Parse-stage (post-billing) — same contract as the Anthropic path: a
+    # truncated/malformed tool call (e.g. JSON cut off by max_tokens) must
+    # still return usage so the caller debits the already-spent tokens.
+    try:
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls:
+            return _fallback(), _openai_usage(response)
+        data = json.loads(tool_calls[0].function.arguments or "{}")
+        intent = TradeIntent(
+            action=data.get("action", "unknown"),
+            token_in=data.get("token_in"),
+            token_out=data.get("token_out"),
+            amount=data.get("amount"),
+            amount_unit=data.get("amount_unit", "native"),
+            chain=data.get("chain"),
+            confidence=float(data.get("confidence", 0.0) or 0.0),
+            clarification=data.get("clarification"),
+        )
+        return _apply_confidence_gate(intent), _openai_usage(response)
+    except Exception:
+        logger.exception("nl_intent_service: openai-compatible response parse failed")
         return _fallback(), _openai_usage(response)
-    data = json.loads(tool_calls[0].function.arguments or "{}")
-    intent = TradeIntent(
-        action=data.get("action", "unknown"),
-        token_in=data.get("token_in"),
-        token_out=data.get("token_out"),
-        amount=data.get("amount"),
-        amount_unit=data.get("amount_unit", "native"),
-        chain=data.get("chain"),
-        confidence=float(data.get("confidence", 0.0) or 0.0),
-        clarification=data.get("clarification"),
-    )
-    return _apply_confidence_gate(intent), _openai_usage(response)
 
 
 async def _resolve_user_model(user_id):
@@ -445,7 +463,6 @@ async def _resolve_user_model(user_id):
     rather than refusing the parse outright.
     """
     from bot.config.llm_models import resolve_model
-    from bot.models.subscription import SubscriptionTier
     from bot.services import llm_credit_service
 
     try:
@@ -453,15 +470,16 @@ async def _resolve_user_model(user_id):
         if user_ctx is None:
             return None
         spec = resolve_model(user_ctx.tier, user_ctx.llm_model_pref)
-        if spec.min_tier != SubscriptionTier.FREE and not await llm_credit_service.check_allowance(
-            user_ctx.db_user_id, spec
-        ):
+        # Billing gates on spec.metered, NOT min_tier: a FREE-selectable model
+        # (claude-haiku, gpt-4o-mini) is still metered — otherwise any FREE
+        # user could burn the platform's expensive keys for nothing.
+        if spec.metered and not await llm_credit_service.check_allowance(user_ctx.db_user_id, spec):
             logger.info(
                 "nl_intent_service: insufficient credits for %s, degrading to default model",
                 spec.friendly_name,
             )
             spec = resolve_model(user_ctx.tier, None)
-            if spec.min_tier != SubscriptionTier.FREE:
+            if spec.metered:
                 return None
         return user_ctx, spec
     except Exception:
@@ -555,18 +573,16 @@ async def parse_trade_intent(
         )
         return _fallback()
 
-    # MONEY-PATH: meter paid-tier catalog models against api_credits. Debit
+    # MONEY-PATH: meter metered catalog models against api_credits. Debit
     # failures are logged loudly inside record_usage; the parsed intent is
     # still returned — provider tokens are already spent, and eating the
     # user's parse on an internal accounting error would double the damage.
-    if spec is not None and user_ctx is not None:
-        from bot.models.subscription import SubscriptionTier
+    if spec is not None and user_ctx is not None and spec.metered:
         from bot.services import llm_credit_service
 
-        if spec.min_tier != SubscriptionTier.FREE:
-            try:
-                await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage[0], usage[1])
-            except Exception:
-                logger.exception("nl_intent_service: record_usage failed after LLM call")
+        try:
+            await llm_credit_service.record_usage(user_ctx.db_user_id, spec, usage[0], usage[1])
+        except Exception:
+            logger.exception("nl_intent_service: record_usage failed after LLM call")
 
     return intent
