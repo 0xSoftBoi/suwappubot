@@ -1271,7 +1271,7 @@
   z-index: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.4;
+  opacity: 0.8;
   pointer-events: none;
 }
 .sw__sec--engine > .reveal { position: relative; z-index: 1; }
@@ -1285,7 +1285,7 @@
    two just tint them down further since they're texture, not a labelled
    diagram like the hero sphere. */
 .depthsurface,
-.toolconstellation { opacity: 0.75; }
+.toolconstellation { opacity: 0.95; }
 
 /* Agents' tool orbit is two stacked canvases (WebGL body + a 2D overlay for
    the in-transit labels), same shape as .csgl. Needs the same wrapper rules

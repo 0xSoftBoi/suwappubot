@@ -204,7 +204,7 @@ export default function QuoteRaceGL({
 
         // Static lane track: a hairline, almost invisible, slightly brighter
         // once the winner is decided so the winning row still reads.
-        const trackAlpha = isWinner && resolved ? 0.11 : 0.045;
+        const trackAlpha = isWinner && resolved ? 0.34 : 0.13;
         const lo = i * 2 * 7;
         lineData[lo] = padX; lineData[lo + 1] = y;
         lineData[lo + 2] = leaf[0]; lineData[lo + 3] = leaf[1]; lineData[lo + 4] = leaf[2];
@@ -218,11 +218,11 @@ export default function QuoteRaceGL({
         const col = isWinner ? accent : leaf;
         let alpha: number, size: number;
         if (isWinner) {
-          alpha = resolved ? 0.85 + 0.08 * Math.sin(t * 0.0016) : 0.32 + 0.55 * eased;
-          size = (resolved ? 4.6 : 3.1 + 1.3 * eased) * dpr;
+          alpha = resolved ? 0.95 + 0.05 * Math.sin(t * 0.0016) : 0.5 + 0.45 * eased;
+          size = (resolved ? 7.4 : 5 + 2.2 * eased) * dpr;
         } else {
-          alpha = (0.5 - 0.36 * fadeT);
-          size = 2.4 * dpr;
+          alpha = (0.72 - 0.42 * fadeT);
+          size = 4.2 * dpr;
         }
 
         const po = i * 7;

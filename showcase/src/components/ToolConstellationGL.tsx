@@ -204,7 +204,7 @@ export default function ToolConstellationGL({
         const lo = li * 7;
         lineData[lo] = cx; lineData[lo + 1] = cy;
         lineData[lo + 2] = leaf[0]; lineData[lo + 3] = leaf[1]; lineData[lo + 4] = leaf[2];
-        lineData[lo + 5] = 0.05; lineData[lo + 6] = 1;
+        lineData[lo + 5] = 0.16; lineData[lo + 6] = 1;
         lineData[lo + 7] = x; lineData[lo + 8] = y;
         lineData[lo + 9] = leaf[0]; lineData[lo + 10] = leaf[1]; lineData[lo + 11] = leaf[2];
         lineData[lo + 12] = 0.05; lineData[lo + 13] = 1;
@@ -213,8 +213,8 @@ export default function ToolConstellationGL({
         const po = (i + 1) * 7;
         pointData[po] = x; pointData[po + 1] = y;
         pointData[po + 2] = leaf[0]; pointData[po + 3] = leaf[1]; pointData[po + 4] = leaf[2];
-        pointData[po + 5] = 0.4;
-        pointData[po + 6] = 2.4 * dpr;
+        pointData[po + 5] = 0.72;
+        pointData[po + 6] = 4.2 * dpr;
 
         // Label a node only while it's in the outer third of the visible
         // width — near the leftmost or rightmost swing of the orbit —

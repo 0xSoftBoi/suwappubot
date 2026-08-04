@@ -190,7 +190,7 @@ export default function DepthSurfaceGL({
           // "still quoting", not choppy.
           const wobble = reduce ? 0 : Math.sin(time * 1.3 + row * 0.6 + side * 2.1) * 0.035;
           const rowDepth = depth(rowT) * (1 + wobble);
-          const rowAlpha = 0.05 + 0.16 * (1 - rowT);
+          const rowAlpha = 0.16 + 0.34 * (1 - rowT);
 
           let prevX = 0, prevY = 0;
           for (let c = 0; c <= COLS; c++) {
@@ -222,8 +222,8 @@ export default function DepthSurfaceGL({
             const po = pi * 7;
             pointData[po] = x; pointData[po + 1] = y;
             pointData[po + 2] = col[0]; pointData[po + 3] = col[1]; pointData[po + 4] = col[2];
-            pointData[po + 5] = 0.22 + 0.22 * (1 - rowT);
-            pointData[po + 6] = 2.2 * dpr;
+            pointData[po + 5] = 0.42 + 0.34 * (1 - rowT);
+            pointData[po + 6] = 3.4 * dpr;
             pi++;
           }
         }
