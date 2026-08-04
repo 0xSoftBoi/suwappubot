@@ -180,7 +180,7 @@ export default async function Home() {
           <p className="hd__eyebrow">{t('eyebrow')}</p>
           <h1 className="hd__h1">{t('h1')}</h1>
           <p className="hd__lead">
-            {t('lead', { chains: productStats.platformChains })}
+            {t('lead', { chains: productStats.platformChains, venues: productStats.routerCount })}
           </p>
           <div className="hd__cta">
             <a className="hd__btn" href={TELEGRAM_URL}>{t('cta_bot')}</a>

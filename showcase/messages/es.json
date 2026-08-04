@@ -69,7 +69,7 @@
     "kicker": "El único bot que hace las tres cosas",
     "h1": "El mejor precio, demostrado en cada operación.",
     "h1_accent": "sin gas",
-    "lead": "Cada proveedor que soporta tu ruta compite por la orden, en {chains} cadenas. Las claves siguen siendo tuyas en todo momento.",
+    "lead": "Cada proveedor que soporta tu ruta compite por la orden: {chains} cadenas, {venues} proveedores de ruteo compitiendo por cada cotización. Las claves siguen siendo tuyas en todo momento.",
     "cta_bot": "Empieza gratis",
     "cta_terminal": "Abrir Terminal",
     "byline_pre": "Creado por el autor de",

@@ -69,7 +69,7 @@
     "kicker": "Le seul bot qui fait les trois",
     "h1": "Le meilleur prix, prouvé à chaque transaction.",
     "h1_accent": "sans frais de gas",
-    "lead": "Chaque fournisseur qui prend en charge votre route se dispute l'ordre, sur {chains} chaînes. Vous gardez vos clés du début à la fin.",
+    "lead": "Chaque fournisseur qui prend en charge votre route se dispute l'ordre : {chains} chaînes, {venues} fournisseurs de routage mis en concurrence à chaque cotation. Vous gardez vos clés du début à la fin.",
     "cta_bot": "Commencer gratuitement",
     "cta_terminal": "Ouvrir le Terminal",
     "byline_pre": "Créé par l'auteur de",

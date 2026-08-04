@@ -69,7 +69,7 @@
     "kicker": "Now in open beta · 41 chains",
     "h1": "The best price, proven every trade.",
     "h1_accent": "No limits.",
-    "lead": "Every provider that supports your route competes for the order, across {chains} chains. You hold the keys the whole way.",
+    "lead": "Every venue that supports your route competes for the order: {chains} chains, {venues} routing venues raced per quote. You hold the keys the whole way.",
     "cta_bot": "Start trading free",
     "cta_terminal": "Open Terminal",
     "byline_pre": "Built by the author of",
