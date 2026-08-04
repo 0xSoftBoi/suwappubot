@@ -95,6 +95,25 @@ redis.call('EXPIRE', KEYS[1], math.ceil(window_s * 2))
 return {allowed, math.floor(tokens)}
 """
 
+# Debit unconditionally, creating the bucket if absent and allowing it to go
+# negative. Used to settle an overrun: the money is already spent, so the
+# deduction must land. _REFUND_LUA returns -1 without writing when the hash is
+# missing, which would silently DROP the debit.
+_FORCE_CONSUME_LUA = """
+local capacity = tonumber(ARGV[1])
+local amount   = tonumber(ARGV[2])
+local tokens   = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
+if tokens == nil then
+  tokens = capacity
+  local t = redis.call('TIME')
+  redis.call('HSET', KEYS[1], 'ts', t[1] * 1000 + math.floor(t[2] / 1000))
+end
+tokens = tokens - amount
+redis.call('HSET', KEYS[1], 'tokens', tokens)
+redis.call('EXPIRE', KEYS[1], 172800)
+return math.floor(tokens)
+"""
+
 # Return unspent reservation, never exceeding capacity.
 _REFUND_LUA = """
 local capacity = tonumber(ARGV[1])
@@ -218,13 +237,25 @@ class LLMBudget:
         """Deduct `micros` even if the bucket lacks them, allowing it to go
         negative. Used to settle an overrun: the money is already spent, so the
         deduction must land rather than being dropped because the bucket is
-        nearly empty. Implemented as a negative refund — `_REFUND_LUA` only
-        clamps at the TOP (capacity), never at zero.
+        nearly empty, absent, or Redis is unavailable.
         """
         micros = int(micros)
         if micros <= 0 or capacity_micros <= 0:
             return
-        await self.refund(key, -micros, capacity_micros)
+
+        client = self._client()
+        if client is not None:
+            try:
+                await client.eval(_FORCE_CONSUME_LUA, 1, key, capacity_micros, micros)
+                return
+            except Exception as e:
+                # Fall through to the in-memory bucket rather than dropping an
+                # already-incurred charge.
+                self._warn_degraded(f"force_consume: {e}")
+
+        now = time.time()
+        tokens, ts = self._memory.get(key, (float(capacity_micros), now))
+        self._memory[key] = (tokens - micros, ts)
 
     async def refund(self, key: str, micros: int, capacity_micros: int) -> None:
         """Return unspent reservation to the bucket. Best-effort, never raises.

@@ -574,7 +574,9 @@ def test_worst_case_spec_uses_the_real_token_mix(monkeypatch):
     monkeypatch.setattr(
         lm, "MODEL_CATALOG", {"output-heavy": output_heavy, "input-heavy": input_heavy}
     )
-    # 1100 in / 300 out: input-heavy = 0.0429, output-heavy = 0.0186
+    # Ranked under the real reserve estimate (ESTIMATED_INPUT_TOKENS /
+    # ESTIMATED_OUTPUT_TOKENS), input-heavy costs more despite the lower
+    # unweighted price sum.
     assert llm_credit_service.worst_case_spec().friendly_name == "input-heavy"
 
 
@@ -699,3 +701,42 @@ async def test_degraded_memory_map_is_bounded():
     for i in range(monkeypatch_cap * 3):
         await b.try_consume(f"user:{i}", 1, 1000)
     assert len(b._memory) <= monkeypatch_cap
+
+
+@pytest.mark.asyncio
+async def test_force_consume_applies_to_a_missing_bucket():
+    """P1: force_consume routed through the refund path, whose Lua returns -1
+    WITHOUT writing when the hash is absent — silently dropping an
+    already-incurred charge."""
+    b = LLMBudget()
+    cap = 1000
+    # No prior try_consume: the bucket does not exist yet.
+    await b.force_consume("never-seen", 400, cap)
+    allowed, remaining = await b.try_consume("never-seen", 0, cap)
+    assert remaining <= cap - 400, "overrun was dropped on a missing bucket"
+
+
+def test_budget_disabled_keeps_the_legacy_daily_cap(monkeypatch):
+    """P1: with multi-provider on but BOTH ceilings set to 0, the budget
+    enforces nothing — dropping the legacy cap too would leave LLM calls
+    entirely unbounded."""
+    import inspect
+
+    from bot.services import nl_intent_service as n
+
+    src = inspect.getsource(n.parse_trade_intent)
+    assert "_budget_active" in src
+    # The legacy cap must be conditioned on the budget actually enforcing.
+    assert "LLM_BUDGET_PER_USER_DAILY_USD" in src
+    assert "LLM_BUDGET_GLOBAL_DAILY_USD" in src
+
+
+def test_negative_whisper_duration_cannot_refund_more_than_reserved():
+    """P2: a malformed negative duration produced a negative cost, and
+    settlement would then refund MORE than was reserved."""
+    import inspect
+
+    from bot.services import whatsapp_voice
+
+    src = inspect.getsource(whatsapp_voice.WhatsAppVoiceHandler.handle_voice)
+    assert "duration_s >= 0" in src

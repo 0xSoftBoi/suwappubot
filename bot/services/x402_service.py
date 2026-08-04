@@ -735,16 +735,31 @@ class X402Service:
         back a balance computed before that debit, silently erasing it.
         """
         with get_session() as session:
-            credits = (
-                session.query(APICredit)
-                .filter(APICredit.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
 
+            def _locked():
+                return (
+                    session.query(APICredit)
+                    .filter(APICredit.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
+
+            credits = _locked()
             if not credits:
-                credits = APICredit(user_id=user_id)
-                session.add(credits)
+                # FOR UPDATE cannot lock a row that doesn't exist yet: two
+                # concurrent first-time grants both reach the INSERT and
+                # user_id is UNIQUE, so the loser raises IntegrityError. That
+                # would consume an on-chain payment without crediting it, so
+                # recover and re-read the winner's row under the lock.
+                try:
+                    credits = APICredit(user_id=user_id)
+                    session.add(credits)
+                    session.flush()
+                except IntegrityError:
+                    session.rollback()
+                    credits = _locked()
+                    if credits is None:
+                        raise
 
             credits.balance += amount
             credits.lifetime_purchased += amount

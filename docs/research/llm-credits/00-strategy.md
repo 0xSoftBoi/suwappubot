@@ -128,7 +128,7 @@ provider-capability gating, price-table staleness guard.
    catalog against LiteLLM's cost map (optional dep, never imported at bot runtime). 11 of 13
    models match exactly. Prices are still *authored* by hand — the checker only detects drift.
    `ModelSpec.price_deviation_reason` marks deliberate deviations so they don't fail CI.
-6. ~~Meter Whisper voice transcription.~~ Shipped: priced per audio-minute from an estimated
+4. ~~Meter Whisper voice transcription.~~ Shipped: priced per audio-minute from an estimated
    duration (deliberately low assumed bitrate, so it over-reserves), sharing
    `llm_credit_service.reserve_spend` with the token-priced path.
 

@@ -87,8 +87,17 @@ class WhatsAppVoiceHandler:
                 "Sorry, I couldn't transcribe your voice message. Please type your command instead."
             )
         actual_usd = est_usd
-        if duration_s is not None:
+        if duration_s is not None and duration_s >= 0:
             actual_usd = (duration_s / 60.0) * _WHISPER_USD_PER_MINUTE
+        elif duration_s is not None:
+            # A negative duration would produce a negative cost, and settlement
+            # would then refund MORE than was reserved — restoring a drained
+            # bucket. Keep the estimate instead.
+            logger.warning(
+                "whatsapp_voice: provider reported negative duration %s — "
+                "billing the estimate instead",
+                duration_s,
+            )
         await self._settle_transcription_budget(message.from_number, reserved_micros, actual_usd)
         self._log_transcription_cost(message.from_number, len(audio_bytes), actual_usd, duration_s)
 

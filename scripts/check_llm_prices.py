@@ -18,9 +18,14 @@ Usage:
     python3 scripts/check_llm_prices.py                  # default 5% threshold
     python3 scripts/check_llm_prices.py --threshold 10    # looser threshold
     python3 scripts/check_llm_prices.py --require-litellm # fail if litellm absent
+    python3 scripts/check_llm_prices.py --strict-completeness  # fail on models
+                                        # LiteLLM doesn't know (the signal a
+                                        # model was retired)
 
-Exit codes: 0 = no drift over threshold (or litellm unavailable, non-required),
-            1 = drift found, or --require-litellm and litellm is missing.
+Exit codes: 0 = no drift over threshold (or litellm unavailable and neither
+                --require-litellm nor --strict-completeness was passed),
+            1 = drift found; a model missing from LiteLLM under
+                --strict-completeness; or litellm missing under either gate.
 """
 
 from __future__ import annotations
@@ -140,7 +145,9 @@ def main() -> int:
             "(litellm is NOT a bot runtime dependency; it's only used by this script.)"
         )
         print(msg)
-        return 1 if args.require_litellm else 0
+        # --strict-completeness selects a hard gate; skipping every check
+        # because the optional dep is missing would make that gate a no-op.
+        return 1 if (args.require_litellm or args.strict_completeness) else 0
 
     rows = []
     drift_found = False

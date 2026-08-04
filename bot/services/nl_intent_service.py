@@ -513,7 +513,15 @@ async def _parse_with_openai_compatible(
 
 
 def _log_llm_cost(
-    *, user_key, spec, usage, raw_usd: float, metered: bool, wire_model=None, estimated=False
+    *,
+    user_key,
+    spec,
+    usage,
+    raw_usd: float,
+    metered: bool,
+    wire_model=None,
+    wire_provider=None,
+    estimated=False,
 ) -> None:
     """Emit one structured cost record per LLM call.
 
@@ -536,7 +544,7 @@ def _log_llm_cost(
     logger.info(
         "llm_cost provider=%s model=%s in=%d cached=%d cache_write=%d out=%d "
         "raw_usd=%s basis=%s metered=%s price_table=%s",
-        spec.provider if not estimated else "env",
+        wire_provider or spec.provider,
         logged_model,
         usage.input_tokens,
         usage.cached_read_tokens,
@@ -549,7 +557,7 @@ def _log_llm_cost(
         extra={
             "event": "llm_cost",
             "user_key": str(user_key),
-            "provider": "env" if estimated else spec.provider,
+            "provider": wire_provider or spec.provider,
             "model": logged_model,
             "input_tokens": usage.input_tokens,
             "cached_read_tokens": usage.cached_read_tokens,
@@ -659,7 +667,14 @@ async def parse_trade_intent(
     # could never be reached. The budget below is strictly better — shared
     # across replicas, survives deploys, and prices a flagship call at ~14x a
     # cheap one instead of counting both as "1".
-    if not settings.LLM_MULTI_PROVIDER_ENABLED and _llm_fallback_cap_exceeded(user_id):
+    # The budget only supersedes this cap when it is actually enforcing
+    # something. With both ceilings set to 0 the budget is disabled, so
+    # dropping the legacy cap too would leave LLM calls entirely unbounded.
+    _budget_active = settings.LLM_MULTI_PROVIDER_ENABLED and (
+        (settings.LLM_BUDGET_PER_USER_DAILY_USD or 0) > 0
+        or (settings.LLM_BUDGET_GLOBAL_DAILY_USD or 0) > 0
+    )
+    if not _budget_active and _llm_fallback_cap_exceeded(user_id):
         logger.info(
             "nl_intent_service: LLM fallback daily cap exceeded, degrading without LLM call",
             extra={"source": "fallback-capped"},
@@ -790,6 +805,7 @@ async def parse_trade_intent(
                     raw_usd=actual_usd,
                     metered=bool(spec is not None and spec.metered),
                     wire_model=model,
+                    wire_provider=provider,
                     estimated=spec is None,
                 )
             except Exception:
