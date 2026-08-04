@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import captured from '@/data/captured-quote.json';
 
 /**
  * LiveQuote: a real quote from the real router, in the hero.
@@ -12,11 +13,20 @@ import { useEffect, useState, useCallback } from 'react';
  *
  * `variant` only changes class names, so the three hero candidates can share
  * one implementation and one data path.
+ *
+ * Fallback: /api/quote 503s with no SUWAPPU_DEMO_KEY set (e.g. preview
+ * deploys) and can 502 if the upstream is down. Rather than show a dead
+ * error box to every visitor in that state, fall back to a real response
+ * captured manually from the production API (src/data/captured-quote.json)
+ * and label it "captured <date>" — never "live". If a pair somehow has no
+ * captured entry, this shows an honest "quote service unreachable" state
+ * instead of fabricating a number.
  */
 
 type Quote = {
   stale?: boolean;
   ageSeconds?: number;
+  captured?: boolean;
   from: { symbol: string; amount: string };
   to: { symbol: string; amount: string };
   chain: string;
@@ -27,6 +37,9 @@ type Quote = {
   dex: string;
   expiresIn: number;
 };
+
+const CAPTURED_QUOTES = captured.quotes as Record<string, Omit<Quote, 'captured'>>;
+const CAPTURED_AT = captured.capturedAt;
 
 const PAIRS = [
   { id: 'usdc-eth-base', label: '100 USDC to ETH' },
@@ -50,7 +63,16 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       setLeft(d.expiresIn ?? 60);
       setState('idle');
     } catch {
-      setState('error');
+      // Live proxy is down. Fall back to a real captured response rather
+      // than a dead error box, labelled honestly as not live.
+      const fallback = CAPTURED_QUOTES[p];
+      if (fallback) {
+        setQuote({ ...fallback, captured: true });
+        setLeft(0);
+        setState('idle');
+      } else {
+        setState('error');
+      }
     }
   }, []);
 
@@ -68,7 +90,11 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
   return (
     <div className={c}>
       <div className="lq__bar">
-        <span className="lq__title">{quote?.stale ? 'Last quote' : 'Live quote'}</span>
+        <span
+          className={`lq__title lq__title--${quote?.stale ? 'stale' : quote?.captured ? 'captured' : 'live'}`}
+        >
+          {quote?.stale ? 'Last quote' : quote?.captured ? 'Captured quote' : 'Live quote'}
+        </span>
         <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
       </div>
 
@@ -88,7 +114,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
 
       {state === 'error' && (
         <div className="lq__body lq__body--error">
-          <p>Could not reach the router just now.</p>
+          <p>Quote service unreachable.</p>
           <button className="lq__retry" onClick={() => load(pair)}>Try again</button>
         </div>
       )}
@@ -116,6 +142,12 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
               last quote, {quote.ageSeconds}s ago. Live quoting is paused.
             </p>
           )}
+          {quote.captured && (
+            // Never present a checked-in fixture as live either.
+            <p className="lq__stale">
+              captured {CAPTURED_AT} from api.suwappu.bot, not live right now.
+            </p>
+          )}
 
           <dl className="lq__grid">
             <div><dt>Best route</dt><dd>{quote.dex}</dd></div>
@@ -123,13 +155,16 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
             <div><dt>Price impact</dt><dd>{quote.priceImpact}</dd></div>
             <div>
               <dt>Quote expires</dt>
-              <dd className={left <= 10 ? 'lq__warn' : undefined}>
-                {left > 0 ? `${left}s` : 'expired'}
+              <dd className={!quote.captured && left <= 10 ? 'lq__warn' : undefined}>
+                {quote.captured ? '-' : left > 0 ? `${left}s` : 'expired'}
               </dd>
             </div>
           </dl>
 
-          {left <= 0 && (
+          {quote.captured && (
+            <button className="lq__retry" onClick={() => load(pair)}>Check live</button>
+          )}
+          {!quote.captured && left <= 0 && (
             <button className="lq__retry" onClick={() => load(pair)}>Get a fresh quote</button>
           )}
         </div>

@@ -118,7 +118,7 @@ export default function SummerFooter() {
 
       <div className="summer-footer__bottom">
         <span>&copy; 2026 Suwappu. All rights reserved.</span>
-        <span>Non-custodial where you bring your own keys. Crypto trading carries risk.</span>
+        <span>You sign every swap by default; bring your own keys for full self-custody. Crypto trading carries risk.</span>
       </div>
     </footer>
   );

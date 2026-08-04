@@ -22,6 +22,48 @@
   --sw-accent-wash: rgba(229, 141, 43, 0.08);
   --sw-accent-glow: rgba(229, 141, 43, 0.40);
 
+  /* Persimmon tint RAMP — one hue, stepped, so depth (borders, hovers,
+     tinted washes, stat numerals) doesn't have to fall back to a second
+     colour. accent/bright/deep/wash/glow above stay as the load-bearing
+     three-value system; these fill the gaps between them. */
+  --sw-accent-dark: #7A4413;
+  --sw-accent-muted: #BD7526;
+  --sw-accent-subtle: rgba(229, 141, 43, 0.22);
+  --sw-accent-faint: rgba(229, 141, 43, 0.11);
+  --sw-accent-fainter: rgba(229, 141, 43, 0.045);
+
+  /* ================================================================
+     PERSIMMON ORCHARD — brand-colour identity layer.
+     One job per colour, enforced everywhere it is used:
+       persimmon (above) = primary CTA + SWAP route coding + live highlights
+       leaf (below)       = secondary CTA + success/live/captured chips +
+                             micro-text strips + syntax strings + BRIDGE
+       cream (below)       = inverted surfaces/chips + oversized numerals +
+                             SIGN route coding
+     ================================================================ */
+
+  /* Soil — warm aubergine-brown dark base. Replaces the near-neutral black
+     used by .hd (homepage) and .sw-dark (inner pages): a tint shift, not a
+     brightness shift, so the page still reads dark and calm at a glance. */
+  --sw-soil-0: #1C1310;
+  --sw-soil-1: #241A15;
+
+  /* Leaf green ramp (P2) — desaturated jade, one hue stepped for text vs.
+     border vs. wash duty, the same shape as the persimmon ramp above.
+     -bright is the AA-safe step for body text on soil (9.8:1); base -leaf
+     is for icons/borders only (5.6:1, too tight for small text). */
+  --sw-leaf: #5E9C6F;
+  --sw-leaf-bright: #8FCC9E;
+  --sw-leaf-deep: #3E6B4F;
+  --sw-leaf-muted: #6BAF7C;
+  --sw-leaf-faint: rgba(94, 156, 111, 0.16);
+  --sw-leaf-fainter: rgba(94, 156, 111, 0.07);
+
+  /* Cream (P3, fruit flesh) — first-class token for the footer band's warm
+     white, reused for inverted chips and oversized stat numerals. */
+  --sw-cream: #FAF3E6;
+  --sw-cream-dim: #E4D9C4;
+
   /* Light register (content pages) */
   --sw-canvas: #FFFEFB;
   --sw-ink: #17324A;
@@ -34,6 +76,21 @@
   --sw-cosmic-2: #121B2E;
   --sw-cosmic-ink: #E8EEF6;
   --sw-cosmic-muted: #93A5BC;
+
+  /* Terminal / data-viz — syntax-style colours for LiveTerminal.tsx and
+     Terminal.tsx (command stream, sparkline, prompt caret). Kept as their
+     own semantic group rather than forced onto the brand ramps above:
+     these are chart/console conventions (sky = command, green = success/
+     up, amber = gas/warning), not brand accents. Values unchanged from the
+     hardcoded hex previously inline in the components — this is a token
+     refactor, not a recolor. */
+  --sw-term-cmd: #7dd3fc;    /* sky-300 — typed command / prompt caret */
+  --sw-term-out: #8b9aa6;    /* neutral output text */
+  --sw-term-ok: #4ade80;     /* green-400 — success / filled / up */
+  --sw-term-gas: #fbbf24;    /* amber-400 — gas / sponsored */
+  --sw-term-input: #93c5fd;  /* blue-300 — SDK input line / caret */
+  --sw-term-success: #86efac; /* green-300 — SDK success line */
+  --sw-term-output: #d4d4d8;  /* zinc-300 — SDK output line */
 
   /* Hairlines */
   --sw-hairline: rgba(23, 50, 74, 0.10);
@@ -52,6 +109,14 @@
   --sw-r-md: 14px;
   --sw-r-lg: 20px;
   --sw-r-pill: 999px;
+
+  /* Button silhouette — the site's one consistent CTA shape: top-left and
+     bottom-right corners cut at 45°. Applied to every button-styled CTA
+     (nav, hero, in-page) so the shape reads as identity, not decoration on
+     one page. Kept small enough to still work at the 36px-tall nav size. */
+  --btn-cut: polygon(
+    9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px
+  );
 
   /* Rhythm (4px base grid) */
   --sw-section: clamp(64px, 8vw, 112px);
@@ -366,11 +431,13 @@ h2 {
 
 .summer-nav__cta {
   justify-self: end;
-  padding: 0 14px;
+  padding: 0 16px 0 14px;
   border: 1px solid #d17a1e;
   color: #17324a;
   background: linear-gradient(180deg, #f6a93c, #e58d2b);
   box-shadow: 0 8px 18px rgba(229, 141, 43, 0.24);
+  /* Shared CTA silhouette, see --btn-cut in the tokens block above. */
+  clip-path: var(--btn-cut);
 }
 
 /* Secondary header CTA (e.g. Open Terminal next to the solid Open Bot) */
@@ -379,6 +446,14 @@ h2 {
   background: rgba(255, 255, 255, 0.62);
   border-color: rgba(13, 149, 189, 0.4);
   box-shadow: none;
+  clip-path: var(--btn-cut);
+}
+
+/* clip-path clips the page-wide outer ring (--sw-focus draws outside the
+   border box), so these two need their own inset ring to stay visible. */
+.summer-nav__cta:focus-visible,
+.summer-nav__cta--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 /* ── Features grid (ported from the old homepage into the Summer Breeze design) ── */
@@ -3014,10 +3089,17 @@ button:focus:not(:focus-visible) {
   background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
   border: 1px solid var(--sw-accent-deep);
   padding: 0.875rem 1.25rem;
-  border-radius: var(--sw-r-pill);
+  /* Same silhouette as every other CTA on the site — was a full pill, which
+     read as a second, unrelated button family next to the nav/hero shape. */
+  clip-path: var(--btn-cut);
   text-decoration: none;
   margin-top: 1rem;
   transition: background 0.16s var(--sw-ease), transform 0.16s var(--sw-ease);
+}
+
+.nav__drawer-cta:focus-visible,
+.nav__drawer-cta--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 .nav__drawer-cta:hover {
@@ -3033,6 +3115,7 @@ button:focus:not(:focus-visible) {
   background: transparent;
   border-color: var(--sw-hairline-strong);
   margin-top: 0.6rem;
+  clip-path: var(--btn-cut);
 }
 
 .nav__drawer-cta--ghost:hover {
@@ -5234,11 +5317,21 @@ button:focus:not(:focus-visible) {
 .legal-page a { color: var(--suwappu-summer-accent); }
 @media (max-width: 640px) { .legal-page__card { padding: 1.75rem 1.5rem; } }
 
-/* Footer */
+/* Footer — inverted-cream band (backlog item 6). Derives from the same
+   --sw-cream family as chips/stat washes instead of a white/sky mix, so the
+   footer joins the persimmon-orchard palette. The gradient stays inside the
+   lightest 20% of the cream->cream-dim range (contrast-checked against
+   --summer-muted body text: >=4.6:1 at the darkest stop) so text reads
+   cleanly top to bottom, including the legal/bottom bands lower in the
+   element. */
 .summer-footer {
   margin-top: 2.5rem;
-  border-top: 1px solid var(--sw-hairline);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(237, 248, 250, 0.7));
+  border-top: 1px solid var(--sw-cream-dim);
+  background: linear-gradient(
+    180deg,
+    var(--sw-cream) 0%,
+    color-mix(in srgb, var(--sw-cream) 80%, var(--sw-cream-dim) 20%) 100%
+  );
 }
 .summer-footer__inner {
   max-width: 1180px;
@@ -5314,7 +5407,9 @@ button:focus:not(:focus-visible) {
   flex: 1;
   min-width: 0;
   padding: 9px 12px;
-  border: 1px solid var(--summer-line);
+  /* Warm cream-family border instead of the sky-tinted --summer-line, so the
+     input doesn't clash against the retinted cream footer band. */
+  border: 1px solid var(--sw-cream-dim);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.7);
   color: var(--summer-ink);
@@ -7490,14 +7585,14 @@ a.summer-button:active,
   --suwappu-summer-muted: #A1A1A1;
   --suwappu-summer-line: rgba(255, 255, 255, 0.08);
   --suwappu-summer-line-strong: rgba(255, 255, 255, 0.14);
-  --suwappu-summer-canvas: #0A0A0A;
-  --suwappu-summer-canvas-warm: #0A0A0A;
-  --suwappu-summer-canvas-cool: #131313;
+  --suwappu-summer-canvas: var(--sw-soil-0);
+  --suwappu-summer-canvas-warm: var(--sw-soil-0);
+  --suwappu-summer-canvas-cool: var(--sw-soil-1);
   --suwappu-summer-panel: rgba(255, 255, 255, 0.03);
   --suwappu-summer-panel-strong: rgba(255, 255, 255, 0.05);
-  --suwappu-summer-shell-background: #0A0A0A;
-  --suwappu-summer-panel-background: #131313;
-  --suwappu-summer-inset-background: #131313;
+  --suwappu-summer-shell-background: var(--sw-soil-0);
+  --suwappu-summer-panel-background: var(--sw-soil-1);
+  --suwappu-summer-inset-background: var(--sw-soil-1);
   --suwappu-summer-card-background: rgba(255, 255, 255, 0.015);
   --suwappu-summer-control-background: rgba(255, 255, 255, 0.04);
   --suwappu-summer-control-background-hover: rgba(255, 255, 255, 0.07);
@@ -7508,17 +7603,21 @@ a.summer-button:active,
   --sw-ink: #FAFAFA;
   --sw-muted: #A1A1A1;
 
-  background: #0A0A0A;
+  background: var(--sw-soil-0);
   color: #FAFAFA;
   font-variant-numeric: tabular-nums;
 }
 
 /* The shell gradient is a hardcoded light stack. */
 .sw-dark.summer-page,
-.sw-dark .summer-page { background: #0A0A0A; }
+.sw-dark .summer-page { background: var(--sw-soil-0); }
 
 /* Headings and body copy that hardcode the light ink. */
 .sw-dark h1, .sw-dark h2, .sw-dark h3, .sw-dark h4 { color: #FAFAFA; }
+/* Cream footer exception: headings inside the footer keep warm ink even in dark context. */
+.sw-dark .summer-footer h1, .sw-dark .summer-footer h2, .sw-dark .summer-footer h3, .sw-dark .summer-footer h4,
+.sw-dark .summer-footer p, .sw-dark .summer-footer label { color: var(--summer-ink); }
+.sw-dark .summer-footer p, .sw-dark .summer-footer .summer-footer__col a { color: var(--summer-muted); }
 .sw-dark p, .sw-dark li, .sw-dark dd { color: #A1A1A1; }
 .sw-dark strong, .sw-dark b { color: #FAFAFA; }
 
@@ -7538,7 +7637,7 @@ a.summer-button:active,
 /* Nav sits outside main, so the page shell tints it directly. */
 .sw-dark-nav .summer-nav,
 body:has(.sw-dark) .nav {
-  background: rgba(10, 10, 10, 0.72);
+  background: rgba(28, 19, 16, 0.72);
   border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -7548,13 +7647,13 @@ body:has(.sw-dark) .nav__link:hover,
 body:has(.sw-dark) .nav__link--active { color: #FAFAFA; }
 body:has(.sw-dark) .nav__cta--ghost { color: #FAFAFA; border-color: rgba(255,255,255,0.16); }
 body:has(.sw-dark) .nav__panel {
-  background: rgba(19, 19, 19, 0.97);
+  background: rgba(36, 26, 21, 0.97);
   border-color: rgba(255, 255, 255, 0.12);
 }
 body:has(.sw-dark) .nav__panel-title { color: #FAFAFA; }
 body:has(.sw-dark) .nav__panel-desc { color: #A1A1A1; }
 body:has(.sw-dark) .nav__panel-link:hover { background: rgba(255,255,255,0.06); }
-body:has(.sw-dark) .nav__drawer { background: #131313; }
+body:has(.sw-dark) .nav__drawer { background: var(--sw-soil-1); }
 body:has(.sw-dark) .nav__drawer-link,
 body:has(.sw-dark) .nav__drawer-toggle { color: #FAFAFA; }
 body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
@@ -7573,16 +7672,19 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
   color: #17324A;
 }
 
-/* Secondary buttons stay outlined, but must read on near-black. */
+/* Secondary buttons stay outlined, but must read on near-black. Leaf is the
+   secondary-CTA colour everywhere on the site (see PERSIMMON ORCHARD block
+   above) — persimmon stays reserved for the primary fill. */
 .sw-dark .summer-button--secondary {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #FAFAFA;
+  border: 1px solid var(--sw-leaf-deep);
+  color: var(--sw-leaf-bright);
 }
 
 .sw-dark .summer-button--secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #FAFAFA;
+  background: var(--sw-leaf-fainter);
+  border-color: var(--sw-leaf);
+  color: var(--sw-leaf-bright);
 }
 
 /* Hardcoded white surfaces, remapped for the dark register. Generated by
@@ -7809,4 +7911,19 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
   font-size: 0.75rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* Footer token scope: the footer is always the cream band, so its ink/muted/
+   hairline tokens must resolve to warm-dark values even when the page wraps it
+   in a dark context (.sw-dark redefines --summer-* for dark surfaces, which
+   went light-on-light after the cream retint). Persimmon-orchard warm ink. */
+.summer-footer {
+  --summer-ink: #2b1d12;
+  --summer-muted: #6e5b49;
+  --sw-hairline: rgba(43, 29, 18, 0.16);
+}
+.summer-footer__logo,
+.summer-footer__logo span {
+  color: var(--summer-ink);
+  text-decoration: none;
 }

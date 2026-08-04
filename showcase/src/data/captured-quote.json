@@ -1,0 +1,39 @@
+{
+  "_comment": "Real quote responses from POST https://api.suwappu.bot/v1/agent/quote, captured manually via a throwaway registered demo agent (id c2da7bd7-7ec2-4a4c-bb33-2edbe739eccc). Used only as a fallback when the live proxy at /api/quote is unreachable (no SUWAPPU_DEMO_KEY set, or the upstream is down). Never edit these numbers by hand — recapture with the same three requests if they go stale.",
+  "capturedAt": "2026-08-04",
+  "quotes": {
+    "usdc-eth-base": {
+      "from": { "symbol": "USDC", "amount": "100" },
+      "to": { "symbol": "ETH", "amount": "0.053066" },
+      "chain": "Base",
+      "rate": "0.000531",
+      "priceImpact": "0.68%",
+      "gasUsd": "$0.01",
+      "route": "Integrator Fee → Kyberswap",
+      "dex": "Li.Fi",
+      "expiresIn": 60
+    },
+    "eth-usdc-base": {
+      "from": { "symbol": "ETH", "amount": "0.1" },
+      "to": { "symbol": "USDC", "amount": "185.081828" },
+      "chain": "Base",
+      "rate": "1850.818280",
+      "priceImpact": "1.12%",
+      "gasUsd": "$0.01",
+      "route": "Integrator Fee → Fly",
+      "dex": "Li.Fi",
+      "expiresIn": 60
+    },
+    "usdc-sol-solana": {
+      "from": { "symbol": "USDC", "amount": "100" },
+      "to": { "symbol": "SOL", "amount": "1.356229" },
+      "chain": "Solana",
+      "rate": "0.013562",
+      "priceImpact": "0%",
+      "gasUsd": "—",
+      "route": "AlphaQ -> GoonFi V2",
+      "dex": "Jupiter",
+      "expiresIn": 60
+    }
+  }
+}

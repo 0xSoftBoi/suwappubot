@@ -25,7 +25,7 @@ export default function StructuredData() {
         'REST API with OpenAPI spec',
         'Telegram trading bot',
         'MEV-shielded routing',
-        'Non-custodial execution',
+        'User-signed execution with TEE-backed and self-custody key options',
       ],
     },
     // Organization
@@ -76,10 +76,10 @@ export default function StructuredData() {
         },
         {
           '@type': 'Question',
-          name: 'Is Suwappu non-custodial?',
+          name: 'Who holds the keys on Suwappu?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API: the non-custodial path is always available.',
+            text: 'By default you sign every swap yourself. Managed-wallet keys are secured by envelope encryption (kms_aesgcm_v2) or signed inside a hardware-backed TEE via Turnkey, never as a plaintext key Suwappu can read. Bring your own keys via the agent API for full self-custody.',
           },
         },
         {
