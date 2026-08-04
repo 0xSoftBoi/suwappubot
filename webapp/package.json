@@ -16,7 +16,7 @@
     "test:all": "bun run test && bun run test:integration"
   },
   "dependencies": {
-    "@p2pdotme/sdk": "^1.2.6",
+    "@p2pdotme/sdk": "^1.2.8",
     "@suwappu/design-tokens": "file:../packages/design-tokens",
     "@tanstack/react-query": "^5.101.4",
     "@turnkey/sdk-browser": "^5.15.1",
@@ -51,8 +51,8 @@
     "@vitest/coverage-v8": "^4.1.9",
     "happy-dom": "^20.11.1",
     "jsdom": "^29.0.1",
-    "playwright": "^1.62.0",
-    "postcss": "^8.5.24",
+    "playwright": "^1.62.1",
+    "postcss": "^8.5.25",
     "storybook": "^10.1.11",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.6.3",
