@@ -120,7 +120,7 @@
   font-size: clamp(2.1rem, 4.2vw, 3.1rem);
   line-height: 1.1;
   letter-spacing: -0.005em;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--fg);
   max-width: 20ch;
 }
@@ -865,7 +865,7 @@
    copy. A large object centred behind centred text just reads as noise. */
 .hd__hero--split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 41%);
   grid-template-areas: 'copy object' 'rail rail';
   align-items: center;
   column-gap: clamp(1.5rem, 4vw, 3.5rem);

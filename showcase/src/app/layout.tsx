@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Geist, Instrument_Serif, JetBrains_Mono } from 'next/font/google';
+import { Geist, EB_Garamond, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -27,11 +27,14 @@ const jetbrainsMono = JetBrains_Mono({
 
 // Display-only serif: hero + section headlines and the A2A pull-quote on the
 // homepage. Never used for body copy or UI — Geist and JetBrains Mono keep
-// carrying those. Instrument Serif ships one weight (400) with a true
-// italic, which is what the pull-quote treatment needs.
-const instrumentSerif = Instrument_Serif({
+// carrying those. EB Garamond is a warm old-style face chosen over the
+// LLM-default display serifs after an A/B render of the real headline copy
+// (see docs/design/serif-decision.md): it matches the warm soil/persimmon
+// palette, keeps the pull-quote on one line, and ships a weight axis so
+// display type can carry 500 against dark without faking bold.
+const displaySerif = EB_Garamond({
   subsets: ['latin'],
-  weight: '400',
+  weight: ['400', '500'],
   style: ['normal', 'italic'],
   variable: '--font-serif',
   display: 'swap',
@@ -118,7 +121,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}>
+    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${displaySerif.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />

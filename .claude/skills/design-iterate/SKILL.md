@@ -71,12 +71,17 @@ Append anything unfixed to `docs/design/backlog.md` with a one-line repro.
    label. Replace with period/comma restructures.
 2. Eyebrow overuse: 6 eyebrows, several on consecutive sections. Keep hero + 2 strongest
    (Proof-not-promises, Security); drop the rest - headlines carry the meaning.
-3. Serif choice: Instrument Serif is on the taste-skill banned-default list. Evaluate a
-   swap to a rotation-pool serif (or keep with explicit justification note in visual-study).
-4. Micro-text strips (QUOTE - SIMULATE - SIGN): borderline "decoration text strip" tell.
-   Keep only if it reads as semantic product-stage wayfinding; consider limiting to one.
-5. Vendor-chip categorization (needs verified DEX/bridge/aggregator source first).
-6. Footer band literal-cream retint (deferred from color pass).
+3. DONE (iter 4): serif swapped to EB Garamond after an A/B render. See
+   docs/design/serif-decision.md, including the hero-wrap consequences.
+4. DONE (iter 2): micro-strips reduced to one placement.
+5. DONE (iter 3): vendor chips classified from bot service code, 6 bridge / 5 dex / 8 aggregator.
+6. DONE (iter 3): footer cream retint, incl. dark-context contrast fixes.
+
+Open:
+7. Hero at 390px now wraps to 3 lines after the serif swap (in-rule, desktop-only cap)
+   but worth an eye: consider a mobile-specific clamp if it crowds the demo card.
+8. Consider a 500-weight pass over remaining serif usages (.sw__vendors-big, .stages__chain)
+   for optical consistency with the new h1/h2 weight.
 
 ## Rubric v2 (from design-engineering research, 2026-08-04)
 Additional checkable criteria for Lens A/B (sources: Emil Kowalski's animation tips,

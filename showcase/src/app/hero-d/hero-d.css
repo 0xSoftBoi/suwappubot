@@ -71,11 +71,11 @@
   position: relative;
   margin: 0;
   font-family: var(--font-serif);
-  font-size: clamp(3.1rem, 7.4vw, 5.75rem);
+  font-size: clamp(3rem, 7vw, 5.6rem);
   line-height: 1.02;
   /* Display serifs need air, not the sans register's tight negative tracking. */
   letter-spacing: -0.005em;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--fg);
   max-width: 17ch;
 }
