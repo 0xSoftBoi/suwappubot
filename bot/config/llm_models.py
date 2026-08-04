@@ -86,6 +86,21 @@ class ModelSpec:
 # Friendly name -> ModelSpec. Prices in USD per 1M tokens, verified 2026-08-04.
 MODEL_CATALOG: dict = {
     # --- FREE tier: cheapest models, the default is unmetered -------------
+    # Declared first so `resolve_model`'s last-resort "first usable entry" rule
+    # lands here in production, where GROQ_API_KEY is the only provider key set.
+    # Left UNMETERED on purpose: the legacy NL path already runs this exact
+    # model on Groq for free, so metering it would start debiting api_credits
+    # for a parse users get free today. Revenue comes from the paid tiers below.
+    "llama-3.3-70b": ModelSpec(
+        friendly_name="llama-3.3-70b",
+        provider="groq",
+        model_id="llama-3.3-70b-versatile",  # confirmed live in /v1/models
+        min_tier=SubscriptionTier.FREE,
+        # groq.com/pricing, verified 2026-08-04.
+        price_per_1m_input_usd=0.59,
+        price_per_1m_output_usd=0.79,
+        metered=False,  # matches today's free NL parse; rides NL_LLM_FALLBACK_* caps
+    ),
     "deepseek-flash": ModelSpec(
         friendly_name="deepseek-flash",
         provider="deepseek",
@@ -93,7 +108,9 @@ MODEL_CATALOG: dict = {
         min_tier=SubscriptionTier.FREE,
         price_per_1m_input_usd=0.14,
         price_per_1m_output_usd=0.28,
-        metered=False,  # the free default — covered by the daily fallback caps
+        # No longer the default (see DEFAULT_MODEL_NAME), so it meters like
+        # every other selectable model — the invariant is one unmetered entry.
+        metered=True,
         # Automatic caching, 64-token granularity, so our ~794-token prefix
         # DOES cache here. Hits cost ~0.02x of a miss. No write premium.
         cache_read_multiplier=0.02,
@@ -223,7 +240,13 @@ MODEL_CATALOG: dict = {
     ),
 }
 
-DEFAULT_MODEL_NAME = "deepseek-flash"
+# The one unmetered entry: the free parse every user gets without spending
+# credits. Groq, because GROQ_API_KEY is the only provider key configured in
+# production and the legacy NL path already serves this exact model for free —
+# making deepseek-flash the default would resolve to nothing deployable.
+# Exposure is bounded by NL_LLM_FALLBACK_PER_USER_DAILY / _GLOBAL_DAILY rather
+# than by price, so the "cheap default" rule holds via the caps.
+DEFAULT_MODEL_NAME = "llama-3.3-70b"
 
 
 def price_table_age_days(today: Optional[date] = None) -> int:

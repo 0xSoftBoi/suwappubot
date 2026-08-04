@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from database.db import Base
 from bot.config import llm_models
-from bot.config.llm_models import MODEL_CATALOG, ModelSpec, resolve_model
+from bot.config.llm_models import DEFAULT_MODEL_NAME, MODEL_CATALOG, ModelSpec, resolve_model
 from bot.models.subscription import APICredit, Subscription, SubscriptionTier
 from bot.models.user import User
 from bot.services import llm_credit_service
@@ -240,10 +240,19 @@ async def test_record_usage_zero_usage_debits_estimate(db_session_factory, monke
 
 def test_billing_gates_on_metered_flag_not_tier():
     """Regression: FREE-selectable but expensive models must be metered; only
-    the cheap default rides the daily caps for free."""
-    assert MODEL_CATALOG["deepseek-flash"].metered is False
+    the default rides the daily caps for free.
+
+    Keyed off DEFAULT_MODEL_NAME rather than a hardcoded entry so the invariant
+    survives changing which model is the default — what must stay true is that
+    there is exactly ONE unmetered entry and it is the default.
+    """
+    assert MODEL_CATALOG[DEFAULT_MODEL_NAME].metered is False
+    unmetered = [n for n, s in MODEL_CATALOG.items() if not s.metered]
+    assert unmetered == [
+        DEFAULT_MODEL_NAME
+    ], f"exactly one unmetered model expected, got {unmetered}"
     for name, spec in MODEL_CATALOG.items():
-        if name != "deepseek-flash":
+        if name != DEFAULT_MODEL_NAME:
             assert spec.metered, f"{name} must be metered"
 
 
