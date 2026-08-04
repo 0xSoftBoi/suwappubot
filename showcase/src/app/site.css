@@ -196,7 +196,7 @@
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.32rem 0.7rem;
-  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+  transition: border-color 0.18s var(--sw-ease), background 0.18s var(--sw-ease), color 0.18s var(--sw-ease);
 }
 
 .sw__chips li:hover {
@@ -271,7 +271,7 @@
   border-radius: var(--r);
   text-decoration: none;
   background: rgba(255, 255, 255, 0.015);
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition: background 0.18s var(--sw-ease), border-color 0.18s var(--sw-ease);
 }
 
 .sw__surface:hover {
@@ -304,7 +304,7 @@
   display: inline-block;
   margin-top: 1rem;
   color: var(--fg-faint);
-  transition: transform 0.18s ease, color 0.18s ease;
+  transition: transform 0.18s var(--sw-ease), color 0.18s var(--sw-ease);
 }
 
 .sw__surface:hover .sw__arrow { transform: translateX(3px); color: var(--fg); }
@@ -891,7 +891,7 @@
   align-items: baseline;
   padding: 0.35rem 0.4rem;
   border-radius: 6px;
-  transition: background 0.25s ease, color 0.25s ease;
+  transition: background 0.25s var(--sw-ease), color 0.25s var(--sw-ease);
 }
 
 /* Active-row highlight is a neutral wash — the semantic colour lives on the
@@ -1124,7 +1124,7 @@
   text-decoration: none;
 }
 
-.sw__proof-link span { transition: transform 0.18s ease; }
+.sw__proof-link span { transition: transform 0.18s var(--sw-ease); }
 .sw__proof-link:hover span { transform: translateX(3px); }
 .sw__proof-link:hover { color: var(--accent); }
 
@@ -1187,4 +1187,17 @@
 @media (max-width: 560px) {
   .sw__proof-fields { grid-template-columns: 1fr; }
   .sw__cmds--security > div { grid-template-columns: 1fr; gap: 0.3rem; }
+}
+
+/* Press feedback (rubric v2): tactile :active on every clickable. Transform-only,
+   so it stays GPU-cheap; skipped under forced reduced motion via the media gate. */
+@media (prefers-reduced-motion: no-preference) {
+  .hd__btn:active,
+  .summer-nav__cta:active,
+  .summer-button:active,
+  .lq__pair:active,
+  .lq__check:active,
+  .sw__proof-link:active {
+    transform: translateY(1px) scale(0.98);
+  }
 }

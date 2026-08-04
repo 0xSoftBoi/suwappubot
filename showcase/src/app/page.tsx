@@ -380,7 +380,6 @@ export default async function Home() {
           </Reveal>
         </section>
 
-        <div className="sw__microstrip" aria-hidden="true"><span>{MICRO_STRIP}</span></div>
 
         {/* ── Proof, not promises ──────────────────────────────── */}
         <section className="sw__sec" aria-label="Live artifacts you can check yourself">
