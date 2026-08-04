@@ -28,6 +28,12 @@ export const revalidate = 60;
 
 /* ── Verified facts. Numbers come from stats.generated.json, never inline. ── */
 
+/** Symbols in the TOKENS map in bot/config/tokens.py — `len(TOKENS)`, which the
+ *  bot logs at boot as "Preloaded N chains and N tokens". Single source for the
+ *  four places this count appears below; re-check it against a boot log, not by
+ *  grepping the file (nested address maps make a naive grep undercount). */
+const TOKEN_COUNT = 58;
+
 /** Mirrors the TOOLS registry in api-ts/src/routes/mcp.ts. */
 const MCP_TOOLS = [
   'get_quote', 'simulate_swap', 'execute_swap', 'get_swap_status', 'get_swap_history',
@@ -49,10 +55,9 @@ const RAIL = [
  *  decision, Simulate is the cross-chain middle step, Sign is literal. */
 const ENGINE = [
   {
-    // Token count from bot/config/tokens.py (53 symbols registered).
     k: 'Quote',
     role: 'swap',
-    d: `Every venue that supports your route quotes it: ${productStats.routerCount} venues covering 53 tokens, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
+    d: `Every venue that supports your route quotes it: ${productStats.routerCount} venues covering ${TOKEN_COUNT} tokens, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
   },
   {
     k: 'Simulate',
@@ -102,8 +107,7 @@ const PERPS = [
 const BIG_STATS = [
   { v: String(productStats.platformChains), l: 'chains', d: 'Bot and terminal surface, testnets excluded.' },
   { v: String(productStats.routerCount), l: 'venues', d: 'Quote providers raced per swap, chain-gated.' },
-  // 53 distinct symbols registered in bot/config/tokens.py.
-  { v: '53', l: 'tokens', d: 'Symbols registered across every supported chain.' },
+  { v: String(TOKEN_COUNT), l: 'tokens', d: 'Symbols registered across every supported chain.' },
   { v: String(MCP_TOOLS.length), l: 'MCP tools', d: 'One remote server, callable by any agent.' },
 ];
 
@@ -112,7 +116,7 @@ const BIG_STATS = [
 const SCALE_ROW = [
   { v: String(productStats.routerCount), l: 'venues routed' },
   { v: String(productStats.platformChains), l: 'chains' },
-  { v: '53', l: 'tokens listed' },
+  { v: String(TOKEN_COUNT), l: 'tokens listed' },
   { v: String(MCP_TOOLS.length), l: 'MCP tools' },
   { v: '4', l: 'languages' },
 ];
@@ -221,7 +225,7 @@ const FAQ = [
   },
   {
     q: 'Which chains and venues are covered?',
-    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing venues raced per quote across 53 tokens (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Venues are chain-gated: a single swap only races the subset that actually supports its route, never the full list.`,
+    a: `${productStats.platformChains} chains today, with ${productStats.routerCount} routing venues raced per quote across ${TOKEN_COUNT} tokens (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole and others). Venues are chain-gated: a single swap only races the subset that actually supports its route, never the full list.`,
   },
   {
     q: 'How does an agent integrate?',
