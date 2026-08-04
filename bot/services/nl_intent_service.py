@@ -512,6 +512,44 @@ async def _parse_with_openai_compatible(
         return _fallback(), _openai_usage(response)
 
 
+def _log_llm_cost(*, user_key, spec, usage, raw_usd: float, metered: bool) -> None:
+    """Emit one structured cost record per LLM call.
+
+    This is the raw material for reconciling our metering against the
+    provider's invoice — the "our metering said X, the bill said Y" check.
+    Includes the price-table version because a stale table is one of the main
+    sources of drift. See docs/research/llm-credits/04-metering-architecture.md §5.
+    """
+    from bot.config.llm_models import PRICE_TABLE_VERIFIED
+
+    logger.info(
+        "llm_cost provider=%s model=%s in=%d cached=%d cache_write=%d out=%d "
+        "raw_usd=%.8f metered=%s price_table=%s",
+        spec.provider,
+        spec.model_id,
+        usage.input_tokens,
+        usage.cached_read_tokens,
+        usage.cache_write_tokens,
+        usage.output_tokens,
+        raw_usd,
+        metered,
+        PRICE_TABLE_VERIFIED.isoformat(),
+        extra={
+            "event": "llm_cost",
+            "user_key": str(user_key),
+            "provider": spec.provider,
+            "model": spec.model_id,
+            "input_tokens": usage.input_tokens,
+            "cached_read_tokens": usage.cached_read_tokens,
+            "cache_write_tokens": usage.cache_write_tokens,
+            "output_tokens": usage.output_tokens,
+            "raw_cost_usd": raw_usd,
+            "metered": metered,
+            "price_table_version": PRICE_TABLE_VERIFIED.isoformat(),
+        },
+    )
+
+
 def _is_preflight_failure(exc: BaseException) -> bool:
     """True only when the request provably never reached the provider.
 
@@ -641,11 +679,32 @@ async def parse_trade_intent(
     # Applies to every catalog model — even a free-to-the-user call costs the
     # platform money.
     reserved_micros = 0
-    if spec is not None and user_ctx is not None:
+    budget_user_key = None
+    budget_spec = spec
+    budget_tier = user_ctx.tier if user_ctx is not None else None
+    if settings.LLM_MULTI_PROVIDER_ENABLED:
         from bot.services import llm_credit_service
 
+        if spec is not None and user_ctx is not None:
+            budget_user_key = user_ctx.db_user_id
+        else:
+            # Resolution fell through to the legacy env-provider path — an
+            # unknown user, or a transient DB error swallowed by
+            # _resolve_user_model. That path previously had NO budget and NO
+            # metering, so a database blip silently converted the fleet to
+            # unmetered LLM calls. Budget it anyway: key off the Telegram id
+            # (namespaced so it can't collide with a db user id) and reserve
+            # against the priciest catalog model, since the real cost basis
+            # is unknown here.
+            budget_user_key = f"tg:{user_id}"
+            budget_spec = llm_credit_service.worst_case_spec()
+            logger.warning(
+                "nl_intent_service: LLM call on the legacy env-provider path — "
+                "budgeting conservatively, no per-user credit metering applies"
+            )
+
         allowed, reserved_micros = await llm_credit_service.reserve_budget(
-            user_ctx.db_user_id, spec, user_ctx.tier
+            budget_user_key, budget_spec, budget_tier
         )
         if not allowed:
             # Degrade rather than wall: a trading bot that stops understanding
@@ -673,13 +732,12 @@ async def parse_trade_intent(
         # provably pre-flight failure (never reached the provider) is refunded;
         # everything else keeps the conservative reservation, which is exactly
         # what it was reserved for.
-        if reserved_micros and spec is not None and user_ctx is not None:
+        if reserved_micros and budget_user_key is not None and _is_preflight_failure(exc):
             from bot.services import llm_credit_service
 
-            if _is_preflight_failure(exc):
-                await llm_credit_service.settle_budget(
-                    user_ctx.db_user_id, reserved_micros, 0.0, user_ctx.tier
-                )
+            await llm_credit_service.settle_budget(
+                budget_user_key, reserved_micros, 0.0, budget_tier
+            )
         return _fallback()
 
     # MONEY-PATH: meter metered catalog models against api_credits, and settle
@@ -687,7 +745,7 @@ async def parse_trade_intent(
     # record_usage; the parsed intent is still returned — provider tokens are
     # already spent, and eating the user's parse on an internal accounting
     # error would double the damage.
-    if spec is not None and user_ctx is not None:
+    if budget_user_key is not None:
         from bot.services import llm_credit_service
 
         try:
@@ -700,15 +758,24 @@ async def parse_trade_intent(
                 llm_credit_service.ESTIMATED_INPUT_TOKENS,
                 llm_credit_service.ESTIMATED_OUTPUT_TOKENS,
             )
-            actual_usd = llm_credit_service.raw_cost_usd(spec, billable)
+            actual_usd = llm_credit_service.raw_cost_usd(budget_spec, billable)
+            _log_llm_cost(
+                user_key=budget_user_key,
+                spec=budget_spec,
+                usage=billable,
+                raw_usd=actual_usd,
+                metered=bool(spec is not None and spec.metered),
+            )
             try:
-                if spec.metered:
+                # The ledger only ever charges a real, resolved catalog model
+                # to a real DB user — never the legacy path's stand-in spec.
+                if spec is not None and user_ctx is not None and spec.metered:
                     await llm_credit_service.record_usage(user_ctx.db_user_id, spec, billable)
             except Exception:
                 logger.exception("nl_intent_service: record_usage failed after LLM call")
             finally:
                 await llm_credit_service.settle_budget(
-                    user_ctx.db_user_id, reserved_micros, actual_usd, user_ctx.tier
+                    budget_user_key, reserved_micros, actual_usd, budget_tier
                 )
         except Exception:
             # parse_trade_intent must never raise (module contract).

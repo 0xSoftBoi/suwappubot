@@ -22,6 +22,12 @@ WHISPER_MODEL = "whisper-1"
 # Maximum audio size we'll accept (25 MB — OpenAI limit)
 _MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
+# Whisper is billed per audio-minute. whisper-1 list price as of 2026-08-04.
+_WHISPER_USD_PER_MINUTE = 0.006
+# Low-end Opus bitrate for WhatsApp voice notes. Assuming the LOW end makes the
+# duration estimate LONGER, which over-reserves budget rather than under.
+_ASSUMED_OPUS_BITRATE_BPS = 16_000
+
 
 class WhatsAppVoiceHandler:
     """Handles voice messages by transcribing and routing as text."""
@@ -59,12 +65,28 @@ class WhatsAppVoiceHandler:
         if len(audio_bytes) > _MAX_AUDIO_BYTES:
             return "Voice message is too large (max 25 MB). Please send a shorter recording."
 
-        # 2. Transcribe via OpenAI Whisper
+        # 1b. Spend budget. Whisper is billed per audio-MINUTE, not per token,
+        # so it needs its own cost basis — but it is real provider spend on the
+        # same OpenAI key and was previously entirely unmetered and unbounded.
+        allowed, est_usd = await self._reserve_transcription_budget(
+            message.from_number, len(audio_bytes)
+        )
+        if not allowed:
+            return (
+                "Voice transcription is temporarily unavailable (daily limit reached). "
+                "Please type your command instead."
+            )
+
+        # 2. Transcribe via OpenAI Whisper. There is no settle step: Whisper
+        # returns no usage object, so the estimate IS the charge. On failure the
+        # reservation is deliberately kept — the request may still have been
+        # billed upstream, and refunding would make failures free.
         text = await self._transcribe(audio_bytes)
         if text is None:
             return (
                 "Sorry, I couldn't transcribe your voice message. Please type your command instead."
             )
+        self._log_transcription_cost(message.from_number, len(audio_bytes), est_usd)
 
         text = text.strip()
         if not text:
@@ -79,6 +101,70 @@ class WhatsAppVoiceHandler:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _estimate_minutes(self, audio_bytes_len: int) -> float:
+        """Estimated audio duration in minutes from the encoded byte count.
+
+        WhatsApp voice notes are Opus in an OGG container, typically 16-24
+        kbps. We assume the LOW end deliberately: a lower assumed bitrate
+        yields a LONGER estimated duration, which over-reserves rather than
+        under-reserves. "Round the price up" — see bot/config/llm_models.py.
+        """
+        bits = audio_bytes_len * 8
+        return bits / (_ASSUMED_OPUS_BITRATE_BPS * 60.0)
+
+    async def _reserve_transcription_budget(self, from_number, audio_bytes_len: int):
+        """Reserve estimated Whisper spend. Returns (allowed, est_usd)."""
+        try:
+            from bot.config.settings import settings
+            from bot.services import llm_credit_service
+            from bot.utils.llm_budget import (
+                GLOBAL_BUDGET_KEY,
+                llm_budget,
+                user_budget_key,
+                usd_to_micros,
+            )
+
+            if not getattr(settings, "LLM_MULTI_PROVIDER_ENABLED", False):
+                return True, 0.0
+
+            minutes = self._estimate_minutes(audio_bytes_len)
+            est_usd = minutes * _WHISPER_USD_PER_MINUTE
+            micros = usd_to_micros(est_usd)
+
+            key = user_budget_key(f"wa:{from_number}")
+            user_cap = llm_credit_service.user_budget_capacity_micros()
+            ok, _ = await llm_budget.try_consume(key, micros, user_cap)
+            if not ok:
+                return False, est_usd
+            ok_global, _ = await llm_budget.try_consume(
+                GLOBAL_BUDGET_KEY, micros, llm_credit_service.global_budget_capacity_micros()
+            )
+            if not ok_global:
+                await llm_budget.refund(key, micros, user_cap)
+                return False, est_usd
+            return True, est_usd
+        except Exception:
+            # A budget failure must not take voice transcription offline.
+            logger.exception("whatsapp_voice: transcription budget check failed")
+            return True, 0.0
+
+    def _log_transcription_cost(self, from_number, audio_bytes_len: int, est_usd: float) -> None:
+        logger.info(
+            "llm_cost provider=openai model=%s audio_bytes=%d est_usd=%.6f metered=False",
+            WHISPER_MODEL,
+            audio_bytes_len,
+            est_usd,
+            extra={
+                "event": "llm_cost",
+                "user_key": f"wa:{from_number}",
+                "provider": "openai",
+                "model": WHISPER_MODEL,
+                "audio_bytes": audio_bytes_len,
+                "raw_cost_usd": est_usd,
+                "usage_source": "estimated",
+            },
+        )
 
     async def _download_audio(self, audio_id: str) -> Optional[bytes]:
         """Download audio bytes using the WhatsApp media API."""

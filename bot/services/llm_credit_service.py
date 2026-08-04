@@ -226,6 +226,22 @@ def global_budget_capacity_micros() -> int:
     return usd_to_micros(getattr(settings, "LLM_BUDGET_GLOBAL_DAILY_USD", 0.0) or 0.0)
 
 
+def worst_case_spec() -> ModelSpec:
+    """The priciest catalog entry, used as a conservative cost basis when the
+    real model is unknown (e.g. the legacy env-provider path).
+
+    "Round the price UP": reserving against the most expensive model can only
+    over-reserve, and the settlement returns the difference. Reserving against
+    a cheap model would let an expensive unknown call slip the cap.
+    """
+    from bot.config.llm_models import MODEL_CATALOG
+
+    return max(
+        MODEL_CATALOG.values(),
+        key=lambda s: s.price_per_1m_input_usd + s.price_per_1m_output_usd,
+    )
+
+
 async def reserve_budget(
     user_id: int, model: ModelSpec, tier: Optional[SubscriptionTier] = None
 ) -> Tuple[bool, int]:

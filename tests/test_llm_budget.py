@@ -399,6 +399,31 @@ async def test_degradation_warning_is_not_latched_forever(monkeypatch, caplog):
     assert any("PER-PROCESS budget" in r.message for r in caplog.records)
 
 
+def test_worst_case_spec_is_the_priciest_model():
+    """The legacy env-provider path reserves against this because the real
+    model is unknown — it must over-reserve, never under."""
+    from bot.config.llm_models import MODEL_CATALOG
+
+    worst = llm_credit_service.worst_case_spec()
+    for spec in MODEL_CATALOG.values():
+        assert (
+            spec.price_per_1m_input_usd + spec.price_per_1m_output_usd
+            <= worst.price_per_1m_input_usd + worst.price_per_1m_output_usd
+        )
+
+
+def test_whisper_duration_estimate_is_conservative():
+    """A lower assumed bitrate yields a longer duration, over-reserving."""
+    from bot.services.whatsapp_voice import _ASSUMED_OPUS_BITRATE_BPS, WhatsAppVoiceHandler
+
+    h = WhatsAppVoiceHandler()
+    one_minute_bytes = _ASSUMED_OPUS_BITRATE_BPS * 60 // 8
+    assert h._estimate_minutes(one_minute_bytes) == pytest.approx(1.0)
+    # Real notes are often encoded higher (24kbps), so the same real duration
+    # produces MORE bytes and thus a larger estimate — never smaller.
+    assert h._estimate_minutes(one_minute_bytes * 2) > h._estimate_minutes(one_minute_bytes)
+
+
 @pytest.mark.asyncio
 async def test_global_denial_refunds_the_user_bucket(monkeypatch):
     """If the platform-wide backstop refuses after the user bucket already

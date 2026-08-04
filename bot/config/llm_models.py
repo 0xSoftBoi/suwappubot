@@ -67,6 +67,11 @@ class ModelSpec:
     # prefix is ~794 tokens, so anything above that means caching never
     # engages today — informational, see docs/research/llm-credits/.
     cache_min_prefix_tokens: int = 0
+    # Set when our price INTENTIONALLY differs from the provider's current
+    # list price (e.g. pricing at a scheduled post-promo rate so we never
+    # under-charge). scripts/check_llm_prices.py reports these as EXPECTED
+    # instead of failing, so a deliberate choice doesn't hold CI red.
+    price_deviation_reason: Optional[str] = None
 
     def price_cached_read_per_1m(self) -> float:
         return self.price_per_1m_input_usd * self.cache_read_multiplier
@@ -177,6 +182,10 @@ MODEL_CATALOG: dict = {
         cache_read_multiplier=0.1,
         cache_write_multiplier=1.25,
         cache_min_prefix_tokens=1024,
+        price_deviation_reason=(
+            "intro pricing is $2/$10 through 2026-08-31, reverting to $3/$15; "
+            "priced at the post-intro rate so we do not under-charge from 2026-09-01"
+        ),
     ),
     "gpt-flagship": ModelSpec(
         friendly_name="gpt-flagship",
