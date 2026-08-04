@@ -1286,3 +1286,22 @@
    diagram like the hero sphere. */
 .depthsurface,
 .toolconstellation { opacity: 0.75; }
+
+/* Agents' tool orbit is two stacked canvases (WebGL body + a 2D overlay for
+   the in-transit labels), same shape as .csgl. Needs the same wrapper rules
+   and the same mobile-hide restore noted above the .csgl block: a wrapper
+   with its own display:block overrides the bare .sw__field mobile hide. */
+.toolconstellation { position: relative; display: block; }
+.toolconstellation__gl,
+.toolconstellation__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.toolconstellation__overlay { pointer-events: none; }
+
+@media (max-width: 1024px) {
+  .toolconstellation.sw__field:not(.sw__field--hero) { display: none; }
+}

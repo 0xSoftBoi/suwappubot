@@ -7,6 +7,8 @@ import ProofShot from '@/components/ProofShot';
 import ChainSphereGL from '@/components/ChainSphereGL';
 import RouteStages from '@/components/RouteStages';
 import QuoteRaceGL from '@/components/QuoteRaceGL';
+import DepthSurfaceGL from '@/components/DepthSurfaceGL';
+import ToolConstellationGL from '@/components/ToolConstellationGL';
 import Reveal from '@/components/Reveal';
 import AgentHandoff from '@/components/AgentHandoff';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -474,6 +476,7 @@ export default async function Home() {
 
         {/* ── Perps ────────────────────────────────────────────── */}
         <section id="hyperliquid" className="sw__sec" aria-label="HyperLiquid perps">
+          <DepthSurfaceGL className="sw__field sw__field--top" />
           <Reveal>
             <h2 className="sw__h2">HyperLiquid, managed from chat.</h2>
             <p className="sw__lead">
@@ -512,6 +515,11 @@ export default async function Home() {
 
         {/* ── Agents ───────────────────────────────────────────── */}
         <section id="agents" className="sw__sec" aria-label="Built for agents">
+          <ToolConstellationGL
+            className="sw__field sw__field--top"
+            toolCount={MCP_TOOLS.length}
+            names={MCP_TOOLS}
+          />
           <Reveal>
             <h2 className="sw__h2">Hand your trading layer to an agent.</h2>
             <p className="sw__lead">
