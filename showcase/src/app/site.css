@@ -1255,3 +1255,34 @@
     transform: translateY(1px) scale(0.98);
   }
 }
+
+/* ── Per-section generative objects ──────────────────────────────
+   Three quiet, motivated ambient canvases, one per section: the venue
+   race behind Engine, the depth ridge behind HyperLiquid, the tool orbit
+   behind Agents. All aria-hidden, all pointer-events: none, all paused off-
+   screen by their own IntersectionObserver — this block is layout only. */
+
+/* Engine: the race sits full-bleed behind the three step columns, well
+   under body-text contrast so STEP 01/02/03 stay legible. */
+.sw__sec--engine { overflow: hidden; }
+.sw__engine-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.sw__sec--engine > .reveal { position: relative; z-index: 1; }
+
+@media (max-width: 768px) {
+  .sw__engine-field { display: none; }
+}
+
+/* HyperLiquid / Agents: both figures use the existing .sw__field corner-box
+   convention (see "Section figures" above), sized per-section there. These
+   two just tint them down further since they're texture, not a labelled
+   diagram like the hero sphere. */
+.depthsurface,
+.toolconstellation { opacity: 0.75; }
