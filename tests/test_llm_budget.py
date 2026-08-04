@@ -617,10 +617,14 @@ def test_whisper_settles_against_provider_duration(monkeypatch):
 
     settled = {}
 
-    async def fake_settle(key, reserved, actual_usd):
+    async def fake_settle(key, reserved, actual_usd, tier=None):
         settled["actual"] = actual_usd
 
+    async def no_tier(_):
+        return None
+
     monkeypatch.setattr(llm_credit_service, "settle_budget", fake_settle)
+    monkeypatch.setattr(WhatsAppVoiceHandler, "_resolve_tier", lambda self, n: no_tier(n))
     asyncio.run(h._settle_transcription_budget("+1555", 1000, actual))
     assert settled["actual"] == pytest.approx(actual)
 
@@ -636,3 +640,62 @@ def test_whisper_budget_not_gated_on_unrelated_catalog_flag(monkeypatch):
     src = inspect.getsource(whatsapp_voice.WhatsAppVoiceHandler._reserve_transcription_budget)
     assert "LLM_MULTI_PROVIDER_ENABLED" not in src
     assert "budget_capacity_micros" in src
+
+
+# ---------------------------------------------------------------------------
+# External reviewer (cubic) findings
+# ---------------------------------------------------------------------------
+
+
+def test_partial_usage_does_not_bill_the_missing_side_at_zero():
+    """P1: a response reporting output but omitting input was treated as
+    'non-empty', so every missing input token cost $0. Each side must be
+    repaired independently."""
+    from bot.services.llm_usage import billable_usage
+
+    # Output reported, input missing -> input substituted, output preserved.
+    out_only = billable_usage(TokenUsage(output_tokens=90), 1500, 300)
+    assert out_only.input_tokens == 1500
+    assert out_only.output_tokens == 90
+
+    # Input reported, output missing -> output substituted, input preserved.
+    in_only = billable_usage(TokenUsage(input_tokens=1100), 1500, 300)
+    assert in_only.input_tokens == 1100
+    assert in_only.output_tokens == 300
+
+    # Cached-only input still counts as reported input.
+    cached = billable_usage(TokenUsage(cached_read_tokens=800, output_tokens=50), 1500, 300)
+    assert cached.cached_read_tokens == 800
+    assert cached.input_tokens == 0
+
+    # Fully absent -> full estimate.
+    empty = billable_usage(TokenUsage(), 1500, 300)
+    assert (empty.input_tokens, empty.output_tokens) == (1500, 300)
+
+    # Fully reported -> untouched.
+    full = TokenUsage(input_tokens=10, output_tokens=20)
+    assert billable_usage(full, 1500, 300) is full
+
+
+def test_partial_usage_is_actually_charged(monkeypatch):
+    """The repaired usage must produce a non-zero cost, not just a non-zero
+    token count."""
+    monkeypatch.setattr(llm_credit_service.settings, "LLM_CREDIT_MARKUP", 1.0, raising=False)
+    from bot.services.llm_usage import billable_usage
+
+    repaired = billable_usage(TokenUsage(output_tokens=90), 1500, 300)
+    cost = llm_credit_service.cost_of_usage(CACHED, repaired)
+    # 1500 input @ $1/1M dominates; must not be output-only.
+    assert cost > llm_credit_service.cost_of_usage(CACHED, TokenUsage(output_tokens=90))
+
+
+@pytest.mark.asyncio
+async def test_degraded_memory_map_is_bounded():
+    """P2: during a Redis outage every distinct key was retained forever,
+    letting traffic grow process memory without bound."""
+    b = LLMBudget()
+    monkeypatch_cap = 50
+    b.MAX_MEMORY_KEYS = monkeypatch_cap
+    for i in range(monkeypatch_cap * 3):
+        await b.try_consume(f"user:{i}", 1, 1000)
+    assert len(b._memory) <= monkeypatch_cap

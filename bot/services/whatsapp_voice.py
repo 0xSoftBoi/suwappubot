@@ -132,21 +132,39 @@ class WhatsAppVoiceHandler:
             # runs on OPENAI_API_KEY and has nothing to do with multi-provider
             # routing, so tying it to that flag would leave it unmetered by
             # default — exactly the hole this closes.
+            # Cost is computed even when the budget is disabled: the spend is
+            # real either way, and reporting $0 would silently undercount
+            # OpenAI usage in invoice reconciliation.
+            est_usd = self._estimate_minutes(audio_bytes_len) * _WHISPER_USD_PER_MINUTE
             if (
                 llm_credit_service.user_budget_capacity_micros() <= 0
                 and llm_credit_service.global_budget_capacity_micros() <= 0
             ):
-                return True, 0, 0.0
-
-            est_usd = self._estimate_minutes(audio_bytes_len) * _WHISPER_USD_PER_MINUTE
+                return True, 0, est_usd
             # `wa:` namespaces the bucket away from Telegram ids and DB user
             # ids, which share the same integer space.
-            allowed, reserved = await llm_credit_service.reserve_spend(f"wa:{from_number}", est_usd)
+            # Tier is resolved so paying subscribers get the same tier-scaled
+            # headroom as on the Telegram path instead of the FREE ceiling.
+            tier = await self._resolve_tier(from_number)
+            allowed, reserved = await llm_credit_service.reserve_spend(
+                f"wa:{from_number}", est_usd, tier
+            )
             return allowed, reserved, est_usd
         except Exception:
             # A budget failure must not take voice transcription offline.
             logger.exception("whatsapp_voice: transcription budget check failed")
             return True, 0, 0.0
+
+    async def _resolve_tier(self, from_number):
+        """Subscription tier for a WhatsApp sender, or None if unknown."""
+        try:
+            from bot.services import llm_credit_service
+
+            ctx = await llm_credit_service.get_whatsapp_user_context(from_number)
+            return ctx.tier if ctx else None
+        except Exception:
+            logger.debug("whatsapp_voice: tier lookup failed", exc_info=True)
+            return None
 
     async def _settle_transcription_budget(self, from_number, reserved_micros: int, actual_usd):
         """Reconcile the reservation against real billed duration."""
@@ -155,7 +173,10 @@ class WhatsAppVoiceHandler:
         try:
             from bot.services import llm_credit_service
 
-            await llm_credit_service.settle_budget(f"wa:{from_number}", reserved_micros, actual_usd)
+            tier = await self._resolve_tier(from_number)
+            await llm_credit_service.settle_budget(
+                f"wa:{from_number}", reserved_micros, actual_usd, tier
+            )
         except Exception:
             logger.exception("whatsapp_voice: transcription budget settle failed")
 

@@ -651,7 +651,15 @@ async def parse_trade_intent(
         return deterministic_intent
 
     # 2. LLM fallback — gated by the daily caps (deterministic misses only).
-    if _llm_fallback_cap_exceeded(user_id):
+    #
+    # These counters are process-local and call-counted. When the cost-weighted
+    # Redis budget is active it supersedes them entirely: leaving both in place
+    # would hard-stop every user at 30 calls per replica per day, so the
+    # tier-scaled spend allowance (and the whole point of PREMIUM headroom)
+    # could never be reached. The budget below is strictly better — shared
+    # across replicas, survives deploys, and prices a flagship call at ~14x a
+    # cheap one instead of counting both as "1".
+    if not settings.LLM_MULTI_PROVIDER_ENABLED and _llm_fallback_cap_exceeded(user_id):
         logger.info(
             "nl_intent_service: LLM fallback daily cap exceeded, degrading without LLM call",
             extra={"source": "fallback-capped"},

@@ -69,6 +69,24 @@ class LLMUserContext:
     llm_model_pref: Optional[str]
 
 
+def _effective_tier(session, db_user_id: int) -> SubscriptionTier:
+    """Current tier for a user, treating an expired subscription as FREE.
+
+    Mirrors x402_service.get_tier. `expires_at` is a tz-naive DateTime column,
+    so it must be normalized before comparing against an aware utcnow —
+    otherwise every subscriber with a non-NULL expiry raises TypeError.
+    """
+    sub = session.query(Subscription).filter(Subscription.user_id == db_user_id).first()
+    if sub is None:
+        return SubscriptionTier.FREE
+    exp = sub.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp is not None and exp < datetime.now(timezone.utc):
+        return SubscriptionTier.FREE
+    return sub.tier
+
+
 async def get_llm_user_context(telegram_id) -> Optional[LLMUserContext]:
     """Resolve (users.id, effective tier, llm_model preference) for a Telegram
     user in one DB roundtrip. Returns None if the user doesn't exist yet.
@@ -82,19 +100,33 @@ async def get_llm_user_context(telegram_id) -> Optional[LLMUserContext]:
             user = session.query(User).filter(User.telegram_id == int(telegram_id)).first()
             if user is None:
                 return None
-            tier = SubscriptionTier.FREE
-            sub = session.query(Subscription).filter(Subscription.user_id == user.id).first()
-            if sub is not None:
-                # expires_at is a tz-naive DateTime column: comparing it raw
-                # against an aware utcnow raises TypeError for every subscriber
-                # with a non-NULL expiry. Normalize to aware-UTC first.
-                exp = sub.expires_at
-                if exp is not None and exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-                expired = exp is not None and exp < datetime.now(timezone.utc)
-                if not expired:
-                    tier = sub.tier
-            return LLMUserContext(db_user_id=user.id, tier=tier, llm_model_pref=user.llm_model)
+            return LLMUserContext(
+                db_user_id=user.id,
+                tier=_effective_tier(session, user.id),
+                llm_model_pref=user.llm_model,
+            )
+
+    return await run_in_db(_read)
+
+
+async def get_whatsapp_user_context(whatsapp_id) -> Optional[LLMUserContext]:
+    """Resolve entitlements for a WhatsApp sender, or None if unknown.
+
+    Same contract as `get_llm_user_context` but keyed on `users.whatsapp_id`,
+    so voice transcription applies the same tier-scaled spend headroom rather
+    than throttling paying subscribers at the FREE ceiling.
+    """
+
+    def _read():
+        with get_session() as session:
+            user = session.query(User).filter(User.whatsapp_id == str(whatsapp_id)).first()
+            if user is None:
+                return None
+            return LLMUserContext(
+                db_user_id=user.id,
+                tier=_effective_tier(session, user.id),
+                llm_model_pref=user.llm_model,
+            )
 
     return await run_in_db(_read)
 

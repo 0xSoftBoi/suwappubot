@@ -727,9 +727,20 @@ class X402Service:
             return credits.balance if credits else 0
 
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
-        """Add API credits to user account."""
+        """Add API credits to user account.
+
+        Takes the same row lock as every other balance mutation. Locking only
+        the debit side still loses updates: an unlocked top-up
+        read-modify-write can interleave with a concurrent LLM debit and write
+        back a balance computed before that debit, silently erasing it.
+        """
         with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+            credits = (
+                session.query(APICredit)
+                .filter(APICredit.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not credits:
                 credits = APICredit(user_id=user_id)

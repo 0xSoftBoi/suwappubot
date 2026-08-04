@@ -115,6 +115,11 @@ class LLMBudget:
     # visible in logs instead of being announced once and never again.
     DEGRADED_WARN_INTERVAL_S = 60.0
 
+    # Cap on the degraded fallback map. During a Redis outage every distinct
+    # caller key would otherwise be retained forever, letting traffic grow the
+    # process's memory without bound. Mirrors RedisCache.MAX_MEMORY_KEYS.
+    MAX_MEMORY_KEYS = 10_000
+
     def __init__(self):
         # key -> (tokens, last_refill_epoch_seconds); only used when Redis is
         # unavailable. Per-process, so it is a safety net, not a real limit.
@@ -167,6 +172,12 @@ class LLMBudget:
         allowed = tokens >= cost
         if allowed:
             tokens -= cost
+        if key not in self._memory and len(self._memory) >= self.MAX_MEMORY_KEYS:
+            # Evict the least-recently-touched entry. Dropping a bucket only
+            # resets that caller's degraded allowance, which is already
+            # best-effort — unbounded memory growth is the worse failure.
+            oldest = min(self._memory, key=lambda k: self._memory[k][1])
+            self._memory.pop(oldest, None)
         self._memory[key] = (tokens, now)
         return allowed, int(tokens)
 

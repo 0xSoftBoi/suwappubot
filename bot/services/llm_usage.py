@@ -57,7 +57,26 @@ def billable_usage(usage: TokenUsage, est_input: int, est_output: int) -> TokenU
     the budget — which refunded the entire reservation and turned the spend
     caps into a no-op, while the ledger separately charged the estimate.
     Pricing the same TokenUsage in both places is the invariant.
+
+    Each SIDE is repaired independently. A response can report output tokens
+    while omitting input (or the reverse) — a partial report, not a free call.
+    Treating "any field present" as reportable would bill the missing side at
+    $0: an output-only payload would make every input token free. Neither side
+    can legitimately be zero, since a completion always consumes a prompt and
+    always emits at least one token.
     """
-    if usage.is_empty:
+    has_input = usage.total_input > 0
+    has_output = usage.output_tokens > 0
+    if has_input and has_output:
+        return usage
+    if not has_input and not has_output:
         return TokenUsage(input_tokens=est_input, output_tokens=est_output)
-    return usage
+    if not has_input:
+        # Input side unreported — substitute the estimate, keep the real output.
+        return TokenUsage(input_tokens=est_input, output_tokens=usage.output_tokens)
+    return TokenUsage(
+        input_tokens=usage.input_tokens,
+        cached_read_tokens=usage.cached_read_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
+        output_tokens=est_output,
+    )
