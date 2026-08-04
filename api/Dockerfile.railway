@@ -62,7 +62,14 @@ COPY --chown=botuser:botuser database/ /app/database/
 
 # Writable dir for the Telegram bot's PicklePersistence (api/main.py writes data/bot_persistence.pickle).
 # /app is root-owned, so the non-root botuser needs this pre-created and owned.
-RUN mkdir -p /app/data && chown botuser:botuser /app/data
+# /app itself is created by WORKDIR as root, so botuser cannot mkdir inside it.
+# aegis-shield's telemetry writes to a CWD-relative `.aegis/` and creates the
+# directory on first scan — which raised PermissionError on every single scan,
+# and because AEGIS is fail-open that silently disabled injection scanning in
+# production. Pre-create it owned by botuser. Contents are disposable (the
+# service mirrors detections to app logs precisely because this does not
+# survive a redeploy); it only has to be writable.
+RUN mkdir -p /app/data /app/.aegis && chown botuser:botuser /app/data /app/.aegis
 
 USER botuser
 
