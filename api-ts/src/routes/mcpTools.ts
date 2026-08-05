@@ -6,7 +6,8 @@
  * lets scripts/check-mcp-schemas.ts verify the published schemas without
  * booting the app.
  */
-import { mcpInputSchema } from '../lib/zodJsonSchema'
+import { z } from 'zod'
+import { mcpInputSchema, toOutputJsonSchema } from '../lib/zodJsonSchema'
 import { PerpsQuoteSchema, QuoteRequestSchema, SimulateSwapSchema } from './validators'
 
 // ---------------------------------------------------------------
@@ -336,9 +337,74 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 }
 
+
+// ---------------------------------------------------------------
+// Output schemas (MCP `outputSchema` + `structuredContent`)
+// ---------------------------------------------------------------
+//
+// A tool that declares an outputSchema MUST return conforming
+// structuredContent, so a guessed schema is worse than none — an agent would
+// start seeing validation failures on results that were previously fine.
+// Every schema below was written against output captured from the live
+// endpoint or read directly out of the handler, and stays permissive
+// (`.loose()`) so adding a field is not a breaking change.
+//
+// Tools NOT covered yet are deliberate, not forgotten:
+//   list_tokens   returns three different shapes depending on arguments
+//                 (Solana -> tokens[], known EVM chain -> a `note` pointing at
+//                 REST with no tokens at all, no chain -> available_chains).
+//                 It needs the handler fixed before a schema means anything.
+//   browse_mpp_directory  its upstream host is currently unreachable.
+//   everything else       needs its real shape captured first.
+
+const ChainEntrySchema = z
+	.object({
+		// Numeric for EVM chains, the string 'solana' for Solana.
+		id: z.union([z.number(), z.string()]),
+		key: z.string(),
+		name: z.string(),
+		native_token: z.string(),
+		type: z.string(),
+	})
+	.loose()
+
+export const ListChainsOutputSchema = z.object({ chains: z.array(ChainEntrySchema) }).loose()
+
+export const GetPricesOutputSchema = z
+	.object({
+		// symbol -> price entry, keyed by the UPPERCASED symbol.
+		prices: z.record(
+			z.string(),
+			z.object({ usd: z.number(), change_24h: z.number().nullable() }).loose(),
+		),
+	})
+	.loose()
+
+export const GetTempoTokensOutputSchema = z
+	.object({
+		chain: z.string(),
+		chain_id: z.number(),
+		native_token: z.string(),
+		tokens: z.array(
+			z.object({ symbol: z.string(), name: z.string(), address: z.string(), decimals: z.number() }).loose(),
+		),
+	})
+	.loose()
+
+/** tool name -> outputSchema, applied to TOOLS below. */
+const TOOL_OUTPUT_SCHEMAS: Record<string, unknown> = {
+	list_chains: toOutputJsonSchema(ListChainsOutputSchema),
+	get_prices: toOutputJsonSchema(GetPricesOutputSchema),
+	get_tempo_tokens: toOutputJsonSchema(GetTempoTokensOutputSchema),
+}
+
+/** Tools that declare an outputSchema, so the caller knows to attach structuredContent. */
+export const TOOLS_WITH_OUTPUT_SCHEMA = new Set(Object.keys(TOOL_OUTPUT_SCHEMAS))
+
 const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
 	...t,
 	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
+	...(TOOL_OUTPUT_SCHEMAS[t.name] ? { outputSchema: TOOL_OUTPUT_SCHEMAS[t.name] } : {}),
 }))
 
 export { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS }

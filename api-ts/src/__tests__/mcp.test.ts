@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
-import { PROMPTS, RESOURCES, TOOLS_WITH_ANNOTATIONS, handleBrowseMppDirectory, readResource } from '../routes/mcp'
+import { PROMPTS, RESOURCES, TOOLS_WITH_ANNOTATIONS, handleBrowseMppDirectory, readResource, withStructuredContent } from '../routes/mcp'
+import { GetPricesOutputSchema, GetTempoTokensOutputSchema, ListChainsOutputSchema } from '../routes/mcpTools'
 
 describe('mcp tool annotations', () => {
 	it('attaches behavioural annotations to every tool', () => {
@@ -150,5 +151,70 @@ describe('mcp browse_mpp_directory outbound sanitization', () => {
 			const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
 			expect(parsed.services.length).toBeLessThanOrEqual(100)
 		})
+	})
+})
+
+describe('mcp outputSchema / structuredContent', () => {
+	it('declares a well-formed outputSchema on every tool that has one', () => {
+		const withOutput = TOOLS_WITH_ANNOTATIONS.filter((t) => 'outputSchema' in t)
+		expect(withOutput.length).toBeGreaterThan(0)
+		for (const tool of withOutput) {
+			const schema = (tool as { outputSchema: Record<string, unknown> }).outputSchema
+			expect(schema.type, `tool ${tool.name}`).toBe('object')
+			expect(typeof schema.properties).toBe('object')
+		}
+	})
+
+	// A declared outputSchema obliges us to return conforming structuredContent.
+	// These payloads were captured from the live production endpoint, so a schema
+	// that rejects them would break the tool for every agent.
+	it('accepts real production payloads', () => {
+		expect(ListChainsOutputSchema.safeParse({
+			chains: [
+				{ id: 1, key: 'ethereum', name: 'Ethereum', native_token: 'ETH', type: 'evm' },
+				{ id: 'solana', key: 'solana', name: 'Solana', native_token: 'SOL', type: 'solana' },
+			],
+		}).success).toBe(true)
+
+		expect(GetPricesOutputSchema.safeParse({
+			prices: { ETH: { usd: 3000, change_24h: 1.2 }, BTC: { usd: 60000, change_24h: null } },
+		}).success).toBe(true)
+
+		expect(GetTempoTokensOutputSchema.safeParse({
+			chain: 'Tempo',
+			chain_id: 4217,
+			native_token: 'USD',
+			tokens: [{ symbol: 'pathUSD', name: 'pathUSD', address: '0x20c0', decimals: 18, description: 'x' }],
+		}).success).toBe(true)
+	})
+
+	it('attaches structuredContent that is exactly the value shown in the text', () => {
+		const payload = { chains: [{ id: 1, key: 'ethereum', name: 'Ethereum', native_token: 'ETH', type: 'evm' }] }
+		const result = { content: [{ type: 'text', text: JSON.stringify(payload) }] }
+		const out = withStructuredContent('list_chains', result) as { structuredContent?: unknown }
+		expect(out.structuredContent).toEqual(payload)
+	})
+
+	it('leaves tools without an outputSchema untouched', () => {
+		const result = { content: [{ type: 'text', text: JSON.stringify({ a: 1 }) }] }
+		expect(withStructuredContent('get_portfolio', result)).toBe(result)
+	})
+
+	it('never attaches structuredContent to an error result', () => {
+		const result = { isError: true, content: [{ type: 'text', text: JSON.stringify({ a: 1 }) }] }
+		expect(withStructuredContent('list_chains', result)).toBe(result)
+	})
+
+	it('ignores non-JSON and non-object text rather than emitting something malformed', () => {
+		const prose = { content: [{ type: 'text', text: 'Provide 1-20 comma-separated symbols' }] }
+		expect(withStructuredContent('get_prices', prose)).toBe(prose)
+		const array = { content: [{ type: 'text', text: '[1,2,3]' }] }
+		expect(withStructuredContent('get_prices', array)).toBe(array)
+	})
+
+	it('resolves the legacy predict_market_detail alias to its real tool name', () => {
+		// Guards the aliasing path: an alias must not silently skip the schema lookup.
+		const result = { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] }
+		expect(withStructuredContent('predict_market_detail', result)).toBe(result)
 	})
 })

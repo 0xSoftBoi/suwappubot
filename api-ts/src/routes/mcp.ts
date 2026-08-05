@@ -14,7 +14,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
-import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS } from './mcpTools'
+import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
@@ -89,6 +89,38 @@ function negotiateProtocolVersion(requested: unknown): string {
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.
 const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+
+
+/**
+ * Attach `structuredContent` for tools that declare an `outputSchema`.
+ *
+ * Handlers already serialise their payload with JSON.stringify into the text
+ * content, so we parse that exact string back rather than having each handler
+ * build the object twice. It looks roundabout, but it is the point: the
+ * structured value is *by construction* the same value the text shows, so the
+ * two can never disagree. Doing it in one place also means adding a schema to
+ * TOOL_OUTPUT_SCHEMAS is the only step needed to light a tool up.
+ *
+ * Conservative on purpose — we skip when the tool declares no schema, when the
+ * result is an error, or when the text is not a JSON object. Declaring an
+ * outputSchema obliges us to return conforming structuredContent, so emitting
+ * nothing is always safer than emitting something malformed.
+ */
+export function withStructuredContent(toolName: string, result: unknown): unknown {
+	if (!TOOLS_WITH_OUTPUT_SCHEMA.has(toolSchemaName(toolName))) return result
+	const r = result as { isError?: boolean; content?: Array<{ type?: string; text?: string }> }
+	if (!r || r.isError || !Array.isArray(r.content)) return result
+	const text = r.content.find((part) => part?.type === 'text')?.text
+	if (typeof text !== 'string') return result
+	try {
+		const parsed = JSON.parse(text)
+		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return result
+		return { ...r, structuredContent: parsed }
+	} catch {
+		// Not JSON (a plain-prose result) — leave it alone.
+		return result
+	}
+}
 
 // predict_market_detail is a legacy alias for predict_market's schema.
 function toolSchemaName(name: string): string {
@@ -1446,7 +1478,7 @@ mcpRoutes.post('/', async (c) => {
 				})
 			}
 
-			return c.json(rpcOk(req.id, result), 200)
+			return c.json(rpcOk(req.id, withStructuredContent(name, result)), 200)
 		}
 
 		case 'notifications/initialized':

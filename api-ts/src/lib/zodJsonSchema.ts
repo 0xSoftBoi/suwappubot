@@ -32,6 +32,21 @@ export function toJsonSchema(schema: z.ZodTypeAny): Json {
 	return out
 }
 
+/**
+ * Same, but in `output` mode — what the caller receives rather than what it
+ * sends. The distinction matters for `.default()` and transforms, where the
+ * input is optional but the output is always present.
+ */
+export function toOutputJsonSchema(schema: z.ZodTypeAny): Json {
+	const out = z.toJSONSchema(schema, {
+		unrepresentable: 'any',
+		io: 'output',
+		target: 'draft-7',
+	}) as Json
+	delete out.$schema
+	return out
+}
+
 /** Recursive deterministic deep-merge: `override` wins; objects merge, everything else replaces. */
 export function deepMerge(base: Json, override: Json): Json {
 	if (override === null || typeof override !== 'object' || Array.isArray(override)) {
