@@ -559,6 +559,44 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🔥",
         lifi_chain_id=14,
     ),
+    # Added to back-fill aggregator chain-id maps that already referenced these
+    # keys (1inch/Socket/Kyber/USDT0) with no ChainConfig behind them.
+    "aurora": ChainConfig(
+        chain_id=1313161554,
+        name="aurora",
+        display_name="Aurora",
+        chain_type=ChainType.EVM,
+        native_token="ETH",
+        native_decimals=18,
+        rpc_url_env="AURORA_RPC_URL",
+        explorer_url="https://explorer.aurora.dev",
+        logo_emoji="🌌",
+        lifi_chain_id=1313161554,
+    ),
+    "blast": ChainConfig(
+        chain_id=81457,
+        name="blast",
+        display_name="Blast",
+        chain_type=ChainType.EVM,
+        native_token="ETH",
+        native_decimals=18,
+        rpc_url_env="BLAST_RPC_URL",
+        explorer_url="https://blastscan.io",
+        logo_emoji="💥",
+        lifi_chain_id=81457,
+    ),
+    "ink": ChainConfig(
+        chain_id=57073,
+        name="ink",
+        display_name="Ink",
+        chain_type=ChainType.EVM,
+        native_token="ETH",
+        native_decimals=18,
+        rpc_url_env="INK_RPC_URL",
+        explorer_url="https://explorer.inkonchain.com",
+        logo_emoji="🖋️",
+        lifi_chain_id=57073,
+    ),
 }
 
 
@@ -622,6 +660,37 @@ CHAIN_NAME_ALIASES: dict[str, str] = {
     "poly": "polygon",
     "op": "optimism",
     "arb": "arbitrum",
+    # --- expanded aliases (see resolve_chain_name callers: nl_deterministic_parser.py,
+    # bot/handlers/nl_trade.py). Each entry below is unambiguous against every
+    # canonical CHAINS key and every other alias in this dict.
+    "ftm": "fantom",
+    "fantom-opera": "fantom",
+    "xdai": "gnosis",
+    "gno": "gnosis",
+    "avaxc": "avalanche",  # "Avalanche C-Chain" common short form
+    "bera": "berachain",
+    "hype": "hyperevm",  # HYPE is HyperEVM's native token
+    "zk": "zksync",
+    "era": "zksync",
+    "zksync-era": "zksync",
+    "world": "worldchain",
+    "wld": "worldchain",  # WLD is World Chain's associated token
+    "rsk": "rootstock",
+    "rbtc": "rootstock",  # RBTC is Rootstock's native token
+    "trx": "tron",  # TRX is TRON's native token
+    "strk": "starknet",
+    "sn_main": "starknet",  # matches Starknet's chain_id value "SN_MAIN"
+    "ape": "apechain",
+    "pol": "polygon",  # POL is Polygon's rebranded ticker (formerly MATIC)
+    "kaia-chain": "kaia",
+    "klaytn": "kaia",  # Klaytn was renamed to Kaia in 2024
+    "bnb-chain": "bsc",
+    "binance": "bsc",
+    "ethereum-mainnet": "ethereum",
+    "mainnet": "ethereum",  # unqualified "mainnet" conventionally means Ethereum L1
+    "arb1": "arbitrum",  # official Arbitrum One network identifier
+    # Deliberately NOT added: "s" (sonic) and "btc" (goat/rootstock/citrea/bob are
+    # all BTC-branded) — both too ambiguous for a fund-routing resolver.
 }
 
 
