@@ -26,6 +26,21 @@ export interface TurnkeyServiceInterface {
 		oauthToken: string,
 		telegramUserId: string
 	) => Effect.Effect<TurnkeyWallet, Error>
+	readonly createSubOrgWithPasskey: (
+		userName: string,
+		telegramUserId: string | number,
+		attestation: {
+			credentialId: string
+			attestationObject: string
+			clientDataJson: string
+			transports?: string[]
+		},
+		challenge: string,
+	) => Effect.Effect<TurnkeyWallet, Error>
+	readonly createWalletInSubOrg: (
+		subOrgId: string,
+		chainType: 'evm' | 'solana',
+	) => Effect.Effect<TurnkeyWallet, Error>
 	readonly signTransactionForAgent: (
 		subOrgId: string,
 		unsignedTransaction: string,
@@ -208,6 +223,139 @@ export const TurnkeyServiceLive = Layer.effect(
 					subOrgId,
 					walletId: wallet.walletId,
 					accountId: wallet.walletId,
+					address,
+				}
+			})
+
+		const createSubOrgWithPasskey = (
+			userName: string,
+			telegramUserId: string | number,
+			attestation: {
+				credentialId: string
+				attestationObject: string
+				clientDataJson: string
+				transports?: string[]
+			},
+			challenge: string,
+		) =>
+			Effect.gen(function* () {
+				if (!env.TURNKEY_API_PUBLIC_KEY || !env.TURNKEY_API_PRIVATE_KEY || !env.TURNKEY_ORGANIZATION_ID) {
+					return yield* Effect.fail(new Error('Turnkey credentials not configured'))
+				}
+
+				const createSubOrgResult = yield* Effect.tryPromise({
+					try: async () => {
+						const response = await turnkeyClient.apiClient().createSubOrganization({
+							organizationId: env.TURNKEY_ORGANIZATION_ID!,
+							subOrganizationName: `suwappu-${telegramUserId}-passkey`,
+							rootUsers: [{
+								userName,
+								apiKeys: [
+									{
+										apiKeyName: `server-key-${telegramUserId}`,
+										publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+										curveType: 'API_KEY_CURVE_P256' as const,
+									},
+								],
+								authenticators: [{
+									authenticatorName: 'passkey',
+									challenge,
+									attestation: {
+										credentialId: attestation.credentialId,
+										clientDataJson: attestation.clientDataJson,
+										attestationObject: attestation.attestationObject,
+										transports: (attestation.transports ?? []) as Array<
+										'AUTHENTICATOR_TRANSPORT_BLE' |
+										'AUTHENTICATOR_TRANSPORT_INTERNAL' |
+										'AUTHENTICATOR_TRANSPORT_NFC' |
+										'AUTHENTICATOR_TRANSPORT_USB' |
+										'AUTHENTICATOR_TRANSPORT_HYBRID'
+									>,
+									},
+								}],
+								oauthProviders: [],
+							}],
+							rootQuorumThreshold: 1,
+							wallet: {
+								walletName: `wallet-${telegramUserId}`,
+								accounts: [
+									{
+										curve: 'CURVE_SECP256K1',
+										pathFormat: 'PATH_FORMAT_BIP32',
+										path: "m/44'/60'/0'/0/0",
+										addressFormat: 'ADDRESS_FORMAT_ETHEREUM',
+									},
+								],
+							},
+						})
+						return response
+					},
+					catch: (err) => new Error(`Failed to create passkey sub-org: ${err}`),
+				})
+
+				const subOrgId = createSubOrgResult.subOrganizationId
+				const wallet = createSubOrgResult.wallet
+
+				if (!wallet || !wallet.walletId || !wallet.addresses || wallet.addresses.length === 0) {
+					return yield* Effect.fail(new Error('Passkey wallet creation failed - no wallet returned'))
+				}
+
+				const address = wallet.addresses[0]
+				if (!address) {
+					return yield* Effect.fail(new Error('Passkey wallet creation failed - no address returned'))
+				}
+
+				return {
+					subOrgId,
+					walletId: wallet.walletId,
+					accountId: wallet.walletId,
+					address,
+				}
+			})
+
+		const createWalletInSubOrg = (subOrgId: string, chainType: 'evm' | 'solana') =>
+			Effect.gen(function* () {
+				const isEvm = chainType === 'evm'
+
+				const result = yield* Effect.tryPromise({
+					try: async () => {
+						const response = await turnkeyClient.apiClient().createWallet({
+							organizationId: subOrgId,
+							walletName: `wallet-${Date.now()}-${chainType}`,
+							accounts: [
+								isEvm
+									? {
+										curve: 'CURVE_SECP256K1',
+										pathFormat: 'PATH_FORMAT_BIP32',
+										path: "m/44'/60'/0'/0/0",
+										addressFormat: 'ADDRESS_FORMAT_ETHEREUM',
+									}
+									: {
+										curve: 'CURVE_ED25519',
+										pathFormat: 'PATH_FORMAT_BIP32',
+										path: "m/44'/501'/0'/0'",
+										addressFormat: 'ADDRESS_FORMAT_SOLANA',
+									},
+							],
+						})
+						return response
+					},
+					catch: (err) => new Error(`Failed to create wallet in sub-org: ${err}`),
+				})
+
+				if (!result.walletId || !result.addresses || result.addresses.length === 0) {
+					return yield* Effect.fail(new Error('Wallet creation failed - no wallet returned'))
+				}
+
+				const address = result.addresses[0]
+				if (!address) {
+					return yield* Effect.fail(new Error('Wallet creation failed - no address returned'))
+				}
+
+				return {
+					subOrgId,
+					walletId: result.walletId,
+					accountId: result.walletId,
 					address,
 				}
 			})
@@ -410,6 +558,8 @@ export const TurnkeyServiceLive = Layer.effect(
 		return {
 			createSubOrgForTelegramUser,
 			createSubOrgWithOAuth,
+			createSubOrgWithPasskey,
+			createWalletInSubOrg,
 			signTransactionForAgent,
 			signRawPayload,
 			createAgentWallet,

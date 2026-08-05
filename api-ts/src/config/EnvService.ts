@@ -32,6 +32,10 @@ export const EnvSchema = Schema.Struct({
 	// JWT
 	JWT_SECRET: Schema.optional(Schema.String),
 
+	// Webapp passkey recovery (WebAuthn relying party)
+	WEBAPP_RP_ID: Schema.optionalWith(Schema.String, { default: () => 'app.suwappu.bot' }),
+	WEBAPP_RP_NAME: Schema.optionalWith(Schema.String, { default: () => 'Suwappu' }),
+
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
 		default: () =>
