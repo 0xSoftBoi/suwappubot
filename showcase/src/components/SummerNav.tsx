@@ -1,6 +1,7 @@
 'use client';
 
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
+import { track } from '@/lib/analytics';
 import ProductMenu from './ProductMenu';
 import NavDrawer from './NavDrawer';
 
@@ -27,7 +28,11 @@ export default function SummerNav() {
       </nav>
 
       <div className="summer-nav__actions">
-        <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
+        <a
+          className="summer-nav__cta summer-nav__cta--ghost"
+          href={TERMINAL_URL}
+          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'terminal' })}
+        >
           Open Terminal
         </a>
         <a
@@ -35,6 +40,7 @@ export default function SummerNav() {
           href={TELEGRAM_URL}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'telegram_bot' })}
         >
           Open Bot
         </a>
