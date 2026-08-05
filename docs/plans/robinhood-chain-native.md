@@ -150,3 +150,46 @@ sign for. Covered by 7 tests.
   rail on.
 - **Tokenized equities are not surfaced in any UI.** Needs a product/compliance
   decision on presentation before they are exposed.
+
+## Deeper pass (round 2) — primary-source verified
+
+Went straight at `docs.robinhood.com/chain` and Alchemy's own site instead of
+secondary summaries. Verified with curl/eth_call, not trusted blind.
+
+**Shipped:**
+- **Canonical asset registry** — `api.robinhood.com/rhj/assets` is real, public,
+  unauthenticated, and live: 96 active tokenized-equity assets, all with 4663
+  deployments. Confirmed every previously-shipped address (AAPL/TSLA/NVDA/GOOGL/
+  SPY) matches exactly, then replaced the 35-ticker Li.Fi-inferred list with the
+  full 96 from this source. This is the right anti-spoofing move:
+  `docs.robinhood.com/chain/contracts` itself warns a ticker/name match does not
+  prove canonicity — pulling from Robinhood's own registry is what actually
+  avoids that, symbol-matching a third-party list does not.
+- **Alchemy RPC fallback** — `alchemy.com/rpc/robinhood` and `-testnet` both
+  confirmed live (200, first-party Alchemy pages) plus Alchemy's own blog post on
+  the mainnet launch. Wired as the preferred RPC when `ALCHEMY_API_KEY` is set,
+  same pattern as every other chain. Held back in round 1 specifically because
+  this wasn't yet verified.
+- Independently confirmed ERC-4337 is real infrastructure here, not a docs claim:
+  both canonical EntryPoint v0.6 (`0x5FF1...2789`) and v0.7
+  (`0x0000...da032`) contracts are deployed on-chain at 4663 (`eth_getCode`).
+
+**Found real but explicitly not shipped:**
+- **Alchemy Gas Manager (gasless sponsorship)** — the actual Tempo-fee-payer
+  analog for this chain, corroborated independently by Alchemy's own blog post
+  (not just the Robinhood docs page). Needs an Alchemy API key + Gas Manager
+  policy ID we don't have configured; follow-up, not faked.
+- **Native L1↔L2 bridging via `@arbitrum/sdk`** (retryable tickets / ArbSys) — the
+  mechanism is real for any Arbitrum Orbit chain, but the specific bridge/inbox
+  contract addresses on 4663 came from a JS-rendered docs page that returned
+  empty on a raw curl fetch, and no Arbitrum registry repo
+  (`orbit-sdk`, `arbitrum-token-bridge`) had a 4663 entry either. Not hardcoding
+  unverified contract addresses into a money-path bridging feature — needs a
+  browser-capable fetch or Blockscout MCP lookup first.
+- Sequencer WebSocket feed (`feed.mainnet.chain.robinhood.com`) — real (a
+  third-party decoder repo exists), but a monitoring nicety, not money-path;
+  deprioritized.
+
+**No agent/x402/MCP-specific docs found on `docs.robinhood.com/chain`** — the
+multi-network x402 support shipped in round 1 is Suwappu's own build, not
+something Robinhood publishes.
