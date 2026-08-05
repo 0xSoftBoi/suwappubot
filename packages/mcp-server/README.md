@@ -38,21 +38,34 @@ Ask Claude: *"Get me a quote for swapping 0.5 ETH to USDC on Base"*
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_quote` | Swap quotes across 7+ chains |
-| `get_portfolio` | Wallet balances across all chains |
-| `get_prices` | Token prices with 24h change |
-| `list_chains` | Supported chains |
-| `list_tokens` | Tokens per chain |
-| `execute_swap` | Execute a swap from a quote |
+This package intentionally ships **no tool definitions**. It is a stdio bridge:
+it fetches the tool catalogue from the hosted endpoint at startup and forwards
+calls to it.
+
+That means the tools you get are always whatever `https://api.suwappu.bot/mcp`
+currently serves — **22 at the time of writing**, spanning swaps, quotes and
+simulation, portfolio and prices, perps, prediction markets, and lending. New
+tools appear without updating this package.
+
+To see the live list without installing anything:
+
+```bash
+curl -s -X POST https://api.suwappu.bot/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
+```
+
+Earlier versions of this package hand-maintained their own catalogue, which
+drifted to 11 tools with different names and arguments from the hosted server.
+Holding zero definitions makes that class of bug impossible rather than merely
+fixed.
 
 ## Environment Variables
 
-| Variable | Required | Default |
-|----------|----------|---------|
-| `SUWAPPU_API_KEY` | Yes | — |
-| `SUWAPPU_API_URL` | No | `https://api.suwappu.bot` |
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `SUWAPPU_API_KEY` | To call tools | — | Listing tools works without it |
+| `SUWAPPU_API_URL` | No | `https://api.suwappu.bot` | Point at a dev deployment |
 
 ## License
 

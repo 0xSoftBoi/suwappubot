@@ -1,33 +1,22 @@
 /**
- * Auth handling for Suwappu API.
+ * Auth handling for the Suwappu API.
  *
- * Uses API key passed via SUWAPPU_API_KEY env var.
- * The key is sent as a Bearer token in the Authorization header.
+ * The key is optional on purpose: the hosted endpoint leaves `tools/list` open
+ * (registry validators enumerate it without credentials), so an unconfigured
+ * user should still be able to see what this server offers. `tools/call`
+ * checks for the key and returns an actionable message when it is missing,
+ * which is friendlier than refusing to start.
  */
 
 export interface AuthConfig {
+	/** Empty string when unset — callers must check before calling tools. */
 	apiKey: string
 	apiUrl: string
 }
 
 export function getAuthConfig(): AuthConfig {
-	const apiKey = process.env.SUWAPPU_API_KEY
-	if (!apiKey) {
-		throw new Error(
-			'SUWAPPU_API_KEY environment variable is required.\n' +
-				'Get one at: curl -X POST https://api.suwappu.bot/v1/agent/register -H "Content-Type: application/json" -d \'{"name": "my-agent"}\''
-		)
-	}
-
-	const apiUrl = process.env.SUWAPPU_API_URL || 'https://api.suwappu.bot'
-
-	return { apiKey, apiUrl }
-}
-
-export function getAuthHeaders(apiKey: string): Record<string, string> {
 	return {
-		Authorization: `Bearer ${apiKey}`,
-		'Content-Type': 'application/json',
-		'User-Agent': 'suwappu-mcp-server/0.5.0',
+		apiKey: process.env.SUWAPPU_API_KEY ?? '',
+		apiUrl: process.env.SUWAPPU_API_URL || 'https://api.suwappu.bot',
 	}
 }
