@@ -27,10 +27,24 @@ A **real WalletConnect project id** is required — it is the fallback transport
 Kit uses to reach Ledger Live. The `'demo'` fallback in `wagmi.ts` **cannot** complete
 a Ledger pairing.
 
-- Get a project id from <https://cloud.reown.com> (formerly WalletConnect Cloud).
+- Get a project id from <https://dashboard.reown.com> — free. This is the old
+  WalletConnect Cloud, rebranded; `cloud.walletconnect.com` and `cloud.reown.com`
+  both still redirect there. Create a project, product type **AppKit**, then set
+  its Allowed Domains to `terminal.suwappu.bot` so the id can't be used from
+  another origin.
 - It is a **Vite build arg**, baked at image build (see `docs/deployment/railway.md`):
   set `VITE_WC_PROJECT_ID` in the terminal service's build args / env on Railway.
+  Setting it as a plain runtime variable does nothing — Vite inlines it at build
+  time, so the service must be **rebuilt**, not just restarted.
 - Local dev: add `VITE_WC_PROJECT_ID=<id>` to `terminal/.env.local`.
+
+The project id is **not a secret** — it ships inside the client bundle and is
+visible to anyone who opens devtools. Allowed Domains, not secrecy, is what
+scopes it. Do not treat it as a credential to be rotated on exposure.
+
+A project id alone is not sufficient: the terminal's CSP must also allow the
+WalletConnect hosts, or the pairing is refused by the browser before the id is
+ever used. See `terminal/nginx.conf` — both halves are required.
 
 ## Manual end-to-end test (needs a physical Ledger)
 
