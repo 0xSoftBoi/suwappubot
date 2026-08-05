@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'bun:test'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { pointsDebitCondition, pointsDebitSet } from '../services/PointsService'
@@ -73,6 +74,52 @@ describe('points debit — SET arithmetic', () => {
 		const set = pointsDebitSet(1234)
 		expect(dialect.sqlToQuery(set.currentPoints).params).toEqual(
 			dialect.sqlToQuery(set.pointsSpent).params,
+		)
+	})
+})
+
+describe('points debit — helpers are actually wired in at the call sites', () => {
+	// The compiled-SQL tests above pass even if someone inlines
+	// `currentPoints: current.currentPoints - cost` back into redeemReward and
+	// leaves the helpers untouched. Assert the call sites use them, so the
+	// regression that reintroduces the double-spend cannot land silently.
+	const source = readFileSync(
+		new URL('../services/PointsService.ts', import.meta.url),
+		'utf8',
+	)
+
+	it('both debit sites go through pointsDebitSet', () => {
+		const uses = source.match(/\.set\(pointsDebitSet\(/g) ?? []
+		expect(uses.length).toBe(2)
+	})
+
+	it('both debit sites go through pointsDebitCondition', () => {
+		const uses = source.match(/\.where\(pointsDebitCondition\(/g) ?? []
+		expect(uses.length).toBe(2)
+	})
+
+	it('no balance is written from a JS-side read', () => {
+		// The exact shape of the original bug.
+		expect(source).not.toMatch(/currentPoints:\s*\w+\.currentPoints\s*[-+]/)
+		expect(source).not.toMatch(/pointsSpent:\s*\w+\.pointsSpent\s*[-+]/)
+	})
+
+	it('reward stock is decremented in SQL and guarded, at both redemption paths', () => {
+		// The subscription path shipped with `stock: rStock - 1` and no guard —
+		// two users could redeem the last unit. Both paths must now be relative.
+		expect(source).not.toMatch(/stock:\s*\w+\s*-\s*1\b/)
+		const guarded = source.match(/gte\(rewards\.stock,\s*1\)/g) ?? []
+		expect(guarded.length).toBe(2)
+	})
+
+	it('the level-up bonus adds only the bonus, never the triggering award again', () => {
+		// If this is ever "cleaned up" to also add pointAmount, every level-up
+		// double-credits the award that triggered it. The preceding statement
+		// already applied pointAmount relative to the live row.
+		const bonusWrite = source.slice(source.indexOf('Failed to add level bonus') - 1200)
+		expect(bonusWrite).toContain('POINT_ACTIONS.level_up.points')
+		expect(bonusWrite.slice(0, bonusWrite.indexOf('Failed to add level bonus'))).not.toMatch(
+			/currentPoints:.*\+ \$\{pointAmount\}/,
 		)
 	})
 })

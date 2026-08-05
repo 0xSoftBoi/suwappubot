@@ -361,6 +361,31 @@ export function pointsDebitCondition(userId: number, cost: number) {
  * by tests. Pinning only the WHERE clause would let someone revert the `set` to
  * JS arithmetic with every test still green.
  */
+/**
+ * `level` derived in SQL from the row's post-increment `xp`, so the two can
+ * never disagree.
+ *
+ * Writing `level` from a JS snapshot while `xp` is incremented relatively lets
+ * them drift under concurrency: two awards land, `xp` correctly reaches X+a+b,
+ * but `level` is written from X+a. The stored tier then lags the real xp, and
+ * the NEXT award reads that stale tier as `oldLevel`, computes the real tier as
+ * `newLevel`, concludes the user just levelled up, and pays a SECOND level_up
+ * bonus for a crossing already paid for. (Before this PR the `xp` write was
+ * clobbered too, so the pair stayed wrong-but-consistent and never re-triggered.)
+ *
+ * Thresholds mirror LEVELS in db/schema/points.ts — descending, so the first
+ * matching branch wins.
+ */
+function levelFromXpSql(xpIncrement: number) {
+	return sql`CASE
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.diamond.xp} THEN 'diamond'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.platinum.xp} THEN 'platinum'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.gold.xp} THEN 'gold'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.silver.xp} THEN 'silver'
+		ELSE 'bronze'
+	END`
+}
+
 export function pointsDebitSet(cost: number) {
 	return {
 		currentPoints: sql`${userPoints.currentPoints} - ${cost}`,
@@ -481,7 +506,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							xp: sql`${userPoints.xp} + ${pointAmount}`,
 							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${pointAmount}`,
 							currentPoints: sql`${userPoints.currentPoints} + ${pointAmount}`,
-							level: newLevel,
+							level: levelFromXpSql(pointAmount),
 							updatedAt: new Date(),
 						})
 						.where(eq(userPoints.userId, userId)),
@@ -539,6 +564,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 								xp: sql`${userPoints.xp} + ${POINT_ACTIONS.level_up.points}`,
 								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${POINT_ACTIONS.level_up.points}`,
 								currentPoints: sql`${userPoints.currentPoints} + ${POINT_ACTIONS.level_up.points}`,
+								// The bonus xp can itself cross a threshold; keep level derived
+								// from the same live value as every other write site.
+								level: levelFromXpSql(POINT_ACTIONS.level_up.points),
 							})
 							.where(eq(userPoints.userId, userId)),
 					catch: (e) => new DatabaseError({ message: `Failed to add level bonus: ${e}`, cause: e }),
@@ -582,7 +610,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
 							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
 							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
-							level: newLevel,
+							level: levelFromXpSql(totalPoints + levelBonus),
 							lastSwapDate: now,
 							totalSwaps: sql`${userPoints.totalSwaps} + 1`,
 							totalVolumeUsd: sql`${userPoints.totalVolumeUsd} + ${swapAmountUsd}`,
@@ -714,7 +742,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
 							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
 							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
-							level: newLevel,
+							level: levelFromXpSql(totalPoints + levelBonus),
 							dailyStreak: newStreak,
 							longestStreak: Math.max(current.longestStreak, newStreak),
 							lastCheckin: now,
