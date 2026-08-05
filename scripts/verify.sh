@@ -33,6 +33,17 @@ if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
   echo "✓ OpenAPI spec in sync"
 fi
 
+if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
+  echo "=== MCP tool schema drift ==="
+  if ! (cd api-ts && bun run check:mcp); then
+    echo "✗ MCP tool schemas disagree with the Zod validators that actually run."
+    echo "  Derive the tool's inputSchema with mcpInputSchema() in src/routes/mcpTools.ts."
+    echo "  See docs/plans/mcp-unification.md."
+    exit 1
+  fi
+  echo "✓ MCP tool schemas in sync"
+fi
+
 if [[ "$MODE" == "all" || "$MODE" == "env" ]]; then
   echo "=== Env contract drift ==="
   if ! python3 scripts/check_env_schema.py; then
