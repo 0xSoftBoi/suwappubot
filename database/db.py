@@ -509,6 +509,11 @@ def _ensure_schema(db_engine) -> None:
 
     # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
     _create_agent_billing_tables(db_engine, inspector, is_sqlite)
+    # MUST run after the CREATEs above, and needs a fresh inspector so it sees
+    # tables this boot just created. Was previously nested in the unrelated
+    # `if "users" in tables:` block and ran BEFORE them — a no-op on a fresh DB
+    # purely by luck, since the CREATE DDL already emits DOUBLE PRECISION.
+    _widen_money_columns_to_double(db_engine, inspect(db_engine), is_sqlite)
 
     # --- recurring crypto subscriptions (Base Spend Permissions) ---
     _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
@@ -1335,6 +1340,105 @@ def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _widen_money_columns_to_double(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen the agent-billing money columns from REAL (float4) to DOUBLE PRECISION.
+
+    MONEY-PATH. These were created as REAL, which is a 4-byte float with only
+    ~7 significant decimal digits — a 24-bit mantissa. That is not enough for a
+    running balance debited in sub-cent amounts. At a ~$100 balance the ULP is
+    ~7.6e-6, so each ~$0.000728 LLM debit rounds by up to ~3.8e-6. Over 20k
+    debits that bounds the error near $0.076; the expected drift is far smaller
+    (a random walk, ~$0.0005) and its DIRECTION is not guaranteed. The number to
+    care about is not the typical case but the failure mode: once
+    balance/debit exceeds 2**24 — a balance over ~$12,200 — a debit can round to
+    a complete no-op and the balance stops decreasing at all. Not reachable
+    today, not absurd for a funded enterprise agent.
+
+    Widening is safe and lossless: every float4 is exactly representable as a
+    float8, so no value changes and no rewrite of meaning occurs. It does NOT
+    make the columns exact — float8 is still binary floating point — but it
+    removes the precision loss that is actually reachable at our amounts. The
+    exact-integer (micro-dollar) representation is the follow-up; this is the
+    part that is safe to ship without touching every read site.
+
+    SQLite has a single REAL type that is already 8-byte, so this is a no-op
+    there.
+
+    RUNS AT EVERY BOOT, so it must issue ZERO DDL once migrated. float4 -> float8
+    is not binary-coercible, so Postgres rewrites the heap and rebuilds indexes
+    under ACCESS EXCLUSIVE. Re-issuing a same-type ALTER is *accepted* by
+    Postgres but is not free — it still takes that lock. A queued ACCESS
+    EXCLUSIVE blocks every reader behind it, so on a busy agent_credits an
+    unconditional ALTER could stall startup past the healthcheck, get the
+    container killed, and requeue the same lock on restart — a billing outage in
+    a restart loop. Hence: skip when the column is already double precision, and
+    bound the wait with lock_timeout so a contended boot fails fast and
+    retries later instead of hanging.
+    """
+    if is_sqlite:
+        return
+
+    # (table, columns) — every REAL money column created by the agent-billing
+    # DDL above. api_credits is created by SQLAlchemy's Float (already float8),
+    # so it is deliberately absent — and it must STAY absent: it is not in
+    # api-ts's drizzle tablesFilter, so nothing narrows it.
+    targets = {
+        "agent_credits": ("balance", "lifetime_purchased", "lifetime_used"),
+        "agent_credit_topups": ("amount_usd", "credits_added"),
+        # Not an accumulating balance, so precision is not reachable here the
+        # same way — included so the column matches its api-ts declaration.
+        # A declaration that disagrees with the column is the same class of
+        # latent bug this function exists to remove.
+        "agent_subscriptions": ("amount_usd",),
+    }
+
+    existing = set(inspector.get_table_names())
+    pending: list[tuple[str, str]] = []
+    for table, columns in targets.items():
+        if table not in existing:
+            continue
+        types = {c["name"]: str(c["type"]).upper() for c in inspector.get_columns(table)}
+        for column in columns:
+            current = types.get(column)
+            if current is None:
+                continue
+            # Already float8 — the steady state. Emit no DDL at all.
+            if "DOUBLE" in current or "FLOAT8" in current:
+                continue
+            pending.append((table, column))
+
+    if not pending:
+        return
+
+    # ALL-OR-NOTHING. Per-column failure would leave a half-migrated table
+    # (balance float4, lifetime_used float8) that boots green and is visible
+    # only in a startup warning nobody greps — and drizzle would then see a
+    # partial mismatch. One transaction, so a timeout rolls back cleanly and the
+    # next boot retries the whole set.
+    try:
+        with db_engine.begin() as conn:
+            # Fail fast instead of queueing behind a live debit and taking the
+            # service down with us. Unapplied columns are simply retried next boot.
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            for table, column in pending:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE DOUBLE PRECISION")
+                )
+        logger.info(
+            "Widened %d money column(s) to DOUBLE PRECISION: %s",
+            len(pending),
+            ", ".join(f"{t}.{c}" for t, c in pending),
+        )
+    except Exception as e:
+        # Never crash boot on DDL. Escalated to ERROR with a stable token so it
+        # is alertable — a money column silently left at float4 is not a warning.
+        logger.error(
+            "MONEY_COLUMN_WIDEN_FAILED: could not widen %s to DOUBLE PRECISION: %s",
+            ", ".join(f"{t}.{c}" for t, c in pending),
+            e,
+        )
 
 
 def _widen_totp_secret(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2182,9 +2286,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     CREATE TABLE IF NOT EXISTS agent_credits (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL UNIQUE,
-                        balance REAL NOT NULL DEFAULT 0,
-                        lifetime_purchased REAL NOT NULL DEFAULT 0,
-                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_purchased DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_used DOUBLE PRECISION NOT NULL DEFAULT 0,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
@@ -2211,8 +2315,8 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         agent_id INTEGER NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
-                        credits_added REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
+                        credits_added DOUBLE PRECISION NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
                 """))
@@ -2248,7 +2352,7 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tier VARCHAR(20) NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
                         started_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         expires_at TIMESTAMP NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()

@@ -1,8 +1,8 @@
 import {
+	doublePrecision,
 	index,
 	integer,
 	pgTable,
-	real,
 	serial,
 	text,
 	timestamp,
@@ -15,7 +15,11 @@ export const x402Payments = pgTable('x402_payments', {
 	id: serial('id').primaryKey(),
 	userId: integer('user_id').notNull(),
 	paymentId: varchar('payment_id', { length: 128 }).notNull().unique(),
-	amount: real('amount').notNull(),
+	// float8 in the DB (SQLAlchemy Float, bot/models/subscription.py). Declared
+	// to match — a declaration that disagrees with the column is the same latent
+	// bug _widen_money_columns_to_double exists to remove. Safe: x402_payments is
+	// not in drizzle tablesFilter, so drizzle-kit never ALTERs it.
+	amount: doublePrecision('amount').notNull(),
 	tokenSymbol: varchar('token_symbol', { length: 16 }).default('USDC'),
 	tokenAddress: varchar('token_address', { length: 64 }),
 	chain: varchar('chain', { length: 32 }).default('base'),
@@ -33,9 +37,9 @@ export const x402Payments = pgTable('x402_payments', {
 export const apiCredits = pgTable('api_credits', {
 	id: serial('id').primaryKey(),
 	userId: integer('user_id').notNull().unique(),
-	balance: real('balance').default(0),
-	lifetimePurchased: real('lifetime_purchased').default(0),
-	lifetimeUsed: real('lifetime_used').default(0),
+	balance: doublePrecision('balance').default(0),
+	lifetimePurchased: doublePrecision('lifetime_purchased').default(0),
+	lifetimeUsed: doublePrecision('lifetime_used').default(0),
 	createdAt: timestamp('created_at').defaultNow(),
 	updatedAt: timestamp('updated_at').defaultNow(),
 })
@@ -56,9 +60,9 @@ export type NewApiCredit = typeof apiCredits.$inferInsert
 export const agentCredits = pgTable('agent_credits', {
 	id: serial('id').primaryKey(),
 	agentId: integer('agent_id').notNull().unique(),
-	balance: real('balance').default(0).notNull(),
-	lifetimePurchased: real('lifetime_purchased').default(0).notNull(),
-	lifetimeUsed: real('lifetime_used').default(0).notNull(),
+	balance: doublePrecision('balance').default(0).notNull(),
+	lifetimePurchased: doublePrecision('lifetime_purchased').default(0).notNull(),
+	lifetimeUsed: doublePrecision('lifetime_used').default(0).notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -77,8 +81,8 @@ export const agentCreditTopups = pgTable(
 		agentId: integer('agent_id').notNull(),
 		txHash: varchar('tx_hash', { length: 128 }).notNull().unique(),
 		chain: varchar('chain', { length: 32 }).default('base').notNull(),
-		amountUsd: real('amount_usd').notNull(),
-		creditsAdded: real('credits_added').notNull(),
+		amountUsd: doublePrecision('amount_usd').notNull(),
+		creditsAdded: doublePrecision('credits_added').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(table) => ({
@@ -133,7 +137,7 @@ export const agentSubscriptions = pgTable(
 		tier: varchar('tier', { length: 20 }).notNull(),
 		txHash: varchar('tx_hash', { length: 128 }).notNull().unique(),
 		chain: varchar('chain', { length: 32 }).default('base').notNull(),
-		amountUsd: real('amount_usd').notNull(),
+		amountUsd: doublePrecision('amount_usd').notNull(),
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		expiresAt: timestamp('expires_at').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
