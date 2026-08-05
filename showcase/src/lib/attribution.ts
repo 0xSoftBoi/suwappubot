@@ -22,6 +22,8 @@ export interface Attribution {
   referrer?: string;
   landing_page?: string;
   captured_at?: string;
+  content_id?: string;
+  creative_variant_id?: string;
 }
 
 /**
@@ -38,6 +40,10 @@ export function captureAttribution(): void {
     const attribution: Attribution = {};
 
     for (const key of UTM_KEYS) {
+      const value = params.get(key);
+      if (value) attribution[key] = value;
+    }
+    for (const key of ['content_id', 'creative_variant_id'] as const) {
       const value = params.get(key);
       if (value) attribution[key] = value;
     }
