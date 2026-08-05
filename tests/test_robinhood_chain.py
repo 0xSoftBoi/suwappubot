@@ -80,7 +80,10 @@ class TestRobinhoodStablecoin:
 
 class TestTokenizedEquities:
     def test_registry_is_populated(self):
-        assert len(ROBINHOOD_EQUITIES) >= 30
+        # Sourced from Robinhood's own canonical registry (api.robinhood.com/rhj/
+        # assets), which reported 96 active assets on 2026-08-04. Floor rather
+        # than exact match since the registry is live and can grow.
+        assert len(ROBINHOOD_EQUITIES) >= 90
 
     @pytest.mark.parametrize("ticker", ["AAPL", "TSLA", "NVDA", "SPY", "MSFT"])
     def test_bellwether_tickers_present(self, ticker):

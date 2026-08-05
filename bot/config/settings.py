@@ -741,6 +741,10 @@ class Settings(BaseSettings):
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
             "solana": "solana-mainnet",
+            # Confirmed live on Alchemy (alchemy.com/rpc/robinhood, 2026-08-04) —
+            # not a guess. Robinhood Chain's 2-validator set (Offchain Labs +
+            # Alchemy) makes a managed fallback worth having.
+            "robinhood": "robinhood-mainnet",
         }
 
         # Apply custom overrides if configured

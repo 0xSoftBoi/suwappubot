@@ -12,8 +12,15 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
 	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
-	// Robinhood Chain — Arbitrum Orbit L2 (chain 4663), native gas ETH.
-	robinhood: process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
+	// Robinhood Chain — Arbitrum Orbit L2 (chain 4663), native gas ETH. Alchemy
+	// support confirmed live (alchemy.com/rpc/robinhood, 2026-08-04) — preferred
+	// over the public RPC given the chain's 2-validator set (Offchain Labs +
+	// Alchemy).
+	robinhood:
+		process.env.ROBINHOOD_RPC_URL ||
+		(alchemyKey
+			? `https://robinhood-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://rpc.mainnet.chain.robinhood.com'),
 	// Read-only: Starknet signing/broadcast is owned by the Python bot backend
 	starknet: process.env.STARKNET_RPC_URL || 'https://rpc.starknet.lava.build',
 	// GOAT Network — plain EVM chain (chain id 2345), native token is BTC
