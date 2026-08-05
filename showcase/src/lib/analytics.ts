@@ -16,6 +16,7 @@ interface PlausibleWindow extends Window {
   gtag?: (command: 'event', event: string, params?: EventProps) => void;
   twq?: (command: 'event', eventId: string, params?: EventProps) => void;
   rdt?: (command: 'track', eventName: string, params?: EventProps) => void;
+  posthog?: { capture?: (event: string, props?: EventProps) => void };
 }
 
 // Events worth reporting to ad platforms as conversions, mapped to each
@@ -34,6 +35,7 @@ export function track(event: string, props?: EventProps): void {
   try {
     w.plausible?.(event, props ? { props } : undefined);
     w.gtag?.('event', event, props);
+    w.posthog?.capture?.(event, props);
 
     const conversion = CONVERSION_EVENTS[event];
     if (conversion?.x) w.twq?.('event', conversion.x, props);
