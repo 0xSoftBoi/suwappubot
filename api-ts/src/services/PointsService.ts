@@ -298,9 +298,11 @@ const checkAndAwardMilestones = (
 							db
 								.update(userPoints)
 								.set({
-									xp: current.xp + milestone.pointsReward,
-									totalPointsEarned: current.totalPointsEarned + milestone.pointsReward,
-									currentPoints: current.currentPoints + milestone.pointsReward,
+									// SQL-relative: a concurrent redemption's debit must not be
+									// undone by an award writing an absolute value from a stale read.
+									xp: sql`${userPoints.xp} + ${milestone.pointsReward}`,
+									totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${milestone.pointsReward}`,
+									currentPoints: sql`${userPoints.currentPoints} + ${milestone.pointsReward}`,
 									updatedAt: new Date(),
 								})
 								.where(eq(userPoints.userId, userId)),
@@ -348,6 +350,50 @@ const checkAndAwardMilestones = (
  */
 export function pointsDebitCondition(userId: number, cost: number) {
 	return and(eq(userPoints.userId, userId), gte(userPoints.currentPoints, cost))
+}
+
+/**
+ * The debit half, paired with {@link pointsDebitCondition}. Arithmetic is done
+ * in SQL against the row's live value — never against a balance read earlier in
+ * the request, which is what allowed the same points to be spent twice.
+ *
+ * Extracted alongside the predicate so BOTH halves of the guarantee are pinned
+ * by tests. Pinning only the WHERE clause would let someone revert the `set` to
+ * JS arithmetic with every test still green.
+ */
+export function pointsDebitSet(cost: number) {
+	return {
+		currentPoints: sql`${userPoints.currentPoints} - ${cost}`,
+		pointsSpent: sql`${userPoints.pointsSpent} + ${cost}`,
+		updatedAt: new Date(),
+	}
+}
+
+// Thrown inside a redemption transaction to roll it back. These are the losers
+// of a legitimate race (or a genuinely short balance), NOT database faults — so
+// they carry a marker that lets the Effect `catch` map them back to
+// ValidationError. Without this, the user who loses a race by microseconds gets
+// an opaque 500 and the event lands in error dashboards as a DB fault.
+class RedemptionRejected extends Error {
+	readonly isRedemptionRejection = true
+}
+class InsufficientPointsError extends RedemptionRejected {
+	constructor() {
+		super('Insufficient points')
+	}
+}
+class OutOfStockError extends RedemptionRejected {
+	constructor() {
+		super('Reward out of stock')
+	}
+}
+
+/** Map a thrown redemption rejection back to a user-facing ValidationError. */
+function redemptionFailure(e: unknown, context: string) {
+	if (e instanceof RedemptionRejected) {
+		return new ValidationError({ message: e.message })
+	}
+	return new DatabaseError({ message: `${context}: ${e}`, cause: e })
 }
 
 export const PointsServiceLive = Layer.succeed(PointsService, {
@@ -428,9 +474,13 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp,
-							totalPointsEarned: current.totalPointsEarned + pointAmount,
-							currentPoints: current.currentPoints + pointAmount,
+							// SQL-relative for the accumulators (see pointsDebitCondition):
+							// an absolute write here would clobber a concurrent debit and hand
+							// the user back points they already spent. `level` stays absolute —
+							// it is derived state, not an accumulator.
+							xp: sql`${userPoints.xp} + ${pointAmount}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${pointAmount}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${pointAmount}`,
 							level: newLevel,
 							updatedAt: new Date(),
 						})
@@ -481,10 +531,14 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						db
 							.update(userPoints)
 							.set({
-								xp: newXp + POINT_ACTIONS.level_up.points,
-								totalPointsEarned:
-									current.totalPointsEarned + pointAmount + POINT_ACTIONS.level_up.points,
-								currentPoints: current.currentPoints + pointAmount + POINT_ACTIONS.level_up.points,
+								// DELTA ONLY. The absolute version re-added `pointAmount`, which
+								// was correct only because it recomputed the whole total from the
+								// same pre-update snapshot. Now that the statement above applies
+								// pointAmount relative to the live row, adding it again here would
+								// credit it twice.
+								xp: sql`${userPoints.xp} + ${POINT_ACTIONS.level_up.points}`,
+								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${POINT_ACTIONS.level_up.points}`,
+								currentPoints: sql`${userPoints.currentPoints} + ${POINT_ACTIONS.level_up.points}`,
 							})
 							.where(eq(userPoints.userId, userId)),
 					catch: (e) => new DatabaseError({ message: `Failed to add level bonus: ${e}`, cause: e }),
@@ -525,13 +579,13 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp + levelBonus,
-							totalPointsEarned: current.totalPointsEarned + totalPoints + levelBonus,
-							currentPoints: current.currentPoints + totalPoints + levelBonus,
+							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
 							level: newLevel,
 							lastSwapDate: now,
-							totalSwaps: current.totalSwaps + 1,
-							totalVolumeUsd: current.totalVolumeUsd + swapAmountUsd,
+							totalSwaps: sql`${userPoints.totalSwaps} + 1`,
+							totalVolumeUsd: sql`${userPoints.totalVolumeUsd} + ${swapAmountUsd}`,
 							updatedAt: now,
 						})
 						.where(eq(userPoints.userId, userId)),
@@ -657,9 +711,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp + levelBonus,
-							totalPointsEarned: current.totalPointsEarned + totalPoints + levelBonus,
-							currentPoints: current.currentPoints + totalPoints + levelBonus,
+							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
 							level: newLevel,
 							dailyStreak: newStreak,
 							longestStreak: Math.max(current.longestStreak, newStreak),
@@ -838,18 +892,14 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							// so an integration test there will pass either way.
 							const debited = await tx
 								.update(userPoints)
-								.set({
-									currentPoints: sql`${userPoints.currentPoints} - ${cost}`,
-									pointsSpent: sql`${userPoints.pointsSpent} + ${cost}`,
-									updatedAt: new Date(),
-								})
+								.set(pointsDebitSet(cost))
 								.where(pointsDebitCondition(userId, cost))
 								.returning({ currentPoints: userPoints.currentPoints })
 
 							if (debited.length === 0) {
 								// Either no row, or the balance moved below cost since the
 								// pre-check. Throwing rolls the whole transaction back.
-								throw new Error('Insufficient points')
+								throw new InsufficientPointsError()
 							}
 
 							const subRows = await tx
@@ -913,15 +963,26 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							})
 
 							if (rStock !== null) {
-								await tx
+								// Same conditional-update treatment as the debit above.
+								// `rStock` came from a snapshot read taken before this
+								// transaction, so `rStock - 1` let two concurrent
+								// redemptions of the last unit both write 0 — two
+								// subscriptions from one unit — and could drive stock
+								// negative. The userPoints row lock does NOT serialise
+								// these: they are different users, hence different rows.
+								const stocked = await tx
 									.update(rewards)
-									.set({ stock: rStock - 1 })
-									.where(eq(rewards.id, rewardId))
+									.set({ stock: sql`${rewards.stock} - 1` })
+									.where(and(eq(rewards.id, rewardId), gte(rewards.stock, 1)))
+									.returning({ stock: rewards.stock })
+
+								if (stocked.length === 0) {
+									throw new OutOfStockError()
+								}
 							}
 							return red[0]
 						}),
-					catch: (e) =>
-						new DatabaseError({ message: `Subscription redemption failed: ${e}`, cause: e }),
+					catch: (e) => redemptionFailure(e, 'Subscription redemption failed'),
 				})
 
 				if (!subRedemption) {
@@ -956,16 +1017,12 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db.transaction(async (tx) => {
 						const debited = await tx
 							.update(userPoints)
-							.set({
-								currentPoints: sql`${userPoints.currentPoints} - ${reward.pointsCost}`,
-								pointsSpent: sql`${userPoints.pointsSpent} + ${reward.pointsCost}`,
-								updatedAt: new Date(),
-							})
+							.set(pointsDebitSet(reward.pointsCost))
 							.where(pointsDebitCondition(userId, reward.pointsCost))
 							.returning({ currentPoints: userPoints.currentPoints })
 
 						if (debited.length === 0) {
-							throw new Error('Insufficient points')
+							throw new InsufficientPointsError()
 						}
 
 						if (reward.stock !== null) {
@@ -976,7 +1033,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 								.returning({ stock: rewards.stock })
 
 							if (stocked.length === 0) {
-								throw new Error('Reward out of stock')
+								throw new OutOfStockError()
 							}
 						}
 
@@ -1008,7 +1065,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 						return inserted
 					}),
-				catch: (e) => new DatabaseError({ message: `Failed to redeem reward: ${e}`, cause: e }),
+				catch: (e) => redemptionFailure(e, 'Failed to redeem reward'),
 			})
 
 			return yield* requireRow(redemption, 'Failed to create redemption: no row returned')
