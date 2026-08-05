@@ -491,6 +491,7 @@ def _ensure_schema(db_engine) -> None:
         _add_user_settings_columns(db_engine, inspector, is_sqlite)
         _add_passkey_columns(db_engine, inspector, is_sqlite)
         _widen_totp_secret(db_engine, inspector, is_sqlite)
+        _widen_money_columns_to_double(db_engine, inspector, is_sqlite)
         _encrypt_plaintext_totp_secrets(db_engine, is_sqlite)
         # Self-heal any remaining missing User columns (shared DB has had python-owned
         # columns dropped by api-ts drizzle pushes). Belt-and-suspenders so the ORM's
@@ -1335,6 +1336,60 @@ def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _widen_money_columns_to_double(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen the agent-billing money columns from REAL (float4) to DOUBLE PRECISION.
+
+    MONEY-PATH. These were created as REAL, which is a 4-byte float with only
+    ~7 significant decimal digits. That is not enough for a running balance
+    debited in sub-cent amounts: LLM usage debits ~$0.000728 per call, and
+    accumulating 20k of those against a REAL balance drifts ~$0.064 away from
+    the float8 result — in the user's favour, silently, and without bound as
+    volume grows.
+
+    Widening is safe and lossless: every float4 is exactly representable as a
+    float8, so no value changes and no rewrite of meaning occurs. It does NOT
+    make the columns exact — float8 is still binary floating point — but it
+    removes the precision loss that is actually reachable at our amounts. The
+    exact-integer (micro-dollar) representation is the follow-up; this is the
+    part that is safe to ship without touching every read site.
+
+    SQLite has a single REAL type that is already 8-byte, so this is a no-op
+    there. Idempotent: re-running an ALTER to a type the column already has is
+    accepted by Postgres.
+    """
+    if is_sqlite:
+        return
+
+    # (table, columns) — every REAL money column created by the agent-billing
+    # DDL above. api_credits is created by SQLAlchemy's Float (already float8),
+    # so it is deliberately absent.
+    targets = {
+        "agent_credits": ("balance", "lifetime_purchased", "lifetime_used"),
+        "agent_credit_topups": ("amount_usd", "credits_added"),
+        # Not an accumulating balance, so precision is not reachable here the
+        # same way — included so the column matches its api-ts declaration.
+        # A declaration that disagrees with the column is the same class of
+        # latent bug this function exists to remove.
+        "agent_subscriptions": ("amount_usd",),
+    }
+
+    existing = set(inspector.get_table_names())
+    for table, columns in targets.items():
+        if table not in existing:
+            continue
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        for column in columns:
+            if column not in cols:
+                continue
+            try:
+                with db_engine.begin() as conn:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE DOUBLE PRECISION")
+                    )
+            except Exception as e:
+                logger.warning(f"Could not widen {table}.{column} to DOUBLE PRECISION: {e}")
 
 
 def _widen_totp_secret(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2182,9 +2237,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     CREATE TABLE IF NOT EXISTS agent_credits (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL UNIQUE,
-                        balance REAL NOT NULL DEFAULT 0,
-                        lifetime_purchased REAL NOT NULL DEFAULT 0,
-                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_purchased DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_used DOUBLE PRECISION NOT NULL DEFAULT 0,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
@@ -2211,8 +2266,8 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         agent_id INTEGER NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
-                        credits_added REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
+                        credits_added DOUBLE PRECISION NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
                 """))
@@ -2248,7 +2303,7 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tier VARCHAR(20) NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
                         started_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         expires_at TIMESTAMP NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
