@@ -1,0 +1,69 @@
+{
+  "nav": {
+    "home": "होम",
+    "swap": "स्वैप",
+    "wallet": "वॉलेट",
+    "portfolio": "पोर्टफोलियो",
+    "history": "इतिहास",
+    "settings": "सेटिंग्स"
+  },
+  "common": {
+    "back": "वापस",
+    "confirm": "पुष्टि करें",
+    "cancel": "रद्द करें",
+    "loading": "लोड हो रहा है...",
+    "error": "त्रुटि",
+    "save": "सहेजें",
+    "close": "बंद करें",
+    "retry": "पुनः प्रयास करें",
+    "continue": "जारी रखें",
+    "done": "हो गया",
+    "search": "खोजें"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "language": "भाषा",
+    "notifications": "सूचनाएं",
+    "notificationsDesc": "सभी सूचनाएं सक्षम करें",
+    "linkedWallets": "लिंक्ड वॉलेट",
+    "slippage": "स्लिपेज",
+    "gas": "गैस सेटिंग्स"
+  },
+  "swap": {
+    "title": "स्वैप",
+    "from": "से",
+    "to": "को",
+    "selectToken": "टोकन चुनें",
+    "enterAmount": "राशि दर्ज करें",
+    "swapNow": "अभी स्वैप करें",
+    "confirmSwap": "स्वैप की पुष्टि करें",
+    "swapSuccess": "स्वैप सफल"
+  },
+  "wallet": {
+    "title": "वॉलेट",
+    "balance": "बैलेंस",
+    "send": "भेजें",
+    "receive": "प्राप्त करें",
+    "copyAddress": "पता कॉपी करें"
+  },
+  "portfolio": {
+    "title": "पोर्टफोलियो",
+    "totalValue": "कुल मूल्य",
+    "noAssets": "कोई एसेट नहीं मिली"
+  },
+  "home": {
+    "title": "होम",
+    "quickSwap": "क्विक स्वैप"
+  },
+  "language": {
+    "title": "भाषा",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文",
+    "hi": "हिन्दी",
+    "tl": "Tagalog",
+    "vi": "Tiếng Việt",
+    "ht": "Kreyòl Ayisyen"
+  }
+}

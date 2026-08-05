@@ -64,6 +64,7 @@ export interface UserPreferences {
   twoFaEnabled: boolean
   twoFaThreshold: number
   gasMode: string
+  languagePreference?: string // 'en' | 'es' | 'fr' | 'zh', resolved server-side
 }
 
 export interface UserProfile {

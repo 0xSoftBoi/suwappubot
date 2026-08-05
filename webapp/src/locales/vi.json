@@ -1,0 +1,69 @@
+{
+  "nav": {
+    "home": "Trang chủ",
+    "swap": "Hoán đổi",
+    "wallet": "Ví",
+    "portfolio": "Danh mục",
+    "history": "Lịch sử",
+    "settings": "Cài đặt"
+  },
+  "common": {
+    "back": "Quay lại",
+    "confirm": "Xác nhận",
+    "cancel": "Hủy",
+    "loading": "Đang tải...",
+    "error": "Lỗi",
+    "save": "Lưu",
+    "close": "Đóng",
+    "retry": "Thử lại",
+    "continue": "Tiếp tục",
+    "done": "Xong",
+    "search": "Tìm kiếm"
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "language": "Ngôn ngữ",
+    "notifications": "Thông báo",
+    "notificationsDesc": "Bật tất cả thông báo",
+    "linkedWallets": "Ví đã liên kết",
+    "slippage": "Trượt giá",
+    "gas": "Cài đặt phí Gas"
+  },
+  "swap": {
+    "title": "Hoán đổi",
+    "from": "Từ",
+    "to": "Đến",
+    "selectToken": "Chọn Token",
+    "enterAmount": "Nhập số tiền",
+    "swapNow": "Hoán đổi Ngay",
+    "confirmSwap": "Xác nhận Hoán đổi",
+    "swapSuccess": "Hoán đổi Thành công"
+  },
+  "wallet": {
+    "title": "Ví",
+    "balance": "Số dư",
+    "send": "Gửi",
+    "receive": "Nhận",
+    "copyAddress": "Sao chép Địa chỉ"
+  },
+  "portfolio": {
+    "title": "Danh mục",
+    "totalValue": "Tổng giá trị",
+    "noAssets": "Không tìm thấy tài sản"
+  },
+  "home": {
+    "title": "Trang chủ",
+    "quickSwap": "Hoán đổi Nhanh"
+  },
+  "language": {
+    "title": "Ngôn ngữ",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文",
+    "hi": "हिन्दी",
+    "tl": "Tagalog",
+    "vi": "Tiếng Việt",
+    "ht": "Kreyòl Ayisyen"
+  }
+}

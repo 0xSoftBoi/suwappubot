@@ -9,6 +9,10 @@ const LOCALES = [
   { code: 'es', label: 'ES' },
   { code: 'fr', label: 'FR' },
   { code: 'zh', label: '中文' },
+  { code: 'hi', label: 'हिं' },
+  { code: 'tl', label: 'TL' },
+  { code: 'vi', label: 'VI' },
+  { code: 'ht', label: 'HT' },
 ] as const;
 
 type Locale = (typeof LOCALES)[number]['code'];

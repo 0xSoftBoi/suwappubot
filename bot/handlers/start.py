@@ -280,7 +280,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     reply_markup = _build_main_keyboard()
 
-    lang = get_user_lang(user)
+    lang = get_user_lang(user, stored_lang=db_user.language_preference)
 
     # Fast path: no wallets yet → reply instantly, create wallets in the background
     if not wallet_service.get_user_wallets(user_id):
@@ -341,7 +341,9 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     reply_markup = _build_main_keyboard()
 
-    lang = get_user_lang(update.effective_user)
+    lang = get_user_lang(
+        update.effective_user, stored_lang=db_user.language_preference if db_user else None
+    )
 
     # Fast path: no wallets yet → show the menu instantly, create wallets in background
     if not wallet_service.get_user_wallets(user_id):
@@ -430,7 +432,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if db_user:
             user_id = db_user.id
 
-    lang = get_user_lang(user)
+    lang = get_user_lang(user, stored_lang=db_user.language_preference if db_user else None)
 
     # No DB user / no wallets yet → fall back to the static welcome menu.
     if user_id is None or not wallet_service.get_user_wallets(user_id):

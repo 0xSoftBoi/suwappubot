@@ -42,6 +42,18 @@ _SUPPORTED_CHAINS = (
 # Common output token choices
 _OUTPUT_TOKEN_CHOICES = ("USDC", "USDT", "ETH", "BNB", "SOL")
 
+# Supported UI languages — must match bot/i18n.py's _SUPPORTED_LANGS
+_SUPPORTED_LANGS = (
+    ("en", "🇬🇧 English"),
+    ("es", "🇪🇸 Español"),
+    ("fr", "🇫🇷 Français"),
+    ("zh", "🇨🇳 中文"),
+    ("hi", "🇮🇳 हिन्दी"),
+    ("tl", "🇵🇭 Tagalog"),
+    ("vi", "🇻🇳 Tiếng Việt"),
+    ("ht", "🇭🇹 Kreyòl Ayisyen"),
+)
+
 
 def _get_or_create_settings(session, telegram_id: int) -> tuple:
     """Return (db_user, user_settings) or (None, None) if user not found."""
@@ -140,6 +152,7 @@ def _build_settings_keyboard(user_settings: UserSettings) -> InlineKeyboardMarku
         [InlineKeyboardButton("Notification Preferences", callback_data="settings_notify_prefs")],
         [InlineKeyboardButton("Manage Alerts", callback_data="alerts_menu")],
         [InlineKeyboardButton("Recovery", callback_data="settings_recovery")],
+        [InlineKeyboardButton("🌐 Language", callback_data="settings_language_menu")],
         [InlineKeyboardButton("Back", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -406,6 +419,54 @@ async def chain_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         db_user, user_settings = _get_or_create_settings(session, user.id)
         if db_user and user_settings:
             user_settings.default_chain = chain
+
+    await settings_callback(update, context)
+
+
+# ---------------------------------------------------------------------------
+# Language: pick-list
+# ---------------------------------------------------------------------------
+
+
+async def language_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show language picker."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user, user_settings = _get_or_create_settings(session, user.id)
+        if not db_user:
+            await query.edit_message_text("Please use /start first.")
+            return
+        current = db_user.language_preference or "en"
+
+    rows = []
+    for code, label in _SUPPORTED_LANGS:
+        text = f"> {label}" if code == current else label
+        rows.append([InlineKeyboardButton(text, callback_data=f"settings_lang_{code}")])
+    rows.append([InlineKeyboardButton("Back", callback_data="settings_menu")])
+
+    await send_md_safe(
+        update,
+        "*Language*\n\nChoose the language for bot messages.",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def language_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Persist the chosen language preference."""
+    query = update.callback_query
+    lang = query.data.replace("settings_lang_", "")
+
+    await query.answer(f"Language set to {lang}.")
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user, user_settings = _get_or_create_settings(session, user.id)
+        if db_user:
+            db_user.language_preference = lang
 
     await settings_callback(update, context)
 
@@ -1155,6 +1216,12 @@ chain_menu_handler = CallbackQueryHandler(chain_menu_callback, pattern="^setting
 chain_set_handler = CallbackQueryHandler(
     chain_set_callback,
     pattern="^settings_chain_(ethereum|bsc|polygon|arbitrum|optimism|base|solana|avalanche|tron|any)$",
+)
+language_menu_handler = CallbackQueryHandler(
+    language_menu_callback, pattern="^settings_language_menu$"
+)
+language_set_handler = CallbackQueryHandler(
+    language_set_callback, pattern="^settings_lang_(en|es|fr|zh|hi|tl|vi|ht)$"
 )
 notify_prefs_handler = CallbackQueryHandler(
     notify_prefs_callback, pattern="^settings_notify_prefs$"

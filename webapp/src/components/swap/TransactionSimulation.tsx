@@ -1,5 +1,6 @@
 import React from 'react'
 import { ImpactIndicator } from './ImpactIndicator'
+import { formatCurrency, getIntlLocale } from '../../lib/format'
 import type { SwapQuote, SwapToken } from '../../types/swap'
 import type { SimulationResult } from '../../types/simulation'
 
@@ -17,7 +18,7 @@ export interface TransactionSimulationProps {
 // ── Helpers ────────────────────────────────────────────
 
 function formatUsd(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return formatCurrency(value)
 }
 
 function formatTokenAmount(value: string): string {
@@ -25,8 +26,27 @@ function formatTokenAmount(value: string): string {
   if (isNaN(num)) return value
   if (num === 0) return '0'
   if (num < 0.0001) return '<0.0001'
-  if (num < 1) return num.toPrecision(4)
-  return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+  if (num < 1) {
+    // Locale-aware equivalent of num.toPrecision(4) — keeps the decimal
+    // separator consistent with the rest of this screen (see formatUsd/
+    // formatCurrency), instead of always rendering a '.' regardless of locale.
+    return new Intl.NumberFormat(getIntlLocale(), { maximumSignificantDigits: 4 }).format(num)
+  }
+  return num.toLocaleString(getIntlLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+}
+
+function formatExchangeRate(value: number): string {
+  return new Intl.NumberFormat(getIntlLocale(), {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(value)
+}
+
+function formatSlippage(value: number): string {
+  return new Intl.NumberFormat(getIntlLocale(), {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value)
 }
 
 function getPriceImpactLabel(impact: number): string {
@@ -311,7 +331,7 @@ function TransactionDetailsSection({ quote }: { quote: SwapQuote }) {
   const rows = [
     {
       label: 'Exchange Rate',
-      value: `1 ${quote.fromToken?.symbol ?? '?'} = ${quote.exchangeRate.toFixed(4)} ${quote.toToken?.symbol ?? '?'}`,
+      value: `1 ${quote.fromToken?.symbol ?? '?'} = ${formatExchangeRate(quote.exchangeRate)} ${quote.toToken?.symbol ?? '?'}`,
     },
     {
       label: 'Min. Received',
@@ -319,7 +339,7 @@ function TransactionDetailsSection({ quote }: { quote: SwapQuote }) {
     },
     {
       label: 'Slippage',
-      value: `${quote.slippage}%`,
+      value: `${formatSlippage(quote.slippage)}%`,
     },
   ]
 

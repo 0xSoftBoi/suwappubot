@@ -1,0 +1,61 @@
+{
+  "nav": {
+    "engine": "Công cụ",
+    "hyperliquid": "HyperLiquid",
+    "tempo": "Tempo",
+    "agents": "Agent",
+    "api": "API",
+    "pricing": "Bảng giá",
+    "docs": "Tài liệu",
+    "solutions": "Giải pháp",
+    "compare": "So sánh",
+    "forAgents": "Dành cho Agent",
+    "status": "Trạng thái",
+    "signIn": "Đăng nhập",
+    "dashboard": "Bảng điều khiển",
+    "openBot": "Mở Bot",
+    "talkToSales": "Liên hệ đội ngũ bán hàng",
+    "openTerminal": "Mở Terminal",
+    "whatsapp": "WhatsApp"
+  },
+  "hero": {
+    "kicker": "Đang trong bản beta mở · 41 chuỗi",
+    "h1": "Giao dịch mọi thứ.",
+    "h1_accent": "Không giới hạn.",
+    "lead": "Suwappu định tuyến giao dịch của bạn qua 41 chuỗi và 19 mạng thanh khoản — luôn tìm mức giá tốt nhất, mọi lúc. Không lưu ký, không cần KYC cho các giao dịch hoán đổi cơ bản. Bắt đầu chỉ trong 30 giây.",
+    "cta_bot": "Bắt đầu giao dịch miễn phí",
+    "cta_terminal": "Mở Terminal",
+    "byline_pre": "Được xây dựng bởi tác giả của",
+    "byline_book": "Printing Money",
+    "byline_mid": "— một cuốn sách thực chiến về bảo mật DeFi — và là người đóng góp mã nguồn mở cho",
+    "byline_and": "và"
+  },
+  "cta": {
+    "kicker": "Bắt đầu miễn phí",
+    "heading": "Giao dịch đầu tiên của bạn chỉ mất 30 giây.",
+    "lead": "Mở bot trên Telegram, hoặc cài đặt SDK và kết nối agent của bạn. Thực thi tốt nhất trên 41 chuỗi — không cần thiết lập ví.",
+    "open_bot": "Bắt đầu giao dịch miễn phí",
+    "whatsapp": "Trò chuyện trên WhatsApp",
+    "docs": "Đọc tài liệu"
+  },
+  "referral": {
+    "kicker": "Kiếm tiền cùng Suwappu",
+    "heading": "30% mỗi khoản phí giao dịch. Mãi mãi.",
+    "body": "Giới thiệu bạn bè và kiếm 30% phí giao dịch mà họ tạo ra — được thanh toán tự động, trên mọi chuỗi. Lấy liên kết cá nhân của bạn bằng lệnh <cmd>/ref</cmd> trong bot.",
+    "cta": "Lấy liên kết giới thiệu của bạn"
+  },
+  "pricing": {
+    "kicker": "Bảng giá",
+    "heading": "Bảng giá đơn giản, minh bạch.",
+    "subheading": "Chọn gói phù hợp với khối lượng giao dịch của bạn. Hủy bất cứ lúc nào.",
+    "referral_heading": "Kiếm 30% với tư cách đối tác liên kết",
+    "referral_body": "Giới thiệu các trader đang hoạt động và kiếm 30% phí của họ — trên mọi chuỗi, thanh toán tự động. Lấy liên kết của bạn bằng lệnh /ref trong bot.",
+    "referral_cta": "Lấy liên kết giới thiệu của bạn",
+    "enterprise_heading": "Cần một gói tùy chỉnh?",
+    "enterprise_body": "Hạ tầng chuyên biệt, bảng giá theo khối lượng, và SLA dành cho các bàn giao dịch và đội ngũ agent.",
+    "enterprise_cta": "Liên hệ với chúng tôi"
+  },
+  "languageSwitcher": {
+    "label": "Ngôn ngữ"
+  }
+}

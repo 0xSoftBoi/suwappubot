@@ -604,7 +604,7 @@ protectedWebapp.get('/preferences', async (c) => {
 			// Determine language: stored preference → Accept-Language header → 'en'
 			const acceptLang = c.req.header('Accept-Language')
 			const headerLang = acceptLang ? acceptLang.split(',')[0]?.split('-')[0]?.trim() : undefined
-			const SUPPORTED_LANGS = ['en', 'es', 'fr', 'zh'] as const
+			const SUPPORTED_LANGS = ['en', 'es', 'fr', 'zh', 'hi', 'tl', 'vi', 'ht'] as const
 			type SupportedLang = (typeof SUPPORTED_LANGS)[number]
 			const resolvedLang: SupportedLang =
 				(SUPPORTED_LANGS as readonly string[]).includes(user.languagePreference ?? '')
@@ -696,7 +696,7 @@ protectedWebapp.put('/preferences', async (c) => {
 })
 
 // PATCH /webapp/me/language - Update language preference
-const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh'] as const
+const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh', 'hi', 'tl', 'vi', 'ht'] as const
 type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]
 
 protectedWebapp.patch('/language', async (c) => {

@@ -21,6 +21,7 @@ import { useWallet, chains as walletChains, chainMeta, getRpcUrl } from '../hook
 import { usePortfolio } from '../hooks/usePortfolio'
 import { useTurnkeyAccount } from '../hooks/useTurnkeyAccount'
 import { getExplorerTxUrl } from '../lib/chains'
+import { formatCurrency, getIntlLocale } from '../lib/format'
 import type { Token } from '../types/api'
 import a11yToast from '../lib/a11yToast'
 
@@ -154,22 +155,26 @@ function getTokenIcon(symbol: string): string {
   return tokenIcons[symbol.toUpperCase()] || '●'
 }
 
+// Locale-aware fixed-fraction formatter, standing in for `num.toFixed(n)` so
+// the decimal separator matches formatUsdValue()/formatCurrency() beside it.
+function toLocaleFixed(num: number, fractionDigits: number): string {
+  return new Intl.NumberFormat(getIntlLocale(), {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(num)
+}
+
 function formatTokenBalance(balance: string): string {
   const num = parseFloat(balance)
   if (isNaN(num)) return '0'
-  if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
-  if (num >= 1000) return (num / 1000).toFixed(2) + 'K'
-  if (num >= 1) return num.toFixed(4)
-  return num.toFixed(6)
+  if (num >= 1000000) return toLocaleFixed(num / 1000000, 2) + 'M'
+  if (num >= 1000) return toLocaleFixed(num / 1000, 2) + 'K'
+  if (num >= 1) return toLocaleFixed(num, 4)
+  return toLocaleFixed(num, 6)
 }
 
 function formatUsdValue(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
+  return formatCurrency(value)
 }
 
 type WalletView = 'overview' | 'receive' | 'send' | 'connect'

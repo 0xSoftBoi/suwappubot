@@ -352,6 +352,17 @@ class ApiClient {
     })
   }
 
+  /**
+   * Persist the user's language preference server-side (dedicated PATCH route —
+   * the general preferences PUT endpoint above does not accept this field)
+   */
+  async updateLanguage(language: string): Promise<{ success: boolean; language: string }> {
+    return this.fetch<{ success: boolean; language: string }>('/webapp/users/me/language', {
+      method: 'PATCH',
+      body: JSON.stringify({ language }),
+    })
+  }
+
   // === Points & Rewards ===
 
   /**

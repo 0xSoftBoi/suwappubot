@@ -325,7 +325,7 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     # Show wallet created WITHOUT the private key in chat
-    lang = get_user_lang(update.effective_user)
+    lang = get_user_lang(update.effective_user, stored_lang=db_user.language_preference)
     provider_note = (
         "🔐 Your wallet is secured by Turnkey."
         if wallet.is_turnkey_wallet

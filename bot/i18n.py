@@ -15,7 +15,7 @@ from __future__ import annotations
 
 # ---------------------------------------------------------------------------
 # Translation dictionary
-# Keys  → language codes supported: "en", "es", "fr", "zh"
+# Keys  → language codes supported: "en", "es", "fr", "zh", "hi", "tl", "vi", "ht"
 # Values → format strings; use {named_placeholders} for interpolation.
 # ---------------------------------------------------------------------------
 
@@ -45,6 +45,26 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
             "🔄 *欢迎使用 Suwappu Bot*\n\n"
             "跨链交换，简单快捷\\."
         ),
+        "hi": (
+            "🌸 *suwappu* — नेटिव C\\+\\+ कोर के साथ चेन के बीच तेज़ स्वैप\\!\n\n"
+            "🔄 *Suwappu Bot में आपका स्वागत है*\n\n"
+            "चेन के बीच स्वैप अब आसान\\."
+        ),
+        "tl": (
+            "🌸 *suwappu* — mabilis na cross\\-chain swap gamit ang native C\\+\\+ core\\!\n\n"
+            "🔄 *Maligayang pagdating sa Suwappu Bot*\n\n"
+            "Ginawang simple ang cross\\-chain swap\\."
+        ),
+        "vi": (
+            "🌸 *suwappu* — hoán đổi xuyên chuỗi nhanh chóng với lõi C\\+\\+ gốc\\!\n\n"
+            "🔄 *Chào mừng đến với Suwappu Bot*\n\n"
+            "Hoán đổi xuyên chuỗi trở nên đơn giản\\."
+        ),
+        "ht": (
+            "🌸 *suwappu* — swap rapid ant plizyè chèn ak yon motè C\\+\\+ natif\\!\n\n"
+            "🔄 *Byenveni nan Suwappu Bot*\n\n"
+            "Swap ant chèn vin senp\\."
+        ),
     },
     # ------------------------------------------------------------------
     # wallet_created — success message after wallet creation
@@ -55,6 +75,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "✅ *¡Cartera {chain_name} creada!*\n\n{chain_emoji} *Dirección:*\n`{address}`\n\n{provider_note}",
         "fr": "✅ *Portefeuille {chain_name} créé !*\n\n{chain_emoji} *Adresse :*\n`{address}`\n\n{provider_note}",
         "zh": "✅ *{chain_name} 钱包已创建！*\n\n{chain_emoji} *地址：*\n`{address}`\n\n{provider_note}",
+        "hi": "✅ *{chain_name} वॉलेट बन गया!*\n\n{chain_emoji} *पता:*\n`{address}`\n\n{provider_note}",
+        "tl": "✅ *Nagawa na ang {chain_name} Wallet!*\n\n{chain_emoji} *Address:*\n`{address}`\n\n{provider_note}",
+        "vi": "✅ *Đã tạo Ví {chain_name}!*\n\n{chain_emoji} *Địa chỉ:*\n`{address}`\n\n{provider_note}",
+        "ht": "✅ *Bous {chain_name} Kreye!*\n\n{chain_emoji} *Adrès:*\n`{address}`\n\n{provider_note}",
     },
     # ------------------------------------------------------------------
     # balance_header
@@ -64,6 +88,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "💰 *Tu saldo*",
         "fr": "💰 *Votre solde*",
         "zh": "💰 *您的余额*",
+        "hi": "💰 *आपका बैलेंस*",
+        "tl": "💰 *Iyong Balanse*",
+        "vi": "💰 *Số dư của bạn*",
+        "ht": "💰 *Balans Ou*",
     },
     # ------------------------------------------------------------------
     # swap_prompt
@@ -73,6 +101,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "🔄 *Intercambio*\n\nIngresa los detalles del intercambio a continuación.",
         "fr": "🔄 *Échange*\n\nSaisissez les détails de l'échange ci-dessous.",
         "zh": "🔄 *交换*\n\n请在下方输入交换详情。",
+        "hi": "🔄 *स्वैप*\n\nनीचे स्वैप विवरण दर्ज करें।",
+        "tl": "🔄 *Swap*\n\nIlagay ang mga detalye ng swap sa ibaba.",
+        "vi": "🔄 *Hoán đổi*\n\nNhập thông tin hoán đổi bên dưới.",
+        "ht": "🔄 *Swap*\n\nAntre detay swap la anba a.",
     },
     # ------------------------------------------------------------------
     # error_generic
@@ -82,6 +114,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "❌ Algo salió mal, por favor inténtalo de nuevo.",
         "fr": "❌ Une erreur s'est produite, veuillez réessayer.",
         "zh": "❌ 出现了一些问题，请重试。",
+        "hi": "❌ कुछ गड़बड़ हो गई, कृपया फिर से प्रयास करें।",
+        "tl": "❌ May nangyaring mali, pakisubukang muli.",
+        "vi": "❌ Đã xảy ra lỗi, vui lòng thử lại.",
+        "ht": "❌ Gen yon bagay ki mal pase, tanpri eseye ankò.",
     },
     # ------------------------------------------------------------------
     # processing
@@ -91,6 +127,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "⏳ Procesando…",
         "fr": "⏳ Traitement en cours…",
         "zh": "⏳ 处理中…",
+        "hi": "⏳ प्रोसेसिंग हो रही है…",
+        "tl": "⏳ Pinoproseso…",
+        "vi": "⏳ Đang xử lý…",
+        "ht": "⏳ Ap trete…",
     },
     # ------------------------------------------------------------------
     # no_wallet
@@ -100,6 +140,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "👛 Aún no tienes una cartera. Usa /w para crear una.",
         "fr": "👛 Vous n'avez pas encore de portefeuille. Utilisez /w pour en créer un.",
         "zh": "👛 您还没有钱包。使用 /w 创建一个。",
+        "hi": "👛 आपके पास अभी कोई वॉलेट नहीं है। एक बनाने के लिए /w का उपयोग करें।",
+        "tl": "👛 Wala ka pang wallet. Gamitin ang /w para gumawa ng isa.",
+        "vi": "👛 Bạn chưa có ví. Dùng /w để tạo một ví.",
+        "ht": "👛 Ou pa gen bous toujou. Itilize /w pou kreye youn.",
     },
     # ------------------------------------------------------------------
     # wallet_creating — shown while wallets are being provisioned
@@ -109,6 +153,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "👛 _Creando tus carteras…_",
         "fr": "👛 _Création de vos portefeuilles…_",
         "zh": "👛 _正在创建您的钱包…_",
+        "hi": "👛 _आपके वॉलेट बनाए जा रहे हैं…_",
+        "tl": "👛 _Ginagawa ang iyong mga wallet…_",
+        "vi": "👛 _Đang tạo ví của bạn…_",
+        "ht": "👛 _Ap kreye bous ou yo…_",
     },
     # ------------------------------------------------------------------
     # wallet_failed — fallback when creation fails
@@ -118,23 +166,36 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "es": "⚠️ _Error al crear la cartera — usa /w para intentarlo de nuevo._",
         "fr": "⚠️ _Échec de la création du portefeuille — utilisez /w pour réessayer._",
         "zh": "⚠️ _钱包创建失败 — 使用 /w 重试。_",
+        "hi": "⚠️ _वॉलेट बनाने में विफलता — पुनः प्रयास के लिए /w का उपयोग करें।_",
+        "tl": "⚠️ _Nabigo ang paggawa ng wallet — gamitin ang /w para subukan ulit._",
+        "vi": "⚠️ _Tạo ví thất bại — dùng /w để thử lại._",
+        "ht": "⚠️ _Kreyasyon bous echwe — itilize /w pou eseye ankò._",
     },
 }
 
-_SUPPORTED_LANGS = frozenset({"en", "es", "fr", "zh"})
+_SUPPORTED_LANGS = frozenset({"en", "es", "fr", "zh", "hi", "tl", "vi", "ht"})
 
 
-def get_user_lang(user) -> str:
-    """Derive a supported language code from a Telegram User object.
+def get_user_lang(user, stored_lang: str | None = None) -> str:
+    """Derive a supported language code for a user.
 
-    Maps language_code prefixes to supported languages; falls back to "en".
+    Priority order:
+      1. ``stored_lang`` — an explicit, user-chosen preference (e.g.
+         ``db_user.language_preference``), used if set and supported.
+      2. The live Telegram ``User.language_code`` attribute, mapped by prefix.
+      3. ``"en"`` fallback.
 
     Args:
         user: telegram.User (or any object with a ``language_code`` attribute).
+        stored_lang: Optional explicit language preference already persisted
+            for this user (e.g. from the settings menu). Takes priority over
+            the live Telegram client language when set and supported.
 
     Returns:
-        One of "en", "es", "fr", "zh".
+        One of "en", "es", "fr", "zh", "hi", "tl", "vi", "ht".
     """
+    if stored_lang and stored_lang in _SUPPORTED_LANGS:
+        return stored_lang
     if user is None:
         return "en"
     lc: str | None = getattr(user, "language_code", None)
@@ -148,6 +209,16 @@ def get_user_lang(user) -> str:
         return "es"
     if lc.startswith("fr"):
         return "fr"
+    if lc.startswith("hi"):
+        return "hi"
+    if lc.startswith("vi"):
+        return "vi"
+    if lc.startswith("ht"):
+        return "ht"
+    # Tagalog/Filipino — Telegram clients may send either "tl" or "fil"
+    # depending on device locale settings.
+    if lc.startswith("tl") or lc.startswith("fil"):
+        return "tl"
     return "en"
 
 
@@ -159,7 +230,7 @@ def get_text(key: str, lang: str, **kwargs) -> str:
 
     Args:
         key:    Translation key (see _TRANSLATIONS).
-        lang:   Language code ("en", "es", "fr", "zh").
+        lang:   Language code ("en", "es", "fr", "zh", "hi", "tl", "vi", "ht").
         **kwargs: Named placeholders for format-string interpolation.
 
     Returns:
