@@ -3,7 +3,6 @@ import {
 	index,
 	integer,
 	pgTable,
-	real,
 	serial,
 	text,
 	timestamp,
@@ -16,7 +15,11 @@ export const x402Payments = pgTable('x402_payments', {
 	id: serial('id').primaryKey(),
 	userId: integer('user_id').notNull(),
 	paymentId: varchar('payment_id', { length: 128 }).notNull().unique(),
-	amount: real('amount').notNull(),
+	// float8 in the DB (SQLAlchemy Float, bot/models/subscription.py). Declared
+	// to match — a declaration that disagrees with the column is the same latent
+	// bug _widen_money_columns_to_double exists to remove. Safe: x402_payments is
+	// not in drizzle tablesFilter, so drizzle-kit never ALTERs it.
+	amount: doublePrecision('amount').notNull(),
 	tokenSymbol: varchar('token_symbol', { length: 16 }).default('USDC'),
 	tokenAddress: varchar('token_address', { length: 64 }),
 	chain: varchar('chain', { length: 32 }).default('base'),
