@@ -298,9 +298,11 @@ const checkAndAwardMilestones = (
 							db
 								.update(userPoints)
 								.set({
-									xp: current.xp + milestone.pointsReward,
-									totalPointsEarned: current.totalPointsEarned + milestone.pointsReward,
-									currentPoints: current.currentPoints + milestone.pointsReward,
+									// SQL-relative: a concurrent redemption's debit must not be
+									// undone by an award writing an absolute value from a stale read.
+									xp: sql`${userPoints.xp} + ${milestone.pointsReward}`,
+									totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${milestone.pointsReward}`,
+									currentPoints: sql`${userPoints.currentPoints} + ${milestone.pointsReward}`,
 									updatedAt: new Date(),
 								})
 								.where(eq(userPoints.userId, userId)),
@@ -331,6 +333,93 @@ const checkAndAwardMilestones = (
 
 		return newlyAchieved
 	})
+
+/**
+ * MONEY-PATH guard for a points debit: match the user's row only while it still
+ * holds at least `cost`.
+ *
+ * Paired with SQL-side arithmetic (`currentPoints - cost`) this makes the
+ * balance check and the debit a single statement, so concurrent redemptions
+ * contend on the row lock and the loser matches zero rows. Read-then-write is
+ * not sufficient even inside a transaction: under Postgres READ COMMITTED (our
+ * default — no isolation level is configured) both callers read the same
+ * balance and the second write clobbers the first, spending it twice.
+ *
+ * Exported so the compiled predicate can be asserted directly — the race it
+ * prevents cannot be reproduced against SQLite, which has a single writer.
+ */
+export function pointsDebitCondition(userId: number, cost: number) {
+	return and(eq(userPoints.userId, userId), gte(userPoints.currentPoints, cost))
+}
+
+/**
+ * The debit half, paired with {@link pointsDebitCondition}. Arithmetic is done
+ * in SQL against the row's live value — never against a balance read earlier in
+ * the request, which is what allowed the same points to be spent twice.
+ *
+ * Extracted alongside the predicate so BOTH halves of the guarantee are pinned
+ * by tests. Pinning only the WHERE clause would let someone revert the `set` to
+ * JS arithmetic with every test still green.
+ */
+/**
+ * `level` derived in SQL from the row's post-increment `xp`, so the two can
+ * never disagree.
+ *
+ * Writing `level` from a JS snapshot while `xp` is incremented relatively lets
+ * them drift under concurrency: two awards land, `xp` correctly reaches X+a+b,
+ * but `level` is written from X+a. The stored tier then lags the real xp, and
+ * the NEXT award reads that stale tier as `oldLevel`, computes the real tier as
+ * `newLevel`, concludes the user just levelled up, and pays a SECOND level_up
+ * bonus for a crossing already paid for. (Before this PR the `xp` write was
+ * clobbered too, so the pair stayed wrong-but-consistent and never re-triggered.)
+ *
+ * Thresholds mirror LEVELS in db/schema/points.ts — descending, so the first
+ * matching branch wins.
+ */
+function levelFromXpSql(xpIncrement: number) {
+	return sql`CASE
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.diamond.xp} THEN 'diamond'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.platinum.xp} THEN 'platinum'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.gold.xp} THEN 'gold'
+		WHEN ${userPoints.xp} + ${xpIncrement} >= ${LEVELS.silver.xp} THEN 'silver'
+		ELSE 'bronze'
+	END`
+}
+
+export function pointsDebitSet(cost: number) {
+	return {
+		currentPoints: sql`${userPoints.currentPoints} - ${cost}`,
+		pointsSpent: sql`${userPoints.pointsSpent} + ${cost}`,
+		updatedAt: new Date(),
+	}
+}
+
+// Thrown inside a redemption transaction to roll it back. These are the losers
+// of a legitimate race (or a genuinely short balance), NOT database faults — so
+// they carry a marker that lets the Effect `catch` map them back to
+// ValidationError. Without this, the user who loses a race by microseconds gets
+// an opaque 500 and the event lands in error dashboards as a DB fault.
+class RedemptionRejected extends Error {
+	readonly isRedemptionRejection = true
+}
+class InsufficientPointsError extends RedemptionRejected {
+	constructor() {
+		super('Insufficient points')
+	}
+}
+class OutOfStockError extends RedemptionRejected {
+	constructor() {
+		super('Reward out of stock')
+	}
+}
+
+/** Map a thrown redemption rejection back to a user-facing ValidationError. */
+function redemptionFailure(e: unknown, context: string) {
+	if (e instanceof RedemptionRejected) {
+		return new ValidationError({ message: e.message })
+	}
+	return new DatabaseError({ message: `${context}: ${e}`, cause: e })
+}
 
 export const PointsServiceLive = Layer.succeed(PointsService, {
 	getUserPoints: (userId: number) => getOrCreateUserPoints(userId),
@@ -410,10 +499,14 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp,
-							totalPointsEarned: current.totalPointsEarned + pointAmount,
-							currentPoints: current.currentPoints + pointAmount,
-							level: newLevel,
+							// SQL-relative for the accumulators (see pointsDebitCondition):
+							// an absolute write here would clobber a concurrent debit and hand
+							// the user back points they already spent. `level` stays absolute —
+							// it is derived state, not an accumulator.
+							xp: sql`${userPoints.xp} + ${pointAmount}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${pointAmount}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${pointAmount}`,
+							level: levelFromXpSql(pointAmount),
 							updatedAt: new Date(),
 						})
 						.where(eq(userPoints.userId, userId)),
@@ -463,10 +556,17 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						db
 							.update(userPoints)
 							.set({
-								xp: newXp + POINT_ACTIONS.level_up.points,
-								totalPointsEarned:
-									current.totalPointsEarned + pointAmount + POINT_ACTIONS.level_up.points,
-								currentPoints: current.currentPoints + pointAmount + POINT_ACTIONS.level_up.points,
+								// DELTA ONLY. The absolute version re-added `pointAmount`, which
+								// was correct only because it recomputed the whole total from the
+								// same pre-update snapshot. Now that the statement above applies
+								// pointAmount relative to the live row, adding it again here would
+								// credit it twice.
+								xp: sql`${userPoints.xp} + ${POINT_ACTIONS.level_up.points}`,
+								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${POINT_ACTIONS.level_up.points}`,
+								currentPoints: sql`${userPoints.currentPoints} + ${POINT_ACTIONS.level_up.points}`,
+								// The bonus xp can itself cross a threshold; keep level derived
+								// from the same live value as every other write site.
+								level: levelFromXpSql(POINT_ACTIONS.level_up.points),
 							})
 							.where(eq(userPoints.userId, userId)),
 					catch: (e) => new DatabaseError({ message: `Failed to add level bonus: ${e}`, cause: e }),
@@ -507,13 +607,13 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp + levelBonus,
-							totalPointsEarned: current.totalPointsEarned + totalPoints + levelBonus,
-							currentPoints: current.currentPoints + totalPoints + levelBonus,
-							level: newLevel,
+							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
+							level: levelFromXpSql(totalPoints + levelBonus),
 							lastSwapDate: now,
-							totalSwaps: current.totalSwaps + 1,
-							totalVolumeUsd: current.totalVolumeUsd + swapAmountUsd,
+							totalSwaps: sql`${userPoints.totalSwaps} + 1`,
+							totalVolumeUsd: sql`${userPoints.totalVolumeUsd} + ${swapAmountUsd}`,
 							updatedAt: now,
 						})
 						.where(eq(userPoints.userId, userId)),
@@ -639,10 +739,10 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 					db
 						.update(userPoints)
 						.set({
-							xp: newXp + levelBonus,
-							totalPointsEarned: current.totalPointsEarned + totalPoints + levelBonus,
-							currentPoints: current.currentPoints + totalPoints + levelBonus,
-							level: newLevel,
+							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
+							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
+							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
+							level: levelFromXpSql(totalPoints + levelBonus),
 							dailyStreak: newStreak,
 							longestStreak: Math.max(current.longestStreak, newStreak),
 							lastCheckin: now,
@@ -801,22 +901,34 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				const subRedemption = yield* Effect.tryPromise({
 					try: () =>
 						db.transaction(async (tx) => {
-							const upRows = await tx
-								.select()
-								.from(userPoints)
-								.where(eq(userPoints.userId, userId))
-							const up = upRows[0]
-							if (!up || up.currentPoints < cost) {
-								throw new Error('Insufficient points')
-							}
-							await tx
+							// MONEY-PATH: debit with a single conditional UPDATE, not
+							// read-then-write. Under Postgres READ COMMITTED (our default —
+							// no isolation level is configured anywhere) two concurrent
+							// redemptions both read currentPoints=N, both pass a JS-side
+							// check, and both write N-cost computed from their own stale
+							// read. The second write clobbers the first: two rewards, one
+							// balance. Being inside a transaction does NOT prevent this;
+							// only row-level contention does.
+							//
+							// `WHERE currentPoints >= cost` makes the check and the debit
+							// the same statement, so the row lock serialises concurrent
+							// callers and the loser matches zero rows. Arithmetic is done
+							// in SQL against the current value rather than a value read
+							// earlier in this transaction.
+							//
+							// NB: this class of bug is invisible on SQLite (single writer),
+							// so an integration test there will pass either way.
+							const debited = await tx
 								.update(userPoints)
-								.set({
-									currentPoints: up.currentPoints - cost,
-									pointsSpent: up.pointsSpent + cost,
-									updatedAt: new Date(),
-								})
-								.where(eq(userPoints.userId, userId))
+								.set(pointsDebitSet(cost))
+								.where(pointsDebitCondition(userId, cost))
+								.returning({ currentPoints: userPoints.currentPoints })
+
+							if (debited.length === 0) {
+								// Either no row, or the balance moved below cost since the
+								// pre-check. Throwing rolls the whole transaction back.
+								throw new InsufficientPointsError()
+							}
 
 							const subRows = await tx
 								.select()
@@ -879,15 +991,26 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							})
 
 							if (rStock !== null) {
-								await tx
+								// Same conditional-update treatment as the debit above.
+								// `rStock` came from a snapshot read taken before this
+								// transaction, so `rStock - 1` let two concurrent
+								// redemptions of the last unit both write 0 — two
+								// subscriptions from one unit — and could drive stock
+								// negative. The userPoints row lock does NOT serialise
+								// these: they are different users, hence different rows.
+								const stocked = await tx
 									.update(rewards)
-									.set({ stock: rStock - 1 })
-									.where(eq(rewards.id, rewardId))
+									.set({ stock: sql`${rewards.stock} - 1` })
+									.where(and(eq(rewards.id, rewardId), gte(rewards.stock, 1)))
+									.returning({ stock: rewards.stock })
+
+								if (stocked.length === 0) {
+									throw new OutOfStockError()
+								}
 							}
 							return red[0]
 						}),
-					catch: (e) =>
-						new DatabaseError({ message: `Subscription redemption failed: ${e}`, cause: e }),
+					catch: (e) => redemptionFailure(e, 'Subscription redemption failed'),
 				})
 
 				if (!subRedemption) {
@@ -902,59 +1025,76 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				? new Date(Date.now() + reward.durationDays * 24 * 60 * 60 * 1000)
 				: null
 
+			// MONEY-PATH: debit, redemption row, ledger entry and stock decrement are
+			// ONE transaction, debit first.
+			//
+			// Previously these were four independent statements with no transaction,
+			// and the redemption row was inserted BEFORE the points were deducted —
+			// so a crash or a failing debit in between handed out a free reward that
+			// nothing rolled back. The debit itself also read the balance earlier in
+			// the request and wrote `current.currentPoints - cost` from that stale
+			// read, so two concurrent redemptions could each spend the same balance.
+			//
+			// The conditional UPDATE below does the check and the debit in one
+			// statement so the row lock serialises concurrent callers; the loser
+			// matches zero rows and the whole transaction rolls back. Same treatment
+			// for stock, which had the identical read-then-write race and could go
+			// negative. (Both races are invisible on SQLite — single writer.)
 			const redemption = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.insert(pointRedemptions)
-						.values({
+					db.transaction(async (tx) => {
+						const debited = await tx
+							.update(userPoints)
+							.set(pointsDebitSet(reward.pointsCost))
+							.where(pointsDebitCondition(userId, reward.pointsCost))
+							.returning({ currentPoints: userPoints.currentPoints })
+
+						if (debited.length === 0) {
+							throw new InsufficientPointsError()
+						}
+
+						if (reward.stock !== null) {
+							const stocked = await tx
+								.update(rewards)
+								.set({ stock: sql`${rewards.stock} - 1` })
+								.where(and(eq(rewards.id, rewardId), gte(rewards.stock, 1)))
+								.returning({ stock: rewards.stock })
+
+							if (stocked.length === 0) {
+								throw new OutOfStockError()
+							}
+						}
+
+						const inserted = await tx
+							.insert(pointRedemptions)
+							.values({
+								userId,
+								rewardId,
+								pointsSpent: reward.pointsCost,
+								rewardType: reward.rewardType,
+								rewardValue: reward.rewardValue,
+								status: 'completed',
+								completedAt: new Date(),
+								expiresAt,
+							})
+							.returning()
+
+						await tx.insert(pointTransactions).values({
 							userId,
-							rewardId,
-							pointsSpent: reward.pointsCost,
-							rewardType: reward.rewardType,
-							rewardValue: reward.rewardValue,
-							status: 'completed',
-							completedAt: new Date(),
-							expiresAt,
+							amount: -reward.pointsCost,
+							action: 'redemption',
+							description: `Redeemed: ${reward.name}`,
+							metadata: {
+								rewardId,
+								rewardType: reward.rewardType,
+								rewardValue: reward.rewardValue,
+							},
 						})
-						.returning(),
-				catch: (e) => new DatabaseError({ message: `Failed to create redemption: ${e}`, cause: e }),
-			})
 
-			yield* Effect.tryPromise({
-				try: () =>
-					db
-						.update(userPoints)
-						.set({
-							currentPoints: current.currentPoints - reward.pointsCost,
-							pointsSpent: current.pointsSpent + reward.pointsCost,
-							updatedAt: new Date(),
-						})
-						.where(eq(userPoints.userId, userId)),
-				catch: (e) => new DatabaseError({ message: `Failed to deduct points: ${e}`, cause: e }),
-			})
-
-			yield* Effect.tryPromise({
-				try: () =>
-					db.insert(pointTransactions).values({
-						userId,
-						amount: -reward.pointsCost,
-						action: 'redemption',
-						description: `Redeemed: ${reward.name}`,
-						metadata: { rewardId, rewardType: reward.rewardType, rewardValue: reward.rewardValue },
+						return inserted
 					}),
-				catch: (e) => new DatabaseError({ message: `Failed to record redemption: ${e}`, cause: e }),
+				catch: (e) => redemptionFailure(e, 'Failed to redeem reward'),
 			})
-
-			if (reward.stock !== null) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db
-							.update(rewards)
-							.set({ stock: reward.stock! - 1 })
-							.where(eq(rewards.id, rewardId)),
-					catch: (e) => new DatabaseError({ message: `Failed to update stock: ${e}`, cause: e }),
-				})
-			}
 
 			return yield* requireRow(redemption, 'Failed to create redemption: no row returned')
 		}),
