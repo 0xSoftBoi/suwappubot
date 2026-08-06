@@ -62,6 +62,51 @@ await client.me();
 await client.getBilling(); // credits, tier, metering + topup/subscribe info
 ```
 
+### Wallets & swap safety
+
+```ts
+await client.agent.createWallet(); // idempotent — returns the existing one if any
+await client.agent.listWallets();
+
+// Dry-run before you commit. Surfaces reverts and gas while nothing is at stake.
+const sim = await client.simulateSwap({ quoteId: quote.quote_id, walletAddress: "0x…" });
+if (!sim.success) throw new Error(sim.reason);
+
+await client.listSwaps({ status: "completed", limit: 20 }); // this agent's history
+```
+
+### Agent control plane
+
+Guardrails for agents that move real money: a human approves risky actions, every
+action lands in a tamper-evident log, and one call halts everything.
+
+```ts
+// Approvals. Listing/deciding is an OWNER action — authenticate as the linked
+// human (Mini App / owner JWT), not the agent API key. Only get() takes an agent key.
+const pending = await owner.approvals.list({ status: "pending" });
+await owner.approvals.approve(pending[0].id);
+await owner.approvals.deny(pending[0].id);
+
+// If the deployment sets APPROVAL_STEP_UP_REQUIRED=true, challenge first:
+const { challenge } = await owner.approvals.stepUpChallenge(id);
+await owner.approvals.approve(id, { stepUpChallenge: challenge });
+
+// Audit chain. list() works with an agent or org key; verify() needs an ORG key
+// (the chain is verified whole, so per-agent verification would leak other tenants).
+await client.audit.list({ eventType: "swap.executed", since: "2026-01-01", limit: 100 });
+await orgClient.audit.verify(); // { valid, count, firstBreakId }
+
+// Kill switch — org API key required. Halts execution for the scope.
+await orgClient.killswitch.set({ scope: "org", active: true, reason: "incident" });
+await orgClient.killswitch.list();
+```
+
+To link an agent to a human owner, mint a code the owner redeems:
+
+```ts
+const { code, expiresAt } = await client.agent.linkCode(); // 409 if already linked
+```
+
 ### Perps (Hyperliquid)
 
 ```ts

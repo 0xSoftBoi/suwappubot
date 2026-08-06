@@ -11,7 +11,16 @@
  * ```
  */
 
-export { Suwappu, SuwappuError, SuwappuApiError, createClient, DEFAULT_BASE_URL } from "./client.js";
+export {
+  Suwappu,
+  SuwappuError,
+  SuwappuApiError,
+  createClient,
+  DEFAULT_BASE_URL,
+  ApprovalsNamespace,
+  AuditNamespace,
+  KillSwitchNamespace,
+} from "./client.js";
 
 export type {
   SuwappuConfig,
@@ -62,4 +71,18 @@ export type {
   BillingCredits,
   BillingSubscribe,
   BillingTopup,
+  SwapSimulation,
+  SwapHistoryItem,
+  SwapHistoryResult,
+  AgentWallet,
+  LinkCodeResult,
+  Approval,
+  ApprovalStatus,
+  StepUpChallenge,
+  AuditEvent,
+  AuditListArgs,
+  AuditVerifyResult,
+  KillSwitch,
+  KillSwitchScope,
+  SetKillSwitchArgs,
 } from "./types.js";

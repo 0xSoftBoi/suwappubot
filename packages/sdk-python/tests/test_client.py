@@ -476,3 +476,81 @@ class TestLendNamespace:
         mock_req.assert_called_once_with(
             "GET", "/v1/agent/lend/markets", params={"chainId": "1"}, json=None,
         )
+
+
+# --- Agent control plane (approvals / audit / kill switch) ---
+#
+# Mirrors packages/sdk/src/__tests__/client.test.ts. Both SDKs must hit the
+# same routes with the same wire names; drift between them is a real bug we
+# have shipped before.
+
+
+@pytest.mark.asyncio
+async def test_control_plane_endpoints(monkeypatch):
+    seen: list[tuple[str, str, dict | None]] = []
+
+    async def fake_request(self, method, path, *, params=None, json=None):
+        qs = ""
+        if params:
+            qs = "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        seen.append((method, path + qs, json))
+        return {
+            "success": True, "approvals": [], "events": [], "killswitches": [],
+            "wallets": [], "swaps": [], "pagination": {}, "code": "ABC",
+            "expires_at": "T", "challenge": "c", "valid": True,
+            "scope": "org", "active": True, "id": "a1", "status": "pending",
+            "address": "0x1",
+        }
+
+    monkeypatch.setattr(SuwappuClient, "_request", fake_request)
+    c = create_client(api_key="k")
+
+    await c.simulate_swap(quote_id="q1", wallet_address="0xabc")
+    await c.list_swaps(status="completed", limit=5)
+    await c.agent.create_wallet()
+    await c.agent.link_code()
+    await c.approvals.list(status="pending")
+    await c.approvals.get("id 1")
+    await c.approvals.approve("a1", step_up_challenge="ch")
+    await c.approvals.deny("a1")
+    await c.approvals.step_up_challenge("a1")
+    await c.audit.list(event_type="swap", limit=10)
+    await c.audit.verify()
+    await c.killswitch.list()
+    await c.killswitch.set(scope="org", active=True, reason="incident")
+
+    paths = [p for _, p, _ in seen]
+    assert paths == [
+        "/v1/agent/swap/simulate",
+        "/v1/agent/swaps?status=completed&limit=5",
+        "/v1/agent/wallets",
+        "/v1/agent/link/code",
+        "/v1/agent/approvals?status=pending",
+        "/v1/agent/approvals/id%201",
+        "/v1/agent/approvals/a1/approve",
+        "/v1/agent/approvals/a1/deny",
+        "/v1/agent/approvals/a1/step-up/challenge",
+        "/v1/agent/audit?event_type=swap&limit=10",
+        "/v1/agent/audit/verify",
+        "/v1/agent/killswitch",
+        "/v1/agent/killswitch",
+    ]
+    # Wire names are snake_case, not the Python kwarg names.
+    assert seen[0][2] == {"quote_id": "q1", "wallet_address": "0xabc"}
+    assert seen[6][2] == {"step_up_challenge": "ch"}
+    assert seen[12][2] == {"scope": "org", "active": True, "reason": "incident"}
+
+
+@pytest.mark.asyncio
+async def test_approval_id_is_url_encoded(monkeypatch):
+    """An id must never be able to escape its path segment."""
+    seen: list[str] = []
+
+    async def fake_request(self, method, path, *, params=None, json=None):
+        seen.append(path)
+        return {"id": "a1", "status": "pending"}
+
+    monkeypatch.setattr(SuwappuClient, "_request", fake_request)
+    c = create_client(api_key="k")
+    await c.approvals.get("a/../b 1")
+    assert seen == ["/v1/agent/approvals/a%2F..%2Fb%201"]

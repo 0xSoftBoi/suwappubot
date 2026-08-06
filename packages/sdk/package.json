@@ -1,6 +1,6 @@
 {
   "name": "@suwappu/sdk",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -35,7 +35,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "test": "bun test src/__tests__"
   },
   "keywords": [
     "suwappu",

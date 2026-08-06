@@ -17,5 +17,6 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "// exclude": "Tests use bun:test types that aren't in this tsconfig, and must never be emitted into dist.",
+  "exclude": ["node_modules", "dist", "src/__tests__"]
 }

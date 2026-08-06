@@ -2,16 +2,23 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from suwappu.types import (
     AgentErrorCode,
     AgentProfile,
+    AgentWallet,
+    Approval,
+    AuditEvent,
+    AuditVerifyResult,
     BillingCheckoutResult,
     BillingStatus,
     Chain,
+    KillSwitch,
     LendingMarket,
+    LinkCodeResult,
     LendingMarketDetail,
     PerpMarket,
     PerpPosition,
@@ -21,8 +28,13 @@ from suwappu.types import (
     Quote,
     RegisterAgentResult,
     RotateKeysResult,
+    StepUpChallenge,
     SuwappuConfig,
+    SwapHistoryItem,
+    SwapHistoryPagination,
+    SwapHistoryResult,
     SwapResult,
+    SwapSimulation,
     Token,
     TokenBalance,
     TokenPrice,
@@ -174,6 +186,39 @@ class SuwappuClient:
                 200, f"Malformed swap response from /v1/agent/swap/execute: missing {e}"
             ) from e
 
+    async def simulate_swap(self, *, quote_id: str, wallet_address: str) -> SwapSimulation:
+        """Dry-run a swap without broadcasting.
+
+        Use before :meth:`execute_swap` on unfamiliar routes: surfaces reverts
+        and gas cost while nothing is at stake.
+        """
+        data = await self._request(
+            "POST",
+            "/v1/agent/swap/simulate",
+            json={"quote_id": quote_id, "wallet_address": wallet_address},
+        )
+        return SwapSimulation.model_validate(data)
+
+    async def list_swaps(
+        self, *, status: str | None = None, limit: int | None = None, offset: int | None = None
+    ) -> SwapHistoryResult:
+        """This agent's swap history, newest first."""
+        params = {
+            k: v
+            for k, v in {
+                "status": status,
+                "limit": str(limit) if limit is not None else None,
+                "offset": str(offset) if offset is not None else None,
+            }.items()
+            if v is not None
+        }
+        data = await self._request("GET", "/v1/agent/swaps", params=params or None)
+        pagination = data.get("pagination") or {}
+        return SwapHistoryResult(
+            swaps=[SwapHistoryItem.model_validate(x) for x in data.get("swaps", [])],
+            pagination=SwapHistoryPagination.model_validate(pagination),
+        )
+
     async def get_portfolio(
         self, wallet_address: str, chain: str | None = None
     ) -> list[TokenBalance]:
@@ -277,6 +322,20 @@ class SuwappuClient:
     @property
     def billing(self) -> _BillingNamespace:
         return _BillingNamespace(self)
+
+    # --- Agent control plane ---
+
+    @property
+    def approvals(self) -> _ApprovalsNamespace:
+        return _ApprovalsNamespace(self)
+
+    @property
+    def audit(self) -> _AuditNamespace:
+        return _AuditNamespace(self)
+
+    @property
+    def killswitch(self) -> _KillSwitchNamespace:
+        return _KillSwitchNamespace(self)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -623,6 +682,27 @@ class _AgentNamespace:
             ),
         )
 
+    async def create_wallet(self) -> AgentWallet:
+        """Provision a managed wallet for this agent.
+
+        Idempotent per agent: an agent that already has a wallet gets it back.
+        """
+        data = await self._c._request("POST", "/v1/agent/wallets")
+        return AgentWallet.model_validate(data.get("wallet", data))
+
+    async def list_wallets(self) -> list[AgentWallet]:
+        """Empty until :meth:`create_wallet` has been called."""
+        data = await self._c._request("GET", "/v1/agent/wallets")
+        return [AgentWallet.model_validate(w) for w in data.get("wallets", [])]
+
+    async def link_code(self) -> LinkCodeResult:
+        """Mint a short-lived code the human owner redeems to link this agent.
+
+        Raises a 409 if the agent is already linked to an owner.
+        """
+        data = await self._c._request("POST", "/v1/agent/link/code")
+        return LinkCodeResult.model_validate(data)
+
     async def test_webhook(self) -> WebhookTestResult:
         data = await self._c._request("POST", "/v1/agent/webhooks/test")
         return WebhookTestResult(
@@ -660,6 +740,109 @@ class _BillingNamespace:
     async def status(self) -> BillingStatus:
         data = await self._c._request("GET", "/billing/status")
         return BillingStatus.model_validate(data)
+
+
+class _ApprovalsNamespace:
+    """Human-in-the-loop approvals.
+
+    Auth note: listing and deciding approvals is an *owner* action and
+    authenticates as the linked human (Mini App / owner JWT), not the agent
+    API key. Only ``get()`` accepts a plain agent key.
+    """
+
+    def __init__(self, client: SuwappuClient) -> None:
+        self._c = client
+
+    async def list(self, *, status: str | None = None) -> list[Approval]:
+        params = {"status": status} if status else None
+        data = await self._c._request("GET", "/v1/agent/approvals", params=params)
+        return [Approval.model_validate(a) for a in data.get("approvals", [])]
+
+    async def get(self, approval_id: str) -> Approval:
+        data = await self._c._request("GET", f"/v1/agent/approvals/{quote(approval_id, safe='')}")
+        return Approval.model_validate(data.get("approval", data))
+
+    async def approve(self, approval_id: str, *, step_up_challenge: str | None = None) -> Approval:
+        """Approve a pending action.
+
+        When the deployment sets APPROVAL_STEP_UP_REQUIRED=true, get a challenge
+        from :meth:`step_up_challenge` first and pass it here.
+        """
+        data = await self._c._request(
+            "POST",
+            f"/v1/agent/approvals/{quote(approval_id, safe='')}/approve",
+            json={"step_up_challenge": step_up_challenge},
+        )
+        return Approval.model_validate(data.get("approval", data))
+
+    async def deny(self, approval_id: str) -> Approval:
+        data = await self._c._request(
+            "POST", f"/v1/agent/approvals/{quote(approval_id, safe='')}/deny"
+        )
+        return Approval.model_validate(data.get("approval", data))
+
+    async def step_up_challenge(self, approval_id: str) -> StepUpChallenge:
+        data = await self._c._request(
+            "POST", f"/v1/agent/approvals/{quote(approval_id, safe='')}/step-up/challenge"
+        )
+        return StepUpChallenge.model_validate(data)
+
+
+class _AuditNamespace:
+    """Tamper-evident audit chain."""
+
+    def __init__(self, client: SuwappuClient) -> None:
+        self._c = client
+
+    async def list(
+        self,
+        *,
+        event_type: str | None = None,
+        agent_id: str | None = None,
+        since: str | None = None,
+        limit: int | None = None,
+    ) -> list[AuditEvent]:
+        params = {
+            k: v
+            for k, v in {
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "since": since,
+                "limit": str(limit) if limit is not None else None,
+            }.items()
+            if v is not None
+        }
+        data = await self._c._request("GET", "/v1/agent/audit", params=params or None)
+        return [AuditEvent.model_validate(e) for e in data.get("events", [])]
+
+    async def verify(self) -> AuditVerifyResult:
+        """Recompute the hash chain. Requires an **org** API key.
+
+        Chain verification is inherently whole-chain, and org-less agents share
+        one global chain, so the API refuses this for plain agent tokens rather
+        than leaking other tenants' rows.
+        """
+        data = await self._c._request("GET", "/v1/agent/audit/verify")
+        return AuditVerifyResult.model_validate(data)
+
+
+class _KillSwitchNamespace:
+    """Org-wide kill switch. Requires an org API key."""
+
+    def __init__(self, client: SuwappuClient) -> None:
+        self._c = client
+
+    async def list(self) -> list[KillSwitch]:
+        data = await self._c._request("GET", "/v1/agent/killswitch")
+        return [KillSwitch.model_validate(k) for k in data.get("killswitches", [])]
+
+    async def set(self, *, scope: str, active: bool, reason: str | None = None) -> KillSwitch:
+        data = await self._c._request(
+            "POST",
+            "/v1/agent/killswitch",
+            json={"scope": scope, "active": active, "reason": reason},
+        )
+        return KillSwitch.model_validate({"scope": scope, "active": active, **(data or {})})
 
 
 def create_client(

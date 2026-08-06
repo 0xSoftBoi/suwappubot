@@ -9,6 +9,18 @@
 import type {
   AgentProfile,
   AgentTopupArgs,
+  AgentWallet,
+  Approval,
+  ApprovalStatus,
+  AuditEvent,
+  AuditListArgs,
+  AuditVerifyResult,
+  KillSwitch,
+  LinkCodeResult,
+  SetKillSwitchArgs,
+  StepUpChallenge,
+  SwapHistoryResult,
+  SwapSimulation,
   BillingCheckoutResult,
   BillingCryptoArgs,
   BillingInfo,
@@ -93,6 +105,12 @@ export class Suwappu {
   readonly agent: AgentNamespace;
   /** Subscription billing (Telegram Mini App auth, not agent API key). */
   readonly billing: BillingNamespace;
+  /** Human-in-the-loop approvals. Deciding requires owner auth — see the namespace docs. */
+  readonly approvals: ApprovalsNamespace;
+  /** Tamper-evident audit chain. */
+  readonly audit: AuditNamespace;
+  /** Org-wide kill switch. Requires an org API key. */
+  readonly killswitch: KillSwitchNamespace;
 
   constructor(config: SuwappuConfig = {}) {
     this.apiKey =
@@ -106,6 +124,9 @@ export class Suwappu {
     this.lend = new LendNamespace(this);
     this.agent = new AgentNamespace(this);
     this.billing = new BillingNamespace(this);
+    this.approvals = new ApprovalsNamespace(this);
+    this.audit = new AuditNamespace(this);
+    this.killswitch = new KillSwitchNamespace(this);
   }
 
   /** @internal Low-level request helper used by the client and namespaces. */
@@ -241,6 +262,50 @@ export class Suwappu {
   }
 
   /** GET /v1/agent/swap/status/:swapId */
+  /**
+   * POST /v1/agent/swap/simulate — dry-run a swap without broadcasting.
+   *
+   * Use this before {@link swap} on unfamiliar routes: it surfaces reverts and
+   * gas cost while nothing is at stake.
+   */
+  async simulateSwap(args: { quoteId: string; walletAddress: string }): Promise<SwapSimulation> {
+    return this._request<SwapSimulation>("POST", "/v1/agent/swap/simulate", {
+      json: { quote_id: args.quoteId, wallet_address: args.walletAddress },
+    });
+  }
+
+  /** GET /v1/agent/swaps — this agent's swap history, newest first. */
+  async listSwaps(
+    args: { status?: string; limit?: number; offset?: number } = {},
+  ): Promise<SwapHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/agent/swaps", {
+      params: {
+        status: args.status,
+        limit: args.limit?.toString(),
+        offset: args.offset?.toString(),
+      },
+    });
+    return {
+      swaps: (data.swaps ?? []).map((s: Record<string, any>) => ({
+        id: s.id,
+        status: s.status,
+        fromToken: s.from_token ?? s.fromToken,
+        toToken: s.to_token ?? s.toToken,
+        fromAmount: s.from_amount ?? s.fromAmount,
+        toAmount: s.to_amount ?? s.toAmount,
+        chain: s.chain,
+        txHash: s.tx_hash ?? s.txHash ?? null,
+        createdAt: s.created_at ?? s.createdAt,
+      })),
+      pagination: {
+        total: data.pagination?.total ?? 0,
+        limit: data.pagination?.limit ?? args.limit ?? 20,
+        offset: data.pagination?.offset ?? args.offset ?? 0,
+        hasMore: data.pagination?.has_more ?? false,
+      },
+    };
+  }
+
   async getSwapStatus(swapId: string | number): Promise<SwapStatus> {
     const data = await this._request<Record<string, any>>(
       "GET",
@@ -666,6 +731,34 @@ class AgentNamespace {
     return this.c._request("DELETE", `/v1/agent/wallet/policy/${policyId}`);
   }
 
+  /**
+   * POST /v1/agent/wallets — provision a managed wallet for this agent.
+   *
+   * Idempotent per agent: an agent that already has a wallet gets that one back.
+   */
+  async createWallet(): Promise<AgentWallet> {
+    const data = await this.c._request<{ wallet?: AgentWallet } & AgentWallet>(
+      "POST",
+      "/v1/agent/wallets",
+    );
+    return data.wallet ?? (data as AgentWallet);
+  }
+
+  /** GET /v1/agent/wallets — empty until {@link createWallet} has been called. */
+  async listWallets(): Promise<AgentWallet[]> {
+    const data = await this.c._request<{ wallets?: AgentWallet[] }>("GET", "/v1/agent/wallets");
+    return data.wallets ?? [];
+  }
+
+  /**
+   * POST /v1/agent/link/code — mint a short-lived code the human owner redeems
+   * to link this agent to their account. Fails with 409 if already linked.
+   */
+  async linkCode(): Promise<LinkCodeResult> {
+    const data = await this.c._request<Record<string, any>>("POST", "/v1/agent/link/code");
+    return { code: data.code, expiresAt: data.expires_at ?? data.expiresAt };
+  }
+
   /** GET /v1/agent/webhooks */
   async listWebhooks(args: { status?: string; eventType?: string; limit?: number; offset?: number } = {}): Promise<WebhookEventsResult> {
     const data = await this.c._request<Record<string, any>>("GET", "/v1/agent/webhooks", {
@@ -706,6 +799,141 @@ class AgentNamespace {
       statusCode: data.status_code,
       responseTimeMs: data.response_time_ms,
       error: data.error,
+    };
+  }
+}
+
+/**
+ * Human-in-the-loop approvals.
+ *
+ * Auth note: listing and deciding approvals is an *owner* action and
+ * authenticates as the linked human (Mini App / owner JWT), not as the agent
+ * API key. Only `get()` accepts a plain agent key. Pass the owner token as
+ * `apiKey` on a separate client if you are driving the owner side.
+ */
+export class ApprovalsNamespace {
+  constructor(private readonly c: Suwappu) {}
+
+  /** GET /v1/agent/approvals — owner auth. */
+  async list(args: { status?: ApprovalStatus } = {}): Promise<Approval[]> {
+    const data = await this.c._request<{ approvals?: Approval[] }>(
+      "GET",
+      "/v1/agent/approvals",
+      { params: { status: args.status } },
+    );
+    return data.approvals ?? [];
+  }
+
+  /** GET /v1/agent/approvals/:id — readable with the agent's own API key. */
+  async get(id: string): Promise<Approval> {
+    const data = await this.c._request<{ approval?: Approval } & Approval>(
+      "GET",
+      `/v1/agent/approvals/${encodeURIComponent(id)}`,
+    );
+    return data.approval ?? (data as Approval);
+  }
+
+  /**
+   * POST /v1/agent/approvals/:id/approve — owner auth.
+   *
+   * When the deployment sets APPROVAL_STEP_UP_REQUIRED=true, obtain a
+   * challenge via {@link stepUpChallenge} first and pass it as `stepUpChallenge`.
+   */
+  async approve(id: string, args: { stepUpChallenge?: string } = {}): Promise<Approval> {
+    const data = await this.c._request<{ approval?: Approval } & Approval>(
+      "POST",
+      `/v1/agent/approvals/${encodeURIComponent(id)}/approve`,
+      { json: { step_up_challenge: args.stepUpChallenge } },
+    );
+    return data.approval ?? (data as Approval);
+  }
+
+  /** POST /v1/agent/approvals/:id/deny — owner auth. */
+  async deny(id: string): Promise<Approval> {
+    const data = await this.c._request<{ approval?: Approval } & Approval>(
+      "POST",
+      `/v1/agent/approvals/${encodeURIComponent(id)}/deny`,
+    );
+    return data.approval ?? (data as Approval);
+  }
+
+  /** POST /v1/agent/approvals/:id/step-up/challenge — owner auth. */
+  async stepUpChallenge(id: string): Promise<StepUpChallenge> {
+    return this.c._request<StepUpChallenge>(
+      "POST",
+      `/v1/agent/approvals/${encodeURIComponent(id)}/step-up/challenge`,
+    );
+  }
+}
+
+/** Tamper-evident audit chain. */
+export class AuditNamespace {
+  constructor(private readonly c: Suwappu) {}
+
+  /** GET /v1/agent/audit — scoped to your org (org key) or your agent (agent key). */
+  async list(args: AuditListArgs = {}): Promise<AuditEvent[]> {
+    const data = await this.c._request<{ events?: Record<string, any>[] }>(
+      "GET",
+      "/v1/agent/audit",
+      {
+        params: {
+          event_type: args.eventType,
+          agent_id: args.agentId,
+          since: args.since,
+          limit: args.limit?.toString(),
+        },
+      },
+    );
+    return (data.events ?? []).map((e) => ({
+      id: e.id,
+      eventType: e.event_type ?? e.eventType,
+      agentId: e.agent_id ?? e.agentId ?? null,
+      orgId: e.org_id ?? e.orgId ?? null,
+      details: e.details,
+      createdAt: e.created_at ?? e.createdAt,
+    }));
+  }
+
+  /**
+   * GET /v1/agent/audit/verify — recompute the hash chain.
+   *
+   * Requires an **org** API key. Chain verification is inherently whole-chain,
+   * and org-less agents share one global chain, so the API refuses this for
+   * plain agent tokens rather than leaking other tenants' rows.
+   */
+  async verify(): Promise<AuditVerifyResult> {
+    return this.c._request<AuditVerifyResult>("GET", "/v1/agent/audit/verify");
+  }
+}
+
+/** Org-wide kill switch. Requires an org API key. */
+export class KillSwitchNamespace {
+  constructor(private readonly c: Suwappu) {}
+
+  /** GET /v1/agent/killswitch */
+  async list(): Promise<KillSwitch[]> {
+    const data = await this.c._request<{ killswitches?: Record<string, any>[] }>(
+      "GET",
+      "/v1/agent/killswitch",
+    );
+    return (data.killswitches ?? []).map((k) => ({
+      scope: k.scope,
+      scopeId: k.scope_id ?? k.scopeId ?? null,
+      active: k.active,
+      reason: k.reason ?? null,
+    }));
+  }
+
+  /** POST /v1/agent/killswitch — halts execution for the given scope. */
+  async set(args: SetKillSwitchArgs): Promise<KillSwitch> {
+    const data = await this.c._request<Record<string, any>>("POST", "/v1/agent/killswitch", {
+      json: { scope: args.scope, active: args.active, reason: args.reason },
+    });
+    return {
+      scope: data.scope ?? args.scope,
+      scopeId: data.scope_id ?? null,
+      active: data.active ?? args.active,
+      reason: data.reason ?? args.reason ?? null,
     };
   }
 }
