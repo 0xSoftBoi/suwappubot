@@ -242,8 +242,7 @@
 
 .reportCover {
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
-  min-height: 570px;
+  grid-template-rows: repeat(5, auto);
   overflow: hidden;
   border: 1px solid var(--sw-hairline-strong);
   background: #fbfaf5;
@@ -278,7 +277,7 @@
 }
 
 .coverBody {
-  padding: 2.2rem 1.5rem 2.7rem;
+  padding: 2.2rem 1.5rem 2.1rem;
 }
 
 .coverBody p,
@@ -311,6 +310,15 @@
   color: #294a61;
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+.coverArt {
+  display: block;
+  width: 100%;
+  height: clamp(190px, 22vw, 240px);
+  border-top: 1px solid #d8d8d0;
+  border-bottom: 1px solid #d8d8d0;
+  object-fit: cover;
 }
 
 .coverFinding {
@@ -794,7 +802,7 @@
   }
 
   .reportCover {
-    min-height: 520px;
+    min-height: 0;
   }
 
   .coverTopline {

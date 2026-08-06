@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 from reportlab.lib.colors import Color, HexColor
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -26,6 +27,13 @@ OUTPUT = (
     / "research"
     / "reports"
     / "accounting-for-an-omnichain-dollar.pdf"
+)
+ART = (
+    SHOWCASE
+    / "public"
+    / "research"
+    / "reports"
+    / "omnichain-dollar-bank-cover-art.jpg"
 )
 
 W, H = A4
@@ -194,7 +202,7 @@ def report_footer(c: canvas.Canvas, page: int) -> None:
     line(c, 31)
     c.setFont(MONO, 6.5)
     set_fill(c, MUTED)
-    c.drawString(M, 18, "RESEARCH - NOT INVESTMENT ADVICE")
+    c.drawString(M, 18, "INSTITUTIONAL RESEARCH / NOT A RESERVE ATTESTATION")
     c.drawRightString(W - M, 18, f"SUWAPPU.BOT/RESEARCH  /  {page:02d}")
 
 
@@ -358,6 +366,28 @@ def bullet(c: canvas.Canvas, number: str, title: str, body: str, x: float, y: fl
     return y2 - 14
 
 
+def cover_art(c: canvas.Canvas, x: float, y: float, width: float, height: float) -> None:
+    """Draw the cover artwork edge-to-edge inside a clipped publication window."""
+    image = ImageReader(str(ART))
+    image_width, image_height = image.getSize()
+    scale = max(width / image_width, height / image_height)
+    draw_width = image_width * scale
+    draw_height = image_height * scale
+    c.saveState()
+    clip = c.beginPath()
+    clip.rect(x, y, width, height)
+    c.clipPath(clip, stroke=0, fill=0)
+    c.drawImage(
+        image,
+        x + (width - draw_width) / 2,
+        y + (height - draw_height) / 2,
+        width=draw_width,
+        height=draw_height,
+        mask="auto",
+    )
+    c.restoreState()
+
+
 def page_1(c: canvas.Canvas) -> None:
     page_bg(c)
     label(c, "Suwappu Research", M, H - 44, INK)
@@ -366,35 +396,35 @@ def page_1(c: canvas.Canvas) -> None:
     c.drawRightString(W - M, H - 44, "REPORT 01 / AUGUST 2026")
     line(c, H - 56)
 
-    label(c, "Stablecoin solvency / Evidence status: research", M, H - 98, ORANGE_DARK)
+    label(c, "Payments / Treasury / Digital Assets", M, H - 98, ORANGE_DARK)
     y = heading(c, "Accounting for an Omnichain Dollar", M, H - 139, W - 2 * M, size=42, leading=43)
     y -= 12
     paragraph(
         c,
-        "A 12-month public-state reconciliation of USDT0, twice corrected.",
+        "USDT0 reserve reconciliation: observed backing, accounting perimeter, and monitoring implications for banks.",
         M,
         y,
-        390,
+        430,
         font=SANS,
-        size=13,
-        leading=17,
+        size=12.4,
+        leading=16,
         color=INK_2,
     )
 
-    band_y = 160
-    band_h = 300
-    set_fill(c, INK)
-    c.rect(0, band_y, W, band_h, stroke=0, fill=1)
-    label(c, "Published result", M, band_y + band_h - 38, ORANGE)
-    set_fill(c, WHITE)
-    c.setFont(SERIF, 24)
-    c.drawString(M, band_y + band_h - 77, "The documented universe now reconciles to 1.0003.")
-    c.setFont(SERIF, 24)
-    c.drawString(M, band_y + band_h - 105, "That measured difference is only three basis points.")
-    draw_series_chart(c, M + 31, band_y + 59, W - 2 * M - 31, 126, cover=True)
-    c.setFont(MONO, 6.2)
-    set_fill(c, WHITE)
-    c.drawString(M + 31, band_y + 33, "DASHED: V2 PUBLISHED SERIES     SOLID: CORRECTED SERIES")
+    label(c, "Public-state conclusion", M, 502, INK)
+    paragraph(
+        c,
+        "Observed collateral and documented direct liabilities reconcile to 1.0003x. The measured difference is about three basis points; this report does not treat it as a reserve cushion.",
+        M,
+        482,
+        W - 2 * M,
+        font=SANS_BOLD,
+        size=9.1,
+        leading=12,
+        color=INK,
+    )
+
+    cover_art(c, 0, 154, W, 286)
 
     label(c, "Tsolmondorj Natsagdorj / Suwappu Research", M, 116, INK)
     paragraph(
@@ -418,10 +448,10 @@ def page_1(c: canvas.Canvas) -> None:
 def page_2(c: canvas.Canvas) -> None:
     page_bg(c)
     report_header(c, 2, "Executive summary")
-    label(c, "The finding", M, H - 84, ORANGE_DARK)
+    label(c, "Banking takeaway", M, H - 84, ORANGE_DARK)
     y = heading(
         c,
-        "Measured completely, the system is indistinguishable from exactly 1:1.",
+        "Observed backing reconciles to par. That is not the same as a reserve attestation.",
         M,
         H - 118,
         W - 2 * M,
@@ -431,7 +461,7 @@ def page_2(c: canvas.Canvas) -> None:
     y -= 18
     paragraph(
         c,
-        "At 01:53 UTC on 1 August 2026, the Ethereum lockbox held $3.4536B of USDT against $3.4526B of directly measured USDT0 liabilities. That is a 1.0003 ratio and a $1.03M measured difference - about three basis points. Because the reads are not block-aligned and cannot see encumbrance or in-flight messages, we do not call that difference a cushion.",
+        "At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held $3.4536B of USDT against $3.4526B of directly measured USDT0 liabilities across the issuer-documented perimeter. Observed coverage was 1.0003x. The $1.03M arithmetic difference - about three basis points - is smaller than risks the balance read cannot observe, so we classify the result as reconciled to par rather than excess reserve coverage.",
         M,
         y,
         W - 2 * M,
@@ -440,36 +470,36 @@ def page_2(c: canvas.Canvas) -> None:
     )
 
     line(c, 510)
-    stat(c, money(HEAD["lockbox"], 4), "USDT IN ETHEREUM LOCKBOX", M, 470, 135)
-    stat(c, f"{HEAD['ratio']:.4f}", "MEASURED COLLATERAL / LIABILITIES", 225, 470, 150)
-    stat(c, "183", "BLOCK-ALIGNED OBSERVATIONS / 12 MONTHS", 410, 470, 130)
+    stat(c, money(HEAD["lockbox"], 4), "OBSERVED RESERVE BALANCE", M, 470, 135)
+    stat(c, f"{HEAD['ratio']:.4f}x", "OBSERVED COVERAGE RATIO", 225, 470, 150)
+    stat(c, "~3bp", "MEASURED DIFFERENCE / NOT A CUSHION", 410, 470, 130)
     line(c, 405)
 
     col = (W - 2 * M - 34) / 2
-    label(c, "What changed", M, 376, INK)
+    label(c, "What a bank can automate", M, 376, INK)
     y1 = paragraph(
         c,
-        "Version 1 omitted liabilities and manufactured a surplus. Version 2 fixed the liability side but verified the wrong Polygon collateral address, manufacturing a shortfall. This revision completes both sides. Zero of 183 corrected panel observations fall below par; the endpoint, however, has wound down to measurement noise.",
+        "The public-state control can read the canonical reserve account, aggregate every documented direct liability leg, version the accounting perimeter and alert on mismatch. The 12-month panel provides 183 block-aligned observations; the current head check covers all 20 documented direct liability legs in one session.",
         M,
         354,
         col,
         size=9.1,
         leading=13.2,
     )
-    label(c, "What did not change", M + col + 34, 376, INK)
+    label(c, "What still requires external evidence", M + col + 34, 376, INK)
     paragraph(
         c,
-        "A public balance reconciliation is a necessary solvency check, not a solvency certificate. It cannot establish legal encumbrance of escrowed USDT, net cross-chain messages in flight, or whether the issuer registry itself is complete. At a 3bp margin, each omission can dominate the measured difference.",
+        "A token balance does not establish whether reserves are encumbered, whether net mint/burn messages are in flight, or whether the deployment registry itself is complete. A bank also needs governance around the address map and independent evidence for the legal and operational status of reserves. At a 3bp margin, these are decision-relevant, not footnotes.",
         M + col + 34,
         354,
         col,
         size=9.1,
         leading=13.2,
     )
-    label(c, "Decision frame", M, max(178, y1 - 23), ORANGE_DARK)
+    label(c, "Control conclusion", M, max(178, y1 - 23), ORANGE_DARK)
     paragraph(
         c,
-        "Use the on-chain check as an always-on reconciliation primitive. Pair it with evidence about registry completeness, message state, and the legal status of collateral before treating the result as proof of full backing.",
+        "Use public-state reconciliation as a continuously repeatable first-line control. Treat registry governance, message state and reserve encumbrance as separate evidence requirements before relying on the asset for treasury, settlement or client-facing flows.",
         M,
         max(158, y1 - 43),
         W - 2 * M,
@@ -483,12 +513,12 @@ def page_2(c: canvas.Canvas) -> None:
 
 def page_3(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 3, "Correction ledger")
-    label(c, "Corrections are part of the result", M, H - 84, ORANGE_DARK)
-    y = heading(c, "Two errors moved the headline in opposite directions.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 3, "Model and data risk")
+    label(c, "Control finding", M, H - 84, ORANGE_DARK)
+    y = heading(c, "The two corrections are the control finding.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "Neither error required private information to find. Both were failures to define and verify the accounting perimeter before interpreting the ratio.",
+        "The first error created false excess coverage; the second created a false reserve shortfall. Both came from reference-data and perimeter failures that a bank control framework should catch before a ratio reaches a risk committee.",
         M,
         y - 10,
         455,
@@ -498,16 +528,16 @@ def page_3(c: canvas.Canvas) -> None:
 
     top = 565
     cols = [M, 105, 280, 395, W - M]
-    headers = ["VERSION", "REPORTED ENDPOINT", "BUFFER", "WHAT WAS WRONG"]
+    headers = ["VERSION", "REPORTED SIGNAL", "INTERPRETATION", "CONTROL FAILURE"]
     label(c, headers[0], cols[0], top, MUTED)
     label(c, headers[1], cols[1], top, MUTED)
     label(c, headers[2], cols[2], top, MUTED)
     label(c, headers[3], cols[3], top, MUTED)
     line(c, top - 12)
     rows = [
-        ("V1", "1.042", "$137.5M", "Liability universe truncated"),
-        ("V2", "1.0015 panel", "$5.1M", "Wrong Polygon collateral address"),
-        ("V3", "1.0003 head", "$1.03M", "Complete documented universe"),
+        ("V1", "1.042 endpoint", "False surplus", "Liability perimeter truncated"),
+        ("V2", "0.513-0.588", "False shortfall", "Wrong Polygon collateral address"),
+        ("V3", "1.0003 head", "Par / ~3bp", "Complete documented universe"),
     ]
     yy = top - 44
     for version, ratio, gap, issue in rows:
@@ -522,13 +552,13 @@ def page_3(c: canvas.Canvas) -> None:
         line(c, yy - 18)
         yy -= 58
 
-    label(c, "Error anatomy", M, 347, INK)
+    label(c, "Control implications", M, 347, INK)
     yb = 318
     yb = bullet(
         c,
         "01",
-        "Universe truncation",
-        "Omit liabilities and an apparent reserve surplus appears. V1 missed $134.8M of liabilities; completing the universe removed 96% of the reported buffer.",
+        "Liability-perimeter governance",
+        "V1 omitted $134.8M of liabilities. Completing the universe removed 96% of the reported buffer. Scope needs an owner, effective date, inclusion rule and completeness check.",
         M,
         yb,
         W - 2 * M,
@@ -536,8 +566,8 @@ def page_3(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "02",
-        "Account misattribution",
-        "Verify the wrong backing address and a healthy system can appear insolvent. The canonical Polygon predicate held $1.22B-$1.39B during the pre-migration window; V2's control read $0.02 at a different address.",
+        "Canonical-account governance",
+        "V2's control address read $0.02 while the canonical Polygon predicate held $1.22B-$1.39B. In a monitoring system, that is a reference-data failure, not reserve deterioration.",
         M,
         yb,
         W - 2 * M,
@@ -545,8 +575,8 @@ def page_3(c: canvas.Canvas) -> None:
     bullet(
         c,
         "03",
-        "Timestamp misalignment",
-        "Compare balances from different moments and migration flow becomes a false mismatch. The panel resolves each chain to a block at the same target timestamp; the event window is rescanned every six hours.",
+        "Timestamp discipline",
+        "Cross-chain balances need a common observation time. The panel resolves each chain to the target timestamp; the migration window is rescanned every six hours so settlement flow is not misread as reserve deficiency.",
         M,
         yb,
         W - 2 * M,
@@ -557,7 +587,7 @@ def page_3(c: canvas.Canvas) -> None:
     label(c, "Operating rule", M + 14, 97, ORANGE_DARK)
     paragraph(
         c,
-        "Define the liability universe, verify every account, align time - then interpret the ratio.",
+        "Treat the address registry as controlled reference data: version scope, canonical contracts, effective dates and containment relationships before calculating coverage.",
         M + 132,
         98,
         W - 2 * M - 148,
@@ -571,12 +601,12 @@ def page_3(c: canvas.Canvas) -> None:
 
 def page_4(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 4, "Current snapshot")
-    label(c, "Accounting invariant", M, H - 84, ORANGE_DARK)
-    y = heading(c, "One escrow. Twenty directly measured liability legs.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 4, "Reserve accounting")
+    label(c, "Observed perimeter", M, H - 84, ORANGE_DARK)
+    y = heading(c, "The measurable perimeter closes across twenty direct liability legs.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "For a lock-and-mint omnichain dollar, the public-state test is simple: collateral held in the canonical Ethereum lockbox should cover the sum of remote USDT0 supply. HyperCore is verified as a sub-ledger of HyperEVM and is not double-counted.",
+        "The observable accounting identity is straightforward: the verified Ethereum reserve balance should cover aggregate supply across the issuer-documented direct USDT0 deployments. HyperCore is verified as a sub-ledger of HyperEVM and is not double-counted; Tron and TON sit outside this perimeter as Legacy Mesh.",
         M,
         y - 10,
         470,
@@ -591,7 +621,7 @@ def page_4(c: canvas.Canvas) -> None:
     c.setFont(SERIF, 20)
     c.drawString(M + 18, 555, "$3.4536B collateral  /  $3.4526B liabilities  =  1.0003x")
 
-    label(c, "Direct liability snapshot", M, 496, INK)
+    label(c, "Direct liability perimeter", M, 496, INK)
     ybars = draw_chain_bars(c, M, 471, W - 2 * M)
     line(c, ybars + 8)
     set_fill(c, INK)
@@ -609,7 +639,7 @@ def page_4(c: canvas.Canvas) -> None:
     label(c, "Interpretation", M + 16, box_y + 63, INK)
     paragraph(
         c,
-        "The $1.03M arithmetic difference is smaller than uncertainties this read cannot observe. We therefore report par, not a positive reserve cushion. The precision belongs to the measurement; the conclusion respects its limits.",
+        "For a bank control, 1.0003x should be classified as reconciled to par within measurement tolerance, not as positive excess reserves. The head reads span roughly a minute rather than one aligned block and do not constitute a reserve attestation.",
         M + 16,
         box_y + 43,
         W - 2 * M - 32,
@@ -623,12 +653,12 @@ def page_4(c: canvas.Canvas) -> None:
 
 def page_5(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 5, "Migration")
-    label(c, "Correction 02", M, H - 84, ORANGE_DARK)
-    y = heading(c, "The apparent shortfall was a wrong-address artifact.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 5, "Reference-data event")
+    label(c, "Why the shortfall disappeared", M, H - 84, ORANGE_DARK)
+    y = heading(c, "$1.3B of apparent reserve deficiency was address-mapping risk.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "Before 27 August 2025, Polygon PoS USDT backing sat in the canonical Polygon predicate, not the USDT0 lockbox. V2 checked a different address and interpreted the missing $1.3B as an unidentified reserve account.",
+        "Before 27 August 2025, Polygon PoS USDT backing sat in the canonical Polygon predicate rather than the USDT0 lockbox. V2 checked a different address and converted an address-map failure into an apparent 41%-49% reserve deficiency. For a bank monitor, wrong reference data can be as consequential as a wrong balance.",
         M,
         y - 10,
         470,
@@ -665,10 +695,10 @@ def page_5(c: canvas.Canvas) -> None:
 
     set_fill(c, PALE)
     c.rect(M, 160, W - 2 * M, 91, stroke=0, fill=1)
-    label(c, "Independent cross-check", M + 16, 225, ORANGE_DARK)
+    label(c, "Control validation", M + 16, 225, ORANGE_DARK)
     paragraph(
         c,
-        "The $1,358.8M predicate outflow matched Polygon supply at bracket open ($1,358.759M) to within about $82K - 0.006% of the flow. The issuer had also announced the backing migration that day. Chain state and the public statement describe the same event.",
+        "The $1,358.8M predicate outflow matched Polygon supply at bracket open ($1,358.759M) to within about $82K - 0.006% of the flow. The issuer also announced the backing migration that day. Independent documentary evidence and chain state describe the same perimeter change.",
         M + 16,
         203,
         W - 2 * M - 32,
@@ -678,7 +708,7 @@ def page_5(c: canvas.Canvas) -> None:
     label(c, "Lesson", M, 124, INK)
     paragraph(
         c,
-        "A break in a reserve time series can be an accounting-boundary migration, not an economic impairment. Verify the address map before fitting the story.",
+        "Treat contract and address changes as governed reference-data events. Otherwise an accounting-boundary migration can look indistinguishable from a reserve impairment.",
         M,
         104,
         W - 2 * M,
@@ -692,12 +722,12 @@ def page_5(c: canvas.Canvas) -> None:
 
 def page_6(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 6, "Buffer dynamics")
-    label(c, "The endpoint matters", M, H - 84, ORANGE_DARK)
-    y = heading(c, "The historical cushion was wound down toward par.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 6, "Coverage dynamics")
+    label(c, "Historical context", M, H - 84, ORANGE_DARK)
+    y = heading(c, "Coverage moved from a visible cushion to measurement tolerance.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The measured buffer ranged from roughly 15bp to 18.7% of liabilities across the year - a 124x span inconsistent with a visible proportional target. The end of the sample is more decision-relevant than the historical exceedance.",
+        "Historical corrected coverage stayed above par, but the measured excess was not stable: the buffer share ranged from roughly 15bp to 18.7% of liabilities. By the end of the sample, excess coverage had compressed to measurement tolerance. For a bank, the endpoint matters more than the historical maximum.",
         M,
         y - 10,
         470,
@@ -746,7 +776,7 @@ def page_6(c: canvas.Canvas) -> None:
     label(c, "Interpretation", M, 137, INK)
     paragraph(
         c,
-        "Historically above par does not mean meaningfully overcollateralized now. At the endpoint, measurement uncertainty is the headline.",
+        "For underwriting, historical excess coverage should not be carried forward as a current risk buffer. The relevant state is the endpoint: observed coverage is effectively par, and unobservable exposures are larger than the measured difference.",
         M,
         116,
         W - 2 * M,
@@ -785,12 +815,12 @@ def compare_row(
 
 def page_7(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 7, "Proof boundary")
-    label(c, "Necessary, not sufficient", M, H - 84, ORANGE_DARK)
-    y = heading(c, "What public chain state can - and cannot - prove.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 7, "Control perimeter")
+    label(c, "Public-state check vs attestation", M, H - 84, ORANGE_DARK)
+    y = heading(c, "The ledger can be reconciled; the reserve claim still needs off-chain evidence.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "A balance reconciliation answers one narrow question very well. Treating it as a complete reserve attestation would erase exactly the uncertainty that becomes decisive at a three-basis-point margin.",
+        "Public chain state can support a repeatable first-line reserve control. It cannot, by itself, answer the legal and operational questions a bank needs before treating that control as proof of available reserves.",
         M,
         y - 10,
         470,
@@ -798,45 +828,45 @@ def page_7(c: canvas.Canvas) -> None:
         leading=13.4,
     )
 
-    label(c, "Visible from public state", M, 584, TEAL)
-    label(c, "Not established by the read", M + 266, 584, RED)
+    label(c, "Automatable onchain control", M, 584, TEAL)
+    label(c, "Requires additional evidence", M + 266, 584, RED)
     line(c, 570)
     yy = 539
     yy = compare_row(
         c,
         yy,
-        "Canonical escrow balance",
+        "Collateral balance",
         "USDT balanceOf() on the verified Ethereum OAdapter lockbox.",
-        "Legal encumbrance",
-        "A positive token balance does not establish that the collateral is unencumbered or bankruptcy-remote.",
+        "Asset encumbrance / legal claim",
+        "A positive token balance does not establish that reserves are unencumbered, bankruptcy-remote, or senior to other claims.",
     )
     yy = compare_row(
         c,
         yy,
-        "Remote token supply",
+        "Documented token supply",
         "totalSupply() on each documented USDT0 deployment, with decimals and live contracts checked.",
-        "Messages in flight",
-        "A point-in-time sum does not expose net mint/burn instructions moving between chains.",
+        "Settlement state / messages in flight",
+        "A point-in-time sum does not expose net mint or burn instructions moving between chains.",
     )
     yy = compare_row(
         c,
         yy,
-        "Accounting perimeter used",
+        "Versioned accounting perimeter",
         "Twenty direct liability legs, plus an explicit HyperCore containment check; Tron and TON classified as Legacy Mesh.",
-        "Registry completeness",
-        "The method can verify documented deployments; it cannot prove that the issuer's deployment registry omits nothing.",
+        "Registry completeness / governance",
+        "The method verifies documented deployments; it cannot prove that the issuer registry omits nothing or that its change process is complete.",
     )
 
     set_fill(c, PALE)
     c.rect(M, 151, W - 2 * M, 112, stroke=0, fill=1)
-    label(c, "A monitoring stack should track", M + 16, 235, INK)
+    label(c, "Minimum evidence stack for a bank", M + 16, 235, INK)
     items = [
-        "01  Complete liability registry",
-        "02  Collateral + legacy escrows",
+        "01  Versioned liability registry",
+        "02  Canonical reserve accounts",
         "03  Net messages in flight",
-        "04  Account-level encumbrance evidence",
-        "05  Boundary migrations and contract upgrades",
-        "06  Corrections to the address map",
+        "04  Encumbrance / legal-status evidence",
+        "05  Contract + migration change control",
+        "06  Independent attestation / registry check",
     ]
     c.setFont(MONO, 7)
     set_fill(c, INK_2)
@@ -848,7 +878,7 @@ def page_7(c: canvas.Canvas) -> None:
     label(c, "Threshold", M, 118, ORANGE_DARK)
     paragraph(
         c,
-        "At $1.03M, any single invisible item above roughly three basis points can flip the sign of the measured buffer.",
+        "At ~3bp, any omitted, in-flight or encumbered position above $1.03M overwhelms the arithmetic difference. Escalation policy should reflect that scale.",
         M,
         98,
         W - 2 * M,
@@ -862,12 +892,12 @@ def page_7(c: canvas.Canvas) -> None:
 
 def page_8(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 8, "Method and replication")
-    label(c, "Audit the result - and the mistakes", M, H - 84, ORANGE_DARK)
-    y = heading(c, "Everything needed to rerun the measurement is public.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 8, "Bank control design")
+    label(c, "Suggested operating model", M, H - 84, ORANGE_DARK)
+    y = heading(c, "Automate the reconciliation; govern the evidence it cannot see.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The panel uses public RPC endpoints, no explorer API, no indexer, and no credentials. Superseded series are retained so a reader can reproduce the exact errors that produced earlier conclusions.",
+        "The practical architecture is a layered control: public-state reconciliation for continuous observation, event-driven governance for perimeter changes, and external evidence for reserve conditions that token balances cannot establish.",
         M,
         y - 10,
         470,
@@ -875,13 +905,13 @@ def page_8(c: canvas.Canvas) -> None:
         leading=13.4,
     )
 
-    label(c, "Measurement design", M, 579, INK)
+    label(c, "Control layers", M, 579, INK)
     yb = 549
-    yb = bullet(c, "01", "183 aligned observations", "Every 48 hours from 26 July 2025 through 25 July 2026, with block resolution per chain at each target timestamp.", M, yb, W - 2 * M)
-    yb = bullet(c, "02", "Six-hour event rescan", "The 25 Aug-1 Sep migration window is rescanned at six-hour resolution; the canonical predicate is backfilled at all 16 pre-break panel blocks.", M, yb, W - 2 * M)
-    yb = bullet(c, "03", "Complete-universe head check", "Twenty direct liability legs measured in one session on 1 Aug 2026, with the HyperCore containment relationship verified and no documented direct leg excluded.", M, yb, W - 2 * M)
+    yb = bullet(c, "01", "Daily public-state reconciliation", "Read canonical reserves and every documented direct liability leg; version the timestamp, address map and accounting perimeter; alert when a configured threshold is breached.", M, yb, W - 2 * M)
+    yb = bullet(c, "02", "Event-driven perimeter controls", "Detect new deployments, migrations, upgrades, containment changes and registry revisions. Reverify contract identity, symbol, decimals and supply before inclusion.", M, yb, W - 2 * M)
+    yb = bullet(c, "03", "External evidence overlay", "Pair the chain-state control with issuer or attestation evidence for encumbrance, registry completeness and message state; escalate when unobservable exposure can exceed the measured difference.", M, yb, W - 2 * M)
 
-    label(c, "Proof files", M, yb - 3, INK)
+    label(c, "Independent audit trail", M, yb - 3, INK)
     file_y = yb - 27
     files = [
         ("data/usdt0_timeseries.csv", "183-row panel + retained wrong-address control"),
@@ -902,7 +932,7 @@ def page_8(c: canvas.Canvas) -> None:
 
     set_fill(c, INK)
     c.rect(M, 71, W - 2 * M, 69, stroke=0, fill=1)
-    label(c, "Open replication bundle", M + 16, 116, ORANGE)
+    label(c, "Open methodology and source data", M + 16, 116, ORANGE)
     set_fill(c, WHITE)
     c.setFont(SANS_BOLD, 9)
     c.drawString(M + 16, 92, "suwappu.bot/research/replication")
@@ -912,12 +942,12 @@ def page_8(c: canvas.Canvas) -> None:
 
 def page_9(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 9, "Decision frame")
-    label(c, "What to do with the result", M, H - 84, ORANGE_DARK)
-    y = heading(c, "Make the accounting perimeter a product surface.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 9, "Banking implications")
+    label(c, "Conclusion", M, H - 84, ORANGE_DARK)
+    y = heading(c, "The underwriting upgrade is a controlled accounting perimeter.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "This paper's most reusable result is operational: a cross-chain asset becomes easier to underwrite when the deployment registry, backing accounts, and boundary changes are published in machine-readable form.",
+        "The durable result is not the 1.0003x ratio. It is that a cross-chain dollar can be monitored as a defined set of reserve and liability accounts - provided the perimeter itself is governed like financial reference data and the off-chain evidence remains separate.",
         M,
         y - 10,
         470,
@@ -929,8 +959,8 @@ def page_9(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "01",
-        "For issuers",
-        "Publish a dated machine-readable registry of every liability leg, backing account, containment relationship, and migration. A reserve ratio is only as good as the address map behind it.",
+        "For treasury and payments",
+        "Use the public-state check as a repeatable control overlay, not an attestation. It can flag divergence or stale reference data before the asset is relied on for settlement or client-facing flows.",
         M,
         yb,
         W - 2 * M,
@@ -938,8 +968,8 @@ def page_9(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "02",
-        "For allocators and routers",
-        "Automate the public-state reconciliation, but do not equate it with a full reserve attestation. Escalate when the measured difference approaches the uncertainty in messages, encumbrance, or registry coverage.",
+        "For risk and model governance",
+        "Version the registry, address map and method. Treat contract migrations, new deployments and corrections as controlled model-data changes with an auditable history.",
         M,
         yb,
         W - 2 * M,
@@ -947,8 +977,8 @@ def page_9(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "03",
-        "For monitor builders",
-        "Version the accounting perimeter itself. Contract migrations, new deployments, sub-ledgers, and address corrections are state changes that should be observable and historically replayable.",
+        "For issuers and infrastructure partners",
+        "Publish a dated machine-readable registry of each liability leg, backing account, containment relationship and migration. This reduces operational and model risk for counterparties.",
         M,
         yb,
         W - 2 * M,
@@ -958,7 +988,7 @@ def page_9(c: canvas.Canvas) -> None:
     label(c, "Disclosures", M, yb - 20, INK)
     yd = paragraph(
         c,
-        "Research, not investment advice. Suwappu builds cross-chain execution infrastructure and holds operational stablecoin balances, including USDT and USDT0, incidental to running it. No directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. All inputs are public chain state or cited public documents. The working paper is canonical where this report and the paper differ.",
+        "This report is research, not a reserve attestation, audit opinion or investment recommendation. Suwappu builds cross-chain execution infrastructure and holds operational stablecoin balances, including USDT and USDT0, incidental to running it. No directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. All inputs are public chain state or cited public documents. The working paper is canonical where this report and the paper differ.",
         M,
         yb - 41,
         W - 2 * M,
@@ -984,7 +1014,7 @@ def page_9(c: canvas.Canvas) -> None:
 
     set_fill(c, INK)
     c.rect(M, 52, W - 2 * M, 54, stroke=0, fill=1)
-    label(c, "Read the working paper + inspect the evidence", M + 16, 83, ORANGE)
+    label(c, "Working paper + evidence bundle", M + 16, 83, ORANGE)
     set_fill(c, WHITE)
     c.setFont(SANS_BOLD, 8.2)
     c.drawRightString(W - M - 16, 82, "SUWAPPU.BOT/RESEARCH/REPLICATION")
@@ -997,8 +1027,8 @@ def build() -> Path:
     c = canvas.Canvas(str(OUTPUT), pagesize=A4, pageCompression=1)
     c.setTitle("Accounting for an Omnichain Dollar")
     c.setAuthor("Tsolmondorj Natsagdorj / Suwappu Research")
-    c.setSubject("A 12-month public-state reconciliation of USDT0, twice corrected")
-    c.setKeywords("USDT0, stablecoin, collateral, cross-chain, solvency, Suwappu Research")
+    c.setSubject("USDT0 reserve reconciliation, accounting perimeter, and banking control implications")
+    c.setKeywords("USDT0, stablecoin reserves, treasury, settlement risk, reserve reconciliation, Suwappu Research")
     for draw in (page_1, page_2, page_3, page_4, page_5, page_6, page_7, page_8, page_9):
         draw(c)
     c.save()

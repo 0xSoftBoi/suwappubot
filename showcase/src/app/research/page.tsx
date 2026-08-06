@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { publishedPosts, plannedPosts } from '@/content/research';
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
-    'Open, reproducible research from Suwappu on stablecoin collateral, incentive design, onchain market structure, and financial execution infrastructure.',
+    'Institutional research from Suwappu on stablecoin reserves, settlement infrastructure, onchain market structure, and financial execution. Methods and source data are public.',
 };
 
 function fmtDate(iso: string) {
@@ -63,16 +64,16 @@ export default function ResearchPage() {
         <header className={styles.hero}>
           <div className={styles.heroTopline}>
             <p className="summer-kicker">Suwappu Research</p>
-            <p className={styles.series}>Markets · protocols · execution</p>
+            <p className={styles.series}>Payments · treasury · market structure</p>
           </div>
 
           <div className={styles.heroGrid}>
-            <h1>Measured, released, corrected in public.</h1>
+            <h1>Research for financial infrastructure.</h1>
             <div className={styles.heroIntro}>
               <p>
-                Original measurement for stablecoin solvency, incentive design, and onchain market
-                structure. Every study resolves back to methods and evidence; when the conclusion
-                changes, the correction stays in the record.
+                Independent measurement and control-oriented analysis of stablecoin reserves,
+                settlement rails, and onchain market structure. Written for teams that need an
+                audit trail, not a narrative.
               </p>
               <p className={styles.byline}>{AUTHOR_NAME} · Suwappu Research</p>
             </div>
@@ -88,12 +89,12 @@ export default function ResearchPage() {
               <dd>aligned reserve observations</dd>
             </div>
             <div>
-              <dt>329,947</dt>
-              <dd>recipient rows in primary test</dd>
+              <dt>20</dt>
+              <dd>direct liability legs at head</dd>
             </div>
             <div>
               <dt>Open</dt>
-              <dd>papers, code &amp; data</dd>
+              <dd>methods, code &amp; data</dd>
             </div>
           </dl>
         </header>
@@ -110,19 +111,21 @@ export default function ResearchPage() {
             <article className={styles.reportFeature}>
               <div className={styles.reportCopy}>
                 <div className={styles.reportStatus}>
-                  <span>Research</span>
-                  <span>Stablecoin solvency</span>
-                  <span>Revised twice</span>
+                  <span>Institutional research</span>
+                  <span>Reserve &amp; settlement risk</span>
+                  <span>Evidence status: research</span>
                 </div>
                 <h2 id="flagship-report" className={styles.reportTitle}>
                   {featured.report.title}
                 </h2>
                 <p className={styles.reportSubtitle}>{featured.report.subtitle}</p>
                 <p className={styles.reportDek}>
-                  The first version overstated the surplus. The second manufactured a shortfall by
-                  checking the wrong Polygon backing address. The complete documented universe now
-                  reconciles to par — with a measured difference of only three basis points and an
-                  explicit account of what public chain state still cannot prove.
+                  At the 1 August head snapshot, the issuer-documented direct liability perimeter
+                  reconciles to 1.0003x against the verified Ethereum reserve account. That is a
+                  useful control result, not a reserve attestation: encumbrance, messages in flight,
+                  and registry completeness sit outside the balance read. The banking implication is
+                  the boundary between what can be automated onchain and what still requires issuer
+                  and control evidence.
                 </p>
 
                 <dl className={styles.reportMetrics} aria-label="Flagship report findings">
@@ -136,13 +139,13 @@ export default function ResearchPage() {
 
                 <div className={styles.actions}>
                   <a className={styles.reportPrimary} href={featured.report.path}>
-                    Read report (PDF) →
+                    Read institutional report (PDF) →
                   </a>
                   <a className={styles.reportSecondary} href="/research/replication">
-                    Inspect data &amp; code →
+                    Methodology &amp; data →
                   </a>
                   <a className={styles.reportTertiary} href={`/research/${featured.slug}`}>
-                    Read web article →
+                    Research note →
                   </a>
                 </div>
               </div>
@@ -157,14 +160,21 @@ export default function ResearchPage() {
                   <span>Report 01 / Aug 2026</span>
                 </div>
                 <div className={styles.coverBody}>
-                  <p>Stablecoin solvency / Evidence status: Research</p>
+                  <p>Payments / Treasury / Digital Assets</p>
                   <h3>{featured.report.title}</h3>
                   <span>{featured.report.subtitle}</span>
                 </div>
+                <Image
+                  className={styles.coverArt}
+                  src="/research/reports/omnichain-dollar-bank-cover-art.jpg"
+                  width={1536}
+                  height={1024}
+                  alt=""
+                />
                 <div className={styles.coverFinding}>
-                  <span>Published result</span>
-                  <strong>The documented universe now reconciles to 1.0003.</strong>
-                  <p>That measured difference is only three basis points.</p>
+                  <span>Public-state conclusion</span>
+                  <strong>Observed coverage reconciles to 1.0003x.</strong>
+                  <p>The ~3bp difference is not treated as a reserve cushion.</p>
                 </div>
                 <div className={styles.coverFooter}>
                   <span>Tsolmondorj Natsagdorj</span>
@@ -178,7 +188,7 @@ export default function ResearchPage() {
         {papers.length > 0 && (
           <section className={styles.section} aria-labelledby="working-papers">
             <div className={styles.sectionLabel}>
-              <span id="working-papers">Working papers</span>
+              <span id="working-papers">Working papers &amp; methodology</span>
               <span>Methods · data · correction history</span>
             </div>
             <div className={styles.list}>
@@ -210,11 +220,12 @@ export default function ResearchPage() {
 
         <section className={styles.standard} aria-labelledby="research-standard">
           <div className={styles.standardIntro}>
-            <p className="summer-kicker">Research standard</p>
-            <h2 id="research-standard">Make the claim inspectable.</h2>
+            <p className="summer-kicker">Evidence standard</p>
+            <h2 id="research-standard">Make the perimeter explicit.</h2>
             <p>
-              The public artifact is part of the result. Each study states what was measured,
-              exposes its assumptions and limits, and gives a reader a path back to the evidence.
+              For financial infrastructure, the scope of a measurement is part of the result. Each
+              study states the accounting or model perimeter, exposes assumptions and limits, and
+              gives the reader a path back to source data.
             </p>
             <a href="/research/replication">Open the replication bundle →</a>
           </div>
@@ -223,22 +234,22 @@ export default function ResearchPage() {
             <li>
               <span>01</span>
               <div className={styles.meta}>
-                <h3>Measure first</h3>
-                <p>Prefer public chain state, complete recipient vectors, and explicitly stated models over screenshots or anecdotes.</p>
+                <h3>Define the perimeter</h3>
+                <p>Version entities, accounts, inclusion rules, and observation time before interpreting a ratio or model output.</p>
               </div>
             </li>
             <li>
               <span>02</span>
               <div className={styles.meta}>
-                <h3>Release the work</h3>
+                <h3>Release the method</h3>
                 <p>Working papers, collection code, statistical tests, fixed seeds, and cited datasets ship with the argument.</p>
               </div>
             </li>
             <li>
               <span>03</span>
               <div className={styles.meta}>
-                <h3>Correct visibly</h3>
-                <p>When a result changes, the correction leads. Superseded evidence stays available where it is needed to audit what changed.</p>
+                <h3>Version corrections</h3>
+                <p>Corrections stay visible, and changed scope or reference data remain part of the audit trail.</p>
               </div>
             </li>
           </ol>
@@ -286,17 +297,6 @@ export default function ResearchPage() {
           </section>
         )}
 
-        <section className={styles.buildCta} aria-labelledby="build-from-research">
-          <div>
-            <p className="summer-kicker">From research to execution</p>
-            <h2 id="build-from-research">Building on Suwappu?</h2>
-            <p>Start with the API, SDK, MCP, and agent-facing developer surface.</p>
-          </div>
-          <div className={styles.buildLinks}>
-            <a href="/docs">Developer docs →</a>
-            <a href="/agents">Agent surface →</a>
-          </div>
-        </section>
       </div>
       <SummerFooter />
     </main>
