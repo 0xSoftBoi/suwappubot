@@ -26,7 +26,7 @@ const PAPERS: Row[] = [
   {
     file: 'papers/usdt0-collateral-reconciliation.md',
     size: '33 KB',
-    desc: 'Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0, Twice Corrected (v3, 31 Jul 2026).',
+    desc: 'Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0, Twice Corrected (v3, revised 1 Aug 2026).',
   },
   {
     file: 'papers/points-tullock-contests.md',
@@ -247,7 +247,10 @@ export default function ReplicationPage() {
           The posts on this site are abridgements. <strong>Where an abridgement and a paper
           disagree, the paper governs.</strong> Start with{' '}
           <a href={`${BASE}/README.md`}>README.md</a>, which carries the run instructions and each
-          paper&rsquo;s stated limits.
+          paper&rsquo;s stated limits. For the decision-grade edition of Paper 1, read{' '}
+          <a href="/research/reports/accounting-for-an-omnichain-dollar.pdf">
+            Accounting for an Omnichain Dollar (PDF)
+          </a>.
         </p>
 
         <section className="repl-section">
@@ -259,20 +262,23 @@ export default function ReplicationPage() {
           <h2>Paper 1 — USDT0 collateral reconciliation</h2>
           <p>
             A 12-month, block-height-aligned reconciliation of USDT0&rsquo;s lockbox collateral
-            against circulating liabilities on 17 EVM chains, read directly from chain state. No
-            block explorer API, subgraph or third-party indexer is used anywhere in the panel.
+            against circulating liabilities, plus a complete documented-universe head snapshot,
+            read directly from chain state. No block explorer API, subgraph or third-party indexer
+            is used anywhere in the panel.
           </p>
           <h3>Code</h3>
           <FileTable rows={CODE_USDT0} />
           <h3>Data</h3>
           <FileTable rows={DATA_USDT0} />
           <p className="repl-caveat">
-            <strong>Stated limits.</strong> Tron, TON and MegaETH are unmeasured, so measured
-            liabilities are a lower bound and every ratio is an <em>upper</em> bound. The panel is
-            unbalanced — chains returning live supply rise from 8 to 17 across the sample — so the
-            level of the ratio is not comparable across time. The not-deployed label is not verified
-            by an <code>eth_getCode</code> check, so archive-depth failure and genuine non-deployment
-            are not distinguished; both are zero-filled and both bias the ratio up.
+            <strong>Stated limits.</strong> The historical panel remains unbalanced — chains
+            returning live supply rise from 8 to 17 — and zero-fills archive-depth failures, so
+            historical liabilities are a lower bound. The separate 1 August head check measures
+            every documented direct USDT0 liability leg, but its reads are not block-aligned. At a
+            $1.03m measured difference, encumbrance, messages in flight, registry completeness and
+            ordinary read-time drift can each dominate the sign. Tron and TON are Legacy Mesh,
+            MegaETH is now measured, and HyperCore is verified as a contained sub-ledger rather than
+            an additional liability.
           </p>
         </section>
 

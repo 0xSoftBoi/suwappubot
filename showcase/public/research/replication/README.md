@@ -5,7 +5,12 @@ Code, data and full working papers for the three research papers published at
 Nothing in this bundle requires credentials: the chain reads use public RPC
 endpoints, and the simulation runs offline.
 
-First published 26 July 2026; expanded 31 July 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
+First published 26 July 2026; USDT0 paper revised 1 August 2026; report edition
+published 6 August 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
+
+**Report edition:** [*Accounting for an Omnichain Dollar*](../reports/accounting-for-an-omnichain-dollar.pdf)
+packages the USDT0 findings, both corrections, the proof boundary and the replication
+path into a nine-page research report. The working paper remains canonical.
 
 ---
 
@@ -13,7 +18,7 @@ First published 26 July 2026; expanded 31 July 2026. Author: Tsolmondorj Natsagd
 
 | File | Paper |
 |---|---|
-| `papers/usdt0-collateral-reconciliation.md` | *Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0 Across 17 Chains* |
+| `papers/usdt0-collateral-reconciliation.md` | *Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0, Twice Corrected* |
 | `papers/points-tullock-contests.md` | *Points Programs as Tullock Contests: Equilibrium Concentration, Denomination, and Sybil Neutrality* |
 | `papers/airdrop-concentration.md` | *Who Actually Collected the Airdrops: Testing the Tullock Active-Set Prediction Against Completed Allocations* |
 
@@ -32,6 +37,9 @@ disagree, the paper governs.
 | `code/analyze_usdt0.py` | Ratio series, summary statistics, exhibits. |
 | `code/break_scan2.py` | 6-hourly rescan of 2025-08-25 → 2025-09-01. |
 | `code/robustness.py` | Serial correlation, changepoint search, stationary block bootstrap, Newey–West HAC inference, ADF, coverage thresholds. |
+| `code/predicate_backfill.py` | Correction 2: canonical Polygon PoS predicate balances at the panel-aligned pre-break blocks and the migration bracket. |
+| `code/buffer_dynamics.py` | Per-leg and aggregate flow regressions, discrete operations and terminal buffer accounting. |
+| `code/head_snapshot.py` | Complete documented-universe head reading, including the HyperCore containment check. |
 
 **The 183-observation panel requires `DAYS=365 STEP_HOURS=48`.** The script
 defaults produce a different panel.
@@ -53,18 +61,28 @@ python3 code/robustness.py
 | `data/robustness.json` | All Section 4 statistics. |
 | `data/usdt0_panel_v1_12chain.csv` | **The superseded 12-chain panel**, retained so the correction in Section 1 can be checked directly rather than taken on trust. |
 | `data/universe_table.md` | Documented deployment set versus measured set. |
+| `data/polygon_predicate_prebreak.json` | Canonical Polygon predicate balances used to correct the pre-break series. |
+| `data/buffer_dynamics.json` | Per-leg flow coupling, discrete collateral operations and the terminal drawdown. |
+| `data/head_snapshot_20260801.json` | Complete-universe head reading: 20 direct liability legs, ratio 1.0003, measured difference $1.03m. |
 
 ### Known limits, stated in the paper
 
-- Tron, TON and MegaETH are unmeasured. Measured liabilities are a lower bound,
-  so every ratio here is an **upper** bound.
-- The panel is unbalanced: chains returning live supply rise from 8 to 17 across
-  the sample, which biases early observations upward. The level of the ratio is
-  not comparable across time.
+- The **historical panel** is unbalanced: chains returning live supply rise from
+  8 to 17 across the sample, and archive-depth failure is zero-filled. Those
+  coverage limits bias panel-era liabilities down. They do not apply to the
+  separate 1 August complete-universe head snapshot.
 - The not-deployed label is not verified by an `eth_getCode` check, so
   archive-depth failure and genuine non-deployment are not distinguished. Both
-  are zero-filled and both bias the ratio up.
-- Head reads in Table 1 are not block-aligned.
+  are zero-filled in the panel and both bias historical ratios up.
+- Tron and TON are Legacy Mesh rather than USDT0 lockbox liabilities. MegaETH is
+  now measurable. HyperCore is verified as a sub-ledger already contained in
+  HyperEVM supply and is not double-counted.
+- The complete-universe head reads span roughly a minute rather than one aligned
+  block height. At the measured $1.03m difference (about 3bp), the sign is within
+  measurement noise.
+- A balance read cannot establish whether escrowed USDT is encumbered, what net
+  cross-chain messages are in flight, or whether the issuer registry itself is
+  complete. At a 3bp margin, each limitation can dominate the measured difference.
 
 ---
 
@@ -149,7 +167,7 @@ Chain reads use the standard library only.
 Released for verification and reuse. Cite as:
 
 > Natsagdorj, T. (2026). *Measuring Collateral Backing of an Omnichain Dollar:
-> A Point-in-Time Reconciliation of USDT0 Across 17 Chains.* Suwappu Research.
+> A Point-in-Time Reconciliation of USDT0, Twice Corrected.* Suwappu Research.
 
 > Natsagdorj, T. (2026). *Points Programs as Tullock Contests: Equilibrium
 > Concentration, Denomination, and Sybil Neutrality.* Suwappu Research.

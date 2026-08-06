@@ -22,6 +22,15 @@ export type ResearchPost = {
   keywords?: string[];
   /** Canonical long-form paper in the public replication bundle, when one exists. */
   paperPath?: string;
+  /** Decision-grade report edition, when a study has been packaged as a PDF. */
+  report?: {
+    path: string;
+    title: string;
+    subtitle: string;
+    date: string;
+    pages: number;
+    metrics: Array<{ value: string; label: string }>;
+  };
   /** Evidence visual surfaced by the research index for a featured paper. */
   indexFigure?: {
     src: string;
@@ -351,6 +360,18 @@ export const researchPosts: ResearchPost[] = [
     readMins: 12,
     status: 'published',
     paperPath: '/research/replication/papers/usdt0-collateral-reconciliation.md',
+    report: {
+      path: '/research/reports/accounting-for-an-omnichain-dollar.pdf',
+      title: 'Accounting for an Omnichain Dollar',
+      subtitle: 'A 12-month public-state reconciliation of USDT0, twice corrected.',
+      date: '2026-08-06',
+      pages: 9,
+      metrics: [
+        { value: '1.0003', label: 'complete-universe head ratio' },
+        { value: '20', label: 'direct liability legs measured' },
+        { value: '183', label: 'block-aligned observations' },
+      ],
+    },
     indexFigure: {
       src: '/research/usdt0-corrected-series.svg',
       alt: 'Corrected USDT0 collateralization series holding near par after the canonical Polygon predicate is included.',

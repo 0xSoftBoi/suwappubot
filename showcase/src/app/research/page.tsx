@@ -26,7 +26,7 @@ export default function ResearchPage() {
   // the two genres are never conflated on the index.
   const papers = publishedPosts.filter((p) => p.kind === 'research');
   const engineering = publishedPosts.filter((p) => p.kind === 'engineering');
-  const [featured, ...rest] = papers;
+  const featured = papers.find((p) => p.report) ?? papers[0];
 
   const collectionLd = {
     '@context': 'https://schema.org',
@@ -42,6 +42,13 @@ export default function ResearchPage() {
       url: `${SITE}/research/${paper.slug}`,
       datePublished: paper.date,
       author: { '@type': 'Person', name: AUTHOR_NAME },
+      ...(paper.report && {
+        associatedMedia: {
+          '@type': 'MediaObject',
+          contentUrl: `${SITE}${paper.report.path}`,
+          encodingFormat: 'application/pdf',
+        },
+      }),
     })),
   };
 
@@ -63,9 +70,9 @@ export default function ResearchPage() {
             <h1>Measured, released, corrected in public.</h1>
             <div className={styles.heroIntro}>
               <p>
-                Original measurement and mechanism research for financial systems that move value
-                onchain. We publish the method, the data, the code, the limits — and the evidence
-                that proved us wrong.
+                Original measurement for stablecoin solvency, incentive design, and onchain market
+                structure. Every study resolves back to methods and evidence; when the conclusion
+                changes, the correction stays in the record.
               </p>
               <p className={styles.byline}>{AUTHOR_NAME} · Suwappu Research</p>
             </div>
@@ -81,8 +88,8 @@ export default function ResearchPage() {
               <dd>aligned reserve observations</dd>
             </div>
             <div>
-              <dt>376k</dt>
-              <dd>recipient rows measured</dd>
+              <dt>329,947</dt>
+              <dd>recipient rows in primary test</dd>
             </div>
             <div>
               <dt>Open</dt>
@@ -91,59 +98,94 @@ export default function ResearchPage() {
           </dl>
         </header>
 
-        {featured && (
-          <section className={styles.section} aria-labelledby="latest-research">
+        {featured?.report && (
+          <section className={styles.section} aria-labelledby="flagship-report">
             <div className={styles.sectionLabel}>
-              <span>Latest study</span>
-              <span>Research 01</span>
+              <span>Flagship report</span>
+              <span>
+                Report 01 · {fmtDate(featured.report.date)} · {featured.report.pages} pages
+              </span>
             </div>
 
-            <article className={styles.feature}>
-              <div className={styles.featureCopy}>
-                <div className={styles.metaInline}>
-                  <span className="research-tag">{featured.category}</span>
-                  <time className={styles.date}>{fmtDate(featured.date)}</time>
-                  {featured.readMins && (
-                    <span className={styles.readMins}>{featured.readMins} min read</span>
-                  )}
+            <article className={styles.reportFeature}>
+              <div className={styles.reportCopy}>
+                <div className={styles.reportStatus}>
+                  <span>Research</span>
+                  <span>Stablecoin solvency</span>
+                  <span>Revised twice</span>
                 </div>
-                <h2 id="latest-research" className={styles.featureTitle}>
-                  <a href={`/research/${featured.slug}`}>{featured.title}</a>
+                <h2 id="flagship-report" className={styles.reportTitle}>
+                  {featured.report.title}
                 </h2>
-                <p className={styles.featureDek}>{featured.excerpt}</p>
+                <p className={styles.reportSubtitle}>{featured.report.subtitle}</p>
+                <p className={styles.reportDek}>
+                  The first version overstated the surplus. The second manufactured a shortfall by
+                  checking the wrong Polygon backing address. The complete documented universe now
+                  reconciles to par — with a measured difference of only three basis points and an
+                  explicit account of what public chain state still cannot prove.
+                </p>
+
+                <dl className={styles.reportMetrics} aria-label="Flagship report findings">
+                  {featured.report.metrics.map((metric) => (
+                    <div key={metric.label}>
+                      <dt>{metric.value}</dt>
+                      <dd>{metric.label}</dd>
+                    </div>
+                  ))}
+                </dl>
+
                 <div className={styles.actions}>
-                  <a className={styles.primaryLink} href={`/research/${featured.slug}`}>
-                    Read the study →
+                  <a className={styles.reportPrimary} href={featured.report.path}>
+                    Read report (PDF) →
                   </a>
-                  {featured.paperPath && (
-                    <a className={styles.secondaryLink} href={featured.paperPath}>
-                      Full working paper →
-                    </a>
-                  )}
+                  <a className={styles.reportSecondary} href="/research/replication">
+                    Inspect data &amp; code →
+                  </a>
+                  <a className={styles.reportTertiary} href={`/research/${featured.slug}`}>
+                    Read web article →
+                  </a>
                 </div>
               </div>
 
-              {featured.indexFigure && (
-                <figure className={styles.featureFigure}>
-                  <img src={featured.indexFigure.src} alt={featured.indexFigure.alt} />
-                  <figcaption>{featured.indexFigure.caption}</figcaption>
-                </figure>
-              )}
+              <a
+                className={styles.reportCover}
+                href={featured.report.path}
+                aria-label={`Read ${featured.report.title} as a PDF`}
+              >
+                <div className={styles.coverTopline}>
+                  <span>Suwappu Research</span>
+                  <span>Report 01 / Aug 2026</span>
+                </div>
+                <div className={styles.coverBody}>
+                  <p>Stablecoin solvency / Evidence status: Research</p>
+                  <h3>{featured.report.title}</h3>
+                  <span>{featured.report.subtitle}</span>
+                </div>
+                <div className={styles.coverFinding}>
+                  <span>Published result</span>
+                  <strong>The documented universe now reconciles to 1.0003.</strong>
+                  <p>That measured difference is only three basis points.</p>
+                </div>
+                <div className={styles.coverFooter}>
+                  <span>Tsolmondorj Natsagdorj</span>
+                  <span>09 pages</span>
+                </div>
+              </a>
             </article>
           </section>
         )}
 
-        {rest.length > 0 && (
-          <section className={styles.section} aria-labelledby="published-research">
+        {papers.length > 0 && (
+          <section className={styles.section} aria-labelledby="working-papers">
             <div className={styles.sectionLabel}>
-              <span id="published-research">Published research</span>
-              <span>Methods &amp; results</span>
+              <span id="working-papers">Working papers</span>
+              <span>Methods · data · correction history</span>
             </div>
             <div className={styles.list}>
-              {rest.map((p, index) => (
+              {papers.map((p, index) => (
                 <article key={p.slug} className={styles.row}>
                   <div className={styles.ordinal} aria-hidden="true">
-                    {String(index + 2).padStart(2, '0')}
+                    {String(index + 1).padStart(2, '0')}
                   </div>
                   <div className={styles.rowBody}>
                     <div className={styles.metaInline}>
@@ -157,6 +199,7 @@ export default function ResearchPage() {
                     <div className={styles.rowLinks}>
                       <a href={`/research/${p.slug}`}>Read study →</a>
                       {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
+                      {p.report && <a href={p.report.path}>Report PDF →</a>}
                     </div>
                   </div>
                 </article>

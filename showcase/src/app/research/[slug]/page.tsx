@@ -88,6 +88,14 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE}/research/${post.slug}` },
     url: `${SITE}/research/${post.slug}`,
+    ...(post.report && {
+      associatedMedia: {
+        '@type': 'MediaObject',
+        contentUrl: `${SITE}${post.report.path}`,
+        encodingFormat: 'application/pdf',
+        name: post.report.title,
+      },
+    }),
   };
 
   const breadcrumbLd = {
@@ -127,6 +135,17 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
             {post.readMins && <span>{post.readMins} min read</span>}
           </div>
           <h1>{post.title}</h1>
+          {(post.report || post.paperPath) && (
+            <div className="research-post__artifacts" aria-label="Research artifacts">
+              {post.report && (
+                <a className="research-post__report" href={post.report.path}>
+                  Read report (PDF) →
+                </a>
+              )}
+              {post.paperPath && <a href={post.paperPath}>Full working paper →</a>}
+              {post.kind === 'research' && <a href="/research/replication">Data &amp; code →</a>}
+            </div>
+          )}
         </header>
 
         <DocsReader html={html} title={post.title} />
