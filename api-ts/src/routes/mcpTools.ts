@@ -120,7 +120,7 @@ const TOOLS = [
 	},
 	{
 		name: 'execute_swap',
-		description: 'Execute a swap using a previously obtained quote_id. Returns an unsigned transaction for the user to sign.',
+		description: 'Prepare an unsigned self-custody swap transaction from a previously obtained quote_id. This tool never signs or broadcasts; the caller reviews, signs, and submits the returned transaction.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -223,18 +223,18 @@ const TOOLS = [
 	},
 	{
 		name: 'get_swap_status',
-		description: 'Get the status of a previously executed swap (pending, completed, failed) with tx hash and amounts.',
+		description: 'Get the status of a managed swap created by POST /v1/agent/swap/execute (pending, completed, failed), with tx hash and amounts. MCP execute_swap only prepares an unsigned transaction and does not create this managed swap record.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				swap_id: { type: 'string', description: 'Swap ID returned by execute_swap or POST /v1/agent/swap/execute' },
+				swap_id: { type: 'string', description: 'Managed swap ID returned by POST /v1/agent/swap/execute' },
 			},
 			required: ['swap_id'],
 		},
 	},
 	{
 		name: 'get_swap_history',
-		description: 'List paginated swap history for the authenticated agent, optionally filtered by status.',
+		description: 'List paginated managed-swap history for the authenticated agent, optionally filtered by status. Self-custody transactions prepared by MCP execute_swap are not managed swap records.',
 		inputSchema: {
 			type: 'object',
 			properties: {
