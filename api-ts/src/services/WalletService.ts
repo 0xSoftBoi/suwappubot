@@ -9,6 +9,7 @@ export interface CreateTurnkeyWalletParams {
 	turnkeySubOrgId: string
 	turnkeyWalletId: string
 	turnkeyAccountId: string
+	chainType?: 'evm' | 'solana'
 }
 
 export interface WalletServiceInterface {
@@ -75,7 +76,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 						.values({
 							userId: params.userId,
 							address: params.address,
-							chainType: 'evm',
+							chainType: params.chainType ?? 'evm',
 							walletProvider: 'turnkey',
 							turnkeySubOrgId: params.turnkeySubOrgId,
 							turnkeyWalletId: params.turnkeyWalletId,

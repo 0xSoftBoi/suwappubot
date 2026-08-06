@@ -53,9 +53,23 @@ export function verifyAuthJwt(
 	token: string,
 	jwtSecret: string,
 ): { userId: number; walletAddress?: string; src?: string } {
-	return jwt.verify(token, jwtSecret, {
+	const decoded = jwt.verify(token, jwtSecret, {
 		algorithms: [...ALLOWED_JWT_ALGORITHMS],
-	}) as { userId: number; walletAddress?: string; src?: string }
+	}) as { userId: number; walletAddress?: string; src?: string; purpose?: string }
+
+	// Scoped tokens (e.g. `purpose:'recovery'` minted by POST
+	// /webapp/recovery/initiate) are single-purpose credentials meant only
+	// for the dual-auth resolver in webapp.ts that explicitly checks
+	// `purpose === 'recovery'` before letting a locked-out user re-enroll a
+	// passkey. They must never pass as a general session here — flexAuth()
+	// gates money-moving routes (e.g. POST /public/swap/execute) and does
+	// not itself understand `purpose`, so an unfiltered recovery token would
+	// double as full account access. Fail closed on any `purpose` claim.
+	if (decoded.purpose !== undefined) {
+		throw new Error('Scoped token cannot be used for session auth')
+	}
+
+	return decoded
 }
 
 declare module 'hono' {

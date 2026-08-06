@@ -1,10 +1,11 @@
+import crypto from 'node:crypto'
 import { and, eq, gte, sql as drizzleSql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
-import { pointRedemptions, rewards, swapTransactions } from '../db/schema'
+import { passkeyCredentials, pointRedemptions, rewards, swapTransactions, users, wallets } from '../db/schema'
 import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
@@ -1843,6 +1844,484 @@ protectedWebapp.delete('/alerts/wallet-track/:id', async (c) => {
 	}
 
 	return c.json({ success: true, id: result.right.id })
+})
+
+// === Recovery / Passkey Routes ===
+//
+// Dead-button recovery feature: webapp/src/pages/Recovery.tsx and
+// webapp/src/lib/turnkey-passkey.ts call these. Passkey registration accepts
+// EITHER a normal Telegram session OR a short-lived recovery JWT (minted by
+// /recovery/initiate) so a locked-out user can re-enroll a passkey.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// In-memory challenge stores. SECURITY/OPS NOTE: single-instance only — if
+// api-ts ever runs multiple replicas, a register/init and register/complete
+// pair can land on different instances and fail. Move to Redis before that.
+const passkeyRegChallenges = new Map<number, { challenge: string; expiresAt: number }>()
+const passkeyAuthChallenges = new Map<string, { expiresAt: number }>()
+
+const CHALLENGE_TTL_MS = 5 * 60 * 1000
+
+// Recovery tokens are single-use: without this, one 15min token could be
+// replayed repeatedly, each pass minting a fresh Turnkey sub-org + wallet
+// (real cost, wallet-list pollution) and a fresh 7-day session. Consumed on
+// successful /passkey/register/complete, not on /register/init — the same
+// token is presented to both steps of one registration attempt.
+const usedRecoveryJtis = new Map<string, number>() // jti -> expiresAt, for periodic pruning
+const RECOVERY_TOKEN_TTL_MS = 15 * 60 * 1000
+
+function pruneUsedRecoveryJtis() {
+	const now = Date.now()
+	for (const [jti, expiresAt] of usedRecoveryJtis) {
+		if (expiresAt <= now) usedRecoveryJtis.delete(jti)
+	}
+}
+
+// Resolve the acting user via EITHER a live Telegram session (X-Telegram-Init-Data)
+// OR a short-lived recovery JWT (Authorization: Bearer <token>, purpose:'recovery').
+const resolveDualAuthUser = (c: any) =>
+	Effect.gen(function* () {
+		const initData = c.req.header('X-Telegram-Init-Data')
+
+		if (initData) {
+			const authService = yield* TelegramAuthService
+			const userService = yield* UserService
+
+			const telegramUserOption = yield* authService.validateInitData(initData)
+			if (Option.isNone(telegramUserOption)) {
+				return yield* Effect.fail(new Error('Invalid Telegram authentication'))
+			}
+			const telegramUser = telegramUserOption.value
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return {
+				userId: userOption.value.id,
+				telegramId: telegramUser.id as number | null,
+				userName: telegramUser.username ?? `user-${telegramUser.id}`,
+				recoveryJti: null as string | null,
+			}
+		}
+
+		const authHeader = c.req.header('Authorization')
+		if (authHeader?.startsWith('Bearer ')) {
+			const env = yield* EnvService
+			const jwtSecret = env.JWT_SECRET
+			if (!jwtSecret) {
+				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+			}
+			const token = authHeader.slice('Bearer '.length)
+
+			const decoded = yield* Effect.try({
+				try: () =>
+					jwt.verify(token, jwtSecret) as { purpose?: string; userId?: number; jti?: string },
+				catch: () => new Error('Invalid or expired recovery token'),
+			})
+
+			if (decoded.purpose !== 'recovery' || !decoded.userId || !decoded.jti) {
+				return yield* Effect.fail(new Error('Invalid recovery token'))
+			}
+
+			if (usedRecoveryJtis.has(decoded.jti)) {
+				return yield* Effect.fail(new Error('Recovery token already used'))
+			}
+
+			return {
+				userId: decoded.userId,
+				telegramId: null as number | null,
+				userName: `user-${decoded.userId}`,
+				recoveryJti: decoded.jti as string | null,
+			}
+		}
+
+		return yield* Effect.fail(new Error('Missing authentication'))
+	})
+
+// GET /webapp/recovery/status
+webappRoutes.get('/recovery/status', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const user = userOption.value
+
+			const activeWallets = yield* walletService.getActiveWallets(user.id)
+			const hasTurnkeyWallet = activeWallets.some((w) => w.walletProvider === 'turnkey')
+
+			return {
+				has_recovery: !!user.recoveryEmail,
+				recovery_email: user.recoveryEmail ?? null,
+				setup_at: user.recoveryEmailSetAt?.toISOString() ?? null,
+				has_turnkey_wallet: hasTurnkeyWallet,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/recovery/setup
+webappRoutes.post('/recovery/setup', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = (await c.req.json().catch(() => ({}))) as { email?: string }
+
+	if (!body.email || !EMAIL_RE.test(body.email)) {
+		return c.json({ error: 'A valid email is required' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(users)
+						.set({ recoveryEmail: body.email, recoveryEmailSetAt: new Date() })
+						.where(eq(users.id, userOption.value.id)),
+				catch: (e) => new Error(`Failed to save recovery email: ${e}`),
+			})
+
+			return { success: true }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/recovery/initiate - UNAUTHENTICATED. Never reveals whether the
+// email matched an account (no user enumeration).
+webappRoutes.post('/recovery/initiate', async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as { email?: string }
+	const genericResponse = {
+		success: true,
+		message: 'If that email is on file, check your inbox for a recovery link.',
+	}
+
+	if (!body.email || !EMAIL_RE.test(body.email)) {
+		return c.json(genericResponse)
+	}
+
+	await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const db = yield* requireDb
+
+			const rows = yield* Effect.tryPromise({
+				try: () => db.select().from(users).where(eq(users.recoveryEmail, body.email!)).limit(1),
+				catch: (e) => new Error(`Recovery lookup failed: ${e}`),
+			})
+			const user = rows[0]
+			if (!user) return
+
+			const jwtSecret = env.JWT_SECRET
+			if (!jwtSecret) return
+
+			const jti = crypto.randomUUID()
+			const recoveryToken = jwt.sign(
+				{ purpose: 'recovery', userId: user.id, jti },
+				jwtSecret,
+				{ expiresIn: '15m' },
+			)
+
+			// TODO(email): send recoveryToken via email once an email service exists.
+			// Never log the token itself — it is a bearer credential (15min TTL,
+			// scoped by `purpose:'recovery'`) and this log line is the only place
+			// it currently surfaces, so anyone with log/Sentry read access could
+			// replay it. Log only the fact that one was minted.
+			logger.info(
+				{ userId: user.id },
+				'Recovery token generated (email delivery not yet wired)',
+			)
+		}),
+	)
+
+	return c.json(genericResponse)
+})
+
+// POST /webapp/passkey/register/init - dual auth (telegram session OR recovery JWT)
+webappRoutes.post('/passkey/register/init', async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as { displayName?: string }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const identity = yield* resolveDualAuthUser(c)
+
+			const challenge = crypto.randomBytes(32).toString('base64url')
+			passkeyRegChallenges.set(identity.userId, {
+				challenge,
+				expiresAt: Date.now() + CHALLENGE_TTL_MS,
+			})
+
+			return {
+				challenge,
+				userId: String(identity.userId),
+				userName: body.displayName || identity.userName,
+				rpId: env.WEBAPP_RP_ID,
+				rpName: env.WEBAPP_RP_NAME,
+				attestation: 'none' as const,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 401)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/register/complete - dual auth
+webappRoutes.post('/passkey/register/complete', async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as {
+		credentialId?: string
+		attestationObject?: string
+		clientDataJSON?: string
+		transports?: string[]
+	}
+
+	if (!body.credentialId || !body.attestationObject || !body.clientDataJSON) {
+		return c.json({ error: 'Missing required fields' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const identity = yield* resolveDualAuthUser(c)
+			const turnkeyService = yield* TurnkeyService
+			const walletService = yield* WalletService
+			const db = yield* requireDb
+
+			const stored = passkeyRegChallenges.get(identity.userId)
+			if (!stored || stored.expiresAt < Date.now()) {
+				return yield* Effect.fail(new Error('Registration challenge expired or missing — call register/init again'))
+			}
+			passkeyRegChallenges.delete(identity.userId)
+
+			const turnkeyWallet = yield* turnkeyService.createSubOrgWithPasskey(
+				identity.userName,
+				identity.telegramId ?? identity.userId,
+				{
+					credentialId: body.credentialId!,
+					attestationObject: body.attestationObject!,
+					clientDataJson: body.clientDataJSON!,
+					transports: body.transports ?? [],
+				},
+				stored.challenge,
+			)
+
+			const wallet = yield* walletService.createTurnkeyWallet({
+				userId: identity.userId,
+				address: turnkeyWallet.address,
+				turnkeySubOrgId: turnkeyWallet.subOrgId,
+				turnkeyWalletId: turnkeyWallet.walletId,
+				turnkeyAccountId: turnkeyWallet.accountId,
+				chainType: 'evm',
+			})
+
+			yield* Effect.tryPromise({
+				try: () =>
+					db.insert(passkeyCredentials).values({
+						credentialId: body.credentialId!,
+						userId: identity.userId,
+						subOrgId: turnkeyWallet.subOrgId,
+					}),
+				catch: (e) => new Error(`Failed to save passkey credential: ${e}`),
+			})
+
+			if (identity.recoveryJti) {
+				usedRecoveryJtis.set(identity.recoveryJti, Date.now() + RECOVERY_TOKEN_TTL_MS)
+				pruneUsedRecoveryJtis()
+			}
+
+			const jwtSecret = env.JWT_SECRET
+			if (!jwtSecret) {
+				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+			}
+			const token = jwt.sign(
+				{
+					userId: identity.userId,
+					telegramId: identity.telegramId ?? 0,
+					walletAddress: wallet.address,
+				},
+				jwtSecret,
+				{ expiresIn: '7d' },
+			)
+
+			return {
+				userId: identity.userId,
+				walletAddress: wallet.address,
+				subOrgId: turnkeyWallet.subOrgId,
+				jwt: token,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Passkey registration error')
+		return c.json({ error: result.left.message || 'Passkey registration failed' }, 400)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/authenticate/init - unauthenticated
+webappRoutes.post('/passkey/authenticate/init', async (c) => {
+	const payload = await runEffect(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const now = Date.now()
+			for (const [key, v] of passkeyAuthChallenges) {
+				if (v.expiresAt <= now) passkeyAuthChallenges.delete(key)
+			}
+			const challenge = crypto.randomBytes(32).toString('base64url')
+			passkeyAuthChallenges.set(challenge, { expiresAt: now + CHALLENGE_TTL_MS })
+			return { challenge, rpId: env.WEBAPP_RP_ID, allowCredentials: [] as string[] }
+		}),
+	)
+
+	return c.json(payload)
+})
+
+// POST /webapp/passkey/authenticate/complete - unauthenticated
+// TODO(turnkey-verify): needs Turnkey's actual passkey/oauth login activity call —
+// do not hand-roll WebAuthn crypto verification here.
+//
+// Deliberately does NOT look up `credentialId` against the DB before that
+// verification exists: a 404-vs-501 split on an unauthenticated route would
+// let anyone enumerate which credential IDs are registered. Every request
+// gets the same response until real verification is wired.
+webappRoutes.post('/passkey/authenticate/complete', async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as { credentialId?: string }
+
+	if (!body.credentialId) {
+		return c.json({ error: 'credentialId is required' }, 400)
+	}
+
+	return c.json(
+		{
+			error: 'passkey_login_not_implemented',
+			message: 'Turnkey passkey-login assertion verification is not wired yet.',
+		},
+		501,
+	)
+})
+
+// GET /webapp/passkey/wallets - protected
+webappRoutes.get('/passkey/wallets', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const allWallets = yield* walletService.getActiveWallets(userOption.value.id)
+			return allWallets
+				.filter((w) => w.walletProvider === 'turnkey')
+				.map((w) => ({
+					id: w.id,
+					address: w.address,
+					chainType: w.chainType,
+					name: w.name,
+				}))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/wallets - protected. Never trusts a client-supplied subOrgId.
+webappRoutes.post('/passkey/wallets', telegramAuth(), async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = (await c.req.json().catch(() => ({}))) as {
+		chainType?: 'evm' | 'solana'
+		name?: string
+	}
+	const chainType = body.chainType === 'solana' ? 'solana' : 'evm'
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+			const turnkeyService = yield* TurnkeyService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const userId = userOption.value.id
+
+			// Resolve subOrgId strictly from the caller's own existing turnkey wallet —
+			// never accept a client-supplied subOrgId (would let a caller attach a
+			// wallet to another sub-org).
+			const existingRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(eq(wallets.userId, userId), eq(wallets.walletProvider, 'turnkey')))
+						.limit(1),
+				catch: (e) => new Error(`Failed to look up existing wallet: ${e}`),
+			})
+			const existing = existingRows[0]
+			if (!existing || !existing.turnkeySubOrgId) {
+				return yield* Effect.fail(new Error('No existing Turnkey wallet found for this account'))
+			}
+
+			const turnkeyWallet = yield* turnkeyService.createWalletInSubOrg(
+				existing.turnkeySubOrgId,
+				chainType,
+			)
+
+			const wallet = yield* walletService.createTurnkeyWallet({
+				userId,
+				address: turnkeyWallet.address,
+				turnkeySubOrgId: turnkeyWallet.subOrgId,
+				turnkeyWalletId: turnkeyWallet.walletId,
+				turnkeyAccountId: turnkeyWallet.accountId,
+				chainType,
+			})
+
+			return { success: true, address: wallet.address, walletId: wallet.id }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
+	return c.json(result.right)
 })
 
 // Mount protected routes at both /me and /users/me for backward compatibility
