@@ -260,7 +260,7 @@ export class Suwappu {
    * Mirrors POST /v1/agent/swap exactly and returns the raw API payload
    * (status, swap summary, unsigned transaction, human instructions) instead
    * of the slimmed-down SwapResult shape — this is what the CLI's `swap`
-   * command prints. Suwappu is non-custodial: this never signs or broadcasts;
+   * command prints. This self-custody path never signs or broadcasts;
    * the caller signs the returned transaction with their own wallet.
    */
   async prepareSwap(args: { quoteId: string; walletAddress: string }): Promise<Record<string, unknown>> {
