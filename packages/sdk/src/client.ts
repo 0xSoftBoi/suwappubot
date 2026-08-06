@@ -211,20 +211,15 @@ export class Suwappu {
   }
 
   /**
-   * Execute a previously obtained quote via the managed-wallet pipeline.
-   * Accepts either a Quote object (as returned by getQuote) or a raw quote
-   * id string. Hits POST /v1/agent/swap/execute, which returns
-   * { swap_id, status, tx_hash, tracking } — NOT the unsigned-transaction
-   * shape returned by POST /v1/agent/swap (that endpoint is for
-   * self-custody callers who sign client-side; use `prepareSwap()` for that).
+   * Execute a previously obtained quote via the server-managed wallet pipeline.
+   * This is the explicit managed-custody method for new code.
    *
-   * `walletAddress` is accepted for backwards compatibility with older
-   * callers but is not sent to /v1/agent/swap/execute (the managed pipeline
-   * resolves the wallet server-side).
+   * Hits POST /v1/agent/swap/execute and returns a managed swap record
+   * ({ swap_id, status, tx_hash, tracking }). It is NOT the self-custody
+   * unsigned-transaction path; use prepareSwap() for that.
    */
-  async swap(quoteOrId: Quote | string, walletAddress?: string): Promise<SwapResult> {
+  async executeManagedSwap(quoteOrId: Quote | string): Promise<SwapResult> {
     const quoteId = typeof quoteOrId === "string" ? quoteOrId : quoteOrId.id;
-    void walletAddress;
     const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap/execute", {
       json: { quote_id: quoteId },
     });
@@ -242,9 +237,22 @@ export class Suwappu {
     };
   }
 
-  /** Alias for swap(), mirroring the Python client's execute_swap. */
+  /**
+   * Backwards-compatible managed-execution alias.
+   *
+   * Prefer executeManagedSwap() in new code so the custody boundary is visible
+   * at the call site. walletAddress is retained only for older callers; the
+   * managed route resolves the authenticated agent wallet server-side.
+   */
+  swap(quoteOrId: Quote | string, walletAddress?: string): Promise<SwapResult> {
+    void walletAddress;
+    return this.executeManagedSwap(quoteOrId);
+  }
+
+  /** Backwards-compatible alias for managed execution. */
   executeSwap(quoteId: string, walletAddress?: string): Promise<SwapResult> {
-    return this.swap(quoteId, walletAddress);
+    void walletAddress;
+    return this.executeManagedSwap(quoteId);
   }
 
   /**
@@ -265,7 +273,7 @@ export class Suwappu {
   /**
    * POST /v1/agent/swap/simulate — dry-run a swap without broadcasting.
    *
-   * Use this before {@link swap} on unfamiliar routes: it surfaces reverts and
+   * Use this before {@link executeManagedSwap} on unfamiliar routes: it surfaces reverts and
    * gas cost while nothing is at stake.
    */
   async simulateSwap(args: { quoteId: string; walletAddress: string }): Promise<SwapSimulation> {
