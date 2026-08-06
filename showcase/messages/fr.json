@@ -34,7 +34,7 @@
       "miniAppTitle": "Mini App",
       "miniAppDesc": "Suwappu dans Telegram",
       "swapsTitle": "Swaps multichaînes",
-      "swapsDesc": "Meilleur prix sur 41 chaînes",
+      "swapsDesc": "Meilleur prix sur 42 chaînes",
       "perpsTitle": "Perpétuels",
       "perpsDesc": "HyperLiquid, jusqu'à 20x",
       "tempoTitle": "Sans gas sur Tempo",
@@ -81,7 +81,7 @@
   "cta": {
     "kicker": "Commencez maintenant",
     "heading": "Votre prochain swap n'est qu'à une ligne.",
-    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent, swaps au meilleur prix, perps et trades sans frais de gas sur 41 chaînes.",
+    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent, swaps au meilleur prix, perps et trades sans frais de gas sur 42 chaînes.",
     "open_bot": "Ouvrir le Bot Telegram",
     "whatsapp": "Discuter sur WhatsApp",
     "docs": "Lire la documentation"

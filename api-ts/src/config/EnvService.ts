@@ -80,6 +80,11 @@ export const EnvSchema = Schema.Struct({
 	AGENT_METERING_USDC_ADDRESS: Schema.optionalWith(Schema.String, {
 		default: () => '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 	}),
+	// Extra x402 payment networks advertised alongside the primary one, comma
+	// separated (see config/x402Networks.ts for the registry). Empty by default:
+	// enabling a payment rail is a deliberate act. e.g. "robinhood" to accept
+	// Paxos USDG on Robinhood Chain (4663).
+	X402_EXTRA_NETWORKS: Schema.optionalWith(Schema.String, { default: () => '' }),
 
 	// x402 facilitator (direct on-chain settlement of a single call via the
 	// X-PAYMENT header, as an alternative to prepaid credits). OFF by default —

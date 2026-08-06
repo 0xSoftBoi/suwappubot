@@ -34,7 +34,7 @@
       "miniAppTitle": "小程序",
       "miniAppDesc": "Telegram 内的 Suwappu",
       "swapsTitle": "跨链兑换",
-      "swapsDesc": "41 条链的最优价格",
+      "swapsDesc": "42 条链的最优价格",
       "perpsTitle": "永续合约",
       "perpsDesc": "HyperLiquid，最高 20 倍",
       "tempoTitle": "Tempo 免 Gas",
@@ -81,7 +81,7 @@
   "cta": {
     "kicker": "立即开始",
     "heading": "下一次兑换只需一行代码。",
-    "lead": "打开机器人，或安装 SDK 并连接您的智能体：在 41 条链上享受最优价格兑换、永续合约和免 Gas 交易。",
+    "lead": "打开机器人，或安装 SDK 并连接您的智能体：在 42 条链上享受最优价格兑换、永续合约和免 Gas 交易。",
     "open_bot": "打开 Telegram 机器人",
     "whatsapp": "在 WhatsApp 上聊天",
     "docs": "阅读文档"

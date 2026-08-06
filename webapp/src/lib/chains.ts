@@ -20,6 +20,7 @@ export const CHAIN_DISPLAY: Record<string, ChainDisplay> = {
   arbitrum: { name: 'Arbitrum', icon: '\u{1F537}', explorerUrl: 'https://arbiscan.io' },
   solana: { name: 'Solana', icon: '\u{1F30A}', explorerUrl: 'https://solscan.io' },
   tempo: { name: 'Tempo', icon: '⏱️', explorerUrl: 'https://explore.tempo.xyz' },
+  robinhood: { name: 'Robinhood', icon: '🪶', explorerUrl: 'https://robinhoodchain.blockscout.com' },
   plasma: { name: 'Plasma', icon: '⚡', explorerUrl: 'https://plasmascan.to' },
   starknet: { name: 'Starknet', icon: '\u{1F680}', explorerUrl: 'https://voyager.online' },
   goat: { name: 'GOAT Network', icon: '\u{1F410}', explorerUrl: 'https://explorer.goat.network' },

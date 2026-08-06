@@ -313,6 +313,10 @@ class Settings(BaseSettings):
     plasma_rpc_url: str = Field(
         default="https://rpc.plasma.to", description="Plasma mainnet RPC URL(s)"
     )
+    robinhood_rpc_url: str = Field(
+        default="https://rpc.mainnet.chain.robinhood.com",
+        description="Robinhood Chain mainnet (Arbitrum Orbit, chain id 4663) RPC URL(s)",
+    )
 
     # HyperLiquid builder codes — Suwappu earns a builder fee on perp orders routed
     # through it. The builder wallet must accrue $1k of trading volume before
@@ -737,6 +741,10 @@ class Settings(BaseSettings):
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
             "solana": "solana-mainnet",
+            # Confirmed live on Alchemy (alchemy.com/rpc/robinhood, 2026-08-04) —
+            # not a guess. Robinhood Chain's 2-validator set (Offchain Labs +
+            # Alchemy) makes a managed fallback worth having.
+            "robinhood": "robinhood-mainnet",
         }
 
         # Apply custom overrides if configured

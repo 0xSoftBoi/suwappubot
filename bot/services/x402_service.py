@@ -208,6 +208,19 @@ class X402Service:
                 "BetaUSD": "0x20c0000000000000000000000000000000000002",
                 "ThetaUSD": "0x20c0000000000000000000000000000000000003",
             },
+            "robinhood": {
+                # Robinhood Chain (4663) has NO USDC. Paxos USDG ("Global Dollar")
+                # is the anchor stablecoin, 6 decimals — same base-unit scale as
+                # USDC, so credit math needs no special-casing. Decimals are still
+                # resolved per-address at verify time via get_decimals_by_address
+                # (USDG is registered in bot/config/tokens.py under chain
+                # "robinhood"). USDG supports EIP-3009, so the x402 `exact` scheme
+                # works; its EIP-712 domain is name="Global Dollar", version="1"
+                # (derived by matching the on-chain DOMAIN_SEPARATOR — version()
+                # reverts on this contract, so do NOT try to read it).
+                "USDG": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
         }
 
     # =========================================================================
