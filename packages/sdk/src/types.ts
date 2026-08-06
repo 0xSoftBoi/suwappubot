@@ -286,7 +286,7 @@ export interface GetQuoteArgs {
   /** Destination chain for a cross-chain quote. Falls back to `chain`. */
   toChain?: string;
   amount: string | number;
-  /** Include to get back executable transaction data with the quote. */
+  /** Bind the quote to the sender used for simulation or self-custody preparation. */
   walletAddress?: string;
   slippage?: number;
 }
