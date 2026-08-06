@@ -1,71 +1,105 @@
 # @suwappu/mcp-server
 
-MCP server for [Suwappu](https://suwappu.bot) — cross-chain DEX for AI agents.
+A thin stdio bridge to Suwappu's hosted MCP endpoint.
 
-Swap tokens across 7+ chains from Claude Desktop, Cursor, Windsurf, or any MCP client.
+The bridge intentionally owns **zero Suwappu tool, resource, or prompt definitions**. It forwards discovery and calls to `https://api.suwappu.bot/mcp`, so the hosted endpoint stays the single source of truth.
 
-## Quick Start
+> **Release status:** this repository contains `@suwappu/mcp-server` source `0.6.0`; the latest npm release is currently `0.1.1`. Use the hosted endpoint for the current catalog until the forwarding bridge is published.
 
-### 1. Get an API key
+## Prefer hosted MCP
+
+Remote-capable MCP clients should connect directly:
+
+```text
+https://api.suwappu.bot/mcp
+```
+
+Authenticated calls use:
+
+```text
+Authorization: Bearer $SUWAPPU_API_KEY
+```
+
+The current hosted server negotiates MCP `2025-06-18` (and retains older supported protocol versions for compatibility).
+
+## When you need stdio
+
+Some clients still want a local stdio MCP process. Source `0.6.0` is a bridge for exactly that case:
 
 ```bash
-curl -X POST https://api.suwappu.bot/v1/agent/register \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent"}'
+git clone https://github.com/0xSoftBoi/suwappubot.git
+cd suwappubot/packages/mcp-server
+bun install
+bun run build
+
+SUWAPPU_API_KEY=suwappu_sk_... node dist/index.js
 ```
 
-### 2. Configure Claude Desktop
+After `0.6.0` is published, the same bridge can be run from npm with `npx @suwappu/mcp-server`.
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+The bridge forwards tools, resources, and prompts. It also leaves authorization decisions to the hosted server, so anonymous public tool calls work over stdio instead of being blocked by a second hard-coded policy.
 
-```json
-{
-  "mcpServers": {
-    "suwappu": {
-      "command": "npx",
-      "args": ["-y", "@suwappu/mcp-server"],
-      "env": {
-        "SUWAPPU_API_KEY": "suwappu_sk_your_key_here"
-      }
-    }
-  }
-}
+## Current hosted tool catalog
+
+The hosted endpoint currently exposes 22 tools. Call `tools/list` at runtime rather than hard-coding this table into clients.
+
+| Area | Tools | Capability |
+| --- | --- | --- |
+| Core data & discovery | `get_quote`, `get_portfolio`, `get_prices`, `list_chains`, `list_tokens`, `get_tempo_tokens`, `browse_mpp_directory` | Read/quote |
+| Simulation | `simulate_swap` | Dry-run; never broadcasts |
+| Transaction preparation | `execute_swap` | Builds an unsigned self-custody transaction |
+| Predictions | `predict_markets`, `predict_market`, `predict_book`, `predict_price`, `predict_trades` | Read-only |
+| Perps | `perps_markets`, `perps_quote`, `perps_positions` | Read-only |
+| Lending | `lend_markets`, `lend_market` | Read-only |
+| Managed swap observability | `get_swap_status`, `get_swap_history` | Read-only managed records |
+| Wallet policy | `list_wallet_policies` | Read-only |
+
+### The `execute_swap` name is historical
+
+MCP `execute_swap` does **not** submit a managed swap. It consumes a cached quote and returns a transaction for the caller to review and sign.
+
+Managed server-side execution is a separate REST capability:
+
+```text
+POST /v1/agent/swap/execute
 ```
 
-### 3. Use it
+Accordingly, `get_swap_status` and `get_swap_history` describe managed swap records. A self-custody transaction prepared through MCP does not become a managed record merely because it was prepared.
 
-Ask Claude: *"Get me a quote for swapping 0.5 ETH to USDC on Base"*
+## Public discovery and calls
 
-## Tools
+The MCP lifecycle/discovery methods are public:
 
-This package intentionally ships **no tool definitions**. It is a stdio bridge:
-it fetches the tool catalogue from the hosted endpoint at startup and forwards
-calls to it.
+- `initialize`
+- `tools/list`
+- `resources/list` / `resources/read`
+- `prompts/list` / `prompts/get`
+- `notifications/initialized`
 
-That means the tools you get are always whatever `https://api.suwappu.bot/mcp`
-currently serves — **22 at the time of writing**, spanning swaps, quotes and
-simulation, portfolio and prices, perps, prediction markets, and lending. New
-tools appear without updating this package.
+Four `tools/call` targets are also public and zero-setup:
 
-To see the live list without installing anything:
+- `list_chains`
+- `list_tokens`
+- `get_tempo_tokens`
+- `browse_mpp_directory`
 
-```bash
-curl -s -X POST https://api.suwappu.bot/mcp \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
-```
+Other tool calls require a Suwappu API key.
 
-Earlier versions of this package hand-maintained their own catalogue, which
-drifted to 11 tools with different names and arguments from the hosted server.
-Holding zero definitions makes that class of bug impossible rather than merely
-fixed.
+## Builder rules
 
-## Environment Variables
+- Treat `annotations` as behavioral hints, not authorization.
+- Apply your own application capability policy after discovery.
+- Check a tool result's `isError`; a JSON-RPC success envelope can still contain a failed tool result.
+- Prefer `structuredContent` when a tool declares `outputSchema`, with text content as the compatibility fallback.
+- Discover resources/prompts rather than assuming their names.
+- Keep quote/read, simulation, unsigned preparation, and managed execution as distinct product permissions.
+
+## Environment variables
 
 | Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `SUWAPPU_API_KEY` | To call tools | — | Listing tools works without it |
-| `SUWAPPU_API_URL` | No | `https://api.suwappu.bot` | Point at a dev deployment |
+| --- | --- | --- | --- |
+| `SUWAPPU_API_KEY` | For authenticated calls | — | Public discovery/tools work without it |
+| `SUWAPPU_API_URL` | No | `https://api.suwappu.bot` | Point the bridge at another deployment |
 
 ## License
 
