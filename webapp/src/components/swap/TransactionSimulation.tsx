@@ -16,7 +16,8 @@ export interface TransactionSimulationProps {
 
 // ── Helpers ────────────────────────────────────────────
 
-function formatUsd(value: number): string {
+function formatUsd(value: number | null | undefined): string {
+  if (value == null) return '--'
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -111,7 +112,13 @@ function BalanceChangesSection({
 }) {
   const outChange = simulation.balanceChanges.find(c => c.direction === 'out')
   const inChange = simulation.balanceChanges.find(c => c.direction === 'in')
-  const netUsd = (inChange?.amountUsd ?? 0) - (outChange?.amountUsd ?? 0) - simulation.gasEstimate.amountUsd
+  // null (not a 0-coerced guess) when either leg's USD value is unknown —
+  // a "$0.00 net cost" would be a lie, not a real figure, so the section
+  // below is hidden entirely rather than rendering a wrong number.
+  const netUsd =
+    inChange?.amountUsd != null && outChange?.amountUsd != null
+      ? inChange.amountUsd - outChange.amountUsd - simulation.gasEstimate.amountUsd
+      : null
 
   return (
     <div className="bg-white rounded-suwappu-xl p-4 shadow-suwappu-1">
@@ -159,15 +166,18 @@ function BalanceChangesSection({
         </div>
       </div>
 
-      {/* Net USD Impact */}
-      <div className="border-t border-suwappu-sakura-100/30 pt-2 mt-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-suwappu-text-secondary">Net cost (incl. gas)</span>
-          <span className={`text-xs font-semibold ${netUsd >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-            {netUsd >= 0 ? '+' : ''}{formatUsd(netUsd)}
-          </span>
+      {/* Net USD Impact — hidden entirely (not "$0.00") when either leg's
+          USD value is unknown, since there's no honest figure to show. */}
+      {netUsd != null && (
+        <div className="border-t border-suwappu-sakura-100/30 pt-2 mt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-suwappu-text-secondary">Net cost (incl. gas)</span>
+            <span className={`text-xs font-semibold ${netUsd >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {netUsd >= 0 ? '+' : ''}{formatUsd(netUsd)}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

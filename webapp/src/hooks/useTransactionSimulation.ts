@@ -79,8 +79,9 @@ function generateWarnings(quote: SwapQuote, fromToken?: SwapToken | null, toToke
     })
   }
 
-  // Large trade (USD value > $10k)
-  if (quote.fromAmountUsd > 10000) {
+  // Large trade (USD value > $10k) — fromAmountUsd is omitted (not 0) when
+  // no real price is derivable, so this warning is simply skipped then.
+  if (quote.fromAmountUsd != null && quote.fromAmountUsd > 10000) {
     warnings.push({
       severity: 'medium',
       message: 'Large trade detected. Consider splitting into smaller transactions for better execution.',
@@ -101,8 +102,8 @@ function generateWarnings(quote: SwapQuote, fromToken?: SwapToken | null, toToke
     })
   }
 
-  // High gas relative to trade value
-  if (quote.fromAmountUsd > 0 && quote.gasUsd / quote.fromAmountUsd > 0.05) {
+  // High gas relative to trade value — skipped when fromAmountUsd is unknown.
+  if (quote.fromAmountUsd != null && quote.fromAmountUsd > 0 && quote.gasUsd / quote.fromAmountUsd > 0.05) {
     warnings.push({
       severity: 'low',
       message: `Gas fee is ${((quote.gasUsd / quote.fromAmountUsd) * 100).toFixed(1)}% of your trade value.`,
