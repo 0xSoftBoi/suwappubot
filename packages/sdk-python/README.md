@@ -1,18 +1,22 @@
 # suwappu — Python SDK
 
-Async Python client for the [Suwappu](https://suwappu.bot) cross-chain DEX API.
+Async Python client for the [Suwappu](https://suwappu.bot) agent API: quotes,
+custody-aware swaps, portfolios, prices, perps, prediction markets, lending, and
+agent controls. Call `list_chains()` to discover the current chain set.
 
-Swap tokens across 40+ chains, check portfolios and prices, and tap into the
-perps (Hyperliquid), prediction-market (Polymarket), and lending (Morpho)
-namespaces — all through a single typed client.
+> **Release status:** the Python SDK source is currently `0.3.0` and is **not
+> published to PyPI**. Do not assume `pip install suwappu` is available yet.
 
 ## Install
 
+Install the current source directly from the core repository:
+
 ```bash
-pip install suwappu
+pip install "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@main#subdirectory=packages/sdk-python"
 ```
 
-For local development against this repo:
+For reproducible deployments, replace `@main` with a tested commit SHA. For
+local development:
 
 ```bash
 cd packages/sdk-python
@@ -22,43 +26,111 @@ python3 -m venv .venv
 
 ## Quickstart
 
+Start with discovery and a quote:
+
 ```python
 import asyncio
 from suwappu import create_client
 
 
 async def main():
-    # api_key falls back to the SUWAPPU_API_KEY env var if omitted.
-    async with create_client(api_key="sk_...") as client:
-        # List supported chains
+    async with create_client(api_key="suwappu_sk_...") as client:
         chains = await client.list_chains()
-
-        # List popular tokens on a chain
-        tokens = await client.list_tokens("arbitrum")
-
-        # Get a swap quote, then execute it
-        quote = await client.get_quote("ETH", "USDC", 1.0, "arbitrum")
-        result = await client.execute_swap(quote.id)
-        print(result.tx_hash, result.status)
-
-        # Portfolio balances (optionally filtered by chain)
-        balances = await client.get_portfolio("0xYourWallet")
-
-        # Token prices (comma-separated symbols)
         prices = await client.get_prices("ETH,USDC")
+        quote = await client.get_quote("USDC", "ETH", 100.0, "base")
+
+        print(chains)
+        print(prices)
+        print(quote.amount_out)
 
 
 asyncio.run(main())
 ```
 
+`api_key` falls back to `SUWAPPU_API_KEY` when omitted.
+
+## Swap custody paths
+
+The Python SDK now exposes the same two paths as the TypeScript SDK.
+
+### Self-custody: prepare, then sign yourself
+
+```python
+quote = await client.get_quote(
+    "USDC",
+    "ETH",
+    100.0,
+    "base",
+    wallet_address="0xYourWallet",
+)
+
+sim = await client.simulate_swap(
+    quote_id=quote.quote_id,
+    wallet_address="0xYourWallet",
+)
+if not sim.success:
+    raise RuntimeError(sim.reason)
+
+prepared = await client.prepare_swap(
+    quote_id=quote.quote_id,
+    wallet_address="0xYourWallet",
+)
+# Review the unsigned transaction, sign it in your wallet, and submit it to RPC.
+```
+
+`prepare_swap()` calls `POST /v1/agent/swap`. It never signs or broadcasts
+and does not create a managed swap record.
+
+Cross-chain wallet-bound quotes use explicit source/destination chains:
+
+```python
+quote = await client.get_quote(
+    "USDC",
+    "ETH",
+    100.0,
+    from_chain="base",
+    to_chain="arbitrum",
+    wallet_address="0xYourWallet",
+)
+```
+
+### Managed wallet: explicit server-side execution
+
+```python
+wallets = await client.agent.list_wallets()
+if not wallets:
+    raise RuntimeError("Create a managed wallet first")
+wallet = wallets[0]
+
+quote = await client.get_quote(
+    "USDC",
+    "ETH",
+    100.0,
+    "base",
+    wallet_address=wallet.address,
+)
+sim = await client.simulate_swap(
+    quote_id=quote.quote_id,
+    wallet_address=wallet.address,
+)
+if not sim.success:
+    raise RuntimeError(sim.reason)
+
+result = await client.execute_managed_swap(quote.quote_id)
+print(result.swap_id, result.status, result.tx_hash)
+```
+
+`execute_managed_swap()` calls `POST /v1/agent/swap/execute`.
+`execute_swap()` remains a backwards-compatible alias for that managed path.
+
 ## Configuration
 
 `create_client` accepts keyword arguments:
 
-| Arg        | Default                     | Notes                                   |
-| ---------- | --------------------------- | --------------------------------------- |
-| `api_key`  | `$SUWAPPU_API_KEY`          | Bearer token for authenticated routes.  |
-| `base_url` | `https://api.suwappu.bot`   | Override for dev/testing.               |
+| Arg | Default | Notes |
+| --- | --- | --- |
+| `api_key` | `$SUWAPPU_API_KEY` | Bearer token for authenticated routes. |
+| `base_url` | `https://api.suwappu.bot` | Override for dev/testing. |
 
 The client is an async context manager; use `async with` (or call
 `await client.close()`) to release the underlying HTTP connection.
@@ -100,7 +172,7 @@ sim = await client.simulate_swap(quote_id=quote.quote_id, wallet_address="0x…"
 if not sim.success:
     raise RuntimeError(sim.reason)
 
-history = await client.list_swaps(status="completed", limit=20)
+history = await client.list_swaps(status="completed", limit=20)  # managed swap records
 ```
 
 ### Agent control plane — `client.approvals` / `client.audit` / `client.killswitch`
