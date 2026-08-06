@@ -1,7 +1,7 @@
 {
   "name": "@suwappu/mcp-server",
   "version": "0.6.0",
-  "description": "MCP server for Suwappu \u2014 cross-chain DEX for AI agents",
+  "description": "Stdio bridge to Suwappu's hosted MCP tools, resources, and prompts",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
