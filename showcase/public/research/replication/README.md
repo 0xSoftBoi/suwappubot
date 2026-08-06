@@ -1,11 +1,11 @@
 # Suwappu Research — replication bundle
 
-Code, data and full working papers for the two research papers published at
+Code, data and full working papers for the three research papers published at
 <https://suwappu.bot/research>. Everything here is the material the papers cite.
 Nothing in this bundle requires credentials: the chain reads use public RPC
 endpoints, and the simulation runs offline.
 
-Published 26 July 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
+First published 26 July 2026; expanded 31 July 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
 
 ---
 
@@ -15,6 +15,7 @@ Published 26 July 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Rese
 |---|---|
 | `papers/usdt0-collateral-reconciliation.md` | *Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0 Across 17 Chains* |
 | `papers/points-tullock-contests.md` | *Points Programs as Tullock Contests: Equilibrium Concentration, Denomination, and Sybil Neutrality* |
+| `papers/airdrop-concentration.md` | *Who Actually Collected the Airdrops: Testing the Tullock Active-Set Prediction Against Completed Allocations* |
 
 The web posts on suwappu.bot are abridgements. Where an abridgement and a paper
 disagree, the paper governs.
@@ -111,6 +112,33 @@ python3 code/verify_equilibrium.py
 
 ---
 
+## Paper 3 — Airdrop concentration
+
+### Code
+
+| File | What it does |
+|---|---|
+| `code/collect_airdrops.py` | Collects the HYPE genesis vector and the EIGEN/ENA distribution logs with checkpointed, range-splitting public-RPC reads. |
+| `code/analyze_airdrops.py` | Computes concentration statistics, matched-n model bands, Lorenz curves and the sup-over-σ rejection test. |
+
+### Data
+
+| File | Contents |
+|---|---|
+| `data/airdrops/hype_genesis_raw.json` | Complete raw HYPE genesis state before the six documented system-account exclusions. |
+| `data/airdrops/hype_recipients.json` | 90,912 HYPE recipient wallets used in the primary test. |
+| `data/airdrops/eigen_recipients.json` | 239,035 EIGEN Season 1 recipient wallets with both phases merged per wallet. |
+| `data/airdrops/ena_recipients.json` | Four ENA claim channels merged over the full scanned horizon. |
+| `data/airdrops/concentration.json` | Reported concentration statistics, matched-n bands and joint rejection results. |
+
+### Known limits, stated in the paper
+
+- All concentration measurements are wallet-level, so they are lower bounds on person-level concentration when one entity controls multiple wallets.
+- HYPE is a post-enforcement allocation; EIGEN is claims data, so unclaimed allocations are absent; ENA claim executors can aggregate custodially.
+- The formal rejection is anchored on HYPE and EIGEN. ENA is a lower-resolution replication of the distributional shape, not the load-bearing datapoint.
+
+---
+
 ## Environment
 
 Python 3.12+ with `numpy`, `pandas`, `scipy`, `statsmodels`, `matplotlib`.
@@ -125,6 +153,9 @@ Released for verification and reuse. Cite as:
 
 > Natsagdorj, T. (2026). *Points Programs as Tullock Contests: Equilibrium
 > Concentration, Denomination, and Sybil Neutrality.* Suwappu Research.
+
+> Natsagdorj, T. (2026). *Who Actually Collected the Airdrops: Testing the
+> Tullock Active-Set Prediction Against Completed Allocations.* Suwappu Research.
 
 ## Disclosures
 

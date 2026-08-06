@@ -9,12 +9,12 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 export const metadata: Metadata = {
   title: 'Data & code availability — Suwappu Research',
   description:
-    'Full working papers, collection harness, analysis code and datasets behind the Suwappu Research papers on USDT0 collateralization and points-program equilibria. Public RPC only, no credentials required.',
+    'Full working papers, collection code and datasets behind Suwappu Research on USDT0 collateralization, points-program equilibria, and completed airdrop allocations.',
   alternates: { canonical: BASE },
   openGraph: {
     title: 'Data & code availability — Suwappu Research',
     description:
-      'Papers, code and data behind the USDT0 collateral reconciliation and the Tullock-contest analysis of points programs.',
+      'Papers, code and data behind the USDT0 collateral reconciliation, Tullock-contest model, and its empirical test against completed airdrops.',
     type: 'article',
     url: BASE,
   },
@@ -166,15 +166,14 @@ function FileTable({ rows }: { rows: Row[] }) {
 }
 
 export default function ReplicationPage() {
-  // Dataset markup: this page is the landing page for two released datasets, and
-  // that is what makes them discoverable in dataset search rather than only as
-  // prose on an article page.
+  // Dataset markup makes the released evidence discoverable as data rather than
+  // only as prose on an article page.
   const datasetLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: 'Suwappu Research replication bundle — USDT0 collateralization and points-program equilibria',
+    name: 'Suwappu Research replication bundle — stablecoins, incentive design, and airdrop concentration',
     description:
-      'Twelve months of block-height-aligned USDT0 collateral and cross-chain supply read directly from public EVM state across 17 chains, plus the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs.',
+      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and complete HYPE and EIGEN recipient vectors used to test that model.',
     url: `${SITE}${BASE}`,
     datePublished: '2026-07-26',
     isAccessibleForFree: true,
@@ -190,7 +189,8 @@ export default function ReplicationPage() {
       'points program design',
       'airdrop concentration',
     ],
-    measurementTechnique: 'Direct eth_call reads of totalSupply() and balanceOf() at point-in-time-aligned block heights',
+    measurementTechnique:
+      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and complete recipient-vector concentration analysis',
     temporalCoverage: '2025-07-26/2026-07-25',
     distribution: [
       {
@@ -210,6 +210,12 @@ export default function ReplicationPage() {
         name: 'tullock_mc.json',
         encodingFormat: 'application/json',
         contentUrl: `${SITE}${BASE}/data/tullock_mc.json`,
+      },
+      {
+        '@type': 'DataDownload',
+        name: 'concentration.json',
+        encodingFormat: 'application/json',
+        contentUrl: `${SITE}${BASE}/data/airdrops/concentration.json`,
       },
     ],
   };
@@ -296,7 +302,7 @@ export default function ReplicationPage() {
           <h2>Paper 3 — Airdrop concentration: testing the model</h2>
           <p>
             Complete recipient-level allocation vectors for Hyperliquid&rsquo;s HYPE genesis and
-            EigenLayer&rsquo;s EIGEN Season 1 — 309,000 rows — plus the formal sup-over-σ rejection
+            EigenLayer&rsquo;s EIGEN Season 1 — 329,947 recipient rows — plus the formal sup-over-σ rejection
             of the theory paper&rsquo;s active-set prediction. The raw pre-exclusion HYPE state is
             included so the paper&rsquo;s single most judgment-laden step is inspectable.
           </p>
@@ -306,10 +312,10 @@ export default function ReplicationPage() {
           <FileTable rows={DATA_AIRDROP} />
           <p className="repl-caveat">
             <strong>Stated limits.</strong> All concentration figures are wallet-level and are
-            therefore lower bounds on person-level concentration. EIGEN is claims data (unclaimed
-            allocations invisible, biasing concentration up); HYPE is true allocation. The ENA
-            vector is deliberately partial — its distribution ran through custodial channels that
-            chain state cannot attribute to persons.
+            therefore lower bounds on person-level concentration. HYPE is a post-enforcement
+            allocation, EIGEN is claims data with unclaimed allocations invisible, and ENA claim
+            executors may aggregate custodially. The full paper states the direction of each bias
+            and does not use ENA as the anchor for the formal rejection.
           </p>
         </section>
 

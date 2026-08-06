@@ -20,6 +20,14 @@ export type ResearchPost = {
   status: 'published' | 'planned';
   /** Topic terms emitted into the post's ScholarlyArticle structured data. */
   keywords?: string[];
+  /** Canonical long-form paper in the public replication bundle, when one exists. */
+  paperPath?: string;
+  /** Evidence visual surfaced by the research index for a featured paper. */
+  indexFigure?: {
+    src: string;
+    alt: string;
+    caption: string;
+  };
   body?: string;
 };
 
@@ -326,7 +334,7 @@ If you are launching an incentive program on our [API](/docs) or [agent surface]
 
 ## Data and code
 
-**[Both complete recipient vectors, the collectors, the analysis, and the formal test are published here](/research/replication)** — 309,000 rows of allocation data, the model solver reused verbatim from the theory paper, fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, the matched-n bands, the sup-over-σ test and the ENA post-mortem, and where the two disagree, the paper governs.
+**[Both complete recipient vectors, the collectors, the analysis, and the formal test are published here](/research/replication)** — 329,947 recipient rows across the HYPE and EIGEN vectors used for the primary test, the model solver reused verbatim from the theory paper, fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, the matched-n bands, the sup-over-σ test and the ENA post-mortem, and where the two disagree, the paper governs.
 
 ---
 
@@ -342,6 +350,12 @@ export const researchPosts: ResearchPost[] = [
     excerpt: 'Our second correction: the "unidentified" $1.3bn backing account was the canonical Polygon predicate — we had verified the wrong address. Corrected, USDT0 never falls below par, and the first complete-universe reading shows a buffer of three basis points.',
     readMins: 12,
     status: 'published',
+    paperPath: '/research/replication/papers/usdt0-collateral-reconciliation.md',
+    indexFigure: {
+      src: '/research/usdt0-corrected-series.svg',
+      alt: 'Corrected USDT0 collateralization series holding near par after the canonical Polygon predicate is included.',
+      caption: 'The correction is the result: the published shortfall disappears when the canonical Polygon predicate is measured.',
+    },
     keywords: [
       'omnichain stablecoin', 'USDT0', 'stablecoin collateralization',
       'cross-chain bridge solvency', 'proof of reserves', 'LayerZero OFT',
@@ -358,6 +372,7 @@ export const researchPosts: ResearchPost[] = [
     excerpt: 'A pro-rata points pool is captured by five to eighteen operators out of five thousand. Caps do not help; only fee denomination changes where the value lands — and the standard anti-sybil bonus is what creates the sybil incentive.',
     readMins: 10,
     status: 'published',
+    paperPath: '/research/replication/papers/points-tullock-contests.md',
     keywords: [
       'points program design', 'airdrop farming', 'Tullock contest',
       'token distribution', 'sybil resistance', 'rent seeking',
@@ -373,6 +388,7 @@ export const researchPosts: ResearchPost[] = [
     kind: 'research',
     excerpt: 'Complete recipient vectors for HYPE genesis and EIGEN S1 reject the Tullock active-set prediction: top-1 holds 0.7-2.4% against a predicted 15-41%. Allocations are unequal like wealth, Gini ≈0.95, not like a contest — and the referee pass that corrected our own collection is part of the release.',
     readMins: 9,
+    paperPath: '/research/replication/papers/airdrop-concentration.md',
     keywords: [
       'airdrop concentration', 'airdrop allocation data', 'Hyperliquid HYPE airdrop',
       'EigenLayer EIGEN airdrop', 'Tullock contest empirics', 'points program design',
