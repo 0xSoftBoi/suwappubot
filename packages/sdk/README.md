@@ -1,6 +1,8 @@
 # @suwappu/sdk
 
-TypeScript client for the [Suwappu](https://suwappu.bot) cross-chain DEX API — quotes, swaps, portfolios, prices, perps, prediction markets, and lending across 15+ chains.
+TypeScript client for the [Suwappu](https://suwappu.bot) agent API: quotes, custody-aware swaps, portfolios, prices, perps, prediction markets, lending, and agent controls. Discover the current chain set with `listChains()` instead of hard-coding a count.
+
+> **Release status:** this repository currently contains SDK source `0.6.0`, while the latest npm release is `0.4.0`. The API below describes the `0.6.0` source being prepared for publication. If you install from npm before that release, verify the installed version before copying newer examples.
 
 ## Install
 
@@ -11,48 +13,115 @@ bun add @suwappu/sdk
 
 ## Quickstart
 
+Start with reads and quotes:
+
 ```ts
 import { Suwappu } from "@suwappu/sdk";
 
-const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY });
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
 
-// Quote + swap
 const quote = await client.getQuote({
   from: "USDC",
   to: "ETH",
   chain: "base",
-  amount: "1000",
+  amount: "100",
 });
-const tx = await client.swap(quote);
-console.log(tx.txHash, tx.status);
+
+console.log(quote.toAmount, quote.amountOutMin, quote.route);
+console.log(await client.listChains());
 ```
 
-The API key falls back to the `SUWAPPU_API_KEY` environment variable if not
-passed to the constructor. The base URL defaults to `https://api.suwappu.bot`
-and can be overridden with `{ baseUrl }`.
+The API key falls back to `SUWAPPU_API_KEY` when it is not passed to the
+constructor. The base URL defaults to `https://api.suwappu.bot` and can be
+overridden with `{ baseUrl }`.
 
 ## API surface
 
-### Swap & market data
+### Quotes, market data, and custody
 
 ```ts
 await client.getQuote({ from, to, chain, amount });
-// Cross-chain: pass fromChain/toChain instead of chain, plus walletAddress
-// to get executable transaction data back with the quote.
-await client.getQuote({ from, to, fromChain, toChain, amount, walletAddress });
+await client.getQuote({
+  from,
+  to,
+  fromChain,
+  toChain,
+  amount,
+  walletAddress,
+});
 
-await client.swap(quoteOrId, walletAddress);  // accepts a Quote or a quote id string
-await client.prepareSwap({ quoteId, walletAddress }); // raw POST /v1/agent/swap payload
-await client.getSwapStatus(swapId);
 await client.getPortfolio(walletAddress, chain?);
 await client.getPrices("ETH,USDC", chain?);
 await client.listChains();
 await client.listTokens(chain, search?);
 ```
 
-Suwappu is non-custodial: `swap()`/`prepareSwap()` return an **unsigned**
-transaction (or a base64-serialized Solana transaction). The SDK never signs
-or broadcasts — sign the result with your own wallet and submit it yourself.
+A wallet-bound quote is useful when you intend to simulate or prepare that
+specific route. The SDK has two deliberately separate transaction paths:
+
+#### Self-custody: prepare, then sign yourself
+
+```ts
+const quote = await client.getQuote({
+  from: "USDC",
+  to: "ETH",
+  chain: "base",
+  amount: "100",
+  walletAddress: "0xYourWallet",
+});
+
+const sim = await client.simulateSwap({
+  quoteId: quote.id,
+  walletAddress: "0xYourWallet",
+});
+if (!sim.success) throw new Error(sim.reason);
+
+const prepared = await client.prepareSwap({
+  quoteId: quote.id,
+  walletAddress: "0xYourWallet",
+});
+// prepared contains an unsigned transaction. Review it, sign with your own
+// wallet, then submit it to the relevant chain RPC.
+```
+
+`prepareSwap()` calls `POST /v1/agent/swap`. It never signs or broadcasts
+and it does not create a managed swap record.
+
+#### Managed wallet: explicit server-side execution
+
+```ts
+const [wallet] = await client.agent.listWallets();
+if (!wallet) throw new Error("Create a managed wallet first");
+
+const quote = await client.getQuote({
+  from: "USDC",
+  to: "ETH",
+  chain: "base",
+  amount: "100",
+  walletAddress: wallet.address,
+});
+
+const sim = await client.simulateSwap({
+  quoteId: quote.id,
+  walletAddress: wallet.address,
+});
+if (!sim.success) throw new Error(sim.reason);
+
+const execution = await client.executeManagedSwap(quote);
+console.log(execution.swapId, execution.status, execution.txHash);
+```
+
+`executeManagedSwap()` calls `POST /v1/agent/swap/execute`, where the
+authenticated agent's managed wallet is resolved server-side. Existing
+`swap()` and `executeSwap()` methods remain backwards-compatible aliases for
+this managed path; new code should prefer the explicit name.
+
+`getSwapStatus()` and `listSwaps()` inspect managed swap records:
+
+```ts
+await client.getSwapStatus(execution.swapId);
+await client.listSwaps({ status: "completed", limit: 20 });
+```
 
 ### Agent account
 
@@ -175,9 +244,9 @@ suwappu quote --from-chain base --to-chain arbitrum \
 # signs or broadcasts — sign the result with your own wallet.
 suwappu swap --from-chain base --to-chain arbitrum \
   --from-token USDC --to-token ETH --amount 100 \
-  --from-address 0xYourManagedWalletAddress
+  --from-address 0xYourWalletAddress
 
-suwappu swap-status <swapId>                     # poll a managed swap
+suwappu swap-status <swapId>                     # poll a managed /swap/execute record
 suwappu me                                        # agent profile
 suwappu billing                                   # credits, tier, metering status
 
