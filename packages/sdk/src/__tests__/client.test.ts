@@ -69,6 +69,59 @@ function client() {
   return new Suwappu({ apiKey: "test-key", baseUrl });
 }
 
+describe("swap custody boundary", () => {
+  it("executeManagedSwap uses the managed execution endpoint", async () => {
+    const c = client();
+    nextBody = {
+      swap_id: 7,
+      status: "pending",
+      tx_hash: null,
+      tracking: { poll_url: "/v1/agent/swap/status/7" },
+    };
+
+    const result = await c.executeManagedSwap("q-managed");
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/swap/execute",
+      body: { quote_id: "q-managed" },
+    });
+    expect(result.swapId).toBe(7);
+  });
+
+  it("legacy swap remains managed and ignores the old walletAddress argument", async () => {
+    const c = client();
+    nextBody = { swap_id: 8, status: "pending", tx_hash: null };
+
+    await c.swap("q-legacy", "0xnot-forwarded");
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/swap/execute",
+      body: { quote_id: "q-legacy" },
+    });
+  });
+
+  it("prepareSwap uses the unsigned self-custody endpoint", async () => {
+    const c = client();
+    nextBody = { status: "ready", transaction: { to: "0xabc" } };
+
+    await c.prepareSwap({
+      quoteId: "q-self-custody",
+      walletAddress: "0x123",
+    });
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/swap",
+      body: {
+        quote_id: "q-self-custody",
+        wallet_address: "0x123",
+      },
+    });
+  });
+});
+
 describe("swap simulation & history", () => {
   it("simulateSwap posts snake_case fields", async () => {
     const c = client();

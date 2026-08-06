@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "suwappu"
 version = "0.3.0"
-description = "Cross-chain DEX aggregator SDK — swap, perps, predict, lending across 7+ chains"
+description = "Python SDK for Suwappu agent quotes, swaps, portfolio, perps, predictions, and lending"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

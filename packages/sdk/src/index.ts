@@ -5,9 +5,11 @@
  * ```ts
  * import { Suwappu } from "@suwappu/sdk";
  *
- * const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY });
+ * const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
  * const quote = await client.getQuote({ from: "USDC", to: "ETH", chain: "base", amount: "1000" });
- * const tx = await client.swap(quote);
+ * console.log(quote.toAmount);
+ * // Managed execution is an explicit opt-in:
+ * // const execution = await client.executeManagedSwap(quote);
  * ```
  */
 

@@ -153,7 +153,7 @@ flowchart LR
 |----------|----------|-------------|
 | **REST API** | `/v1/agent/*` | 50+ endpoints — swaps, wallets, portfolio, perps, predictions, lending, webhooks |
 | **MCP** | `/mcp` | 22 tools — quotes, swaps, portfolio, perps, predictions, lending, wallet policies, and more |
-| **A2A** | `/a2a` | Natural language — "swap 0.5 ETH to USDC on base", "price ETH SOL BTC" |
+| **A2A** | `/a2a` | Natural-language quotes/prices/discovery — `swap ...` returns a quote; no A2A execution method |
 
 **Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
 
@@ -201,12 +201,9 @@ Add to your Claude Desktop config:
 }
 ```
 
-Or via npm:
-
-```bash
-npm install -g @suwappu/mcp-server
-SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
-```
+For stdio-only clients, repository source `packages/mcp-server` contains the
+`0.6.0` forwarding bridge. The npm release is still `0.1.1`, so use hosted
+MCP for the current catalog until `0.6.0` is published.
 
 ### A2A (Agent-to-Agent)
 
@@ -214,11 +211,11 @@ SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
 # Discover capabilities
 curl https://api.suwappu.bot/.well-known/agent.json
 
-# Natural language swap
+# Natural-language quote (`swap` wording is quote-only in A2A)
 curl -X POST https://api.suwappu.bot/a2a \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","role":"user","parts":[{"kind":"text","type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
 ```
 
 ### Local Development
@@ -334,6 +331,7 @@ suwappubot/
 ├── packages/
 │   ├── shared/         # Shared TypeScript types
 │   ├── sdk/            # @suwappu/sdk (npm, published)
+│   ├── mcp-server/     # @suwappu/mcp-server stdio -> hosted MCP bridge
 │   ├── openclaw/       # @suwappu/openclaw (npm, published)
 │   ├── design-tokens/  # @suwappu/design-tokens
 │   └── sdk-python/     # Python SDK (development)
@@ -347,7 +345,7 @@ suwappubot/
 └── .github/workflows/  # CI/CD
 ```
 
-`@suwappu/mcp-server` is published to npm but not vendored in this monorepo.
+`packages/mcp-server` source is vendored here and can be ahead of the published npm release; see the package README for the current version boundary.
 
 ---
 
@@ -374,9 +372,11 @@ suwappubot/
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.5.2 | TypeScript SDK + `suwappu` CLI |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.4.0 | TypeScript SDK + `suwappu` CLI |
 | [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.1.1 | MCP server for Claude Desktop/Cursor |
 | [`@suwappu/openclaw`](https://www.npmjs.com/package/@suwappu/openclaw) | 0.2.0 | OpenClaw skill module |
+
+> Versions above are the current npm releases. Package source in this monorepo may be ahead while the next release is being prepared.
 
 ---
 
@@ -417,7 +417,6 @@ checked post-deploy).
 - **Token analysis** — GoPlus Security API integration
 - **Transaction simulation** — Simulate before executing
 - **Withdrawal whitelisting** — 24h cooldown for new addresses
-- **WAF** — AWS WAF with rate limiting (300 req/IP)
 - **Audit logging** — All security-sensitive actions logged
 
 Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECURITY.md).

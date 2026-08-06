@@ -130,17 +130,40 @@ class SuwappuClient:
         from_token: str,
         to_token: str,
         amount: float,
-        chain: str,
+        chain: str | None = None,
+        *,
+        wallet_address: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+        slippage: float | None = None,
     ) -> Quote:
+        """Get a quote without executing it.
+
+        chain keeps the existing same-chain API. For cross-chain quotes, pass
+        from_chain and to_chain. Pass wallet_address when the quote will be
+        simulated or prepared for self-custody signing so the route is priced
+        against the actual sender.
+        """
+        payload: dict[str, Any] = {
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount": str(amount),
+        }
+        if chain is not None:
+            payload["chain"] = chain
+        if from_chain is not None:
+            payload["from_chain"] = from_chain
+        if to_chain is not None:
+            payload["to_chain"] = to_chain
+        if wallet_address is not None:
+            payload["wallet_address"] = wallet_address
+        if slippage is not None:
+            payload["slippage"] = slippage
+
         data = await self._request(
             "POST",
             "/v1/agent/quote",
-            json={
-                "from_token": from_token,
-                "to_token": to_token,
-                "amount": str(amount),
-                "chain": chain,
-            },
+            json=payload,
         )
         try:
             return Quote(
@@ -165,9 +188,13 @@ class SuwappuClient:
                 estimated_time_seconds=data.get("estimated_time_seconds"),
             )
         except KeyError as e:
-            raise SuwappuError(200, f"Malformed quote response from /v1/agent/quote: missing {e}") from e
+            raise SuwappuError(
+                200,
+                f"Malformed quote response from /v1/agent/quote: missing {e}",
+            ) from e
 
-    async def execute_swap(self, quote_id: str) -> SwapResult:
+    async def execute_managed_swap(self, quote_id: str) -> SwapResult:
+        """Execute a quote through the server-managed wallet pipeline."""
         data = await self._request(
             "POST",
             "/v1/agent/swap/execute",
@@ -183,8 +210,29 @@ class SuwappuClient:
             )
         except KeyError as e:
             raise SuwappuError(
-                200, f"Malformed swap response from /v1/agent/swap/execute: missing {e}"
+                200,
+                f"Malformed swap response from /v1/agent/swap/execute: missing {e}",
             ) from e
+
+    async def execute_swap(self, quote_id: str) -> SwapResult:
+        """Backwards-compatible alias for managed execution."""
+        return await self.execute_managed_swap(quote_id)
+
+    async def prepare_swap(
+        self,
+        *,
+        quote_id: str,
+        wallet_address: str,
+    ) -> dict[str, Any]:
+        """Build an unsigned self-custody transaction without broadcasting."""
+        return await self._request(
+            "POST",
+            "/v1/agent/swap",
+            json={
+                "quote_id": quote_id,
+                "wallet_address": wallet_address,
+            },
+        )
 
     async def simulate_swap(self, *, quote_id: str, wallet_address: str) -> SwapSimulation:
         """Dry-run a swap without broadcasting.
