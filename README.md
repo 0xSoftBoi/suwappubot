@@ -14,8 +14,8 @@
 [![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-[![Chains](https://img.shields.io/badge/Chains-14-green)]()
-[![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
+[![Chains](https://img.shields.io/badge/Chains-42-green)](showcase/src/data/stats.generated.json)
+[![Providers](https://img.shields.io/badge/Swap_Providers-19-orange)](showcase/src/data/stats.generated.json)
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
@@ -24,7 +24,7 @@
 
 <p align="center">
   <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
-  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+  Swap tokens across 42 chains via Telegram, WhatsApp, Discord, or a web terminal — 18 of them through the public agent API.
 </p>
 
 <p align="center">
@@ -82,12 +82,14 @@
 
 ## Overview
 
-**14 chains. 15+ swap providers. 3 agent protocols. 5 frontends.**
+**42 chains on the bot & terminal. 18 on the public agent API. 19 swap providers. 3 agent protocols. 5 frontends.**
+
+<sub>Counts are derived from source at build time by [`showcase/scripts/generate-stats.mjs`](showcase/scripts/generate-stats.mjs) and drift-checked in CI — see [`stats.generated.json`](showcase/src/data/stats.generated.json). The platform and agent-API surfaces are genuinely different sets; neither number substitutes for the other.</sub>
 
 | | |
 |---|---|
-| **Chains** | 12 EVM (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll) + Solana + TRON |
-| **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero, Chainlink CCIP, OKX DEX, 1inch, KyberSwap, 0x, SunSwap + more |
+| **Chains** | 39 EVM + Solana + TRON + Starknet on the platform · 18 on the public agent API (15 EVM + Solana + Sui + TON, mirroring `GET /v1/agent/chains`) |
+| **Swap Providers** | 0x, 1inch, Across, AVNU, CCIP, CCTP, CoW, GoatSwap, JuiceSwap, Jupiter, KyberSwap, LayerZero, Li.Fi, OKX, Socket, SunSwap, Tempo DEX, usdt0, Wormhole — chain-gated: each route races the providers serving that chain |
 | **Agent Protocols** | REST API (50+ endpoints) · MCP (22 tools) · A2A (JSON-RPC) |
 | **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Browser Extension |
 | **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
@@ -112,17 +114,20 @@ flowchart LR
         API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
-    subgraph Providers["15+ Swap Providers"]
-        EVM["12 EVM Chains"]
+    subgraph Providers["19 Swap Providers"]
+        EVM["39 EVM Chains"]
         SOL["Solana"]
         TRON["TRON"]
+        STARK["Starknet"]
+        SUI["Sui"]
+        TON["TON"]
     end
 
     TG & WA & DC --> Bot
     AI & Web & Ext --> API
     Bot --> API
-    API --> EVM & SOL & TRON
-    Bot --> EVM & SOL & TRON
+    API --> EVM & SOL & SUI & TON
+    Bot --> EVM & SOL & TRON & STARK
 ```
 
 ---
@@ -130,7 +135,7 @@ flowchart LR
 ## Features
 
 ### Trading
-- **Cross-chain swaps** — 15+ providers raced in parallel per route, best-price selection, slippage protection
+- **Cross-chain swaps** — 19 providers integrated, the chain-gated subset raced in parallel per route, best-price selection, slippage protection
 - **MEV protection** — CoW Protocol batch auctions (EVM) + Jito bundles (Solana)
 - **Limit orders** — Buy/sell triggers, stop-loss, trailing stop with expiry
 - **DCA orders** — Dollar-cost averaging on daily/weekly/monthly intervals
@@ -262,22 +267,52 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 
 ## Supported Chains
 
-| Chain | ID | Native | Type | Swap Providers |
-|-------|-----|--------|------|---------------|
-| Ethereum | 1 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, CCIP, LayerZero |
-| BSC | 56 | BNB | EVM | Socket, Li.Fi, Across, LayerZero |
-| Polygon | 137 | MATIC | EVM | CoW, Socket, Li.Fi, Across, CCTP |
-| Arbitrum | 42161 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, LayerZero |
-| Optimism | 10 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, LayerZero |
-| Base | 8453 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP |
-| Avalanche | 43114 | AVAX | EVM | Socket, Li.Fi, Across, CCTP |
-| Fantom | 250 | FTM | EVM | Socket, Li.Fi |
-| Linea | 59144 | ETH | EVM | Socket, Li.Fi |
-| Mantle | 5000 | MNT | EVM | Socket, Li.Fi |
-| Gnosis | 100 | xDAI | EVM | Socket, Li.Fi |
-| Scroll | 534352 | ETH | EVM | Socket, Li.Fi |
-| Solana | — | SOL | Solana | Jupiter, Jito, Wormhole |
-| TRON | — | TRX | TRON | Li.Fi |
+42 mainnet chains on the platform (testnets excluded), from [`bot/config/chains.py`](bot/config/chains.py). Swap providers are **chain-gated** — each route races only the providers serving that chain — so per-chain provider lists live in the swap engine, not here. The public agent API serves its own subset of 18 chains (15 EVM + Solana + Sui + TON); `GET /v1/agent/chains` is authoritative for that surface.
+
+| Chain | ID | Native | Type |
+|-------|-----|--------|------|
+| Ethereum | 1 | ETH | EVM |
+| Optimism | 10 | ETH | EVM |
+| Flare | 14 | FLR | EVM |
+| Rootstock | 30 | RBTC | EVM |
+| BSC | 56 | BNB | EVM |
+| Gnosis | 100 | xDAI | EVM |
+| Unichain | 130 | ETH | EVM |
+| Polygon | 137 | MATIC | EVM |
+| Sonic | 146 | S | EVM |
+| opBNB | 204 | BNB | EVM |
+| Fantom | 250 | FTM | EVM |
+| Fraxtal | 252 | FRAX | EVM |
+| zkSync | 324 | ETH | EVM |
+| World Chain | 480 | ETH | EVM |
+| Flow EVM | 747 | FLOW | EVM |
+| HyperEVM | 999 | HYPE | EVM |
+| Lisk | 1135 | ETH | EVM |
+| Sei | 1329 | SEI | EVM |
+| Soneium | 1868 | ETH | EVM |
+| Swellchain | 1923 | ETH | EVM |
+| GOAT | 2345 | BTC | EVM |
+| Abstract | 2741 | ETH | EVM |
+| Citrea | 4114 | cBTC | EVM |
+| Tempo | 4217 | USD | EVM |
+| Robinhood Chain | 4663 | ETH | EVM |
+| Mantle | 5000 | MNT | EVM |
+| Kaia | 8217 | KAIA | EVM |
+| Base | 8453 | ETH | EVM |
+| Plasma | 9745 | XPL | EVM |
+| ApeChain | 33139 | APE | EVM |
+| Mode | 34443 | ETH | EVM |
+| Arbitrum | 42161 | ETH | EVM |
+| Hemi | 43111 | ETH | EVM |
+| Avalanche | 43114 | AVAX | EVM |
+| Linea | 59144 | ETH | EVM |
+| BOB | 60808 | ETH | EVM |
+| Berachain | 80094 | BERA | EVM |
+| Taiko | 167000 | ETH | EVM |
+| Scroll | 534352 | ETH | EVM |
+| Solana | — | SOL | Solana |
+| TRON | — | TRX | TRON |
+| Starknet | — | STRK | Starknet |
 
 ---
 
