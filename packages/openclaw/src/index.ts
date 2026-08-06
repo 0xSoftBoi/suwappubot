@@ -3,7 +3,7 @@
  *
  * A zero-dependency, typed HTTP client built for autonomous agents: typed errors
  * you can branch on, automatic retries with backoff, request timeouts, and the
- * full agent lifecycle (self-register → quote → execute → poll status).
+ * full agent lifecycle (self-register → quote → simulate → prepare or managed execute).
  *
  * Usage:
  *   import { createClient } from "@suwappu/openclaw";
@@ -27,7 +27,7 @@ import {
 export * from './errors.js'
 
 /** Semantic version of this client; sent as `X-Suwappu-Client` for attribution. */
-export const VERSION = '0.2.0'
+export const VERSION = '0.3.0'
 
 export interface RequestHooks {
 	/** Fired before each attempt (including retries). */
@@ -121,6 +121,34 @@ export interface SwapResult {
 				lastValidBlockHeight?: number
 		  }
 	instructions: string[]
+}
+
+export interface SwapSimulationCheck {
+	name: string
+	status: 'pass' | 'warn' | 'fail' | string
+	detail: string
+	unverified?: boolean
+}
+
+/** Dry-run result from POST /v1/agent/swap/simulate. Nothing is broadcast. */
+export interface SwapSimulation {
+	success: boolean
+	wouldExecute: boolean
+	quoteId: string
+	chainType: 'evm' | 'solana' | string
+	expectedOutput: {
+		token: string
+		amount: string
+		amountUsd: string | null
+	}
+	minOutputAfterSlippage: string
+	priceImpactPct: number | null
+	fees: {
+		protocol: string | null
+		gasEstimate: string | null
+	}
+	checks: SwapSimulationCheck[]
+	warnings: string[]
 }
 
 export interface TokenBalance {
@@ -507,6 +535,49 @@ export function createClient(config?: SuwappuConfig) {
 			}
 		},
 
+		/** Dry-run a cached quote. Use before either transaction-preparation or managed execution. */
+		async simulateSwap(quoteId: string, walletAddress?: string): Promise<SwapSimulation> {
+			const raw = await request<Record<string, any>>('/v1/agent/swap/simulate', config, {
+				method: 'POST',
+				body: JSON.stringify({
+					quote_id: quoteId,
+					...(walletAddress ? { wallet_address: walletAddress } : {}),
+				}),
+			})
+			return {
+				success: Boolean(raw.success),
+				wouldExecute: Boolean(raw.would_execute),
+				quoteId: String(raw.quote_id ?? quoteId),
+				chainType: String(raw.chain_type ?? ''),
+				expectedOutput: {
+					token: String(raw.expected_output?.token ?? ''),
+					amount: String(raw.expected_output?.amount ?? ''),
+					amountUsd:
+						raw.expected_output?.amount_usd == null
+							? null
+							: String(raw.expected_output.amount_usd),
+				},
+				minOutputAfterSlippage: String(raw.min_output_after_slippage ?? ''),
+				priceImpactPct: raw.price_impact_pct == null ? null : Number(raw.price_impact_pct),
+				fees: {
+					protocol: raw.fees?.protocol == null ? null : String(raw.fees.protocol),
+					gasEstimate:
+						raw.fees?.gas_estimate == null ? null : String(raw.fees.gas_estimate),
+				},
+				checks: Array.isArray(raw.checks)
+					? raw.checks.map((check: Record<string, any>) => ({
+							name: String(check.name ?? ''),
+							status: String(check.status ?? 'warn'),
+							detail: String(check.detail ?? ''),
+							...(check.unverified === undefined
+								? {}
+								: { unverified: Boolean(check.unverified) }),
+						}))
+					: [],
+				warnings: Array.isArray(raw.warnings) ? raw.warnings.map(String) : [],
+			}
+		},
+
 		async executeSwap(quoteId: string, walletAddress: string): Promise<SwapResult> {
 			const raw = await request<Record<string, unknown>>('/v1/agent/swap', config, {
 				method: 'POST',
@@ -560,9 +631,13 @@ export function createClient(config?: SuwappuConfig) {
 		async executeManagedSwap(
 			quoteId: string,
 			walletAddress: string,
+			options: { idempotencyKey?: string } = {},
 		): Promise<ManagedSwapReceipt> {
 			const raw = await request<Record<string, unknown>>('/v1/agent/swap/execute', config, {
 				method: 'POST',
+				headers: options.idempotencyKey
+					? { 'Idempotency-Key': options.idempotencyKey }
+					: undefined,
 				body: JSON.stringify({ quote_id: quoteId, wallet_address: walletAddress }),
 			})
 			const tracking = (raw.tracking as Record<string, unknown>) ?? {}

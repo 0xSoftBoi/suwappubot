@@ -1,111 +1,169 @@
 # Portfolio Rebalancer
 
-Build a periodic portfolio rebalancer that reads your wallet's holdings, compares them to target allocations, and issues swaps to bring the portfolio back in line. It combines three endpoints: portfolio (read balances), prices (value them), and quote + swap/execute (rebalance).
+Build a periodic portfolio rebalancer that is **preview-only by default**. It reads holdings, calculates target drift in USD, gets a fresh quote, runs a zero-funds simulation, and only reaches managed execution when `SUWAPPU_LIVE=1` is explicitly set.
 
-## How Rebalancing Works
+The important product lesson is not the allocation formula. It is the operating contract: quote -> cost check -> simulate -> explicit live gate -> idempotent execution -> reconciliation.
 
-1. Read current balances for the wallet.
-2. Price each holding to compute USD values and current weights.
-3. Compare to target weights; find positions that are over- or under-weight.
-4. Swap from over-weight assets into under-weight assets until each is within a tolerance band.
-
-## Step 1: Read the Portfolio
+## 1. Read the managed portfolio
 
 ```bash
 curl "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xYOUR_MANAGED_ADDRESS" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-This returns the token balances held by the wallet. Use your managed wallet address (see [Managed Wallets](managed-wallets.md)).
+For managed-wallet automation, use the wallet tied to the authenticated agent. See [Managed Wallets](managed-wallets.md).
 
-## Step 2: Price the Holdings
+## 2. Define targets and an economic threshold
 
-```bash
-curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,USDC,WBTC" \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
-```
+A drift band stops tiny rebalances, but it does not account for execution cost. The worker below requires both:
 
-## The Rebalancer
+- allocation drift above `TOLERANCE`;
+- a trade large enough that estimated gas/route fees are small relative to the amount being corrected.
 
-```typescript
+That is still a heuristic — a production strategy should measure realized slippage and tune its threshold from actual fills.
+
+## 3. Preview-first worker
+
+```ts
 const BASE = 'https://api.suwappu.bot/v1/agent'
 const API_KEY = process.env.SUWAPPU_API_KEY!
-const WALLET = process.env.SUWAPPU_WALLET! // managed EVM address
+const WALLET = process.env.SUWAPPU_WALLET!
+const LIVE = process.env.SUWAPPU_LIVE === '1'
 const CHAIN = 'base'
+
+const TARGETS: Record<string, number> = { ETH: 0.5, WBTC: 0.3, USDC: 0.2 }
+const TOLERANCE = 0.05
+const MIN_TRADE_USD = 25
+const COST_MULTIPLE = 5 // trade must be >= 5x quoted gas + route fees
 
 const headers = {
   Authorization: `Bearer ${API_KEY}`,
   'Content-Type': 'application/json',
 }
 
-// Target allocation (weights must sum to 1.0)
-const TARGETS: Record<string, number> = { ETH: 0.5, WBTC: 0.3, USDC: 0.2 }
-const TOLERANCE = 0.05 // rebalance only if a weight drifts > 5%
-
-async function get(path: string) {
-  return (await fetch(`${BASE}${path}`, { headers })).json()
+async function request(path: string, init: RequestInit = {}) {
+  const response = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { ...headers, ...(init.headers ?? {}) },
+  })
+  const body = await response.json()
+  if (!response.ok || body.success === false) {
+    throw new Error(`${response.status}: ${body.error ?? 'request failed'}`)
+  }
+  return body
 }
-async function post(path: string, body: unknown) {
-  return (await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })).json()
+
+function balanceOf(portfolio: any, symbol: string) {
+  const row = (portfolio.balances ?? []).find((b: any) => b.symbol === symbol)
+  return Number(row?.balance ?? 0)
 }
 
-async function rebalance() {
-  const portfolio = await get(`/portfolio?wallet_address=${WALLET}`)
+async function rebalance(periodKey: string) {
   const symbols = Object.keys(TARGETS)
-  const priceData = await get(`/prices?symbols=${symbols.join(',')}`)
+  const portfolio = await request(`/portfolio?wallet_address=${encodeURIComponent(WALLET)}`)
+  const priceData = await request(`/prices?symbols=${symbols.join(',')}`)
 
-  // Compute USD value of each holding
   const values: Record<string, number> = {}
   let total = 0
-  for (const sym of symbols) {
-    const bal = balanceOf(portfolio, sym) // your helper over the portfolio response
-    const price = priceData.prices[sym]?.usd ?? 0
-    values[sym] = bal * price
-    total += values[sym]
+  for (const symbol of symbols) {
+    const price = Number(priceData.prices?.[symbol]?.usd ?? 0)
+    values[symbol] = balanceOf(portfolio, symbol) * price
+    total += values[symbol]
   }
-  if (total === 0) return
+  if (total <= 0) return { action: 'skip', reason: 'portfolio has no priced value' }
 
-  // Find the most over-weight and most under-weight assets
-  let over = '', under = '', overDrift = 0, underDrift = 0
-  for (const sym of symbols) {
-    const weight = values[sym] / total
-    const drift = weight - TARGETS[sym]
-    if (drift > overDrift) { overDrift = drift; over = sym }
-    if (-drift > underDrift) { underDrift = -drift; under = sym }
-  }
-
-  if (overDrift < TOLERANCE || !over || !under) {
-    console.log('Portfolio within tolerance. Nothing to do.')
-    return
+  let over = ''
+  let under = ''
+  let overDrift = 0
+  let underDrift = 0
+  for (const symbol of symbols) {
+    const drift = values[symbol] / total - TARGETS[symbol]
+    if (drift > overDrift) [over, overDrift] = [symbol, drift]
+    if (-drift > underDrift) [under, underDrift] = [symbol, -drift]
   }
 
-  // Swap the over-weight USD excess into the under-weight asset
-  const excessUsd = (overDrift * total) / 2
-  const overPrice = priceData.prices[over].usd
-  const amount = (excessUsd / overPrice).toFixed(6)
+  if (!over || !under || overDrift < TOLERANCE) {
+    return { action: 'skip', reason: 'inside target band' }
+  }
 
-  console.log(`Rebalancing: swap ${amount} ${over} -> ${under}`)
-  const quote = await post('/quote', {
-    from_token: over, to_token: under, amount, chain: CHAIN,
+  // Correct half the largest over/under gap per cycle to reduce churn.
+  const tradeUsd = (Math.min(overDrift, underDrift) * total) / 2
+  const fromPrice = Number(priceData.prices?.[over]?.usd ?? 0)
+  if (!fromPrice) return { action: 'skip', reason: `no price for ${over}` }
+  const amount = (tradeUsd / fromPrice).toFixed(8)
+
+  const quote = await request('/quote', {
+    method: 'POST',
+    body: JSON.stringify({
+      from_token: over,
+      to_token: under,
+      amount,
+      chain: CHAIN,
+      wallet_address: WALLET,
+    }),
   })
-  if (!quote.success) { console.error('Quote failed:', quote.error); return }
 
-  const swap = await post('/swap/execute', { quote_id: quote.quote_id })
-  console.log('Rebalance swap submitted:', swap.swap_id)
+  const simulation = await request('/swap/simulate', {
+    method: 'POST',
+    body: JSON.stringify({ quote_id: quote.quote_id, wallet_address: WALLET }),
+  })
+
+  const estimatedCostUsd =
+    Number(quote.estimated_gas_usd ?? 0) + Number(quote.bridge_fee_usd ?? 0)
+  const economicFloor = Math.max(MIN_TRADE_USD, estimatedCostUsd * COST_MULTIPLE)
+
+  const preview = {
+    mode: LIVE ? 'live' : 'preview',
+    from: over,
+    to: under,
+    amount,
+    tradeUsd,
+    quoteId: quote.quote_id,
+    expectedOutput: quote.amount_out,
+    minimumOutput: quote.amount_out_min,
+    estimatedCostUsd,
+    economicFloor,
+    wouldExecute: simulation.would_execute,
+    warnings: simulation.warnings ?? [],
+  }
+  console.table(preview)
+
+  if (tradeUsd < economicFloor) {
+    return { action: 'skip', reason: 'estimated execution cost is too large', preview }
+  }
+  if (!simulation.would_execute) {
+    return { action: 'skip', reason: 'simulation did not pass', preview }
+  }
+  if (!LIVE) {
+    return { action: 'preview', preview }
+  }
+
+  // One stable key per scheduled intent. Keep it when retrying a timed-out request.
+  const idempotencyKey = `rebalance.${periodKey}.${over}.${under}`
+  const swap = await request('/swap/execute', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ quote_id: quote.quote_id }),
+  })
+  return { action: 'submitted', swap, preview }
 }
-
-// Run every 6 hours
-rebalance()
-setInterval(rebalance, 6 * 60 * 60 * 1000)
 ```
 
-`balanceOf(portfolio, sym)` is a small helper you write over the shape returned by `/portfolio` — extract the human-readable balance for each symbol.
+Use a durable scheduler (cron/queue/workflow) to supply a stable `periodKey` such as `2026-08-06T18`. Do **not** rely on an in-process `setInterval` for production: a restart can lose or duplicate work.
 
-## Notes
+## 4. Reconcile before the next action
 
-- Rebalancing one over/under pair per run keeps each cycle simple; loop the logic if you want to converge in a single pass.
-- Use a tolerance band so you don't churn fees on small drifts.
-- All swaps execute server-side from your managed wallet — no key handling needed.
-- For multi-chain portfolios, fetch the portfolio per chain and rebalance within each chain, or use cross-chain quotes (`from_chain` / `to_chain`).
+Persist the intent before live submission. After submission, record the returned `swap_id` and reconcile it through [`GET /swap/status/:id`](../api-reference/swap-status.md) or signed [webhooks](webhook-setup.md). If an execution request times out, do not blindly create a second intent — reuse the same `Idempotency-Key` and reconcile first.
 
-> Educational example, not financial advice. Test with small amounts first.
+Your ledger should capture at least:
+
+- before and after allocation;
+- quote expected/minimum output;
+- estimated gas/route cost;
+- simulation checks and warnings;
+- managed swap ID and transaction hash;
+- realized output and realized costs when settled.
+
+That turns the rebalancer from a demo script into something you can backtest, paper trade, operate, and eventually sell as a service. See [Strategy Lifecycle](strategy-lifecycle.md) and [Build a Business on Suwappu](build-a-business.md).
+
+> Educational example, not financial advice. Preview and paper-test first; live automation can lose funds.

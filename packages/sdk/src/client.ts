@@ -89,6 +89,7 @@ export const SuwappuApiError = SuwappuError;
 interface RequestOptions {
   params?: Record<string, string | undefined>;
   json?: unknown;
+  headers?: Record<string, string>;
 }
 
 export class Suwappu {
@@ -147,6 +148,7 @@ export class Suwappu {
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    Object.assign(headers, options.headers);
 
     const res = await fetch(url, {
       method,
@@ -218,10 +220,16 @@ export class Suwappu {
    * ({ swap_id, status, tx_hash, tracking }). It is NOT the self-custody
    * unsigned-transaction path; use prepareSwap() for that.
    */
-  async executeManagedSwap(quoteOrId: Quote | string): Promise<SwapResult> {
+  async executeManagedSwap(
+    quoteOrId: Quote | string,
+    options: { idempotencyKey?: string } = {},
+  ): Promise<SwapResult> {
     const quoteId = typeof quoteOrId === "string" ? quoteOrId : quoteOrId.id;
     const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap/execute", {
       json: { quote_id: quoteId },
+      headers: options.idempotencyKey
+        ? { "Idempotency-Key": options.idempotencyKey }
+        : undefined,
     });
     if (data.swap_id === undefined || data.status === undefined) {
       throw new SuwappuError(
@@ -277,9 +285,42 @@ export class Suwappu {
    * gas cost while nothing is at stake.
    */
   async simulateSwap(args: { quoteId: string; walletAddress: string }): Promise<SwapSimulation> {
-    return this._request<SwapSimulation>("POST", "/v1/agent/swap/simulate", {
+    const data = await this._request<Record<string, any>>("POST", "/v1/agent/swap/simulate", {
       json: { quote_id: args.quoteId, wallet_address: args.walletAddress },
     });
+    return {
+      success: Boolean(data.success),
+      wouldExecute: Boolean(data.would_execute),
+      quoteId: String(data.quote_id ?? args.quoteId),
+      chainType: String(data.chain_type ?? ""),
+      expectedOutput: {
+        token: String(data.expected_output?.token ?? ""),
+        amount: String(data.expected_output?.amount ?? ""),
+        amountUsd:
+          data.expected_output?.amount_usd == null
+            ? null
+            : String(data.expected_output.amount_usd),
+      },
+      minOutputAfterSlippage: String(data.min_output_after_slippage ?? ""),
+      priceImpactPct:
+        data.price_impact_pct == null ? null : Number(data.price_impact_pct),
+      fees: {
+        protocol: data.fees?.protocol == null ? null : String(data.fees.protocol),
+        gasEstimate:
+          data.fees?.gas_estimate == null ? null : String(data.fees.gas_estimate),
+      },
+      checks: Array.isArray(data.checks)
+        ? data.checks.map((check: Record<string, any>) => ({
+            name: String(check.name ?? ""),
+            status: String(check.status ?? "warn"),
+            detail: String(check.detail ?? ""),
+            ...(check.unverified === undefined
+              ? {}
+              : { unverified: Boolean(check.unverified) }),
+          }))
+        : [],
+      warnings: Array.isArray(data.warnings) ? data.warnings.map(String) : [],
+    };
   }
 
   /** GET /v1/agent/swaps — this agent's swap history, newest first. */

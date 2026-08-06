@@ -10,7 +10,7 @@ const TABS = [
     id: 'mcp',
     label: 'MCP (Claude, Cursor)',
     file: 'claude_desktop_config.json',
-    caption: "Then ask your client: 'What's my ETH balance?' or 'Swap 100 USDC to ETH on Base'",
+    caption: "Then ask your client: 'What's my ETH balance?' or 'Quote 100 USDC to ETH on Base'. MCP transaction preparation is unsigned and never broadcasts.",
     code: `{
   "mcpServers": {
     "suwappu": {
@@ -24,32 +24,33 @@ const TABS = [
     id: 'node',
     label: 'Node / TypeScript',
     file: 'agent.ts',
-    caption: null,
+    caption: 'Targets @suwappu/sdk 0.6.x. Check npm view @suwappu/sdk version; use REST if the registry is behind.',
     code: `import { Suwappu } from "@suwappu/sdk";
-const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY });
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
 
-const quote = await client.quote({
-  from_token: "USDC", to_token: "ETH",
+const quote = await client.getQuote({
+  from: "USDC", to: "ETH",
   chain: "base", amount: "100",
 });
-const swap = await client.executeSwap({ quote_id: quote.quote_id });
-console.log(swap.status, swap.tx_hash);`,
+console.log(quote.id, quote.toAmount, quote.amountOutMin);
+
+// Managed execution is a separate, explicit opt-in:
+// const swap = await client.executeManagedSwap(quote);`,
   },
   {
     id: 'python',
     label: 'Python',
     file: 'agent.py',
-    caption: null,
+    caption: 'Targets the Python SDK 0.3.x source contract. If PyPI has not published it yet, use the REST/OpenAPI examples.',
     code: `import asyncio
-from suwappu import Suwappu
+from suwappu import create_client
 
 async def main():
-    client = Suwappu(api_key="suwappu_sk_YOUR_KEY")
-    quote = await client.quote(
-        from_token="USDC", to_token="ETH", chain="base", amount="100",
-    )
-    swap = await client.execute_swap(quote_id=quote["quote_id"])
-    print(swap["status"], swap["tx_hash"])
+    async with create_client() as client:
+        quote = await client.get_quote(
+            "USDC", "ETH", 100, chain="base",
+        )
+        print(quote.quote_id, quote.amount_out, quote.amount_out_min)
 
 asyncio.run(main())`,
   },

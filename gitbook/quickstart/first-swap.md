@@ -166,7 +166,20 @@ quote = res.json()
 
 If you passed `wallet_address`, the response also includes a `transaction` object with the unsigned calldata.
 
-## 4. Execute the swap
+## 4. Simulate before execution
+
+Simulation performs a zero-funds preflight against the cached quote and intended wallet. It never signs, broadcasts, or creates a managed swap record.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id":"0x9f3c...","wallet_address":"0xAbC...123"}'
+```
+
+Inspect `would_execute`, `fees`, `checks`, `warnings`, and `min_output_after_slippage`. If `would_execute` is false, stop and resolve the failing/unverified check. Re-quote if the quote is near expiry.
+
+## 5. Execute the swap
 
 ### Managed wallet (Suwappu signs)
 
@@ -176,6 +189,7 @@ If you created a managed wallet in step 2, hand the `quote_id` to `/swap/execute
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_..." \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: first-swap-001" \
   -d '{"quote_id": "0x9f3c..."}'
 ```
 ```typescript
@@ -184,6 +198,7 @@ const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
   headers: {
     "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
     "Content-Type": "application/json",
+    "Idempotency-Key": "first-swap-001",
   },
   body: JSON.stringify({ quote_id: "0x9f3c..." }),
 });
@@ -194,11 +209,16 @@ import os, requests
 
 res = requests.post(
     "https://api.suwappu.bot/v1/agent/swap/execute",
-    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    headers={
+        "Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}",
+        "Idempotency-Key": "first-swap-001",
+    },
     json={"quote_id": "0x9f3c..."},
 )
 swap = res.json()
 ```
+
+Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed.
 
 **Response:**
 
@@ -219,7 +239,7 @@ swap = res.json()
 
 Alternatively, call [`POST /v1/agent/swap`](../api-reference/swap.md) with `quote_id` and your `wallet_address` to receive an unsigned transaction you sign and broadcast yourself.
 
-## 5. Check the status
+## 6. Check the status
 
 Poll with the `swap_id` returned above.
 

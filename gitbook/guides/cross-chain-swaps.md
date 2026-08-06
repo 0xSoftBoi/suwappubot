@@ -19,7 +19,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/quote \
     "to_token": "ETH",
     "amount": "100",
     "from_chain": "arbitrum",
-    "to_chain": "base"
+    "to_chain": "base",
+    "wallet_address": "0xYOUR_MANAGED_ADDRESS"
   }'
 ```
 
@@ -37,14 +38,24 @@ The response includes a `quote_id`, the `expected_output`, the route, and estima
 }
 ```
 
-## Step 2: Execute the Swap
+## Step 2: Simulate, Then Execute the Swap
 
-With a managed wallet provisioned (see [Managed Wallets](managed-wallets.md)), execute the quote server-side. Suwappu signs and broadcasts on both legs.
+With a managed wallet provisioned (see [Managed Wallets](managed-wallets.md)), dry-run the quote first:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+```
+
+Only continue when `would_execute` is true and the route economics still meet your product's limits. Managed execution signs and broadcasts server-side:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: cross-chain-intent-001" \
   -d '{"quote_id": "q_abc123"}'
 ```
 
@@ -55,6 +66,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   "status": "pending"
 }
 ```
+
+Treat a timeout/network/5xx as outcome-unknown: reconcile the managed swap before retrying and reuse the same idempotency key.
 
 ## Step 3: Track the Swap
 

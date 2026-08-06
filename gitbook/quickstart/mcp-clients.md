@@ -89,7 +89,7 @@ url = "https://api.suwappu.bot/mcp"
 Authorization = "Bearer suwappu_sk_YOUR_KEY"
 ```
 
-**Timeout gotcha:** Codex's default MCP tool-call timeout is 60 seconds. Cross-chain quotes and swap execution can occasionally take longer than that under upstream aggregator latency, and the call will be killed client-side even though the request would have succeeded. Raise the tool timeout explicitly:
+**Timeout gotcha:** Codex's default MCP tool-call timeout is 60 seconds. Cross-chain quotes and unsigned swap preparation can occasionally take longer than that under upstream aggregator latency. Raise the tool timeout explicitly:
 
 ```toml
 [mcp_servers.suwappu]
@@ -100,7 +100,7 @@ tool_timeout_sec = 120
 Authorization = "Bearer suwappu_sk_YOUR_KEY"
 ```
 
-If you still see timeouts on `execute_swap` specifically, retry — Suwappu's own quote cache holds the quote for 60 seconds, so a client-side timeout doesn't mean the swap didn't submit; check [`GET /v1/agent/swaps`](../api-reference/swap-history.md) before resubmitting.
+If `execute_swap` times out, get a fresh quote and prepare again. Despite its historical name, MCP `execute_swap` only prepares an **unsigned self-custody transaction**; it never signs, broadcasts, or creates a managed swap record. Do not use [`GET /v1/agent/swaps`](../api-reference/swap-history.md) to infer whether an MCP-prepared transaction was submitted — submission is owned by the wallet that signs it.
 
 ## OpenCode
 

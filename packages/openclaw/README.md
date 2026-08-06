@@ -18,6 +18,10 @@ Built for unattended operation:
   `X-Suwappu-Client` identifier header.
 - **Self-onboarding** — `register()` mints an API key with no prior auth.
 
+> **Version check:** this page describes source `0.3.0`. Run
+> `npm view @suwappu/openclaw version` before copying `simulateSwap` or
+> idempotency examples from this page into a registry-installed client.
+
 The package also ships a [`SKILL.md`](./SKILL.md) for MCP / agent runtimes that
 load skills by manifest, and a [`server.json`](./server.json) MCP-registry manifest.
 
@@ -37,6 +41,10 @@ const suwappu = createClient({ apiKey: process.env.SUWAPPU_API_KEY });
 
 // Quote a swap
 const quote = await suwappu.getQuote("ETH", "USDC", 1.0, "arbitrum");
+
+// Dry-run the quote before asking for a signable transaction
+const simulation = await suwappu.simulateSwap(quote.id, "0xYourWallet");
+if (!simulation.wouldExecute) throw new Error(simulation.warnings.join("; "));
 
 // Build the UNSIGNED transaction (Suwappu is non-custodial — it never broadcasts)
 const result = await suwappu.executeSwap(quote.id, "0xYourWallet");
@@ -91,17 +99,23 @@ Beyond the non-custodial `executeSwap`, an agent with a managed wallet can have
 the server sign and broadcast, then poll for the result:
 
 ```ts
-const receipt = await suwappu.executeManagedSwap(quote.id, myManagedWallet);
+const receipt = await suwappu.executeManagedSwap(quote.id, myManagedWallet, {
+  idempotencyKey: "rebalance-2026-08-06-001",
+});
 const status = await suwappu.getSwapStatus(receipt.swapId);
 ```
+
+If a timeout/network/5xx makes a managed execution outcome uncertain, reconcile
+status/history first and reuse that same idempotency key instead of blindly
+submitting another trade.
 
 ## Non-custodial swaps
 
 `executeSwap` does **not** broadcast a transaction. It returns an unsigned EVM
 transaction (or a base64 serialized Solana transaction) with `status: "ready"`.
-You sign and submit it with your own wallet. `executeSwap` and `getPortfolio`
-both require a `wallet_address`; for EVM swaps it must be your managed wallet
-(ownership is enforced server-side).
+You sign and submit it with your own wallet. `executeSwap` requires the address
+that will sign the returned transaction. `getPortfolio` is intentionally narrower:
+it only reads the calling agent's managed EVM wallet.
 
 ## API surface
 
@@ -111,6 +125,7 @@ both require a `wallet_address`; for EVM swaps it must be your managed wallet
 | `getProfile()` | `GET /v1/agent/me` |
 | `rotateKey()` | `POST /v1/agent/keys/rotate` |
 | `getQuote(from, to, amount, chain)` | `POST /v1/agent/quote` |
+| `simulateSwap(quoteId, walletAddress?)` | `POST /v1/agent/swap/simulate` |
 | `executeSwap(quoteId, walletAddress)` | `POST /v1/agent/swap` |
 | `executeManagedSwap(quoteId, walletAddress)` | `POST /v1/agent/swap/execute` |
 | `getSwapStatus(swapId)` | `GET /v1/agent/swap/status/:id` |
@@ -118,16 +133,18 @@ both require a `wallet_address`; for EVM swaps it must be your managed wallet
 | `getPrices(symbols, chain?)` | `GET /v1/agent/prices` |
 | `listChains()` | `GET /v1/agent/chains` |
 | `listTokens(chain)` | `GET /v1/agent/tokens` |
-| `perps.markets()` | `GET /v1/agent/perps/markets` |
-| `perps.quote(market, side, size, leverage)` | `POST /v1/agent/perps/quote` |
-| `perps.positions(address)` | `GET /v1/agent/perps/positions` |
+| `perps.markets()` | `GET /v1/agent/perps/markets` (research) |
+| `perps.quote(market, side, size, leverage)` | `POST /v1/agent/perps/quote` (indicative) |
+| `perps.positions(address)` | `GET /v1/agent/perps/positions` (read-only) |
 | `predict.markets(query?, limit?)` | `GET /v1/agent/predict/markets` |
 | `predict.market(id)` | `GET /v1/agent/predict/market/:id` |
-| `lend.markets(chainId?)` | `GET /v1/agent/lend/markets` |
-| `lend.market(id)` | `GET /v1/agent/lend/market/:id` |
+| `lend.markets(chainId?)` | `GET /v1/agent/lend/markets` (read-only) |
+| `lend.market(id)` | `GET /v1/agent/lend/market/:id` (read-only) |
 
 Every method mirrors a Suwappu agent API endpoint exactly — there are no
-client-only features.
+client-only features. The current Agent API has no perps open/close endpoint and
+no Morpho deposit/withdraw endpoint; these methods are for research, monitoring,
+and product intelligence.
 
 ## Development
 
@@ -144,7 +161,7 @@ bun run build       # emit dist/ for publishing
 [MCP registry](https://registry.modelcontextprotocol.io) ([spec/schema](https://github.com/modelcontextprotocol/registry)).
 It declares the `bot.suwappu/mcp` server under the domain-verified `bot.suwappu`
 namespace (reverse-DNS for `suwappu.bot`), our remote endpoint
-(`https://api.suwappu.bot/mcp`, bearer-auth required), and the `@suwappu/mcp-server`
+(`https://api.suwappu.bot/mcp`; discovery is public and most tools require bearer auth), and the `@suwappu/mcp-server`
 npm package as an alternate stdio transport.
 
 To (re-)publish after editing `server.json`:

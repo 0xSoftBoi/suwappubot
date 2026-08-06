@@ -77,7 +77,7 @@ List all available tools and their input schemas:
 
 **Response:**
 
-Returns an array of tool definitions. See the tool reference below for all 15 tools.
+Returns the live tool definitions and input schemas. Source `0.6.0` currently advertises **22 tools**; `tools/list` is the runtime source of truth if this page and a deployed server ever differ.
 
 ## Pay-Per-Call Pricing
 
@@ -91,7 +91,7 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `list_chains` | List all supported blockchain networks. No parameters. | — | 0 (free) |
 | `list_tokens` | List available tokens on a chain | `chain`, `search` | 0 (free) |
 | `simulate_swap` | Dry-run a swap with zero funds moved — pre-flight checks (balance, allowance, gas, `eth_call` revert preview, slippage) plus `would_execute` verdict | same as `get_quote`, plus optional `quote_id` | 1 |
-| `execute_swap` | Execute a swap using a previously obtained `quote_id`; returns an unsigned transaction to sign | `quote_id`, `wallet_address` | 5 |
+| `execute_swap` | Historical name for preparing an unsigned self-custody transaction; never signs or broadcasts | `quote_id`, `wallet_address`, `idempotency_key` | 5 |
 | `get_tempo_tokens` | TIP-20 token list on Tempo mainnet (chain 4217) — USD-denominated stablecoins | `search` | 0 (free) |
 | `browse_mpp_directory` | Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory | `category`, `limit` | 0 (free) |
 | `predict_markets` | Search and browse Polymarket prediction markets with live prices/volumes | `query`, `limit` | 1 |
@@ -101,10 +101,20 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `perps_positions` | Open HyperLiquid perp positions for a wallet (size, entry, PnL, liquidation price) | `address` | 1 |
 | `lend_markets` | List Morpho lending markets on a chain (supply/borrow APY, LLTV, utilization, TVL) | `chain_id` | 1 |
 | `lend_market` | Detail for a single Morpho lending market by ID | `market_id` | 1 |
+| `get_swap_status` | Status of a managed swap created through REST `/swap/execute` | `swap_id` | 1 |
+| `get_swap_history` | Paginated managed-swap history for the authenticated agent | `status`, `limit`, `offset` | 1 |
+| `predict_book` | Live CLOB order book for every outcome of a prediction market | `market_id` | 1 |
+| `predict_price` | Live CLOB midpoint price for every outcome of a prediction market | `market_id` | 1 |
+| `predict_trades` | Recent CLOB trades across a prediction market's outcomes | `market_id`, `limit` | 1 |
+| `list_wallet_policies` | Read managed-wallet spending/whitelist policies for the authenticated agent | `wallet_address` | 1 |
 
 `predict_market_detail` is a legacy alias for `predict_market` kept for older clients — both route to the same handler and cost.
 
-## Available Tools
+The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods (`initialize`, `tools/list`, resources, and prompts) are public as well. Other tools require agent authentication even when their purpose is read-only.
+
+## Selected Tool Examples
+
+The examples below cover the core patterns. Do not hard-code this numbered subset as the complete inventory; discover the live catalog with `tools/list`.
 
 ### 1. get_quote
 
@@ -142,7 +152,7 @@ Get a swap quote for a token pair.
 
 ### 2. execute_swap
 
-Execute a previously obtained quote.
+Prepare an unsigned self-custody transaction from a previously obtained quote. The caller remains responsible for reviewing, signing, and broadcasting the returned transaction.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -490,7 +500,7 @@ All `tools/call` responses return content as an array of parts:
 }
 ```
 
-The `text` field contains a JSON string. Parse it to access the structured data.
+For tools that declare an MCP `outputSchema`, Suwappu also returns `structuredContent`; prefer it when your client exposes it. The `content` text part remains available for compatibility and contains the same JSON value. Tool-level failures set `isError: true`; do not treat a syntactically successful JSON-RPC response as proof the tool action succeeded.
 
 ## Client Setup
 

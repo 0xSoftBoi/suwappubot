@@ -256,13 +256,37 @@ class BillingCryptoResult(BaseModel):
 # --- Swap simulation & history ---
 
 
+class SwapSimulationExpectedOutput(BaseModel):
+    token: str = ""
+    amount: str = ""
+    amount_usd: str | None = None
+
+
+class SwapSimulationFees(BaseModel):
+    protocol: str | None = None
+    gas_estimate: str | None = None
+
+
+class SwapSimulationCheck(BaseModel):
+    name: str = ""
+    status: Literal["pass", "warn", "fail"] = "warn"
+    detail: str = ""
+    unverified: bool | None = None
+
+
 class SwapSimulation(BaseModel):
     """Result of POST /v1/agent/swap/simulate — a dry run, nothing broadcast."""
 
     success: bool = False
-    reason: str | None = None
-    gas_estimate: str | None = None
-    amount_out: str | None = None
+    would_execute: bool = False
+    quote_id: str = ""
+    chain_type: str = ""
+    expected_output: SwapSimulationExpectedOutput = SwapSimulationExpectedOutput()
+    min_output_after_slippage: str = ""
+    price_impact_pct: float | None = None
+    fees: SwapSimulationFees = SwapSimulationFees()
+    checks: list[SwapSimulationCheck] = []
+    warnings: list[str] = []
     model_config = {"extra": "allow"}
 
 

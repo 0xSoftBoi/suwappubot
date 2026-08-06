@@ -107,8 +107,14 @@ class SuwappuClient:
         *,
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
-        response = await self._client.request(method, path, params=params, json=json)
+        if headers:
+            response = await self._client.request(
+                method, path, params=params, json=json, headers=headers
+            )
+        else:
+            response = await self._client.request(method, path, params=params, json=json)
         if response.status_code >= 400:
             code: str | None = None
             message: str | None = None
@@ -193,12 +199,15 @@ class SuwappuClient:
                 f"Malformed quote response from /v1/agent/quote: missing {e}",
             ) from e
 
-    async def execute_managed_swap(self, quote_id: str) -> SwapResult:
+    async def execute_managed_swap(
+        self, quote_id: str, *, idempotency_key: str | None = None
+    ) -> SwapResult:
         """Execute a quote through the server-managed wallet pipeline."""
         data = await self._request(
             "POST",
             "/v1/agent/swap/execute",
             json={"quote_id": quote_id},
+            headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
         )
         try:
             tracking = data.get("tracking") or {}

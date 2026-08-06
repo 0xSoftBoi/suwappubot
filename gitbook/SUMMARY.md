@@ -61,6 +61,8 @@
 ## Guides
 
 * [Overview](guides/README.md)
+* [Build a Business on Suwappu](guides/build-a-business.md)
+* [Strategy Lifecycle](guides/strategy-lifecycle.md)
 * [Cross-Chain Swaps](guides/cross-chain-swaps.md)
 * [Managed Wallets](guides/managed-wallets.md)
 * [Webhook Setup](guides/webhook-setup.md)
@@ -69,7 +71,7 @@
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
 * [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
-* [Perpetual Futures Trading](guides/perps-trading.md)
+* [Perpetual Futures Research](guides/perps-trading.md)
 * [Prediction Markets](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
 

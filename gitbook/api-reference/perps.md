@@ -1,56 +1,46 @@
 # Perpetual Futures
 
-Trade perpetual futures on HyperLiquid through the Suwappu API. Supports 10 markets with up to 20x leverage.
+Suwappu's **Agent API** exposes HyperLiquid market discovery, indicative position quotes, and address-based position reads. It does **not** currently expose an Agent API endpoint to open, close, or modify a perpetual position.
+
+Use these endpoints for research, risk checks, dashboards, and strategy signals. If your product needs execution, keep that as a separate integration until an execution endpoint is explicitly documented here and in the OpenAPI contract.
 
 ## GET /v1/agent/perps/markets
 
-List available perpetual futures markets.
+List the supported HyperLiquid markets. This route is public.
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/perps/markets \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl https://api.suwappu.bot/v1/agent/perps/markets
 ```
 
-**Response:**
+**Response shape:**
 
 ```json
 {
-  "success": true,
   "markets": [
     {
-      "symbol": "BTC-USD",
-      "markPrice": "67234.50",
-      "indexPrice": "67230.00",
-      "fundingRate": "0.0001",
-      "openInterest": "12500000",
-      "volume24h": "890000000",
-      "maxLeverage": 20
-    },
-    {
-      "symbol": "ETH-USD",
-      "markPrice": "3245.80",
-      "indexPrice": "3245.20",
-      "fundingRate": "0.00008",
-      "openInterest": "5600000",
-      "volume24h": "340000000",
-      "maxLeverage": 20
+      "name": "ETH-USD",
+      "asset": "ETH",
+      "szDecimals": 4,
+      "maxLeverage": 20,
+      "markPrice": 3245.8,
+      "fundingRate": 0
     }
   ]
 }
 ```
 
-Available markets: `BTC-USD`, `ETH-USD`, `SOL-USD`, `ARB-USD`, `AVAX-USD`, `DOGE-USD`, `MATIC-USD`, `OP-USD`, `SUI-USD`, `APT-USD`.
+The current service returns `fundingRate: 0` because live funding is not yet fetched on this path. Do not interpret that placeholder as a real zero-funding observation.
 
 ## POST /v1/agent/perps/quote
 
-Get a quote for opening a perpetual position.
+Get an **indicative** quote for a hypothetical position. This does not place an order.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `market` | string | Yes | Market symbol (e.g., `"ETH-USD"`) |
+| `market` | string | Yes | Market symbol, for example `"ETH-USD"` |
 | `side` | string | Yes | `"long"` or `"short"` |
-| `size` | string | Yes | Position size in base asset units |
-| `leverage` | number | Yes | Leverage multiplier (1-20) |
+| `size` | number | Yes | Positive position size in base-asset units |
+| `leverage` | number | Yes | Leverage multiplier from 1 through 20 |
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
@@ -59,61 +49,62 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
   -d '{
     "market": "ETH-USD",
     "side": "long",
-    "size": "0.5",
+    "size": 0.5,
     "leverage": 10
   }'
 ```
 
-**Response:**
+**Response shape:**
 
 ```json
 {
-  "success": true,
-  "quote": {
-    "market": "ETH-USD",
-    "side": "long",
-    "size": "0.5",
-    "leverage": 10,
-    "entryPrice": "3245.80",
-    "liquidationPrice": "2921.22",
-    "margin": "162.29",
-    "fee": "0.97",
-    "fundingRate": "0.00008"
-  }
+  "market": "ETH-USD",
+  "side": "long",
+  "size": 0.5,
+  "leverage": 10,
+  "entryPrice": 3245.8,
+  "margin": 162.29,
+  "liquidationPrice": 2953.678,
+  "fundingRate": 0,
+  "fee": 0.32458
 }
 ```
 
+`entryPrice` is based on the market midpoint, `liquidationPrice` is an approximation, and the current quote path does not model order-book depth or actual fill slippage. Treat it as a research estimate, not an executable fill guarantee.
+
 ## GET /v1/agent/perps/positions
 
-List open perpetual positions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `address` | string | No | Filter by wallet address |
+Read the open HyperLiquid positions for a wallet. The `address` query parameter is required.
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/perps/positions \
+curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUID_ADDRESS" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-**Response:**
+**Response shape:**
 
 ```json
 {
-  "success": true,
   "positions": [
     {
+      "id": "ETH-0",
       "market": "ETH-USD",
       "side": "long",
-      "size": "0.5",
-      "entryPrice": "3245.80",
-      "markPrice": "3302.10",
-      "pnl": "28.15",
-      "pnlPercent": "17.33",
+      "size": 0.5,
       "leverage": 10,
-      "liquidationPrice": "2921.22",
-      "margin": "162.29"
+      "entryPrice": 3245.8,
+      "markPrice": 3302.1,
+      "margin": 162.29,
+      "unrealizedPnl": 28.15,
+      "liquidationPrice": 2921.22,
+      "fundingRate": 0
     }
   ]
 }
 ```
+
+## No Agent API execution endpoint
+
+There is intentionally no `/perps/order`, `/perps/open`, or `/perps/close` route in the current Agent API. The Telegram product has separate HyperLiquid trading code, but that does not make execution available to Agent API, SDK, MCP, or A2A callers.
+
+See [Perpetual Futures Research](../guides/perps-trading.md) for a safe strategy-research pattern.

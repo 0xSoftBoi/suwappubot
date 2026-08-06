@@ -149,7 +149,7 @@ describe("executeSwap", () => {
     }
     expect(res.instructions).toHaveLength(2);
 
-    // wallet_address must be forwarded (API requires it for ownership check)
+    // wallet_address must be forwarded as the address that will sign the transaction
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({
       quote_id: "q_123",
       wallet_address: "0xWallet",
@@ -184,6 +184,34 @@ describe("executeSwap", () => {
       expect(res.transaction.serializedTransaction).toBe("BASE64TX");
       expect(res.transaction.lastValidBlockHeight).toBe(12345);
     }
+  });
+});
+
+describe("simulateSwap", () => {
+  test("maps the dry-run report and forwards the optional wallet address", async () => {
+    const calls = stubFetch({
+      success: true,
+      would_execute: true,
+      quote_id: "q_sim",
+      chain_type: "evm",
+      expected_output: { token: "USDC", amount: "3190", amount_usd: "3190" },
+      min_output_after_slippage: "3174.05",
+      price_impact_pct: 0.12,
+      fees: { protocol: "25.52", gas_estimate: "0.08" },
+      checks: [{ name: "balance", status: "pass", detail: "sufficient" }],
+      warnings: [],
+    });
+
+    const res = await client.simulateSwap("q_sim", "0xWallet");
+
+    expect(res.wouldExecute).toBe(true);
+    expect(res.expectedOutput.amountUsd).toBe("3190");
+    expect(res.fees.gasEstimate).toBe("0.08");
+    expect(res.checks[0]?.status).toBe("pass");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      quote_id: "q_sim",
+      wallet_address: "0xWallet",
+    });
   });
 });
 
@@ -314,16 +342,19 @@ describe("agent lifecycle", () => {
   });
 
   test("executeManagedSwap returns a receipt with pollUrl", async () => {
-    stubFetch({
+    const calls = stubFetch({
       success: true,
       swap_id: 42,
       status: "submitted",
       tx_hash: "0xhash",
       tracking: { poll_url: "/v1/agent/swap/status/42" },
     });
-    const r = await client.executeManagedSwap("q_1", "0xWallet");
+    const r = await client.executeManagedSwap("q_1", "0xWallet", {
+      idempotencyKey: "strategy-run-42",
+    });
     expect(r.swapId).toBe(42);
     expect(r.pollUrl).toBe("/v1/agent/swap/status/42");
+    expect(new Headers(calls[0].init?.headers).get("Idempotency-Key")).toBe("strategy-run-42");
   });
 
   test("getSwapStatus maps fields and forwards id", async () => {

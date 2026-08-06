@@ -53,7 +53,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/quote \
 
 ## Natural Language (A2A / execute)
 
-The A2A endpoint and the `/v1/agent/execute` endpoint both understand Solana commands:
+The A2A endpoint and `/v1/agent/execute` both understand Solana commands, but these natural-language surfaces stop at quote/transaction preparation. They do **not** perform managed execution. Simulate the returned quote, get explicit approval, then use the managed REST execution endpoint or sign and broadcast the prepared transaction yourself.
 
 ```bash
 curl -X POST https://api.suwappu.bot/a2a \
@@ -72,5 +72,5 @@ curl -X POST https://api.suwappu.bot/a2a \
 ## Notes
 
 - Solana managed wallets are distinct from EVM managed wallets. Fund the Solana wallet with SOL for transaction fees.
-- Quotes expire quickly (about 60 seconds) — execute promptly after quoting.
+- Quotes expire quickly (about 60 seconds) — act on an approved quote promptly, and refresh it before execution if it has expired.
 - For tokens not in the built-in list, pass the SPL mint address as the token field.

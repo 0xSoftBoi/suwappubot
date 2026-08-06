@@ -7,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        `Cross-chain DeFi SDK for AI agents: swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
+        `Cross-chain DeFi platform for AI agents: swap tokens, research HyperLiquid perps and Morpho markets, access prediction markets, and build automations across ${stats.platformChains} blockchains.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -16,10 +16,10 @@ export default function StructuredData() {
         'cross-chain swap, DEX aggregator, DeFi SDK, AI agent tooling, MCP server, perpetual futures, prediction markets, lending',
       featureList: [
         `Cross-chain token swaps across ${stats.platformChains} blockchains`,
-        'Perpetual futures trading via HyperLiquid',
+        'HyperLiquid market, quote, and position research via the Agent API',
         'Gasless fee-sponsored swaps on Tempo',
         'Prediction markets via Polymarket',
-        'DeFi lending via Morpho',
+        'Morpho lending-market research',
         'MCP server for Claude and AI agents',
         'A2A agent-to-agent protocol',
         'REST API with OpenAPI spec',
@@ -46,7 +46,7 @@ export default function StructuredData() {
       '@type': 'TechArticle',
       name: 'Suwappu API Documentation',
       description:
-        'Complete API reference for the Suwappu cross-chain DeFi SDK. Endpoints for swaps, perpetual futures, prediction markets, lending, and wallet management.',
+        'Complete API reference for Suwappu: swap execution, HyperLiquid market research, prediction markets, Morpho market data, and managed-wallet controls.',
       url: 'https://suwappu.bot/docs',
       about: {
         '@type': 'SoftwareApplication',

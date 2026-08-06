@@ -4,8 +4,9 @@ Async Python client for the [Suwappu](https://suwappu.bot) agent API: quotes,
 custody-aware swaps, portfolios, prices, perps, prediction markets, lending, and
 agent controls. Call `list_chains()` to discover the current chain set.
 
-> **Release status:** the Python SDK source is currently `0.3.0` and is **not
-> published to PyPI**. Do not assume `pip install suwappu` is available yet.
+> **Version check:** this repository describes Python SDK source `0.3.0`.
+> Check `python -m pip index versions suwappu` before relying on PyPI; if the
+> package/version is unavailable, install the source as shown below.
 
 ## Install
 
@@ -68,8 +69,8 @@ sim = await client.simulate_swap(
     quote_id=quote.quote_id,
     wallet_address="0xYourWallet",
 )
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
 prepared = await client.prepare_swap(
     quote_id=quote.quote_id,
@@ -113,15 +114,21 @@ sim = await client.simulate_swap(
     quote_id=quote.quote_id,
     wallet_address=wallet.address,
 )
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
-result = await client.execute_managed_swap(quote.quote_id)
+result = await client.execute_managed_swap(
+    quote.quote_id,
+    idempotency_key="rebalance-2026-08-06-001",
+)
 print(result.swap_id, result.status, result.tx_hash)
 ```
 
 `execute_managed_swap()` calls `POST /v1/agent/swap/execute`.
 `execute_swap()` remains a backwards-compatible alias for that managed path.
+For durable automation, give every intended trade a stable `idempotency_key`.
+After an unknown timeout/network/5xx outcome, reconcile before retrying and
+reuse the same key.
 
 ## Configuration
 
@@ -169,8 +176,8 @@ await client.agent.list_wallets()
 
 # Dry-run before you commit. Surfaces reverts and gas while nothing is at stake.
 sim = await client.simulate_swap(quote_id=quote.quote_id, wallet_address="0x…")
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
 history = await client.list_swaps(status="completed", limit=20)  # managed swap records
 ```
@@ -229,8 +236,7 @@ except SuwappuError as err:
 
 ## Publishing
 
-This package is not yet published to PyPI. When ready, publishing follows the
-standard `build` + `twine` flow from `packages/sdk-python/`:
+Publishing follows the standard `build` + `twine` flow from `packages/sdk-python/`:
 
 ```bash
 python3 -m build

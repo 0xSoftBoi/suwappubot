@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     template: '%s | Suwappu',
   },
   description:
-    `One SDK. ${stats.platformChains} chains. Swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: all from a single API. Built for AI agents, bots, and developers.`,
+    `One API across ${stats.platformChains} chains: swap tokens, research HyperLiquid perps and Morpho markets, access prediction markets, and build agent automations. Built for AI agents, bots, and developers.`,
   keywords: [
     'cross-chain swap',
     'DEX SDK',
@@ -77,7 +77,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains, research HyperLiquid perps and Morpho markets, and access prediction markets through one agent API.`,
     type: 'website',
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
@@ -90,7 +90,7 @@ export const metadata: Metadata = {
     creator: '@suwappubot',
     title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades: one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains and build agent workflows with REST, SDK, MCP, and A2A.`,
     // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
   // Deliberately no canonical at the root. Next inherits metadata down the tree
