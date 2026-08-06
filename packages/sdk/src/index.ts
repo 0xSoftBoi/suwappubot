@@ -7,7 +7,9 @@
  *
  * const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
  * const quote = await client.getQuote({ from: "USDC", to: "ETH", chain: "base", amount: "1000" });
- * console.log(quote.toAmount);\n * // Managed execution is an explicit opt-in:\n * // const execution = await client.executeManagedSwap(quote);
+ * console.log(quote.toAmount);
+ * // Managed execution is an explicit opt-in:
+ * // const execution = await client.executeManagedSwap(quote);
  * ```
  */
 
