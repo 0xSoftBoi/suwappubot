@@ -374,9 +374,11 @@ suwappubot/
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.5.2 | TypeScript SDK + `suwappu` CLI |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.4.0 | TypeScript SDK + `suwappu` CLI |
 | [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.1.1 | MCP server for Claude Desktop/Cursor |
 | [`@suwappu/openclaw`](https://www.npmjs.com/package/@suwappu/openclaw) | 0.2.0 | OpenClaw skill module |
+
+> Versions above are the current npm releases. Package source in this monorepo may be ahead while the next release is being prepared.
 
 ---
 
@@ -417,7 +419,6 @@ checked post-deploy).
 - **Token analysis** — GoPlus Security API integration
 - **Transaction simulation** — Simulate before executing
 - **Withdrawal whitelisting** — 24h cooldown for new addresses
-- **WAF** — AWS WAF with rate limiting (300 req/IP)
 - **Audit logging** — All security-sensitive actions logged
 
 Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECURITY.md).
