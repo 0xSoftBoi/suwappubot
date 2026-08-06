@@ -38,7 +38,7 @@ export async function generateMetadata({
       type: 'article',
       url,
       publishedTime: post.date,
-      modifiedTime: post.date,
+      modifiedTime: post.updated ?? post.date,
       authors: [AUTHOR_NAME],
       section: post.category,
     },
@@ -74,7 +74,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     headline: post.title,
     description: post.excerpt,
     datePublished: post.date,
-    dateModified: post.date,
+    dateModified: post.updated ?? post.date,
     inLanguage: 'en',
     isAccessibleForFree: true,
     articleSection: post.category,
@@ -132,6 +132,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
           <div className="research-post__meta">
             <span className="research-tag">{post.category}</span>
             <time>{fmtDate(post.date)}</time>
+            {post.updated && <span>Revised {fmtDate(post.updated)}</span>}
             {post.readMins && <span>{post.readMins} min read</span>}
           </div>
           <h1>{post.title}</h1>

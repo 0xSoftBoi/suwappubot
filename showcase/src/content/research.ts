@@ -8,6 +8,7 @@ export type ResearchPost = {
   slug: string;
   title: string;
   date: string; // ISO; empty for planned
+  updated?: string; // ISO revision date when materially revised after publication
   category:
     | 'Protocol'
     | 'Architecture'
@@ -30,7 +31,7 @@ export type ResearchPost = {
   keywords?: string[];
   /** Canonical long-form paper in the public replication bundle, when one exists. */
   paperPath?: string;
-  /** Decision-grade report edition, when a study has been packaged as a PDF. */
+  /** Institutional report edition, when a study has been packaged as a PDF. */
   report?: {
     path: string;
     title: string;
@@ -134,11 +135,12 @@ const USDT0_BODY = `# USDT0 backing reconciliation: separating protocol coverage
 
 *Institutional research note. This study tests token-unit backing inside USDT0's cross-chain accounting perimeter. It does not test Tether's reserve portfolio, USDT redemption capacity, or the legal status of the backing asset. The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) is canonical; a [nine-page report edition](/research/reports/accounting-for-an-omnichain-dollar.pdf) is available for circulation.*
 
-There are two backing questions in this structure, and a bank should not collapse them into one. [USDT0 describes USDT0 as backed 1:1 by USDT on Ethereum](https://usdt0.to/). Separately, [Tether's terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) describe USDT as backed by Tether's reserves and place issuance and redemption with Tether. Our measurement addresses the first relationship only: **does observed USDT backing cover documented USDT0 supply?**
+## Executive conclusion
 
-At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held **3,453,608,822.61 USDT** against **3,452,579,539.64 USDT0** across the complete documented direct-supply perimeter. Observed coverage was **1.000298x**. The arithmetic difference was **1,029,282.97 token units, or about three basis points**.
-
-The strongest conclusion supported by those numbers is narrow: **documented USDT0 supply reconciles to observed USDT backing at par within measurement tolerance.** It is not a finding that USDT0 is independently “dollar solvent,” that USDT itself is fully reserved, or that three basis points is an economic reserve cushion.
+- **Measured result.** At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held **3,453,608,822.61 USDT** against **3,452,579,539.64 USDT0** across the complete documented direct-supply perimeter: **1.000298x** token-unit coverage and an arithmetic difference of **1,029,282.97 units, about three basis points**.
+- **Interpretation.** The documented protocol perimeter reconciles to par within measurement tolerance. Three basis points is not treated as an economic reserve cushion.
+- **Assurance boundary.** The study tests **USDT0 → USDT** backing. It does not test Tether's underlying reserve assets, a holder's legal claim, USDT redemption capacity, stressed convertibility, market liquidity, or prudential treatment.
+- **Bank-control conclusion.** Public state is useful as a repeatable first-line reconciliation. It is not sufficient evidence, on its own, for a treasury, credit, liquidity, settlement-finality, or counterparty-risk decision.
 
 | Head snapshot — 1 Aug 2026, 01:53 UTC | Observed public state |
 |---|---:|
@@ -150,7 +152,9 @@ The strongest conclusion supported by those numbers is narrow: **documented USDT
 
 HyperCore is not an additional row: its 12.27m Core-side float was verified as contained within HyperEVM \`totalSupply()\`, so adding it would double-count. MegaETH is included in the head snapshot. Tron and TON sit in the separate Legacy Mesh perimeter and are addressed below.
 
-## First define the accounting identity
+## First define the instrument and the accounting identity
+
+There are two backing relationships in this structure, and they should not be collapsed into one. [USDT0 describes USDT0 as backed 1:1 by USDT on Ethereum](https://usdt0.to/). Separately, [Tether's terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) describe USDT as backed by Tether's reserves and place issuance and redemption with Tether. Our measurement addresses the first relationship only.
 
 The protocol-level ratio in this study is:
 
@@ -160,9 +164,9 @@ This is a **token-unit** identity, not a mark-to-market collateral test. One USD
 
 Two terms also need discipline. In this note, **“backing”** means USDT held in the protocol account that supports USDT0 supply; it does not mean Tether's underlying reserve assets. **“Liability”**, where used in the working paper, means token supply that the protocol accounting identity requires to be backed; it is not a legal opinion on balance-sheet recognition or creditor status.
 
-Before the 27 August 2025 Polygon migration, the measured backing perimeter included the Ethereum lockbox plus the canonical Polygon PoS predicate. After the migration, Polygon moved into the USDT0 model and the measured backing sits in the Ethereum lockbox. That change in perimeter is economically important: a ratio is only as reliable as the account map underneath it.
+Before the 27 August 2025 Polygon migration, the measured backing perimeter included the Ethereum lockbox plus the canonical Polygon PoS predicate. After the migration, Polygon moved into the direct USDT0 perimeter and the measured backing sits in the Ethereum lockbox. That change in perimeter is economically important: a ratio is only as reliable as the account map underneath it.
 
-## Three assurance questions, only one of which this study answers directly
+## Four assurance questions, only one of which this study answers directly
 
 For bank diligence, the structure is best read as an assurance stack rather than a single “reserve” claim.
 
@@ -175,6 +179,14 @@ For bank diligence, the structure is best read as an assurance stack rather than
 
 This distinction changes how the result should be used. A perfect 1.0000x USDT0-to-USDT reconciliation would still inherit the economic, legal, liquidity, and issuer risk of USDT. Conversely, weakness in USDT0's token-unit reconciliation would be a separate protocol-level problem even if USDT's own reserve position were strong.
 
+### Supervisory lens: reconciliation is not prudential assurance
+
+The boundary is consistent with the questions supervisors ask, but this paper is **not** a supervisory assessment. [CPMI-IOSCO's guidance on applying the PFMI to stablecoin arrangements](https://www.bis.org/cpmi/publ/d198.pdf) treats settlement finality, legal claims, convertibility at par in normal and stressed conditions, and the credit and liquidity risk of the settlement asset as distinct questions. A token-balance ratio does not answer them. In particular, technical settlement on a ledger is not the same thing as legal finality.
+
+The control also should not be called a regulatory “model” by reflex. The Federal Reserve, OCC and FDIC's [2026 revised model-risk guidance, SR 26-2](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), expressly excludes simple arithmetic and deterministic rule-based processes from its model definition. The ratio here is deterministic arithmetic. Its main governance risks are **reference-data quality, population completeness, change control and use of the output**. A bank may bring statistical overlays, valuation haircuts, forecasts or other models around that control; those should be classified under the bank's own model-risk framework.
+
+We also make no determination under the Basel Committee's [SCO60 cryptoasset framework](https://www.bis.org/basel_framework/chapter/SCO/60.htm?inforce=20260101&published=20240717). Prudential classification, the redemption-risk test and capital treatment are separate from this measurement.
+
 ## The ratio is straightforward; the perimeter is the risk
 
 We have published this measurement three times. The first two versions were materially wrong in opposite directions. Neither failure was an RPC failure or a difficult statistical problem. Both came from getting the accounting perimeter wrong.
@@ -185,15 +197,15 @@ We have published this measurement three times. The first two versions were mate
 | V2 | 0.513–0.588x across 16 pre-migration observations; apparent shortfall | Wrong Polygon backing address | Govern account-to-leg mappings as reference data |
 | Current | 1.000298x at complete head; ~3bp difference | Complete documented head perimeter with canonical Polygon mapping | Report token-unit reconciliation separately from issuer-level assurance |
 
-The symmetry matters. V1 understated supply and manufactured apparent surplus. V2 omitted the effective backing account and manufactured apparent shortfall. The contracts answered exactly what they were asked. The model asked the wrong question.
+The symmetry matters. V1 understated supply and manufactured apparent surplus. V2 omitted the effective backing account and manufactured apparent shortfall. The contracts answered exactly what they were asked. The control was configured against the wrong population.
 
-For a bank, the address map therefore belongs in reference-data and model governance. Every row needs an owner, source, effective date, contract identity, backing relationship, containment rule, and change history. The ratio should be downstream of that control, not a substitute for it.
+For a bank, the address map therefore belongs in controlled reference data. Every row needs an owner, source, effective date, contract identity, backing relationship, containment rule, and change history. The ratio should be downstream of that control, not a substitute for it.
 
 ## Polygon shows what a reference-data break looks like
 
 Version 2 reported 16 pre-migration observations at 0.513–0.588x because the address recorded as Polygon's ERC20 predicate held 0.02 USDT. The balance read was correct; the mapping was not. Polygon's canonical PoS predicate is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`. Archive reads at the same aligned blocks show **1.22–1.39bn USDT** in that account, covering the Polygon supply leg at 1.006–1.015 in all 16 observations.
 
-![Two series: version 2's published collateralization ratio, dashed, falling to 0.51-0.59 before late August 2025, and the corrected measured series including the canonical Polygon predicate, solid, holding above par across the panel.](/research/usdt0-corrected-series.svg "The V2 shortfall was an address-map artifact. Including the canonical Polygon predicate restores the measured pre-migration backing account; the historical panel remains subject to its stated deployment-coverage limits.")
+![Two series: version 2's published token-unit backing ratio, dashed, falling to 0.51-0.59 before late August 2025, and the corrected measured series including the canonical Polygon predicate, solid, holding above par across the panel.](/research/usdt0-corrected-series.svg "The V2 shortfall was an address-map artifact. Including the canonical Polygon predicate restores the measured pre-migration backing account; the historical panel remains subject to its stated deployment-coverage limits.")
 
 With the canonical account restored, corrected observed pre-migration coverage is **1.017–1.028x, median 1.021x**. Flow analysis independently points to the same attribution: lockbox changes versus non-Polygon supply and predicate changes versus Polygon supply each correlate at 0.99; the correctly specified aggregate flow regression has β = 1.002 (SE 0.015). Full regression output is in the working paper.
 
@@ -209,9 +221,9 @@ The 27 August 2025 migration supplies a cleaner event-level cross-check. Across 
 
 ## The historical difference was large; it was not structural
 
-Post-migration, the nominal token-unit difference between observed backing and measured supply ranged from **5.1m to 760.3m units**, or roughly **15bp to 18.7% of measured supply**. Eleven 48-hour moves exceeded 100m units and did not correspond one-for-one with supply changes. The series does not support treating the historical excess as a stable collateral cushion.
+Post-migration, the nominal token-unit difference between observed backing and measured supply ranged from **5.1m to 760.3m units**, or roughly **15bp to 18.7% of measured supply**. Eleven 48-hour moves exceeded 100m units and did not correspond one-for-one with supply changes. The series does not support treating the historical excess as a stable economic buffer.
 
-![Two panels: the measured collateral difference on a nominal 1:1 token-unit basis, peaking near 760m units in December 2025 and declining through 2026, and the difference as a share of measured supply.](/research/usdt0-buffer.svg "Historical measured excess coverage varied materially and compressed toward par by the end of the panel. The chart uses the protocol's nominal 1:1 token-unit convention; it is not a mark-to-market valuation of USDT.")
+![Two panels: the measured backing-minus-supply difference on a nominal 1:1 token-unit basis, peaking near 760m units in December 2025 and declining through 2026, and the difference as a share of measured supply.](/research/usdt0-buffer.svg "Historical measured excess coverage varied materially and compressed toward par by the end of the panel. The chart uses the protocol's nominal 1:1 token-unit convention; it is not a mark-to-market valuation of USDT.")
 
 The final eight days are more decision-relevant than the peak. From 17 to 25 July, USDT backing fell **192.9m units** while measured USDT0 supply fell **75.7m units** — about **117m more units of backing left than supply declined**. The measured difference compressed to 5.1m units.
 
@@ -228,7 +240,7 @@ The useful output is not a dashboard tile showing “100.03%.” It is a control
 | **Protocol backing reconciliation** | Canonical USDT backing balance + complete direct USDT0 supply, time-aligned where possible | Detect observable divergence from the 1:1 token-unit identity |
 | **Perimeter governance** | Versioned deployment registry, source, effective date, containment rule, migrations, contract identity and decimals | Prevent V1/V2-style population and mapping failures |
 | **Cross-chain operations** | Message state, pending mint/burn or lock/unlock instructions, contract and security configuration, exception queues | Distinguish a timing item from a genuine stock mismatch |
-| **Issuer / asset-risk overlay** | Tether reserve and assurance reporting, legal terms, redemption eligibility, liquidity and concentration analysis, internal haircuts | Convert protocol backing into a bank credit/liquidity view |
+| **Issuer / asset-risk overlay** | Tether reserve and assurance reporting, legal terms, redemption eligibility, normal/stressed liquidity and concentration analysis, internal haircuts | Convert protocol backing into a bank credit/liquidity view |
 
 The [USDT0 developer guide](https://docs.usdt0.to/technical-documentation/developer/) describes the core mechanism as USDT locked/unlocked on Ethereum and USDT0 minted/burned on remote chains through LayerZero messaging. [LayerZero's OFT documentation](https://docs.layerzero.network/v2/concepts/applications/oft-standard) describes the same debit/credit conservation model. That architecture explains why a balance/supply reconciliation is useful — and why it is incomplete while messages may be between debit and credit states.
 
@@ -242,7 +254,7 @@ Two different assessments can change, for different reasons.
 
 **The protocol-backing assessment would change** with a documented supply-leg omission, backing-account reclassification, net messages in flight large enough to explain the difference, a transfer-fee setting that changes the conservation identity, or new authoritative deployment data. Given two prior corrections, any such event should trigger remeasurement from the raw state.
 
-**The bank-risk assessment could change even if the 1.000298x ratio did not.** A change in Tether reserve quality, USDT market liquidity or redemption terms, legal availability of the locked USDT, sanctions/freeze exposure, smart-contract authority, or cross-chain messaging security would affect the economic risk without necessarily moving either side of this ratio.
+**The bank-risk assessment could change even if the 1.000298x ratio did not.** A change in Tether reserve quality, USDT market liquidity or redemption terms, legal availability of the locked USDT, sanctions/freeze exposure, smart-contract authority, cross-chain messaging security, or the relationship between technical settlement and legal finality would affect the economic risk without necessarily moving either side of this ratio.
 
 Tron and TON are intentionally outside this direct-supply reconciliation. [USDT0 documents them within the Legacy Mesh](https://docs.usdt0.to/overview/the-legacy-mesh), which connects native USDT deployments through liquidity pools and a hub rather than treating their full native supply as direct USDT0 supply against this lockbox. That system creates a different liquidity and counterparty perimeter; this article does not measure it.
 
@@ -254,11 +266,11 @@ All collection uses public chain state. No explorer API, indexer, or credential 
 
 **[Open the working paper, code, data, and correction history](/research/replication)**. The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) governs where this abridged article and the paper differ.
 
-Primary architecture sources used to define the perimeter are USDT0's [developer guide](https://docs.usdt0.to/technical-documentation/developer/), [deployment registry](https://docs.usdt0.to/technical-documentation/deployments), and [Polygon migration notice](https://blog.usdt0.to/polygon-usdt-now-upgraded-to-usdt0-1-3b-in-usdt-liquidity-available-natively-omnichain); LayerZero's [OFT standard](https://docs.layerzero.network/v2/concepts/applications/oft-standard); and Tether's [legal terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) and [reserve transparency page](https://tether.to/transparency/). These sources define claims made by the relevant parties; citing them is not independent assurance of those claims.
+Primary architecture sources used to define the perimeter are USDT0's [developer guide](https://docs.usdt0.to/technical-documentation/developer/), [deployment registry](https://docs.usdt0.to/technical-documentation/deployments), and [Polygon migration notice](https://blog.usdt0.to/polygon-usdt-now-upgraded-to-usdt0-1-3b-in-usdt-liquidity-available-natively-omnichain); LayerZero's [OFT standard](https://docs.layerzero.network/v2/concepts/applications/oft-standard); and Tether's [legal terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) and [reserve transparency page](https://tether.to/transparency/). The bank-risk framing also references [CPMI-IOSCO's PFMI stablecoin guidance](https://www.bis.org/cpmi/publ/d198.pdf), the US banking agencies' [SR 26-2 revised model-risk guidance](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), and the Basel Committee's [SCO60 cryptoasset framework](https://www.bis.org/basel_framework/chapter/SCO/60.htm?inforce=20260101&published=20240717). Party-authored sources define claims made by the relevant parties; citing them is not independent assurance of those claims.
 
 ---
 
-*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
+*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
 
 const POINTS_BODY = `# Points programs are Tullock contests: who actually collects an airdrop
 
@@ -427,6 +439,7 @@ export const researchPosts: ResearchPost[] = [
     slug: 'omnichain-dollar-collateral',
     title: 'USDT0 backing reconciliation: separating protocol coverage from issuer risk',
     date: '2026-07-31',
+    updated: '2026-08-06',
     category: 'Reserve risk',
     kind: 'research',
     excerpt: 'The documented USDT0 perimeter reconciles to 1.000298x against observed USDT backing at head. That is a protocol-accounting result — not evidence about Tether\'s underlying reserves, redemption capacity, or legal availability.',
@@ -436,7 +449,7 @@ export const researchPosts: ResearchPost[] = [
     report: {
       path: '/research/reports/accounting-for-an-omnichain-dollar.pdf',
       title: 'Accounting for an Omnichain Dollar',
-      subtitle: 'USDT0 reserve reconciliation: observed backing, accounting perimeter, and monitoring implications for banks.',
+      subtitle: 'USDT0 token-unit backing, assurance perimeter, and bank-control implications.',
       date: '2026-08-06',
       pages: 9,
       metrics: [
@@ -452,7 +465,7 @@ export const researchPosts: ResearchPost[] = [
     },
     keywords: [
       'omnichain stablecoin', 'USDT0', 'stablecoin backing reconciliation',
-      'stablecoin issuer risk', 'cross-chain liability accounting', 'stablecoin settlement risk',
+      'stablecoin issuer risk', 'cross-chain supply accounting', 'stablecoin settlement risk',
       'LayerZero OFT', 'lock and mint bridge', 'bank stablecoin diligence',
     ],
     body: USDT0_BODY,

@@ -102,16 +102,16 @@ def corrected_series() -> list[dict[str, float | str]]:
 CORRECTED = corrected_series()
 
 
-def money(value: float, decimals: int = 1) -> str:
+def token_units(value: float, decimals: int = 1) -> str:
     value = float(value)
     magnitude = abs(value)
     if magnitude >= 1_000_000_000:
-        return f"${value / 1_000_000_000:.{decimals}f}B"
+        return f"{value / 1_000_000_000:.{decimals}f}B"
     if magnitude >= 1_000_000:
-        return f"${value / 1_000_000:.{decimals}f}M"
+        return f"{value / 1_000_000:.{decimals}f}M"
     if magnitude >= 1_000:
-        return f"${value / 1_000:.{decimals}f}K"
-    return f"${value:.0f}"
+        return f"{value / 1_000:.{decimals}f}K"
+    return f"{value:.0f}"
 
 
 def set_fill(c: canvas.Canvas, color: Color) -> None:
@@ -202,7 +202,7 @@ def report_footer(c: canvas.Canvas, page: int) -> None:
     line(c, 31)
     c.setFont(MONO, 6.5)
     set_fill(c, MUTED)
-    c.drawString(M, 18, "INSTITUTIONAL RESEARCH / NOT A RESERVE ATTESTATION")
+    c.drawString(M, 18, "RESEARCH / TOKEN-UNIT RECONCILIATION / NOT A RESERVE ATTESTATION")
     c.drawRightString(W - M, 18, f"SUWAPPU.BOT/RESEARCH  /  {page:02d}")
 
 
@@ -294,7 +294,7 @@ def draw_buffer_chart(c: canvas.Canvas, x: float, y: float, width: float, height
         c.line(x, py(level), x + width, py(level))
         set_fill(c, MUTED)
         c.setFont(MONO, 6)
-        c.drawRightString(x - 7, py(level) - 2, f"${level}M")
+        c.drawRightString(x - 7, py(level) - 2, f"{level}M")
 
     path = c.beginPath()
     path.moveTo(px(0), y)
@@ -322,8 +322,8 @@ def draw_buffer_chart(c: canvas.Canvas, x: float, y: float, width: float, height
     c.circle(px(len(values) - 1), py(values[-1]), 2.8, stroke=0, fill=1)
     c.setFont(MONO_BOLD, 6.2)
     set_fill(c, INK)
-    c.drawString(px(peak_i) + 6, py(max_value) - 2, "$760.3M MAX")
-    c.drawRightString(x + width, y + 11, "$5.1M PANEL END")
+    c.drawString(px(peak_i) + 6, py(max_value) - 2, "760.3M MAX")
+    c.drawRightString(x + width, y + 11, "5.1M PANEL END")
     set_fill(c, MUTED)
     c.setFont(MONO, 6.1)
     c.drawString(x, y - 13, "JUL 2025")
@@ -348,7 +348,7 @@ def draw_chain_bars(c: canvas.Canvas, x: float, y: float, width: float) -> float
         c.rect(bar_x, y - 1, bar_w * value / maximum, 8, stroke=0, fill=1)
         set_fill(c, MUTED)
         c.setFont(MONO, 6.6)
-        c.drawRightString(x + width, y, money(value))
+        c.drawRightString(x + width, y, token_units(value))
         y -= 24
     return y
 
@@ -401,7 +401,7 @@ def page_1(c: canvas.Canvas) -> None:
     y -= 12
     paragraph(
         c,
-        "USDT0 reserve reconciliation: observed backing, accounting perimeter, and monitoring implications for banks.",
+        "USDT0 token-unit backing, assurance perimeter, and bank-control implications.",
         M,
         y,
         430,
@@ -411,10 +411,10 @@ def page_1(c: canvas.Canvas) -> None:
         color=INK_2,
     )
 
-    label(c, "Public-state conclusion", M, 502, INK)
+    label(c, "Protocol-backing conclusion", M, 502, INK)
     paragraph(
         c,
-        "Observed collateral and documented direct liabilities reconcile to 1.0003x. The measured difference is about three basis points; this report does not treat it as a reserve cushion.",
+        "Documented direct USDT0 supply reconciles to observed USDT backing at 1.000298x. This is a token-unit result: par within measurement tolerance, not an economic reserve cushion or issuer-level reserve opinion.",
         M,
         482,
         W - 2 * M,
@@ -429,7 +429,7 @@ def page_1(c: canvas.Canvas) -> None:
     label(c, "Tsolmondorj Natsagdorj / Suwappu Research", M, 116, INK)
     paragraph(
         c,
-        "Working paper revised 1 August 2026. Report published 6 August 2026.",
+        "Working paper revised 6 August 2026. Report published 6 August 2026.",
         M,
         96,
         360,
@@ -451,7 +451,7 @@ def page_2(c: canvas.Canvas) -> None:
     label(c, "Banking takeaway", M, H - 84, ORANGE_DARK)
     y = heading(
         c,
-        "Observed backing reconciles to par. That is not the same as a reserve attestation.",
+        "Protocol backing reconciles to par. Issuer assurance is a separate question.",
         M,
         H - 118,
         W - 2 * M,
@@ -461,7 +461,7 @@ def page_2(c: canvas.Canvas) -> None:
     y -= 18
     paragraph(
         c,
-        "At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held $3.4536B of USDT against $3.4526B of directly measured USDT0 liabilities across the issuer-documented perimeter. Observed coverage was 1.0003x. The $1.03M arithmetic difference - about three basis points - is smaller than risks the balance read cannot observe, so we classify the result as reconciled to par rather than excess reserve coverage.",
+        "At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held 3.453608822B USDT against 3.452579540B USDT0 across the complete documented direct-supply perimeter. Coverage was 1.000298x. The 1.029283M-unit difference - about three basis points - is classified as par within measurement tolerance, not as an economic reserve cushion.",
         M,
         y,
         W - 2 * M,
@@ -470,26 +470,26 @@ def page_2(c: canvas.Canvas) -> None:
     )
 
     line(c, 510)
-    stat(c, money(HEAD["lockbox"], 4), "OBSERVED RESERVE BALANCE", M, 470, 135)
-    stat(c, f"{HEAD['ratio']:.4f}x", "OBSERVED COVERAGE RATIO", 225, 470, 150)
-    stat(c, "~3bp", "MEASURED DIFFERENCE / NOT A CUSHION", 410, 470, 130)
+    stat(c, token_units(HEAD["lockbox"], 4), "USDT IN BACKING ACCOUNT", M, 470, 135)
+    stat(c, token_units(HEAD["total_liabilities"], 4), "DIRECT USDT0 SUPPLY", 225, 470, 150)
+    stat(c, f"{HEAD['ratio']:.6f}x", "TOKEN-UNIT COVERAGE", 410, 470, 130)
     line(c, 405)
 
     col = (W - 2 * M - 34) / 2
-    label(c, "What a bank can automate", M, 376, INK)
+    label(c, "What this control measures", M, 376, INK)
     y1 = paragraph(
         c,
-        "The public-state control can read the canonical reserve account, aggregate every documented direct liability leg, version the accounting perimeter and alert on mismatch. The 12-month panel provides 183 block-aligned observations; the current head check covers all 20 documented direct liability legs in one session.",
+        "Public state can read USDT in the canonical backing account, aggregate totalSupply() across every documented direct USDT0 leg, version the accounting perimeter and alert on a token-unit mismatch. The head check covers 20 direct supply legs in one session.",
         M,
         354,
         col,
         size=9.1,
         leading=13.2,
     )
-    label(c, "What still requires external evidence", M + col + 34, 376, INK)
+    label(c, "What it cannot establish", M + col + 34, 376, INK)
     paragraph(
         c,
-        "A token balance does not establish whether reserves are encumbered, whether net mint/burn messages are in flight, or whether the deployment registry itself is complete. A bank also needs governance around the address map and independent evidence for the legal and operational status of reserves. At a 3bp margin, these are decision-relevant, not footnotes.",
+        "It does not test Tether's reserve portfolio, a holder's legal claim, USDT redemption capacity, stressed liquidity, technical versus legal finality, net messages in flight, or whether the deployment registry is exhaustive. Those require separate evidence.",
         M + col + 34,
         354,
         col,
@@ -499,7 +499,7 @@ def page_2(c: canvas.Canvas) -> None:
     label(c, "Control conclusion", M, max(178, y1 - 23), ORANGE_DARK)
     paragraph(
         c,
-        "Use public-state reconciliation as a continuously repeatable first-line control. Treat registry governance, message state and reserve encumbrance as separate evidence requirements before relying on the asset for treasury, settlement or client-facing flows.",
+        "Use the token-unit reconciliation as a repeatable first-line monitoring control. Do not promote it into a credit, liquidity, settlement-finality or reserve conclusion without the issuer, legal and operational evidence required for those decisions.",
         M,
         max(158, y1 - 43),
         W - 2 * M,
@@ -513,12 +513,12 @@ def page_2(c: canvas.Canvas) -> None:
 
 def page_3(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 3, "Model and data risk")
+    report_header(c, 3, "Reference data and control risk")
     label(c, "Control finding", M, H - 84, ORANGE_DARK)
     y = heading(c, "The two corrections are the control finding.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The first error created false excess coverage; the second created a false reserve shortfall. Both came from reference-data and perimeter failures that a bank control framework should catch before a ratio reaches a risk committee.",
+        "The first error created false excess coverage; the second created a false protocol-backing shortfall. Both came from population and reference-data failures that a bank control framework should catch before a ratio reaches a risk committee.",
         M,
         y - 10,
         455,
@@ -535,9 +535,9 @@ def page_3(c: canvas.Canvas) -> None:
     label(c, headers[3], cols[3], top, MUTED)
     line(c, top - 12)
     rows = [
-        ("V1", "1.042 endpoint", "False surplus", "Liability perimeter truncated"),
-        ("V2", "0.513-0.588", "False shortfall", "Wrong Polygon collateral address"),
-        ("V3", "1.0003 head", "Par / ~3bp", "Complete documented universe"),
+        ("V1", "1.042 endpoint", "False surplus", "Direct-supply population truncated"),
+        ("V2", "0.513-0.588", "False shortfall", "Wrong Polygon backing address"),
+        ("V3", "1.000298 head", "Par / ~3bp", "Complete documented direct-supply population"),
     ]
     yy = top - 44
     for version, ratio, gap, issue in rows:
@@ -557,8 +557,8 @@ def page_3(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "01",
-        "Liability-perimeter governance",
-        "V1 omitted $134.8M of liabilities. Completing the universe removed 96% of the reported buffer. Scope needs an owner, effective date, inclusion rule and completeness check.",
+        "Population governance",
+        "V1 omitted 134.8M USDT0 units. Completing the documented population removed 96% of the reported arithmetic difference. Scope needs an owner, effective date, inclusion rule and completeness check.",
         M,
         yb,
         W - 2 * M,
@@ -567,7 +567,7 @@ def page_3(c: canvas.Canvas) -> None:
         c,
         "02",
         "Canonical-account governance",
-        "V2's control address read $0.02 while the canonical Polygon predicate held $1.22B-$1.39B. In a monitoring system, that is a reference-data failure, not reserve deterioration.",
+        "V2's control address read 0.02 USDT while the canonical Polygon predicate held 1.22B-1.39B USDT. That is a reference-data failure, not evidence of backing deterioration.",
         M,
         yb,
         W - 2 * M,
@@ -576,7 +576,7 @@ def page_3(c: canvas.Canvas) -> None:
         c,
         "03",
         "Timestamp discipline",
-        "Cross-chain balances need a common observation time. The panel resolves each chain to the target timestamp; the migration window is rescanned every six hours so settlement flow is not misread as reserve deficiency.",
+        "Cross-chain balances need a common observation time. The panel resolves each chain to the target timestamp; the migration window is rescanned every six hours so settlement flow is not misread as a backing mismatch.",
         M,
         yb,
         W - 2 * M,
@@ -587,7 +587,7 @@ def page_3(c: canvas.Canvas) -> None:
     label(c, "Operating rule", M + 14, 97, ORANGE_DARK)
     paragraph(
         c,
-        "Treat the address registry as controlled reference data: version scope, canonical contracts, effective dates and containment relationships before calculating coverage.",
+        "SR 26-2 excludes simple arithmetic and deterministic rules from its model definition. Govern this ratio primarily as a controlled population, reference-data and use-of-output process.",
         M + 132,
         98,
         W - 2 * M - 148,
@@ -601,12 +601,12 @@ def page_3(c: canvas.Canvas) -> None:
 
 def page_4(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 4, "Reserve accounting")
+    report_header(c, 4, "Token-unit accounting")
     label(c, "Observed perimeter", M, H - 84, ORANGE_DARK)
-    y = heading(c, "The measurable perimeter closes across twenty direct liability legs.", M, H - 118, 470, size=29, leading=30)
+    y = heading(c, "The measured perimeter contains twenty direct supply legs.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The observable accounting identity is straightforward: the verified Ethereum reserve balance should cover aggregate supply across the issuer-documented direct USDT0 deployments. HyperCore is verified as a sub-ledger of HyperEVM and is not double-counted; Tron and TON sit outside this perimeter as Legacy Mesh.",
+        "The observable identity compares USDT token units in the verified Ethereum backing account with aggregate USDT0 totalSupply() across the documented direct deployments. HyperCore is contained in HyperEVM and is not double-counted; Tron and TON sit outside this direct-supply perimeter as Legacy Mesh.",
         M,
         y - 10,
         470,
@@ -619,19 +619,19 @@ def page_4(c: canvas.Canvas) -> None:
     label(c, "1 Aug 2026 / 01:53 UTC", M + 18, 586, ORANGE)
     set_fill(c, WHITE)
     c.setFont(SERIF, 20)
-    c.drawString(M + 18, 555, "$3.4536B collateral  /  $3.4526B liabilities  =  1.0003x")
+    c.drawString(M + 18, 555, "3.4536B USDT  /  3.4526B USDT0  =  1.000298x")
 
-    label(c, "Direct liability perimeter", M, 496, INK)
+    label(c, "Direct supply perimeter", M, 496, INK)
     ybars = draw_chain_bars(c, M, 471, W - 2 * M)
     line(c, ybars + 8)
     set_fill(c, INK)
-    c.setFont(SANS_BOLD, 9)
-    c.drawString(M, ybars - 16, "20 legs directly measured")
-    c.drawString(220, ybars - 16, "0 excluded")
-    c.drawString(325, ybars - 16, "1 verified sub-ledger")
-    c.setFont(MONO, 6.4)
+    c.setFont(SANS_BOLD, 8.5)
+    c.drawString(M, ybars - 16, "20 direct legs measured")
+    c.drawString(220, ybars - 16, "0 documented legs excluded")
+    c.drawString(382, ybars - 16, "HyperCore contained")
+    c.setFont(MONO, 6.1)
     set_fill(c, MUTED)
-    c.drawRightString(W - M, ybars - 16, "HEAD_SNAPSHOT_20260801.JSON")
+    c.drawRightString(W - M, ybars - 31, "SOURCE / HEAD_SNAPSHOT_20260801.JSON")
 
     box_y = 83
     set_fill(c, TEAL_PALE)
@@ -639,7 +639,7 @@ def page_4(c: canvas.Canvas) -> None:
     label(c, "Interpretation", M + 16, box_y + 63, INK)
     paragraph(
         c,
-        "For a bank control, 1.0003x should be classified as reconciled to par within measurement tolerance, not as positive excess reserves. The head reads span roughly a minute rather than one aligned block and do not constitute a reserve attestation.",
+        "For a bank control, 1.000298x is reconciled to par within measurement tolerance. It is not a USD mark-to-market ratio and says nothing about the composition or adequacy of Tether's underlying reserves. The head reads span roughly one minute rather than one aligned block.",
         M + 16,
         box_y + 43,
         W - 2 * M - 32,
@@ -655,10 +655,10 @@ def page_5(c: canvas.Canvas) -> None:
     page_bg(c)
     report_header(c, 5, "Reference-data event")
     label(c, "Why the shortfall disappeared", M, H - 84, ORANGE_DARK)
-    y = heading(c, "$1.3B of apparent reserve deficiency was address-mapping risk.", M, H - 118, 470, size=29, leading=30)
+    y = heading(c, "A 1.3B-unit apparent backing shortfall was address-mapping risk.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "Before 27 August 2025, Polygon PoS USDT backing sat in the canonical Polygon predicate rather than the USDT0 lockbox. V2 checked a different address and converted an address-map failure into an apparent 41%-49% reserve deficiency. For a bank monitor, wrong reference data can be as consequential as a wrong balance.",
+        "Before 27 August 2025, Polygon PoS USDT backing sat in the canonical Polygon predicate rather than the USDT0 lockbox. V2 checked a different address and converted an address-map failure into an apparent 41%-49% token-unit shortfall. For a bank monitor, wrong reference data can be as consequential as a wrong balance.",
         M,
         y - 10,
         470,
@@ -677,10 +677,10 @@ def page_5(c: canvas.Canvas) -> None:
     line(c, 392)
     label(c, "Six-hour migration bracket / 27 Aug 2025", M, 367, INK)
     figures = [
-        ("-$1,358.8M", "CANONICAL PREDICATE"),
-        ("+$1,258.6M", "ETHEREUM LOCKBOX"),
-        ("-$98.1M", "ARBITRUM SUPPLY"),
-        ("$2.1M", "RESIDUAL FLOW"),
+        ("-1,358.8M", "USDT / PREDICATE"),
+        ("+1,258.6M", "USDT / LOCKBOX"),
+        ("-98.1M", "USDT0 / ARBITRUM"),
+        ("2.1M", "RESIDUAL UNITS"),
     ]
     cell_w = (W - 2 * M) / 4
     for i, (value, caption) in enumerate(figures):
@@ -698,7 +698,7 @@ def page_5(c: canvas.Canvas) -> None:
     label(c, "Control validation", M + 16, 225, ORANGE_DARK)
     paragraph(
         c,
-        "The $1,358.8M predicate outflow matched Polygon supply at bracket open ($1,358.759M) to within about $82K - 0.006% of the flow. The issuer also announced the backing migration that day. Independent documentary evidence and chain state describe the same perimeter change.",
+        "The 1,358.8M-USDT predicate outflow matched Polygon supply at bracket open (1,358.759M units) to within about 82K units - 0.006% of the flow. USDT0 also announced the backing migration that day. Contemporaneous documentation and chain state describe the same perimeter change.",
         M + 16,
         203,
         W - 2 * M - 32,
@@ -708,7 +708,7 @@ def page_5(c: canvas.Canvas) -> None:
     label(c, "Lesson", M, 124, INK)
     paragraph(
         c,
-        "Treat contract and address changes as governed reference-data events. Otherwise an accounting-boundary migration can look indistinguishable from a reserve impairment.",
+        "Treat contract and address changes as governed reference-data events. Otherwise an accounting-boundary migration can look indistinguishable from a protocol-backing impairment.",
         M,
         104,
         W - 2 * M,
@@ -724,10 +724,10 @@ def page_6(c: canvas.Canvas) -> None:
     page_bg(c)
     report_header(c, 6, "Coverage dynamics")
     label(c, "Historical context", M, H - 84, ORANGE_DARK)
-    y = heading(c, "Coverage moved from a visible cushion to measurement tolerance.", M, H - 118, 470, size=29, leading=30)
+    y = heading(c, "The backing difference compressed toward par; it was not structural.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "Historical corrected coverage stayed above par, but the measured excess was not stable: the buffer share ranged from roughly 15bp to 18.7% of liabilities. By the end of the sample, excess coverage had compressed to measurement tolerance. For a bank, the endpoint matters more than the historical maximum.",
+        "Historical corrected token-unit coverage stayed above par at the sampled points, but the arithmetic difference was not stable: it ranged from roughly 15bp to 18.7% of measured supply. By sample end it had compressed to measurement tolerance. The historical maximum should not be carried forward as a risk cushion.",
         M,
         y - 10,
         470,
@@ -738,15 +738,15 @@ def page_6(c: canvas.Canvas) -> None:
     draw_buffer_chart(c, M + 36, 445, W - 2 * M - 36, 130)
     c.setFont(MONO, 6.2)
     set_fill(c, MUTED)
-    c.drawString(M + 36, 413, "CORRECTED COLLATERAL MINUS DOCUMENTED LIABILITIES")
+    c.drawString(M + 36, 413, "OBSERVED USDT BACKING MINUS DOCUMENTED USDT0 SUPPLY / MILLION UNITS")
 
     line(c, 382)
     end = BUFFER["buffer_post_break"]["terminal_drawdown"]
     stats = [
-        (money(BUFFER["buffer_post_break"]["buffer_max"]["buffer"]), "MAX / 15 DEC 2025"),
-        (money(end["buffer_2025_12_31"]), "31 DEC 2025"),
-        (money(end["buffer_2026_07_17"]), "17 JUL 2026"),
-        (money(end["buffer_2026_07_25"]), "25 JUL / PANEL END"),
+        (token_units(BUFFER["buffer_post_break"]["buffer_max"]["buffer"]), "MAX / 15 DEC 2025"),
+        (token_units(end["buffer_2025_12_31"]), "31 DEC 2025"),
+        (token_units(end["buffer_2026_07_17"]), "17 JUL 2026"),
+        (token_units(end["buffer_2026_07_25"]), "25 JUL / PANEL END"),
     ]
     cell_w = (W - 2 * M) / 4
     for i, (value, caption) in enumerate(stats):
@@ -761,10 +761,10 @@ def page_6(c: canvas.Canvas) -> None:
     label(c, "Final eight days", M + 18, 248, ORANGE)
     set_fill(c, WHITE)
     c.setFont(SANS_BOLD, 15)
-    c.drawString(M + 18, 218, "-$192.9M collateral  vs  -$75.7M liabilities")
+    c.drawString(M + 18, 218, "-192.9M USDT backing  vs  -75.7M USDT0 supply")
     paragraph(
         c,
-        "About $117M more collateral left than liabilities declined. The panel buffer fell to $5.1M; the complete-universe head check six days later measured $1.03M.",
+        "Backing declined by about 117M units more than measured supply. The panel difference fell to 5.1M units; the complete documented head check six days later measured 1.029M units. The data establish the change, not its cause.",
         M + 18,
         197,
         W - 2 * M - 36,
@@ -776,7 +776,7 @@ def page_6(c: canvas.Canvas) -> None:
     label(c, "Interpretation", M, 137, INK)
     paragraph(
         c,
-        "For underwriting, historical excess coverage should not be carried forward as a current risk buffer. The relevant state is the endpoint: observed coverage is effectively par, and unobservable exposures are larger than the measured difference.",
+        "Historical excess token-unit coverage should not be carried forward as a current economic buffer. The decision-relevant observation is the endpoint: protocol backing is effectively at par, while issuer, legal, liquidity and message-state risks remain outside this ratio.",
         M,
         116,
         W - 2 * M,
@@ -815,12 +815,12 @@ def compare_row(
 
 def page_7(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 7, "Control perimeter")
-    label(c, "Public-state check vs attestation", M, H - 84, ORANGE_DARK)
-    y = heading(c, "The ledger can be reconciled; the reserve claim still needs off-chain evidence.", M, H - 118, 470, size=29, leading=30)
+    report_header(c, 7, "Assurance boundary")
+    label(c, "Protocol check vs bank diligence", M, H - 84, ORANGE_DARK)
+    y = heading(c, "A balance ratio is one layer of settlement-asset diligence.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "Public chain state can support a repeatable first-line reserve control. It cannot, by itself, answer the legal and operational questions a bank needs before treating that control as proof of available reserves.",
+        "CPMI-IOSCO's stablecoin guidance separates settlement finality, legal claims, credit risk, liquidity risk and stressed convertibility. Public chain state can support a repeatable protocol-backing control; it does not answer those broader settlement-asset questions.",
         M,
         y - 10,
         470,
@@ -828,45 +828,45 @@ def page_7(c: canvas.Canvas) -> None:
         leading=13.4,
     )
 
-    label(c, "Automatable onchain control", M, 584, TEAL)
-    label(c, "Requires additional evidence", M + 266, 584, RED)
+    label(c, "Measured from public state", M, 584, TEAL)
+    label(c, "Requires separate evidence", M + 266, 584, RED)
     line(c, 570)
     yy = 539
     yy = compare_row(
         c,
         yy,
-        "Collateral balance",
-        "USDT balanceOf() on the verified Ethereum OAdapter lockbox.",
-        "Asset encumbrance / legal claim",
-        "A positive token balance does not establish that reserves are unencumbered, bankruptcy-remote, or senior to other claims.",
+        "Protocol backing balance",
+        "USDT balanceOf() on the verified Ethereum OAdapter backing account.",
+        "USDT issuer / holder claim",
+        "The balance does not establish Tether reserve quality, holder rights, legal availability, seniority or recoverability.",
     )
     yy = compare_row(
         c,
         yy,
-        "Documented token supply",
-        "totalSupply() on each documented USDT0 deployment, with decimals and live contracts checked.",
-        "Settlement state / messages in flight",
-        "A point-in-time sum does not expose net mint or burn instructions moving between chains.",
+        "Documented direct supply",
+        "totalSupply() on each documented direct USDT0 deployment, with decimals and live contracts checked.",
+        "Redemption / stressed liquidity",
+        "The ratio does not test USDT redemption eligibility, market liquidity, convertibility at par or performance under stress.",
     )
     yy = compare_row(
         c,
         yy,
         "Versioned accounting perimeter",
-        "Twenty direct liability legs, plus an explicit HyperCore containment check; Tron and TON classified as Legacy Mesh.",
-        "Registry completeness / governance",
-        "The method verifies documented deployments; it cannot prove that the issuer registry omits nothing or that its change process is complete.",
+        "Twenty direct supply legs, plus HyperCore containment; Tron and TON classified separately as Legacy Mesh.",
+        "Finality / message / registry state",
+        "Point-in-time stocks do not prove legal finality, net in-flight state, security configuration or registry completeness.",
     )
 
     set_fill(c, PALE)
     c.rect(M, 151, W - 2 * M, 112, stroke=0, fill=1)
     label(c, "Minimum evidence stack for a bank", M + 16, 235, INK)
     items = [
-        "01  Versioned liability registry",
-        "02  Canonical reserve accounts",
-        "03  Net messages in flight",
-        "04  Encumbrance / legal-status evidence",
-        "05  Contract + migration change control",
-        "06  Independent attestation / registry check",
+        "01  Token-unit backing reconciliation",
+        "02  Controlled population + account map",
+        "03  Message state + settlement finality",
+        "04  Issuer reserve + assurance evidence",
+        "05  Legal claim + redemption terms",
+        "06  Stress liquidity + prudential review",
     ]
     c.setFont(MONO, 7)
     set_fill(c, INK_2)
@@ -878,7 +878,7 @@ def page_7(c: canvas.Canvas) -> None:
     label(c, "Threshold", M, 118, ORANGE_DARK)
     paragraph(
         c,
-        "At ~3bp, any omitted, in-flight or encumbered position above $1.03M overwhelms the arithmetic difference. Escalation policy should reflect that scale.",
+        "At ~3bp, any unobserved net item above 1.029M token units can change the sign of the protocol arithmetic. That is a materiality threshold for reconciliation exceptions, not an estimate of issuer, legal or liquidity risk.",
         M,
         98,
         W - 2 * M,
@@ -897,7 +897,7 @@ def page_8(c: canvas.Canvas) -> None:
     y = heading(c, "Automate the reconciliation; govern the evidence it cannot see.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The practical architecture is a layered control: public-state reconciliation for continuous observation, event-driven governance for perimeter changes, and external evidence for reserve conditions that token balances cannot establish.",
+        "The practical architecture separates deterministic token-unit arithmetic from population governance, cross-chain operational state and issuer-level credit, legal and liquidity evidence. Different controls answer different questions; none should be promoted into the others.",
         M,
         y - 10,
         470,
@@ -907,17 +907,18 @@ def page_8(c: canvas.Canvas) -> None:
 
     label(c, "Control layers", M, 579, INK)
     yb = 549
-    yb = bullet(c, "01", "Daily public-state reconciliation", "Read canonical reserves and every documented direct liability leg; version the timestamp, address map and accounting perimeter; alert when a configured threshold is breached.", M, yb, W - 2 * M)
-    yb = bullet(c, "02", "Event-driven perimeter controls", "Detect new deployments, migrations, upgrades, containment changes and registry revisions. Reverify contract identity, symbol, decimals and supply before inclusion.", M, yb, W - 2 * M)
-    yb = bullet(c, "03", "External evidence overlay", "Pair the chain-state control with issuer or attestation evidence for encumbrance, registry completeness and message state; escalate when unobservable exposure can exceed the measured difference.", M, yb, W - 2 * M)
+    yb = bullet(c, "01", "Daily token-unit reconciliation", "Read canonical USDT backing and every documented direct USDT0 supply leg; version the timestamp and population; alert on a defined token-unit exception.", M, yb, W - 2 * M)
+    yb = bullet(c, "02", "Reference-data change control", "Detect deployments, migrations, upgrades, containment changes and registry revisions. Reverify contract identity, decimals, account mapping and effective date before inclusion.", M, yb, W - 2 * M)
+    yb = bullet(c, "03", "Cross-chain operational state", "Monitor net messages in flight, execution queues, permissions and settlement finality separately from point-in-time token stocks.", M, yb, W - 2 * M)
+    yb = bullet(c, "04", "Issuer / legal / liquidity overlay", "Combine Tether reserve and assurance evidence with legal claims, redemption access, normal/stressed liquidity and the bank's own prudential treatment.", M, yb, W - 2 * M)
 
-    label(c, "Independent audit trail", M, yb - 3, INK)
+    label(c, "Reproducibility trail", M, yb - 3, INK)
     file_y = yb - 27
     files = [
         ("data/usdt0_timeseries.csv", "183-row panel + retained wrong-address control"),
         ("data/polygon_predicate_prebreak.json", "canonical Polygon backing backfill"),
-        ("data/head_snapshot_20260801.json", "complete-universe head measurement"),
-        ("data/buffer_dynamics.json", "flow coupling + terminal drawdown"),
+        ("data/head_snapshot_20260801.json", "complete documented head measurement"),
+        ("data/buffer_dynamics.json", "flow coupling + terminal difference"),
         ("code/collect_usdt0.py", "panel collection harness"),
         ("code/head_snapshot.py", "current-universe snapshot"),
     ]
@@ -942,12 +943,12 @@ def page_8(c: canvas.Canvas) -> None:
 
 def page_9(c: canvas.Canvas) -> None:
     page_bg(c)
-    report_header(c, 9, "Banking implications")
+    report_header(c, 9, "Risk committee conclusion")
     label(c, "Conclusion", M, H - 84, ORANGE_DARK)
-    y = heading(c, "The underwriting upgrade is a controlled accounting perimeter.", M, H - 118, 470, size=29, leading=30)
+    y = heading(c, "The protocol is at par on observed token units. No broader reserve conclusion follows.", M, H - 118, 470, size=29, leading=30)
     paragraph(
         c,
-        "The durable result is not the 1.0003x ratio. It is that a cross-chain dollar can be monitored as a defined set of reserve and liability accounts - provided the perimeter itself is governed like financial reference data and the off-chain evidence remains separate.",
+        "The current documented USDT0 perimeter reconciles to observed USDT backing at 1.000298x. The durable control insight is that the population and account map can be governed and replayed. Tether reserve quality, redemption, legal claims, stressed liquidity and settlement finality remain separate diligence questions.",
         M,
         y - 10,
         470,
@@ -960,7 +961,7 @@ def page_9(c: canvas.Canvas) -> None:
         c,
         "01",
         "For treasury and payments",
-        "Use the public-state check as a repeatable control overlay, not an attestation. It can flag divergence or stale reference data before the asset is relied on for settlement or client-facing flows.",
+        "Use the public-state check as a repeatable monitoring overlay, not as issuer assurance. It can flag protocol divergence or stale reference data; it cannot establish suitability as a settlement asset.",
         M,
         yb,
         W - 2 * M,
@@ -968,8 +969,8 @@ def page_9(c: canvas.Canvas) -> None:
     yb = bullet(
         c,
         "02",
-        "For risk and model governance",
-        "Version the registry, address map and method. Treat contract migrations, new deployments and corrections as controlled model-data changes with an auditable history.",
+        "For risk and control governance",
+        "Version the registry, account map, method and exceptions. SR 26-2 excludes simple deterministic arithmetic from its model definition; govern the reconciliation as a controlled data and use-of-output process, subject to internal classification.",
         M,
         yb,
         W - 2 * M,
@@ -978,7 +979,7 @@ def page_9(c: canvas.Canvas) -> None:
         c,
         "03",
         "For issuers and infrastructure partners",
-        "Publish a dated machine-readable registry of each liability leg, backing account, containment relationship and migration. This reduces operational and model risk for counterparties.",
+        "Publish a dated machine-readable registry of each direct supply leg, backing account, containment relationship and migration. Pair it with evidence for message state, legal rights and operational change control.",
         M,
         yb,
         W - 2 * M,
@@ -988,7 +989,7 @@ def page_9(c: canvas.Canvas) -> None:
     label(c, "Disclosures", M, yb - 20, INK)
     yd = paragraph(
         c,
-        "This report is research, not a reserve attestation, audit opinion or investment recommendation. Suwappu builds cross-chain execution infrastructure and holds operational stablecoin balances, including USDT and USDT0, incidental to running it. No directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. All inputs are public chain state or cited public documents. The working paper is canonical where this report and the paper differ.",
+        "This report is research, not a reserve attestation, audit or legal opinion, credit rating, PFMI assessment, regulatory classification, prudential-capital opinion or investment recommendation. Suwappu builds cross-chain execution infrastructure and holds operational USDT and USDT0 balances incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs and other named parties did not review the work before publication. The working paper is canonical where this report and the paper differ.",
         M,
         yb - 41,
         W - 2 * M,
@@ -999,11 +1000,12 @@ def page_9(c: canvas.Canvas) -> None:
 
     label(c, "Selected sources", M, yd - 10, INK)
     sources = [
-        "USDT0 technical documentation: deployments and Legacy Mesh (accessed 31 Jul 2026)",
-        "USDT0, Polygon USDT Now Upgraded to USDT0 (27 Aug 2025)",
-        "Polygon PoS Bridge documentation: canonical ERC20 predicate (accessed 31 Jul 2026)",
-        "Everdawn Labs: USDT0 audit reports; Chaos Labs: USDT0 Mechanism Design Review (2025)",
-        "Newey-West (1987); Politis-Romano (1994); Bai-Perron (1998)",
+        "USDT0: Developer Guide, Deployments, Legacy Mesh; Polygon migration notice (2025-2026)",
+        "LayerZero: Omnichain Fungible Token (OFT) Standard (accessed 6 Aug 2026)",
+        "Tether: Legal Terms and Transparency (accessed 6 Aug 2026; issuer-authored evidence)",
+        "CPMI-IOSCO: Application of the PFMI to stablecoin arrangements (2022)",
+        "Federal Reserve / FDIC / OCC: Supervisory Guidance on Model Risk Management, SR 26-2 (2026)",
+        "Basel Committee: Basel Framework, SCO60 - Cryptoasset exposures (in force 1 Jan 2026)",
     ]
     ys = yd - 29
     c.setFont(SANS, 6.7)
@@ -1027,8 +1029,8 @@ def build() -> Path:
     c = canvas.Canvas(str(OUTPUT), pagesize=A4, pageCompression=1)
     c.setTitle("Accounting for an Omnichain Dollar")
     c.setAuthor("Tsolmondorj Natsagdorj / Suwappu Research")
-    c.setSubject("USDT0 reserve reconciliation, accounting perimeter, and banking control implications")
-    c.setKeywords("USDT0, stablecoin reserves, treasury, settlement risk, reserve reconciliation, Suwappu Research")
+    c.setSubject("USDT0 token-unit backing, assurance perimeter, and bank-control implications")
+    c.setKeywords("USDT0, stablecoin backing, treasury, settlement risk, issuer risk, bank controls, Suwappu Research")
     for draw in (page_1, page_2, page_3, page_4, page_5, page_6, page_7, page_8, page_9):
         draw(c)
     c.save()

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
-    'Institutional research from Suwappu on stablecoin reserves, settlement infrastructure, onchain market structure, and financial execution. Methods and source data are public.',
+    'Institutional research from Suwappu on stablecoin backing, issuer and settlement risk, market structure, and financial execution. Methods, limitations, corrections, and source data are public.',
 };
 
 function fmtDate(iso: string) {
@@ -71,9 +71,9 @@ export default function ResearchPage() {
             <h1>Research for financial infrastructure.</h1>
             <div className={styles.heroIntro}>
               <p>
-                Independent measurement and control-oriented analysis of stablecoin reserves,
-                settlement rails, and onchain market structure. Written for teams that need an
-                audit trail, not a narrative.
+                Empirical measurement and control-oriented analysis of stablecoin backing,
+                settlement rails, and market structure. Observed state is kept separate from
+                issuer, legal, liquidity, and prudential conclusions.
               </p>
               <p className={styles.byline}>{AUTHOR_NAME} · Suwappu Research</p>
             </div>
@@ -86,11 +86,11 @@ export default function ResearchPage() {
             </div>
             <div>
               <dt>183</dt>
-              <dd>aligned reserve observations</dd>
+              <dd>aligned USDT0 observations</dd>
             </div>
             <div>
               <dt>20</dt>
-              <dd>direct liability legs at head</dd>
+              <dd>direct supply legs at head</dd>
             </div>
             <div>
               <dt>Open</dt>
@@ -112,7 +112,7 @@ export default function ResearchPage() {
               <div className={styles.reportCopy}>
                 <div className={styles.reportStatus}>
                   <span>Institutional research</span>
-                  <span>Reserve &amp; settlement risk</span>
+                  <span>Backing &amp; settlement risk</span>
                   <span>Evidence status: research</span>
                 </div>
                 <h2 id="flagship-report" className={styles.reportTitle}>
@@ -120,12 +120,11 @@ export default function ResearchPage() {
                 </h2>
                 <p className={styles.reportSubtitle}>{featured.report.subtitle}</p>
                 <p className={styles.reportDek}>
-                  At the 1 August head snapshot, the issuer-documented direct liability perimeter
-                  reconciles to 1.0003x against the verified Ethereum reserve account. That is a
-                  useful control result, not a reserve attestation: encumbrance, messages in flight,
-                  and registry completeness sit outside the balance read. The banking implication is
-                  the boundary between what can be automated onchain and what still requires issuer
-                  and control evidence.
+                  At the 1 August head snapshot, documented direct USDT0 supply reconciles to
+                  1.000298x against USDT in the verified Ethereum backing account. That is a
+                  token-unit accounting result, not evidence about Tether&rsquo;s reserve portfolio,
+                  redemption capacity, legal availability, stressed liquidity, or prudential
+                  treatment. The report separates those assurance layers explicitly.
                 </p>
 
                 <dl className={styles.reportMetrics} aria-label="Flagship report findings">
@@ -172,9 +171,9 @@ export default function ResearchPage() {
                   alt=""
                 />
                 <div className={styles.coverFinding}>
-                  <span>Public-state conclusion</span>
-                  <strong>Observed coverage reconciles to 1.0003x.</strong>
-                  <p>The ~3bp difference is not treated as a reserve cushion.</p>
+                  <span>Protocol-backing conclusion</span>
+                  <strong>Observed token-unit coverage is 1.000298x.</strong>
+                  <p>Par within measurement tolerance; not an economic reserve cushion.</p>
                 </div>
                 <div className={styles.coverFooter}>
                   <span>Tsolmondorj Natsagdorj</span>
@@ -224,8 +223,8 @@ export default function ResearchPage() {
             <h2 id="research-standard">Make the perimeter explicit.</h2>
             <p>
               For financial infrastructure, the scope of a measurement is part of the result. Each
-              study states the accounting or model perimeter, exposes assumptions and limits, and
-              gives the reader a path back to source data.
+              study states its measurement perimeter, separates observed facts from inference and
+              external assurance, exposes limitations, and gives the reader a path back to source data.
             </p>
             <a href="/research/replication">Open the replication bundle →</a>
           </div>
@@ -250,6 +249,13 @@ export default function ResearchPage() {
               <div className={styles.meta}>
                 <h3>Version corrections</h3>
                 <p>Corrections stay visible, and changed scope or reference data remain part of the audit trail.</p>
+              </div>
+            </li>
+            <li>
+              <span>04</span>
+              <div className={styles.meta}>
+                <h3>Separate assurance layers</h3>
+                <p>A chain-state result is not promoted into a legal, credit, liquidity, regulatory, or prudential conclusion without separate evidence.</p>
               </div>
             </li>
           </ol>
