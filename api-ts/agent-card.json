@@ -2,7 +2,7 @@
   "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
   "id": "suwappu-dex",
   "name": "Suwappu",
-  "description": "Cross-chain DEX for AI agents. Swap tokens across 14 chains via natural language.",
+  "description": "Cross-chain DEX for AI agents. Swap tokens across 18 chains via natural language.",
   "version": "0.5.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
@@ -52,7 +52,7 @@
     {
       "id": "swap",
       "name": "Token Swap",
-      "description": "Swap tokens across 14 chains (12 EVM + Solana + TRON)",
+      "description": "Swap tokens across 18 chains (15 EVM + Solana + Sui + TON)",
       "tags": [
         "defi",
         "swap",
@@ -324,8 +324,13 @@
       "native": "ETH"
     },
     {
+      "id": 10,
+      "name": "Optimism",
+      "native": "ETH"
+    },
+    {
       "id": 56,
-      "name": "BSC",
+      "name": "BNB Chain",
       "native": "BNB"
     },
     {
@@ -339,11 +344,6 @@
       "native": "ETH"
     },
     {
-      "id": 10,
-      "name": "Optimism",
-      "native": "ETH"
-    },
-    {
       "id": 8453,
       "name": "Base",
       "native": "ETH"
@@ -352,6 +352,21 @@
       "id": 43114,
       "name": "Avalanche",
       "native": "AVAX"
+    },
+    {
+      "id": 4217,
+      "name": "Tempo",
+      "native": "USD"
+    },
+    {
+      "id": 4663,
+      "name": "Robinhood Chain",
+      "native": "ETH"
+    },
+    {
+      "id": 9745,
+      "name": "Plasma",
+      "native": "XPL"
     },
     {
       "id": 250,
@@ -384,14 +399,14 @@
       "native": "SOL"
     },
     {
-      "id": "tron",
-      "name": "TRON",
-      "native": "TRX"
+      "id": "sui",
+      "name": "Sui",
+      "native": "SUI"
     },
     {
-      "id": 4217,
-      "name": "Tempo",
-      "native": "USD"
+      "id": "ton",
+      "name": "TON",
+      "native": "TON"
     }
   ]
 }
