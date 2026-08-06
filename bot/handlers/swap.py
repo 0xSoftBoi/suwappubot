@@ -22,7 +22,11 @@ from bot.services.error_guidance import classify_swap_failure, ErrorGuidance
 from bot.services.wallet import WalletService
 from bot.services.fee_service import fee_service
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
-from bot.config.tokens import get_tokens_for_chain, get_token_address
+from bot.config.tokens import (
+    get_tokens_for_chain,
+    get_token_address,
+    is_robinhood_equity_address,
+)
 from bot.utils.formatters import format_amount, format_usd, format_time_estimate, format_tx_link
 from bot.utils.validators import validate_amount
 from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
@@ -43,6 +47,7 @@ from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.cache import quote_cache
+from bot.utils.telegram_safe import safe_md
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +66,24 @@ logger = logging.getLogger(__name__)
 # A verified 2FA code covers re-quotes/retries within this window, so a quote
 # expiring while the user fetches their code doesn't loop them back into 2FA.
 TWOFA_VALID_SECONDS = 300
+
+# Temporary destination lock used by paste-to-trade's "fund from another chain"
+# handoff. It lives outside ``swap`` because selecting a source chain replaces
+# that dict; select_from_token consumes the lock and restores the destination.
+PASTE_SWAP_DESTINATION_KEY = "paste_swap_destination"
+
+# Keep the one-click funding surface to established EVM sources that the
+# existing Li.Fi path can bridge from. Solana is intentionally absent: its
+# sender address cannot also be the EVM recipient on Robinhood.
+ROBINHOOD_FUNDING_CHAINS = (
+    "base",
+    "ethereum",
+    "arbitrum",
+    "optimism",
+    "bsc",
+    "polygon",
+    "avalanche",
+)
 
 swap_engine = SwapEngine()
 wallet_service = WalletService()
@@ -206,6 +229,7 @@ async def start_swap(
 
     # Clear previous swap data
     context.user_data.pop("swap", None)
+    context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
 
     # Check if user has wallets
     with get_session() as session:
@@ -434,6 +458,21 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("❌ Invalid chain. Please try again.")
         return ConversationHandler.END
 
+    locked_destination = context.user_data.get(PASTE_SWAP_DESTINATION_KEY)
+    if locked_destination:
+        if (
+            locked_destination.get("chain") != "robinhood"
+            or chain_name not in ROBINHOOD_FUNDING_CHAINS
+            or chain.chain_type != ChainType.EVM
+            or chain.is_testnet
+            or not chain.lifi_chain_id
+        ):
+            context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+            await query.edit_message_text(
+                "❌ That source chain cannot fund this Robinhood buy. Paste the token again."
+            )
+            return ConversationHandler.END
+
     context.user_data["swap"] = {"from_chain": chain_name}
 
     # Get available tokens for this chain
@@ -525,6 +564,40 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     from_chain = swap_data["from_chain"]
     from_chain_config = get_chain_by_name(from_chain)
+
+    locked_destination = context.user_data.get(PASTE_SWAP_DESTINATION_KEY)
+    if locked_destination:
+        if locked_destination.get("chain") != "robinhood":
+            context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+            await query.edit_message_text("❌ Invalid destination. Paste the token again.")
+            return ConversationHandler.END
+
+        swap_data.update(
+            {
+                "to_chain": "robinhood",
+                "to_token": locked_destination["address"],
+                # Li.Fi's transaction request is built for one sender/receiver.
+                # Do not reuse that calldata across the multi-wallet executor.
+                "single_wallet_only": True,
+            }
+        )
+        context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+
+        to_chain_config = get_chain_by_name("robinhood")
+        await query.edit_message_text(
+            f"🌉 *Fund Robinhood in one step*\n\n"
+            f"{from_chain_config.logo_emoji} From: *{from_chain_config.display_name}* "
+            f"({token_symbol})\n"
+            f"{to_chain_config.logo_emoji} To: *Robinhood* "
+            f"({safe_md(locked_destination.get('symbol', 'token'))})\n\n"
+            "Enter the amount to spend. Suwappu will bridge and swap into the "
+            "destination token together — no manual bridge required.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
+            ),
+        )
+        return ENTER_AMOUNT
 
     text = (
         f"🔄 *New Swap*\n\n"
@@ -805,7 +878,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show multi-wallet selection screen."""
+    """Show wallet selection, optionally restricted to one quote-bound sender."""
     # Answer any pending callback spinner first so the user never sees an
     # infinite loading indicator regardless of which code path triggered us.
     if update.callback_query:
@@ -846,12 +919,21 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
         if "selected_wallets" not in swap_data:
             swap_data["selected_wallets"] = [swap_data.get("wallet_id")]
 
-    text = (
-        f"👛 *Select Wallets*\n\n"
-        f"Choose which wallets you want to use for this swap. "
-        f"The same amount ({swap_data['amount']} {swap_data['from_token']}) will be swapped on EACH selected wallet.\n\n"
-        f"Selected: *{len(swap_data['selected_wallets'])}* wallet(s)"
-    )
+    single_wallet_only = bool(swap_data.get("single_wallet_only"))
+    if single_wallet_only:
+        text = (
+            f"👛 *Select Wallet*\n\n"
+            "Choose the wallet that will fund this swap. This route uses one "
+            "sender/recipient per quote, so select exactly one wallet.\n\n"
+            f"Amount: *{swap_data['amount']} {swap_data['from_token']}*"
+        )
+    else:
+        text = (
+            f"👛 *Select Wallets*\n\n"
+            f"Choose which wallets you want to use for this swap. "
+            f"The same amount ({swap_data['amount']} {swap_data['from_token']}) will be swapped on EACH selected wallet.\n\n"
+            f"Selected: *{len(swap_data['selected_wallets'])}* wallet(s)"
+        )
 
     keyboard = []
     for w in wallets:
@@ -866,7 +948,10 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
     keyboard.append(
         [
-            InlineKeyboardButton("✅ Confirm Selection", callback_data="swap_wallets_confirmed"),
+            InlineKeyboardButton(
+                "✅ Confirm Wallet" if single_wallet_only else "✅ Confirm Selection",
+                callback_data="swap_wallets_confirmed",
+            ),
             InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
         ]
     )
@@ -901,7 +986,11 @@ async def toggle_wallet_callback(update: Update, context: ContextTypes.DEFAULT_T
     if "selected_wallets" not in swap_data:
         swap_data["selected_wallets"] = []
 
-    if wallet_id in swap_data["selected_wallets"]:
+    if swap_data.get("single_wallet_only"):
+        # Quote calldata/recipient binding makes this a radio selection, not a
+        # checkbox list. Replacing is safer than briefly holding two senders.
+        swap_data["selected_wallets"] = [wallet_id]
+    elif wallet_id in swap_data["selected_wallets"]:
         # Don't allow unselecting everything
         if len(swap_data["selected_wallets"]) > 1:
             swap_data["selected_wallets"].remove(wallet_id)
@@ -925,6 +1014,12 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
     if not selected_wallet_ids:
         await query.edit_message_text("❌ Please select at least one wallet.")
+        return SELECT_WALLETS
+
+    if swap_data.get("single_wallet_only") and len(selected_wallet_ids) != 1:
+        await query.edit_message_text(
+            "❌ This route is bound to one sender/recipient. Please select exactly one wallet."
+        )
         return SELECT_WALLETS
 
     # xStocks execution-layer geo-gate (manual /s path, covers both buy and sell).
@@ -1542,6 +1637,7 @@ async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer("Swap cancelled")
 
     context.user_data.pop("swap", None)
+    context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
 
     # Go straight to main menu
     from bot.handlers.start import main_menu_callback
@@ -1571,10 +1667,35 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     user_id = context.user_data["user_id"]
 
-    with get_session() as session:
-        from_chain_config = get_chain_by_name(swap_data["from_chain"])
-        chain_type = from_chain_config.chain_type.value
+    from_chain_config = get_chain_by_name(swap_data["from_chain"])
+    if not from_chain_config:
+        await query.edit_message_text("❌ Unsupported source chain.")
+        return ConversationHandler.END
+    chain_type = from_chain_config.chain_type.value
 
+    if swap_data.get("single_wallet_only"):
+        # Li.Fi quotes bind transaction calldata/recipient to the quote sender.
+        # A re-quote must therefore use the exact wallet the user selected, not
+        # silently fall back to their default EVM wallet.
+        selected_wallet_ids = swap_data.get("selected_wallets", [])
+        if len(selected_wallet_ids) != 1:
+            await query.edit_message_text(
+                "❌ This route requires exactly one selected wallet. Please choose it again."
+            )
+            return SELECT_WALLETS
+        with get_session() as session:
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.id == selected_wallet_ids[0],
+                    Wallet.user_id == user_id,
+                    Wallet.chain_type == chain_type,
+                    Wallet.is_active == True,
+                )
+                .first()
+            )
+            wallet_address = wallet.address if wallet else None
+    else:
         wallet = wallet_service.get_default_wallet(user_id, chain_type)
         wallet_address = wallet.address if wallet else None
 
@@ -1583,6 +1704,12 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
 
     try:
+        # Re-resolve the effective fee instead of inheriting stale confirmation
+        # state. user_id is required here because points/VIP discounts are
+        # user-specific even within the same subscription tier.
+        user_tier = await x402_service.get_tier(user_id)
+        platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
+
         quote = await swap_engine.get_quote(
             from_chain=swap_data["from_chain"],
             to_chain=swap_data["to_chain"],
@@ -1590,10 +1717,27 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             to_token=swap_data["to_token"],
             amount=swap_data["amount"],
             from_address=wallet_address,
+            platform_fee_bps=platform_fee_bps,
+        )
+
+        fee_amount, fee_percentage, fee_usd = await fee_service.calculate_fee_with_price(
+            amount=quote.from_amount_human,
+            token_symbol=swap_data["from_token"],
+            tier=user_tier,
+            user_id=user_id,
+        )
+        amount_usd = await spending_limit_service.usd_value(
+            swap_data["from_token"], quote.from_amount_human
         )
 
         context.user_data["swap"]["quote"] = quote
         context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
+        context.user_data["swap"]["fee_amount"] = fee_amount
+        context.user_data["swap"]["fee_percentage"] = fee_percentage
+        context.user_data["swap"]["fee_usd"] = fee_usd
+        # confirm_swap uses this value for the spending-limit and 2FA gates;
+        # refreshing it keeps those guards aligned with the new quote/price.
+        context.user_data["swap"]["amount_usd"] = amount_usd
 
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
@@ -1619,6 +1763,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"• Rate: 1 {swap_data['from_token']} = {quote.exchange_rate:.4f} {swap_data['to_token']}\n"
             f"• Gas: {format_usd(quote.gas_cost_usd)}\n"
             f"• Bridge fee: {format_usd(quote.fee_cost_usd)}\n"
+            f"• Platform fee: {fee_percentage}% ({format_usd(fee_usd)})\n"
             f"• Time: {format_time_estimate(quote.estimated_time)}\n"
             f"• Provider: {provider_display2}"
         )
@@ -1868,6 +2013,20 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not chain_config:
         await query.edit_message_text("❌ Unsupported chain for this token.")
         return ConversationHandler.END
+
+    # Defense in depth: the discovery card also blocks these, but a stale or
+    # forged pbuy callback must never turn a canonical Robinhood Stock Token
+    # into a quote. Long-tail/community ERC-20s on Robinhood remain eligible.
+    if chain.lower() == "robinhood" and is_robinhood_equity_address(address):
+        context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+        await query.edit_message_text(
+            f"*{safe_md(token.get('symbol', 'Stock Token'))}* is a canonical Robinhood "
+            "Stock Token. Trading these assets is not enabled until Suwappu has the "
+            "required jurisdiction and eligibility flow.",
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
+
     native_symbol = chain_config.native_token
     chain_type = chain_config.chain_type.value
 
@@ -1898,8 +2057,73 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(block_msg, parse_mode="Markdown")
             return ConversationHandler.END
 
-    # Resolve amount (preset from the button, or hand off to manual entry)
     data = query.data
+    if data == "pbuy_cross":
+        if chain.lower() != "robinhood":
+            context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+            await query.edit_message_text(
+                "❌ Cross-chain paste funding is only enabled for Robinhood."
+            )
+            return ConversationHandler.END
+
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ Use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
+
+        context.user_data[PASTE_SWAP_DESTINATION_KEY] = {
+            "chain": "robinhood",
+            "address": address,
+            "symbol": token.get("symbol", "Token"),
+        }
+        # The source is deliberately EVM-only. Li.Fi defaults the destination
+        # receiver to fromAddress, which is valid for EVM->EVM because the same
+        # Suwappu EVM wallet address exists on both chains. A Solana sender is
+        # not a valid Robinhood recipient and needs a separate-address UX.
+        source_chains = []
+        for source_name in ROBINHOOD_FUNDING_CHAINS:
+            source = get_chain_by_name(source_name)
+            if (
+                source
+                and source.chain_type == ChainType.EVM
+                and not source.is_testnet
+                and source.lifi_chain_id
+            ):
+                source_chains.append((source_name, source))
+
+        keyboard = []
+        row = []
+        for source_name, source in source_chains:
+            row.append(
+                InlineKeyboardButton(
+                    f"{source.logo_emoji} {source.display_name}",
+                    callback_data=f"from_chain_{source_name}",
+                )
+            )
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")])
+
+        await query.edit_message_text(
+            f"🌉 *Fund {safe_md(token.get('symbol', 'this token'))} from another chain*\n\n"
+            "Choose where your funds are now. Suwappu will quote the bridge and "
+            "Robinhood destination swap together — no manual bridge or pre-funded "
+            "Robinhood ETH required for the purchase route.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return SELECT_FROM_CHAIN
+
+    # Any ordinary paste buy starts a fresh same-chain route; never let an old
+    # abandoned cross-chain destination leak into it.
+    context.user_data.pop(PASTE_SWAP_DESTINATION_KEY, None)
+
+    # Resolve amount (preset from the button, or hand off to manual entry)
     if data == "pbuy_custom":
         context.user_data["swap"] = {
             "from_chain": chain,
@@ -1907,6 +2131,8 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "to_chain": chain,
             "to_token": address,
         }
+        if chain.lower() == "robinhood":
+            context.user_data["swap"]["single_wallet_only"] = True
         with get_session() as session:
             db_user = session.query(User).filter(User.telegram_id == user.id).first()
             if not db_user:
@@ -1948,6 +2174,8 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "amount": amount,
         "wallet_id": default_wallet.id,
     }
+    if chain.lower() == "robinhood":
+        context.user_data["swap"]["single_wallet_only"] = True
 
     _schedule_quote_prewarm(
         context, context.user_data["swap"], default_wallet.id, default_wallet.address

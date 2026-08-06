@@ -17,6 +17,7 @@ from bot.config.chains import (
     get_chain_by_name,
 )
 from bot.config.tokens import (
+    NATIVE_TOKEN_ADDRESS,
     ROBINHOOD_EQUITIES,
     get_decimals_by_address,
     get_robinhood_equity,
@@ -61,6 +62,24 @@ class TestRobinhoodChainConfig:
     def test_chain_id_does_not_collide(self):
         ids = [c.chain_id for c in CHAINS.values()]
         assert ids.count(4663) == 1
+
+    def test_alchemy_metadata_network_is_registered(self):
+        """Paste discovery must be able to ask Alchemy about chain 4663."""
+        from bot.services.alchemy_client import ALCHEMY_NETWORKS, AlchemyClient
+
+        assert ALCHEMY_NETWORKS["robinhood"] == "robinhood-mainnet"
+        assert AlchemyClient(api_key="test").supports_chain("robinhood") is True
+
+    def test_zerox_swap_network_is_registered(self):
+        """Same-chain Robinhood swaps should be eligible for 0x quoting."""
+        from bot.services.zerox_api import ZEROX_CHAIN_IDS, ZeroXAPI
+
+        assert ZEROX_CHAIN_IDS["robinhood"] == 4663
+        assert ZeroXAPI.get_chain_id("ROBINHOOD") == 4663
+
+    def test_native_eth_has_robinhood_provider_sentinel(self):
+        """Buying a pasted token with Robinhood gas ETH must resolve to an address."""
+        assert get_token_address("ETH", "robinhood") == NATIVE_TOKEN_ADDRESS
 
 
 class TestRobinhoodStablecoin:
@@ -110,6 +129,18 @@ class TestTokenizedEquities:
     def test_equities_do_not_collide_with_the_stablecoin(self):
         addrs = {a.lower() for a, _d, _n in ROBINHOOD_EQUITIES.values()}
         assert USDG.lower() not in addrs
+
+    def test_canonical_equity_addresses_are_classified_fail_closed(self):
+        """Compliance gating is address-based, not forgeable by changing the ticker."""
+        import bot.config.tokens as token_config
+
+        classifier = getattr(token_config, "is_robinhood_equity_address", None)
+        assert callable(classifier), "canonical Robinhood equities need an address classifier"
+
+        aapl_address = ROBINHOOD_EQUITIES["AAPL"][0]
+        assert classifier(aapl_address) is True
+        assert classifier(aapl_address.lower()) is True
+        assert classifier("0x0000000000000000000000000000000000000001") is False
 
 
 class TestX402PaymentSurface:
