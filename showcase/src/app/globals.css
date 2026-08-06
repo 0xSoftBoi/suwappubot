@@ -7602,6 +7602,12 @@ a.summer-button:active,
   --sw-hairline-strong: rgba(255, 255, 255, 0.14);
   --sw-ink: #FAFAFA;
   --sw-muted: #A1A1A1;
+  /* The light register is a set of four (canvas/ink/muted/panel). Remapping
+     only ink and muted left --sw-canvas and --sw-panel at their light values,
+     so any surface built on them rendered as a near-opaque white slab behind
+     the light text this block sets — illegible. Keep all four in sync. */
+  --sw-canvas: #0A0A0A;
+  --sw-panel: rgba(255, 255, 255, 0.05);
 
   background: var(--sw-soil-0);
   color: #FAFAFA;

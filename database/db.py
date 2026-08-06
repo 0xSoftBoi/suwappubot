@@ -224,6 +224,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # P2P marketplace models
         from bot.models.p2p import P2POffer, P2PTrade
 
+        # Handle-reservation waitlist + referral leaderboard
+        from bot.models.waitlist import WaitlistSignup
+
         # Token staking models
         from bot.models.token_staking import (
             TokenClaim,
@@ -701,6 +704,94 @@ def _ensure_schema(db_engine) -> None:
     # --- Agent ownership linking (/claim, /unlink): agents.owner_user_id + agent_link_codes ---
     _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
     _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
+
+    # --- Handle-reservation waitlist + referral leaderboard: waitlist_signups ---
+    _create_waitlist_signups_table(db_engine, inspector, is_sqlite)
+
+
+def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the waitlist_signups table (idempotent).
+
+    Backs the handle-reservation waitlist + live referral leaderboard
+    (``/webapp/waitlist/*`` in api/webapp.py — see bot/services/waitlist_service.py
+    for the ranking query). Distinct from the mobile-app waitlist which rides
+    ``support_tickets`` (category="mobile_waitlist") and is left untouched.
+
+    One row per email (unique). ``referred_by_id`` is a self-referential pointer
+    to another row's id; ``referral_count`` is never denormalized here — it is
+    always computed live via COUNT(*) WHERE referred_by_id = id so it cannot drift.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "waitlist_signups" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS waitlist_signups (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        handle VARCHAR(32) NOT NULL,
+                        email VARCHAR(320) NOT NULL,
+                        telegram VARCHAR(64),
+                        referral_code VARCHAR(40) NOT NULL,
+                        referred_by_id INTEGER,
+                        seed INTEGER NOT NULL,
+                        attribution_json TEXT,
+                        ip_hash VARCHAR(64),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS waitlist_signups (
+                        id SERIAL PRIMARY KEY,
+                        handle VARCHAR(32) NOT NULL,
+                        email VARCHAR(320) NOT NULL,
+                        telegram VARCHAR(64),
+                        referral_code VARCHAR(40) NOT NULL,
+                        referred_by_id INTEGER,
+                        seed INTEGER NOT NULL,
+                        attribution_json TEXT,
+                        ip_hash VARCHAR(64),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created waitlist_signups table")
+
+        # Unique indexes: one handle, one email, one referral code per row.
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_handle"
+                " ON waitlist_signups(handle)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_email"
+                " ON waitlist_signups(email)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_referral_code"
+                " ON waitlist_signups(referral_code)"
+            )
+        )
+        # Non-unique: referral edges lookup + rank-query tie-break support.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_waitlist_signups_referred_by"
+                " ON waitlist_signups(referred_by_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_waitlist_signups_created_id"
+                " ON waitlist_signups(created_at, id)"
+            )
+        )
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:

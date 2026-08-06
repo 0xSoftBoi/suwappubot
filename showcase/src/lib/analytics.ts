@@ -26,6 +26,7 @@ const CONVERSION_EVENTS: Record<string, { x?: string; reddit?: string }> = {
   enterprise_lead_submitted: { x: 'tw-lead', reddit: 'Lead' },
   contact_sales_submitted: { x: 'tw-lead', reddit: 'Lead' },
   newsletter_subscribed: { x: 'tw-signup', reddit: 'SignUp' },
+  waitlist_reserved: { x: 'tw-signup', reddit: 'SignUp' },
   demo_call_click: { reddit: 'Lead' },
 };
 
