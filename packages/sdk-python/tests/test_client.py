@@ -41,7 +41,10 @@ class TestCreateClient:
         c = create_client()
         methods = [
             "get_quote",
+            "execute_managed_swap",
             "execute_swap",
+            "prepare_swap",
+            "simulate_swap",
             "get_portfolio",
             "get_prices",
             "list_chains",
@@ -147,6 +150,44 @@ class TestGetQuote:
         assert quote.amount_out_min == "148.000000"
 
     @pytest.mark.asyncio
+    async def test_supports_wallet_bound_cross_chain_quotes(self, client: SuwappuClient) -> None:
+        mock_data = {
+            "quote_id": "q-cross",
+            "chain_type": "evm",
+            "from_token": {"symbol": "USDC", "address": "0xUSDC", "decimals": 6},
+            "to_token": {"symbol": "ETH", "address": "0xETH", "decimals": 18},
+            "amount_in": "100.0",
+            "amount_out": "0.03",
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            quote = await client.get_quote(
+                "USDC",
+                "ETH",
+                100.0,
+                wallet_address="0xabc",
+                from_chain="base",
+                to_chain="arbitrum",
+                slippage=0.01,
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/quote",
+            params=None,
+            json={
+                "from_token": "USDC",
+                "to_token": "ETH",
+                "amount": "100.0",
+                "from_chain": "base",
+                "to_chain": "arbitrum",
+                "wallet_address": "0xabc",
+                "slippage": 0.01,
+            },
+        )
+        assert quote.quote_id == "q-cross"
+
+    @pytest.mark.asyncio
     async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -197,6 +238,44 @@ class TestExecuteSwap:
             mock_req.return_value = _mock_response({"success": True, "txHash": "0xabc"})
             with pytest.raises(SuwappuError):
                 await client.execute_swap("q1")
+
+
+    @pytest.mark.asyncio
+    async def test_explicit_managed_method_uses_execute_endpoint(self, client: SuwappuClient) -> None:
+        mock_data = {"swap_id": 43, "status": "pending", "tx_hash": None}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            result = await client.execute_managed_swap("q-managed")
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/execute",
+            params=None,
+            json={"quote_id": "q-managed"},
+        )
+        assert result.swap_id == 43
+
+    @pytest.mark.asyncio
+    async def test_prepare_swap_uses_unsigned_self_custody_endpoint(self, client: SuwappuClient) -> None:
+        mock_data = {"status": "ready", "transaction": {"to": "0xdef"}}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            result = await client.prepare_swap(
+                quote_id="q-self-custody",
+                wallet_address="0xabc",
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap",
+            params=None,
+            json={
+                "quote_id": "q-self-custody",
+                "wallet_address": "0xabc",
+            },
+        )
+        assert result["status"] == "ready"
+
 
 
 class TestGetPortfolio:
