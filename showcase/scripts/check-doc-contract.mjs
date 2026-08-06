@@ -114,7 +114,7 @@ function walk(relative) {
 for (const relative of scanRoots.flatMap(walk)) {
   if (!textExtensions.has(extname(relative))) continue;
   const body = read(relative);
-  check(!body.includes('https://docs.suwappu.bot'), `${relative}: stale docs.suwappu.bot URL`);
+  check(!body.includes('docs.suwappu.bot'), `${relative}: stale docs.suwappu.bot host`);
   check(!/@suwappu\/mcp(?!-server)/.test(body), `${relative}: stale @suwappu/mcp package name`);
   check(!/\.perps\.(open|close)\s*\(/.test(body), `${relative}: unsupported SDK perps execution method`);
 }
