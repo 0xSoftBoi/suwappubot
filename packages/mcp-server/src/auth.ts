@@ -1,15 +1,15 @@
 /**
  * Auth handling for the Suwappu API.
  *
- * The key is optional on purpose: the hosted endpoint leaves `tools/list` open
- * (registry validators enumerate it without credentials), so an unconfigured
- * user should still be able to see what this server offers. `tools/call`
- * checks for the key and returns an actionable message when it is missing,
- * which is friendlier than refusing to start.
+ * The key is optional on purpose: the hosted MCP endpoint leaves lifecycle
+ * discovery and a small public read-tool surface available without credentials.
+ * This stdio bridge does not duplicate that allowlist; it simply omits the
+ * Authorization header when no key is configured and lets the hosted server
+ * enforce the current policy for each request.
  */
 
 export interface AuthConfig {
-	/** Empty string when unset — callers must check before calling tools. */
+	/** Empty string when unset — the bridge then omits the Authorization header. */
 	apiKey: string
 	apiUrl: string
 }
