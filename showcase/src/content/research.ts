@@ -17,7 +17,11 @@ export type ResearchPost = {
     | 'Benchmarks'
     | 'Reserve risk'
     | 'Mechanism design'
-    | 'Empirical test';
+    | 'Empirical test'
+    | 'Payments control'
+    | 'Execution governance'
+    | 'Model risk'
+    | 'Model validation';
   /**
    * 'research' = measurement/theory with released data and a stated method;
    * 'engineering' = how a shipped system works, verified against the code at
@@ -49,11 +53,27 @@ export type ResearchPost = {
   body?: string;
 };
 
-const TEMPO_BODY = `# Sponsored execution on Tempo: fee-payer transactions, controls, and deployment boundary
+const TEMPO_BODY = `# The fee payer as a treasury control surface: sponsored execution on Tempo
 
-*Engineering control note. Revised and source-verified on 6 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
+*Engineering control note. Revised and source-verified on 7 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
 
-Tempo's native fee-payer transaction solves a real treasury problem: the account authorizing a payment does not have to be the account paying its network fee. But "gasless" is too loose a description for an institutional reader. The fee still exists; sponsorship changes **who is charged**, and that creates a separate authorization, spend-control, accounting, and availability perimeter.
+Viewed from a wallet, fee sponsorship looks like UX. Viewed from a bank, it is **delegated expense authority**: the account that authorizes movement of the asset can be different from the account that accepts the network-fee liability. That is the more interesting primitive.
+
+The separation creates the possibility of a centrally governed network-fee account for customers, applications, or autonomous agents without giving that sponsor authority over the underlying payment instruction. It can turn a fragmented requirement to keep every transacting account funded for fees into a service-level treasury function. But it only becomes institutionally useful if the sponsor budget is reserved, reconciled to realized receipts, and governed as carefully as any other operating cash account.
+
+"Gasless" is therefore the wrong frame. The fee still exists. Sponsorship changes **who is charged, who is authorized to incur the charge, and where the operating cost is controlled**.
+
+## One primitive, five institutional readings
+
+| Seat | Decision question | Current answer |
+|---|---|---|
+| Treasury | Can network fees be centralized instead of pre-positioned across every transacting account? | **Mechanically yes.** Tempo separates fee payer from sender; Suwappu configures a sponsor wallet. Realized-cost reconciliation is not implemented. |
+| Payments operations | Does a sponsor outage necessarily stop the customer's payment? | **No by design.** The current engine falls back to a user-paid Tempo path, which preserves an execution route but changes who bears the fee. |
+| Product / P&L | Can fee sponsorship become a priced or tiered service with per-client chargeback? | **The primitive permits the accounting separation; the current source does not implement or prove that commercial layer.** |
+| Technology / operational risk | Are the stated limits hard budget controls? | **Not yet.** Check and record are non-atomic, actual fees are not settled to the ledger, and the configuration namespace is ambiguous. |
+| Settlement / risk | Does fee sponsorship establish asset finality, liquidity, or issuer quality? | **No.** It changes fee liability and authorization; those are separate assurance questions. |
+
+The central-bank lens is deliberately narrower still. [CPMI-IOSCO's guidance on applying the PFMI to systemically important stablecoin arrangements](https://www.bis.org/cpmi/publ/d206.htm) treats the transfer function within a broader governance, risk-management, and settlement-finality perimeter. This note does **not** classify Tempo or Suwappu as a systemically important stablecoin arrangement. The useful discipline is the separation of questions: a fee-payer signature can change who owes the network fee without answering when a payment is legally final, whether the settlement asset is liquid, or what credit claim sits underneath it.
 
 ## Executive control view
 
@@ -70,6 +90,14 @@ Tempo's native fee-payer transaction solves a real treasury problem: the account
 ![Control map showing sender authorization, a single type-0x76 approve-and-swap transaction, sponsor fee authorization, and the current policy-control boundary.](/research/tempo-fee-payer-control.svg "Implementation verified in source; production enablement remains unverified. Current limits are policy thresholds, while reservation and realized-fee settlement remain control gaps.")
 
 That final distinction is the most important correction to the original version of this note. A built path, a passing test, and a production-enabled control are three different evidence states.
+
+## The strategic value is cost-account separation, not a free transaction
+
+For a treasury team, the operational problem is not the absolute size of a single network fee. It is the need to provision, authorize, monitor, and reconcile fee balances across every account that may need to move money. A fee-payer primitive changes the topology of that problem: asset authority stays with the sender while the network-cost account can be centralized.
+
+That creates three possible institutional benefits **if** the control layer is completed: less fee-token inventory stranded across user accounts; one place to apply client or service-level sponsorship policy; and receipt-level unit economics that can support internal chargeback or product pricing. None of those benefits is measured in this note, and the current implementation does not yet produce the realized-fee ledger needed to prove them.
+
+The distinction matters because a bank should not confuse a protocol primitive with an operating model. The primitive supplies separated signatures. The operating model still needs entitlement, budget reservation, key governance, reconciliation, exception handling, and evidence that the production configuration matches the approved policy.
 
 ## Protocol mechanism: two authorization domains, one transaction
 
@@ -113,11 +141,25 @@ The code supports the mechanism and the protocol supports the primitive. The sou
 That is also the reason we no longer use "gasless" as the headline claim. For an institutional audience, the economically relevant statement is narrower and more useful: **Tempo can separate transaction authority from network-fee liability; Suwappu has implemented that path with persisted policy limits, but the current spend control still needs atomic reservation and actual-fee reconciliation before it should be treated as a hard treasury budget.**
 `;
 
-const ROUTING_BODY = `# Execution routing controls: quote competition, ranking hierarchy, and measurement gaps
+const ROUTING_BODY = `# A router is an execution policy: price, evidence quality, and the TCA gap
 
-*Engineering control note. Revised and verified against current main on 6 August 2026. This describes Suwappu's decision function; it does not claim regulatory "best execution" or prove superior realized execution.*
+*Engineering control note. Revised and verified against current main on 7 August 2026. This describes Suwappu's decision function; it does not claim regulatory "best execution" or prove superior realized execution.*
 
-The institutional question is not how many routing logos appear on a page. It is: **what population is eligible for this order, what objective chooses the winner, which inputs are trusted enough to enter that objective, and what evidence exists after execution?** Current source gives a materially different answer from the previous version of this note.
+An aggregator is a list of connectivity. A router is a **policy for making a financial decision under time pressure and imperfect evidence**. That distinction is the institutional story.
+
+The important questions are not how many logos appear on a page. They are: **what population is eligible for this order, what objective chooses the winner, which inputs are trusted enough to enter that objective, which risks are constraints rather than prices, and what evidence exists after execution?** Current source gives a materially different answer from the previous version of this note.
+
+## "Best" changes with the seat making the decision
+
+| Seat | What good execution means | What current source proves |
+|---|---|---|
+| Execution desk | Maximize economic output from the eligible comparison set | Gross output is always usable; trusted gas can be netted; provider time can break a close cross-chain race |
+| Treasury | Avoid tying up value for longer than the price improvement justifies | Time enters only through a fixed 10bp / greater-than-2x speed rule; no explicit liquidity-at-risk value is calibrated |
+| Market / venue risk | Do not accept an economically attractive route whose bridge, venue, or finality risk breaches appetite | Those risks are **not** terms in the current ranking objective and need separate eligibility controls |
+| Operations | Prefer routes that actually complete, not merely quote well | Realized failure, revert, and finality outcomes are not yet joined into published selection analytics |
+| Model governance | Know which data, fallback branch, and policy version produced the decision | The engine has explicit trust gates and route-comparison telemetry; full outcome validation remains the gap |
+
+The wholesale-FX analogy is useful as governance vocabulary, not as regulatory mapping. The [FX Global Code](https://www.globalfxc.org/fx-global-code/) describes global good-practice processes for a robust, transparent wholesale market supported by resilient infrastructure and explicitly says it does not itself impose legal or regulatory obligations. The transferable idea is that competitive price is one part of execution quality; policy, disclosure, resilience, and post-trade evidence sit around it. This article does not claim the Code applies to these routes.
 
 ## Executive finding
 
@@ -140,6 +182,8 @@ The generated roster is useful for inventory control, not for measuring competit
 
 The relevant statistic for execution quality is therefore **eligible quotes returned per order**, not the number ${stats.routerCount}. The engine uses a 3-second fast window, extends to 8 seconds when no valid quote arrives, and grants up to 0.75 seconds of grace when exactly one quote has arrived. Once at least two valid quotes are in hand, remaining tasks are cancelled. That latency policy is part of the routing outcome even though it is not expressed as a price term: a slower venue can be absent from the comparison set.
 
+For a bank, that also turns provider inventory into a third-party criticality question rather than a marketing count. The [US banking agencies' interagency guidance on third-party relationships](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html) is lifecycle- and risk-based: relationships should be managed in proportion to their risk and criticality. This note does not assert that guidance applies to Suwappu. It is the useful diligence lens: a provider that can determine whether or how funds move should be governed by its order-level role, substitutability, failure mode, and monitoring evidence—not by whether its logo is present in the integration roster.
+
 ## Ranking hierarchy and fallback conditions
 
 | Decision input | Used in selection? | Control treatment |
@@ -154,6 +198,14 @@ The relevant statistic for execution quality is therefore **eligible quotes retu
 | Failure rate / finality / bridge risk | **Not in objective** | Requires separate execution-quality and risk controls |
 
 The fallback is a feature and a limitation. It prevents a heuristic gas number from steering funds as if it were audited cost data. It also means two economically identical races can use different objectives depending on data quality. Institutional monitoring should therefore record **which ranking branch fired**, not just which provider won.
+
+## The next institutional step is risk-adjusted routing, not a larger router count
+
+A bank-grade execution objective would normally distinguish **economic score** from **risk eligibility**. One useful design target is to think about a route's decision value as quoted economics less network cost, expected failure cost, the opportunity cost of value in flight, and any explicit risk charge. Some risks may belong outside the score entirely as hard eligibility constraints.
+
+That is a design frame, **not the algorithm Suwappu runs today**. Current code conditionally prices trusted gas and uses a narrow time tiebreak; it does not estimate expected loss from route failure, attach a shadow price to settlement time, or risk-weight bridges and venues. Pretending those terms were quantified would create more false precision, not better execution.
+
+The practical roadmap is therefore measurable: version the approved venue/bridge set; join quote decisions to realized receipts; estimate failure and time distributions by path; decide which risks are hard exclusions versus priced trade-offs; then validate the policy out of sample. Only after that can a routing benchmark say something about realized execution quality rather than quote-stage selection.
 
 ## MEV protection is an eligibility property, not a universal routing claim
 
@@ -171,7 +223,7 @@ These datasets are useful for transaction-cost analysis, but they do not yet jus
 
 The current ranking logic is stronger than the version this article previously described: it conditionally internalizes trusted gas and can trade up to 10bp of value for a greater-than-2x improvement in trusted cross-chain time. Its principal limitation is no longer "gas is ignored." It is **evidence heterogeneity** — the decision falls back when cost or price inputs cannot be trusted, and the system has not yet published a realized-execution benchmark proving the economic effect of those choices.
 
-For a banking audience, that is the appropriate claim boundary: **source-verified routing policy, not certified best execution; quote-level counterfactuals, not yet realized TCA; venue-specific protections, not universal coverage.**
+For a banking audience, that is the appropriate claim boundary: **source-verified execution policy, not certified best execution; evidence-conditioned decision logic, not a universal objective; quote-level counterfactuals, not yet realized TCA; venue-specific protections, not universal coverage.**
 `;
 
 
@@ -316,13 +368,26 @@ Primary architecture sources used to define the perimeter are USDT0's [developer
 
 *Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
 
-const POINTS_BODY = `# Points-program economics after empirical rejection: what the model still tells us
+const POINTS_BODY = `# Incentive budgets as market design: what survives after the model fails
 
-*Institutional research note. Revised 6 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
+*Institutional research note. Revised 7 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
 
-The first version of this paper made a strong claim: model a pro-rata points pool as a linear-cost Tullock contest and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. It failed by one to two orders of magnitude on the concentration measure and by far more on participation.
+The bank-relevant way to read a points program is not as token marketing. It is a **budget-allocation mechanism**: a sponsor defines a reward pool, a rule turns customer or participant behavior into claims on that pool, and the rule determines who receives the subsidy, what behavior is encouraged, and how much of the economic cost returns to the sponsor versus leaves the system.
+
+The first version of this paper made a strong descriptive claim: model a pro-rata points pool as a linear-cost Tullock contest and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. It failed by one to two orders of magnitude on the concentration measure and by far more on participation.
 
 That failure changes the paper's decision use. The model remains useful as a **conditional benchmark**; it is not an empirical forecast of program-wide wallet allocation.
+
+## Four ways a financial institution would read the same reward rule
+
+| Seat | Decision question | What this research can actually say |
+|---|---|---|
+| Product / growth | Does the reward rule buy the behavior and retention we want? | **Not answered here.** The model has effort and prize shares, not attributable retention, balances, payments, or lifetime value. |
+| Finance / treasury | How much incentive cost comes back as sponsor revenue versus leaves as external friction? | The fee-denomination result gives a **conditional cost-allocation identity**, not realized program ROI or revenue. |
+| Fraud / identity | Does the rule reward economic activity or the creation of more identities? | Strict fee proportionality is wallet-count invariant only in a fixed-budget benchmark; per-wallet bonuses mechanically reopen a splitting incentive. |
+| Model risk | Is the model fit for forecasting allocation concentration? | **No on current evidence.** The active-set forecast failed outcome analysis; the model is retained only for bounded comparative statics and mechanism diagnostics. |
+
+This distinction is close to the one made in the OCC's [revised 2026 model-risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2026/bulletin-2026-13.html), which separates model development and use from validation, monitoring, governance, and controls. We use that framework as an institutional analogy, not as a claim that this research model is itself subject to the bulletin. A solver can be correct and a use case can still be wrong.
 
 | Finding | Current evidence status | Appropriate use |
 |---|---|---|
@@ -347,7 +412,7 @@ The second benchmark is the active-set result under heterogeneous linear costs. 
 
 Solving the equilibrium exactly, for 5,000 potential entrants with no fixed cost of entry and lognormally distributed costs, gives the following. These are medians of 500 independent draws, with the 5th-to-95th percentile band, rather than single runs. σ is the log-standard-deviation of cost per point across participants:
 
-| Cost dispersion | Active operators | Pool as operator profit | Largest operator's share |
+| Cost dispersion | Active operators | Pool as modeled participant surplus | Largest operator's share |
 |---|---|---|---|
 | σ = 0.2 (mild) | 18 of 5,000 | 9.5% | 17.1% |
 | σ = 0.4 (moderate) | 10 of 5,000 | 15.8% | 25.9% |
@@ -419,6 +484,8 @@ We also do not use repository code as evidence of a realized distribution outcom
 
 For a program designer or diligence team, the defensible takeaways are correspondingly bounded: make the economic denominator explicit; test per-wallet nonlinearities for splitting incentives; model hard caps as constraints rather than cost scalars; and treat recipient concentration as an empirical variable to be measured, not inferred from this contest benchmark.
 
+For a product or finance owner, there is one additional implication the contest model cannot answer: **reward efficiency has to be measured downstream of the reward.** A program can generate enormous measured activity and still destroy value if the subsidized behavior disappears when the subsidy stops. The relevant operating dataset therefore joins incentive cost to the business outcome the program was supposed to create—retained balance, payment activity, execution, revenue, or another explicitly chosen objective. This paper supplies no such causal ROI estimate, so it should not be used as one.
+
 ## Data and code
 
 **[The full working paper, the exact equilibrium solver, the Monte Carlo and the verification suite are published here](/research/replication)**, seeded with a fixed RNG so every number above is reproducible bit-for-bit. No network access is required to re-run any of it.
@@ -429,13 +496,29 @@ This post is an abridgement. [The paper](/research/replication/papers/points-tul
 
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here. The active-set prediction in the first version of this article failed its first published wallet-level empirical test; that correction is part of the research record, not a footnote.*`;
 
-const AIRDROP_BODY = `# Airdrop allocation concentration: a field test that rejects the active-set model
+const AIRDROP_BODY = `# When a mathematically correct model is wrong: an allocation-model validation case study
 
-*Institutional empirical note. Revised 6 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
+*Institutional empirical note. Revised 7 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
 
-The prior theory paper made a falsifiable prediction: under its heterogeneous linear-cost Tullock model, the original 5,000-entrant simulations produced a very small active set and a top recipient holding 17.1–40.8% of the pool. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3–37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
+The most useful result in this paper is not an airdrop statistic. It is a model-governance failure caught in public: **the solver passed its internal checks, the theory generated a sharp prediction, and the prediction failed when it met outcome data.** The implementation was right; the descriptive use was wrong.
+
+That distinction is familiar to bank model-risk teams. The OCC's [revised 2026 model-risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2026/bulletin-2026-13.html) separates development and use from validation, monitoring, governance, and controls, including outcomes analysis. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
+
+The prior theory paper predicted that a heterogeneous linear-cost Tullock contest would produce a very small active set and a top recipient holding 17.1–40.8% of the pool in the original 5,000-entrant simulations. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3–37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
 
 The prediction is rejected at wallet level. That conclusion is stronger than the causal story we initially attached to it, so this revision separates the two.
+
+## The model-risk reading
+
+| Validation layer | Evidence | Governance status |
+|---|---|---|
+| Conceptual specification | A standard Tullock contest with heterogeneous linear marginal costs | Coherent for the stated game; material real-world mechanisms are omitted |
+| Implementation verification | First-order conditions, inactive-entry conditions, brute-force deviations, and an independently coded best-response check | **Passed** for solving the stated model |
+| Outcome analysis | HYPE and EIGEN wallet vectors versus matched-*n* simulated moments | **Failed** for the active-set / top-share descriptive use |
+| Use limitation | Conditional mechanism identities do not require the rejected active-set fit | Retain for bounded scenario analysis; do not use as an allocation forecast without new evidence |
+| Data / identity risk | Observations are wallets or claim recipients, not resolved beneficial owners | Separate measurement problem; neither the model nor the ledger closes it |
+
+This is why publishing a failed prediction is more valuable than quietly replacing it with a better story. Verification asks whether code implements the model. Validation asks whether the model is adequate for its intended use. Those are different controls.
 
 | Question | Finding | Evidence boundary |
 |---|---|---|
@@ -466,6 +549,8 @@ The model band was recomputed at each program's own entrant count. The grid-base
 
 The empirical distributions are still highly unequal. The top 1% of wallets holds 58.6% of HYPE's measured user pool, 61.3% of raw EIGEN claims, and 62.7% of the measured ENA recipient vector. HYPE's wallet-level Gini is **0.947**; EIGEN's bonus-adjusted vector is **0.943**. The important observation is not that these numbers look similar; it is that a distribution with hundreds of thousands of positive-allocation wallets can still be highly concentrated while remaining fundamentally different from the model's handful-of-active-players shape.
 
+From a distribution-risk seat, that produces a second caution: **wide participation is not the same as diversified economic ownership.** A top percentile holding roughly 59–63% is compatible with a very large positive-recipient population. Conversely, wallet concentration is not beneficial-owner concentration. Neither statistic, by itself, estimates secondary-market liquidity, sell pressure, governance control, or loss severity.
+
 ![Lorenz curves for the measured HYPE and bonus-adjusted EIGEN wallet vectors compared with the selected Tullock-model benchmark, showing broad positive recipient populations in the observed vectors versus a much smaller modeled active set.](/research/airdrop-lorenz.svg "Wallet-level comparison only. The observed vectors remain highly concentrated, but their distributional shape is materially broader than the selected active-set model benchmark; wallets are not beneficial owners.")
 
 ### Interpretation versus identification
@@ -489,6 +574,8 @@ All headline statistics are wallet-level. Wallet splitting can make beneficial-o
 We quantify how much clustering would be required to rescue the model rather than assume it away. Using each program's stored σ = 0.2 matched-*n* median as the lower benchmark, the wealthiest **63 HYPE wallets** would have to be treated as one entity to reach 16.1%; the participation moment would require roughly 90,000 wallets to collapse to about 21 entities. EIGEN's top-share result is more sensitive: merging its top **13 wallets** reaches its 14.35% matched median. That asymmetry is why HYPE carries the cleaner top-wallet rejection and EIGEN contributes more through its participation moment.
 
 ## Decision use
+
+For model governance, the clean status is **challenged for descriptive forecasting; retained for bounded mechanism analysis**. Reuse of the active-set forecast should require a new population, an explicit intended use, and new outcome evidence rather than pointing back to the solver verification.
 
 For program diligence, the immediate conclusion is negative but useful: do not convert participant headcount into a beneficial-owner diversification claim, and do not use the rejected Tullock active-set result as a substitute. Measure the actual allocation vector, document claim/eligibility filters, reconcile the distributor population, and treat entity resolution as a separate control.
 
@@ -540,81 +627,82 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'points-programs-tullock-contests',
-    title: 'Points-program economics after empirical rejection: what the model still tells us',
+    title: 'Incentive budgets as market design: what survives after the model fails',
     date: '2026-07-26',
-    updated: '2026-08-06',
-    category: 'Mechanism design',
+    updated: '2026-08-07',
+    category: 'Model risk',
     kind: 'research',
-    excerpt: 'The model’s 5–18-player active-set prediction failed its first wallet-level field test. This revision separates that rejected descriptive claim from the conditional fee-denomination and wallet-splitting results that remain—and retracts the original hard-cap generalization.',
-    readMins: 11,
+    excerpt: 'Treat the reward pool as a budget-allocation mechanism. The active-set forecast failed; what remains is narrower but useful: a conditional view of cost capture, identity-splitting incentives, and why solver verification is not model validation.',
+    readMins: 13,
     status: 'published',
     paperPath: '/research/replication/papers/points-tullock-contests.md',
     indexFigure: {
       src: '/research/points-participation.svg',
       alt: 'Model output showing the active set shrinking as assumed cost dispersion increases across simulated economies.',
-      caption: 'Model output, not an empirical forecast. The 5–18-player active-set result shown here is rejected as a wallet-level description by the companion field test.',
+      caption: 'Implementation can be correct while the intended model use is wrong. This active-set output is retained as a scenario benchmark after failing wallet-level outcome analysis.',
     },
     keywords: [
       'points program design', 'airdrop farming', 'Tullock contest',
       'token distribution', 'sybil resistance', 'rent seeking',
-      'incentive program design', 'crypto airdrop economics',
+      'incentive program design', 'crypto airdrop economics', 'model risk',
+      'reward program economics',
     ],
     body: POINTS_BODY,
   },
   {
     slug: 'airdrop-concentration',
-    title: 'Airdrop allocation concentration: a field test of the Tullock active-set model',
+    title: 'When a mathematically correct model is wrong: an allocation-model validation case study',
     date: '2026-07-31',
-    updated: '2026-08-06',
-    category: 'Empirical test',
+    updated: '2026-08-07',
+    category: 'Model validation',
     kind: 'research',
-    excerpt: 'HYPE genesis and both-phase EIGEN claim-recipient vectors reject the model’s wallet-level active-set prediction: top-1 shares are 0.7–2.4% versus a program-matched model envelope of roughly 14–37%. The revised paper keeps that rejection while downgrading the capital-mirror explanation from conclusion to hypothesis.',
-    readMins: 10,
+    excerpt: 'The solver passed; the forecast failed. HYPE and EIGEN reject the model’s wallet-level active-set prediction, turning this into a case study in outcomes analysis, use limitation, data lineage, and the gap between wallets and beneficial owners.',
+    readMins: 12,
     paperPath: '/research/replication/papers/airdrop-concentration.md',
     indexFigure: {
       src: '/research/airdrop-lorenz.svg',
       alt: 'Lorenz curves comparing observed HYPE and bonus-adjusted EIGEN wallet allocations with the Tullock-model allocation shape.',
-      caption: 'Observed wallet allocations remain highly unequal, but their distributional shape is materially broader than the model’s tiny active set.',
+      caption: 'Outcome analysis rejects the tiny active-set shape. The measured vectors remain highly unequal, while wallet-to-beneficial-owner resolution remains a separate control problem.',
     },
     keywords: [
       'airdrop concentration', 'airdrop allocation data', 'Hyperliquid HYPE airdrop',
       'EigenLayer EIGEN airdrop', 'Tullock contest empirics', 'points program design',
-      'token distribution Gini', 'airdrop farming',
+      'token distribution Gini', 'airdrop farming', 'model validation', 'outcomes analysis',
     ],
     status: 'published',
     body: AIRDROP_BODY,
   },
   {
     slug: 'tempo-fee-payer-0x76',
-    title: 'Sponsored execution on Tempo: fee-payer transactions, controls, and deployment boundary',
+    title: 'The fee payer as a treasury control surface: sponsored execution on Tempo',
     date: '2026-07-31',
-    updated: '2026-08-06',
-    category: 'Protocol',
+    updated: '2026-08-07',
+    category: 'Payments control',
     kind: 'engineering',
-    excerpt: 'Source-level review of Tempo’s type-0x76 sponsorship path: dual signatures and persistent policy limits are implemented, production enablement is unverified, and the current $100/day control books estimated—not realized—fees.',
-    readMins: 7,
+    excerpt: 'Fee sponsorship is more than “gasless” UX: it separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive but not yet ledger-grade budget control.',
+    readMins: 9,
     status: 'published',
     indexFigure: {
       src: '/research/tempo-fee-payer-control.svg',
-      alt: 'Control map of Tempo sponsored execution from sender authorization through fee-payer authorization and network settlement.',
-      caption: 'Implementation verified in source; production enablement unverified. Current spend limits are estimated policy controls, not receipt-reconciled hard budgets.',
+      alt: 'Control map showing Tempo sender asset authority separated from sponsor network-fee authority in one transaction.',
+      caption: 'The fee payer is a separate treasury authority, not “free gas.” Implementation is source-verified; production enablement and receipt-reconciled hard budgets remain unverified.',
     },
     body: TEMPO_BODY,
   },
   {
     slug: 'best-price-routing',
-    title: 'Execution routing controls: quote competition, ranking hierarchy, and measurement gaps',
+    title: 'A router is an execution policy: price, evidence quality, and the TCA gap',
     date: '2026-07-31',
-    updated: '2026-08-06',
-    category: 'Architecture',
+    updated: '2026-08-07',
+    category: 'Execution governance',
     kind: 'engineering',
-    excerpt: 'Current main conditionally ranks net of trusted gas, falls back to gross output when evidence quality fails, and uses a trusted-time cross-chain tiebreaker. This note defines the control perimeter without calling quote competition “best execution.”',
-    readMins: 8,
+    excerpt: 'The integration count is inventory; the real product is the decision policy. Current routing changes objective with evidence quality and prices time only narrowly, while realized TCA, failure cost, finality, and route-risk calibration remain open.',
+    readMins: 10,
     status: 'published',
     indexFigure: {
       src: '/research/routing-decision-waterfall.svg',
       alt: 'Decision waterfall for quote routing, from the returned comparison set through evidence-quality gates and the final cross-chain tiebreak.',
-      caption: 'The selection objective changes with evidence quality: trusted inputs permit net-of-gas ranking; otherwise the engine falls back to gross output.',
+      caption: 'The integration roster is inventory; the router is the policy. Evidence quality determines whether the current engine may rank net of gas or must fall back to gross output.',
     },
     body: ROUTING_BODY,
   },

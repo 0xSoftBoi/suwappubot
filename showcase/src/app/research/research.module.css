@@ -114,6 +114,68 @@
   margin-top: clamp(4rem, 8vw, 7rem);
 }
 
+.decisionMap {
+  margin-top: clamp(3.5rem, 7vw, 6rem);
+}
+
+.decisionList {
+  border-bottom: 1px solid var(--sw-hairline-strong);
+}
+
+.decisionRow {
+  display: grid;
+  grid-template-columns: 54px minmax(150px, 0.42fr) minmax(0, 1.45fr) minmax(130px, auto);
+  gap: clamp(1rem, 2.5vw, 2.4rem);
+  align-items: baseline;
+  padding: 1.35rem 0 1.45rem;
+  border-bottom: 1px solid var(--sw-hairline);
+  color: inherit;
+  text-decoration: none;
+}
+
+.decisionRow:last-child {
+  border-bottom: 0;
+}
+
+.decisionOrdinal,
+.decisionSeat,
+.decisionLink {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.decisionOrdinal {
+  color: var(--sw-accent-muted);
+}
+
+.decisionSeat {
+  color: var(--sw-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.decisionQuestion {
+  max-width: 68ch;
+  color: var(--sw-ink);
+  font-family: var(--font-serif);
+  font-size: clamp(1.05rem, 1.65vw, 1.32rem);
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+.decisionLink {
+  justify-self: end;
+  color: var(--sw-accent-deep);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.decisionRow:hover .decisionQuestion,
+.decisionRow:hover .decisionLink {
+  color: var(--sw-accent-deep);
+}
+
 .reportFeature {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.72fr);
@@ -745,6 +807,15 @@
   .standardIntro h2 {
     max-width: none;
   }
+
+  .decisionRow {
+    grid-template-columns: 42px minmax(130px, 0.35fr) minmax(0, 1fr);
+  }
+
+  .decisionLink {
+    grid-column: 3;
+    justify-self: start;
+  }
 }
 
 @media (max-width: 700px) {
@@ -799,6 +870,26 @@
   .pipelineList li,
   .buildCta {
     grid-template-columns: 1fr;
+  }
+
+  .decisionRow {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 0.45rem 0.9rem;
+  }
+
+  .decisionSeat,
+  .decisionQuestion,
+  .decisionLink {
+    grid-column: 2;
+  }
+
+  .decisionQuestion {
+    margin-top: 0.15rem;
+  }
+
+  .decisionLink {
+    justify-self: start;
+    margin-top: 0.25rem;
   }
 
   .engineeringRow {

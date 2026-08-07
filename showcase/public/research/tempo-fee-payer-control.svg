@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
-  <title id="title">Tempo sponsored-execution control map</title>
-  <desc id="desc">Sender authorization and sponsor fee authorization converge on one Tempo type 0x76 approve-plus-swap transaction, with the production flag, sponsorship limits, and accounting gaps shown below.</desc>
+  <title id="title">Tempo fee payer as a separate treasury authority</title>
+  <desc id="desc">Sender asset authorization and sponsor fee authorization converge on one Tempo type 0x76 approve-plus-swap transaction, separating payment authority from network-fee liability without making a settlement-finality claim.</desc>
   <rect width="960" height="520" fill="#fbfaf5"/>
-  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">CONTROL MAP / TEMPO SPONSORED EXECUTION</text>
-  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">Two authorities, one transaction.</text>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">TREASURY AUTHORITY / TEMPO FEE PAYER</text>
+  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">Asset authority and fee liability are separable.</text>
   <text x="54" y="110" fill="#667b87" font-family="Arial, sans-serif" font-size="14">Source-verified implementation · production enablement unverified</text>
 
   <g font-family="Arial, sans-serif">
@@ -36,9 +36,9 @@
 
     <rect x="766" y="151" width="140" height="132" rx="3" fill="#eef3f2" stroke="#ccd6d8"/>
     <text x="784" y="178" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">04 / NETWORK</text>
-    <text x="784" y="208" fill="#17324a" font-size="18" font-weight="700">Settle</text>
-    <text x="784" y="234" fill="#4f6f7f" font-size="13">Sponsor pays</text>
-    <text x="784" y="253" fill="#4f6f7f" font-size="13">TIP-20 network fee</text>
+    <text x="784" y="208" fill="#17324a" font-size="18" font-weight="700">Execute</text>
+    <text x="784" y="234" fill="#4f6f7f" font-size="13">Sponsor accepts</text>
+    <text x="784" y="253" fill="#4f6f7f" font-size="13">network-fee debit</text>
   </g>
 
   <line x1="54" y1="324" x2="906" y2="324" stroke="#b9c8cc"/>
@@ -52,5 +52,5 @@
     <text x="514" y="410" fill="#17324a" font-size="17" font-weight="700">$100 / estimated spend</text>
   </g>
   <rect x="54" y="446" width="852" height="42" rx="2" fill="#17324a"/>
-  <text x="72" y="472" fill="#ffffff" font-family="Arial, sans-serif" font-size="13"><tspan fill="#e58d2b" font-weight="700">KNOWN GAP</tspan><tspan>  Eligibility check → on-chain execution → record are separate; no atomic reservation or actual-fee settlement.</tspan></text>
+  <text x="72" y="472" fill="#ffffff" font-family="Arial, sans-serif" font-size="13"><tspan fill="#e58d2b" font-weight="700">KNOWN GAP</tspan><tspan dx="8">Eligibility check → on-chain execution → record are separate; no atomic reservation or actual-fee settlement.</tspan></text>
 </svg>
