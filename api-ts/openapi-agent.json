@@ -5000,15 +5000,6 @@
               "SELL"
             ],
             "description": "Order direction."
-          },
-          "expiration": {
-            "type": "number"
-          },
-          "feeRateBps": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 500,
-            "description": "Optional fee rate in basis points (0-500)."
           }
         },
         "required": [
@@ -5017,6 +5008,7 @@
           "size",
           "side"
         ],
+        "additionalProperties": false,
         "description": "Prediction-market limit order (Polymarket CLOB)."
       },
       "CancelOrderRequest": {

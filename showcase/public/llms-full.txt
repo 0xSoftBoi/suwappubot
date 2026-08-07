@@ -2773,6 +2773,8 @@ Response shape:
 
 Additional venue book fields such as `market` and `assetId` can also be present per outcome.
 
+The sell-side field is `asks`; the current response does not use a `tasks` property.
+
 ### GET /v1/agent/predict/market/:id/price
 
 Get current CLOB midpoint data for every outcome.
@@ -2814,7 +2816,7 @@ Place a CLOB GTC limit order. This is money-moving.
 | `size` | string | Yes | Positive number of outcome shares |
 | `side` | string | Yes | `BUY` or `SELL` |
 
-The current route does not expose `expiration` or `feeRateBps` request fields. Do not send them and assume they change the signed order.
+The current route rejects unknown request fields. Legacy `expiration` and `feeRateBps` options are not part of the order contract; the server submits a GTC order with its venue compatibility fields fixed internally.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
@@ -3598,7 +3600,7 @@ Search and browse prediction markets on Polymarket with live prices and volumes.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | No | Search term |
-| `category` | string | No | Filter by category |
+| `limit` | number | No | Maximum results (default 10, max 50) |
 
 **Example call:**
 
@@ -8079,7 +8081,7 @@ The current order route takes exactly:
 
 Before exposing that route to an agent, add your own approval/policy boundary, per-action and daily caps, durable intent state, and an ambiguous-outcome recovery path. Never blindly retry a money-moving request after a network timeout just because the client did not receive a response.
 
-`GET /predict/positions` and `GET /predict/orders` are read operations, but they require prediction trading credentials for the agent. A fresh research-only agent can legitimately have none; do not place a dummy order just to initialize those account views.
+`GET /v1/agent/predict/positions` and `GET /v1/agent/predict/orders` are read operations, but they require prediction trading credentials for the agent. A fresh research-only agent can legitimately have none; do not place a dummy order just to initialize those account views.
 
 ## How this stacks up against current Polymarket OSS
 

@@ -323,7 +323,7 @@ Search and browse prediction markets on Polymarket with live prices and volumes.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | No | Search term |
-| `category` | string | No | Filter by category |
+| `limit` | number | No | Maximum results (default 10, max 50) |
 
 **Example call:**
 

@@ -168,8 +168,9 @@ trades = await client.predict.trades(market_id, limit=20)
 `detail.condition_id` is the venue/on-chain condition identity; it is not the
 market `id` used by the read routes. `detail.tokens` exposes the outcome token
 IDs. Trading is a separate authority boundary: `client.predict.order(...)`
-takes one of those `token_id` values plus string `price`/`size` and currently
-maps to the API's GTC limit-order route.
+takes one of those `token_id` values plus string `price`/`size` and a required
+`side` (`"BUY"` or `"SELL"`), and currently maps to the API's GTC limit-order
+route.
 
 ### Lending (Morpho) — `client.lend`
 

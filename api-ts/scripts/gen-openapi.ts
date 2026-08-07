@@ -271,7 +271,6 @@ const SCHEMA_MAP: Record<
 				price: { description: 'Decimal string between 0 and 1.', example: '0.62' },
 				size: { description: 'Positive decimal string (number of shares).', example: '10' },
 				side: { description: 'Order direction.' },
-				feeRateBps: { description: 'Optional fee rate in basis points (0-500).' },
 			},
 		},
 	},

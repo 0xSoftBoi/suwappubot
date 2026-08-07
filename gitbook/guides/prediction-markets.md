@@ -186,7 +186,7 @@ The current order route takes exactly:
 
 Before exposing that route to an agent, add your own approval/policy boundary, per-action and daily caps, durable intent state, and an ambiguous-outcome recovery path. Never blindly retry a money-moving request after a network timeout just because the client did not receive a response.
 
-`GET /predict/positions` and `GET /predict/orders` are read operations, but they require prediction trading credentials for the agent. A fresh research-only agent can legitimately have none; do not place a dummy order just to initialize those account views.
+`GET /v1/agent/predict/positions` and `GET /v1/agent/predict/orders` are read operations, but they require prediction trading credentials for the agent. A fresh research-only agent can legitimately have none; do not place a dummy order just to initialize those account views.
 
 ## How this stacks up against current Polymarket OSS
 

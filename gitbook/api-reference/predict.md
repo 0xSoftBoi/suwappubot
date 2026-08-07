@@ -111,6 +111,8 @@ Response shape:
 
 Additional venue book fields such as `market` and `assetId` can also be present per outcome.
 
+The sell-side field is `asks`; the current response does not use a `tasks` property.
+
 ### GET /v1/agent/predict/market/:id/price
 
 Get current CLOB midpoint data for every outcome.
@@ -152,7 +154,7 @@ Place a CLOB GTC limit order. This is money-moving.
 | `size` | string | Yes | Positive number of outcome shares |
 | `side` | string | Yes | `BUY` or `SELL` |
 
-The current route does not expose `expiration` or `feeRateBps` request fields. Do not send them and assume they change the signed order.
+The current route rejects unknown request fields. Legacy `expiration` and `feeRateBps` options are not part of the order contract; the server submits a GTC order with its venue compatibility fields fixed internally.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
