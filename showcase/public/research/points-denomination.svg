@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg role="img" xmlns:xlink="http://www.w3.org/1999/xlink" width="456.363125pt" height="270.67907pt" viewBox="0 0 456.363125 270.67907" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg role="img" xmlns:xlink="http://www.w3.org/1999/xlink" width="467.952656pt" height="270.453211pt" viewBox="0 0 467.952656 270.453211" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-07-31T23:24:35.437917</dc:date>
+    <dc:date>2026-08-06T22:30:35.816724</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
-      <dc:title>Matplotlib v3.11.1, https://matplotlib.org/</dc:title>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
      </cc:Agent>
     </dc:creator>
    </cc:Work>
@@ -21,21 +21,21 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 270.67907 
-L 456.363125 270.67907 
-L 456.363125 0 
-L 0 0 
-L 0 270.67907 
+   <path d="M 0 270.453211
+L 467.952656 270.453211
+L 467.952656 0
+L 0 0
+L 0 270.453211
 z
 " style="fill: none"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 47.403125 224.434203 
-L 449.163125 224.434203 
-L 449.163125 35.938203 
-L 47.403125 35.938203 
-L 47.403125 224.434203 
+    <path d="M 47.403125 224.434203
+L 449.163125 224.434203
+L 449.163125 35.938203
+L 47.403125 35.938203
+L 47.403125 224.434203
 z
 " style="fill: none"/>
    </g>
@@ -43,8 +43,8 @@ z
     <g id="xtick_1">
      <g id="line2d_1"/>
      <g id="text_1">
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(79.781307 234.813734)">Volume-</text>
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(69.555682 244.415922)">denominated</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(79.780682 234.012953)">Volume-</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(69.555682 242.971203)">denominated</text>
      </g>
     </g>
     <g id="xtick_2">
@@ -56,24 +56,24 @@ z
     <g id="xtick_3">
      <g id="line2d_3"/>
      <g id="text_3">
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(264.017273 234.813734)">Fee-denominated</text>
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(271.599773 244.415922)">(cheap chain)</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(264.018523 234.012953)">Fee-denominated</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(261.757898 242.971203)">(low external cost)</text>
      </g>
     </g>
     <g id="xtick_4">
      <g id="line2d_4"/>
      <g id="text_4">
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(365.471818 234.813734)">Fee-denominated</text>
-      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(375.045568 244.415922)">(very cheap)</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(365.473068 234.012953)">Fee-denominated</text>
+      <text style="font-size: 8px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; fill: #4f6f7f" transform="translate(353.100568 242.971203)">(very low external cost)</text>
      </g>
     </g>
    </g>
    <g id="matplotlib.axis_2">
     <g id="ytick_1">
      <g id="line2d_5">
-      <path d="M 47.403125 224.434203 
-L 449.163125 224.434203 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 224.434203
+L 449.163125 224.434203
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_6"/>
      <g id="text_5">
@@ -82,9 +82,9 @@ L 449.163125 224.434203
     </g>
     <g id="ytick_2">
      <g id="line2d_7">
-      <path d="M 47.403125 188.167536 
-L 449.163125 188.167536 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 188.167536
+L 449.163125 188.167536
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_8"/>
      <g id="text_6">
@@ -93,9 +93,9 @@ L 449.163125 188.167536
     </g>
     <g id="ytick_3">
      <g id="line2d_9">
-      <path d="M 47.403125 151.90087 
-L 449.163125 151.90087 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 151.90087
+L 449.163125 151.90087
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_10"/>
      <g id="text_7">
@@ -104,9 +104,9 @@ L 449.163125 151.90087
     </g>
     <g id="ytick_4">
      <g id="line2d_11">
-      <path d="M 47.403125 115.634203 
-L 449.163125 115.634203 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 115.634203
+L 449.163125 115.634203
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_12"/>
      <g id="text_8">
@@ -115,9 +115,9 @@ L 449.163125 115.634203
     </g>
     <g id="ytick_5">
      <g id="line2d_13">
-      <path d="M 47.403125 79.367536 
-L 449.163125 79.367536 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 79.367536
+L 449.163125 79.367536
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_14"/>
      <g id="text_9">
@@ -126,9 +126,9 @@ L 449.163125 79.367536
     </g>
     <g id="ytick_6">
      <g id="line2d_15">
-      <path d="M 47.403125 43.10087 
-L 449.163125 43.10087 
-" clip-path="url(#p16fa36004c)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
+      <path d="M 47.403125 43.10087
+L 449.163125 43.10087
+" clip-path="url(#p1601c67948)" style="fill: none; stroke: #dcedf3; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_16"/>
      <g id="text_10">
@@ -137,105 +137,105 @@ L 449.163125 43.10087
     </g>
    </g>
    <g id="patch_3">
-    <path d="M 65.664943 224.434203 
-L 126.53767 224.434203 
-L 126.53767 215.458203 
-L 65.664943 215.458203 
+    <path d="M 65.664943 224.434203
+L 126.53767 224.434203
+L 126.53767 215.458203
+L 65.664943 215.458203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #0284c7"/>
+" clip-path="url(#p1601c67948)" style="fill: #0284c7"/>
    </g>
    <g id="patch_4">
-    <path d="M 167.119489 224.434203 
-L 227.992216 224.434203 
-L 227.992216 134.674203 
-L 167.119489 134.674203 
+    <path d="M 167.119489 224.434203
+L 227.992216 224.434203
+L 227.992216 134.674203
+L 167.119489 134.674203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #0284c7"/>
+" clip-path="url(#p1601c67948)" style="fill: #0284c7"/>
    </g>
    <g id="patch_5">
-    <path d="M 268.574034 224.434203 
-L 329.446761 224.434203 
-L 329.446761 62.866203 
-L 268.574034 62.866203 
+    <path d="M 268.574034 224.434203
+L 329.446761 224.434203
+L 329.446761 62.866203
+L 268.574034 62.866203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #0284c7"/>
+" clip-path="url(#p1601c67948)" style="fill: #0284c7"/>
    </g>
    <g id="patch_6">
-    <path d="M 370.02858 224.434203 
-L 430.901307 224.434203 
-L 430.901307 50.299803 
-L 370.02858 50.299803 
+    <path d="M 370.02858 224.434203
+L 430.901307 224.434203
+L 430.901307 50.299803
+L 370.02858 50.299803
 z
-" clip-path="url(#p16fa36004c)" style="fill: #0284c7"/>
+" clip-path="url(#p1601c67948)" style="fill: #0284c7"/>
    </g>
    <g id="patch_7">
-    <path d="M 65.664943 215.458203 
-L 126.53767 215.458203 
-L 126.53767 44.914203 
-L 65.664943 44.914203 
+    <path d="M 65.664943 215.458203
+L 126.53767 215.458203
+L 126.53767 44.914203
+L 65.664943 44.914203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #b9dfe9"/>
+" clip-path="url(#p1601c67948)" style="fill: #b9dfe9"/>
    </g>
    <g id="patch_8">
-    <path d="M 167.119489 134.674203 
-L 227.992216 134.674203 
-L 227.992216 44.914203 
-L 167.119489 44.914203 
+    <path d="M 167.119489 134.674203
+L 227.992216 134.674203
+L 227.992216 44.914203
+L 167.119489 44.914203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #b9dfe9"/>
+" clip-path="url(#p1601c67948)" style="fill: #b9dfe9"/>
    </g>
    <g id="patch_9">
-    <path d="M 268.574034 62.866203 
-L 329.446761 62.866203 
-L 329.446761 44.914203 
-L 268.574034 44.914203 
+    <path d="M 268.574034 62.866203
+L 329.446761 62.866203
+L 329.446761 44.914203
+L 268.574034 44.914203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #b9dfe9"/>
+" clip-path="url(#p1601c67948)" style="fill: #b9dfe9"/>
    </g>
    <g id="patch_10">
-    <path d="M 370.02858 50.299803 
-L 430.901307 50.299803 
-L 430.901307 44.914203 
-L 370.02858 44.914203 
+    <path d="M 370.02858 50.299803
+L 430.901307 50.299803
+L 430.901307 44.914203
+L 370.02858 44.914203
 z
-" clip-path="url(#p16fa36004c)" style="fill: #b9dfe9"/>
+" clip-path="url(#p1601c67948)" style="fill: #b9dfe9"/>
    </g>
    <g id="patch_11">
-    <path d="M 47.403125 224.434203 
-L 449.163125 224.434203 
+    <path d="M 47.403125 224.434203
+L 449.163125 224.434203
 " style="fill: none; stroke: #b9dfe9; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
    </g>
    <g id="text_11">
-    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="96.101307" y="222.154543" transform="rotate(-0 96.101307 222.154543)">$50k</text>
+    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="96.101307" y="222.291672" transform="rotate(-0 96.101307 222.291672)">$50k</text>
    </g>
    <g id="text_12">
-    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="197.555852" y="181.762543" transform="rotate(-0 197.555852 181.762543)">$495k</text>
+    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="197.555852" y="181.899672" transform="rotate(-0 197.555852 181.899672)">$495k</text>
    </g>
    <g id="text_13">
-    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="299.010398" y="145.858543" transform="rotate(-0 299.010398 145.858543)">$891k</text>
+    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="299.010398" y="145.995672" transform="rotate(-0 299.010398 145.995672)">$891k</text>
    </g>
    <g id="text_14">
-    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="400.464943" y="139.575343" transform="rotate(-0 400.464943 139.575343)">$960k</text>
+    <text style="font-weight: 700; font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle; fill: #ffffff" x="400.464943" y="139.712472" transform="rotate(-0 400.464943 139.712472)">$960k</text>
    </g>
    <g id="text_15">
     <text style="font-weight: 700; font-size: 7.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #0284c7" x="110.101307" y="189.458203" transform="rotate(-0 110.101307 189.458203)">kept by the protocol</text>
    </g>
    <g id="text_16">
-    <text style="font-size: 7.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f" x="110.101307" y="107.131803" transform="rotate(-0 110.101307 107.131803)">lost to gas, slippage, MEV</text>
+    <text style="font-size: 7.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f" x="110.101307" y="107.131803" transform="rotate(-0 110.101307 107.131803)">modeled third-party friction</text>
    </g>
    <g id="text_17">
-    <text style="font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f" x="47.403125" y="26.333672" transform="rotate(-0 47.403125 26.333672)">Equilibrium spend of $990k on a $1m pool (n=100), by points design</text>
+    <text style="font-size: 8.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f" x="47.403125" y="28.170469" transform="rotate(-0 47.403125 28.170469)">Conditional scenario: $990k modeled dissipation on a $1m pool (n=100)</text>
    </g>
    <g id="text_18">
-    <text style="font-size: 7px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f; opacity: 0.85" x="47.403125" y="261.797429" transform="rotate(-0 47.403125 261.797429)">Suwappu Research · closed-form equilibrium; see the paper for the revenue-capture identity</text>
+    <text style="font-size: 7px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #4f6f7f; opacity: 0.85" x="47.403125" y="261.797429" transform="rotate(-0 47.403125 261.797429)">Suwappu Research · scenario output, not measured or forecast revenue; see Paper 2 for assumptions</text>
    </g>
    <g id="text_19">
-    <text style="font-weight: 600; font-size: 11.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #17324a" x="47.403125" y="15.938203" transform="rotate(-0 47.403125 15.938203)">Denomination decides who keeps the dissipated value</text>
+    <text style="font-weight: 600; font-size: 11.5px; font-family:Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start; fill: #17324a" x="47.403125" y="15.938203" transform="rotate(-0 47.403125 15.938203)">Model identity: denomination changes the destination of spend</text>
    </g>
   </g>
  </g>
  <defs>
-  <clipPath id="p16fa36004c">
+  <clipPath id="p1601c67948">
    <rect x="47.403125" y="35.938203" width="401.76" height="188.496"/>
   </clipPath>
  </defs>

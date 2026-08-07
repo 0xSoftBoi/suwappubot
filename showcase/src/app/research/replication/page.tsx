@@ -30,13 +30,13 @@ const PAPERS: Row[] = [
   },
   {
     file: 'papers/points-tullock-contests.md',
-    size: '30 KB',
-    desc: 'Points Programs as Tullock Contests: Equilibrium Concentration, Denomination, and Sybil Neutrality — with the 31 Jul postscript reporting the empirical test.',
+    size: '28 KB',
+    desc: 'Points-Program Economics After Empirical Rejection — conditional Tullock benchmarks with the active-set failure and hard-cap correction incorporated into the main conclusion.',
   },
   {
     file: 'papers/airdrop-concentration.md',
-    size: '22 KB',
-    desc: 'Who Actually Collected the Airdrops: Testing the Tullock Active-Set Prediction Against Completed Allocations.',
+    size: '29 KB',
+    desc: 'Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model — revised to separate measurement from causal interpretation.',
   },
 ];
 
@@ -74,16 +74,16 @@ const CODE_POINTS: Row[] = [
   {
     file: 'code/tullock_sim.py',
     size: '11 KB',
-    desc: 'Exact active-set equilibrium solver, cost-invariance and revenue-capture scenarios, sybil tests.',
+    desc: 'Exact active-set equilibrium solver, cost-invariance and revenue-capture scenarios, and fixed-budget wallet-splitting tests.',
   },
-  { file: 'code/tullock_mc.py', size: '4.4 KB', desc: '500-draw Monte Carlo per σ at n = 5,000, plus the sybil-gain sensitivity sweep.' },
+  { file: 'code/tullock_mc.py', size: '4.4 KB', desc: '500-draw Monte Carlo per σ at n = 5,000, plus the wallet-splitting sensitivity sweep.' },
   {
     file: 'code/verify_equilibrium.py',
     size: '3.6 KB',
     desc: 'Four-check verification suite: FOC residuals, entry conditions, grid search over unilateral deviations, independent damped best-response.',
   },
   { file: 'code/exhibits.py', size: '14 KB', desc: 'Print exhibits.' },
-  { file: 'code/exhibits_web.py', size: '12 KB', desc: 'Web exhibits in the site palette (SVG).' },
+  { file: 'code/exhibits_web.py', size: '16 KB', desc: 'Web exhibits in the site palette (SVG), with optional targeted regeneration.' },
 ];
 
 const DATA_USDT0: Row[] = [
@@ -116,7 +116,7 @@ const CODE_AIRDROP: Row[] = [
   {
     file: 'code/analyze_airdrops.py',
     size: '9 KB',
-    desc: 'Concentration statistics, Lorenz curves, the σ back-out, matched-n model bands, and the sup-over-σ joint rejection test. Seed 20260731.',
+    desc: 'Concentration statistics, Lorenz curves, the σ back-out, matched-n model bands, and the prespecified finite-grid joint simulation test. Seed 20260731.',
   },
 ];
 
@@ -124,14 +124,14 @@ const DATA_AIRDROP: Row[] = [
   { file: 'data/airdrops/hype_genesis_raw.json', size: '4.9 MB', desc: 'The complete raw HYPE genesis holder state, 90,918 addresses — before any exclusion, so the system-account step is auditable.' },
   { file: 'data/airdrops/hype_recipients.json', size: '4.9 MB', desc: '90,912 recipient wallets after the six documented system-account exclusions, with fetched address tags.' },
   { file: 'data/airdrops/eigen_recipients.json', size: '14 MB', desc: '239,035 EIGEN S1 claim recipients, both phases merged per wallet, summed from the two real distributor transfer logs.' },
-  { file: 'data/airdrops/ena_recipients.json', size: '~8 MB', desc: 'All four Ethena-seeded ENA claim channels merged, seeds verified on-chain to exactly 750M, with residual balances quantified.' },
+  { file: 'data/airdrops/ena_recipients.json', size: '~8 MB', desc: 'All four Ethena-seeded ENA claim channels merged, with the approximately 750M seeded population and sweep-back/residual accounting reconciled.' },
   { file: 'data/airdrops/ena_v1_partial_superseded.json', size: '1.9 MB', desc: 'The superseded single-channel ENA collection, retained so the correction is auditable.' },
   { file: 'data/airdrops/concentration.json', size: '25 KB', desc: 'Every statistic in the paper: top-k shares, Ginis, Lorenz points, model bands at matched n, and the joint rejection test.' },
 ];
 
 const DATA_POINTS: Row[] = [
-  { file: 'data/tullock_results.json', size: '4.8 KB', desc: 'Propositions 1–4: symmetric equilibrium, cost invariance, heterogeneous active sets, sybil neutrality, revenue capture.' },
-  { file: 'data/tullock_mc.json', size: '3.1 KB', desc: 'Monte Carlo sampling distributions per σ, and the sybil sensitivity sweep.' },
+  { file: 'data/tullock_results.json', size: '4.8 KB', desc: 'Propositions 1–4: symmetric equilibrium, scalar cost invariance, heterogeneous active sets, fixed-budget wallet-splitting invariance, and modeled revenue capture.' },
+  { file: 'data/tullock_mc.json', size: '3.1 KB', desc: 'Monte Carlo sampling distributions per σ, and the wallet-splitting sensitivity sweep.' },
   { file: 'data/verify_output.txt', size: '3.8 KB', desc: 'Raw output of the verification suite.' },
   { file: 'data/sim_output.txt', size: '596 B', desc: 'Raw output of the simulation.' },
 ];
@@ -173,9 +173,10 @@ export default function ReplicationPage() {
     '@type': 'Dataset',
     name: 'Suwappu Research replication bundle — stablecoins, incentive design, and airdrop concentration',
     description:
-      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and complete HYPE and EIGEN recipient vectors used to test that model.',
+      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and the HYPE genesis and both-phase EIGEN claim-recipient vectors used to test that model.',
     url: `${SITE}${BASE}`,
     datePublished: '2026-07-26',
+    dateModified: '2026-08-06',
     isAccessibleForFree: true,
     license: `${SITE}${BASE}/README.md`,
     creator: { '@type': 'Person', name: AUTHOR_NAME },
@@ -190,7 +191,7 @@ export default function ReplicationPage() {
       'airdrop concentration',
     ],
     measurementTechnique:
-      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and complete recipient-vector concentration analysis',
+      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and wallet-level recipient-vector concentration analysis',
     temporalCoverage: '2025-07-26/2026-07-25',
     distribution: [
       {
@@ -285,10 +286,11 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 2 — Points programs as Tullock contests</h2>
+          <h2>Paper 2 — Points-program economics after empirical rejection</h2>
           <p>
-            The exact active-set equilibrium of a pro-rata points pool, its Monte Carlo sampling
-            distribution, and the verification suite. Seeded with{' '}
+            The exact active-set equilibrium of the stated pro-rata contest, its Monte Carlo sampling
+            distribution, and the verification suite — now governed by the companion field test that
+            rejects the active-set result as a wallet-level forecast. Seeded with{' '}
             <code>np.random.default_rng(20260726)</code>; the numbers are reproducible bit-for-bit
             with no network access.
           </p>
@@ -297,21 +299,21 @@ export default function ReplicationPage() {
           <h3>Data</h3>
           <FileTable rows={DATA_POINTS} />
           <p className="repl-caveat">
-            <strong>Stated limits.</strong> No number in this paper is calibrated against an observed
-            points program: it is the equilibrium of a stated game with sampling bands, not a
-            measurement. Three of the four verification checks evaluate or solve the model&rsquo;s own
+            <strong>Stated limits.</strong> The model scenarios are not calibrated to an observed
+            points program. Three of the four verification checks evaluate or solve the model&rsquo;s own
             first-order condition, so the suite establishes that the solver solves the stated game —
-            not that the game describes reality. The model assumes complete information, simultaneous
-            moves, risk neutrality, linear costs and no capital constraint.
+            not that the game describes reality. The HYPE/EIGEN companion test rejects its active-set
+            prediction at wallet level. Proposition 2 covers scalar common-cost changes; a binding
+            hard quantity cap is a separate constrained game and is not solved by the paper.
           </p>
         </section>
 
         <section className="repl-section">
           <h2>Paper 3 — Airdrop concentration: testing the model</h2>
           <p>
-            Complete recipient-level allocation vectors for Hyperliquid&rsquo;s HYPE genesis and
-            EigenLayer&rsquo;s EIGEN Season 1 — 329,947 recipient rows — plus the formal sup-over-σ rejection
-            of the theory paper&rsquo;s active-set prediction. The raw pre-exclusion HYPE state is
+            The HYPE genesis recipient vector and both-phase EIGEN Season 1 claim-recipient vector —
+            329,947 rows in aggregate — plus the prespecified finite-grid simulation test of the theory
+            paper&rsquo;s active-set prediction. The raw pre-exclusion HYPE state is
             included so the paper&rsquo;s single most judgment-laden step is inspectable.
           </p>
           <h3>Code</h3>
@@ -319,11 +321,12 @@ export default function ReplicationPage() {
           <h3>Data</h3>
           <FileTable rows={DATA_AIRDROP} />
           <p className="repl-caveat">
-            <strong>Stated limits.</strong> All concentration figures are wallet-level and are
-            therefore lower bounds on person-level concentration. HYPE is a post-enforcement
-            allocation, EIGEN is claims data with unclaimed allocations invisible, and ENA claim
-            executors may aggregate custodially. The full paper states the direction of each bias
-            and does not use ENA as the anchor for the formal rejection.
+            <strong>Stated limits.</strong> All concentration figures are wallet-level. Wallet splitting
+            can make entity concentration higher; omnibus or custodial addresses can push in the
+            opposite direction. HYPE is a post-eligibility allocation, EIGEN is claims data with
+            unclaimed allocations unobserved, and ENA claim executors may aggregate beneficiaries.
+            The field test rejects the stated model at wallet level; it does not identify the causal
+            mechanism behind the discrepancy.
           </p>
         </section>
 

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Suwappu routing decision waterfall</title>
+  <desc id="desc">Eligible returned quotes pass a trust gate. Trusted evidence uses net-of-gas ranking; otherwise routing falls back to gross output. Cross-chain routes may then use a trusted-time tiebreaker before selection and telemetry.</desc>
+  <rect width="960" height="600" fill="#fbfaf5"/>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">DECISION WATERFALL / QUOTE ROUTING</text>
+  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">The evidence quality chooses the ranking branch.</text>
+  <text x="54" y="110" fill="#667b87" font-family="Arial, sans-serif" font-size="14">The capability roster is chain-gated · each order sees only an eligible subset</text>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="282" y="144" width="396" height="62" rx="3" fill="#17324a"/>
+    <text x="304" y="171" fill="#e58d2b" font-size="11" font-weight="700" letter-spacing=".8">01 / RETURNED COMPARISON SET</text>
+    <text x="304" y="192" fill="#ffffff" font-size="15" font-weight="700">Eligible quotes received inside the latency window</text>
+
+    <path d="M480 206 V240" stroke="#b75e12" stroke-width="2"/>
+    <path d="M474 234 L480 242 L486 234" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="244" y="242" width="472" height="74" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="266" y="270" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">02 / TRUST GATE</text>
+    <text x="266" y="293" fill="#17324a" font-size="14" font-weight="700">All gas trusted · 2+ output-USD observations · price/gas sanity checks pass?</text>
+
+    <path d="M360 316 V348" stroke="#4f6f7f" stroke-width="1.5"/>
+    <path d="M600 316 V348" stroke="#4f6f7f" stroke-width="1.5"/>
+    <text x="330" y="339" fill="#667b87" font-size="11" font-weight="700">YES</text>
+    <text x="606" y="339" fill="#667b87" font-size="11" font-weight="700">NO</text>
+
+    <rect x="120" y="350" width="360" height="82" rx="3" fill="#eef3f2" stroke="#ccd6d8"/>
+    <text x="142" y="378" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">03A / ECONOMIC SCORE</text>
+    <text x="142" y="402" fill="#17324a" font-size="17" font-weight="700">Quoted output − gas / output USD</text>
+    <text x="142" y="421" fill="#667b87" font-size="12">Rank highest net output-token units</text>
+
+    <rect x="500" y="350" width="340" height="82" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="522" y="378" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">03B / CONSERVATIVE FALLBACK</text>
+    <text x="522" y="402" fill="#17324a" font-size="17" font-weight="700">Gross quoted output</text>
+    <text x="522" y="421" fill="#667b87" font-size="12">Do not steer on untrusted gas evidence</text>
+
+    <path d="M300 432 V458 H480" fill="none" stroke="#4f6f7f" stroke-width="1.5"/>
+    <path d="M670 432 V458 H480" fill="none" stroke="#4f6f7f" stroke-width="1.5"/>
+    <path d="M480 458 V476" stroke="#b75e12" stroke-width="2"/>
+    <path d="M474 470 L480 478 L486 470" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="218" y="478" width="524" height="58" rx="3" fill="#17324a"/>
+    <text x="240" y="502" fill="#e58d2b" font-size="11" font-weight="700" letter-spacing=".8">04 / CROSS-CHAIN TIEBREAK + WINNER</text>
+    <text x="240" y="524" fill="#ffffff" font-size="14">Trusted time only: within 10bp and &lt; ½ winner time → faster route may replace winner</text>
+  </g>
+
+  <rect x="54" y="558" width="852" height="26" rx="2" fill="#e7eceb"/>
+  <text x="68" y="576" fill="#4f6f7f" font-family="Arial, sans-serif" font-size="11"><tspan fill="#b75e12" font-weight="700">EX-POST GAP</tspan><tspan>  Realized fill · gas · failure · finality · bridge risk are not proven by quote selection; full TCA must join execution outcomes.</tspan></text>
+</svg>

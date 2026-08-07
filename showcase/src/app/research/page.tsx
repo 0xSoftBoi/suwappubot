@@ -42,6 +42,7 @@ export default function ResearchPage() {
       headline: paper.title,
       url: `${SITE}/research/${paper.slug}`,
       datePublished: paper.date,
+      dateModified: paper.updated ?? paper.date,
       author: { '@type': 'Person', name: AUTHOR_NAME },
       ...(paper.report && {
         associatedMedia: {
@@ -196,20 +197,34 @@ export default function ResearchPage() {
                   <div className={styles.ordinal} aria-hidden="true">
                     {String(index + 1).padStart(2, '0')}
                   </div>
-                  <div className={styles.rowBody}>
-                    <div className={styles.metaInline}>
-                      <span className="research-tag">{p.category}</span>
-                      <time className={styles.date}>{fmtDate(p.date)}</time>
+                  <div className={`${styles.rowBody} ${p.indexFigure ? styles.rowBodyWithFigure : ''}`}>
+                    <div className={styles.rowCopy}>
+                      <div className={styles.metaInline}>
+                        <span className="research-tag">{p.category}</span>
+                        <time className={styles.date}>{fmtDate(p.date)}</time>
+                        {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
+                      </div>
+                      <h3 className={styles.title}>
+                        <a href={`/research/${p.slug}`}>{p.title}</a>
+                      </h3>
+                      <p className={styles.dek}>{p.excerpt}</p>
+                      <div className={styles.rowLinks}>
+                        <a href={`/research/${p.slug}`}>Read study →</a>
+                        {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
+                        {p.report && <a href={p.report.path}>Report PDF →</a>}
+                      </div>
                     </div>
-                    <h3 className={styles.title}>
-                      <a href={`/research/${p.slug}`}>{p.title}</a>
-                    </h3>
-                    <p className={styles.dek}>{p.excerpt}</p>
-                    <div className={styles.rowLinks}>
-                      <a href={`/research/${p.slug}`}>Read study →</a>
-                      {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
-                      {p.report && <a href={p.report.path}>Report PDF →</a>}
-                    </div>
+                    {p.indexFigure && (
+                      <figure className={styles.rowFigure}>
+                        <Image
+                          src={p.indexFigure.src}
+                          width={720}
+                          height={480}
+                          alt={p.indexFigure.alt}
+                        />
+                        <figcaption>{p.indexFigure.caption}</figcaption>
+                      </figure>
+                    )}
                   </div>
                 </article>
               ))}
@@ -273,12 +288,24 @@ export default function ResearchPage() {
                   <div className={styles.metaInline}>
                     <span className="research-tag research-tag--muted">{p.category}</span>
                     <time className={styles.date}>{fmtDate(p.date)}</time>
+                    {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
                   </div>
-                  <div className={styles.rowBody}>
-                    <h3 className={styles.title}>
-                      <a href={`/research/${p.slug}`}>{p.title}</a>
-                    </h3>
-                    <p className={styles.dek}>{p.excerpt}</p>
+                  <div className={`${styles.rowBody} ${p.indexFigure ? styles.rowBodyWithFigure : ''}`}>
+                    <div className={styles.rowCopy}>
+                      <h3 className={styles.title}>
+                        <a href={`/research/${p.slug}`}>{p.title}</a>
+                      </h3>
+                      <p className={styles.dek}>{p.excerpt}</p>
+                      <div className={`research-links ${styles.rowLinks}`}>
+                        <a href={`/research/${p.slug}`}>Read control note <span aria-hidden="true">→</span></a>
+                      </div>
+                    </div>
+                    {p.indexFigure && (
+                      <figure className={styles.rowFigure}>
+                        <Image src={p.indexFigure.src} alt={p.indexFigure.alt} width={960} height={600} />
+                        <figcaption>{p.indexFigure.caption}</figcaption>
+                      </figure>
+                    )}
                   </div>
                 </article>
               ))}
