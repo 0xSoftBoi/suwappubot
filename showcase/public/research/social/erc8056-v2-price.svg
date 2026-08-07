@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Same holding, three valuations when price semantics are mixed</title>
+  <desc id="desc">After the documented 10-for-1 split fixture, correct token value is 200 dollars. Multiplying raw underlying price by raw token balance gives 20 dollars if the multiplier is missed; multiplying the already adjusted Chainlink token feed by the multiplier gives 2000 dollars.</desc>
+  <rect width="960" height="600" fill="#fbfaf5"/>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">PRICE PROVENANCE / ERC-8056</text>
+  <text x="54" y="100" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="42">Same holding. Three valuations.</text>
+  <text x="54" y="132" fill="#667b87" font-family="Arial, sans-serif" font-size="14">The RPC calls can all succeed. The semantic mix-up is what breaks the answer.</text>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="54" y="174" width="268" height="286" rx="4" fill="#eef3f2" stroke="#9fb1b7"/>
+    <text x="76" y="206" fill="#4f6f7f" font-size="11" font-weight="700" letter-spacing=".8">CORRECT TOKEN VALUE</text>
+    <text x="76" y="268" fill="#17324a" font-size="49" font-weight="700">$200</text>
+    <text x="76" y="305" fill="#17324a" font-size="14" font-weight="700">1 raw token × $200</text>
+    <text x="76" y="329" fill="#667b87" font-size="13">Chainlink token feed is</text>
+    <text x="76" y="347" fill="#667b87" font-size="13">already multiplier adjusted.</text>
+    <line x1="76" y1="376" x2="300" y2="376" stroke="#ccd6d8"/>
+    <text x="76" y="404" fill="#4f6f7f" font-size="11">$20 share price × 10×</text>
+    <text x="76" y="424" fill="#4f6f7f" font-size="11">= the same $200 token value</text>
+
+    <rect x="346" y="174" width="268" height="286" rx="4" fill="#ffffff" stroke="#d8c8ba"/>
+    <text x="368" y="206" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">MISS THE MULTIPLIER</text>
+    <text x="368" y="268" fill="#b75e12" font-size="49" font-weight="700">$20</text>
+    <text x="368" y="305" fill="#17324a" font-size="14" font-weight="700">1 raw token × $20</text>
+    <text x="368" y="329" fill="#667b87" font-size="13">Robinhood REST /prices is</text>
+    <text x="368" y="347" fill="#667b87" font-size="13">raw underlying-equity price.</text>
+    <line x1="368" y1="376" x2="592" y2="376" stroke="#e7eceb"/>
+    <text x="368" y="404" fill="#b75e12" font-size="11" font-weight="700">10× UNDERSTATEMENT</text>
+
+    <rect x="638" y="174" width="268" height="286" rx="4" fill="#ffffff" stroke="#d8c8ba"/>
+    <text x="660" y="206" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">APPLY IT TWICE</text>
+    <text x="660" y="268" fill="#b75e12" font-size="49" font-weight="700">$2,000</text>
+    <text x="660" y="305" fill="#17324a" font-size="14" font-weight="700">$200 feed × 10×</text>
+    <text x="660" y="329" fill="#667b87" font-size="13">The Chainlink feed already</text>
+    <text x="660" y="347" fill="#667b87" font-size="13">contains uiMultiplier().</text>
+    <line x1="660" y1="376" x2="884" y2="376" stroke="#e7eceb"/>
+    <text x="660" y="404" fill="#b75e12" font-size="11" font-weight="700">10× OVERSTATEMENT</text>
+  </g>
+
+  <text x="54" y="503" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="22">Raw amount ≠ share-equivalent amount ≠ raw share price.</text>
+  <text x="54" y="538" fill="#667b87" font-family="Arial, sans-serif" font-size="13">Illustrative 10:1 split from Chainlink documentation · no claim of a live user incident · ERC-8056 is Draft</text>
+  <line x1="54" y1="557" x2="906" y2="557" stroke="#ccd6d8"/>
+  <text x="54" y="581" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700">SUWAPPU RESEARCH</text>
+  <text x="906" y="581" text-anchor="end" fill="#4f6f7f" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">CNT-20260807-001 / V2</text>
+</svg>

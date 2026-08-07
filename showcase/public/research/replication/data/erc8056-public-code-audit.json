@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "audit_id": "ERC8056-PUBLIC-CODE-20260807",
+  "observed_at": "2026-08-07",
+  "question": "Do public default-branch code searches reveal canonical ERC-8056 integration markers in a purposive sample of wallets, portfolio/explorer interfaces, and EVM libraries?",
+  "standard_state": "DRAFT",
+  "primary_sources": [
+    {
+      "url": "https://eips.ethereum.org/EIPS/eip-8056",
+      "fact": "ERC-8056 is a Draft standards-track ERC. Standard ERC-20 functions remain raw; uiMultiplier() supplies the scaled UI amount semantics."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/stock-tokens/",
+      "fact": "Robinhood Stock Tokens keep raw balances static while the onchain multiplier changes the shares-per-token ratio for dividends and splits."
+    },
+    {
+      "url": "https://docs.robinhood.com/chain/stock-token-apis/",
+      "fact": "Robinhood's REST /prices surface is raw underlying-equity price, while currentMultiplier is exposed separately."
+    },
+    {
+      "url": "https://docs.chain.link/data-feeds/tokenized-equity-feeds/robinhood",
+      "fact": "The Chainlink Stock Token feed already reports underlying equity price multiplied by uiMultiplier()."
+    }
+  ],
+  "github_search": {
+    "method": "Connected GitHub code search, scoped to the listed public repositories. Searches reflect GitHub's indexed default-branch code at observation time.",
+    "repositories": [
+      { "repository": "MetaMask/metamask-extension", "role": "wallet" },
+      { "repository": "RabbyHub/Rabby", "role": "wallet" },
+      { "repository": "rainbow-me/rainbow", "role": "wallet" },
+      { "repository": "trustwallet/wallet-core", "role": "wallet core" },
+      { "repository": "rotki/rotki", "role": "portfolio/accounting" },
+      { "repository": "blockscout/frontend", "role": "explorer frontend" },
+      { "repository": "wevm/viem", "role": "EVM library" },
+      { "repository": "ethers-io/ethers.js", "role": "EVM library" },
+      { "repository": "Uniswap/interface", "role": "DEX interface" }
+    ],
+    "queries": [
+      { "query": "uiMultiplier", "matches": 0 },
+      { "query": "balanceOfUI", "matches": 0 },
+      { "query": "UIMultiplierUpdated", "matches": 0 },
+      { "query": "ERC-8056", "matches": 0 },
+      { "query": "a60bf13d", "matches": 0 },
+      { "query": "d890fd71", "matches": 0 },
+      { "query": "57854fc3", "matches": 0 },
+      { "query": "4bd27648", "matches": 0 }
+    ],
+    "positive_control": {
+      "query": "balanceOf",
+      "top_n": 5,
+      "matches_returned": 5,
+      "sample_repository": "trustwallet/wallet-core",
+      "sample_commit": "7782ecfbfef710c06d1ad6b6de282598a163d522",
+      "purpose": "Confirms that the same repository-scoped search path returned indexed code for an ordinary token-balance identifier."
+    },
+    "result": "No matches for the eight canonical ERC-8056 markers in this nine-repository search.",
+    "interpretation_boundary": "This is an integration signal, not proof that any named product lacks runtime support. Support can exist in private services, generated code, third-party metadata, dynamically constructed calls, unindexed branches, or code that uses different identifiers. The sample is purposive and not population-representative."
+  },
+  "suwappu_prechange_search": {
+    "repository": "0xSoftBoi/suwappubot",
+    "commit": "8ca242149eb40c7f90b0c2ac02a4ca850e432e4c",
+    "searched_paths": ["bot", "api-ts", "webapp", "terminal", "packages", "contracts", "showcase/src", "docs"],
+    "pattern": "uiMultiplier|balanceOfUI|UIMultiplierUpdated|IScaledUIAmount|ERC[- ]8056|EIP[- ]8056|a60bf13d|d890fd71|57854fc3|4bd27648",
+    "matches": 0,
+    "current_control": "Canonical Robinhood Stock Token trading is fail-closed in Suwappu pending a dedicated jurisdiction/eligibility flow, so this search finding is not evidence of a currently exposed Suwappu trading path."
+  },
+  "official_split_fixture": {
+    "kind": "documentation example, not an observed market incident",
+    "source": "https://docs.chain.link/data-feeds/tokenized-equity-feeds/robinhood",
+    "raw_token_balance_before": "1",
+    "raw_token_balance_after": "1",
+    "underlying_share_price_before_usd": "200",
+    "underlying_share_price_after_usd": "20",
+    "ui_multiplier_before": "1",
+    "ui_multiplier_after": "10",
+    "chainlink_token_price_before_usd": "200",
+    "chainlink_token_price_after_usd": "200",
+    "share_equivalent_after": "10",
+    "failure_examples_after": {
+      "raw_balance_shown_as_share_count": "1 instead of 10",
+      "raw_rest_share_price_times_raw_token_balance_usd": "20 instead of 200",
+      "chainlink_token_price_times_multiplier_usd": "2000 instead of 200"
+    }
+  }
+}
