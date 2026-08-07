@@ -39,7 +39,7 @@ See [A2A Protocol](a2a.md) for the JSON-RPC methods and message format.
 
 ## Authentication
 
-Authenticated REST calls, stateful/paid MCP tools, and all A2A methods use the same Bearer token. MCP lifecycle/discovery plus `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` are intentionally public so clients can discover Suwappu before authenticating. Register once to get a key for everything else:
+Authenticated REST calls, stateful/paid MCP tools, and all A2A methods use the same Bearer token. The read-only lending REST routes are public. MCP lifecycle/discovery plus `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` are intentionally public so clients can discover Suwappu before authenticating. Register once when you need an authenticated surface:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \

@@ -139,7 +139,7 @@ it only reads the calling agent's managed EVM wallet.
 | `predict.markets(query?, limit?)` | `GET /v1/agent/predict/markets` |
 | `predict.market(id)` | `GET /v1/agent/predict/market/:id` |
 | `lend.markets(chainId?)` | `GET /v1/agent/lend/markets` (read-only) |
-| `lend.market(id)` | `GET /v1/agent/lend/market/:id` (read-only) |
+| `lend.market(id, chainId?)` | `GET /v1/agent/lend/market/:id?chainId=` (read-only) |
 
 Every method mirrors a Suwappu agent API endpoint exactly — there are no
 client-only features. OpenClaw's `predict.*` surface is intentionally read-only
@@ -149,6 +149,10 @@ endpoint; these methods are for research, monitoring, and product intelligence.
 For perps markets, `maxLeverage` is the current Suwappu quote cap while
 `venueMaxLeverage` is Hyperliquid's raw venue maximum; `fundingRate` is current
 market context rather than accrued position funding P&L.
+Lending reads expose explicit nullable USD supply/borrow/liquidity fields,
+Morpho's `listed` status, and active upstream `warnings`. Listing status is an
+interface signal, not a safety guarantee or endorsement. Market IDs are scoped
+by chain; detail defaults to Base (`8453`) when `chainId` is omitted.
 
 ## Development
 

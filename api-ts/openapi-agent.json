@@ -2872,7 +2872,7 @@
       "get": {
         "summary": "List lending markets",
         "operationId": "listLendingMarkets",
-        "description": "List Morpho Blue lending markets for a chain, ordered by supply size. Read-only (supply/withdraw/borrow/repay are not yet exposed via this API). Public endpoint, no auth required.",
+        "description": "List Morpho Blue lending markets for a chain, ordered by USD supply size. Returns current APY/utilization, explicit nullable USD supply/borrow/liquidity, Morpho listing status, and active upstream warnings. Read-only (supply/withdraw/borrow/repay are not exposed via this API). Public endpoint, no auth required.",
         "security": [],
         "parameters": [
           {
@@ -2912,8 +2912,13 @@
                       "borrowApy": 6.84,
                       "totalSupply": 12450000,
                       "totalBorrow": 8230000,
+                      "totalSupplyUsd": 12450000,
+                      "totalBorrowUsd": 8230000,
+                      "availableLiquidityUsd": 4220000,
                       "utilization": 66.1,
-                      "chainId": 8453
+                      "chainId": 8453,
+                      "listed": true,
+                      "warnings": []
                     }
                   ]
                 }
@@ -2930,7 +2935,7 @@
       "get": {
         "summary": "Get lending market detail",
         "operationId": "getLendingMarket",
-        "description": "Get full detail for a single Morpho Blue lending market, including oracle, interest-rate model, and creation time. Read-only. Public endpoint, no auth required.",
+        "description": "Get chain-scoped detail for a single Morpho Blue lending market, including current APY/USD liquidity, listing status, active warnings, oracle, interest-rate model, and creation time. Read-only. Public endpoint, no auth required.",
         "security": [],
         "parameters": [
           {
@@ -2941,6 +2946,16 @@
               "type": "string"
             },
             "example": "0xmarket1"
+          },
+          {
+            "name": "chainId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 8453
+            },
+            "description": "Positive EVM chain id. Market IDs are chain-scoped; default 8453 = Base."
           }
         ],
         "responses": {
@@ -2960,8 +2975,13 @@
                   "borrowApy": 6.84,
                   "totalSupply": 12450000,
                   "totalBorrow": 8230000,
+                  "totalSupplyUsd": 12450000,
+                  "totalBorrowUsd": 8230000,
+                  "availableLiquidityUsd": 4220000,
                   "utilization": 66.1,
                   "chainId": 8453,
+                  "listed": true,
+                  "warnings": [],
                   "oracle": "0xOracleAddress00000000000000000000000000",
                   "irm": "0xIrmAddress0000000000000000000000000000000",
                   "createdAt": "2025-03-01T00:00:00.000Z"
@@ -5110,6 +5130,20 @@
           }
         }
       },
+      "LendingMarketWarning": {
+        "type": "object",
+        "description": "An active Morpho market warning reported by the upstream API.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "oracle_price_derivation"
+          },
+          "level": {
+            "type": "string",
+            "example": "RED"
+          }
+        }
+      },
       "LendingMarket": {
         "type": "object",
         "description": "A Morpho Blue lending market.",
@@ -5142,11 +5176,30 @@
           },
           "totalSupply": {
             "type": "number",
-            "description": "Total supplied, USD."
+            "nullable": true,
+            "deprecated": true,
+            "description": "Deprecated backwards-compatible alias of totalSupplyUsd."
           },
           "totalBorrow": {
             "type": "number",
-            "description": "Total borrowed, USD."
+            "nullable": true,
+            "deprecated": true,
+            "description": "Deprecated backwards-compatible alias of totalBorrowUsd."
+          },
+          "totalSupplyUsd": {
+            "type": "number",
+            "nullable": true,
+            "description": "Current supplied value in USD from Morpho; null when upstream USD valuation is unavailable."
+          },
+          "totalBorrowUsd": {
+            "type": "number",
+            "nullable": true,
+            "description": "Current borrowed value in USD from Morpho; null when upstream USD valuation is unavailable."
+          },
+          "availableLiquidityUsd": {
+            "type": "number",
+            "nullable": true,
+            "description": "Current amount available to borrow, valued in USD by Morpho; null when upstream USD valuation is unavailable."
           },
           "utilization": {
             "type": "number",
@@ -5155,6 +5208,17 @@
           "chainId": {
             "type": "integer",
             "example": 8453
+          },
+          "listed": {
+            "type": "boolean",
+            "description": "Morpho interface listing status. This is not a safety guarantee or endorsement."
+          },
+          "warnings": {
+            "type": "array",
+            "description": "Active Morpho market warnings. An empty list does not eliminate protocol, oracle, liquidity, or collateral risk.",
+            "items": {
+              "$ref": "#/components/schemas/LendingMarketWarning"
+            }
           }
         }
       },

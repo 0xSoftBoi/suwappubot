@@ -50,6 +50,7 @@ export type {
   PredictionOrderResult,
   PredictionPosition,
   PredictionOrder,
+  LendingMarketWarning,
   LendingMarket,
   LendingMarketDetail,
   GetQuoteArgs,

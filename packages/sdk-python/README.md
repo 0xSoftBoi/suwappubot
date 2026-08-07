@@ -181,8 +181,16 @@ route.
 
 ```python
 markets = await client.lend.markets(chain_id=8453)
-detail = await client.lend.market("0xMarketId")
+detail = await client.lend.market("0xMarketId", chain_id=8453)
 ```
+
+`supply_apy`, `borrow_apy`, and `utilization` are current percentages.
+`total_supply_usd`, `total_borrow_usd`, and `available_liquidity_usd` are
+explicit nullable USD values from Morpho; `total_supply` / `total_borrow` are
+backwards-compatible aliases. `listed` is Morpho's interface listing status,
+not a safety guarantee, and `warnings` carries active upstream warning
+types/levels. Market IDs are chain-scoped; detail defaults to Base (`8453`) if
+the chain is omitted. Lending is read-only on the Agent API today.
 
 ### Wallets & swap safety
 

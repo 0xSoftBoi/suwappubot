@@ -99,8 +99,8 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `perps_markets` | List supported HyperLiquid perpetual futures markets (live mark/funding, Suwappu quote max, raw venue max) | — | 1 |
 | `perps_quote` | Quote a HyperLiquid perp position: indicative entry, margin, liquidation price, current funding, fees | `market`, `side`, `size`, `leverage` | 1 |
 | `perps_positions` | Open HyperLiquid perp positions for a wallet (size, entry, PnL, liquidation price, current market funding) | `address` | 1 |
-| `lend_markets` | List Morpho lending markets on a chain (supply/borrow APY, LLTV, utilization, TVL) | `chain_id` | 1 |
-| `lend_market` | Detail for a single Morpho lending market by ID | `market_id` | 1 |
+| `lend_markets` | Current Morpho APY/utilization, USD liquidity, listing status, and warnings for one chain | `chain_id` | 1 |
+| `lend_market` | Chain-scoped detail for a single Morpho lending market | `market_id`, `chain_id` | 1 |
 | `get_swap_status` | Status of a managed swap created through REST `/swap/execute` | `swap_id` | 1 |
 | `get_swap_history` | Paginated managed-swap history for the authenticated agent | `status`, `limit`, `offset` | 1 |
 | `predict_book` | Live CLOB order book for every outcome of a prediction market | `market_id` | 1 |
@@ -442,7 +442,7 @@ List open Hyperliquid perpetual positions for a wallet address, with size, entry
 
 ### 14. lend_markets
 
-List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.
+List current Morpho lending-market snapshots for one chain. Responses include supply/borrow APY, LLTV, utilization, nullable USD supply/borrow/available-liquidity values, interface listing status, and Morpho warning objects. This is a read-only research tool; it does not deposit, withdraw, borrow, or repay.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -466,11 +466,12 @@ List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization
 
 ### 15. lend_market
 
-Get details for a single Morpho lending market by its unique market ID.
+Get details for one Morpho lending market. Market identity is chain-scoped, so persist the market ID together with its chain ID.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `market_id` | string | Yes | Morpho market unique ID (from `lend_markets` results) |
+| `chain_id` | number | No | Positive EVM chain ID (default 8453 = Base) |
 
 **Example call:**
 
@@ -482,11 +483,14 @@ Get details for a single Morpho lending market by its unique market ID.
   "params": {
     "name": "lend_market",
     "arguments": {
-      "market_id": "0xabcdef1234..."
+      "market_id": "0xabcdef1234...",
+      "chain_id": 8453
     }
   }
 }
 ```
+
+`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`; the older `totalSupply` and `totalBorrow` names are deprecated aliases. `listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
 
 ## Response Format
 

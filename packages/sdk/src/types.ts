@@ -206,6 +206,11 @@ export type PredictionOrder = Record<string, unknown>;
 
 // --- Lending (Morpho) ---
 
+export interface LendingMarketWarning {
+  type: string;
+  level: string;
+}
+
 export interface LendingMarket {
   id: string;
   loanToken: string;
@@ -213,10 +218,19 @@ export interface LendingMarket {
   lltv: number;
   supplyApy: number;
   borrowApy: number;
-  totalSupply: number;
-  totalBorrow: number;
+  /** @deprecated Use totalSupplyUsd; retained for backwards compatibility. */
+  totalSupply: number | null;
+  /** @deprecated Use totalBorrowUsd; retained for backwards compatibility. */
+  totalBorrow: number | null;
+  totalSupplyUsd: number | null;
+  totalBorrowUsd: number | null;
+  availableLiquidityUsd: number | null;
   utilization: number;
   chainId: number;
+  /** Morpho interface listing status; not a guarantee or endorsement. */
+  listed: boolean;
+  /** Active Morpho market warnings reported by the upstream API. */
+  warnings: LendingMarketWarning[];
 }
 
 export interface LendingMarketDetail extends LendingMarket {

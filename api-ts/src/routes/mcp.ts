@@ -637,6 +637,9 @@ export async function handlePerpsPositions(args: Record<string, unknown>, agent:
 
 async function handleLendMarkets(args: Record<string, unknown>) {
 	const chainId = typeof args.chain_id === 'number' ? args.chain_id : 8453
+	if (!Number.isInteger(chainId) || chainId <= 0) {
+		return { isError: true, content: [{ type: 'text' as const, text: 'chain_id must be a positive integer' }] }
+	}
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const morpho = yield* MorphoService
@@ -650,11 +653,15 @@ async function handleLendMarkets(args: Record<string, unknown>) {
 async function handleLendMarket(args: Record<string, unknown>) {
 	const marketId = args.market_id as string | undefined
 	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+	const chainId = typeof args.chain_id === 'number' ? args.chain_id : 8453
+	if (!Number.isInteger(chainId) || chainId <= 0) {
+		return { isError: true, content: [{ type: 'text' as const, text: 'chain_id must be a positive integer' }] }
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const morpho = yield* MorphoService
-			return yield* morpho.getMarket(marketId)
+			return yield* morpho.getMarket(marketId, chainId)
 		}),
 	)
 	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Morpho error: ${result.left.message}` }] }

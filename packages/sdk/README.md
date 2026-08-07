@@ -221,9 +221,17 @@ await client.predict.orders(status?);
 ### Lending (Morpho)
 
 ```ts
-await client.lend.markets(chainId?);
-await client.lend.market(id);
+const markets = await client.lend.markets(8453);
+const detail = await client.lend.market(markets[0].id, 8453);
 ```
+
+`supplyApy`, `borrowApy`, and `utilization` are current percentages.
+`totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicit
+nullable USD values from Morpho; the older `totalSupply` / `totalBorrow` names
+remain as deprecated aliases. `listed` is Morpho's interface listing status,
+not a safety guarantee, and `warnings` contains active upstream market warning
+types/levels. Market IDs are chain-scoped; detail defaults to Base (`8453`) if
+the chain is omitted. Lending is read-only on the Agent API today.
 
 ## CLI
 

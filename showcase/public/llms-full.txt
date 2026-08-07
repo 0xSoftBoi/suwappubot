@@ -2888,82 +2888,115 @@ For a safe read-first workflow and product/economics patterns, see [Prediction M
 
 # Lending Markets
 
-Access DeFi lending markets through the Morpho protocol integration. Browse markets on Base and check rates.
+Read current Morpho Blue lending-market data through Suwappu. These REST routes are public and read-only: they do not deposit, withdraw, borrow, repay, sign, or broadcast transactions.
 
-## GET /v1/agent/lend/markets
+The Suwappu surface intentionally stays smaller than Morpho's direct API. Use it when you want a normalized REST/SDK/MCP contract that composes with other Suwappu agent tools; use Morpho directly when you need its full historical, rewards, position, or transaction-building surface.
 
-List available lending markets.
+## `GET /v1/agent/lend/markets`
+
+Return up to 50 markets for one chain, ordered by Morpho's USD supplied value.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `chainId` | number | No | Chain ID (default: `8453` for Base) |
+| `chainId` | positive integer | No | EVM chain ID; defaults to `8453` (Base) |
 
 ```bash
-curl "https://api.suwappu.bot/v1/agent/lend/markets?chainId=8453" \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/lend/markets?chainId=8453"
 ```
-
-**Response:**
 
 ```json
 {
-  "success": true,
   "markets": [
     {
       "id": "0xabc123...",
-      "loanAsset": "USDC",
-      "collateralAsset": "ETH",
-      "lltv": "0.86",
-      "supplyApy": "4.2",
-      "borrowApy": "5.8",
-      "totalSupply": "12500000",
-      "totalBorrow": "8900000",
-      "utilization": "0.712"
-    },
-    {
-      "id": "0xdef456...",
-      "loanAsset": "USDC",
-      "collateralAsset": "cbBTC",
-      "lltv": "0.86",
-      "supplyApy": "3.8",
-      "borrowApy": "5.2",
-      "totalSupply": "8200000",
-      "totalBorrow": "5100000",
-      "utilization": "0.622"
+      "loanToken": "USDC",
+      "collateralToken": "WETH",
+      "lltv": 0.86,
+      "supplyApy": 4.2,
+      "borrowApy": 5.8,
+      "totalSupply": 12500000,
+      "totalBorrow": 8900000,
+      "totalSupplyUsd": 12500000,
+      "totalBorrowUsd": 8900000,
+      "availableLiquidityUsd": 3600000,
+      "utilization": 71.2,
+      "chainId": 8453,
+      "listed": true,
+      "warnings": []
     }
   ]
 }
 ```
 
-## GET /v1/agent/lend/market/:id
+### Market field semantics
 
-Get detailed information about a specific lending market.
+| Field | Meaning |
+|-------|---------|
+| `supplyApy`, `borrowApy` | Current Morpho APY fields, converted to percentage units (`4.2` means 4.2%) |
+| `utilization` | Current utilization in percentage units (`71.2` means 71.2%) |
+| `lltv` | Liquidation loan-to-value ratio as a decimal (`0.86` means 86%) |
+| `totalSupplyUsd` | Current supplied value in USD; nullable when Morpho has no USD valuation |
+| `totalBorrowUsd` | Current borrowed value in USD; nullable when Morpho has no USD valuation |
+| `availableLiquidityUsd` | Current amount available to borrow, valued in USD; nullable |
+| `totalSupply`, `totalBorrow` | Deprecated aliases of the corresponding `*Usd` fields, retained for compatibility |
+| `listed` | Morpho interface listing status; not a safety guarantee or endorsement |
+| `warnings` | Active warning objects from Morpho, each with `type` and `level` |
+
+An empty `warnings` array does not mean a market is risk-free. Smart-contract, oracle, asset, liquidity, collateral, and market risks still exist.
+
+## `GET /v1/agent/lend/market/:id`
+
+Read one market by Morpho market ID. Market identity is chain-scoped, so pass the chain when it is not Base—or explicitly pass it in stored workflows so a market ID is never detached from its chain.
+
+| Parameter | Location | Type | Required | Description |
+|-----------|----------|------|----------|-------------|
+| `id` | path | string | Yes | Morpho market ID from `lend_markets` / the list route |
+| `chainId` | query | positive integer | No | EVM chain ID; defaults to `8453` (Base) |
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/lend/market/0xabc123 \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/lend/market/0xabc123?chainId=8453"
 ```
 
-**Response:**
+The response is the market object itself, not a `{ "market": ... }` wrapper:
 
 ```json
 {
-  "success": true,
-  "market": {
-    "id": "0xabc123...",
-    "loanAsset": "USDC",
-    "collateralAsset": "ETH",
-    "lltv": "0.86",
-    "supplyApy": "4.2",
-    "borrowApy": "5.8",
-    "totalSupply": "12500000",
-    "totalBorrow": "8900000",
-    "utilization": "0.712",
-    "oracle": "0x...",
-    "irm": "0x..."
-  }
+  "id": "0xabc123...",
+  "loanToken": "USDC",
+  "collateralToken": "WETH",
+  "lltv": 0.86,
+  "supplyApy": 4.2,
+  "borrowApy": 5.8,
+  "totalSupply": 12500000,
+  "totalBorrow": 8900000,
+  "totalSupplyUsd": 12500000,
+  "totalBorrowUsd": 8900000,
+  "availableLiquidityUsd": 3600000,
+  "utilization": 71.2,
+  "chainId": 8453,
+  "listed": true,
+  "warnings": [
+    { "type": "oracle_price_derivation", "level": "RED" }
+  ],
+  "oracle": "0x...",
+  "irm": "0x...",
+  "createdAt": "2026-01-01T00:00:00.000Z"
 }
 ```
+
+`oracle`, `irm`, and `createdAt` are extra detail fields. Suwappu reads them from the current Morpho API; it does not turn them into a proprietary risk score.
+
+## MCP and SDK equivalents
+
+- MCP: `lend_markets({ chain_id })`, `lend_market({ market_id, chain_id })`
+- TypeScript: `client.lend.markets(chainId)`, `client.lend.market(id, chainId)`
+- Python: `client.lend.markets(chain_id=...)`, `client.lend.market(id, chain_id=...)`
+
+Hosted MCP lending tools require agent authentication and currently cost one credit per tool call. The REST routes documented on this page are public.
+
+The TypeScript signatures above describe the repository's `0.6.x` SDK source contract. Package registries can lag the repository: run `npm view @suwappu/sdk version` before relying on the chain-scoped detail overload or new typed fields. If npm still reports a version below `0.6.0`, use the REST contract on this page as the stable fallback.
+
+For a concrete monitoring product built from these reads, continue to [Build a Lending Monitor](../guides/lending-monitor.md).
 
 
 ---
@@ -3099,7 +3132,7 @@ See [A2A Protocol](a2a.md) for the JSON-RPC methods and message format.
 
 ## Authentication
 
-Authenticated REST calls, stateful/paid MCP tools, and all A2A methods use the same Bearer token. MCP lifecycle/discovery plus `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` are intentionally public so clients can discover Suwappu before authenticating. Register once to get a key for everything else:
+Authenticated REST calls, stateful/paid MCP tools, and all A2A methods use the same Bearer token. The read-only lending REST routes are public. MCP lifecycle/discovery plus `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` are intentionally public so clients can discover Suwappu before authenticating. Register once when you need an authenticated surface:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
@@ -3388,8 +3421,8 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `perps_markets` | List supported HyperLiquid perpetual futures markets (live mark/funding, Suwappu quote max, raw venue max) | — | 1 |
 | `perps_quote` | Quote a HyperLiquid perp position: indicative entry, margin, liquidation price, current funding, fees | `market`, `side`, `size`, `leverage` | 1 |
 | `perps_positions` | Open HyperLiquid perp positions for a wallet (size, entry, PnL, liquidation price, current market funding) | `address` | 1 |
-| `lend_markets` | List Morpho lending markets on a chain (supply/borrow APY, LLTV, utilization, TVL) | `chain_id` | 1 |
-| `lend_market` | Detail for a single Morpho lending market by ID | `market_id` | 1 |
+| `lend_markets` | Current Morpho APY/utilization, USD liquidity, listing status, and warnings for one chain | `chain_id` | 1 |
+| `lend_market` | Chain-scoped detail for a single Morpho lending market | `market_id`, `chain_id` | 1 |
 | `get_swap_status` | Status of a managed swap created through REST `/swap/execute` | `swap_id` | 1 |
 | `get_swap_history` | Paginated managed-swap history for the authenticated agent | `status`, `limit`, `offset` | 1 |
 | `predict_book` | Live CLOB order book for every outcome of a prediction market | `market_id` | 1 |
@@ -3731,7 +3764,7 @@ List open Hyperliquid perpetual positions for a wallet address, with size, entry
 
 ### 14. lend_markets
 
-List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.
+List current Morpho lending-market snapshots for one chain. Responses include supply/borrow APY, LLTV, utilization, nullable USD supply/borrow/available-liquidity values, interface listing status, and Morpho warning objects. This is a read-only research tool; it does not deposit, withdraw, borrow, or repay.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -3755,11 +3788,12 @@ List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization
 
 ### 15. lend_market
 
-Get details for a single Morpho lending market by its unique market ID.
+Get details for one Morpho lending market. Market identity is chain-scoped, so persist the market ID together with its chain ID.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `market_id` | string | Yes | Morpho market unique ID (from `lend_markets` results) |
+| `chain_id` | number | No | Positive EVM chain ID (default 8453 = Base) |
 
 **Example call:**
 
@@ -3771,11 +3805,14 @@ Get details for a single Morpho lending market by its unique market ID.
   "params": {
     "name": "lend_market",
     "arguments": {
-      "market_id": "0xabcdef1234..."
+      "market_id": "0xabcdef1234...",
+      "chain_id": 8453
     }
   }
 }
 ```
+
+`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`; the older `totalSupply` and `totalBorrow` names are deprecated aliases. `listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
 
 ## Response Format
 
@@ -4865,6 +4902,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
 | [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
 | [Build Prediction Market Research](prediction-markets.md) | Read-only market-health snapshots, alert economics, calibration, OSS tradeoffs, and a paid-research product ladder |
+| [Build a Lending Monitor](lending-monitor.md) | Risk-aware Morpho snapshots, alert state, polling economics, OSS boundaries, and a paid-monitor product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
@@ -4882,6 +4920,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 |-------|-------------------|
 | [Perpetual Futures Research](perps-trading.md) | Live mark/funding context, quotes, position-risk snapshots, and alert products; no Agent API execution |
 | [Prediction Market Research](prediction-markets.md) | Browse Polymarket data read-first; keep trading behind a separate authority boundary |
+| [Lending Monitor](lending-monitor.md) | Monitor current Morpho rates, liquidity, listing status, and warnings without moving funds |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
 ## Tutorials
@@ -4892,13 +4931,14 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
+| [Lending Monitor](lending-monitor.md) | A snapshot/delta/alert pipeline you can turn into a paid research product |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
 | [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
 
 ## Prerequisites
 
-Every guide assumes you have registered an agent and have a Bearer token:
+Most authenticated guides assume you have registered an agent and have a Bearer token. The lending REST routes are public, so you can complete [Build a Lending Monitor](lending-monitor.md) without a key; hosted MCP lending tools still require authentication.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
@@ -4928,7 +4968,7 @@ Sell information or decisions without taking custody:
 
 - portfolio analysis and rebalance recommendations;
 - perps liquidation-buffer, live-funding, or position-risk alerts;
-- lending-rate/risk monitors;
+- [lending-rate/risk monitors](lending-monitor.md) with retained snapshots, warning-aware alerts, and team workflows;
 - prediction-market research and calibration;
 - route, price, or cross-chain opportunity alerts.
 
@@ -7472,6 +7512,172 @@ Never use a customer's investment return as a substitute for your product revenu
 - Keep customer portfolio P&L and builder revenue/cost in separate ledgers.
 
 The durable execution implementation and regression tests live in the [portfolio rebalancer repository](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer). Copy the authority/finality boundary first; then attach the portfolio policy your users actually value.
+
+
+---
+
+# Build a Lending Monitor
+
+Build a useful lending product before you build an executor. Suwappu exposes current Morpho market snapshots through a small read-only REST/SDK/MCP surface, which is enough for screeners, watchlists, alerts, and team research without giving an agent authority to move funds.
+
+This guide separates two things that are easy to blur:
+
+- **customer outcome:** the APY, liquidity, and risk of a lending position;
+- **builder business:** what customers pay you minus the cost to collect, store, evaluate, and deliver the monitoring product.
+
+Current APY is not a promised return, and this API does not deposit, withdraw, borrow, repay, sign, or broadcast transactions.
+
+## 1. Get a snapshot with no key
+
+The lending REST routes are public. Start on Base (chain `8453`):
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/lend/markets?chainId=8453"
+```
+
+The response is `{ "markets": [...] }`. Useful fields are:
+
+| Field | Use it for |
+|-------|------------|
+| `id` + `chainId` | Durable market identity; always store both |
+| `supplyApy`, `borrowApy` | Current percentage rates (`4.2` = 4.2%) |
+| `utilization` | Current utilization percentage |
+| `totalSupplyUsd`, `totalBorrowUsd` | USD-valued market size; nullable |
+| `availableLiquidityUsd` | Current USD-valued liquidity available to borrow; nullable |
+| `listed` | Morpho interface listing signal, not a safety guarantee |
+| `warnings` | Current Morpho warning objects; empty does not mean risk-free |
+
+Avoid treating missing USD values as zero. `null` means the upstream API did not provide that valuation, which is different from a market having zero liquidity.
+
+For one stored market, make the chain explicit:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/lend/market/0xMARKET_ID?chainId=8453"
+```
+
+The detail route returns the market object directly and adds `oracle`, `irm`, and `createdAt`.
+
+## 2. Build a risk-aware watchlist
+
+Do not rank by APY alone. A practical research filter can require the signals your product cares about before it even considers a rate:
+
+```ts
+type Market = {
+  id: string
+  chainId: number
+  supplyApy: number
+  utilization: number
+  availableLiquidityUsd: number | null
+  listed: boolean
+  warnings: Array<{ type: string; level: string }>
+}
+
+function isWatchlistCandidate(m: Market): boolean {
+  return (
+    m.listed &&
+    m.warnings.length === 0 &&
+    m.availableLiquidityUsd !== null &&
+    m.availableLiquidityUsd >= 100_000 &&
+    m.utilization <= 95
+  )
+}
+```
+
+Those thresholds are product policy, not Suwappu or Morpho risk scores. Tune them to your customers and expose them in the UI. `listed: true`, ample liquidity, and no current warnings still do not make a market safe.
+
+## 3. Store snapshots, then compare deltas
+
+An alert needs change over time, not just a fresh sort. Persist a compact snapshot with a schema version, capture timestamp, chain ID, market ID, rate/utilization fields, nullable USD liquidity, listing state, and warnings.
+
+Compare percentage fields in **percentage points**:
+
+```ts
+const supplyApyDeltaPp = current.supplyApy - previous.supplyApy
+const utilizationDeltaPp = current.utilization - previous.utilization
+```
+
+If APY moves from 4.0% to 5.0%, that is `+1.0` percentage point, not `+1%`. Always surface market additions/removals and warning/listing changes even if a rate threshold was not crossed.
+
+The public [`suwappu-yield-farmer`](https://github.com/0xSoftBoi/suwappu-yield-farmer) repo is a small reference implementation with versioned snapshots and deterministic delta commands in TypeScript and Python.
+
+## 4. Make alerts stateful
+
+Naive polling turns a useful signal into notification spam. Keep alert state per `(chainId, marketId, rule)`:
+
+1. trigger only when a threshold is crossed or a warning/listing state changes;
+2. record the value and timestamp that caused the alert;
+3. deduplicate repeated snapshots;
+4. require a recovery band before re-arming the same threshold (hysteresis);
+5. keep delivery failures separate from market state so retries do not create duplicate economic events.
+
+A premium product can add saved watchlists, per-team policies, Slack/email/webhook delivery, retained history, and audit trails without ever taking custody of customer funds.
+
+## 5. Know your polling economics
+
+Share upstream reads across customers whenever their freshness requirements match. One five-minute poll is:
+
+- 288 reads/day;
+- 8,640 reads in a 30-day month.
+
+That is one shared market snapshot stream, not 8,640 reads **per customer**. Cache the snapshot and fan it out to every matching watchlist.
+
+Public REST request counts and hosted MCP credits are different units. The REST lending routes do not require an API key. Hosted `lend_markets` and `lend_market` currently require agent authentication and cost 1 MCP credit per tool call; do not convert that into a permanent dollar estimate in your product model.
+
+For your business, track contribution margin separately from customer yield:
+
+```text
+builder contribution margin
+= subscription/API revenue
+- polling + storage + queue + delivery + hosting + support costs
+```
+
+Customer APY, gas, slippage, defaults, liquidation, and position P&L belong to the customer's financial outcome ledger—not your SaaS revenue ledger.
+
+## 6. A product ladder that earns trust
+
+Start with the least authority and add value before automation:
+
+| Product | Customer pays for | Authority |
+|---------|-------------------|-----------|
+| Explorer | normalized current market view | read-only |
+| Alerts | saved rules, dedupe, delivery, retained deltas | read-only |
+| Team workspace | shared watchlists, notes, history, auditability | read-only |
+| Data API/webhooks | normalized snapshots and change events | read-only |
+| Execution handoff | a separately reviewed deposit/withdraw workflow | outside this lending API |
+
+The last step should be a separate authority boundary. The current Suwappu lending surface cannot execute a lending transaction, so a monitor should never imply that an alert was acted on automatically.
+
+## 7. Know when to use Morpho directly
+
+Suwappu is deliberately not a replacement for Morpho's full developer stack.
+
+Use Suwappu when you value a small normalized REST/SDK/MCP shape that composes with Suwappu's other agent-facing domains. Use Morpho directly when you need richer market data, history, positions, rewards, public-allocator data, or transaction construction. Morpho's official `@morpho-org/morpho-sdk` supports reads and ready-to-send transactions; Suwappu's lending API is read-only.
+
+Current limitations to design around:
+
+- Suwappu returns at most 50 markets per chain, ordered by USD supplied value;
+- the surface is a current snapshot, not a historical time-series API;
+- it does not expose Morpho positions, rewards, or lending execution;
+- USD-valued fields can be `null`;
+- Morpho listing status and warnings are signals, not guarantees;
+- Morpho documents its API as having no SLA, so production monitors need retry/backoff and stale-data handling.
+
+For the upstream capabilities and current contract, use Morpho's [API overview](https://docs.morpho.org/developers/api/get-started/), [Morpho Blue API](https://docs.morpho.org/developers/api/morpho/), [API changelog](https://docs.morpho.org/developers/api/changelog/), and [official SDKs](https://github.com/morpho-org/sdks).
+
+## 8. Decide what “good” means
+
+Measure the product funnel independently from market returns:
+
+- time from first API call to first saved watchlist;
+- share of users who configure one useful alert;
+- alert precision / dismiss rate;
+- retained weekly active watchlists;
+- paid conversion and builder contribution margin;
+- delivery latency and stale-snapshot rate.
+
+If users cannot get to a trustworthy first alert quickly, adding execution is not the next feature. Fix the monitor first.
+
+Next: see the exact [Lending Markets API contract](../api-reference/lend.md) or use the [MCP protocol](../protocols/mcp.md) when your agent already speaks MCP.
 
 
 ---

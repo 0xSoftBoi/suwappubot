@@ -165,6 +165,78 @@ describe("perps contracts", () => {
   });
 });
 
+describe("lending contracts", () => {
+  it("preserves explicit USD liquidity, listing status, and Morpho warnings", async () => {
+    const c = client();
+    nextBody = {
+      markets: [
+        {
+          id: "market-one",
+          loanToken: "USDC",
+          collateralToken: "WETH",
+          lltv: 0.86,
+          supplyApy: 4.2,
+          borrowApy: 5.8,
+          totalSupply: 12_500_000,
+          totalBorrow: 8_900_000,
+          totalSupplyUsd: 12_500_000,
+          totalBorrowUsd: 8_900_000,
+          availableLiquidityUsd: 3_600_000,
+          utilization: 71.2,
+          chainId: 8453,
+          listed: true,
+          warnings: [{ type: "oracle_price_derivation", level: "RED" }],
+        },
+      ],
+    };
+
+    const markets = await c.lend.markets(8453);
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/agent/lend/markets?chainId=8453",
+      body: null,
+    });
+    expect(markets[0]?.totalSupplyUsd).toBe(12_500_000);
+    expect(markets[0]?.availableLiquidityUsd).toBe(3_600_000);
+    expect(markets[0]?.warnings[0]?.level).toBe("RED");
+  });
+
+  it("URL-encodes market IDs and scopes detail reads by chain", async () => {
+    const c = client();
+    nextBody = {
+      id: "market/one",
+      loanToken: "USDC",
+      collateralToken: "WETH",
+      lltv: 0.86,
+      supplyApy: 4.2,
+      borrowApy: 5.8,
+      totalSupply: null,
+      totalBorrow: null,
+      totalSupplyUsd: null,
+      totalBorrowUsd: null,
+      availableLiquidityUsd: null,
+      utilization: 71.2,
+      chainId: 1,
+      listed: false,
+      warnings: [],
+      oracle: "0xoracle",
+      irm: "0xirm",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const market = await c.lend.market("market/one", 1);
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/agent/lend/market/market%2Fone?chainId=1",
+      body: null,
+    });
+    expect(market.listed).toBe(false);
+    expect(market.totalSupplyUsd).toBeNull();
+  });
+});
+
 describe("swap custody boundary", () => {
   it("executeManagedSwap uses the managed execution endpoint", async () => {
     const c = client();

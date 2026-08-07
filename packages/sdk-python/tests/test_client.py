@@ -644,16 +644,41 @@ class TestPredictNamespace:
 class TestLendNamespace:
     @pytest.mark.asyncio
     async def test_markets(self, client: SuwappuClient) -> None:
-        mock_data = {"markets": [
-            {"id": "mk1", "loanToken": "USDC", "collateralToken": "ETH", "lltv": 0.86, "supplyApy": 5.2, "borrowApy": 7.1, "totalSupply": 1000000, "totalBorrow": 800000, "utilization": 80, "chainId": 8453}
-        ]}
+        mock_data = {
+            "markets": [
+                {
+                    "id": "mk1",
+                    "loanToken": "USDC",
+                    "collateralToken": "ETH",
+                    "lltv": 0.86,
+                    "supplyApy": 5.2,
+                    "borrowApy": 7.1,
+                    "totalSupply": 1000000,
+                    "totalBorrow": 800000,
+                    "totalSupplyUsd": 1000000,
+                    "totalBorrowUsd": 800000,
+                    "availableLiquidityUsd": 200000,
+                    "utilization": 80,
+                    "chainId": 8453,
+                    "listed": True,
+                    "warnings": [
+                        {"type": "oracle_price_derivation", "level": "RED"}
+                    ],
+                }
+            ]
+        }
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
             markets = await client.lend.markets()
-        mock_req.assert_called_once_with("GET", "/v1/agent/lend/markets", params=None, json=None)
+        mock_req.assert_called_once_with(
+            "GET", "/v1/agent/lend/markets", params=None, json=None
+        )
         assert len(markets) == 1
         assert isinstance(markets[0], LendingMarket)
         assert markets[0].loan_token == "USDC"
+        assert markets[0].total_supply_usd == 1000000
+        assert markets[0].available_liquidity_usd == 200000
+        assert markets[0].warnings[0].level == "RED"
 
     @pytest.mark.asyncio
     async def test_markets_with_chain(self, client: SuwappuClient) -> None:
@@ -662,8 +687,47 @@ class TestLendNamespace:
             mock_req.return_value = _mock_response(mock_data)
             await client.lend.markets(chain_id=1)
         mock_req.assert_called_once_with(
-            "GET", "/v1/agent/lend/markets", params={"chainId": "1"}, json=None,
+            "GET",
+            "/v1/agent/lend/markets",
+            params={"chainId": "1"},
+            json=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_market_is_chain_scoped_and_url_encoded(
+        self, client: SuwappuClient
+    ) -> None:
+        mock_data = {
+            "id": "mk/1",
+            "loanToken": "USDC",
+            "collateralToken": "ETH",
+            "lltv": 0.86,
+            "supplyApy": 5.2,
+            "borrowApy": 7.1,
+            "totalSupply": None,
+            "totalBorrow": None,
+            "totalSupplyUsd": None,
+            "totalBorrowUsd": None,
+            "availableLiquidityUsd": None,
+            "utilization": 80,
+            "chainId": 1,
+            "listed": False,
+            "warnings": [],
+            "oracle": "0xoracle",
+            "irm": "0xirm",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            market = await client.lend.market("mk/1", chain_id=1)
+        mock_req.assert_called_once_with(
+            "GET",
+            "/v1/agent/lend/market/mk%2F1",
+            params={"chainId": "1"},
+            json=None,
+        )
+        assert market.listed is False
+        assert market.total_supply_usd is None
 
 
 # --- Agent control plane (approvals / audit / kill switch) ---

@@ -147,6 +147,11 @@ class PredictionMarketDetail(PredictionMarket):
 
 
 # Lending types (Morpho)
+class LendingMarketWarning(BaseModel):
+    type: str
+    level: str
+
+
 class LendingMarket(BaseModel):
     id: str
     loan_token: str
@@ -154,10 +159,16 @@ class LendingMarket(BaseModel):
     lltv: float
     supply_apy: float
     borrow_apy: float
-    total_supply: float
-    total_borrow: float
+    # Backwards-compatible aliases for the explicit USD fields below.
+    total_supply: float | None
+    total_borrow: float | None
+    total_supply_usd: float | None
+    total_borrow_usd: float | None
+    available_liquidity_usd: float | None
     utilization: float
     chain_id: int
+    listed: bool
+    warnings: list[LendingMarketWarning]
 
 
 class LendingMarketDetail(LendingMarket):

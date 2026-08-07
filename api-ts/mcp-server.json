@@ -44,8 +44,8 @@
       { "name": "perps_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List HyperLiquid perpetual futures markets." },
       { "name": "perps_quote", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Quote a HyperLiquid perpetual position (entry, margin, liquidation price, funding, fees)." },
       { "name": "perps_positions", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Open HyperLiquid perpetual positions for a wallet." },
-      { "name": "lend_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List Morpho lending markets on a chain (APY, LLTV, utilization, TVL)." },
-      { "name": "lend_market", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Detail for a single Morpho lending market by ID." }
+      { "name": "lend_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List current Morpho lending markets on a chain (APY, utilization, USD liquidity, listing status, warnings)." },
+      { "name": "lend_market", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Chain-scoped detail for a single Morpho lending market by ID." }
     ],
     "bot.suwappu/payment": {
       "protocol": "x402",

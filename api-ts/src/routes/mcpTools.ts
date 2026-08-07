@@ -204,21 +204,24 @@ const TOOLS = [
 	},
 	{
 		name: 'lend_markets',
-		description: 'List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.',
+		description:
+			'List Morpho lending markets on a chain with current APY/utilization, explicit USD supply/borrow/liquidity, listing status, and Morpho warnings. Read-only.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				chain_id: { type: 'number', description: 'EVM chain ID (default 8453 = Base)' },
+				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
 			},
 		},
 	},
 	{
 		name: 'lend_market',
-		description: 'Get details for a single Morpho lending market by its unique market ID.',
+		description:
+			'Get current read-only detail for a Morpho lending market by market ID and chain, including USD liquidity, listing status, warnings, oracle, and IRM.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				market_id: { type: 'string', description: 'Morpho market unique ID (from lend_markets results)' },
+				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
 			},
 			required: ['market_id'],
 		},

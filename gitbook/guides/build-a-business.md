@@ -14,7 +14,7 @@ Sell information or decisions without taking custody:
 
 - portfolio analysis and rebalance recommendations;
 - perps liquidation-buffer, live-funding, or position-risk alerts;
-- lending-rate/risk monitors;
+- [lending-rate/risk monitors](lending-monitor.md) with retained snapshots, warning-aware alerts, and team workflows;
 - prediction-market research and calibration;
 - route, price, or cross-chain opportunity alerts.
 
