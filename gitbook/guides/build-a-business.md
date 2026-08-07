@@ -20,7 +20,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
@@ -110,6 +110,8 @@ The [Portfolio Rebalancer guide](portfolio-rebalancer.md) shows the concrete pro
 - **Free:** backtest/replay report.
 - **Paid:** paper deployment, scheduled operation, performance ledger, alerts, and eventually a capped live tier.
 - **Execution:** only after the exact same decision path passes paper mode.
+
+The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action boundary after strategy promotion: chain-neutral signal -> wallet-aware route -> explicit simulation permission -> durable idempotent execution -> reconciled outcome. It also shows why a small reference should not pretend to replace a backtesting/risk framework.
 
 ### Market intelligence API
 
