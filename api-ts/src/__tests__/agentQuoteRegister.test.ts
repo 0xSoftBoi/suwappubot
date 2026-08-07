@@ -1,73 +1,47 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test'
-import { Either } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { EnvService } from '../config/EnvService'
+import { AgentService } from '../services'
 
-// ROUTE-LEVEL test for POST /v1/agent/register + POST /v1/agent/quote (MONEY-PATH, control-plane).
-//
-// Validates that:
-// 1. New agent can be registered with valid EVM signature (ownership proof)
-// 2. Quote is rejected if signed by non-owner wallet
-// 3. Quote registration enforces signer == agent owner
+// ROUTE-LEVEL tests for the public registration contract and authenticated quote
+// validation. Registration is name/metadata based; wallet ownership is enforced
+// later at managed execution, not by fictional signature fields on /register.
 
+const REAL_RUNTIME = { ...(await import('../runtime')) }
+
+const API_KEY = `suwappu_sk_${'a'.repeat(32)}`
 const TEST_AGENT = {
 	id: 1,
-	uuid: 'test-agent-uuid',
-	ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-	rateLimitTier: 'free',
+	uuid: '11111111-1111-4111-8111-111111111111',
+	name: 'route_test_agent',
+	rateLimitTier: 'pro',
+	metadata: null,
+	createdAt: new Date('2026-08-01T00:00:00.000Z'),
 } as any
 
-const TEST_OWNER_KEY = '0x1234567890123456789012345678901234567890'
+const envLayer = Layer.succeed(EnvService, {} as any)
+const agentLayer = Layer.succeed(
+	AgentService,
+	{
+		getAgentByApiKey: () => Effect.succeed(Option.some(TEST_AGENT)),
+		getAgentByName: () => Effect.succeed(Option.none()),
+		registerAgent: (params: { name: string }) =>
+			Effect.succeed({
+				agent: { ...TEST_AGENT, name: params.name },
+				apiKey: API_KEY,
+				grantedCredits: 100,
+			}),
+		incrementAgentStats: () => Effect.void,
+	} as any,
+)
+const testLayer = Layer.mergeAll(envLayer, agentLayer)
 
-const REAL_MODULES = {
-	'../middleware/auth': { ...(await import('../middleware/auth')) },
-	'../services': { ...(await import('../services')) },
-	'../runtime': { ...(await import('../runtime')) },
-	'../db': { ...(await import('../db')) },
-}
+const runTestEffect = (effect: any) => Effect.runPromise(effect.pipe(Effect.provide(testLayer)))
 
-afterAll(() => {
-	mock.module('../middleware/auth', () => REAL_MODULES['../middleware/auth'])
-	mock.module('../services', () => REAL_MODULES['../services'])
-	mock.module('../runtime', () => REAL_MODULES['../runtime'])
-	mock.module('../db', () => REAL_MODULES['../db'])
-})
-
-// Mock auth to allow admin registration
-mock.module('../middleware/auth', () => ({
-	adminKeyAuth: () => async (c: any, next: any) => next(),
-	agentBearerAuth: () => async (c: any, next: any) => {
-		c.set('agent', TEST_AGENT)
-		return next()
-	},
-}))
-
-// Mock services
-mock.module('../services', () => ({
-	...REAL_MODULES['../services'],
-	AgentService: {
-		registerAgent: async (owner: string, sig: string) => {
-			if (sig !== 'valid_sig_123') throw new Error('Invalid signature')
-			return { id: 1, uuid: 'test-uuid', ownerAddress: owner, rateLimitTier: 'free' }
-		},
-		verifyQuoteSigner: async (agentId: number, signer: string, sig: string) => {
-			if (signer !== TEST_AGENT.ownerAddress) throw new Error('Unauthorized signer')
-			if (sig !== 'valid_quote_sig_456') throw new Error('Invalid quote signature')
-			return true
-		},
-	},
-	AgentTrustService: {
-		validateAgentOwnership: async (address: string) => true,
-	},
-}))
-
-// Mock runtime
 mock.module('../runtime', () => ({
-	runEffectEither: async (effect: any) => {
-		try {
-			return Either.right({ success: true })
-		} catch (err) {
-			return Either.left(err)
-		}
-	},
+	runEffect: runTestEffect,
+	runEffectEither: (effect: any) => runTestEffect(Effect.either(effect)),
+	shutdownRuntime: async () => {},
 }))
 
 let agentRoutes: any
@@ -76,84 +50,101 @@ beforeAll(async () => {
 	;({ agentRoutes } = await import('../routes/agent'))
 })
 
-const AUTH_HEADERS = { Authorization: 'Bearer suwappu_sk_test_key_00000000000000000000' }
+afterAll(() => {
+	mock.module('../runtime', () => REAL_RUNTIME)
+})
 
-describe('POST /v1/agent/register + /v1/agent/quote — ownership proof', () => {
-	it('registers new agent with valid EVM signature', async () => {
+const AUTH_HEADERS = {
+	Authorization: `Bearer ${API_KEY}`,
+	'Content-Type': 'application/json',
+}
+
+describe('POST /v1/agent/register + /v1/agent/quote — current builder contract', () => {
+	it('registers a new agent from the documented name-based payload', async () => {
 		const res = await agentRoutes.request('/register', {
 			method: 'POST',
-			headers: AUTH_HEADERS,
+			headers: {
+				'Content-Type': 'application/json',
+				'x-forwarded-for': '192.0.2.249',
+			},
 			body: JSON.stringify({
-				ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-				signature: 'valid_sig_123',
+				name: 'builder_route_test',
+				description: 'Contract test agent',
+				metadata: { surface: 'test' },
 			}),
 		})
 
-		expect(res.status).toBe(200)
-		const body = (await res.json()) as any
-		expect(body.id).toBeDefined()
-		expect(body.ownerAddress).toBe('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045')
-	})
-
-	it('rejects registration with invalid signature', async () => {
-		const res = await agentRoutes.request('/register', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-				signature: 'invalid_sig_xyz',
-			}),
-		})
-
-		expect(res.status).toBe(400)
-		const body = (await res.json()) as any
-		expect(body.message).toContain('signature')
-	})
-
-	it('rejects quote signed by non-owner', async () => {
-		const res = await agentRoutes.request('/quote', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				quoteId: 'quote-123',
-				signer: '0xAttackerAddress1111111111111111111111111111',
-				signature: 'fake_sig_999',
-			}),
-		})
-
-		expect(res.status).toBe(401)
-		const body = (await res.json()) as any
-		expect(body.message).toContain('Unauthorized')
-	})
-
-	it('accepts quote signed by agent owner', async () => {
-		const res = await agentRoutes.request('/quote', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				quoteId: 'quote-123',
-				signer: TEST_AGENT.ownerAddress,
-				signature: 'valid_quote_sig_456',
-			}),
-		})
-
-		expect(res.status).toBe(200)
+		expect(res.status).toBe(201)
 		const body = (await res.json()) as any
 		expect(body.success).toBe(true)
+		expect(body.agent.name).toBe('builder_route_test')
+		expect(body.agent.api_key).toBe(API_KEY)
+		expect(body.credits.starting_balance).toBe(100)
 	})
 
-	it('rejects quote with missing signer', async () => {
+	it('rejects an invalid agent name at the registration boundary', async () => {
+		const res = await agentRoutes.request('/register', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-forwarded-for': '192.0.2.249',
+			},
+			body: JSON.stringify({ name: 'x' }),
+		})
+
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+		expect(body.fields.name).toContain('at least 3')
+	})
+
+	it('rejects a quote missing its required amount', async () => {
+		const res = await agentRoutes.request('/quote', {
+			method: 'POST',
+			headers: AUTH_HEADERS,
+			body: JSON.stringify({ from_token: 'ETH', to_token: 'USDC', chain: 'base' }),
+		})
+
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+		expect(body.fields.amount).toBeDefined()
+	})
+
+	it('rejects a malformed managed-wallet address before quote lookup', async () => {
 		const res = await agentRoutes.request('/quote', {
 			method: 'POST',
 			headers: AUTH_HEADERS,
 			body: JSON.stringify({
-				quoteId: 'quote-123',
-				signature: 'valid_quote_sig_456',
+				from_token: 'ETH',
+				to_token: 'USDC',
+				amount: '0.1',
+				chain: 'base',
+				wallet_address: '0x1234',
 			}),
 		})
 
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.message).toContain('required')
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+		expect(body.fields.wallet_address).toContain('Invalid EVM address')
+	})
+
+	it('fails closed for Starknet instead of invoking an unsupported provider', async () => {
+		const res = await agentRoutes.request('/quote', {
+			method: 'POST',
+			headers: AUTH_HEADERS,
+			body: JSON.stringify({
+				from_token: 'ETH',
+				to_token: 'USDC',
+				amount: '0.1',
+				chain: 'starknet',
+			}),
+		})
+
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('CHAIN_UNSUPPORTED')
+		expect(body.error).toContain('bot backend')
 	})
 })
