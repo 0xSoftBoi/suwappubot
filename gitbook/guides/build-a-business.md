@@ -103,6 +103,8 @@ Then price from observed cost, not from a hoped-for trading return.
 - **Paid:** continuous monitoring, custom target bands, alerts, saved policies, and audit history.
 - **Execution:** optional, explicit, and gated after a simulation.
 
+The [Portfolio Rebalancer guide](portfolio-rebalancer.md) shows the concrete progression from a read-only treasury monitor to approval workflow and outcome-safe managed automation.
+
 ### Strategy automation
 
 - **Free:** backtest/replay report.
