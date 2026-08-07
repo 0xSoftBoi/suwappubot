@@ -10,9 +10,9 @@ Requests are limited per agent over a rolling 60-second window, keyed by `rate_l
 |------|-------------------|----------------|
 | `free` | 30 | Default for every new agent |
 | `agent` | 100 | Bypasses per-call metering; not self-serve purchasable via `/billing/subscribe` |
-| `pro` | 500 | `POST /v1/agent/billing/subscribe` with `tier: "pro"`, or Stripe checkout |
-| `premium` | 2,000 | `POST /v1/agent/billing/subscribe` with `tier: "premium"`, or Stripe checkout |
-| `enterprise` | 10,000 | `POST /v1/agent/billing/subscribe` with `tier: "enterprise"`, or Stripe checkout |
+| `pro` | 500 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "pro"` |
+| `premium` | 2,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "premium"` |
+| `enterprise` | 10,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "enterprise"` |
 
 These are the current source limits. Check your live tier via [`GET /v1/agent/me`](../api-reference/agent-profile.md) or `GET /v1/agent/billing`, and honor the response rate-limit headers rather than hardcoding a client delay.
 
@@ -24,7 +24,9 @@ These are the current source limits. Check your live tier via [`GET /v1/agent/me
 | `premium` | $29.99 |
 | `enterprise` | $99.99 |
 
-Pay with USDC on Base (`POST /v1/agent/billing/subscribe`) or Stripe (`GET /billing/stripe/checkout?tier=`). These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three tiers bypass per-call metering entirely for the duration of the window.
+For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`; that writes the agent's `subscriptionTier`/expiry. These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
+
+Stripe checkout (`GET /billing/stripe/checkout?tier=`) belongs to the human/webapp account subscription flow. It does **not** currently promote a separate `suwappu_sk_...` Agent API key's subscription tier. Treat the account plan and Agent API billing ledgers as separate unless the API explicitly reports otherwise.
 
 ## Per-call credit costs
 

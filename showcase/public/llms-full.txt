@@ -284,7 +284,7 @@ res = requests.post(
 swap = res.json()
 ```
 
-Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed.
+Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed. The [managed swap execution reference](../api-reference/swap-execute.md) documents the exact header format, fallback behavior, and reconciliation rule.
 
 **Response:**
 
@@ -446,9 +446,18 @@ if (process.env.SUWAPPU_LIVE !== '1') {
 ## Self-custody: prepare, then sign yourself
 
 ```ts
+const selfCustodyAddress = '0xYOUR_WALLET'
+const selfCustodyQuote = await client.getQuote({
+  from: 'ETH',
+  to: 'USDC',
+  amount: '0.1',
+  chain: 'base',
+  walletAddress: selfCustodyAddress,
+})
+
 const tx = await client.prepareSwap({
-  quoteId: quote.id,
-  walletAddress: '0xYOUR_WALLET',
+  quoteId: selfCustodyQuote.id,
+  walletAddress: selfCustodyAddress,
 })
 
 console.log(tx)
@@ -459,7 +468,8 @@ console.log(tx)
 ## Read a portfolio
 
 ```ts
-const balances = await client.getPortfolio(wallet.address)
+const portfolioAddress = '0xYOUR_MANAGED_WALLET'
+const balances = await client.getPortfolio(portfolioAddress)
 
 for (const balance of balances) {
   console.log(`${balance.token} on ${balance.chain}: ${balance.balance} ($${balance.usdValue})`)
@@ -1782,6 +1792,8 @@ Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu sign
 
 Requires authentication and a managed wallet (create one with [`POST /v1/agent/wallets`](wallets.md)).
 
+For live automation, send an `Idempotency-Key` header. Use one durable key per economic intent and persist it before submission. Valid keys are 1–64 characters from `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, and `-`.
+
 ### Request body
 
 | Field | Type | Required | Description |
@@ -1792,6 +1804,7 @@ Requires authentication and a managed wallet (create one with [`POST /v1/agent/w
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: rebalance-2026-08-06-001" \
   -d '{"quote_id": "0x9f3c..."}'
 ```
 ```typescript
@@ -1800,6 +1813,7 @@ const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
   headers: {
     "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
     "Content-Type": "application/json",
+    "Idempotency-Key": "rebalance-2026-08-06-001",
   },
   body: JSON.stringify({ quote_id: "0x9f3c..." }),
 });
@@ -1810,7 +1824,10 @@ import os, requests
 
 res = requests.post(
     "https://api.suwappu.bot/v1/agent/swap/execute",
-    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    headers={
+        "Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}",
+        "Idempotency-Key": "rebalance-2026-08-06-001",
+    },
     json={"quote_id": "0x9f3c..."},
 )
 swap = res.json()
@@ -1843,7 +1860,11 @@ swap = res.json()
 
 ### How it works
 
-The wallet's private key lives in Turnkey's secure enclave. When you call this endpoint, Suwappu builds the transaction from your cached quote, signs it server-side with your managed wallet, and broadcasts it. The call is idempotent per `(agent, quote_id)`, so retrying the same `quote_id` will not double-submit.
+The wallet's private key lives in Turnkey's secure enclave. When you call this endpoint, Suwappu builds the transaction from your cached quote, signs it server-side with your managed wallet, and broadcasts it.
+
+Without a client header, Suwappu derives an idempotency key from the authenticated agent plus the `quote_id` (or approval ID). With `Idempotency-Key`, the client-supplied intent ID takes precedence and is bound to the trade's economic terms. That is the safer automation contract because a timed-out request may require a fresh quote while still representing the **same** intended trade.
+
+On a timeout, network error, or HTTP 5xx, the on-chain outcome can be unknown. Reconcile status/history first and retry with the **same persisted `Idempotency-Key`**; do not mint a new key or blindly create a new economic intent.
 
 ### Errors
 
@@ -1851,6 +1872,7 @@ The wallet's private key lives in Turnkey's secure enclave. When you call this e
 |--------|-------|
 | `400` | Missing/invalid body; no managed wallet found; or the quote is expired / not found / belongs to another agent |
 | `401` | Missing or invalid API key |
+| `5xx` | Server/upstream failure; execution outcome may be unknown — reconcile before retrying |
 
 If you would rather sign yourself, use [`POST /v1/agent/swap`](swap.md) to get an unsigned transaction. Track completion via [Swap Status](swap-status.md) or [Webhooks](webhooks.md).
 
@@ -2592,7 +2614,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
 }
 ```
 
-`entryPrice` is based on the market midpoint, `liquidationPrice` is an approximation, and the current quote path does not model order-book depth or actual fill slippage. Treat it as a research estimate, not an executable fill guarantee.
+`entryPrice` is based on the market midpoint, `liquidationPrice` is an approximation, and `fundingRate` is currently a placeholder `0` (this quote path does not fetch live funding). The quote also does not model order-book depth or actual fill slippage. Treat it as a research estimate, not an executable fill guarantee.
 
 ## GET /v1/agent/perps/positions
 
@@ -2624,6 +2646,8 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
   ]
 }
 ```
+
+On the current positions path, `fundingRate` is also a placeholder `0`. `liquidationPrice` is returned as `0` when HyperLiquid reports no liquidation price; treat that as unavailable rather than a real zero-price liquidation level.
 
 ## No Agent API execution endpoint
 
@@ -3358,10 +3382,13 @@ Get a swap quote for a token pair.
 
 Prepare an unsigned self-custody transaction from a previously obtained quote. The caller remains responsible for reviewing, signing, and broadcasting the returned transaction.
 
+`idempotency_key` on this MCP tool is an optional **correlation value**: the server echoes it with the prepared transaction so your own submission workflow can carry the same intent identifier forward. MCP preparation itself does not submit an on-chain transaction, so this field does not create server-side submission deduplication. For Suwappu-managed execution, use the REST `Idempotency-Key` header on `POST /v1/agent/swap/execute` instead.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `quote_id` | string | Yes | Quote ID from a `get_quote` response |
 | `wallet_address` | string | Yes | Wallet address to execute the swap from |
+| `idempotency_key` | string | No | Correlation key echoed with the unsigned transaction; no MCP-side broadcast/deduplication |
 
 **Example call:**
 
@@ -3374,7 +3401,8 @@ Prepare an unsigned self-custody transaction from a previously obtained quote. T
     "name": "execute_swap",
     "arguments": {
       "quote_id": "q_abc123",
-      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678"
+      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+      "idempotency_key": "self-custody-intent-001"
     }
   }
 }
@@ -4154,7 +4182,7 @@ No hardcoded knowledge of Suwappu is required — every integration point is sel
 Suwappu bills agent usage two ways, and you can mix both:
 
 - **Pay-per-call (x402 + prepaid credits)** — the default for the `free` tier. Every metered REST/MCP call costs a small number of credits (1 credit ≈ $0.001 USD); pay by topping up credits or settling a single call on-chain via the x402 protocol. See [Agentic Payments](agentic-payments.md).
-- **Subscriptions** — pay a flat price for a 30-day window of unmetered access on the `pro`, `premium`, or `enterprise` tier. Pay with USDC (crypto-native, `POST /v1/agent/billing/subscribe`) or Stripe (human/webapp users). See [Pricing](pricing.md) for the full tier table.
+- **Subscriptions** — an Agent API bearer key gets a 30-day unmetered `pro`, `premium`, or `enterprise` window through the crypto-native `POST /v1/agent/billing/subscribe` flow. Stripe is a separate human/webapp account plan and does not currently promote an agent key. See [Pricing](pricing.md) for the full tier table.
 
 Metering only applies when `AGENT_METERING_ENABLED=true` on the deploy; when it's off, every request is free regardless of tier (rate limits still apply — see [Rate Limits](../authentication/rate-limits.md)).
 
@@ -4353,9 +4381,9 @@ Requests are limited per agent over a rolling 60-second window, keyed by `rate_l
 |------|-------------------|----------------|
 | `free` | 30 | Default for every new agent |
 | `agent` | 100 | Bypasses per-call metering; not self-serve purchasable via `/billing/subscribe` |
-| `pro` | 500 | `POST /v1/agent/billing/subscribe` with `tier: "pro"`, or Stripe checkout |
-| `premium` | 2,000 | `POST /v1/agent/billing/subscribe` with `tier: "premium"`, or Stripe checkout |
-| `enterprise` | 10,000 | `POST /v1/agent/billing/subscribe` with `tier: "enterprise"`, or Stripe checkout |
+| `pro` | 500 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "pro"` |
+| `premium` | 2,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "premium"` |
+| `enterprise` | 10,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "enterprise"` |
 
 These are the current source limits. Check your live tier via [`GET /v1/agent/me`](../api-reference/agent-profile.md) or `GET /v1/agent/billing`, and honor the response rate-limit headers rather than hardcoding a client delay.
 
@@ -4367,7 +4395,9 @@ These are the current source limits. Check your live tier via [`GET /v1/agent/me
 | `premium` | $29.99 |
 | `enterprise` | $99.99 |
 
-Pay with USDC on Base (`POST /v1/agent/billing/subscribe`) or Stripe (`GET /billing/stripe/checkout?tier=`). These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three tiers bypass per-call metering entirely for the duration of the window.
+For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`; that writes the agent's `subscriptionTier`/expiry. These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
+
+Stripe checkout (`GET /billing/stripe/checkout?tier=`) belongs to the human/webapp account subscription flow. It does **not** currently promote a separate `suwappu_sk_...` Agent API key's subscription tier. Treat the account plan and Agent API billing ledgers as separate unless the API explicitly reports otherwise.
 
 ## Per-call credit costs
 
@@ -5437,6 +5467,8 @@ Register an agent, create a managed wallet, fund it with only the capital you in
 ```bash
 export SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY
 export SUWAPPU_WALLET=0xYOUR_MANAGED_WALLET
+# In live mode, your durable scheduler supplies and persists this ID per intent.
+export STRATEGY_INTENT_ID=dip-2026-08-06T18-001
 # Leave SUWAPPU_LIVE unset for preview mode.
 ```
 
@@ -5472,7 +5504,7 @@ async function getPrice(symbol: string) {
   return Number(data.prices[symbol].usd)
 }
 
-async function run(targetPrice: number) {
+async function run(targetPrice: number, intentId?: string) {
   const price = await getPrice('ETH')
   console.log(`ETH price: $${price.toFixed(2)}`)
   if (price > targetPrice) return { action: 'hold', price }
@@ -5508,8 +5540,13 @@ async function run(targetPrice: number) {
   if (!simulation.would_execute) return { action: 'blocked', preview }
   if (!LIVE) return { action: 'preview', preview }
 
-  // Persist this intent before submission in a real bot. Reuse the same key on retries.
-  const intentKey = `dip.${new Date().toISOString().slice(0, 13)}.ETH`
+  // The scheduler must persist this ID before submission and reuse it on every retry,
+  // even after a process restart or wall-clock boundary.
+  if (!intentId) throw new Error('Live execution requires a persisted STRATEGY_INTENT_ID')
+  const intentKey = `dip.${intentId}.ETH`
+  if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(intentKey)) {
+    throw new Error('STRATEGY_INTENT_ID must produce a valid 1-64 character Idempotency-Key')
+  }
   const swap = await request('/swap/execute', {
     method: 'POST',
     headers: { 'Idempotency-Key': intentKey },
@@ -5520,10 +5557,10 @@ async function run(targetPrice: number) {
   return { action: 'submitted', swap, preview }
 }
 
-run(2800).catch(console.error)
+run(2800, process.env.STRATEGY_INTENT_ID).catch(console.error)
 ```
 
-Run that worker from a durable scheduler. A production scheduler should persist the period/intent before running so a restart cannot accidentally duplicate a trade.
+Run that worker from a durable scheduler. A production scheduler should create and persist `STRATEGY_INTENT_ID` **before** the first submission and reload that same ID on retries. Do not derive the retry key from the current clock: a timeout that crosses an hour/day boundary must still dedupe to the original economic intent.
 
 ## Reconcile, don't guess
 
@@ -5600,6 +5637,12 @@ function balanceOf(portfolio: any, symbol: string) {
   return Number(row?.balance ?? 0)
 }
 
+function quotedUsd(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(String(value).replace(/[$,]/g, ''))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 async function rebalance(periodKey: string) {
   const symbols = Object.keys(TARGETS)
   const portfolio = await request(`/portfolio?wallet_address=${encodeURIComponent(WALLET)}`)
@@ -5650,8 +5693,14 @@ async function rebalance(periodKey: string) {
     body: JSON.stringify({ quote_id: quote.quote_id, wallet_address: WALLET }),
   })
 
-  const estimatedCostUsd =
-    Number(quote.estimated_gas_usd ?? 0) + Number(quote.bridge_fee_usd ?? 0)
+  // Quote cost fields are formatted strings such as "$0.04". Fail closed when
+  // either field cannot be parsed; NaN must never disable the economic guard.
+  const gasUsd = quotedUsd(quote.estimated_gas_usd)
+  const routeFeeUsd = quotedUsd(quote.bridge_fee_usd)
+  if (gasUsd === null || routeFeeUsd === null) {
+    return { action: 'skip', reason: 'quote cost fields are missing or unparseable' }
+  }
+  const estimatedCostUsd = gasUsd + routeFeeUsd
   const economicFloor = Math.max(MIN_TRADE_USD, estimatedCostUsd * COST_MULTIPLE)
 
   const preview = {
@@ -5745,7 +5794,14 @@ async function request(path: string, init: RequestInit = {}) {
     ...init,
     headers: { ...headers, ...(init.headers ?? {}) },
   })
-  const body = await response.json()
+  const raw = await response.text()
+  let body: any
+  try {
+    body = raw ? JSON.parse(raw) : {}
+  } catch {
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 160) || response.statusText}`)
+    throw new Error(`HTTP ${response.status}: expected a JSON response`)
+  }
   if (!response.ok || body.success === false) throw new Error(body.error ?? `HTTP ${response.status}`)
   return body
 }
@@ -5760,6 +5816,7 @@ async function post(path: string, body: unknown, extraHeaders = {}) {
 
 const [cmd, ...args] = process.argv.slice(2)
 
+try {
 switch (cmd) {
   case 'quote': {
     const [amount, from, to, chain = 'base'] = args
@@ -5798,6 +5855,10 @@ switch (cmd) {
   }
   default:
     console.log('Usage: suwappu <quote|preview|execute|status> ...')
+}
+} catch (error) {
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 ```
 
@@ -5925,13 +5986,20 @@ If the chain is omitted, it defaults to Ethereum. For Solana, include `on solana
 
 ## Executing the Quote
 
-`/execute` returns a quote (and optionally unsigned transaction data). It does not perform managed execution. First simulate that `quote_id`; then, after explicit approval, hand it to the managed endpoint:
+`/execute` returns a quote (and optionally unsigned transaction data). It does not perform managed execution. Before acting on a read-only quote, re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`; simulate that exact quote against the same address, then, after explicit approval, hand it to the managed endpoint:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command": "swap 0.5 ETH to USDC on base", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+```
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"quote_id": "q_abc123"}'
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
 ```
 
 ```bash
@@ -6082,7 +6150,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
 
 Useful alerts include:
 
-- distance from mark price to liquidation price;
+- distance from mark price to liquidation price, only when `liquidationPrice > 0` (zero means HyperLiquid did not report one on this path);
 - leverage or margin above a user-defined risk ceiling;
 - unrealized P&L crossing a user-defined threshold;
 - a meaningful change in the indicative fee/margin for a contemplated position.

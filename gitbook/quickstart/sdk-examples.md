@@ -90,9 +90,18 @@ if (process.env.SUWAPPU_LIVE !== '1') {
 ## Self-custody: prepare, then sign yourself
 
 ```ts
+const selfCustodyAddress = '0xYOUR_WALLET'
+const selfCustodyQuote = await client.getQuote({
+  from: 'ETH',
+  to: 'USDC',
+  amount: '0.1',
+  chain: 'base',
+  walletAddress: selfCustodyAddress,
+})
+
 const tx = await client.prepareSwap({
-  quoteId: quote.id,
-  walletAddress: '0xYOUR_WALLET',
+  quoteId: selfCustodyQuote.id,
+  walletAddress: selfCustodyAddress,
 })
 
 console.log(tx)
@@ -103,7 +112,8 @@ console.log(tx)
 ## Read a portfolio
 
 ```ts
-const balances = await client.getPortfolio(wallet.address)
+const portfolioAddress = '0xYOUR_MANAGED_WALLET'
+const balances = await client.getPortfolio(portfolioAddress)
 
 for (const balance of balances) {
   console.log(`${balance.token} on ${balance.chain}: ${balance.balance} ($${balance.usdValue})`)

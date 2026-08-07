@@ -154,10 +154,13 @@ Get a swap quote for a token pair.
 
 Prepare an unsigned self-custody transaction from a previously obtained quote. The caller remains responsible for reviewing, signing, and broadcasting the returned transaction.
 
+`idempotency_key` on this MCP tool is an optional **correlation value**: the server echoes it with the prepared transaction so your own submission workflow can carry the same intent identifier forward. MCP preparation itself does not submit an on-chain transaction, so this field does not create server-side submission deduplication. For Suwappu-managed execution, use the REST `Idempotency-Key` header on `POST /v1/agent/swap/execute` instead.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `quote_id` | string | Yes | Quote ID from a `get_quote` response |
 | `wallet_address` | string | Yes | Wallet address to execute the swap from |
+| `idempotency_key` | string | No | Correlation key echoed with the unsigned transaction; no MCP-side broadcast/deduplication |
 
 **Example call:**
 
@@ -170,7 +173,8 @@ Prepare an unsigned self-custody transaction from a previously obtained quote. T
     "name": "execute_swap",
     "arguments": {
       "quote_id": "q_abc123",
-      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678"
+      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+      "idempotency_key": "self-custody-intent-001"
     }
   }
 }

@@ -4,8 +4,9 @@
 
 ## Canonical machine docs
 
-- Curated index: https://suwappu.bot/llms.txt
-- Full docs corpus: https://suwappu.bot/llms-full.txt
+- Website docs index: https://suwappu.bot/llms.txt
+- Website full docs corpus: https://suwappu.bot/llms-full.txt
+- API-surface discovery index (separate runtime catalog): https://api.suwappu.bot/llms.txt
 - Human docs: https://suwappu.bot/docs
 - OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi
 - A2A agent card: https://api.suwappu.bot/.well-known/agent.json

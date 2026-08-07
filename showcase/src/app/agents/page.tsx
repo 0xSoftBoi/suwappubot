@@ -76,7 +76,7 @@ const PAYMENT_MODES = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro ($9.99/30 days), Premium ($29.99/30 days), or Enterprise ($99.99/30 days): prepaid, stackable, higher rate limits, and no per-call credit metering while active.',
+    body: 'Agent API Pro ($9.99/30 days), Premium ($29.99/30 days), and Enterprise ($99.99/30 days) windows are crypto-native, prepaid, stackable, higher-rate-limit, and unmetered while active. Stripe checkout is for the separate human account plan; it does not currently promote a bearer agent key.',
   },
 ];
 

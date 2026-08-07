@@ -125,7 +125,7 @@ export interface SwapResult {
 
 export interface SwapSimulationCheck {
 	name: string
-	status: 'pass' | 'warn' | 'fail' | string
+	status: 'pass' | 'warn' | 'fail'
 	detail: string
 	unverified?: boolean
 }
@@ -135,7 +135,7 @@ export interface SwapSimulation {
 	success: boolean
 	wouldExecute: boolean
 	quoteId: string
-	chainType: 'evm' | 'solana' | string
+	chainType: 'evm' | 'solana'
 	expectedOutput: {
 		token: string
 		amount: string
@@ -149,6 +149,16 @@ export interface SwapSimulation {
 	}
 	checks: SwapSimulationCheck[]
 	warnings: string[]
+}
+
+function simulationChainType(value: unknown): SwapSimulation['chainType'] {
+	if (value === 'evm' || value === 'solana') return value
+	throw new Error(`Invalid swap simulation chain_type: ${String(value)}`)
+}
+
+function simulationCheckStatus(value: unknown): SwapSimulationCheck['status'] {
+	if (value === 'pass' || value === 'warn' || value === 'fail') return value
+	throw new Error(`Invalid swap simulation check status: ${String(value)}`)
 }
 
 export interface TokenBalance {
@@ -548,7 +558,7 @@ export function createClient(config?: SuwappuConfig) {
 				success: Boolean(raw.success),
 				wouldExecute: Boolean(raw.would_execute),
 				quoteId: String(raw.quote_id ?? quoteId),
-				chainType: String(raw.chain_type ?? ''),
+				chainType: simulationChainType(raw.chain_type),
 				expectedOutput: {
 					token: String(raw.expected_output?.token ?? ''),
 					amount: String(raw.expected_output?.amount ?? ''),
@@ -567,7 +577,7 @@ export function createClient(config?: SuwappuConfig) {
 				checks: Array.isArray(raw.checks)
 					? raw.checks.map((check: Record<string, any>) => ({
 							name: String(check.name ?? ''),
-							status: String(check.status ?? 'warn'),
+							status: simulationCheckStatus(check.status),
 							detail: String(check.detail ?? ''),
 							...(check.unverified === undefined
 								? {}

@@ -13,7 +13,7 @@ import styles from './pricing.module.css';
 export const metadata: Metadata = {
   title: 'Pricing | Suwappu',
   description:
-    'Simple subscription tiers that lower your swap fee: Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
+    'Account trading plans for Suwappu, plus separate Agent API credit, rate-limit, and route-fee pricing for developers.',
 };
 
 type Tier = {
@@ -35,7 +35,7 @@ const tiers: Tier[] = [
     price: '$0',
     cadence: '',
     fee: '1.0%',
-    blurb: `1.0% swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
+    blurb: `1.0% account trading swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
     cta: 'Start free',
     highlight: false,
     features: [
@@ -56,7 +56,7 @@ const tiers: Tier[] = [
     highlight: false,
     features: [
       'Everything in Free',
-      '0.5% swap fee: half of Free',
+      '0.5% account trading swap fee: half of Free',
       '500 API requests/min',
       'Copy trading & DCA',
       '1.1× loyalty points on every trade',
@@ -73,7 +73,7 @@ const tiers: Tier[] = [
     badge: 'Recommended',
     features: [
       'Everything in Pro',
-      '0.3% swap fee: 70% below Free',
+      '0.3% account trading swap fee: 70% below Free',
       '2,000 Agent API requests/min',
       'Advanced alerts & analytics',
       '1.25× loyalty points on every trade',
@@ -84,14 +84,14 @@ const tiers: Tier[] = [
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: '0.1% account swap fee, org accounts with RBAC, and 10,000 Agent API requests/min.',
+    blurb: '0.1% account trading swap fee, org accounts with RBAC, and 10,000 Agent API requests/min.',
     cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
     badge: 'Industry-First',
     features: [
       'Everything in Premium',
-      '0.1% swap fee (vs 1% industry standard)',
+      '0.1% account trading swap fee (vs 1% industry standard)',
       'Multi-user org accounts with RBAC (Owner / Admin / Member / Viewer)',
       'Up to 10 seats per org (configurable)',
       'Programmatic API keys with scoped permissions',
@@ -202,7 +202,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
 const faqs = [
   {
     q: 'How does the swap fee work?',
-    a: 'A small percentage is applied to each swap, set by your subscription tier: 1.0% on Free down to 0.1% on Enterprise. There are no per-seat charges; one subscription covers your whole account.',
+    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The Agent API uses a separate route/configuration fee model; its current EVM/Solana defaults are not derived from the account plan. Developer integrations should read the live quote instead of applying this account fee ladder.',
   },
   {
     q: 'Can I cancel anytime?',
@@ -268,7 +268,7 @@ const agentPaymentModes = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro, Premium, or Enterprise: 30-day prepaid and stackable. Each tier raises your rate limit and bypasses per-call Agent API metering while active.',
+    body: 'Agent API Pro, Premium, and Enterprise windows are activated through the crypto subscription endpoint: 30-day prepaid, stackable, higher-rate-limit, and unmetered while active. Stripe is a separate human/web checkout flow and does not currently promote an Agent API key’s subscription tier.',
   },
 ];
 
@@ -330,7 +330,7 @@ export default function PricingPage() {
                 {t.cadence && <span className={styles.cadence}>{t.cadence}</span>}
               </p>
               <p className={styles.fee}>
-                <b className={styles.feeValue}>{t.fee}</b> swap fee
+                <b className={styles.feeValue}>{t.fee}</b> account trading swap fee
               </p>
               <p className={styles.blurb}>{t.blurb}</p>
               {t.name === 'Pro' || t.name === 'Premium' ? (
@@ -439,8 +439,8 @@ export default function PricingPage() {
             Compare plans
           </h2>
           <p className={styles.compareLead}>
-            The engine is identical on every tier. What moves is the swap fee, the rate limit, and
-            the org controls.
+            For account trading, what moves is the plan swap fee, the rate limit, and the org
+            controls. Agent API route fees are a separate model shown below.
           </p>
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -539,11 +539,11 @@ export default function PricingPage() {
           </div>
 
           <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
-            Rate limits &amp; agent swap-fee behavior
+            Agent API rate limits &amp; route-fee behavior
           </h3>
           <div className="compare__scroll" role="region" aria-label="Agent API tier table" tabIndex={0}>
             <table className="compare-table">
-              <caption className="sr-only">Rate limit and swap fee for each Agent API tier.</caption>
+              <caption className="sr-only">Agent API rate limits and route-configured swap fees.</caption>
               <thead>
                 <tr>
                   <th scope="col" className="compare-table__rowhead">Tier</th>
@@ -563,11 +563,13 @@ export default function PricingPage() {
             </table>
           </div>
           <p className="compare__note">
-            * Agent-surface swap fees are not derived from the subscription tier. Current source
-            defaults are 0.8% on EVM routes and 0.3% on Solana routes; deployment configuration can
-            change them, so use the live quote as the economic source of truth. Subscriptions are
-            30-day prepaid and stackable, and work as crypto payment or Stripe fiat checkout. Full
-            endpoint list at{' '}
+            * This table is specifically for the Agent API, not the account-trading fee ladder
+            above. Agent-surface swap fees are not derived from the subscription tier. Current
+            source defaults are 0.8% on EVM routes and 0.3% on Solana routes; deployment
+            configuration can change them, so use the live quote as the economic source of truth.
+            Agent API subscription windows are 30-day prepaid, stackable crypto purchases through
+            the agent billing endpoint. Stripe checkout applies to human account plans and does not
+            currently set an Agent API key&apos;s subscription tier. Full endpoint list at{' '}
             <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
               the OpenAPI spec
             </a>{' '}

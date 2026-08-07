@@ -290,6 +290,12 @@ class TestExecuteSwap:
             mock_req.return_value = _mock_response(mock_data)
             report = await client.simulate_swap(quote_id="q-sim", wallet_address="0xabc")
 
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/simulate",
+            params=None,
+            json={"quote_id": "q-sim", "wallet_address": "0xabc"},
+        )
         assert isinstance(report, SwapSimulation)
         assert report.would_execute is True
         assert report.expected_output.amount_usd == "3190"

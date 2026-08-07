@@ -58,6 +58,12 @@ function balanceOf(portfolio: any, symbol: string) {
   return Number(row?.balance ?? 0)
 }
 
+function quotedUsd(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(String(value).replace(/[$,]/g, ''))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 async function rebalance(periodKey: string) {
   const symbols = Object.keys(TARGETS)
   const portfolio = await request(`/portfolio?wallet_address=${encodeURIComponent(WALLET)}`)
@@ -108,8 +114,14 @@ async function rebalance(periodKey: string) {
     body: JSON.stringify({ quote_id: quote.quote_id, wallet_address: WALLET }),
   })
 
-  const estimatedCostUsd =
-    Number(quote.estimated_gas_usd ?? 0) + Number(quote.bridge_fee_usd ?? 0)
+  // Quote cost fields are formatted strings such as "$0.04". Fail closed when
+  // either field cannot be parsed; NaN must never disable the economic guard.
+  const gasUsd = quotedUsd(quote.estimated_gas_usd)
+  const routeFeeUsd = quotedUsd(quote.bridge_fee_usd)
+  if (gasUsd === null || routeFeeUsd === null) {
+    return { action: 'skip', reason: 'quote cost fields are missing or unparseable' }
+  }
+  const estimatedCostUsd = gasUsd + routeFeeUsd
   const economicFloor = Math.max(MIN_TRADE_USD, estimatedCostUsd * COST_MULTIPLE)
 
   const preview = {

@@ -30,7 +30,14 @@ async function request(path: string, init: RequestInit = {}) {
     ...init,
     headers: { ...headers, ...(init.headers ?? {}) },
   })
-  const body = await response.json()
+  const raw = await response.text()
+  let body: any
+  try {
+    body = raw ? JSON.parse(raw) : {}
+  } catch {
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 160) || response.statusText}`)
+    throw new Error(`HTTP ${response.status}: expected a JSON response`)
+  }
   if (!response.ok || body.success === false) throw new Error(body.error ?? `HTTP ${response.status}`)
   return body
 }
@@ -45,6 +52,7 @@ async function post(path: string, body: unknown, extraHeaders = {}) {
 
 const [cmd, ...args] = process.argv.slice(2)
 
+try {
 switch (cmd) {
   case 'quote': {
     const [amount, from, to, chain = 'base'] = args
@@ -83,6 +91,10 @@ switch (cmd) {
   }
   default:
     console.log('Usage: suwappu <quote|preview|execute|status> ...')
+}
+} catch (error) {
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 ```
 

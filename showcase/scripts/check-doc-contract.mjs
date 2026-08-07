@@ -32,14 +32,20 @@ check(new Set(toolNames).size === toolNames.length, 'MCP source contains duplica
 
 const mcpDoc = read('gitbook/protocols/mcp.md');
 const openClawSkill = read('packages/openclaw/SKILL.md');
+const mcpBridgeReadme = read('packages/mcp-server/README.md');
 for (const name of toolNames) {
   check(mcpDoc.includes(`\`${name}\``), `MCP docs are missing advertised tool: ${name}`);
   check(openClawSkill.includes(`  - ${name}`), `OpenClaw skill manifest is missing tool: ${name}`);
+  check(mcpBridgeReadme.includes(`\`${name}\``), `MCP bridge README is missing advertised tool: ${name}`);
 }
 check(mcpDoc.includes(`${toolNames.length} tools`), `MCP docs must state the source tool count (${toolNames.length})`);
 check(
   openClawSkill.includes(`${toolNames.length} tools`),
   `OpenClaw skill must state the source tool count (${toolNames.length})`,
+);
+check(
+  mcpBridgeReadme.includes(`${toolNames.length} tools`),
+  `MCP bridge README must state the source tool count (${toolNames.length})`,
 );
 
 // Rate limits: derive values from middleware so the pricing table changes with code.
@@ -93,11 +99,12 @@ const scanRoots = [
   'showcase/public',
   'packages/sdk',
   'packages/sdk-python',
+  'packages/mcp-server',
   'packages/openclaw',
   'skills/suwappu',
 ];
-const textExtensions = new Set(['.md', '.mdx', '.txt', '.ts', '.tsx', '.js', '.mjs', '.json', '.toml']);
-const ignoredDirs = new Set(['node_modules', 'dist', '.next']);
+const textExtensions = new Set(['.md', '.mdx', '.txt', '.ts', '.tsx', '.js', '.mjs', '.json', '.toml', '.py']);
+const ignoredDirs = new Set(['node_modules', 'dist', 'build', '.next', '.venv', '.pytest_cache', '__pycache__']);
 
 function walk(relative) {
   const absolute = join(root, relative);

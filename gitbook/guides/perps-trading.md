@@ -37,7 +37,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
 
 Useful alerts include:
 
-- distance from mark price to liquidation price;
+- distance from mark price to liquidation price, only when `liquidationPrice > 0` (zero means HyperLiquid did not report one on this path);
 - leverage or margin above a user-defined risk ceiling;
 - unrealized P&L crossing a user-defined threshold;
 - a meaningful change in the indicative fee/margin for a contemplated position.

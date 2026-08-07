@@ -412,7 +412,7 @@ export interface AgentTopupArgs {
 
 export interface SwapSimulationCheck {
   name: string;
-  status: "pass" | "warn" | "fail" | string;
+  status: "pass" | "warn" | "fail";
   detail: string;
   unverified?: boolean;
 }
@@ -423,7 +423,7 @@ export interface SwapSimulation {
   /** True only when the server's safety-critical preflight checks allow execution. */
   wouldExecute: boolean;
   quoteId: string;
-  chainType: "evm" | "solana" | string;
+  chainType: "evm" | "solana";
   expectedOutput: {
     token: string;
     amount: string;

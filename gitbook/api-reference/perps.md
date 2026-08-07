@@ -70,7 +70,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
 }
 ```
 
-`entryPrice` is based on the market midpoint, `liquidationPrice` is an approximation, and the current quote path does not model order-book depth or actual fill slippage. Treat it as a research estimate, not an executable fill guarantee.
+`entryPrice` is based on the market midpoint, `liquidationPrice` is an approximation, and `fundingRate` is currently a placeholder `0` (this quote path does not fetch live funding). The quote also does not model order-book depth or actual fill slippage. Treat it as a research estimate, not an executable fill guarantee.
 
 ## GET /v1/agent/perps/positions
 
@@ -102,6 +102,8 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
   ]
 }
 ```
+
+On the current positions path, `fundingRate` is also a placeholder `0`. `liquidationPrice` is returned as `0` when HyperLiquid reports no liquidation price; treat that as unavailable rather than a real zero-price liquidation level.
 
 ## No Agent API execution endpoint
 

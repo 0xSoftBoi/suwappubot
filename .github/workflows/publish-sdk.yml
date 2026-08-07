@@ -29,37 +29,8 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Build @suwappu/sdk
-        run: |
-          cd packages/sdk
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run test
-          bun run build
-          npm pack --dry-run
-
-      # Was `|| true` — a broken openclaw build silently published a stale dist.
-      - name: Build @suwappu/openclaw
-        run: |
-          cd packages/openclaw
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run test
-          bun run build
-          npm pack --dry-run
-
-      - name: Build @suwappu/mcp-server
-        run: |
-          cd packages/mcp-server
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run build
-          npm pack --dry-run
-
-      # The binary must start AND actually proxy. Runs against a local mock,
-      # so a network blip cannot fail a publish.
-      - name: Smoke-test mcp-server proxy
-        run: cd packages/mcp-server && node scripts/smoke.mjs
+      - name: Run shared TypeScript package release contract
+        run: bash scripts/verify-ts-packages.sh
 
       # Publishes are version-guarded so a re-run (or a tag covering an
       # already-published package) is a no-op instead of a hard failure.
@@ -112,6 +83,11 @@ jobs:
         run: python -m pytest packages/sdk-python/tests -q
       - name: Build sdist + wheel
         run: cd packages/sdk-python && python -m build
+      - name: Clean-install built wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/python-publish-consumer"
+          "$RUNNER_TEMP/python-publish-consumer/bin/pip" install packages/sdk-python/dist/*.whl
+          "$RUNNER_TEMP/python-publish-consumer/bin/python" -I -c "from suwappu import create_client; assert callable(create_client)"
       - name: Check metadata
         run: cd packages/sdk-python && twine check dist/*
       - name: Publish to PyPI

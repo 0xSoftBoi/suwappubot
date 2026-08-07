@@ -218,7 +218,7 @@ res = requests.post(
 swap = res.json()
 ```
 
-Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed.
+Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed. The [managed swap execution reference](../api-reference/swap-execute.md) documents the exact header format, fallback behavior, and reconciliation rule.
 
 **Response:**
 

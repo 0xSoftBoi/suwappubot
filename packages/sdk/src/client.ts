@@ -62,6 +62,16 @@ import type {
 
 export const DEFAULT_BASE_URL = "https://api.suwappu.bot";
 
+function simulationChainType(value: unknown): SwapSimulation["chainType"] {
+  if (value === "evm" || value === "solana") return value;
+  throw new Error(`Invalid swap simulation chain_type: ${String(value)}`);
+}
+
+function simulationCheckStatus(value: unknown): SwapSimulation["checks"][number]["status"] {
+  if (value === "pass" || value === "warn" || value === "fail") return value;
+  throw new Error(`Invalid swap simulation check status: ${String(value)}`);
+}
+
 /**
  * Error thrown when the Suwappu API returns a non-2xx response.
  *
@@ -292,7 +302,7 @@ export class Suwappu {
       success: Boolean(data.success),
       wouldExecute: Boolean(data.would_execute),
       quoteId: String(data.quote_id ?? args.quoteId),
-      chainType: String(data.chain_type ?? ""),
+      chainType: simulationChainType(data.chain_type),
       expectedOutput: {
         token: String(data.expected_output?.token ?? ""),
         amount: String(data.expected_output?.amount ?? ""),
@@ -312,7 +322,7 @@ export class Suwappu {
       checks: Array.isArray(data.checks)
         ? data.checks.map((check: Record<string, any>) => ({
             name: String(check.name ?? ""),
-            status: String(check.status ?? "warn"),
+            status: simulationCheckStatus(check.status),
             detail: String(check.detail ?? ""),
             ...(check.unverified === undefined
               ? {}

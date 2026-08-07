@@ -149,56 +149,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Test and build TypeScript SDK
-        working-directory: packages/sdk
-        run: |
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run test
-          bun run build
-
-      - name: Install TypeScript SDK tarball in a clean consumer
-        run: |
-          SDK_TARBALL=$(cd packages/sdk && npm pack --silent --pack-destination "$RUNNER_TEMP")
-          mkdir -p "$RUNNER_TEMP/sdk-consumer"
-          cd "$RUNNER_TEMP/sdk-consumer"
-          npm init -y >/dev/null
-          npm install --silent "$RUNNER_TEMP/$SDK_TARBALL"
-          node --input-type=module -e "import { Suwappu } from '@suwappu/sdk'; if (typeof Suwappu !== 'function') process.exit(1)"
-
-      - name: Test and build OpenClaw client
-        working-directory: packages/openclaw
-        run: |
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run test
-          bun run build
-
-      - name: Install OpenClaw tarball in a clean consumer
-        run: |
-          OPENCLAW_TARBALL=$(cd packages/openclaw && npm pack --silent --pack-destination "$RUNNER_TEMP")
-          mkdir -p "$RUNNER_TEMP/openclaw-consumer"
-          cd "$RUNNER_TEMP/openclaw-consumer"
-          npm init -y >/dev/null
-          npm install --silent "$RUNNER_TEMP/$OPENCLAW_TARBALL"
-          node --input-type=module -e "import { createClient } from '@suwappu/openclaw'; if (typeof createClient !== 'function') process.exit(1)"
-
-      - name: Test and build MCP stdio bridge
-        working-directory: packages/mcp-server
-        run: |
-          bun install --frozen-lockfile
-          bun run typecheck
-          bun run build
-          node scripts/smoke.mjs
-
-      - name: Install MCP tarball in a clean consumer
-        run: |
-          MCP_TARBALL=$(cd packages/mcp-server && npm pack --silent --pack-destination "$RUNNER_TEMP")
-          mkdir -p "$RUNNER_TEMP/mcp-consumer"
-          cd "$RUNNER_TEMP/mcp-consumer"
-          npm init -y >/dev/null
-          npm install --silent "$RUNNER_TEMP/$MCP_TARBALL"
-          test -x node_modules/.bin/suwappu-mcp
+      - name: Run shared TypeScript package release contract
+        run: bash scripts/verify-ts-packages.sh
 
       - name: Test, build, and clean-install Python SDK
         run: |

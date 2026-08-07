@@ -11,6 +11,8 @@ Register an agent, create a managed wallet, fund it with only the capital you in
 ```bash
 export SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY
 export SUWAPPU_WALLET=0xYOUR_MANAGED_WALLET
+# In live mode, your durable scheduler supplies and persists this ID per intent.
+export STRATEGY_INTENT_ID=dip-2026-08-06T18-001
 # Leave SUWAPPU_LIVE unset for preview mode.
 ```
 
@@ -46,7 +48,7 @@ async function getPrice(symbol: string) {
   return Number(data.prices[symbol].usd)
 }
 
-async function run(targetPrice: number) {
+async function run(targetPrice: number, intentId?: string) {
   const price = await getPrice('ETH')
   console.log(`ETH price: $${price.toFixed(2)}`)
   if (price > targetPrice) return { action: 'hold', price }
@@ -82,8 +84,13 @@ async function run(targetPrice: number) {
   if (!simulation.would_execute) return { action: 'blocked', preview }
   if (!LIVE) return { action: 'preview', preview }
 
-  // Persist this intent before submission in a real bot. Reuse the same key on retries.
-  const intentKey = `dip.${new Date().toISOString().slice(0, 13)}.ETH`
+  // The scheduler must persist this ID before submission and reuse it on every retry,
+  // even after a process restart or wall-clock boundary.
+  if (!intentId) throw new Error('Live execution requires a persisted STRATEGY_INTENT_ID')
+  const intentKey = `dip.${intentId}.ETH`
+  if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(intentKey)) {
+    throw new Error('STRATEGY_INTENT_ID must produce a valid 1-64 character Idempotency-Key')
+  }
   const swap = await request('/swap/execute', {
     method: 'POST',
     headers: { 'Idempotency-Key': intentKey },
@@ -94,10 +101,10 @@ async function run(targetPrice: number) {
   return { action: 'submitted', swap, preview }
 }
 
-run(2800).catch(console.error)
+run(2800, process.env.STRATEGY_INTENT_ID).catch(console.error)
 ```
 
-Run that worker from a durable scheduler. A production scheduler should persist the period/intent before running so a restart cannot accidentally duplicate a trade.
+Run that worker from a durable scheduler. A production scheduler should create and persist `STRATEGY_INTENT_ID` **before** the first submission and reload that same ID on retries. Do not derive the retry key from the current clock: a timeout that crosses an hour/day boundary must still dedupe to the original economic intent.
 
 ## Reconcile, don't guess
 
