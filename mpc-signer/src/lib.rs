@@ -11,6 +11,7 @@
 //! against the CGGMP24 construction one state boundary at a time.
 
 pub mod cggmp_aux;
+pub mod cggmp_presign;
 pub mod dkg;
 pub mod ecdsa_cggmp;
 pub mod frost_ed25519;
@@ -27,7 +28,8 @@ pub const MALICIOUS_DKG_READY: bool = false;
 
 /// The secp256k1 DKG, signing-set conversion, final ECDSA equations, and the
 /// auxiliary-provisioning proof cores and reliable state transitions are
-/// implemented, but authenticated wire transport and malicious presigning
-/// proofs are not. There is deliberately no public way to manufacture a
+/// implemented. Malicious presigning now has its first `Pi_enc-elg` proof core,
+/// but its remaining proofs/state transitions and authenticated wire transport
+/// are not complete. There is deliberately no public way to manufacture a
 /// presignature.
 pub const MALICIOUS_ECDSA_READY: bool = false;

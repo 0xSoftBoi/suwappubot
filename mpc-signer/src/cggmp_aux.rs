@@ -80,9 +80,9 @@ pub enum AuxError {
 /// Public Ring-Pedersen parameters `(N_hat, s, t)`.
 #[derive(Clone, Debug)]
 pub struct RingPedersenParams {
-    modulus: Integer,
-    s: Integer,
-    t: Integer,
+    pub(crate) modulus: Integer,
+    pub(crate) s: Integer,
+    pub(crate) t: Integer,
 }
 
 impl RingPedersenParams {
@@ -188,7 +188,7 @@ impl PiPrmProof {
 pub struct CandidateAuxPublic {
     execution: [u8; 32],
     participant: ParticipantId,
-    paillier: EncryptionKey,
+    pub(crate) paillier: EncryptionKey,
     ring_pedersen: RingPedersenParams,
     pi_prm: PiPrmProof,
 }

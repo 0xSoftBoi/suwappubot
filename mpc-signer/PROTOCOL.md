@@ -42,6 +42,12 @@ peer-specific `Pi_fac` no-small-factor proof, and the fixed 3-party reliable
 commit/echo/reveal/proof state transitions. Only the final peer-proof verifier
 can construct `VerifiedAuxSet`.
 
+`cggmp_presign.rs` begins section 4.3 with the current reference
+`Pi_enc-elg` construction. It binds Paillier encryption-in-range to the
+ElGamal-style curve relation used for both `k_i` and `gamma_i`, with separate
+transcript labels for the two witnesses. This is only a proof core; it cannot
+construct `PresignatureShare`.
+
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
 32-byte collective `rho`, matching the current reference implementation's
@@ -61,16 +67,20 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
-   Paillier affine-with-group-commitment, encryption/ElGamal relations, and the
-   elliptic-curve discrete-log relations used by the protocol.
+1. Finish section 4.3 presigning: `Pi_aff`, `Pi_elog`, MtA equations, reliable
+   first-round broadcast, and final consistency checks. The current
+   `Pi_enc-elg` proof core is present but does not authorize a presignature.
 2. Production serialization plus authenticated broadcasts, encrypted
    point-to-point messages, durable unique execution IDs, timeout/abort
    behavior, and persisted one-shot presignatures.
-3. Full-size auxiliary-generation performance/soak vectors plus bigint
+3. Replace the current raw-prehash partial-signature entry point with a
+   known-preimage/validated-transaction-digest boundary before presignatures
+   become constructible. Raw attacker-chosen hashes are unsafe with ECDSA
+   presignatures.
+4. Full-size auxiliary-generation performance/soak vectors plus bigint
    side-channel and memory-erasure hardening. The current bigint backend does
    not justify a zeroizing-deallocation claim for Paillier secret factors.
-4. Adversarial vectors, differential final-signature tests, and an independent
+5. Adversarial vectors, differential final-signature tests, and an independent
    cryptographic audit.
 
 No shortcut around these gates is acceptable: a Paillier MtA exchange without
