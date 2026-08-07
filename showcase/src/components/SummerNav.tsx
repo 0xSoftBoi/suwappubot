@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import ProductMenu from './ProductMenu';
@@ -14,6 +15,9 @@ import NavDrawer from './NavDrawer';
  * uses. See ProductMenu for why the two shells stay separate.
  */
 export default function SummerNav() {
+  const nav = useTranslations('nav');
+  const hero = useTranslations('home.hero');
+
   return (
     <header className="summer-nav">
       <a className="summer-brand" href="/">
@@ -23,9 +27,9 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
-        <a href="/pricing">Pricing</a>
-        <a href="/docs">Docs</a>
-        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">Telegram</a>
+        <a href="/pricing">{nav('pricing')}</a>
+        <a href="/docs">{nav('docs')}</a>
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
       </nav>
 
       <div className="summer-nav__actions">
@@ -34,23 +38,23 @@ export default function SummerNav() {
           href={TERMINAL_URL}
           onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'terminal' })}
         >
-          Open Terminal
+          {hero('ctaTerminal')}
         </a>
         <a
           className="summer-nav__cta summer-nav__cta--ghost"
           href="/docs/api-reference/overview"
           onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'api_docs' })}
         >
-          Build with API
+          {hero('ctaApi')}
         </a>
 
         {/* Below 980px the link row is hidden; this is the only way in. */}
         <NavDrawer
           className="summer-nav__burger"
           extraLinks={[
-            { href: '/pricing', label: 'Pricing' },
-            { href: '/docs', label: 'Docs' },
-            { href: TELEGRAM_URL, label: 'Telegram' },
+            { href: '/pricing', label: nav('pricing') },
+            { href: '/docs', label: nav('docs') },
+            { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },
           ]}
           actions={
             <>
@@ -58,13 +62,13 @@ export default function SummerNav() {
                 href={TERMINAL_URL}
                 className="nav__drawer-cta"
               >
-                Open Terminal
+                {hero('ctaTerminal')}
               </a>
               <a
                 href="/docs/api-reference/overview"
                 className="nav__drawer-cta nav__drawer-cta--ghost"
               >
-                Build with API
+                {hero('ctaApi')}
               </a>
             </>
           }

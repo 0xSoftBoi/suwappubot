@@ -18,6 +18,7 @@ export default function ProofShot({
   height,
   alt,
   caption,
+  mobileHint,
   priority = false,
 }: {
   src: string;
@@ -25,26 +26,27 @@ export default function ProofShot({
   height: number;
   alt: string;
   caption: string;
+  mobileHint: string;
   priority?: boolean;
 }) {
   return (
     <figure className="proof">
-      <div className="proof__frame">
-        <Image
-          src={src}
-          width={width}
-          height={height}
-          alt={alt}
-          priority={priority}
-          // These are dense UI captures: fine tabular text turns to mush if the
-          // browser upscales, so ask for a candidate at least as wide as the
-          // real layout box (~1280) and keep compression light.
-          sizes="(max-width: 900px) 100vw, 1400px"
-          quality={92}
-          className="proof__img"
-        />
+      <div className="proof__viewport" role="region" tabIndex={0} aria-label={mobileHint}>
+        <div className="proof__frame">
+          <Image
+            src={src}
+            width={width}
+            height={height}
+            alt={alt}
+            priority={priority}
+            sizes="(max-width: 680px) 900px, (max-width: 900px) 100vw, 1400px"
+            quality={92}
+            className="proof__img"
+          />
+        </div>
       </div>
       <figcaption className="proof__cap">{caption}</figcaption>
+      <p className="proof__mobile-hint">{mobileHint}</p>
     </figure>
   );
 }

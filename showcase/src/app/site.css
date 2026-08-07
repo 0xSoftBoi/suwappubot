@@ -7,7 +7,7 @@
     linear-gradient(180deg, var(--sw-soil-1, #241A15) 0, var(--bg) 36rem);
 }
 
-.home-eyebrow {
+.sw .home-eyebrow {
   margin: 0 0 1rem;
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -114,7 +114,7 @@
   opacity: 0.75;
 }
 
-.home-product-label {
+.sw .home-product-label {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -141,7 +141,7 @@
     inset 0 1px rgba(255, 255, 255, 0.035);
 }
 
-.home-product-note {
+.sw .home-product-note {
   margin: 0.75rem 0 0;
   padding: 0 0.2rem;
   font-size: 0.72rem;
@@ -272,104 +272,47 @@
   color: var(--fg-dim);
 }
 
-/* The two audiences form one composed product surface rather than a grid of
-   detached marketing cards. */
-.home-audiences {
+/* Interfaces are a register, not persona cards: one intent can enter through
+   several surfaces, but their authority is deliberately not presented as equal. */
+.home-interface-register {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.home-interface-register a {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 18px;
-  background:
-    radial-gradient(80% 130% at 0 0, rgba(246, 169, 60, 0.11), transparent 62%),
-    radial-gradient(70% 110% at 100% 100%, rgba(94, 156, 111, 0.09), transparent 62%),
-    linear-gradient(145deg, var(--bg-elev), rgba(23, 16, 13, 0.92));
-  box-shadow:
-    0 38px 74px -54px rgba(0, 0, 0, 0.95),
-    inset 0 1px rgba(255, 255, 255, 0.035);
-}
-
-.home-audience {
-  min-height: 23rem;
-  padding: clamp(2rem, 4vw, 3.4rem);
-}
-
-.home-audience + .home-audience {
-  border-left: 1px solid var(--line);
-}
-
-.home-audience__label {
-  margin: 0 0 2.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--sw-accent-muted, #BD7526);
-}
-
-.home-audience--builder .home-audience__label {
-  color: var(--sw-leaf-muted, #6BAF7C);
-}
-
-.home-audience h3 {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(2rem, 3.4vw, 3rem);
-  font-weight: 500;
-  line-height: 1.08;
-  color: var(--fg);
-}
-
-.home-audience > p:not(.home-audience__label) {
-  max-width: 42ch;
-  margin: 1rem 0 0;
-  font-size: 0.95rem;
-  line-height: 1.65;
-  color: var(--fg-dim);
-}
-
-.home-inline-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  margin-top: 2.2rem;
-}
-
-.home-inline-links a,
-.home-card-link {
-  font-size: 0.85rem;
-  font-weight: 650;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.35rem 0.8rem;
+  align-items: baseline;
+  min-width: 0;
+  padding: 1.4rem clamp(1rem, 2.5vw, 2rem);
   color: var(--fg);
   text-decoration: none;
+  scroll-margin-top: 6rem;
 }
 
-.home-inline-links a span,
-.home-card-link span {
-  color: var(--sw-accent-muted, #BD7526);
-}
+.home-interface-register a:first-child { padding-left: 0; }
+.home-interface-register a + a { border-left: 1px solid var(--line); }
 
-.home-interface-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 1.5rem;
-}
-
-.home-interface-pills span {
-  padding: 0.35rem 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 5px;
+.home-interface-register span,
+.home-interface-register small {
   font-family: var(--font-mono);
   font-size: 0.64rem;
-  color: var(--fg-dim);
-  background: rgba(0, 0, 0, 0.12);
+  color: var(--fg-faint);
 }
 
-.home-card-link {
-  display: inline-block;
-  margin-top: 2.15rem;
+.home-interface-register strong { font-size: 0.95rem; }
+.home-interface-register small { grid-column: 2; line-height: 1.45; }
+.home-interface-register b { color: var(--sw-accent-muted, #BD7526); font-weight: 400; }
+
+.sw .home-interface-note {
+  margin: 1.25rem 0 0;
+  max-width: 82ch;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--fg-faint);
 }
 
 /* ── Execution path ───────────────────────────────────────────── */
@@ -385,7 +328,7 @@
 
 .home-steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -432,6 +375,15 @@
   margin: clamp(2.5rem, 5vw, 4.5rem) 0 0;
 }
 
+.proof__viewport {
+  border-radius: 14px;
+}
+
+.proof__viewport:focus-visible {
+  outline: 2px solid var(--sw-accent-bright, #F6A93C);
+  outline-offset: 3px;
+}
+
 .proof__frame {
   position: relative;
   overflow: hidden;
@@ -468,6 +420,8 @@
   letter-spacing: 0.04em;
   color: var(--fg-faint);
 }
+
+.proof__mobile-hint { display: none; }
 
 /* ── Capability band ──────────────────────────────────────────── */
 .home-capabilities {
@@ -689,15 +643,11 @@
 
 /* Keep every homepage interaction tactile without adding decorative motion. */
 @media (hover: hover) {
-  .home-inline-links a:hover,
-  .home-card-link:hover {
-    color: var(--sw-accent-bright, #F6A93C);
-  }
+  .home-interface-register a:hover { background: rgba(255, 255, 255, 0.025); }
 }
 
 .home-proofbar__links a:active,
-.home-inline-links a:active,
-.home-card-link:active,
+.home-interface-register a:active,
 .home-hero__telegram:active,
 .home-close__telegram:active,
 .hd__btn:active {
@@ -750,16 +700,10 @@
     width: min(100%, 36rem);
   }
 
-  .home-audiences,
   .home-security {
     grid-template-columns: 1fr;
   }
 
-  .home-audience {
-    min-height: 0;
-  }
-
-  .home-audience + .home-audience,
   .home-security__facts {
     border-left: 0;
     border-top: 1px solid var(--line);
@@ -788,9 +732,20 @@
     border-top: 1px solid var(--line);
   }
 
+  .home-interface-register,
   .home-steps,
   .home-capabilities {
     grid-template-columns: 1fr;
+  }
+
+  .home-interface-register a,
+  .home-interface-register a:first-child {
+    padding: 1.25rem 0;
+  }
+
+  .home-interface-register a + a {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .home-steps li,
@@ -804,6 +759,23 @@
   .home-capabilities article + article {
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+
+  .proof__viewport {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+
+  .proof__frame { width: 900px; }
+
+  .proof__mobile-hint {
+    display: block;
+    margin: 0.65rem 0 0;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    line-height: 1.5;
+    color: var(--fg-faint);
   }
 }
 
@@ -849,7 +821,6 @@
     border-top: 0;
   }
 
-  .home-audience,
   .home-security__intro,
   .home-security__facts article,
   .home-security__facts aside,

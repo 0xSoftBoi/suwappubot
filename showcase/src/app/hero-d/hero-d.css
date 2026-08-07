@@ -228,8 +228,10 @@
   background: var(--sw-leaf, #5E9C6F);
   animation: lq-pulse 2s var(--pp-ease, ease) infinite;
 }
-.hd .lq__title--captured,
 .hd .lq__title--stale { color: var(--sw-leaf-muted, #6BAF7C); }
+.hd .lq__title--expired,
+.hd .lq__title--unavailable { color: var(--sw-accent-muted, #BD7526); }
+.hd .lq__body--expired .lq__out { opacity: 0.62; }
 @keyframes lq-pulse {
   0% { box-shadow: 0 0 0 0 rgba(94, 156, 111, 0.5); }
   70% { box-shadow: 0 0 0 6px rgba(94, 156, 111, 0); }

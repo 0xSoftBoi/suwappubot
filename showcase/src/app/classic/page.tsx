@@ -184,10 +184,7 @@ async function Hero() {
       />
       <div className="summer-hero__copy">
         <p className="summer-kicker">{t('kicker')}</p>
-        <h1 className={`summer-hero__h1 sw-display-1 ${styles.heroTitle}`}>
-          {t('h1')}{' '}
-          <span className="summer-hero__accent">{t('h1_accent')}</span>
-        </h1>
+        <h1 className={`summer-hero__h1 sw-display-1 ${styles.heroTitle}`}>{t('h1')}</h1>
         <p className="summer-hero__lead">{t('lead', { chains: productStats.platformChains })}</p>
         <div className="summer-actions">
           <a

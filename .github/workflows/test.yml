@@ -105,6 +105,14 @@ jobs:
         working-directory: showcase
         run: bun run stats:check
 
+      - name: Install showcase dependencies
+        working-directory: showcase
+        run: bun install --frozen-lockfile
+
+      - name: Showcase production build
+        working-directory: showcase
+        run: bun run build
+
   # ---------------------------------------------------------------------------
   # Builder docs — generated artifacts + executable-source contracts
   # ---------------------------------------------------------------------------
