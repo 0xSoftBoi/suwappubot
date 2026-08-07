@@ -14,6 +14,7 @@ execute_swap directly.
 
 import os
 import re
+from types import SimpleNamespace
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
@@ -28,6 +29,8 @@ import pytest
 USDC_ETH = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # 42-char EVM
 USDC_SOL = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # base58 mint
 TRON_ADDR = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+ROBINHOOD_VANTIS = "0xB6d695d5fbcEbD837f6b9f214c9BeeE8bA90762B"
+ROBINHOOD_AAPL = "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9"
 
 
 # ---------------------------------------------------------------------------
@@ -368,3 +371,541 @@ async def test_decimals_correction_skips_registry_symbols(monkeypatch):
     out = await eng._correct_destination_decimals(quote, "USDC", "base", amount=1.0)
     assert out.to_amount_human == 1.0  # unchanged
     resolver.assert_not_called()  # raw-address guard short-circuits first
+
+
+# ---------------------------------------------------------------------------
+# 11. Robinhood long-tail launch flow: discover → fund elsewhere → one quote
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_paste_metadata_probe_can_resolve_robinhood(monkeypatch):
+    """A 0x token that only exists on chain 4663 must not fall back to Ethereum."""
+    import bot.handlers.paste_trade as pt
+
+    client = MagicMock()
+
+    async def metadata(_address, chain):
+        if chain == "robinhood":
+            return SimpleNamespace(symbol="VANTIS", name="Vantis", decimals=18)
+        return None
+
+    client.get_token_metadata = AsyncMock(side_effect=metadata)
+    monkeypatch.setattr(pt, "is_alchemy_configured", lambda: True)
+    monkeypatch.setattr(pt, "get_alchemy_client", lambda: client)
+
+    info = await pt.get_token_info(ROBINHOOD_VANTIS, "evm")
+
+    assert "robinhood" in pt.EVM_PROBE_CHAINS
+    assert info == {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+        "name": "Vantis",
+        "decimals": 18,
+    }
+
+
+@pytest.mark.asyncio
+async def test_robinhood_token_card_offers_fund_from_another_chain(monkeypatch):
+    import bot.handlers.paste_trade as pt
+
+    monkeypatch.setattr(
+        pt,
+        "get_token_info",
+        AsyncMock(
+            return_value={
+                "chain": "robinhood",
+                "address": ROBINHOOD_VANTIS,
+                "symbol": "VANTIS",
+                "name": "Vantis",
+                "decimals": 18,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        pt,
+        "check_address_gate",
+        AsyncMock(return_value=SimpleNamespace(blocked=False, reason="")),
+    )
+
+    update, context = _msg_update(ROBINHOOD_VANTIS), _ctx()
+    await pt._render_token_card(update, context, ROBINHOOD_VANTIS, "evm")
+
+    markup = update.message.reply_text.call_args.kwargs["reply_markup"]
+    callbacks = {button.callback_data for button in _all_buttons(markup)}
+    assert "pbuy_cross" in callbacks
+    assert context.user_data["paste_token"]["chain"] == "robinhood"
+
+
+@pytest.mark.asyncio
+async def test_canonical_robinhood_equity_card_fails_closed(monkeypatch):
+    """Stock Tokens need a dedicated eligibility product before trading is exposed."""
+    import bot.handlers.paste_trade as pt
+
+    monkeypatch.setattr(
+        pt,
+        "get_token_info",
+        AsyncMock(
+            return_value={
+                "chain": "robinhood",
+                "address": ROBINHOOD_AAPL,
+                "symbol": "AAPL",
+                "name": "Apple",
+                "decimals": 18,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        pt,
+        "check_address_gate",
+        AsyncMock(return_value=SimpleNamespace(blocked=False, reason="")),
+    )
+
+    update, context = _msg_update(ROBINHOOD_AAPL), _ctx()
+    await pt._render_token_card(update, context, ROBINHOOD_AAPL, "evm")
+
+    assert "paste_token" not in context.user_data
+    sent = update.message.reply_text.call_args.args[0].lower()
+    assert "stock" in sent and ("eligib" in sent or "not enabled" in sent)
+    markup = update.message.reply_text.call_args.kwargs.get("reply_markup")
+    if markup:
+        assert not any((b.callback_data or "").startswith("pbuy_") for b in _all_buttons(markup))
+
+
+@pytest.mark.asyncio
+async def test_pbuy_cross_locks_robinhood_destination_and_offers_evm_sources(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+    from bot.models.user import User
+    from bot.services.tos_service import tos_service
+    from database.db import SessionLocal
+
+    tg_id = 777463
+    with SessionLocal() as session:
+        session.add(User(telegram_id=tg_id, tos_accepted=True))
+        session.commit()
+    monkeypatch.setattr(tos_service, "is_accepted_telegram", lambda _id: True)
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+
+    update, context = _cb_update("pbuy_cross", user_id=tg_id), _ctx()
+    context.user_data["paste_token"] = {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+        "decimals": 18,
+    }
+
+    result = await swap.paste_buy_entry(update, context)
+
+    assert result == swap.SELECT_FROM_CHAIN
+    assert context.user_data["paste_swap_destination"] == {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+    }
+    markup = update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
+    callbacks = {button.callback_data for button in _all_buttons(markup)}
+    assert {"from_chain_base", "from_chain_ethereum", "from_chain_arbitrum"} <= callbacks
+    assert "from_chain_robinhood" not in callbacks
+    assert "from_chain_solana" not in callbacks
+
+
+@pytest.mark.asyncio
+async def test_source_token_restores_locked_robinhood_target(monkeypatch):
+    import bot.handlers.swap as swap
+
+    update, context = _cb_update("from_token_USDC"), _ctx()
+    context.user_data.update(
+        {
+            "swap": {"from_chain": "base"},
+            "paste_swap_destination": {
+                "chain": "robinhood",
+                "address": ROBINHOOD_VANTIS,
+                "symbol": "VANTIS",
+            },
+        }
+    )
+
+    result = await swap.select_from_token(update, context)
+
+    assert result == swap.ENTER_AMOUNT
+    assert context.user_data["swap"] == {
+        "from_chain": "base",
+        "from_token": "USDC",
+        "to_chain": "robinhood",
+        "to_token": ROBINHOOD_VANTIS,
+        "single_wallet_only": True,
+    }
+    assert "paste_swap_destination" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_robinhood_custom_paste_buy_is_single_wallet(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+    from bot.models.user import User
+    from bot.services.tos_service import tos_service
+    from database.db import SessionLocal
+
+    tg_id = 777464
+    with SessionLocal() as session:
+        session.add(User(telegram_id=tg_id, tos_accepted=True))
+        session.commit()
+    monkeypatch.setattr(tos_service, "is_accepted_telegram", lambda _id: True)
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+
+    update, context = _cb_update("pbuy_custom", user_id=tg_id), _ctx()
+    context.user_data["paste_token"] = {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+    }
+    context.user_data["paste_swap_destination"] = {
+        "chain": "robinhood",
+        "address": "0x000000000000000000000000000000000000dead",
+        "symbol": "STALE",
+    }
+
+    result = await swap.paste_buy_entry(update, context)
+
+    assert result == swap.ENTER_AMOUNT
+    assert context.user_data["swap"]["single_wallet_only"] is True
+    assert "paste_swap_destination" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_robinhood_preset_paste_buy_is_single_wallet(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+    from bot.models.user import User
+    from bot.services.tos_service import tos_service
+    from database.db import SessionLocal
+
+    tg_id = 777465
+    with SessionLocal() as session:
+        session.add(User(telegram_id=tg_id, tos_accepted=True))
+        session.commit()
+    monkeypatch.setattr(tos_service, "is_accepted_telegram", lambda _id: True)
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        swap.wallet_service,
+        "get_default_wallet",
+        lambda *_: SimpleNamespace(id=73, address="0x0000000000000000000000000000000000000073"),
+    )
+    monkeypatch.setattr(swap, "_schedule_quote_prewarm", lambda *args, **kwargs: None)
+    wallet_selection = AsyncMock(return_value=swap.SELECT_WALLETS)
+    monkeypatch.setattr(swap, "show_wallet_selection", wallet_selection)
+
+    update, context = _cb_update("pbuy_0.05", user_id=tg_id), _ctx()
+    context.user_data["paste_token"] = {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+    }
+
+    result = await swap.paste_buy_entry(update, context)
+
+    assert result == swap.SELECT_WALLETS
+    assert context.user_data["swap"]["single_wallet_only"] is True
+    wallet_selection.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_forged_robinhood_equity_paste_buy_fails_before_wallet_work(tmp_db, monkeypatch):
+    """Execution re-checks the canonical address even if discovery UI was bypassed."""
+    import bot.handlers.swap as swap
+    from bot.models.user import User
+    from bot.services.tos_service import tos_service
+    from database.db import SessionLocal
+
+    tg_id = 777469
+    with SessionLocal() as session:
+        session.add(User(telegram_id=tg_id, tos_accepted=True))
+        session.commit()
+    monkeypatch.setattr(tos_service, "is_accepted_telegram", lambda _id: True)
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    get_default_wallet = MagicMock(
+        return_value=SimpleNamespace(id=74, address="0x0000000000000000000000000000000000000074")
+    )
+    monkeypatch.setattr(swap.wallet_service, "get_default_wallet", get_default_wallet)
+    monkeypatch.setattr(swap, "_schedule_quote_prewarm", lambda *args, **kwargs: None)
+    wallet_selection = AsyncMock(return_value=swap.SELECT_WALLETS)
+    monkeypatch.setattr(swap, "show_wallet_selection", wallet_selection)
+
+    update, context = _cb_update("pbuy_0.05", user_id=tg_id), _ctx()
+    context.user_data["paste_token"] = {
+        "chain": "robinhood",
+        "address": ROBINHOOD_AAPL,
+        "symbol": "TOTALLY_NOT_AAPL",  # Symbol spoofing must not bypass the address gate.
+    }
+
+    result = await swap.paste_buy_entry(update, context)
+
+    assert result == swap.ConversationHandler.END
+    get_default_wallet.assert_not_called()
+    wallet_selection.assert_not_awaited()
+    assert "stock" in update.callback_query.edit_message_text.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_start_swap_clears_stale_paste_destination(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    update, context = _cb_update("swap_start", user_id=888001), _ctx()
+    context.user_data["paste_swap_destination"] = {
+        "chain": "robinhood",
+        "address": ROBINHOOD_VANTIS,
+        "symbol": "VANTIS",
+    }
+
+    # No DB user is intentional: stale intent must be cleared before any early return.
+    assert await swap.start_swap(update, context, is_callback=True) == swap.ConversationHandler.END
+    assert "paste_swap_destination" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_swap_cancel_clears_stale_paste_destination(monkeypatch):
+    import bot.handlers.start as start
+    import bot.handlers.swap as swap
+
+    monkeypatch.setattr(start, "main_menu_callback", AsyncMock())
+    update, context = _cb_update("swap_cancel"), _ctx()
+    context.user_data.update(
+        {
+            "swap": {"from_chain": "base"},
+            "paste_swap_destination": {
+                "chain": "robinhood",
+                "address": ROBINHOOD_VANTIS,
+                "symbol": "VANTIS",
+            },
+        }
+    )
+
+    assert await swap.swap_cancel(update, context) == swap.ConversationHandler.END
+    assert "swap" not in context.user_data
+    assert "paste_swap_destination" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_single_wallet_mode_renders_single_sender_copy(tmp_db):
+    import bot.handlers.swap as swap
+    from bot.models.user import User, Wallet
+    from database.db import SessionLocal
+
+    with SessionLocal() as session:
+        user = User(telegram_id=777466, tos_accepted=True)
+        session.add(user)
+        session.flush()
+        wallet = Wallet(
+            user_id=user.id,
+            name="Primary",
+            address="0x0000000000000000000000000000000000000001",
+            chain_type="evm",
+            is_default=True,
+        )
+        session.add(wallet)
+        session.commit()
+        user_id, wallet_id = user.id, wallet.id
+
+    update, context = _cb_update("swap_back_to_wallets"), _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "from_chain": "base",
+                "from_token": "USDC",
+                "to_chain": "robinhood",
+                "to_token": ROBINHOOD_VANTIS,
+                "amount": 10.0,
+                "wallet_id": wallet_id,
+                "single_wallet_only": True,
+            },
+        }
+    )
+
+    assert await swap.show_wallet_selection(update, context) == swap.SELECT_WALLETS
+
+    call = update.callback_query.edit_message_text.call_args
+    assert "select wallet" in call.args[0].lower()
+    assert "each selected wallet" not in call.args[0].lower()
+    labels = {button.text for button in _all_buttons(call.kwargs["reply_markup"])}
+    assert "✅ Confirm Wallet" in labels
+
+
+@pytest.mark.asyncio
+async def test_single_wallet_toggle_replaces_selection(monkeypatch):
+    import bot.handlers.swap as swap
+
+    render = AsyncMock(return_value=swap.SELECT_WALLETS)
+    monkeypatch.setattr(swap, "show_wallet_selection", render)
+    update, context = _cb_update("swap_toggle_wallet_22"), _ctx()
+    context.user_data["swap"] = {
+        "selected_wallets": [11],
+        "single_wallet_only": True,
+    }
+
+    assert await swap.toggle_wallet_callback(update, context) == swap.SELECT_WALLETS
+    assert context.user_data["swap"]["selected_wallets"] == [22]
+
+
+@pytest.mark.asyncio
+async def test_single_wallet_confirm_rejects_forged_multiwallet_state(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+    from bot.models.user import User, Wallet
+    from bot.services.x402_service import x402_service
+    from database.db import SessionLocal
+
+    with SessionLocal() as session:
+        user = User(telegram_id=777467, tos_accepted=True)
+        session.add(user)
+        session.flush()
+        wallets = [
+            Wallet(
+                user_id=user.id,
+                name=f"Wallet {i}",
+                address=f"0x{i:040x}",
+                chain_type="evm",
+            )
+            for i in (1, 2)
+        ]
+        session.add_all(wallets)
+        session.commit()
+        user_id, wallet_ids = user.id, [wallet.id for wallet in wallets]
+
+    context = _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "from_chain": "base",
+                "from_token": "USDC",
+                "to_chain": "robinhood",
+                "to_token": ROBINHOOD_VANTIS,
+                "amount": 10.0,
+                "single_wallet_only": True,
+                "selected_wallets": wallet_ids,
+            },
+        }
+    )
+    monkeypatch.setattr(x402_service, "get_tier", AsyncMock(return_value="free"))
+    monkeypatch.setattr(swap.fee_service, "get_fee_bps", MagicMock(return_value=100))
+    monkeypatch.setattr(swap.quote_cache, "get", AsyncMock(return_value=None))
+    get_quote = AsyncMock(side_effect=AssertionError("must reject before quoting"))
+    monkeypatch.setattr(swap.swap_engine, "get_quote", get_quote)
+
+    update = _cb_update("swap_wallets_confirmed", user_id=777467)
+    await swap.wallets_confirmed_callback(update, context)
+
+    get_quote.assert_not_awaited()
+    last_message = update.callback_query.edit_message_text.call_args.args[0].lower()
+    assert "one wallet" in last_message
+
+
+@pytest.mark.asyncio
+async def test_single_wallet_requote_binds_selected_wallet_and_refreshes_risk_state(
+    tmp_db, monkeypatch
+):
+    import bot.handlers.swap as swap
+    from bot.models.subscription import SubscriptionTier
+    from bot.models.user import User, Wallet
+    from bot.services.swap_engine import SwapQuote
+    from bot.services.x402_service import x402_service
+    from database.db import SessionLocal
+
+    with SessionLocal() as session:
+        user = User(telegram_id=777468, tos_accepted=True)
+        session.add(user)
+        session.flush()
+        default_wallet = Wallet(
+            user_id=user.id,
+            name="Default",
+            address="0x00000000000000000000000000000000000000a1",
+            chain_type="evm",
+            is_default=True,
+        )
+        selected_wallet = Wallet(
+            user_id=user.id,
+            name="Selected",
+            address="0x00000000000000000000000000000000000000b2",
+            chain_type="evm",
+            is_default=False,
+        )
+        session.add_all([default_wallet, selected_wallet])
+        session.commit()
+        user_id = user.id
+        selected_id = selected_wallet.id
+        default_address = default_wallet.address
+        selected_address = selected_wallet.address
+
+    quote = SwapQuote(
+        provider="lifi",
+        from_chain="base",
+        to_chain="robinhood",
+        from_token="USDC",
+        to_token=ROBINHOOD_VANTIS,
+        from_amount="10000000",
+        from_amount_human=10.0,
+        to_amount="2500000000000000000",
+        to_amount_human=2.5,
+        to_amount_min="2400000000000000000",
+        gas_cost_usd=0.03,
+        fee_cost_usd=0.01,
+        total_cost_usd=0.04,
+        estimated_time=4,
+        price_impact=0.1,
+        exchange_rate=0.25,
+        raw_quote={"provider": "lifi"},
+    )
+
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        swap.wallet_service,
+        "get_default_wallet",
+        MagicMock(return_value=SimpleNamespace(address=default_address)),
+    )
+    get_quote = AsyncMock(return_value=quote)
+    monkeypatch.setattr(swap.swap_engine, "get_quote", get_quote)
+    monkeypatch.setattr(x402_service, "get_tier", AsyncMock(return_value=SubscriptionTier.PRO))
+    get_fee_bps = MagicMock(return_value=37)
+    monkeypatch.setattr(swap.fee_service, "get_fee_bps", get_fee_bps)
+    fee_calc = AsyncMock(return_value=(0.037, 0.37, 0.37))
+    monkeypatch.setattr(swap.fee_service, "calculate_fee_with_price", fee_calc)
+    usd_value = AsyncMock(return_value=123.45)
+    monkeypatch.setattr(swap.spending_limit_service, "usd_value", usd_value)
+
+    update, context = _cb_update("swap_requote", user_id=777468), _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "from_chain": "base",
+                "from_token": "USDC",
+                "to_chain": "robinhood",
+                "to_token": ROBINHOOD_VANTIS,
+                "amount": 10.0,
+                "wallet_id": None,
+                "selected_wallets": [selected_id],
+                "single_wallet_only": True,
+                # Deliberately stale values: re-quote must replace all of them.
+                "fee_amount": 99.0,
+                "fee_percentage": 99.0,
+                "fee_usd": 99.0,
+                "amount_usd": 9999.0,
+            },
+        }
+    )
+
+    assert await swap.swap_requote(update, context) == swap.CONFIRM_SWAP
+
+    kwargs = get_quote.await_args.kwargs
+    assert kwargs["from_address"] == selected_address
+    assert kwargs["platform_fee_bps"] == 37
+    get_fee_bps.assert_called_once_with(SubscriptionTier.PRO, user_id=user_id)
+    fee_calc.assert_awaited_once_with(
+        amount=10.0,
+        token_symbol="USDC",
+        tier=SubscriptionTier.PRO,
+        user_id=user_id,
+    )
+    usd_value.assert_awaited_once_with("USDC", 10.0)
+    assert context.user_data["swap"]["fee_amount"] == 0.037
+    assert context.user_data["swap"]["fee_percentage"] == 0.37
+    assert context.user_data["swap"]["fee_usd"] == 0.37
+    assert context.user_data["swap"]["amount_usd"] == 123.45

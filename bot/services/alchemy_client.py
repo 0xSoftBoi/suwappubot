@@ -68,6 +68,8 @@ ALCHEMY_NETWORKS = {
     "arbitrum": "arb-mainnet",
     "optimism": "opt-mainnet",
     "base": "base-mainnet",
+    # Official Alchemy network slug for Robinhood Chain mainnet (chain 4663).
+    "robinhood": "robinhood-mainnet",
     # Testnets
     "ethereum-sepolia": "eth-sepolia",
     "polygon-amoy": "polygon-amoy",
