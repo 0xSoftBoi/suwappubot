@@ -173,8 +173,8 @@ export function createApp(config: AppConfig) {
 	// Enterprise org management + API key control plane
 	app.route('/enterprise', enterpriseRoutes)
 
-	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
-	// Registration is public, other endpoints require Bearer token
+	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
+	// Protocol-specific routes mounted below define their own auth boundary as well.
 	app.route('/v1/agent', agentRoutes)
 
 	// Protocol-specific agent routes
@@ -235,8 +235,8 @@ export function createApp(config: AppConfig) {
 https://api.suwappu.bot/v1/agent
 
 ## Auth
-Bearer token via \`Authorization: Bearer suwappu_sk_...\`
-Get key: POST /register (no auth needed)
+Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`.
+Get a key with POST /register (no auth needed). Lending REST reads listed below are public.
 
 ## Quick Start
 1. POST /register {"name":"my-agent"} → get api_key + 100 free starter credits
@@ -256,6 +256,8 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - POST /register — Register agent, get API key
 - GET /chains — List supported chains
 - GET /openapi — OpenAPI 3.1 spec
+- GET /lend/markets?chainId= — Current Morpho market snapshots
+- GET /lend/market/:id?chainId= — Chain-scoped Morpho market detail
 
 ### Authenticated
 - GET /me — Agent profile
@@ -291,8 +293,8 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - GET /predict/positions — Positions with PnL
 
 ### Lending (Morpho)
-- GET /lend/markets?chainId= — List lending markets
-- GET /lend/market/{id} — Market detail
+- GET /lend/markets?chainId= — Current APY, USD liquidity, listing status, and warnings
+- GET /lend/market/{id}?chainId= — Chain-scoped market detail (read-only)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
@@ -346,7 +348,7 @@ https://suwappu.bot/docs
 > Every REST endpoint on the Suwappu agent surface, one line each. See /llms.txt for the short version, GET /v1/agent/openapi for the full OpenAPI 3.1 spec, and https://suwappu.bot/docs for prose docs.
 
 ## Auth
-Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1/agent/register (public, no auth).
+Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1/agent/register (public, no auth). The lending REST reads explicitly marked public below do not require it.
 
 ## Agent Account (/v1/agent)
 - POST /v1/agent/register — Register agent, get API key (public, IP rate-limited 5/min)
@@ -410,8 +412,8 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1
 - GET /v1/agent/predict/orders — Open orders
 
 ## Lending — Morpho (/v1/agent/lend)
-- GET /v1/agent/lend/markets?chainId= — List lending markets (APY, LLTV, TVL)
-- GET /v1/agent/lend/market/:id — Market detail
+- GET /v1/agent/lend/markets?chainId= — Current APY/utilization, USD supply/borrow/liquidity, listing status, warnings (public, read-only)
+- GET /v1/agent/lend/market/:id?chainId= — Chain-scoped market detail (public, read-only)
 
 ## Protocols
 - MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0; call tools/list for the current tool catalog

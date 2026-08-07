@@ -13,6 +13,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
 | [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
 | [Build Prediction Market Research](prediction-markets.md) | Read-only market-health snapshots, alert economics, calibration, OSS tradeoffs, and a paid-research product ladder |
+| [Build a Lending Monitor](lending-monitor.md) | Risk-aware Morpho snapshots, alert state, polling economics, OSS boundaries, and a paid-monitor product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
@@ -30,6 +31,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 |-------|-------------------|
 | [Perpetual Futures Research](perps-trading.md) | Live mark/funding context, quotes, position-risk snapshots, and alert products; no Agent API execution |
 | [Prediction Market Research](prediction-markets.md) | Browse Polymarket data read-first; keep trading behind a separate authority boundary |
+| [Lending Monitor](lending-monitor.md) | Monitor current Morpho rates, liquidity, listing status, and warnings without moving funds |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
 ## Tutorials
@@ -40,13 +42,14 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
+| [Lending Monitor](lending-monitor.md) | A snapshot/delta/alert pipeline you can turn into a paid research product |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
 | [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
 
 ## Prerequisites
 
-Every guide assumes you have registered an agent and have a Bearer token:
+Most authenticated guides assume you have registered an agent and have a Bearer token. The lending REST routes are public, so you can complete [Build a Lending Monitor](lending-monitor.md) without a key; hosted MCP lending tools still require authentication.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \

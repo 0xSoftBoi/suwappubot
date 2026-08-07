@@ -600,40 +600,53 @@ class _LendNamespace:
         self._c = client
 
     async def markets(self, chain_id: int | None = None) -> list[LendingMarket]:
-        params = {"chainId": str(chain_id)} if chain_id else None
+        params = {"chainId": str(chain_id)} if chain_id is not None else None
         data = await self._c._request("GET", "/v1/agent/lend/markets", params=params)
         return [
             LendingMarket(
-                id=m.get("id", ""),
-                loan_token=m.get("loanToken", ""),
-                collateral_token=m.get("collateralToken", ""),
-                lltv=m.get("lltv", 0),
-                supply_apy=m.get("supplyApy", 0),
-                borrow_apy=m.get("borrowApy", 0),
-                total_supply=m.get("totalSupply", 0),
-                total_borrow=m.get("totalBorrow", 0),
-                utilization=m.get("utilization", 0),
-                chain_id=m.get("chainId", 8453),
+                id=m["id"],
+                loan_token=m["loanToken"],
+                collateral_token=m["collateralToken"],
+                lltv=m["lltv"],
+                supply_apy=m["supplyApy"],
+                borrow_apy=m["borrowApy"],
+                total_supply=m["totalSupply"],
+                total_borrow=m["totalBorrow"],
+                total_supply_usd=m["totalSupplyUsd"],
+                total_borrow_usd=m["totalBorrowUsd"],
+                available_liquidity_usd=m["availableLiquidityUsd"],
+                utilization=m["utilization"],
+                chain_id=m["chainId"],
+                listed=m["listed"],
+                warnings=m["warnings"],
             )
             for m in data.get("markets", [])
         ]
 
-    async def market(self, id: str) -> LendingMarketDetail:
-        data = await self._c._request("GET", f"/v1/agent/lend/market/{id}")
+    async def market(self, id: str, chain_id: int | None = None) -> LendingMarketDetail:
+        params = {"chainId": str(chain_id)} if chain_id is not None else None
+        data = await self._c._request(
+            "GET", f"/v1/agent/lend/market/{quote(id, safe='')}", params=params
+        )
         return LendingMarketDetail(
-            id=data.get("id", ""),
-            loan_token=data.get("loanToken", ""),
-            collateral_token=data.get("collateralToken", ""),
-            lltv=data.get("lltv", 0),
-            supply_apy=data.get("supplyApy", 0),
-            borrow_apy=data.get("borrowApy", 0),
-            total_supply=data.get("totalSupply", 0),
-            total_borrow=data.get("totalBorrow", 0),
-            utilization=data.get("utilization", 0),
-            chain_id=data.get("chainId", 8453),
-            oracle=data.get("oracle", ""),
-            irm=data.get("irm", ""),
-            created_at=data.get("createdAt", ""),
+            id=data["id"],
+            loan_token=data["loanToken"],
+            collateral_token=data["collateralToken"],
+            lltv=data["lltv"],
+            supply_apy=data["supplyApy"],
+            borrow_apy=data["borrowApy"],
+            total_supply=data["totalSupply"],
+            total_borrow=data["totalBorrow"],
+            total_supply_usd=data["totalSupplyUsd"],
+            total_borrow_usd=data["totalBorrowUsd"],
+            available_liquidity_usd=data["availableLiquidityUsd"],
+            utilization=data["utilization"],
+            chain_id=data["chainId"],
+            listed=data["listed"],
+            warnings=data["warnings"],
+            oracle=data["oracle"],
+            irm=data["irm"],
+            created_at=data["createdAt"],
         )
 
 

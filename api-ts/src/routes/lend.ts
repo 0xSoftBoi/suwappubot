@@ -13,9 +13,17 @@ type AgentContext = {
 
 const lendRoutes = new Hono<AgentContext>()
 
+function parseChainId(value: string | undefined): number | null {
+	const chainId = Number(value ?? '8453')
+	return Number.isInteger(chainId) && chainId > 0 ? chainId : null
+}
+
 // GET /v1/agent/lend/markets — list lending markets
 lendRoutes.get('/markets', async (c) => {
-	const chainId = parseInt(c.req.query('chainId') ?? '8453', 10)
+	const chainId = parseChainId(c.req.query('chainId'))
+	if (chainId === null) {
+		return c.json({ error: 'Validation Error', message: 'chainId must be a positive integer' }, 400)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -35,11 +43,15 @@ lendRoutes.get('/markets', async (c) => {
 // GET /v1/agent/lend/market/:id — market details
 lendRoutes.get('/market/:id', async (c) => {
 	const id = c.req.param('id')
+	const chainId = parseChainId(c.req.query('chainId'))
+	if (chainId === null) {
+		return c.json({ error: 'Validation Error', message: 'chainId must be a positive integer' }, 400)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const morpho = yield* MorphoService
-			return yield* morpho.getMarket(id)
+			return yield* morpho.getMarket(id, chainId)
 		}),
 	)
 

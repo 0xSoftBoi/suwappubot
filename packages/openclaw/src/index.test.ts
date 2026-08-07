@@ -324,11 +324,31 @@ describe("lend namespace", () => {
     expect(calls[0].url).toContain("chainId=8453");
   });
 
-  test("market fetches by id", async () => {
-    const calls = stubFetch({ id: "lm1", loanToken: "USDC", collateralToken: "WETH", lltv: 0.86, supplyApy: 0.05, borrowApy: 0.07, totalSupply: 1, totalBorrow: 1, utilization: 0.5, chainId: 8453, oracle: "0x", irm: "0x", createdAt: "" });
-    const m = await client.lend.market("lm1");
-    expect(m.id).toBe("lm1");
-    expect(calls[0].url).toContain("/lend/market/lm1");
+  test("market fetch is chain-scoped and carries risk/liquidity fields", async () => {
+    const calls = stubFetch({
+      id: "lm/1",
+      loanToken: "USDC",
+      collateralToken: "WETH",
+      lltv: 0.86,
+      supplyApy: 5,
+      borrowApy: 7,
+      totalSupply: 1_000_000,
+      totalBorrow: 800_000,
+      totalSupplyUsd: 1_000_000,
+      totalBorrowUsd: 800_000,
+      availableLiquidityUsd: 200_000,
+      utilization: 80,
+      chainId: 8453,
+      listed: true,
+      warnings: [{ type: "oracle_price_derivation", level: "RED" }],
+      oracle: "0x",
+      irm: "0x",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const m = await client.lend.market("lm/1", 8453);
+    expect(m.availableLiquidityUsd).toBe(200_000);
+    expect(m.warnings[0]?.level).toBe("RED");
+    expect(calls[0].url).toContain("/lend/market/lm%2F1?chainId=8453");
   });
 });
 

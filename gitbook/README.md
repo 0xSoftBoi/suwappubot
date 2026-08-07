@@ -13,7 +13,7 @@ The interfaces have different authority levels on purpose: REST/SDK is the compl
 - **Three protocols** -- REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent), with explicit authority boundaries.
 - **Perpetual Futures Research** -- browse HyperLiquid markets, quote hypothetical positions, and inspect positions; Agent API execution is not exposed today.
 - **Prediction Markets** -- browse market data and place explicit Polymarket orders through the documented prediction REST/SDK endpoints.
-- **Lending Research** -- browse Morpho lending markets and rates; deposits/borrows are not exposed on the Agent API today.
+- **Lending Research** -- browse current Morpho rates, USD liquidity, listing status, and warnings; deposits/borrows are not exposed on the Agent API today.
 - **Managed-wallet controls** -- policies, approvals, audit history, idempotency, and kill switches for automation.
 
 ## 60-second no-funds quickstart

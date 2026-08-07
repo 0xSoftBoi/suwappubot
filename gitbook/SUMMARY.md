@@ -73,6 +73,7 @@
 * [Building a Trading Bot](guides/building-a-trading-bot.md)
 * [Build a Recurring DCA Product](guides/dca-automation.md)
 * [Portfolio Rebalancer](guides/portfolio-rebalancer.md)
+* [Build a Lending Monitor](guides/lending-monitor.md)
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
 * [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)

@@ -679,9 +679,13 @@ class LendNamespace {
     return data.markets ?? [];
   }
 
-  /** GET /v1/agent/lend/market/:id */
-  market(id: string): Promise<LendingMarketDetail> {
-    return this.c._request<LendingMarketDetail>("GET", `/v1/agent/lend/market/${id}`);
+  /** GET /v1/agent/lend/market/:id — market IDs are chain-scoped; Base is the API default. */
+  market(id: string, chainId?: number): Promise<LendingMarketDetail> {
+    return this.c._request<LendingMarketDetail>(
+      "GET",
+      `/v1/agent/lend/market/${encodeURIComponent(id)}`,
+      { params: { chainId: chainId?.toString() } },
+    );
   }
 }
 

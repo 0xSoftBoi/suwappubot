@@ -303,6 +303,11 @@ export interface PredictionMarketDetail extends PredictionMarket {
 }
 
 // Lending types (Morpho)
+export interface LendingMarketWarning {
+	type: string
+	level: string
+}
+
 export interface LendingMarket {
 	id: string
 	loanToken: string
@@ -310,10 +315,15 @@ export interface LendingMarket {
 	lltv: number
 	supplyApy: number
 	borrowApy: number
-	totalSupply: number
-	totalBorrow: number
+	totalSupply: number | null
+	totalBorrow: number | null
+	totalSupplyUsd: number | null
+	totalBorrowUsd: number | null
+	availableLiquidityUsd: number | null
 	utilization: number
 	chainId: number
+	listed: boolean
+	warnings: LendingMarketWarning[]
 }
 
 export interface LendingMarketDetail extends LendingMarket {
@@ -771,15 +781,19 @@ export function createClient(config?: SuwappuConfig) {
 		// Lending (Morpho)
 		lend: {
 			async markets(chainId?: number): Promise<LendingMarket[]> {
-				const qs = chainId ? `?chainId=${chainId}` : ''
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
 				const res = await request<{ markets: LendingMarket[] }>(
 					`/v1/agent/lend/markets${qs}`,
 					config,
 				)
 				return res.markets
 			},
-			async market(id: string): Promise<LendingMarketDetail> {
-				return request<LendingMarketDetail>(`/v1/agent/lend/market/${id}`, config)
+			async market(id: string, chainId?: number): Promise<LendingMarketDetail> {
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
+				return request<LendingMarketDetail>(
+					`/v1/agent/lend/market/${encodeURIComponent(id)}${qs}`,
+					config,
+				)
 			},
 		},
 	}
