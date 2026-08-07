@@ -6004,6 +6004,37 @@ const quote = await quoteTool.invoke({
 
 Use the returned quote and live cost fields as the economic source of truth. Quotes expire; get a fresh one before acting.
 
+## Make the transport observable and bounded
+
+The 0.2 adapter is also an operational boundary, not just a collection of tools. Every request has a 30-second deadline by default. Set a tighter deadline when your own SLO requires it and forward the metadata-only event hook into your metrics/tracing layer:
+
+```ts
+const toolkit = new SuwappuToolkit({
+  apiKey: process.env.SUWAPPU_API_KEY!,
+  requestTimeoutMs: 15_000,
+  onApiEvent: (event) => {
+    metrics.observe("suwappu_api_request", {
+      method: event.method,
+      path: event.path,
+      outcome: event.outcome,
+      status: event.status,
+    }, event.durationMs);
+  },
+});
+```
+
+The hook receives method, normalized path, outcome, duration, optional status, and optional request/correlation ID. It never receives authorization headers or request/response bodies. Do not add wallet addresses, quote IDs, swap IDs, or prompt contents as metric labels in your own wrapper.
+
+Failures are typed so your product can make an explicit decision:
+
+| Error | Meaning | Normal product behavior |
+|------|---------|-------------------------|
+| `SuwappuApiError` | Suwappu returned a non-2xx HTTP response | Respect status/code; use `retryAfterMs` for rate-limit scheduling where appropriate |
+| `SuwappuTransportError` | Deadline or network failure | Retry safe reads if your policy allows; managed execution becomes outcome-unknown |
+| `SuwappuProtocolError` | A critical 2xx response was malformed | Alert/investigate; managed execution becomes outcome-unknown |
+
+There is deliberately no blanket automatic retry around the API. Reads, quotes, and money movement have different retry semantics.
+
 ## Managed execution requires application approval
 
 If you need Suwappu's managed wallet to sign/broadcast, the host must turn on the capability **and** supply a callback. That callback is application code outside the prompt; use it to check persisted human approval, simulation, wallet/policy state, and a durable trade intent.
@@ -6033,7 +6064,7 @@ The adapter sends the returned intent id as `Idempotency-Key`. The API accepts 1
 
 Do not convert a timeout into a second trade.
 
-For network/5xx failures on managed execution:
+For a timeout/network failure, HTTP 408, 5xx response, or malformed success response on managed execution:
 
 1. keep the original durable intent;
 2. mark the outcome unknown;
@@ -6101,16 +6132,22 @@ MCP `execute_swap` has a different authority boundary: despite its historical na
 ## Production checklist
 
 - Pin/observe the adapter and API version you deploy.
+- Set an application deadline and collect the adapter's metadata-only request events.
+- Rate-limit and queue per tenant; reserve capacity for execution reconciliation.
+- Alert on sustained API error/timeout/protocol-error rates and reconciliation backlog.
 - Keep the model's tool allowlist as small as the product needs.
 - Keep managed execution disabled for research/advisor products.
 - Get fresh, wallet-bound quotes where relevant and simulate before live action.
 - Persist approvals/policies outside prompt text.
 - Persist one durable idempotency key per intended trade.
 - Reconcile every submitted/unknown managed action.
+- Gate model/prompt/tool changes on regression evals before promotion to live money.
 - Separate builder margin from customer strategy results.
 - Run the adapter's `npm run verify` before publishing/forking changes.
 
-Source and deeper adapter examples: [`0xSoftBoi/suwappu-langchain`](https://github.com/0xSoftBoi/suwappu-langchain).
+For tenant isolation, SLO/alert suggestions, retry policy, deployment/rollback, and the live-money incident runbook, read the adapter's [Operations guide](https://github.com/0xSoftBoi/suwappu-langchain/blob/main/docs/OPERATIONS.md).
+
+Source, product blueprint, and deeper adapter examples: [`0xSoftBoi/suwappu-langchain`](https://github.com/0xSoftBoi/suwappu-langchain).
 
 
 ---
