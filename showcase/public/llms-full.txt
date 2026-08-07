@@ -6167,7 +6167,7 @@ No prompt should be able to cross that line by claiming “the user approved.”
 
 ## Version check first
 
-This guide targets **CrewAI 1.15.x** and Python `>=3.10,<3.14`. CrewAI's current custom-tool API supports native async functions, so you do not need to wrap the async Suwappu Python SDK in thread pools.
+This guide targets **CrewAI 1.15.x** and Python `>=3.10,<3.14`, and mirrors the maintained Suwappu CrewAI product's `2.1.x` operating contract. CrewAI's current custom-tool API supports native async functions, so you do not need to wrap the async Suwappu Python SDK in thread pools.
 
 The Suwappu Python SDK source contract used here is `0.3.x`. Package registries can lag the repository; for a reproducible evaluation, install the SDK directly from a merged core commit:
 
@@ -6258,6 +6258,19 @@ async def simulate_swap(quote_id: str, wallet_address: str) -> str:
 The current SDK also exposes `prepare_swap()` for an unsigned self-custody transaction, `list_swaps()` for managed-swap history, `client.agent.list_wallets()` for managed-wallet discovery, and chain/token/price/portfolio reads.
 
 Do **not** decorate `execute_managed_swap()` and hand it to every agent merely because it exists.
+
+## Put every API call behind an operational boundary
+
+The maintained product does not let individual tools invent their own timeout, retry, or logging behavior. It wraps every Suwappu SDK operation in one host-owned runtime boundary:
+
+- a **25-second operation deadline** by default, configurable with `SUWAPPU_OPERATION_TIMEOUT_SECONDS` from `0.01` through `30` seconds;
+- typed transport and protocol failures so callers do not parse exception strings;
+- response validation for critical identifiers before recording success; and
+- one metadata-only event with operation, outcome, duration, and optional HTTP status.
+
+That event stream deliberately excludes prompts, tool arguments, credentials, wallet addresses, quote/swap IDs, bodies, and exception messages. Add tenant/run correlation in your own logging context instead of turning customer identifiers into metric labels.
+
+Do not put a generic retry decorator around financial tools. A bounded retry can be reasonable for a stale-tolerant read. A quote should normally be refreshed. A managed submission is different: once submission begins, some failures make the economic outcome **unknown**, so reconciliation has to precede any retry.
 
 ## Bind quotes to the wallet that will act
 
@@ -6376,7 +6389,7 @@ If you build self-custody instead, let the agent call `prepare_swap()` and pass 
 
 ## A failed request can have an unknown outcome
 
-Once managed submission begins, a timeout, network failure, or 5xx does not prove that nothing happened.
+Once managed submission begins, a timeout, network failure, HTTP 408, 5xx, or malformed successful response does not prove that nothing happened. The maintained host represents these cases with a dedicated outcome-unknown error carrying the original approval/intent context, rather than flattening them into an ordinary tool failure.
 
 For an outcome-unknown request:
 
@@ -6393,6 +6406,28 @@ curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
 ```
 
 Keep a product intent ledger separate from the execution/chain ledger. Model output, a quote, and a successful simulation are not fills.
+
+## Operate each customer as an isolated tenant
+
+A production SaaS should resolve its Suwappu credential, wallet policy, approval policy, concurrency limit, spend budget, and model-token budget from authenticated tenant context. Never ask a model to choose which customer's credential to use.
+
+The maintained Crew starts with CrewAI `cache=False`, `memory=False`, and `share_crew=False`. Financial observations age quickly, and agent memory is not an acceptable accidental cross-tenant data store. If you enable CrewAI memory, caching, or sharing, perform a new isolation/retention review first.
+
+For long-running products, CrewAI Flows can persist workflow state and provide human-feedback checkpoints. Keep the durable **economic intent** in your own database anyway. At minimum persist tenant, exact quote, approval actor/time, durable idempotency key, simulation reference, attempt timestamps, returned swap ID when known, reconciliation state, and terminal result.
+
+Reserve separate capacity for reconciliation. A traffic spike that fills your normal analysis queue must not prevent the service from discovering whether an already-submitted trade moved money.
+
+## Treat model tracing as sensitive customer data
+
+CrewAI tracing can be useful for diagnosing agent decisions, task timelines, tool use, and model calls, but those records can contain customer strategy or wallet context. Before turning tracing on, define redaction, access control, retention, tenant isolation, deletion/export behavior, and which tool arguments are permitted to leave your service.
+
+Keep API keys and approval credentials out of prompts and trace attributes. The narrow Suwappu operation events described above are designed for service telemetry; they are not a substitute for deliberately governed model traces.
+
+## Know the current ChromaDB dependency exception
+
+As of this guide's CrewAI 1.15.x baseline, CrewAI installs ChromaDB 1.1.x. GitHub's reviewed [CVE-2026-45829 advisory](https://github.com/advisories/GHSA-f4j7-r4q5-qw2c) covers a critical pre-authentication code-injection issue in the Chroma HTTP server and currently lists no patched version.
+
+The maintained Suwappu CrewAI product does **not** start or expose a Chroma server and disables Crew memory, so its dependency gate carries one narrowly documented audit exception for that unreachable server path. That exception is invalid if your deployment enables Crew memory, launches/exposes Chroma's server or API, or otherwise makes the affected server code reachable. Re-evaluate on every CrewAI/Chroma update and remove the exception as soon as a supported fixed dependency path exists.
 
 ## A product ladder that can make money
 
@@ -6458,13 +6493,19 @@ CrewAI itself can consume MCP servers. If you use Suwappu that way, `https://api
 ## Production checklist
 
 - Verify the CrewAI and Suwappu SDK versions you actually deploy.
+- Put Suwappu calls behind a finite host operation deadline and metadata-only telemetry.
 - Give each agent the smallest tool allowlist its role needs.
 - Bound agent iterations and record model/tool costs.
 - Use structured final output rather than parsing prose downstream.
 - Bind quotes to the acting wallet and simulate before live action.
 - Keep managed execution outside the model tool surface unless your host implements an equivalent hard approval boundary.
 - Persist approval, exact quote ID, and one durable idempotency key per intended action.
-- Treat network/5xx submission failures as outcome-unknown and reconcile before retrying.
+- Treat timeout/network/408/5xx/malformed-success submissions as outcome-unknown and reconcile before retrying.
+- Keep Crew cache/memory/sharing off unless tenant isolation and data retention have been deliberately reviewed.
+- Rate-limit and budget per tenant; reserve reconciliation capacity.
+- Govern model traces as sensitive customer data.
+- Gate releases on lint/format, behavior tests, dependency audit, package build, and clean-install smoke tests.
+- Regression-test prompts/tool calls for unauthorized execution, stale quotes, ambiguous wallets, malformed responses, and reconciliation failures before live-money promotion.
 - Store product revenue/cost and customer strategy P&L in separate ledgers.
 - Make `first real quote -> retained use` a product metric; do not optimize only for conversations.
 
