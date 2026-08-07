@@ -1,222 +1,213 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test'
-import { Either } from 'effect'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { Effect, Layer, Option } from 'effect'
+import { EnvService } from '../config/EnvService'
+import { RedisService, SwapService, UserService, WalletService } from '../services'
 
-// ROUTE-LEVEL test for POST /v1/webapp/swap/execute (MONEY-PATH, decimal handling).
+// ROUTE-LEVEL test for POST /webapp/swap/execute (MONEY-PATH).
 //
-// Validates that:
-// 1. Valid swap with correct decimals executes successfully
-// 2. Insufficient balance is rejected with 402
-// 3. Slippage breach is rejected with 422 (validation error)
+// The endpoint executes a previously cached quote; it does not accept raw token
+// amounts. These tests exercise the current quoteId contract and the guards that
+// must fire before any signing or broadcast is possible.
 
-const TEST_AGENT = {
-	id: 1,
-	uuid: 'test-agent-uuid',
-	rateLimitTier: 'free',
-	metadata: {
-		internal_user_id: 100,
-		internal_wallet_id: 200,
-		wallet_address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-	},
-} as any
+const REAL_RUNTIME = { ...(await import('../runtime')) }
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV
+const ORIGINAL_DEV_AUTH_ENABLED = process.env.DEV_AUTH_ENABLED
 
+const TEST_TELEGRAM_ID = 123456
 const TEST_WALLET = {
 	id: 200,
 	userId: 100,
 	address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-	balances: {
-		'0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48': '1000000000', // 1000 USDC (6 decimals)
+	walletProvider: 'turnkey',
+	turnkeySubOrgId: 'sub-org-200',
+	isActive: true,
+} as any
+const TEST_USER = { id: 100, telegramId: TEST_TELEGRAM_ID, username: 'devuser' } as any
+const TEST_QUOTE = {
+	quoteId: 'quote-valid',
+	fromChain: 'base',
+	toChain: 'base',
+	fromToken: {
+		address: '0x0000000000000000000000000000000000000000',
+		symbol: 'ETH',
+		decimals: 18,
+	},
+	toToken: {
+		address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+		symbol: 'USDC',
+		decimals: 6,
+	},
+	fromAmount: '1000000000000000',
+	toAmount: '3000000',
+	fromAmountUsd: '3.00',
+	toAmountUsd: '2.99',
+	slippage: 0.005,
+	estimatedGasUsd: '0.02',
+	bridgeFeeUsd: '0',
+	_rawQuote: { estimate: {}, action: {} },
+	transactionRequest: {
+		from: TEST_WALLET.address,
+		to: '0x1111111111111111111111111111111111111111',
+		chainId: 8453,
+		value: '0x0',
+		data: '0x',
 	},
 } as any
 
-const REAL_MODULES = {
-	'../middleware/auth': { ...(await import('../middleware/auth')) },
-	'../middleware/x402Payment': { ...(await import('../middleware/x402Payment')) },
-	'../services': { ...(await import('../services')) },
-	'../runtime': { ...(await import('../runtime')) },
-	'../db': { ...(await import('../db')) },
-}
+let currentUser: any | null = TEST_USER
+let activeWallets: any[] = [TEST_WALLET]
+let cachedQuote: any | null = TEST_QUOTE
+let createdSwapRecords = 0
+let swapStatusUpdates: Array<{ status: string; errorMessage?: string }> = []
 
-afterAll(() => {
-	mock.module('../middleware/auth', () => REAL_MODULES['../middleware/auth'])
-	mock.module('../middleware/x402Payment', () => REAL_MODULES['../middleware/x402Payment'])
-	mock.module('../services', () => REAL_MODULES['../services'])
-	mock.module('../runtime', () => REAL_MODULES['../runtime'])
-	mock.module('../db', () => REAL_MODULES['../db'])
-})
+const envLayer = Layer.succeed(EnvService, {} as any)
+const redisLayer = Layer.succeed(
+	RedisService,
+	{
+		get: () => Effect.succeed(cachedQuote),
+		set: () => Effect.void,
+		del: () => Effect.void,
+		isConnected: () => true,
+	} as any,
+)
+const userLayer = Layer.succeed(
+	UserService,
+	{
+		getUserByTelegramId: () => Effect.succeed(Option.fromNullable(currentUser)),
+	} as any,
+)
+const walletLayer = Layer.succeed(
+	WalletService,
+	{
+		getActiveWallets: () => Effect.succeed(activeWallets),
+	} as any,
+)
+const swapLayer = Layer.succeed(
+	SwapService,
+	{
+		createSwapRecord: () =>
+			Effect.sync(() => {
+				createdSwapRecords += 1
+				return { id: 12345 } as any
+			}),
+		updateSwapStatus: (_id: number, status: string, _txHash?: string, errorMessage?: string) =>
+			Effect.sync(() => {
+				swapStatusUpdates.push({ status, errorMessage })
+				return null
+			}),
+	} as any,
+)
+const testLayer = Layer.mergeAll(envLayer, redisLayer, userLayer, walletLayer, swapLayer)
 
-// Mock auth to set agent context
-mock.module('../middleware/auth', () => ({
-	agentBearerAuth: () => async (c: any, next: any) => {
-		c.set('agent', TEST_AGENT)
-		return next()
-	},
-	agentBearerAuthAllowInactive: () => async (c: any, next: any) => next(),
-}))
+const runTestEffect = (effect: any) => Effect.runPromise(effect.pipe(Effect.provide(testLayer)))
 
-// Mock x402 metering
-mock.module('../middleware/x402Payment', () => ({
-	meteredPayment: () => async (c: any, next: any) => next(),
-	chargeAgentForCall: async () => ({ kind: 'bypass', tier: 'free' }),
-	setX402Headers: () => {},
-	costForEndpoint: () => 0,
-	refundChargedCall: async () => {},
-	COST_WEIGHTS: {},
-	CREDIT_USD_VALUE: 1,
-	BYPASS_TIERS: new Set(['free']),
-}))
-
-// Mock services
-mock.module('../services', () => ({
-	...REAL_MODULES['../services'],
-	SwapService: {
-		executeSwap: async (params: any) => {
-			// Simulate insufficient balance check
-			if (params.amount > 1000000000) {
-				throw new Error('Insufficient balance')
-			}
-			// Simulate slippage check
-			if (params.minOutputAmount > params.expectedOutput * 0.95) {
-				throw new Error('Slippage exceeded')
-			}
-			return {
-				swap_id: 12345,
-				tx_hash: '0xabc123def456',
-				status: 'pending',
-				executedAmount: params.amount,
-				executedOutput: params.expectedOutput,
-			}
-		},
-	},
-	WalletService: {
-		getWallet: async () => TEST_WALLET,
-	},
-	TokenService: {
-		resolveDecimals: async (chainId: number, tokenAddress: string) => {
-			if (tokenAddress === '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48') {
-				return 6 // USDC
-			}
-			return 18 // Default ERC20
-		},
-	},
-}))
-
-// Mock runtime
 mock.module('../runtime', () => ({
-	runEffectEither: async (effect: any) => {
-		try {
-			return Either.right({
-				swap_id: 12345,
-				tx_hash: '0xabc123def456',
-				status: 'pending',
-			})
-		} catch (err: any) {
-			if (err.message.includes('Insufficient')) {
-				return Either.left({ code: 'INSUFFICIENT_BALANCE', status: 402 })
-			}
-			if (err.message.includes('Slippage')) {
-				return Either.left({ code: 'SLIPPAGE_EXCEEDED', status: 422 })
-			}
-			return Either.left(err)
-		}
-	},
+	runEffect: runTestEffect,
+	runEffectEither: (effect: any) => runTestEffect(Effect.either(effect)),
+	shutdownRuntime: async () => {},
 }))
 
 let swapRoutes: any
 
 beforeAll(async () => {
+	process.env.NODE_ENV = 'development'
+	process.env.DEV_AUTH_ENABLED = 'true'
 	;({ swapRoutes } = await import('../routes/swap'))
 })
 
-const AUTH_HEADERS = { Authorization: 'Bearer suwappu_sk_test_key_00000000000000000000' }
+beforeEach(() => {
+	currentUser = TEST_USER
+	activeWallets = [TEST_WALLET]
+	cachedQuote = TEST_QUOTE
+	createdSwapRecords = 0
+	swapStatusUpdates = []
+})
 
-describe('POST /v1/webapp/swap/execute — decimal handling + balance check', () => {
-	it('executes valid swap with correct decimals', async () => {
+afterAll(() => {
+	if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV
+	else process.env.NODE_ENV = ORIGINAL_NODE_ENV
+	if (ORIGINAL_DEV_AUTH_ENABLED === undefined) delete process.env.DEV_AUTH_ENABLED
+	else process.env.DEV_AUTH_ENABLED = ORIGINAL_DEV_AUTH_ENABLED
+	mock.module('../runtime', () => REAL_RUNTIME)
+})
+
+const REQUEST_HEADERS = {
+	'Content-Type': 'application/json',
+	'X-Dev-User-Id': String(TEST_TELEGRAM_ID),
+}
+
+describe('POST /webapp/swap/execute — cached-quote execution guards', () => {
+	it('rejects a missing quoteId', async () => {
 		const res = await swapRoutes.request('/execute', {
 			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				fromToken: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC (6 decimals)
-				amount: '100000000', // 100 USDC (in wei, 6 decimals)
-				toToken: '0xEeeeeEeeeEeEeeEeEeEeeEECeEe000000000000', // ETH
-				minOutput: '0.05', // 5% slippage buffer
-				chainId: 1,
-			}),
-		})
-
-		expect(res.status).toBe(200)
-		const body = (await res.json()) as any
-		expect(body.swap_id).toBe(12345)
-		expect(body.tx_hash).toBeDefined()
-		expect(body.status).toBe('pending')
-	})
-
-	it('rejects swap with insufficient balance (402)', async () => {
-		const res = await swapRoutes.request('/execute', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				fromToken: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-				amount: '10000000000', // Way more than 1000 USDC balance
-				toToken: '0xEeeeeEeeeEeEeeEeEeEeeEECeEe000000000000',
-				minOutput: '0.01',
-				chainId: 1,
-			}),
-		})
-
-		expect(res.status).toBe(402)
-		const body = (await res.json()) as any
-		expect(body.message).toContain('balance')
-	})
-
-	it('rejects swap exceeding slippage tolerance (422)', async () => {
-		const res = await swapRoutes.request('/execute', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				fromToken: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-				amount: '100000000', // Valid amount
-				toToken: '0xEeeeeEeeeEeEeeEeEeEeeEECeEe000000000000',
-				minOutput: '10', // Unrealistic slippage requirement (market moving too much)
-				chainId: 1,
-			}),
-		})
-
-		expect(res.status).toBe(422)
-		const body = (await res.json()) as any
-		expect(body.message).toContain('Slippage')
-	})
-
-	it('rejects missing required fields', async () => {
-		const res = await swapRoutes.request('/execute', {
-			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				fromToken: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-				// Missing 'amount'
-				toToken: '0xEeeeeEeeeEeEeeEeEeEeeEECeEe000000000000',
-			}),
+			headers: REQUEST_HEADERS,
+			body: JSON.stringify({}),
 		})
 
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.message).toContain('required')
+		expect(body.message).toContain('quoteId is required')
+		expect(createdSwapRecords).toBe(0)
 	})
 
-	it('rejects zero or negative amount', async () => {
+	it('rejects a Telegram identity that has no registered user', async () => {
+		currentUser = null
+
 		const res = await swapRoutes.request('/execute', {
 			method: 'POST',
-			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				fromToken: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-				amount: '0',
-				toToken: '0xEeeeeEeeeEeEeeEeEeEeeEECeEe000000000000',
-				minOutput: '0.01',
-				chainId: 1,
-			}),
+			headers: REQUEST_HEADERS,
+			body: JSON.stringify({ quoteId: 'quote-valid' }),
+		})
+
+		expect(res.status).toBe(404)
+		const body = (await res.json()) as any
+		expect(body.message).toContain('User not found')
+		expect(createdSwapRecords).toBe(0)
+	})
+
+	it('rejects a wallet that cannot use server-side signing', async () => {
+		activeWallets = [{ ...TEST_WALLET, walletProvider: 'external', turnkeySubOrgId: null }]
+
+		const res = await swapRoutes.request('/execute', {
+			method: 'POST',
+			headers: REQUEST_HEADERS,
+			body: JSON.stringify({ quoteId: 'quote-valid' }),
 		})
 
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.message).toContain('amount')
+		expect(body.message).toContain('server-side signing')
+		expect(createdSwapRecords).toBe(0)
+	})
+
+	it('rejects an expired or missing cached quote', async () => {
+		cachedQuote = null
+
+		const res = await swapRoutes.request('/execute', {
+			method: 'POST',
+			headers: REQUEST_HEADERS,
+			body: JSON.stringify({ quoteId: 'quote-expired' }),
+		})
+
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.message).toContain('expired or not found')
+		expect(createdSwapRecords).toBe(0)
+	})
+
+	it('records then fails closed when the signing service is not configured', async () => {
+		const res = await swapRoutes.request('/execute', {
+			method: 'POST',
+			headers: REQUEST_HEADERS,
+			body: JSON.stringify({ quoteId: 'quote-valid', idempotencyKey: 'route-test-1' }),
+		})
+
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.message).toContain('Signing service not configured')
+		expect(createdSwapRecords).toBe(1)
+		expect(swapStatusUpdates).toEqual([
+			{ status: 'failed', errorMessage: 'Turnkey not configured' },
+		])
 	})
 })
