@@ -426,10 +426,10 @@ mod tests {
         let ek = private.paillier.encryption_key();
         let mut rng = OsRng;
         let (left, _) = ek
-            .encrypt_with_random(&mut rng, &Integer::from(-7i8))
+            .encrypt_with_random(&mut rng, &Integer::from(-7i32))
             .unwrap();
         let (right, _) = ek
-            .encrypt_with_random(&mut rng, &Integer::from(11i8))
+            .encrypt_with_random(&mut rng, &Integer::from(11i32))
             .unwrap();
         let sum = ek.oadd(&left, &right).unwrap();
         assert_eq!(private.paillier.decrypt(&sum).unwrap(), Integer::from(4u8));
