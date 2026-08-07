@@ -64,6 +64,7 @@
 * [Build a Business on Suwappu](guides/build-a-business.md)
 * [Strategy Lifecycle](guides/strategy-lifecycle.md)
 * [Build with LangChain](guides/langchain.md)
+* [Build with CrewAI](guides/crewai.md)
 * [Cross-Chain Swaps](guides/cross-chain-swaps.md)
 * [Managed Wallets](guides/managed-wallets.md)
 * [Webhook Setup](guides/webhook-setup.md)
