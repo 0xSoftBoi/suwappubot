@@ -63,7 +63,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: `Suwappu supports ${stats.platformChains} chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across ${stats.routerCount} providers.`,
+            text: `Suwappu supports ${stats.platformChains} platform chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, with ${stats.routerCount} integrated routing venues. Venue availability varies by route.`,
           },
         },
         {

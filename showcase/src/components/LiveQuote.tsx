@@ -150,7 +150,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
           )}
 
           <dl className="lq__grid">
-            <div><dt>Best route</dt><dd>{quote.dex}</dd></div>
+            <div><dt>Selected route</dt><dd>{quote.dex}</dd></div>
             <div><dt>Network fee</dt><dd>{quote.gasUsd}</dd></div>
             <div><dt>Price impact</dt><dd>{quote.priceImpact}</dd></div>
             <div>
