@@ -1,6 +1,6 @@
 # Portfolio Rebalancer
 
-Build a fixed-target treasury or portfolio workflow that is **preview-only by default** and moves funds only through an explicit, outcome-safe managed-wallet boundary.
+Run or build a preview-first treasury drift monitor and fixed-target rebalancer with an explicit, outcome-safe managed-wallet boundary.
 
 The maintained reference is [`suwappu-portfolio-rebalancer`](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer). Its most reusable contract is not a particular 50/50 or 60/40 allocation. It is this state machine:
 
@@ -15,7 +15,7 @@ Use a separate research/optimizer layer to decide *what* the target allocation s
 
 ## Start with the maintained reference
 
-Requirements: Bun 1.3+ and a Suwappu managed wallet.
+Requirements: Bun 1.3.14+ and a Suwappu managed wallet.
 
 ```bash
 git clone https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer.git
@@ -40,6 +40,24 @@ curl -X POST https://api.suwappu.bot/v1/agent/wallets \
 ```
 
 `SUWAPPU_WALLET_ADDRESS` is an address, never a private key.
+
+## Use the read-only monitor as a product
+
+The lower-authority paid product is runnable today. `check` can emit one stable JSON observation for a scheduler/alerting system, persist bounded local history, and signal attention without granting execution authority:
+
+```bash
+# JSON on stdout + durable local observation.
+bun src/index.ts check --json --record
+
+# Exit code 2 when drift or a policy exception needs attention.
+bun src/index.ts check --json --record --fail-on-drift
+
+# No API call: inspect recorded observations.
+bun src/index.ts history --limit 20
+bun src/index.ts history --json --limit 100
+```
+
+Each observation has a deterministic policy fingerprint and a one-way wallet reference rather than the API key/full wallet address. `SUWAPPU_REBALANCER_HISTORY_LIMIT` bounds local observations (default 5000). Treat a failed/stale scheduled run separately from exit code 2—a silent monitor is not evidence that a portfolio is in policy.
 
 ## Define the policy explicitly
 
@@ -68,6 +86,10 @@ curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
   -H "Authorization: Bearer $SUWAPPU_API_KEY"
 ```
 
+Explicit configuration is intentionally strict. If you pass `--config`, that file must exist. An explicit strategy must define `allocations`, `threshold`, and `chain`; missing fields do not inherit the arbitrary built-in 50/50 policy. Unknown config keys fail instead of silently turning a typo such as `strategy_path` into default behavior, and relative strategy paths resolve from the config file's directory.
+
+The v2 CLI fingerprints normalized allocations + threshold + chain and attaches that policy identity to monitor/execution evidence. A fingerprint helps answer “which policy produced this?”; it is not a signature or authorization primitive.
+
 ## Normalize the whole portfolio before calculating drift
 
 A target map and a wallet are two different things. The reference planner:
@@ -81,6 +103,8 @@ A target map and a wallet are two different things. The reference planner:
 That explicit-zero rule matters. A surprise token, airdrop, or manually held asset should not become a sell authorization merely because it was omitted from a JSON file.
 
 After policy is complete, the threshold is a **trigger**. If no absolute drift exceeds it, do nothing. Once one asset breaches it, the reference planner pairs all positive/negative dollar gaps toward the configured weights.
+
+`MIN_REBALANCE_USD` can suppress planned legs below an operator-chosen notional floor. This reduces obvious dust/churn but is **not** a gas/slippage/fee model. If the policy is out of band but every leg is below the floor, the CLI says so and takes no action rather than claiming the portfolio is in range.
 
 For example, with a 5-point threshold:
 
@@ -131,7 +155,7 @@ The money-moving contract is:
 | Quote + simulation | Current route and preflight evidence | Still no fill/accounting |
 | Durable intent | Economic terms + stable idempotency key are stored | Submission may begin |
 | Submitted | `swap_id` is known but not terminal | Poll that swap; no replacement |
-| Outcome unknown | Network/timeout/5xx may have hidden a side effect | Keep the same intent/key; reconcile/retry idempotently |
+| Outcome unknown | Network/timeout/HTTP 408/5xx/malformed success may have hidden a side effect | Keep the same intent/key; reconcile/retry idempotently |
 | Completed | Terminal status includes final amounts | Consume outcome once, then fetch fresh portfolio |
 | Failed | Terminal failure proves this attempt did not complete | Re-plan from fresh state if still needed |
 
@@ -155,7 +179,9 @@ const response = await fetch('https://api.suwappu.bot/v1/agent/swap/execute', {
 })
 ```
 
-If the request times out, loses its connection, or returns a 5xx after submission may have started, do not create a new current-time ID. A fresh quote can still represent the **same economic intent**; reuse the persisted idempotency key.
+If the request times out, loses its connection, returns HTTP 408/5xx, or returns a malformed success after submission may have started, do not create a new current-time ID. A fresh quote can still represent the **same economic intent**; reuse the persisted idempotency key.
+
+The reference bounds direct REST calls and its SDK quote wait with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr without API keys, wallets, quote/swap IDs, policy terms, response bodies, or error messages.
 
 ## Reconcile before the next economic action
 
@@ -179,18 +205,27 @@ bun src/index.ts executions --reconcile
 
 For safety, the live reference executes at most **one reconciled economic action per invocation**. Run `rebalance --execute` again to read the new portfolio and calculate the next action from fresh state. This avoids blindly running the remainder of a plan computed before the first fill.
 
+The local deployment also holds `rebalance-live.lock` across the *whole* live cycle—resume/reconcile, fresh portfolio, plan, submit/reconcile, and final accounting. `executions --reconcile` takes the same lock, so status writes cannot race a live planner. After an abnormal death, stop schedulers, inspect the journal read-only, prove the recorded owner is gone, clear only the stale lock, then reconcile before re-enabling live work. The [operations runbook](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer/blob/main/docs/OPERATIONS.md) gives the full recovery sequence.
+
 ## Turn on live mode deliberately
 
 After preview/paper evaluation and wallet policies are ready:
 
 ```bash
 export MAX_REBALANCE_USD=100
+export MIN_REBALANCE_USD=10  # example operational floor, not a recommendation
 bun src/index.ts rebalance --execute
 ```
 
-The repository defaults `MAX_REBALANCE_USD` to `1000`; set a smaller value while developing. An invalid/negative cap fails closed. The local cap is defense in depth—use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
+The repository defaults `MAX_REBALANCE_USD` to `1000` and `MIN_REBALANCE_USD` to `0`; choose limits for your policy rather than copying the example. Invalid values fail closed. The local limits are defense in depth—use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
 
-The reference JSON execution journal lives under `~/.suwappu-rebalancer` by default. Run only one live process per state directory. A multi-worker service needs transactional state, an economic-intent uniqueness constraint, locking/leases, and an append-only audit trail.
+The reference JSON execution journal and drift history live under `~/.suwappu-rebalancer` by default. Existing corrupt state fails closed; writes use restrictive permissions, fsync, and atomic replace. A multi-worker service still needs transactional state, an economic-intent uniqueness constraint, locking/leases, and an append-only audit trail.
+
+For a local container deployment, Compose persists `/data` in the `rebalancer_state` named volume and the image runs non-root. The default container command is one read-only `check --record`; it does not move money. `docker compose run --rm rebalancer` preserves the volume, so container cleanup does not discard the execution/idempotency journal.
+
+## Respect the published SDK boundary
+
+The maintained rebalancer currently installs the published `@suwappu/sdk` quote contract and keeps newer managed simulation/execute/status REST calls isolated in `src/suwappu.ts`. Core SDK source can move ahead of the package registry. Verify the SDK version you actually install and use the current REST/OpenAPI contract when a helper has not been published yet; do not copy a core-source-only method into production and assume consumers can install it.
 
 ## Know what this repo does not solve
 
@@ -200,8 +235,10 @@ This is a fixed-target Suwappu workflow reference, not a quantitative portfolio 
 |------|-------------------------|----------------|
 | Managed-wallet drift -> action lifecycle | Yes | — |
 | Fixed targets and drift band | Yes | — |
+| Machine-readable drift/history + controlled action | Yes | — |
+| Transaction economics | Optional notional floor only | [PyPortfolioOpt transaction-cost objective](https://pyportfolioopt.readthedocs.io/en/latest/MeanVariance.html) / your own route-cost model |
 | Mean/semivariance, Black-Litterman, HRP, optimizer constraints | No | [PyPortfolioOpt](https://pyportfolioopt.readthedocs.io/) |
-| Full algorithm framework, portfolio-construction scheduling, brokerage/reality models | No | [LEAN](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/portfolio-construction/key-concepts) |
+| Full algorithm framework, portfolio-construction scheduling, brokerage/reality models | No | [LEAN](https://www.quantconnect.com/docs/v2/writing-algorithms/algorithm-framework/portfolio-construction/key-concepts); its [position sizing](https://www.quantconnect.com/docs/v2/writing-algorithms/trading-and-orders/position-sizing) handles details such as lot size/pre-calculated fees |
 | Tax lots / tax-aware rebalancing | No | Add a dedicated accounting/optimization layer |
 | LP/debt/staking positions outside `/portfolio` | No | Add product-specific position adapters |
 
@@ -222,7 +259,11 @@ Trading return is uncertain. Workflow value is measurable.
 
 ### Treasury drift monitor
 
-Start read-only: saved policies, scheduled drift checks, alerts, history, exports, and reports. Charge for monitoring frequency, policy/wallet count, delivery channels, team workspaces, or reporting depth.
+Start read-only. The maintained CLI already gives you machine-readable/recorded drift checks; add the scheduler, delivery, workspaces, exports, and reporting experience your customer needs. Charge for monitoring frequency, policy/wallet count, delivery channels, history, team workspaces, or reporting depth.
+
+```bash
+bun src/index.ts check --json --record --fail-on-drift
+```
 
 First metric: **does the customer return for another real drift report?**
 
@@ -266,17 +307,22 @@ Never use a customer's investment return as a substitute for your product revenu
 
 - Use the authenticated agent's managed wallet; do not accept an arbitrary observation address as execution authority.
 - Version the target policy and validate weights, chain, and token universe.
+- Fail closed on missing/partial explicit policy config; attach a policy fingerprint to evidence/actions.
 - Require an explicit target before liquidating a positive unconfigured holding; treat dust deliberately rather than hiding it from reports.
 - Keep preview as the default and make live mode a positive opt-in.
+- Use a minimum notional only as a churn guard; model route/fee/slippage economics separately when they matter.
 - Convert planned USD to source-token units before quoting.
 - Require `would_execute=true` and show simulation warnings/checks.
 - Persist intent/idempotency state before managed submission.
-- Treat timeout/network/5xx failures as outcome-unknown.
+- Bound operations and treat timeout/network/HTTP 408/5xx/malformed-success failures as outcome-unknown.
 - Poll known swaps instead of creating replacement economic actions.
+- Keep one local writer across the entire live cycle; graduate to DB uniqueness/locks/leases for multiple workers.
 - Consume terminal final amounts exactly once.
 - Fetch a fresh portfolio before the next live action.
+- Back up durable state; never repair corruption by deleting an unresolved journal.
 - Add server-side caps/policies, approvals, audit, and a kill switch.
 - Backtest/walk-forward the allocation policy separately from execution plumbing.
+- Gate releases on typecheck/tests, CLI build/smoke, dependency audit, container contract, and CodeQL.
 - Keep customer portfolio P&L and builder revenue/cost in separate ledgers.
 
 The durable execution implementation and regression tests live in the [portfolio rebalancer repository](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer). Copy the authority/finality boundary first; then attach the portfolio policy your users actually value.
