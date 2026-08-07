@@ -37,15 +37,16 @@ domain-separated Suwappu byte encoding, so it is not claiming wire
 interoperability with the reference library. `ecdsa_cggmp.rs` implements the
 section 4.3.2 Shamir-to-additive conversion and section 4.4 final signature
 equations. `cggmp_aux.rs` now implements the first section 4.1 provisioning
-slice: Paillier/Ring-Pedersen candidate generation and `Pi_prm`.
+slices: Paillier/Ring-Pedersen candidate generation, `Pi_prm`, and `Pi_mod`.
 
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
-public RSA moduli of at least 3071 bits, and `m = 128` `Pi_prm` repetitions,
-matching the current reference implementation's `SecurityLevel128`. Paillier
-arithmetic comes from pinned `fast-paillier` 0.3.2; it is a primitive
-dependency, not an MPC/protocol dependency. Our Fiat-Shamir transcript uses a
-fixed Suwappu domain and length-delimited integer encoding, so it does not
-claim wire interoperability with the reference implementation.
+public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
+32-byte collective `rho`, matching the current reference implementation's
+`SecurityLevel128`. Paillier arithmetic comes from pinned `fast-paillier`
+0.3.2; it is a primitive dependency, not an MPC/protocol dependency. Our
+Fiat-Shamir transcript uses fixed Suwappu domains and length-delimited integer
+encoding, so it does not claim wire interoperability with the reference
+implementation.
 
 Important: sections 4.2.2 and 4.3.2 are an arbitrary-threshold extension made
 by the reference implementation; the CGGMP24 paper itself describes n-of-n.
@@ -57,9 +58,10 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Finish section 4.1 provisioning with `Pi_mod` and `Pi_fac`, including the
-   reliable commit/echo/reveal state machine. `Pi_prm` and its pre-arithmetic
-   domain checks are present; they are not sufficient by themselves.
+1. Finish section 4.1 provisioning with `Pi_fac` and the reliable
+   commit/echo/reveal state machine. `Pi_prm` and `Pi_mod` proof cores and their
+   pre-arithmetic domain checks are present; callers cannot use them to promote
+   a candidate to trusted auxiliary state.
 2. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
    Paillier affine-with-group-commitment, encryption/ElGamal relations, and the
    elliptic-curve discrete-log relations used by the protocol.

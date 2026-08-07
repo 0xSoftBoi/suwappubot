@@ -30,9 +30,11 @@ Current milestone:
 - The first auxiliary-provisioning slice now generates the CGGMP24 128-bit
   Paillier profile (1536-bit safe-prime factors, public modulus >=3071 bits),
   constructs separate Ring-Pedersen parameters, and implements the 128-fold
-  Fiat-Shamir `Pi_prm` relation proof. The resulting type is explicitly a
-  `CandidateAuxPublic`: it cannot be promoted into presigning state while
-  `Pi_mod` and `Pi_fac` are absent.
+  Fiat-Shamir `Pi_prm` relation proof plus the 128-fold `Pi_mod` Paillier-Blum
+  modulus proof. `Pi_mod` is bound to the collective 32-byte `rho` seed that a
+  future reliable commit/echo/reveal state machine must establish. The
+  resulting type is explicitly a `CandidateAuxPublic`: it cannot be promoted
+  into presigning state while `Pi_fac` and that state machine are absent.
 
 `PRODUCTION_READY`, `MALICIOUS_DKG_READY`, and `MALICIOUS_ECDSA_READY` are all
 hard-coded `false`. The DKG still needs a formally pinned malicious complaint /
