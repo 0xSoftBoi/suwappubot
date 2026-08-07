@@ -1702,8 +1702,17 @@ mod tests {
         // this helper and always enforces the 1536/3071-bit profile above.
         let paillier =
             DecryptionKey::from_primes(Integer::from(47u8), Integer::from(59u8)).unwrap();
-        let (ring_pedersen, pedersen_phi, pedersen_lambda) =
-            build_ring_pedersen(&mut rng, Integer::from(83u8), Integer::from(107u8)).unwrap();
+        // With these tiny test primes, sampling the identity Ring-Pedersen
+        // base has non-negligible probability. Production-size parameters make
+        // that negligible, but a challenge-independent `s = 1` fixture makes
+        // the wrong-transcript test flaky, so reject it here explicitly.
+        let (ring_pedersen, pedersen_phi, pedersen_lambda) = loop {
+            let generated =
+                build_ring_pedersen(&mut rng, Integer::from(83u8), Integer::from(107u8)).unwrap();
+            if generated.0.s != Integer::from(1u8) {
+                break generated;
+            }
+        };
         let pi_prm = prove_pi_prm_inner(
             execution,
             participant,
