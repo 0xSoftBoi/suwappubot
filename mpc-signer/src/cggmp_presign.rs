@@ -1,9 +1,9 @@
 //! Malicious-presigning proof foundations for secp256k1 CGGMP24.
 //!
-//! This module starts with the round-one `Pi_enc-elg` proof used for both the
-//! ephemeral inverse-key share and `gamma` share. It deliberately does not
-//! expose a presignature constructor: later `Pi_aff`, `Pi_elog`, MtA, reliable
-//! broadcast, and final consistency checks must all land first.
+//! This module starts with the `Pi_enc-elg` and `Pi_elog` proof cores used by
+//! CGGMP24 presigning. It deliberately does not expose a presignature
+//! constructor: `Pi_aff`, MtA, reliable broadcast, and the remaining state
+//! transitions/final consistency checks must all land first.
 
 use fast_paillier::{backend::Integer, Ciphertext, EncryptionKey};
 use k256::{
@@ -26,6 +26,8 @@ pub const PI_ENC_ELG_EPSILON_BITS: usize = 512;
 
 const PI_ENC_ELG_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/challenge/v1";
 const PI_ENC_ELG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/hash-stream/v1";
+const PI_ELOG_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/challenge/v1";
+const PI_ELOG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/hash-stream/v1";
 const SECP256K1_ORDER: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
@@ -41,6 +43,12 @@ pub enum PresignProofError {
     InvalidWitness,
     #[error("PiEncElg proof is invalid")]
     InvalidPiEncElg,
+    #[error("PiElog public statement is outside the required curve domain")]
+    InvalidPiElogStatement,
+    #[error("PiElog witness does not match the public statement")]
+    InvalidPiElogWitness,
+    #[error("PiElog proof is invalid")]
+    InvalidPiElog,
     #[error("Paillier operation failed while constructing PiEncElg")]
     Paillier,
 }
@@ -135,6 +143,83 @@ impl PiEncElgProof {
     }
 }
 
+/// Separates the round-two gamma relation from the later presignature
+/// consistency relation in the Fiat-Shamir transcript.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PiElogKind {
+    GammaShare,
+    PresignatureConsistency,
+}
+
+impl PiElogKind {
+    fn transcript_byte(self) -> u8 {
+        match self {
+            Self::GammaShare => 0,
+            Self::PresignatureConsistency => 1,
+        }
+    }
+}
+
+/// Public `Pi_elog` statement `(L, M, X, Y, H)`.
+///
+/// A valid witness `(y, lambda)` satisfies `L = lambda*G`,
+/// `M = lambda*X + y*G`, and `Y = y*H`.
+#[derive(Clone, Debug)]
+pub struct PiElogStatement {
+    l: ProjectivePoint,
+    m: ProjectivePoint,
+    x: ProjectivePoint,
+    y: ProjectivePoint,
+    h: ProjectivePoint,
+}
+
+impl PiElogStatement {
+    pub fn new(
+        l: ProjectivePoint,
+        m: ProjectivePoint,
+        x: ProjectivePoint,
+        y: ProjectivePoint,
+        h: ProjectivePoint,
+    ) -> Self {
+        Self { l, m, x, y, h }
+    }
+
+    pub fn curve_points_bytes(&self) -> Result<[[u8; 33]; 5], PresignProofError> {
+        Ok([
+            encode_point(&self.l).map_err(|_| PresignProofError::InvalidPiElogStatement)?,
+            encode_point(&self.m).map_err(|_| PresignProofError::InvalidPiElogStatement)?,
+            encode_point(&self.x).map_err(|_| PresignProofError::InvalidPiElogStatement)?,
+            encode_point(&self.y).map_err(|_| PresignProofError::InvalidPiElogStatement)?,
+            encode_point(&self.h).map_err(|_| PresignProofError::InvalidPiElogStatement)?,
+        ])
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PiElogCommitment {
+    a: ProjectivePoint,
+    n: ProjectivePoint,
+    b: ProjectivePoint,
+}
+
+/// Non-interactive CGGMP24 `Pi_elog` proof.
+#[derive(Clone, Debug)]
+pub struct PiElogProof {
+    commitment: PiElogCommitment,
+    z: Scalar,
+    u: Scalar,
+}
+
+impl PiElogProof {
+    pub fn commitment_curve_bytes(&self) -> Result<[[u8; 33]; 3], PresignProofError> {
+        Ok([
+            encode_point(&self.commitment.a).map_err(|_| PresignProofError::InvalidPiElog)?,
+            encode_point(&self.commitment.n).map_err(|_| PresignProofError::InvalidPiElog)?,
+            encode_point(&self.commitment.b).map_err(|_| PresignProofError::InvalidPiElog)?,
+        ])
+    }
+}
+
 #[derive(Clone, Copy)]
 struct PiEncElgSecurity {
     l: usize,
@@ -202,6 +287,69 @@ pub fn verify_pi_enc_elg(
         PiEncElgSecurity::PRODUCTION,
         crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
     )
+}
+
+/// Prove the CGGMP24 discrete-log/ElGamal relation used in presigning.
+pub fn prove_pi_elog(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    kind: PiElogKind,
+    statement: &PiElogStatement,
+    y: Scalar,
+    lambda: Scalar,
+    rng: &mut (impl RngCore + CryptoRng),
+) -> Result<PiElogProof, PresignProofError> {
+    validate_pi_elog_statement(statement)?;
+    if ProjectivePoint::GENERATOR * lambda != statement.l
+        || ProjectivePoint::GENERATOR * y + statement.x * lambda != statement.m
+        || statement.h * y != statement.y
+    {
+        return Err(PresignProofError::InvalidPiElogWitness);
+    }
+
+    let (alpha, mask, commitment) = loop {
+        let alpha = Scalar::generate_vartime(rng);
+        let mask = Scalar::generate_vartime(rng);
+        let commitment = PiElogCommitment {
+            a: ProjectivePoint::GENERATOR * alpha,
+            n: ProjectivePoint::GENERATOR * mask + statement.x * alpha,
+            b: statement.h * mask,
+        };
+        if pi_elog_commitment_is_valid(&commitment) {
+            break (alpha, mask, commitment);
+        }
+    };
+
+    let challenge = pi_elog_challenge(execution, prover, kind, statement, &commitment)?;
+    Ok(PiElogProof {
+        commitment,
+        z: alpha + challenge * lambda,
+        u: mask + challenge * y,
+    })
+}
+
+/// Verify the CGGMP24 discrete-log/ElGamal relation used in presigning.
+pub fn verify_pi_elog(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    kind: PiElogKind,
+    statement: &PiElogStatement,
+    proof: &PiElogProof,
+) -> Result<(), PresignProofError> {
+    validate_pi_elog_statement(statement)?;
+    if !pi_elog_commitment_is_valid(&proof.commitment) {
+        return Err(PresignProofError::InvalidPiElog);
+    }
+    let challenge = pi_elog_challenge(execution, prover, kind, statement, &proof.commitment)?;
+    if ProjectivePoint::GENERATOR * proof.z
+        != proof.commitment.a + statement.l * challenge
+        || ProjectivePoint::GENERATOR * proof.u + statement.x * proof.z
+            != proof.commitment.n + statement.m * challenge
+        || statement.h * proof.u != proof.commitment.b + statement.y * challenge
+    {
+        return Err(PresignProofError::InvalidPiElog);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -450,8 +598,51 @@ fn pi_enc_elg_challenge(
     transcript_point(&mut hasher, &commitment.y)?;
     transcript_point(&mut hasher, &commitment.z)?;
     let seed: [u8; 32] = hasher.finalize().into();
-    let mut rng = HashStreamRng::new(seed);
+    let mut rng = HashStreamRng::new(seed, PI_ENC_ELG_STREAM_TAG);
     sample_half_pm(&mut rng, &secp256k1_order())
+}
+
+fn validate_pi_elog_statement(statement: &PiElogStatement) -> Result<(), PresignProofError> {
+    if statement.l == ProjectivePoint::IDENTITY
+        || statement.m == ProjectivePoint::IDENTITY
+        || statement.x == ProjectivePoint::IDENTITY
+        || statement.y == ProjectivePoint::IDENTITY
+        || statement.h == ProjectivePoint::IDENTITY
+    {
+        return Err(PresignProofError::InvalidPiElogStatement);
+    }
+    Ok(())
+}
+
+fn pi_elog_commitment_is_valid(commitment: &PiElogCommitment) -> bool {
+    commitment.a != ProjectivePoint::IDENTITY
+        && commitment.n != ProjectivePoint::IDENTITY
+        && commitment.b != ProjectivePoint::IDENTITY
+}
+
+fn pi_elog_challenge(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    kind: PiElogKind,
+    statement: &PiElogStatement,
+    commitment: &PiElogCommitment,
+) -> Result<Scalar, PresignProofError> {
+    let mut hasher = Sha256::new();
+    hasher.update(PI_ELOG_TAG);
+    hasher.update(execution.digest());
+    hasher.update(prover.get().to_be_bytes());
+    hasher.update([kind.transcript_byte()]);
+    transcript_point(&mut hasher, &statement.l)?;
+    transcript_point(&mut hasher, &statement.m)?;
+    transcript_point(&mut hasher, &statement.x)?;
+    transcript_point(&mut hasher, &statement.y)?;
+    transcript_point(&mut hasher, &statement.h)?;
+    transcript_point(&mut hasher, &commitment.a)?;
+    transcript_point(&mut hasher, &commitment.n)?;
+    transcript_point(&mut hasher, &commitment.b)?;
+    let seed: [u8; 32] = hasher.finalize().into();
+    let mut rng = HashStreamRng::new(seed, PI_ELOG_STREAM_TAG);
+    Ok(Scalar::generate_vartime(&mut rng))
 }
 
 #[cfg(test)]
@@ -529,15 +720,17 @@ fn encode_point(point: &ProjectivePoint) -> Result<[u8; 33], PresignProofError> 
 /// Deterministic SHA-256 stream used only for public Fiat-Shamir challenges.
 struct HashStreamRng {
     seed: [u8; 32],
+    domain: &'static [u8],
     counter: u64,
     block: [u8; 32],
     offset: usize,
 }
 
 impl HashStreamRng {
-    fn new(seed: [u8; 32]) -> Self {
+    fn new(seed: [u8; 32], domain: &'static [u8]) -> Self {
         Self {
             seed,
+            domain,
             counter: 0,
             block: [0u8; 32],
             offset: 32,
@@ -546,7 +739,7 @@ impl HashStreamRng {
 
     fn refill(&mut self) {
         let mut hasher = Sha256::new();
-        hasher.update(PI_ENC_ELG_STREAM_TAG);
+        hasher.update(self.domain);
         hasher.update(self.seed);
         hasher.update(self.counter.to_be_bytes());
         self.block = hasher.finalize().into();
@@ -643,6 +836,24 @@ mod tests {
         (
             execution, prover, verifier, params, key, statement, plaintext, nonce, b,
         )
+    }
+
+    fn honest_elog_fixture(
+        h: ProjectivePoint,
+    ) -> (ExecutionId, ParticipantId, PiElogStatement, Scalar, Scalar) {
+        let execution = ExecutionId::new(b"pi-elog-test").unwrap();
+        let prover = ParticipantId::new(1).unwrap();
+        let y = Scalar::from(11u64);
+        let lambda = Scalar::from(17u64);
+        let x = ProjectivePoint::GENERATOR * Scalar::from(19u64);
+        let statement = PiElogStatement {
+            l: ProjectivePoint::GENERATOR * lambda,
+            m: ProjectivePoint::GENERATOR * y + x * lambda,
+            x,
+            y: h * y,
+            h,
+        };
+        (execution, prover, statement, y, lambda)
     }
 
     #[test]
@@ -791,6 +1002,131 @@ mod tests {
                 1,
             ),
             Err(PresignProofError::InvalidStatement)
+        );
+    }
+
+    #[test]
+    fn pi_elog_accepts_honest_gamma_relation_and_binds_kind() {
+        let (execution, prover, statement, y, lambda) =
+            honest_elog_fixture(ProjectivePoint::GENERATOR);
+        let mut rng = OsRng;
+        let proof = prove_pi_elog(
+            execution,
+            prover,
+            PiElogKind::GammaShare,
+            &statement,
+            y,
+            lambda,
+            &mut rng,
+        )
+        .unwrap();
+        verify_pi_elog(
+            execution,
+            prover,
+            PiElogKind::GammaShare,
+            &statement,
+            &proof,
+        )
+        .unwrap();
+        assert_eq!(
+            verify_pi_elog(
+                execution,
+                prover,
+                PiElogKind::PresignatureConsistency,
+                &statement,
+                &proof,
+            ),
+            Err(PresignProofError::InvalidPiElog)
+        );
+        let other_prover = ParticipantId::new(2).unwrap();
+        assert_eq!(
+            verify_pi_elog(
+                execution,
+                other_prover,
+                PiElogKind::GammaShare,
+                &statement,
+                &proof,
+            ),
+            Err(PresignProofError::InvalidPiElog)
+        );
+    }
+
+    #[test]
+    fn pi_elog_accepts_presignature_base_and_rejects_wrong_witness() {
+        let h = ProjectivePoint::GENERATOR * Scalar::from(23u64);
+        let (execution, prover, statement, y, lambda) = honest_elog_fixture(h);
+        let mut rng = OsRng;
+        let proof = prove_pi_elog(
+            execution,
+            prover,
+            PiElogKind::PresignatureConsistency,
+            &statement,
+            y,
+            lambda,
+            &mut rng,
+        )
+        .unwrap();
+        verify_pi_elog(
+            execution,
+            prover,
+            PiElogKind::PresignatureConsistency,
+            &statement,
+            &proof,
+        )
+        .unwrap();
+        assert_eq!(
+            prove_pi_elog(
+                execution,
+                prover,
+                PiElogKind::PresignatureConsistency,
+                &statement,
+                y + Scalar::ONE,
+                lambda,
+                &mut rng,
+            )
+            .unwrap_err(),
+            PresignProofError::InvalidPiElogWitness
+        );
+    }
+
+    #[test]
+    fn pi_elog_rejects_tampered_response_and_invalid_curve_domain() {
+        let (execution, prover, statement, y, lambda) =
+            honest_elog_fixture(ProjectivePoint::GENERATOR);
+        let mut rng = OsRng;
+        let mut proof = prove_pi_elog(
+            execution,
+            prover,
+            PiElogKind::GammaShare,
+            &statement,
+            y,
+            lambda,
+            &mut rng,
+        )
+        .unwrap();
+        proof.z += Scalar::ONE;
+        assert_eq!(
+            verify_pi_elog(
+                execution,
+                prover,
+                PiElogKind::GammaShare,
+                &statement,
+                &proof,
+            ),
+            Err(PresignProofError::InvalidPiElog)
+        );
+
+        let mut invalid_statement = statement;
+        invalid_statement.h = ProjectivePoint::IDENTITY;
+        assert_eq!(
+            verify_pi_elog(
+                execution,
+                prover,
+                PiElogKind::GammaShare,
+                &invalid_statement,
+                &proof,
+            ),
+            Err(PresignProofError::InvalidPiElogStatement)
         );
     }
 
