@@ -27,9 +27,8 @@ pub const PI_ENC_ELG_EPSILON_BITS: usize = 512;
 const PI_ENC_ELG_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/challenge/v1";
 const PI_ENC_ELG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/hash-stream/v1";
 const SECP256K1_ORDER: [u8; 32] = [
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
-    0xd0, 0x36, 0x41, 0x41,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+    0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
 ];
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -246,8 +245,7 @@ fn prove_pi_enc_elg_inner(
         .ok_or(PresignProofError::InvalidWitness)?;
     let two_to_l_plus_epsilon = Integer::from(1u8) << l_plus_epsilon;
     let aux_at_two_to_l = (Integer::from(1u8) << security.l) * &verifier_params.modulus;
-    let aux_at_two_to_l_plus_epsilon =
-        &two_to_l_plus_epsilon * &verifier_params.modulus;
+    let aux_at_two_to_l_plus_epsilon = &two_to_l_plus_epsilon * &verifier_params.modulus;
 
     let alpha = sample_half_pm(rng, &two_to_l_plus_epsilon)?;
     let mu = sample_half_pm(rng, &aux_at_two_to_l)?;
@@ -304,8 +302,14 @@ fn verify_pi_enc_elg_inner(
     // Domain and range checks are intentionally completed before the
     // proof-body exponentiations/homomorphic operations.
     validate_statement(verifier_params, key, statement, security, min_modulus_bits)?;
-    if !proof.commitment.s.in_mult_group_of(&verifier_params.modulus)
-        || !proof.commitment.t.in_mult_group_of(&verifier_params.modulus)
+    if !proof
+        .commitment
+        .s
+        .in_mult_group_of(&verifier_params.modulus)
+        || !proof
+            .commitment
+            .t
+            .in_mult_group_of(&verifier_params.modulus)
         || !proof.commitment.d.in_mult_group_of(key.nn())
         || !proof.z2.in_mult_group_of(key.n())
         || proof.commitment.y == ProjectivePoint::IDENTITY
@@ -450,6 +454,7 @@ fn pi_enc_elg_challenge(
     sample_half_pm(&mut rng, &secp256k1_order())
 }
 
+#[cfg(test)]
 fn scalar_to_centered_integer(scalar: Scalar) -> Integer {
     let order = secp256k1_order();
     let x = Integer::from_bytes_msf(&scalar.to_bytes());
@@ -482,10 +487,7 @@ fn secp256k1_order() -> Integer {
     Integer::from_bytes_msf(&SECP256K1_ORDER)
 }
 
-fn sample_half_pm(
-    rng: &mut impl RngCore,
-    range: &Integer,
-) -> Result<Integer, PresignProofError> {
+fn sample_half_pm(rng: &mut impl RngCore, range: &Integer) -> Result<Integer, PresignProofError> {
     if range.cmp0().is_le() {
         return Err(PresignProofError::InvalidWitness);
     }
@@ -507,10 +509,7 @@ fn transcript_integer(hasher: &mut Sha256, value: &Integer) {
     hasher.update(bytes);
 }
 
-fn transcript_point(
-    hasher: &mut Sha256,
-    point: &ProjectivePoint,
-) -> Result<(), PresignProofError> {
+fn transcript_point(hasher: &mut Sha256, point: &ProjectivePoint) -> Result<(), PresignProofError> {
     hasher.update(encode_point(point)?);
     Ok(())
 }
