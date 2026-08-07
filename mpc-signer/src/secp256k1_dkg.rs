@@ -436,10 +436,7 @@ pub fn round3(
         aggregate_commitments[0] + aggregate_commitments[1] * Scalar::from(2u64),
         aggregate_commitments[0] + aggregate_commitments[1] * Scalar::from(3u64),
     ];
-    if verification_shares
-        .iter()
-        .any(|point| *point == ProjectivePoint::IDENTITY)
-    {
+    if verification_shares.contains(&ProjectivePoint::IDENTITY) {
         signing_share.zeroize();
         return Err(DkgError::InvalidPoint(state.identifier.get()));
     }

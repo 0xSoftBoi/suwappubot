@@ -61,6 +61,10 @@ impl AdditiveSigningShare {
         self.identifier
     }
 
+    pub fn signing_pair(&self) -> [ParticipantId; THRESHOLD] {
+        self.signing_pair
+    }
+
     pub fn public_share_bytes(&self) -> [u8; 33] {
         encode_point(&self.public_share).expect("additive public-share invariant")
     }
