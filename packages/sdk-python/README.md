@@ -154,6 +154,11 @@ quote = await client.perps.quote("ETH-USD", "long", 1.0, 5.0)
 positions = await client.perps.positions("0xYourWallet")
 ```
 
+`markets[0].max_leverage` is the current Suwappu quote cap for that market;
+`venue_max_leverage` preserves Hyperliquid's raw venue maximum. `funding_rate`
+is the current raw market rate, not accrued position funding P&L. Perps remain
+read/quote-only on the Agent API.
+
 ### Predictions (Polymarket) — `client.predict`
 
 ```python

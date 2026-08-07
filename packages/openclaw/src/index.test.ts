@@ -262,16 +262,19 @@ describe("listChains / listTokens", () => {
 
 describe("perps namespace", () => {
   test("markets unwraps", async () => {
-    stubFetch({ markets: [{ name: "ETH-PERP", asset: "ETH", szDecimals: 4, maxLeverage: 50, markPrice: 3200, fundingRate: 0.0001 }] });
+    stubFetch({ markets: [{ name: "ETH-USD", asset: "ETH", szDecimals: 4, maxLeverage: 20, venueMaxLeverage: 25, markPrice: 3200, fundingRate: 0.0001 }] });
     const markets = await client.perps.markets();
-    expect(markets[0].name).toBe("ETH-PERP");
+    expect(markets[0].name).toBe("ETH-USD");
+    expect(markets[0].maxLeverage).toBe(20);
+    expect(markets[0].venueMaxLeverage).toBe(25);
+    expect(markets[0].fundingRate).toBe(0.0001);
   });
 
   test("quote posts side/size/leverage", async () => {
-    const calls = stubFetch({ market: "ETH-PERP", side: "long", size: 1, leverage: 10, entryPrice: 3200, margin: 320, liquidationPrice: 2900, fundingRate: 0.0001, fee: 1 });
-    const q = await client.perps.quote("ETH-PERP", "long", 1, 10);
+    const calls = stubFetch({ market: "ETH-USD", side: "long", size: 1, leverage: 10, entryPrice: 3200, margin: 320, liquidationPrice: 2900, fundingRate: 0.0001, fee: 1 });
+    const q = await client.perps.quote("ETH-USD", "long", 1, 10);
     expect(q.side).toBe("long");
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ market: "ETH-PERP", side: "long", size: 1, leverage: 10 });
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ market: "ETH-USD", side: "long", size: 1, leverage: 10 });
   });
 
   test("positions forwards address", async () => {

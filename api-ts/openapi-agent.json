@@ -1889,7 +1889,7 @@
       "get": {
         "summary": "List perp markets",
         "operationId": "listPerpMarkets",
-        "description": "List available Hyperliquid perpetual markets with current mark prices. Public endpoint, no auth required.",
+        "description": "List supported Hyperliquid perpetual markets with current mark/funding context. maxLeverage is the effective Suwappu quote cap; venueMaxLeverage is the raw venue maximum. Public endpoint, no auth required.",
         "security": [],
         "responses": {
           "200": {
@@ -1913,17 +1913,19 @@
                       "name": "ETH-USD",
                       "asset": "ETH",
                       "szDecimals": 4,
-                      "maxLeverage": 25,
+                      "maxLeverage": 20,
+                      "venueMaxLeverage": 25,
                       "markPrice": 3246.8,
-                      "fundingRate": 0
+                      "fundingRate": 0.000125
                     },
                     {
                       "name": "BTC-USD",
                       "asset": "BTC",
                       "szDecimals": 5,
-                      "maxLeverage": 40,
+                      "maxLeverage": 20,
+                      "venueMaxLeverage": 40,
                       "markPrice": 67120.5,
-                      "fundingRate": 0
+                      "fundingRate": -0.00005
                     }
                   ]
                 }
@@ -1940,7 +1942,7 @@
       "post": {
         "summary": "Get a perp position quote",
         "operationId": "getPerpQuote",
-        "description": "Estimate entry price, required margin, liquidation price, and fees for a Hyperliquid perp position. Computed off live mark prices; does not open a position. Authenticated and rate-limited by tier.",
+        "description": "Estimate entry price, required margin, liquidation price, current market funding, and fees for a Hyperliquid perp position. Uses the live midpoint when available and falls back to mark price; does not open a position. Authenticated and rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1973,7 +1975,7 @@
                   "entryPrice": 3246.8,
                   "margin": 649.36,
                   "liquidationPrice": 2662.38,
-                  "fundingRate": 0,
+                  "fundingRate": 0.000125,
                   "fee": 0.65
                 }
               }
@@ -2055,7 +2057,7 @@
                       "margin": 960,
                       "unrealizedPnl": 70.2,
                       "liquidationPrice": 2680.5,
-                      "fundingRate": 0
+                      "fundingRate": 0.000125
                     }
                   ]
                 }
@@ -4705,7 +4707,7 @@
             "type": "number",
             "minimum": 1,
             "maximum": 20,
-            "description": "Leverage multiplier (1-20).",
+            "description": "Leverage multiplier (1 through the market maxLeverage returned by GET /perps/markets; current Suwappu ceiling is 20).",
             "example": 5
           }
         },
@@ -4735,6 +4737,12 @@
           },
           "maxLeverage": {
             "type": "integer",
+            "description": "Maximum leverage accepted by the current Suwappu quote route for this market (never above the current 20x Suwappu ceiling).",
+            "example": 20
+          },
+          "venueMaxLeverage": {
+            "type": "integer",
+            "description": "Raw maximum leverage reported by Hyperliquid for the venue market.",
             "example": 25
           },
           "markPrice": {
@@ -4743,7 +4751,7 @@
           },
           "fundingRate": {
             "type": "number",
-            "description": "Current funding rate (0 when not fetched)."
+            "description": "Current raw market funding rate reported by Hyperliquid."
           }
         }
       },
@@ -4779,7 +4787,8 @@
             "type": "number"
           },
           "fundingRate": {
-            "type": "number"
+            "type": "number",
+            "description": "Current raw Hyperliquid market funding rate; not a forecast of position funding P&L."
           },
           "fee": {
             "type": "number",
@@ -4826,7 +4835,8 @@
             "type": "number"
           },
           "fundingRate": {
-            "type": "number"
+            "type": "number",
+            "description": "Current raw funding rate for the position's market; not accrued position funding P&L."
           }
         }
       },

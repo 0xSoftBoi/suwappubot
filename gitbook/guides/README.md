@@ -28,7 +28,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 
 | Guide | What you'll learn |
 |-------|-------------------|
-| [Perpetual Futures Research](perps-trading.md) | Browse/quote HyperLiquid markets and monitor positions; no Agent API execution |
+| [Perpetual Futures Research](perps-trading.md) | Live mark/funding context, quotes, position-risk snapshots, and alert products; no Agent API execution |
 | [Prediction Market Research](prediction-markets.md) | Browse Polymarket data read-first; keep trading behind a separate authority boundary |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 

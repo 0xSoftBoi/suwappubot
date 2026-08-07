@@ -78,7 +78,7 @@ secret manager, never a committed config file.
 | Inspect assets | `get_portfolio`, `get_prices`, `list_chains`, `list_tokens` | Portfolio reads are scoped to the caller's managed EVM wallet. |
 | Reconcile managed swaps | `get_swap_status`, `get_swap_history` | These refer to swaps created by REST `POST /v1/agent/swap/execute`, not MCP `execute_swap`. |
 | Prediction research | `predict_markets`, `predict_market`, `predict_book`, `predict_price`, `predict_trades` | MCP prediction tools are read-only. REST has a separate explicit order surface. |
-| Perps research | `perps_markets`, `perps_quote`, `perps_positions` | The Agent API does not expose open/close execution. Treat quote/funding fields as research data; current funding can be a placeholder. |
+| Perps research | `perps_markets`, `perps_quote`, `perps_positions` | The Agent API does not expose open/close execution. Treat quote/funding fields as research data; funding is the current raw Hyperliquid market rate, not accrued position P&L. |
 | Lending research | `lend_markets`, `lend_market` | Read-only Morpho market data; no deposit/withdraw tool. |
 | Managed-wallet controls | `list_wallet_policies` | Inspect existing policy guardrails. |
 | Extra discovery | `get_tempo_tokens`, `browse_mpp_directory` | Public discovery; MPP directory is a third-party directory. |

@@ -393,7 +393,7 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1
 - POST /billing/crypto — Crypto-native subscription for human users (Telegram-authed)
 
 ## Perpetual Futures — HyperLiquid (/v1/agent/perps)
-- GET /v1/agent/perps/markets — List perp markets (mark price, funding, max leverage)
+- GET /v1/agent/perps/markets — List perp markets (live mark/funding, Suwappu quote max, venue max leverage)
 - POST /v1/agent/perps/quote — Quote a leveraged long/short position
 - GET /v1/agent/perps/positions?address= — Open positions for a wallet
 

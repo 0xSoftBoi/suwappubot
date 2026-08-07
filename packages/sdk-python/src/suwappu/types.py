@@ -89,6 +89,7 @@ class PerpMarket(BaseModel):
     asset: str
     sz_decimals: int
     max_leverage: int
+    venue_max_leverage: int
     mark_price: float
     funding_rate: float
 

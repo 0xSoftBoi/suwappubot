@@ -81,8 +81,12 @@ export interface PerpMarket {
   name: string;
   asset: string;
   szDecimals: number;
+  /** Maximum leverage accepted by the current Suwappu quote route for this market. */
   maxLeverage: number;
+  /** Raw maximum leverage reported by Hyperliquid for the venue market. */
+  venueMaxLeverage: number;
   markPrice: number;
+  /** Current raw market funding rate reported by Hyperliquid. */
   fundingRate: number;
 }
 

@@ -188,10 +188,16 @@ const { code, expiresAt } = await client.agent.linkCode(); // 409 if already lin
 ### Perps (Hyperliquid)
 
 ```ts
-await client.perps.markets();
-await client.perps.quote({ market: "ETH", side: "long", size: 0.5, leverage: 10 });
+const perpMarkets = await client.perps.markets();
+const eth = perpMarkets.find((market) => market.name === "ETH-USD");
+// maxLeverage is the Suwappu quote cap; venueMaxLeverage is the raw venue max.
+console.log(eth?.maxLeverage, eth?.venueMaxLeverage, eth?.markPrice, eth?.fundingRate);
+await client.perps.quote({ market: "ETH-USD", side: "long", size: 0.5, leverage: 10 });
 await client.perps.positions(address);
 ```
+
+Perps `fundingRate` is the current raw Hyperliquid market rate, not accrued
+position funding P&L. The Agent API does not expose perps execution.
 
 ### Prediction markets (Polymarket)
 
