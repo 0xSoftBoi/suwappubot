@@ -20,7 +20,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [recurring DCA product](dca-automation.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
@@ -95,7 +95,7 @@ Before choosing a price, measure a realistic month for one active customer:
 
 Then price from observed cost, not from a hoped-for trading return.
 
-## Three products you can ship
+## Four products you can ship
 
 ### Portfolio copilot
 
@@ -112,6 +112,14 @@ The [Portfolio Rebalancer guide](portfolio-rebalancer.md) shows the concrete pro
 - **Execution:** only after the exact same decision path passes paper mode.
 
 The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action boundary after strategy promotion: chain-neutral signal -> wallet-aware route -> explicit simulation permission -> durable idempotent execution -> reconciled outcome. It also shows why a small reference should not pretend to replace a backtesting/risk framework.
+
+### Recurring treasury / DCA
+
+- **Free:** fixed-budget plan calendar and route/cost previews.
+- **Paid:** notifications, approvals, retained history, team roles, and budget reporting.
+- **Execution:** optional bounded automation where one schedule slot maps to one durable economic action.
+
+The [Recurring DCA guide](dca-automation.md) shows the production boundary that cron examples usually miss: timezone/DST-stable slot identity, no accidental catch-up, cost gates, same-key ambiguous recovery, and a reconciled outcome before the next installment. It also shows why time-based scheduling can have much more predictable request economics than continuous price polling.
 
 ### Market intelligence API
 

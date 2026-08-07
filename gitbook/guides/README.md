@@ -11,6 +11,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Strategy Product with Flywheel](flywheel.md) | Outcome-safe execution, evaluation boundaries, OSS positioning, and paid product patterns |
 | [Build a Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) | Executable-route screening, request economics, paid intelligence, and safe two-leg handoff |
 | [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
+| [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
@@ -28,13 +29,14 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 |-------|-------------------|
 | [Perpetual Futures Research](perps-trading.md) | Browse/quote HyperLiquid markets and monitor positions; no Agent API execution |
 | [Prediction Markets](prediction-markets.md) | Browse and trade Polymarket binary-outcome markets |
-| [Limit Orders & DCA](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
+| [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
 ## Tutorials
 
 | Guide | What you'll build |
 |-------|-------------------|
 | [Building a Trading Bot](building-a-trading-bot.md) | A USDC price-target reference with quote guards, idempotency, reconciliation, and product economics |
+| [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
