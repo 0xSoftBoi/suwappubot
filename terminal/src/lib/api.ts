@@ -101,7 +101,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
-  } catch {
+  } catch (error) {
+    // TanStack supplies an AbortSignal to quote/route queries. Preserve an
+    // intentional cancellation instead of misreporting it as a network outage.
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error
+    }
     // fetch() rejects (TypeError "Load failed" / "Failed to fetch") on network/CORS
     // failures — surface a human message instead of the raw browser error.
     throw { detail: "Can't reach Suwappu right now. Check your connection and try again.", status: 0 }
@@ -286,10 +291,11 @@ export const api = {
   // Bridge — cross-chain routes and in-flight tracking. Separate from swap
   // because the interesting state is what happens *between* the chains, which
   // a single quote/execute pair has nowhere to put.
-  getBridgeRoutes(req: BridgeRoutesRequest) {
+  getBridgeRoutes(req: BridgeRoutesRequest, signal?: AbortSignal) {
     return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 
@@ -315,10 +321,11 @@ export const api = {
   },
 
   // Swap
-  getSwapQuote(req: SwapQuoteRequest) {
+  getSwapQuote(req: SwapQuoteRequest, signal?: AbortSignal) {
     return request<SwapQuote>('/webapp/swap/quote', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 

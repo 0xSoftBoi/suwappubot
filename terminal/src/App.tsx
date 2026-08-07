@@ -1,18 +1,43 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { Header } from './components/layout/Header'
 import { CommandPalette } from './components/command/CommandPalette'
 import { MarketRegimeStrip } from './components/market/MarketRegimeStrip'
 import { TradingLayout } from './components/layout/TradingLayout'
-import { PointsDashboard } from './components/points/PointsDashboard'
 import { HotkeysHelpOverlay } from './components/hotkeys/HotkeysHelpOverlay'
-import { SuwappuBotSiteReplacement } from './components/templates/SuwappuBotSiteReplacement'
-import { TerminalSiteReplacement } from './components/templates/TerminalSiteReplacement'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
-import { OAuthCallback } from './components/auth/OAuthCallback'
-import { AlertSwap } from './routes/AlertSwap'
-import { BridgeRoute } from './routes/BridgeRoute'
 import { FirstRunChecklist } from './components/onboarding/FirstRunChecklist'
+
+// The live terminal is the latency-critical entrypoint. Route-only dashboards,
+// deep links and the marketing templates should not be parsed before a trader
+// can see the chart/orderbook/ticket, so keep them behind route-level chunks.
+const PointsDashboard = lazy(() =>
+  import('./components/points/PointsDashboard').then((m) => ({ default: m.PointsDashboard })),
+)
+const SuwappuBotSiteReplacement = lazy(() =>
+  import('./components/templates/SuwappuBotSiteReplacement').then((m) => ({
+    default: m.SuwappuBotSiteReplacement,
+  })),
+)
+const TerminalSiteReplacement = lazy(() =>
+  import('./components/templates/TerminalSiteReplacement').then((m) => ({
+    default: m.TerminalSiteReplacement,
+  })),
+)
+const OAuthCallback = lazy(() =>
+  import('./components/auth/OAuthCallback').then((m) => ({ default: m.OAuthCallback })),
+)
+const AlertSwap = lazy(() =>
+  import('./routes/AlertSwap').then((m) => ({ default: m.AlertSwap })),
+)
+const BridgeRoute = lazy(() =>
+  import('./routes/BridgeRoute').then((m) => ({ default: m.BridgeRoute })),
+)
+
+function DeferredRoute({ children }: { children: ReactNode }) {
+  return <Suspense fallback={null}>{children}</Suspense>
+}
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
@@ -42,24 +67,24 @@ function TradingWorkspace() {
           <MarketRegimeStrip />
           <main className="min-h-0 flex-1 overflow-hidden">
             <Routes>
-              <Route path="/points" element={<PointsDashboard />} />
-              <Route path="points" element={<PointsDashboard />} />
+              <Route path="/points" element={<DeferredRoute><PointsDashboard /></DeferredRoute>} />
+              <Route path="points" element={<DeferredRoute><PointsDashboard /></DeferredRoute>} />
               {/* Bridge gets its own route rather than a swap-panel tab: it is
                   a different job (moving one token between chains) with a
                   different thing to watch (an in-flight custody window), and
                   folding it into swap is what left it invisible before. Mounted
                   on both the terminal host path and the "/terminal/*" proxy
                   mount, matching the alert-swap deep link above. */}
-              <Route path="/bridge" element={<BridgeRoute />} />
-              <Route path="bridge" element={<BridgeRoute />} />
-              <Route path="/terminal/bridge" element={<BridgeRoute />} />
+              <Route path="/bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
+              <Route path="bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
+              <Route path="/terminal/bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
               {/* Price-alert deep link (?alertId=&token=&chain=&side=&amount=&ref=alert).
                   Covers both the primary terminal.suwappu.bot host (pathname
                   "/alert-swap") and the "/terminal/*" dev/proxy mount (pathname
                   "/terminal/alert-swap"). */}
-              <Route path="/alert-swap" element={<AlertSwap />} />
-              <Route path="alert-swap" element={<AlertSwap />} />
-              <Route path="/terminal/alert-swap" element={<AlertSwap />} />
+              <Route path="/alert-swap" element={<DeferredRoute><AlertSwap /></DeferredRoute>} />
+              <Route path="alert-swap" element={<DeferredRoute><AlertSwap /></DeferredRoute>} />
+              <Route path="/terminal/alert-swap" element={<DeferredRoute><AlertSwap /></DeferredRoute>} />
               <Route path="*" element={<TradingLayout />} />
             </Routes>
           </main>
@@ -77,7 +102,7 @@ export function App() {
         {/* OAuth provider landing — must win over host-based branching so the
             callback forwards to the backend regardless of which origin (terminal
             or root) the oauth_redirect_base allowlist points Google back to. */}
-        <Route path="/auth/callback/:provider" element={<OAuthCallback />} />
+        <Route path="/auth/callback/:provider" element={<DeferredRoute><OAuthCallback /></DeferredRoute>} />
         <Route
           path="*"
           element={isTerminalHost() ? (
@@ -85,11 +110,11 @@ export function App() {
       ) : (
         <div className="min-h-screen bg-terminal-bg text-terminal-text font-sans">
           <Routes>
-            <Route path="/" element={<SuwappuBotSiteReplacement />} />
-            <Route path="/terminal-preview" element={<TerminalSiteReplacement />} />
+            <Route path="/" element={<DeferredRoute><SuwappuBotSiteReplacement /></DeferredRoute>} />
+            <Route path="/terminal-preview" element={<DeferredRoute><TerminalSiteReplacement /></DeferredRoute>} />
             <Route path="/terminal/*" element={<TradingWorkspace />} />
             <Route path="/points" element={<TradingWorkspace />} />
-            <Route path="*" element={<SuwappuBotSiteReplacement />} />
+            <Route path="*" element={<DeferredRoute><SuwappuBotSiteReplacement /></DeferredRoute>} />
           </Routes>
         </div>
       )}

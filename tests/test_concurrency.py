@@ -8,6 +8,12 @@ import pytest
 from bot.utils.update_processor import PerUserSerializingProcessor
 
 
+def test_telegram_concurrency_defaults_to_per_user_parallelism():
+    from bot.config.settings import Settings
+
+    assert Settings.model_fields["bot_concurrent_updates"].default == 256
+
+
 def _make_update(user_id=None, chat_id=None):
     """Build a minimal Update-like object. isinstance(Update) is bypassed by
     constructing a real telegram.Update where possible; here we monkey the type."""
