@@ -37,7 +37,8 @@ domain-separated Suwappu byte encoding, so it is not claiming wire
 interoperability with the reference library. `ecdsa_cggmp.rs` implements the
 section 4.3.2 Shamir-to-additive conversion and section 4.4 final signature
 equations. `cggmp_aux.rs` now implements the first section 4.1 provisioning
-slices: Paillier/Ring-Pedersen candidate generation, `Pi_prm`, and `Pi_mod`.
+slices: Paillier/Ring-Pedersen candidate generation, `Pi_prm`, `Pi_mod`, and
+the peer-specific `Pi_fac` no-small-factor proof.
 
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
@@ -58,8 +59,8 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Finish section 4.1 provisioning with `Pi_fac` and the reliable
-   commit/echo/reveal state machine. `Pi_prm` and `Pi_mod` proof cores and their
+1. Finish section 4.1 provisioning with the reliable commit/echo/reveal state
+   machine. `Pi_prm`, `Pi_mod`, and peer-specific `Pi_fac` proof cores and their
    pre-arithmetic domain checks are present; callers cannot use them to promote
    a candidate to trusted auxiliary state.
 2. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,

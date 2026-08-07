@@ -2,9 +2,10 @@
 //!
 //! This module owns the first malicious-presigning prerequisite: Paillier key
 //! material, Ring-Pedersen parameters, the `Pi_prm` parameter-relation proof,
-//! and the `Pi_mod` Paillier-Blum modulus proof. It does not promote this
-//! material to a presigning-capable state: `Pi_fac` and the reliable auxiliary
-//! provisioning state machine are still required before peers may trust it.
+//! the `Pi_mod` Paillier-Blum modulus proof, and the peer-specific `Pi_fac`
+//! no-small-factor proof. It does not promote this material to a
+//! presigning-capable state: the reliable auxiliary provisioning state machine
+//! is still required before peers may trust it.
 //!
 //! `fast-paillier` is used only as the low-level Paillier/big-integer primitive.
 //! The protocol transcript, state boundary, and proof below are implemented in
@@ -30,11 +31,16 @@ pub const RSA_PUBLIC_MIN_BITS: u64 = 3071;
 pub const PI_PRM_REPETITIONS: usize = 128;
 /// Soundness repetitions for the Paillier-Blum modulus proof.
 pub const PI_MOD_REPETITIONS: usize = 128;
+/// CGGMP24's 128-bit profile `ell` parameter for the no-small-factor proof.
+pub const PI_FAC_L_BITS: usize = 256;
+/// CGGMP24's 128-bit profile statistical slack for the no-small-factor proof.
+pub const PI_FAC_EPSILON_BITS: usize = 512;
 /// Collective random seed mixed from every participant's committed `rho_i`.
 pub const SHARED_RANDOMNESS_BYTES: usize = 32;
 
 const PI_PRM_TAG: &[u8] = b"suwappu/cggmp24/pi-prm/challenge/v1";
 const PI_MOD_TAG: &[u8] = b"suwappu/cggmp24/pi-mod/challenge/v1";
+const PI_FAC_TAG: &[u8] = b"suwappu/cggmp24/pi-fac/challenge/v1";
 const HASH_STREAM_TAG: &[u8] = b"suwappu/cggmp24/hash-stream/v1";
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -49,6 +55,8 @@ pub enum AuxError {
     InvalidPiPrm,
     #[error("Paillier-Blum modulus proof is invalid")]
     InvalidPiMod,
+    #[error("Paillier no-small-factor proof is invalid")]
+    InvalidPiFac,
     #[error("auxiliary material belongs to a different execution")]
     ExecutionMismatch,
     #[error("modular exponentiation failed")]
@@ -104,6 +112,41 @@ pub struct PiModProof {
     points: [PiModProofPoint; PI_MOD_REPETITIONS],
 }
 
+#[derive(Clone, Debug)]
+struct PiFacCommitment {
+    p: Integer,
+    q: Integer,
+    a: Integer,
+    b: Integer,
+    t: Integer,
+}
+
+/// Fiat-Shamir `Pi_fac` proof that the prover's public Paillier modulus does
+/// not contain a factor below the CGGMP24 bound. Each proof is specific to one
+/// verifier because it is constructed with that verifier's Ring-Pedersen
+/// parameters.
+#[derive(Clone, Debug)]
+pub struct PiFacProof {
+    commitment: PiFacCommitment,
+    z1: Integer,
+    z2: Integer,
+    w1: Integer,
+    w2: Integer,
+    v: Integer,
+}
+
+impl PiFacProof {
+    pub fn commitment_bytes(&self) -> [Vec<u8>; 5] {
+        [
+            self.commitment.p.to_bytes_msf(),
+            self.commitment.q.to_bytes_msf(),
+            self.commitment.a.to_bytes_msf(),
+            self.commitment.b.to_bytes_msf(),
+            self.commitment.t.to_bytes_msf(),
+        ]
+    }
+}
+
 impl PiModProof {
     pub fn commitment_bytes(&self) -> Vec<u8> {
         self.w.to_bytes_msf()
@@ -124,9 +167,9 @@ impl PiPrmProof {
     }
 }
 
-/// Public auxiliary data after local generation but before `Pi_mod` and
-/// `Pi_fac` verification. Keeping "Candidate" in the type name is deliberate:
-/// this state cannot be used to manufacture a CGGMP presignature.
+/// Public auxiliary data after local generation but before the complete peer
+/// proof set has been verified. Keeping "Candidate" in the type name is
+/// deliberate: this state cannot be used to manufacture a CGGMP presignature.
 pub struct CandidateAuxPublic {
     execution: [u8; 32],
     participant: ParticipantId,
@@ -192,10 +235,41 @@ impl CandidateAuxPublic {
             RSA_PUBLIC_MIN_BITS,
         )
     }
+
+    /// Verify this candidate/prover's peer-specific `Pi_fac` using the local
+    /// verifier's Ring-Pedersen parameters. The proof is also bound to the
+    /// collective random seed fixed by the earlier commitment round.
+    ///
+    /// Success is not a trusted-auxiliary transition. The complete auxiliary
+    /// protocol must verify every peer's `Pi_prm`, `Pi_mod`, and `Pi_fac`
+    /// before any resulting material can become presigning-capable.
+    pub fn verify_pi_fac(
+        &self,
+        execution: ExecutionId,
+        verifier: ParticipantId,
+        verifier_params: &RingPedersenParams,
+        shared_randomness: [u8; SHARED_RANDOMNESS_BYTES],
+        proof: &PiFacProof,
+    ) -> Result<(), AuxError> {
+        if self.execution != execution.digest() {
+            return Err(AuxError::ExecutionMismatch);
+        }
+        verify_pi_fac_inner(
+            execution,
+            self.participant,
+            verifier,
+            &shared_randomness,
+            self.paillier.n(),
+            verifier_params,
+            proof,
+            PiFacSecurity::PRODUCTION,
+            RSA_PUBLIC_MIN_BITS,
+        )
+    }
 }
 
-/// Private auxiliary material retained by one signer for future `Pi_mod`,
-/// `Pi_fac`, and presigning. It is intentionally non-cloneable.
+/// Private auxiliary material retained by one signer for auxiliary proofs and
+/// future presigning. It is intentionally non-cloneable.
 ///
 /// The current bigint backend does not promise constant-time arithmetic or
 /// zeroizing deallocation. That is recorded as a production hardening gate;
@@ -225,6 +299,33 @@ impl AuxPrivate {
             self.paillier.p(),
             self.paillier.q(),
             &mut OsRng,
+            RSA_PUBLIC_MIN_BITS,
+        )
+    }
+
+    /// Construct the peer-specific `Pi_fac` proof for `verifier`. Callers must
+    /// supply that verifier's committed Ring-Pedersen parameters and the
+    /// collective seed produced by the auxiliary commitment round.
+    pub fn prove_pi_fac(
+        &self,
+        execution: ExecutionId,
+        participant: ParticipantId,
+        verifier: ParticipantId,
+        verifier_params: &RingPedersenParams,
+        shared_randomness: [u8; SHARED_RANDOMNESS_BYTES],
+    ) -> Result<PiFacProof, AuxError> {
+        let mut rng = OsRng;
+        prove_pi_fac_inner(
+            execution,
+            participant,
+            verifier,
+            &shared_randomness,
+            self.paillier.n(),
+            self.paillier.p(),
+            self.paillier.q(),
+            verifier_params,
+            &mut rng,
+            PiFacSecurity::PRODUCTION,
             RSA_PUBLIC_MIN_BITS,
         )
     }
@@ -486,6 +587,257 @@ fn verify_pi_mod_inner(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct PiFacSecurity {
+    l: usize,
+    epsilon: usize,
+}
+
+impl PiFacSecurity {
+    const PRODUCTION: Self = Self {
+        l: PI_FAC_L_BITS,
+        epsilon: PI_FAC_EPSILON_BITS,
+    };
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_pi_fac_inner(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    shared_randomness: &[u8; SHARED_RANDOMNESS_BYTES],
+    modulus: &Integer,
+    p: &Integer,
+    q: &Integer,
+    verifier_params: &RingPedersenParams,
+    rng: &mut (impl RngCore + CryptoRng),
+    security: PiFacSecurity,
+    min_modulus_bits: u64,
+) -> Result<PiFacProof, AuxError> {
+    validate_ring_pedersen(verifier_params, min_modulus_bits)?;
+    validate_pi_mod_witness(modulus, p, q, rng, min_modulus_bits)?;
+    validate_pi_fac_statement(modulus, security, min_modulus_bits)?;
+
+    let n_root = modulus.sqrt_ref().ok_or(AuxError::InvalidParameters)?;
+    let l_plus_epsilon = security
+        .l
+        .checked_add(security.epsilon)
+        .ok_or(AuxError::InvalidParameters)?;
+    let two_to_l = Integer::from(1u8) << security.l;
+    let two_to_l_plus_epsilon = Integer::from(1u8) << l_plus_epsilon;
+    let factor_upper_bound = &two_to_l * &n_root;
+    if p.cmp0().is_le()
+        || q.cmp0().is_le()
+        || p >= &factor_upper_bound
+        || q >= &factor_upper_bound
+    {
+        return Err(AuxError::InvalidParameters);
+    }
+
+    let alpha_range = &two_to_l_plus_epsilon * &n_root;
+    let mu_range = &two_to_l * &verifier_params.modulus;
+    let wide_aux_range = &two_to_l_plus_epsilon * &verifier_params.modulus;
+    let r_range = &wide_aux_range * modulus;
+
+    let alpha = sample_half_pm(rng, &alpha_range)?;
+    let beta = sample_half_pm(rng, &alpha_range)?;
+    let mu = sample_half_pm(rng, &mu_range)?;
+    let nu = sample_half_pm(rng, &mu_range)?;
+    let r = sample_half_pm(rng, &r_range)?;
+    let x = sample_half_pm(rng, &wide_aux_range)?;
+    let y = sample_half_pm(rng, &wide_aux_range)?;
+
+    let commitment_p = ring_pedersen_combine(verifier_params, p, &mu)?;
+    let commitment_q = ring_pedersen_combine(verifier_params, q, &nu)?;
+    let commitment_a = ring_pedersen_combine(verifier_params, &alpha, &x)?;
+    let commitment_b = ring_pedersen_combine(verifier_params, &beta, &y)?;
+    let commitment_t = verifier_params
+        .modulus
+        .combine(&commitment_q, &alpha, &verifier_params.t, &r)
+        .ok_or(AuxError::ModularExponentiation)?;
+    let commitment = PiFacCommitment {
+        p: commitment_p,
+        q: commitment_q,
+        a: commitment_a,
+        b: commitment_b,
+        t: commitment_t,
+    };
+
+    let challenge = pi_fac_challenge(
+        execution,
+        prover,
+        verifier,
+        shared_randomness,
+        verifier_params,
+        modulus,
+        &n_root,
+        &commitment,
+        security,
+    )?;
+    Ok(PiFacProof {
+        z1: &alpha + &challenge * p,
+        z2: &beta + &challenge * q,
+        w1: &x + &challenge * &mu,
+        w2: &y + &challenge * &nu,
+        v: &r - &challenge * (&nu * p),
+        commitment,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_pi_fac_inner(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    shared_randomness: &[u8; SHARED_RANDOMNESS_BYTES],
+    modulus: &Integer,
+    verifier_params: &RingPedersenParams,
+    proof: &PiFacProof,
+    security: PiFacSecurity,
+    min_modulus_bits: u64,
+) -> Result<(), AuxError> {
+    // Check all cheap public domains and response bounds before proof-body
+    // exponentiation. This also bounds the two secret-factor response
+    // exponents an attacker can make us process.
+    validate_ring_pedersen(verifier_params, min_modulus_bits)?;
+    validate_pi_fac_statement(modulus, security, min_modulus_bits)?;
+    for commitment in [
+        &proof.commitment.p,
+        &proof.commitment.q,
+        &proof.commitment.a,
+        &proof.commitment.b,
+        &proof.commitment.t,
+    ] {
+        if !commitment.in_mult_group_of(&verifier_params.modulus) {
+            return Err(AuxError::InvalidPiFac);
+        }
+    }
+
+    let n_root = modulus.sqrt_ref().ok_or(AuxError::InvalidPiFac)?;
+    let l_plus_epsilon = security
+        .l
+        .checked_add(security.epsilon)
+        .ok_or(AuxError::InvalidPiFac)?;
+    let response_range = (Integer::from(1u8) << l_plus_epsilon) * &n_root;
+    if !is_in_half_pm(&proof.z1, &response_range)
+        || !is_in_half_pm(&proof.z2, &response_range)
+    {
+        return Err(AuxError::InvalidPiFac);
+    }
+
+    let challenge = pi_fac_challenge(
+        execution,
+        prover,
+        verifier,
+        shared_randomness,
+        verifier_params,
+        modulus,
+        &n_root,
+        &proof.commitment,
+        security,
+    )?;
+
+    let lhs = ring_pedersen_combine(verifier_params, &proof.z1, &proof.w1)
+        .map_err(|_| AuxError::InvalidPiFac)?;
+    let p_to_challenge = proof
+        .commitment
+        .p
+        .pow_mod_ref(&challenge, &verifier_params.modulus)
+        .ok_or(AuxError::InvalidPiFac)?;
+    let rhs = (&proof.commitment.a * p_to_challenge).modulo(&verifier_params.modulus);
+    if lhs != rhs || !lhs.in_mult_group_of(&verifier_params.modulus) {
+        return Err(AuxError::InvalidPiFac);
+    }
+
+    let lhs = ring_pedersen_combine(verifier_params, &proof.z2, &proof.w2)
+        .map_err(|_| AuxError::InvalidPiFac)?;
+    let q_to_challenge = proof
+        .commitment
+        .q
+        .pow_mod_ref(&challenge, &verifier_params.modulus)
+        .ok_or(AuxError::InvalidPiFac)?;
+    let rhs = (&proof.commitment.b * q_to_challenge).modulo(&verifier_params.modulus);
+    if lhs != rhs || !lhs.in_mult_group_of(&verifier_params.modulus) {
+        return Err(AuxError::InvalidPiFac);
+    }
+
+    let s_to_n = verifier_params
+        .s
+        .pow_mod_ref(modulus, &verifier_params.modulus)
+        .ok_or(AuxError::InvalidPiFac)?;
+    let lhs = verifier_params
+        .modulus
+        .combine(
+            &proof.commitment.q,
+            &proof.z1,
+            &verifier_params.t,
+            &proof.v,
+        )
+        .ok_or(AuxError::InvalidPiFac)?;
+    let r_to_challenge = s_to_n
+        .pow_mod_ref(&challenge, &verifier_params.modulus)
+        .ok_or(AuxError::InvalidPiFac)?;
+    let rhs = (&proof.commitment.t * r_to_challenge).modulo(&verifier_params.modulus);
+    if lhs != rhs || !lhs.in_mult_group_of(&verifier_params.modulus) {
+        return Err(AuxError::InvalidPiFac);
+    }
+    Ok(())
+}
+
+fn validate_pi_fac_statement(
+    modulus: &Integer,
+    security: PiFacSecurity,
+    min_modulus_bits: u64,
+) -> Result<(), AuxError> {
+    if modulus.significant_bits() < min_modulus_bits {
+        return Err(AuxError::ModulusTooSmall);
+    }
+    if modulus.cmp0().is_le() || modulus.is_even() || security.l == 0 {
+        return Err(AuxError::InvalidPiFac);
+    }
+    let required_bits = security
+        .l
+        .checked_mul(4)
+        .and_then(|bits| u64::try_from(bits).ok())
+        .ok_or(AuxError::InvalidPiFac)?;
+    if modulus.significant_bits() < required_bits {
+        return Err(AuxError::InvalidPiFac);
+    }
+    security
+        .l
+        .checked_add(security.epsilon)
+        .ok_or(AuxError::InvalidPiFac)?;
+    Ok(())
+}
+
+fn ring_pedersen_combine(
+    params: &RingPedersenParams,
+    s_exponent: &Integer,
+    t_exponent: &Integer,
+) -> Result<Integer, AuxError> {
+    params
+        .modulus
+        .combine(&params.s, s_exponent, &params.t, t_exponent)
+        .ok_or(AuxError::ModularExponentiation)
+}
+
+fn sample_half_pm(rng: &mut impl RngCore, range: &Integer) -> Result<Integer, AuxError> {
+    if range.cmp0().is_le() {
+        return Err(AuxError::InvalidParameters);
+    }
+    let half = range >> 1u8;
+    if range.is_even() {
+        Ok((range + 1u8).random_below(rng) - half)
+    } else {
+        Ok(range.random_below_ref(rng) - half)
+    }
+}
+
+fn is_in_half_pm(value: &Integer, range: &Integer) -> bool {
+    let bound = range >> 1u8;
+    value.cmp_abs(&bound).is_le()
+}
+
 fn validate_pi_mod_witness(
     modulus: &Integer,
     p: &Integer,
@@ -616,6 +968,43 @@ fn pi_mod_challenges(
     [(); PI_MOD_REPETITIONS].map(|()| Integer::sample_in_mult_group_of(&mut rng, modulus))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn pi_fac_challenge(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    shared_randomness: &[u8; SHARED_RANDOMNESS_BYTES],
+    verifier_params: &RingPedersenParams,
+    modulus: &Integer,
+    n_root: &Integer,
+    commitment: &PiFacCommitment,
+    security: PiFacSecurity,
+) -> Result<Integer, AuxError> {
+    let mut hasher = Sha256::new();
+    hasher.update(PI_FAC_TAG);
+    hasher.update(execution.digest());
+    hasher.update(prover.get().to_be_bytes());
+    hasher.update(verifier.get().to_be_bytes());
+    hasher.update((SHARED_RANDOMNESS_BYTES as u64).to_be_bytes());
+    hasher.update(shared_randomness);
+    hasher.update((security.l as u64).to_be_bytes());
+    hasher.update((security.epsilon as u64).to_be_bytes());
+    transcript_integer(&mut hasher, &verifier_params.modulus);
+    transcript_integer(&mut hasher, &verifier_params.s);
+    transcript_integer(&mut hasher, &verifier_params.t);
+    transcript_integer(&mut hasher, modulus);
+    transcript_integer(&mut hasher, n_root);
+    transcript_integer(&mut hasher, &commitment.p);
+    transcript_integer(&mut hasher, &commitment.q);
+    transcript_integer(&mut hasher, &commitment.a);
+    transcript_integer(&mut hasher, &commitment.b);
+    transcript_integer(&mut hasher, &commitment.t);
+    let seed: [u8; 32] = hasher.finalize().into();
+    let mut rng = HashStreamRng::new(seed);
+    let challenge_range = Integer::from(1u8) << security.l;
+    sample_half_pm(&mut rng, &challenge_range).map_err(|_| AuxError::InvalidPiFac)
+}
+
 fn transcript_integer(hasher: &mut Sha256, value: &Integer) {
     let bytes = value.to_bytes_msf();
     hasher.update((bytes.len() as u64).to_be_bytes());
@@ -694,6 +1083,8 @@ impl RngCore for HashStreamRng {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_PI_FAC_SECURITY: PiFacSecurity = PiFacSecurity { l: 2, epsilon: 32 };
 
     fn small_candidate(execution: ExecutionId) -> (AuxPrivate, CandidateAuxPublic) {
         let mut rng = OsRng;
@@ -839,6 +1230,125 @@ mod tests {
     }
 
     #[test]
+    fn pi_fac_accepts_honest_factors_and_binds_peer_context() {
+        let execution = ExecutionId::new(b"aux-pi-fac").unwrap();
+        let (private, public) = small_candidate(execution);
+        let verifier = ParticipantId::new(2).unwrap();
+        let rho = [0xa6u8; SHARED_RANDOMNESS_BYTES];
+        let mut rng = OsRng;
+        let proof = prove_pi_fac_inner(
+            execution,
+            public.participant,
+            verifier,
+            &rho,
+            private.paillier.n(),
+            private.paillier.p(),
+            private.paillier.q(),
+            &public.ring_pedersen,
+            &mut rng,
+            TEST_PI_FAC_SECURITY,
+            1,
+        )
+        .unwrap();
+        verify_pi_fac_inner(
+            execution,
+            public.participant,
+            verifier,
+            &rho,
+            private.paillier.n(),
+            &public.ring_pedersen,
+            &proof,
+            TEST_PI_FAC_SECURITY,
+            1,
+        )
+        .unwrap();
+
+        // Exercise peer/rho transcript binding with the production challenge
+        // width so collision probability is cryptographically negligible even
+        // though the algebraic test above intentionally uses tiny integers.
+        let n_root = private.paillier.n().sqrt_ref().unwrap();
+        let challenge = pi_fac_challenge(
+            execution,
+            public.participant,
+            verifier,
+            &rho,
+            &public.ring_pedersen,
+            private.paillier.n(),
+            &n_root,
+            &proof.commitment,
+            PiFacSecurity::PRODUCTION,
+        )
+        .unwrap();
+        let other_verifier = ParticipantId::new(3).unwrap();
+        let peer_challenge = pi_fac_challenge(
+            execution,
+            public.participant,
+            other_verifier,
+            &rho,
+            &public.ring_pedersen,
+            private.paillier.n(),
+            &n_root,
+            &proof.commitment,
+            PiFacSecurity::PRODUCTION,
+        )
+        .unwrap();
+        assert_ne!(challenge, peer_challenge);
+
+        let other_rho = [0x6au8; SHARED_RANDOMNESS_BYTES];
+        let rho_challenge = pi_fac_challenge(
+            execution,
+            public.participant,
+            verifier,
+            &other_rho,
+            &public.ring_pedersen,
+            private.paillier.n(),
+            &n_root,
+            &proof.commitment,
+            PiFacSecurity::PRODUCTION,
+        )
+        .unwrap();
+        assert_ne!(challenge, rho_challenge);
+    }
+
+    #[test]
+    fn pi_fac_rejects_tampered_factor_response() {
+        let execution = ExecutionId::new(b"aux-pi-fac-tamper").unwrap();
+        let (private, public) = small_candidate(execution);
+        let verifier = ParticipantId::new(2).unwrap();
+        let rho = [0x3cu8; SHARED_RANDOMNESS_BYTES];
+        let mut rng = OsRng;
+        let mut proof = prove_pi_fac_inner(
+            execution,
+            public.participant,
+            verifier,
+            &rho,
+            private.paillier.n(),
+            private.paillier.p(),
+            private.paillier.q(),
+            &public.ring_pedersen,
+            &mut rng,
+            TEST_PI_FAC_SECURITY,
+            1,
+        )
+        .unwrap();
+        proof.z1 += Integer::from(1u8);
+        assert_eq!(
+            verify_pi_fac_inner(
+                execution,
+                public.participant,
+                verifier,
+                &rho,
+                private.paillier.n(),
+                &public.ring_pedersen,
+                &proof,
+                TEST_PI_FAC_SECURITY,
+                1,
+            ),
+            Err(AuxError::InvalidPiFac)
+        );
+    }
+
+    #[test]
     fn paillier_signed_plaintexts_and_homomorphic_addition_round_trip() {
         let execution = ExecutionId::new(b"aux-paillier-algebra").unwrap();
         let (private, _) = small_candidate(execution);
@@ -879,6 +1389,32 @@ mod tests {
             public.verify_pi_mod(execution, rho, &proof),
             Err(AuxError::ModulusTooSmall)
         );
+
+        let verifier = ParticipantId::new(2).unwrap();
+        let fac_proof = prove_pi_fac_inner(
+            execution,
+            public.participant,
+            verifier,
+            &rho,
+            private.paillier.n(),
+            private.paillier.p(),
+            private.paillier.q(),
+            &public.ring_pedersen,
+            &mut rng,
+            TEST_PI_FAC_SECURITY,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            public.verify_pi_fac(
+                execution,
+                verifier,
+                &public.ring_pedersen,
+                rho,
+                &fac_proof,
+            ),
+            Err(AuxError::ModulusTooSmall)
+        );
     }
 
     #[test]
@@ -887,6 +1423,8 @@ mod tests {
         assert_eq!(RSA_PUBLIC_MIN_BITS, 3071);
         assert_eq!(PI_PRM_REPETITIONS, 128);
         assert_eq!(PI_MOD_REPETITIONS, 128);
+        assert_eq!(PI_FAC_L_BITS, 256);
+        assert_eq!(PI_FAC_EPSILON_BITS, 512);
         assert_eq!(SHARED_RANDOMNESS_BYTES, 32);
     }
 }
