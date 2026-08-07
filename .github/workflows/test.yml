@@ -121,7 +121,7 @@ jobs:
       - name: Generate docs and verify API/docs authority boundaries
         working-directory: showcase
         run: |
-          node scripts/regen-docs.mjs
+          node scripts/regen-docs.mjs # exits nonzero if SUMMARY targets are missing or empty
           node scripts/gen-llms.mjs
           node scripts/check-doc-contract.mjs
 

@@ -255,7 +255,7 @@ If you created a managed wallet in step 2, hand the `quote_id` to `/swap/execute
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_..." \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: first-swap-001" \
+  -H "Idempotency-Key: first-swap-intent-001" \
   -d '{"quote_id": "0x9f3c..."}'
 ```
 ```typescript
@@ -264,7 +264,7 @@ const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
   headers: {
     "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
     "Content-Type": "application/json",
-    "Idempotency-Key": "first-swap-001",
+    "Idempotency-Key": "first-swap-intent-001",
   },
   body: JSON.stringify({ quote_id: "0x9f3c..." }),
 });
@@ -277,7 +277,7 @@ res = requests.post(
     "https://api.suwappu.bot/v1/agent/swap/execute",
     headers={
         "Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}",
-        "Idempotency-Key": "first-swap-001",
+        "Idempotency-Key": "first-swap-intent-001",
     },
     json={"quote_id": "0x9f3c..."},
 )
