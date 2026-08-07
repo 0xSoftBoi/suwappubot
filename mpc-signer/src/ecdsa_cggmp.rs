@@ -6,15 +6,18 @@
 //! - per-partial verification, final ECDSA verification, low-s normalization,
 //!   and recovery-ID derivation.
 //!
-//! `PresignatureShare` has no public constructor. That is a security boundary:
-//! the future Paillier/Ring-Pedersen presigning state machine must construct it
-//! only after all CGGMP zero-knowledge proofs and consistency equations pass.
+//! `PresignatureShare` has no public constructor. The Paillier/Ring-Pedersen
+//! presigning state machine constructs it only after all CGGMP zero-knowledge
+//! proofs and consistency equations pass. Presignatures can only sign a
+//! `KnownMessageDigest`, which requires the hash preimage at construction.
 
 use k256::{
     ecdsa::{signature::hazmat::PrehashVerifier, RecoveryId, Signature, VerifyingKey},
     elliptic_curve::{bigint::U256, ops::Reduce, sec1::ToEncodedPoint},
     FieldBytes, ProjectivePoint, Scalar,
 };
+use sha2::{Digest, Sha256};
+use sha3::Keccak256;
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -75,6 +78,10 @@ impl AdditiveSigningShare {
 
     pub(crate) fn secret_share_for_presign(&self) -> Scalar {
         self.secret_share
+    }
+
+    pub(crate) fn group_public_key_for_presign(&self) -> ProjectivePoint {
+        self.group_public_key
     }
 }
 
@@ -139,7 +146,38 @@ struct PresignatureCommitment {
     s_tilde: ProjectivePoint,
 }
 
+/// A digest whose preimage was supplied to this crate at construction time.
+///
+/// ECDSA presignatures must not sign arbitrary attacker-provided hashes. This
+/// type therefore has no raw-digest constructor: callers provide the canonical
+/// transaction/signing payload bytes and select the hash used by that chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KnownMessageDigest {
+    prehash: [u8; 32],
+}
+
+impl KnownMessageDigest {
+    /// Hash a known message/signing payload with SHA-256.
+    pub fn sha256(message: &[u8]) -> Self {
+        Self {
+            prehash: Sha256::digest(message).into(),
+        }
+    }
+
+    /// Hash a known EVM-style signing payload with legacy Keccak-256.
+    pub fn keccak256(message: &[u8]) -> Self {
+        Self {
+            prehash: Keccak256::digest(message).into(),
+        }
+    }
+
+    pub fn prehash_bytes(self) -> [u8; 32] {
+        self.prehash
+    }
+}
+
 /// Public output of a successfully verified presigning execution.
+#[derive(Clone)]
 pub struct PresignaturePublic {
     execution: [u8; 32],
     signing_pair: [ParticipantId; THRESHOLD],
@@ -156,6 +194,51 @@ pub struct PresignatureShare {
     identifier: ParticipantId,
     k_tilde: Scalar,
     chi_tilde: Scalar,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assemble_verified_presignature(
+    execution: [u8; 32],
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    gamma: ProjectivePoint,
+    commitments: [(ParticipantId, ProjectivePoint, ProjectivePoint); THRESHOLD],
+    group_public_key: ProjectivePoint,
+    k_tilde: Scalar,
+    chi_tilde: Scalar,
+) -> Result<(PresignaturePublic, PresignatureShare), EcdsaError> {
+    let commitments = commitments.map(|(identifier, delta_tilde, s_tilde)| {
+        PresignatureCommitment {
+            identifier,
+            delta_tilde,
+            s_tilde,
+        }
+    });
+    let public = PresignaturePublic {
+        execution,
+        signing_pair,
+        gamma,
+        commitments,
+        group_public_key,
+    };
+    validate_presignature_public(&public)?;
+    let commitment = public
+        .commitments
+        .iter()
+        .find(|commitment| commitment.identifier == identifier)
+        .ok_or(EcdsaError::PresignatureMismatch)?;
+    if gamma * k_tilde != commitment.delta_tilde || gamma * chi_tilde != commitment.s_tilde {
+        return Err(EcdsaError::PresignatureMismatch);
+    }
+    Ok((
+        public,
+        PresignatureShare {
+            execution,
+            identifier,
+            k_tilde,
+            chi_tilde,
+        },
+    ))
 }
 
 impl Drop for PresignatureShare {
@@ -201,12 +284,12 @@ impl ThresholdSignature {
     }
 }
 
-/// Issue one CGGMP partial signature. `prehash` is already the 32-byte digest
-/// required by the target chain; this function does not hash it again.
+/// Issue one CGGMP partial signature for a digest constructed from a known
+/// message/signing-payload preimage.
 pub fn issue_partial_signature(
     mut share: PresignatureShare,
     public: &PresignaturePublic,
-    prehash: [u8; 32],
+    message: KnownMessageDigest,
 ) -> Result<PartialSignature, EcdsaError> {
     validate_presignature_public(public)?;
     if share.execution != public.execution || !public.signing_pair.contains(&share.identifier) {
@@ -223,6 +306,7 @@ pub fn issue_partial_signature(
         return Err(EcdsaError::PresignatureMismatch);
     }
 
+    let prehash = message.prehash_bytes();
     let r = x_coordinate_to_scalar(&public.gamma)?;
     let m = prehash_to_scalar(prehash);
     let sigma = share.k_tilde * m + r * share.chi_tilde;
@@ -244,13 +328,14 @@ pub fn issue_partial_signature(
 /// verify it with k256, then derive the recovery ID against the DKG group key.
 pub fn aggregate_partial_signatures(
     public: &PresignaturePublic,
-    prehash: [u8; 32],
+    message: KnownMessageDigest,
     partials: &[PartialSignature],
 ) -> Result<ThresholdSignature, EcdsaError> {
     validate_presignature_public(public)?;
     if partials.len() != THRESHOLD {
         return Err(EcdsaError::InvalidPartialSet);
     }
+    let prehash = message.prehash_bytes();
     let r = x_coordinate_to_scalar(&public.gamma)?;
     let m = prehash_to_scalar(prehash);
     let mut sigma = Scalar::ZERO;
@@ -362,12 +447,14 @@ impl ParticipantScalar for ParticipantId {
 
 #[cfg(test)]
 mod tests {
-    use sha2::{Digest, Sha256};
-
     use super::*;
 
     fn simulated_verified_presignature(
-    ) -> (PresignaturePublic, [PresignatureShare; THRESHOLD], [u8; 32]) {
+    ) -> (
+        PresignaturePublic,
+        [PresignatureShare; THRESHOLD],
+        KnownMessageDigest,
+    ) {
         let id1 = ParticipantId::new(1).unwrap();
         let id2 = ParticipantId::new(2).unwrap();
         let signing_pair = [id1, id2];
@@ -417,44 +504,53 @@ mod tests {
                 chi_tilde: chi2,
             },
         ];
-        let prehash: [u8; 32] = Sha256::digest(b"native threshold ECDSA equation test").into();
-        (public, shares, prehash)
+        let message = KnownMessageDigest::sha256(b"native threshold ECDSA equation test");
+        (public, shares, message)
     }
 
     #[test]
     fn verified_presignature_outputs_a_standard_recoverable_ecdsa_signature() {
-        let (public, shares, prehash) = simulated_verified_presignature();
+        let (public, shares, message) = simulated_verified_presignature();
         let partials: Vec<_> = shares
             .into_iter()
-            .map(|share| issue_partial_signature(share, &public, prehash).unwrap())
+            .map(|share| issue_partial_signature(share, &public, message).unwrap())
             .collect();
-        let signature = aggregate_partial_signatures(&public, prehash, &partials).unwrap();
+        let signature = aggregate_partial_signatures(&public, message, &partials).unwrap();
         assert!(signature.recovery_id() <= 3);
         assert_ne!(signature.to_bytes(), [0u8; 64]);
     }
 
     #[test]
     fn tampered_partial_is_rejected_before_aggregation() {
-        let (public, shares, prehash) = simulated_verified_presignature();
+        let (public, shares, message) = simulated_verified_presignature();
         let mut partials: Vec<_> = shares
             .into_iter()
-            .map(|share| issue_partial_signature(share, &public, prehash).unwrap())
+            .map(|share| issue_partial_signature(share, &public, message).unwrap())
             .collect();
         partials[1].sigma += Scalar::ONE;
         assert_eq!(
-            aggregate_partial_signatures(&public, prehash, &partials),
+            aggregate_partial_signatures(&public, message, &partials),
             Err(EcdsaError::InvalidPartialSignature(2))
         );
     }
 
     #[test]
     fn private_presignature_must_match_its_public_commitments() {
-        let (mut public, shares, prehash) = simulated_verified_presignature();
+        let (mut public, shares, message) = simulated_verified_presignature();
         public.commitments[0].delta_tilde += ProjectivePoint::GENERATOR;
         let mut shares = shares.into_iter();
         assert_eq!(
-            issue_partial_signature(shares.next().unwrap(), &public, prehash),
+            issue_partial_signature(shares.next().unwrap(), &public, message),
             Err(EcdsaError::PresignatureMismatch)
         );
+    }
+
+    #[test]
+    fn known_message_digest_hashes_the_supplied_preimage() {
+        let sha = KnownMessageDigest::sha256(b"known payload");
+        let keccak = KnownMessageDigest::keccak256(b"known payload");
+        assert_ne!(sha.prehash_bytes(), keccak.prehash_bytes());
+        assert_ne!(sha.prehash_bytes(), [0u8; 32]);
+        assert_ne!(keccak.prehash_bytes(), [0u8; 32]);
     }
 }

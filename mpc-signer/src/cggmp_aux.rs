@@ -14,7 +14,7 @@
 use fast_paillier::{
     backend::{Integer, IsPrime},
     utils::CrtExp,
-    DecryptionKey, EncryptionKey,
+    Ciphertext, DecryptionKey, EncryptionKey,
 };
 use rand_core::{CryptoRng, OsRng, RngCore};
 use sha2::{Digest, Sha256};
@@ -421,6 +421,16 @@ impl VerifiedAuxSet {
 
     pub fn local_paillier_modulus_bytes(&self) -> Vec<u8> {
         self.private.paillier_modulus_bytes()
+    }
+
+    /// Decrypt one already-verified presigning MtA ciphertext with the local
+    /// Paillier key. Keeping this operation on `VerifiedAuxSet` prevents the
+    /// private factors from escaping their auxiliary-protocol boundary.
+    pub(crate) fn decrypt_presign(&self, ciphertext: &Ciphertext) -> Result<Integer, AuxError> {
+        self.private
+            .paillier
+            .decrypt(ciphertext)
+            .map_err(|_| AuxError::Paillier)
     }
 }
 

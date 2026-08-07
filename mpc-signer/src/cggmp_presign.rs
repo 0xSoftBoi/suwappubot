@@ -17,7 +17,10 @@ use zeroize::Zeroize;
 
 use crate::{
     cggmp_aux::{RingPedersenParams, VerifiedAuxSet},
-    ecdsa_cggmp::AdditiveSigningShare,
+    ecdsa_cggmp::{
+        assemble_verified_presignature, AdditiveSigningShare, EcdsaError, PresignaturePublic,
+        PresignatureShare,
+    },
     secp256k1_dkg::{ExecutionId, ParticipantId, THRESHOLD},
 };
 
@@ -82,10 +85,24 @@ pub enum PresignStateError {
     EchoMismatch,
     #[error("participant {0} supplied an invalid round-one PiEncElg proof")]
     InvalidRound1Proof(u16),
-    #[error("Paillier operation failed while building presigning round one")]
+    #[error("round-two MtA metadata or public data is invalid")]
+    InvalidRound2Message,
+    #[error("participant {0} supplied an invalid round-two presigning proof")]
+    InvalidRound2Proof(u16),
+    #[error("round-three consistency metadata or public data is invalid")]
+    InvalidRound3Message,
+    #[error("participant {0} supplied an invalid round-three PiElog proof")]
+    InvalidRound3Proof(u16),
+    #[error("final CGGMP delta/Delta/S consistency equations do not hold")]
+    ConsistencyMismatch,
+    #[error("presigning reached a negligible zero/identity output and must restart")]
+    DegeneratePresignature,
+    #[error("Paillier operation failed while building or verifying presigning")]
     Paillier,
     #[error(transparent)]
     Proof(#[from] PresignProofError),
+    #[error(transparent)]
+    Ecdsa(#[from] EcdsaError),
 }
 
 /// Distinguishes the two first-round proofs so a proof for `k_i` cannot be
@@ -458,6 +475,7 @@ pub struct PresignRound1State {
     identifier: ParticipantId,
     signing_pair: [ParticipantId; THRESHOLD],
     peer: ParticipantId,
+    group_public_key: ProjectivePoint,
     secrets: PresignSecrets,
     local: PresignRound1Broadcast,
 }
@@ -470,6 +488,7 @@ pub struct PresignRound1Received {
     identifier: ParticipantId,
     signing_pair: [ParticipantId; THRESHOLD],
     peer: ParticipantId,
+    group_public_key: ProjectivePoint,
     secrets: PresignSecrets,
     local: PresignRound1Broadcast,
     peer_broadcast: PresignRound1Broadcast,
@@ -485,9 +504,7 @@ pub struct PresignRound1Verified {
     identifier: ParticipantId,
     signing_pair: [ParticipantId; THRESHOLD],
     peer: ParticipantId,
-    // Intentionally opaque until the next MtA type-state transition consumes
-    // these secrets; there is no accessor that can turn them into a presig.
-    #[allow(dead_code)]
+    group_public_key: ProjectivePoint,
     secrets: PresignSecrets,
     local: PresignRound1Broadcast,
     peer_broadcast: PresignRound1Broadcast,
@@ -523,6 +540,145 @@ impl PresignRound1Verified {
     }
 }
 
+/// Point-to-point CGGMP24 round-two MtA message. Both affine proofs are
+/// verifier-specific and therefore bound to `recipient`.
+#[derive(Clone, Debug)]
+pub struct PresignRound2Message {
+    execution: [u8; 32],
+    participant: ParticipantId,
+    recipient: ParticipantId,
+    gamma: ProjectivePoint,
+    d: Ciphertext,
+    f: Ciphertext,
+    hat_d: Ciphertext,
+    hat_f: Ciphertext,
+    tilde_psi: PiElogProof,
+    psi: PiAffProof,
+    hat_psi: PiAffProof,
+}
+
+impl PresignRound2Message {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn participant(&self) -> ParticipantId {
+        self.participant
+    }
+
+    pub fn recipient(&self) -> ParticipantId {
+        self.recipient
+    }
+
+    pub fn gamma_bytes(&self) -> Result<[u8; 33], PresignProofError> {
+        encode_point(&self.gamma)
+    }
+
+    pub fn ciphertext_bytes(&self) -> [Vec<u8>; 4] {
+        [
+            self.d.to_bytes_msf(),
+            self.f.to_bytes_msf(),
+            self.hat_d.to_bytes_msf(),
+            self.hat_f.to_bytes_msf(),
+        ]
+    }
+
+    pub fn gamma_proof(&self) -> &PiElogProof {
+        &self.tilde_psi
+    }
+
+    pub fn affine_gamma_proof(&self) -> &PiAffProof {
+        &self.psi
+    }
+
+    pub fn affine_signing_share_proof(&self) -> &PiAffProof {
+        &self.hat_psi
+    }
+}
+
+struct PresignRound2Secrets {
+    presign: PresignSecrets,
+    beta_i: Scalar,
+    hat_beta_i: Scalar,
+}
+
+impl Drop for PresignRound2Secrets {
+    fn drop(&mut self) {
+        self.beta_i.zeroize();
+        self.hat_beta_i.zeroize();
+    }
+}
+
+/// Local type-state after emitting the verifier-specific MtA message. The
+/// state cannot advance until every proof in the peer message has verified.
+pub struct PresignRound2State {
+    execution: ExecutionId,
+    aux_execution: [u8; 32],
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    peer: ParticipantId,
+    group_public_key: ProjectivePoint,
+    secrets: PresignRound2Secrets,
+    local_round1: PresignRound1Broadcast,
+    peer_round1: PresignRound1Broadcast,
+    local: PresignRound2Message,
+}
+
+/// Broadcast CGGMP24 round-three consistency message.
+#[derive(Clone, Debug)]
+pub struct PresignRound3Broadcast {
+    execution: [u8; 32],
+    participant: ParticipantId,
+    delta: Scalar,
+    s: ProjectivePoint,
+    delta_point: ProjectivePoint,
+    psi_prime: PiElogProof,
+}
+
+impl PresignRound3Broadcast {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn participant(&self) -> ParticipantId {
+        self.participant
+    }
+
+    pub fn delta_bytes(&self) -> [u8; 32] {
+        self.delta.to_bytes().into()
+    }
+
+    pub fn consistency_proof(&self) -> &PiElogProof {
+        &self.psi_prime
+    }
+}
+
+struct PresignFinalSecrets {
+    k_i: Scalar,
+    chi_i: Scalar,
+}
+
+impl Drop for PresignFinalSecrets {
+    fn drop(&mut self) {
+        self.k_i.zeroize();
+        self.chi_i.zeroize();
+    }
+}
+
+/// State after verified MtA decryption and local round-three proof creation.
+/// Only the final global consistency equations can release a presignature.
+pub struct PresignRound3State {
+    execution: ExecutionId,
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    peer: ParticipantId,
+    group_public_key: ProjectivePoint,
+    gamma: ProjectivePoint,
+    secrets: PresignFinalSecrets,
+    peer_round1: PresignRound1Broadcast,
+    local: PresignRound3Broadcast,
+}
+
 #[derive(Clone, Copy)]
 struct PiEncElgSecurity {
     l: usize,
@@ -555,6 +711,19 @@ impl PiEncElgSecurity {
 struct PresignRound1Security {
     pi_enc_elg: PiEncElgSecurity,
     min_modulus_bits: u64,
+}
+
+#[derive(Clone, Copy)]
+struct PresignRound2Security {
+    pi_aff: PiAffSecurity,
+    min_modulus_bits: u64,
+}
+
+impl PresignRound2Security {
+    const PRODUCTION: Self = Self {
+        pi_aff: PiAffSecurity::PRODUCTION,
+        min_modulus_bits: crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
+    };
 }
 
 impl PresignRound1Security {
@@ -813,6 +982,7 @@ pub fn presign_round1_receive(
         identifier: state.identifier,
         signing_pair: state.signing_pair,
         peer: state.peer,
+        group_public_key: state.group_public_key,
         secrets: state.secrets,
         local: state.local,
         peer_broadcast,
@@ -830,6 +1000,439 @@ pub fn presign_round1_finalize(
     aux: &VerifiedAuxSet,
 ) -> Result<PresignRound1Verified, PresignStateError> {
     presign_round1_finalize_inner(state, echoes, aux, PresignRound1Security::PRODUCTION)
+}
+
+/// Consume verified round one and construct the verifier-specific MtA message
+/// for the other signer. No decryption or presignature output occurs here.
+pub fn presign_round2_begin(
+    state: PresignRound1Verified,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+) -> Result<(PresignRound2State, PresignRound2Message), PresignStateError> {
+    presign_round2_begin_inner(state, aux, rng, PresignRound2Security::PRODUCTION)
+}
+
+/// Verify every peer round-two proof before decrypting its MtA ciphertexts,
+/// then construct the local round-three consistency proof.
+pub fn presign_round2_finalize(
+    state: PresignRound2State,
+    peer_message: PresignRound2Message,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+) -> Result<(PresignRound3State, PresignRound3Broadcast), PresignStateError> {
+    presign_round2_finalize_inner(
+        state,
+        peer_message,
+        aux,
+        rng,
+        PresignRound2Security::PRODUCTION,
+    )
+}
+
+/// Verify the peer's round-three proof and the two global CGGMP consistency
+/// equations. This is the only presigning transition that can construct a
+/// `PresignatureShare`.
+pub fn presign_round3_finalize(
+    state: PresignRound3State,
+    peer_message: PresignRound3Broadcast,
+) -> Result<(PresignaturePublic, PresignatureShare), PresignStateError> {
+    if peer_message.execution != state.execution.digest()
+        || peer_message.participant != state.peer
+        || peer_message.delta_point == ProjectivePoint::IDENTITY
+    {
+        return Err(PresignStateError::InvalidRound3Message);
+    }
+
+    let peer_statement = PiElogStatement::new(
+        state.peer_round1.a1,
+        state.peer_round1.a2,
+        state.peer_round1.y,
+        peer_message.delta_point,
+        state.gamma,
+    );
+    if verify_pi_elog(
+        state.execution,
+        state.peer,
+        PiElogKind::PresignatureConsistency,
+        &peer_statement,
+        &peer_message.psi_prime,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound3Proof(state.peer.get()));
+    }
+
+    let delta = state.local.delta + peer_message.delta;
+    if delta == Scalar::ZERO {
+        return Err(PresignStateError::DegeneratePresignature);
+    }
+    let delta_point = state.local.delta_point + peer_message.delta_point;
+    let s = state.local.s + peer_message.s;
+    if ProjectivePoint::GENERATOR * delta != delta_point
+        || state.group_public_key * delta != s
+    {
+        return Err(PresignStateError::ConsistencyMismatch);
+    }
+
+    let delta_inverse: Option<Scalar> = delta.invert().into();
+    let delta_inverse = delta_inverse.ok_or(PresignStateError::DegeneratePresignature)?;
+    let k_tilde = state.secrets.k_i * delta_inverse;
+    let chi_tilde = state.secrets.chi_i * delta_inverse;
+    if k_tilde == Scalar::ZERO || chi_tilde == Scalar::ZERO {
+        return Err(PresignStateError::DegeneratePresignature);
+    }
+
+    let (first, second) = if state.identifier == state.signing_pair[0] {
+        (&state.local, &peer_message)
+    } else {
+        (&peer_message, &state.local)
+    };
+    let commitments = [
+        (
+            state.signing_pair[0],
+            first.delta_point * delta_inverse,
+            first.s * delta_inverse,
+        ),
+        (
+            state.signing_pair[1],
+            second.delta_point * delta_inverse,
+            second.s * delta_inverse,
+        ),
+    ];
+    assemble_verified_presignature(
+        state.execution.digest(),
+        state.identifier,
+        state.signing_pair,
+        state.gamma,
+        commitments,
+        state.group_public_key,
+        k_tilde,
+        chi_tilde,
+    )
+    .map_err(PresignStateError::from)
+}
+
+fn presign_round2_begin_inner(
+    state: PresignRound1Verified,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+    security: PresignRound2Security,
+) -> Result<(PresignRound2State, PresignRound2Message), PresignStateError> {
+    validate_aux_binding(
+        state.identifier,
+        state.aux_execution,
+        aux,
+        PresignStateError::AuxiliaryMismatch,
+    )?;
+    let local_aux = aux.public_for(state.identifier);
+    let peer_aux = aux.public_for(state.peer);
+    let local_key = &local_aux.paillier;
+    let peer_key = &peer_aux.paillier;
+
+    let gamma = ProjectivePoint::GENERATOR * state.secrets.gamma_i;
+    if gamma == ProjectivePoint::IDENTITY {
+        return Err(PresignStateError::DegeneratePresignature);
+    }
+    let tilde_statement = PiElogStatement::new(
+        state.local.b1,
+        state.local.b2,
+        state.local.y,
+        gamma,
+        ProjectivePoint::GENERATOR,
+    );
+    let tilde_psi = prove_pi_elog(
+        state.execution,
+        state.identifier,
+        PiElogKind::GammaShare,
+        &tilde_statement,
+        state.secrets.gamma_i,
+        state.secrets.b_i,
+        rng,
+    )?;
+
+    let beta_range = Integer::from(1u8) << security.pi_aff.l_y;
+    let beta = sample_half_pm(rng, &beta_range)?;
+    let hat_beta = sample_half_pm(rng, &beta_range)?;
+    let beta_i = integer_to_scalar(&beta);
+    let hat_beta_i = integer_to_scalar(&hat_beta);
+    let neg_beta = -beta.clone();
+    let neg_hat_beta = -hat_beta.clone();
+
+    let r = Integer::sample_in_mult_group_of(rng, local_key.n());
+    let hat_r = Integer::sample_in_mult_group_of(rng, local_key.n());
+    let s_nonce = Integer::sample_in_mult_group_of(rng, peer_key.n());
+    let hat_s = Integer::sample_in_mult_group_of(rng, peer_key.n());
+
+    let gamma_integer = scalar_to_centered_integer(state.secrets.gamma_i);
+    let gamma_at_peer_k = peer_key
+        .omul(&gamma_integer, &state.peer_broadcast.k)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let neg_beta_encrypted = peer_key
+        .encrypt_with(&neg_beta, &s_nonce)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let d = peer_key
+        .oadd(&gamma_at_peer_k, &neg_beta_encrypted)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let f = local_key
+        .encrypt_with(&neg_beta, &r)
+        .map_err(|_| PresignStateError::Paillier)?;
+
+    let x_integer = scalar_to_centered_integer(state.secrets.x_i);
+    let x_at_peer_k = peer_key
+        .omul(&x_integer, &state.peer_broadcast.k)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let neg_hat_beta_encrypted = peer_key
+        .encrypt_with(&neg_hat_beta, &hat_s)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let hat_d = peer_key
+        .oadd(&x_at_peer_k, &neg_hat_beta_encrypted)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let hat_f = local_key
+        .encrypt_with(&neg_hat_beta, &hat_r)
+        .map_err(|_| PresignStateError::Paillier)?;
+
+    let gamma_statement = PiAffStatement::new(
+        state.peer_broadcast.k.clone(),
+        d.clone(),
+        f.clone(),
+        gamma,
+    );
+    let psi = prove_pi_aff_inner(
+        state.execution,
+        state.identifier,
+        state.peer,
+        PiAffKind::GammaShare,
+        peer_aux.ring_pedersen(),
+        peer_key,
+        local_key,
+        &gamma_statement,
+        &gamma_integer,
+        &neg_beta,
+        &s_nonce,
+        &r,
+        rng,
+        security.pi_aff,
+        security.min_modulus_bits,
+    )?;
+    let public_share = ProjectivePoint::GENERATOR * state.secrets.x_i;
+    let share_statement = PiAffStatement::new(
+        state.peer_broadcast.k.clone(),
+        hat_d.clone(),
+        hat_f.clone(),
+        public_share,
+    );
+    let hat_psi = prove_pi_aff_inner(
+        state.execution,
+        state.identifier,
+        state.peer,
+        PiAffKind::SigningShare,
+        peer_aux.ring_pedersen(),
+        peer_key,
+        local_key,
+        &share_statement,
+        &x_integer,
+        &neg_hat_beta,
+        &hat_s,
+        &hat_r,
+        rng,
+        security.pi_aff,
+        security.min_modulus_bits,
+    )?;
+
+    let local = PresignRound2Message {
+        execution: state.execution.digest(),
+        participant: state.identifier,
+        recipient: state.peer,
+        gamma,
+        d,
+        f,
+        hat_d,
+        hat_f,
+        tilde_psi,
+        psi,
+        hat_psi,
+    };
+    let outbound = local.clone();
+    Ok((
+        PresignRound2State {
+            execution: state.execution,
+            aux_execution: state.aux_execution,
+            identifier: state.identifier,
+            signing_pair: state.signing_pair,
+            peer: state.peer,
+            group_public_key: state.group_public_key,
+            secrets: PresignRound2Secrets {
+                presign: state.secrets,
+                beta_i,
+                hat_beta_i,
+            },
+            local_round1: state.local,
+            peer_round1: state.peer_broadcast,
+            local,
+        },
+        outbound,
+    ))
+}
+
+fn presign_round2_finalize_inner(
+    state: PresignRound2State,
+    peer_message: PresignRound2Message,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+    security: PresignRound2Security,
+) -> Result<(PresignRound3State, PresignRound3Broadcast), PresignStateError> {
+    validate_aux_binding(
+        state.identifier,
+        state.aux_execution,
+        aux,
+        PresignStateError::AuxiliaryMismatch,
+    )?;
+    let local_aux = aux.public_for(state.identifier);
+    let peer_aux = aux.public_for(state.peer);
+    let local_key = &local_aux.paillier;
+    let peer_key = &peer_aux.paillier;
+    if !round2_message_is_valid(
+        &peer_message,
+        state.execution.digest(),
+        state.peer,
+        state.identifier,
+        local_key,
+        peer_key,
+    ) {
+        return Err(PresignStateError::InvalidRound2Message);
+    }
+
+    let tilde_statement = PiElogStatement::new(
+        state.peer_round1.b1,
+        state.peer_round1.b2,
+        state.peer_round1.y,
+        peer_message.gamma,
+        ProjectivePoint::GENERATOR,
+    );
+    if verify_pi_elog(
+        state.execution,
+        state.peer,
+        PiElogKind::GammaShare,
+        &tilde_statement,
+        &peer_message.tilde_psi,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound2Proof(state.peer.get()));
+    }
+
+    let gamma_statement = PiAffStatement::new(
+        state.local_round1.k.clone(),
+        peer_message.d.clone(),
+        peer_message.f.clone(),
+        peer_message.gamma,
+    );
+    if verify_pi_aff_inner(
+        state.execution,
+        state.peer,
+        state.identifier,
+        PiAffKind::GammaShare,
+        local_aux.ring_pedersen(),
+        local_key,
+        peer_key,
+        &gamma_statement,
+        &peer_message.psi,
+        security.pi_aff,
+        security.min_modulus_bits,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound2Proof(state.peer.get()));
+    }
+
+    let peer_public_share =
+        state.group_public_key - ProjectivePoint::GENERATOR * state.secrets.presign.x_i;
+    if peer_public_share == ProjectivePoint::IDENTITY {
+        return Err(PresignStateError::InvalidSigningContext);
+    }
+    let share_statement = PiAffStatement::new(
+        state.local_round1.k.clone(),
+        peer_message.hat_d.clone(),
+        peer_message.hat_f.clone(),
+        peer_public_share,
+    );
+    if verify_pi_aff_inner(
+        state.execution,
+        state.peer,
+        state.identifier,
+        PiAffKind::SigningShare,
+        local_aux.ring_pedersen(),
+        local_key,
+        peer_key,
+        &share_statement,
+        &peer_message.hat_psi,
+        security.pi_aff,
+        security.min_modulus_bits,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound2Proof(state.peer.get()));
+    }
+
+    // Decryption is deliberately after all three peer proof verifications.
+    let alpha = aux
+        .decrypt_presign(&peer_message.d)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let hat_alpha = aux
+        .decrypt_presign(&peer_message.hat_d)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let alpha = integer_to_scalar(&alpha);
+    let hat_alpha = integer_to_scalar(&hat_alpha);
+
+    let gamma = state.local.gamma + peer_message.gamma;
+    if gamma == ProjectivePoint::IDENTITY {
+        return Err(PresignStateError::DegeneratePresignature);
+    }
+    let k_i = state.secrets.presign.k_i;
+    let delta_point = gamma * k_i;
+    let delta = state.secrets.presign.gamma_i * k_i + alpha + state.secrets.beta_i;
+    let chi_i = state.secrets.presign.x_i * k_i + hat_alpha + state.secrets.hat_beta_i;
+    let s = gamma * chi_i;
+
+    let consistency_statement = PiElogStatement::new(
+        state.local_round1.a1,
+        state.local_round1.a2,
+        state.local_round1.y,
+        delta_point,
+        gamma,
+    );
+    let psi_prime = prove_pi_elog(
+        state.execution,
+        state.identifier,
+        PiElogKind::PresignatureConsistency,
+        &consistency_statement,
+        k_i,
+        state.secrets.presign.a_i,
+        rng,
+    )?;
+    let local = PresignRound3Broadcast {
+        execution: state.execution.digest(),
+        participant: state.identifier,
+        delta,
+        s,
+        delta_point,
+        psi_prime,
+    };
+    let outbound = local.clone();
+    Ok((
+        PresignRound3State {
+            execution: state.execution,
+            identifier: state.identifier,
+            signing_pair: state.signing_pair,
+            peer: state.peer,
+            group_public_key: state.group_public_key,
+            gamma,
+            secrets: PresignFinalSecrets { k_i, chi_i },
+            peer_round1: state.peer_round1.clone(),
+            local,
+        },
+        outbound,
+    ))
 }
 
 fn presign_round1_begin_inner(
@@ -860,7 +1463,11 @@ fn presign_round1_begin_inner(
         signing_pair[0]
     };
     let x_i = share.secret_share_for_presign();
-    if x_i == Scalar::ZERO {
+    let group_public_key = share.group_public_key_for_presign();
+    if x_i == Scalar::ZERO
+        || group_public_key == ProjectivePoint::IDENTITY
+        || group_public_key - ProjectivePoint::GENERATOR * x_i == ProjectivePoint::IDENTITY
+    {
         return Err(PresignStateError::InvalidSigningContext);
     }
     let secrets = PresignSecrets {
@@ -949,6 +1556,7 @@ fn presign_round1_begin_inner(
         identifier,
         signing_pair,
         peer,
+        group_public_key,
         secrets,
         local,
     };
@@ -1029,6 +1637,7 @@ fn presign_round1_finalize_inner(
         identifier: state.identifier,
         signing_pair: state.signing_pair,
         peer: state.peer,
+        group_public_key: state.group_public_key,
         secrets: state.secrets,
         local: state.local,
         peer_broadcast: state.peer_broadcast,
@@ -1062,6 +1671,24 @@ fn round1_broadcast_is_valid(
         && message.a2 != ProjectivePoint::IDENTITY
         && message.b1 != ProjectivePoint::IDENTITY
         && message.b2 != ProjectivePoint::IDENTITY
+}
+
+fn round2_message_is_valid(
+    message: &PresignRound2Message,
+    execution: [u8; 32],
+    participant: ParticipantId,
+    recipient: ParticipantId,
+    recipient_key: &EncryptionKey,
+    participant_key: &EncryptionKey,
+) -> bool {
+    message.execution == execution
+        && message.participant == participant
+        && message.recipient == recipient
+        && message.gamma != ProjectivePoint::IDENTITY
+        && message.d.in_mult_group_of(recipient_key.nn())
+        && message.hat_d.in_mult_group_of(recipient_key.nn())
+        && message.f.in_mult_group_of(participant_key.nn())
+        && message.hat_f.in_mult_group_of(participant_key.nn())
 }
 
 fn round1_echo_digest(
@@ -1910,6 +2537,16 @@ mod tests {
         },
         min_modulus_bits: 1,
     };
+    const TEST_ROUND2_SECURITY: PresignRound2Security = PresignRound2Security {
+        // Keep the full 256-bit scalar witness bound. Only ell' is reduced so
+        // responses fit the deliberately test-sized Paillier modulus.
+        pi_aff: PiAffSecurity {
+            l_x: PI_AFF_X_BITS,
+            l_y: 64,
+            epsilon: PI_AFF_EPSILON_BITS,
+        },
+        min_modulus_bits: 1,
+    };
 
     fn test_params() -> RingPedersenParams {
         RingPedersenParams {
@@ -2051,6 +2688,49 @@ mod tests {
             aux,
             shares,
         }
+    }
+
+    fn verified_round1_pair(
+        fixture: &Round1Fixture,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> [PresignRound1Verified; THRESHOLD] {
+        let (state_1, broadcast_1, proofs_1) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[0],
+            &fixture.aux[0],
+            rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (state_2, broadcast_2, proofs_2) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[1],
+            &fixture.aux[1],
+            rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (received_1, echo_1) =
+            presign_round1_receive(state_1, broadcast_2, proofs_2, &fixture.aux[0]).unwrap();
+        let (received_2, echo_2) =
+            presign_round1_receive(state_2, broadcast_1, proofs_1, &fixture.aux[1]).unwrap();
+        let echoes = [echo_1, echo_2];
+        [
+            presign_round1_finalize_inner(
+                received_1,
+                &echoes,
+                &fixture.aux[0],
+                TEST_ROUND1_SECURITY,
+            )
+            .unwrap(),
+            presign_round1_finalize_inner(
+                received_2,
+                &echoes,
+                &fixture.aux[1],
+                TEST_ROUND1_SECURITY,
+            )
+            .unwrap(),
+        ]
     }
 
     #[test]
@@ -2671,6 +3351,148 @@ mod tests {
             .err()
             .unwrap(),
             PresignStateError::Proof(PresignProofError::ModulusTooSmall)
+        );
+    }
+
+    #[test]
+    fn presign_round2_and_round3_release_only_consistent_presignatures() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
+        let (round2_state_1, round2_message_1) = presign_round2_begin_inner(
+            verified_1,
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round2_state_2, round2_message_2) = presign_round2_begin_inner(
+            verified_2,
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round3_state_1, round3_message_1) = presign_round2_finalize_inner(
+            round2_state_1,
+            round2_message_2,
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round3_state_2, round3_message_2) = presign_round2_finalize_inner(
+            round2_state_2,
+            round2_message_1,
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (public_1, share_1) =
+            presign_round3_finalize(round3_state_1, round3_message_2.clone()).unwrap();
+        let (_public_2, share_2) =
+            presign_round3_finalize(round3_state_2, round3_message_1).unwrap();
+
+        let message = crate::ecdsa_cggmp::KnownMessageDigest::sha256(
+            b"full malicious-presigning state-machine test",
+        );
+        let partials = [
+            crate::ecdsa_cggmp::issue_partial_signature(share_1, &public_1, message).unwrap(),
+            crate::ecdsa_cggmp::issue_partial_signature(share_2, &public_1, message).unwrap(),
+        ];
+        let signature =
+            crate::ecdsa_cggmp::aggregate_partial_signatures(&public_1, message, &partials).unwrap();
+        assert_ne!(signature.to_bytes(), [0u8; 64]);
+        assert!(signature.recovery_id() <= 3);
+    }
+
+    #[test]
+    fn presign_round2_rejects_tampered_mta_proof_before_advancing() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
+        let (round2_state_1, _round2_message_1) = presign_round2_begin_inner(
+            verified_1,
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (_round2_state_2, mut round2_message_2) = presign_round2_begin_inner(
+            verified_2,
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        round2_message_2.psi.z1 += Integer::from(1u8);
+        assert_eq!(
+            presign_round2_finalize_inner(
+                round2_state_1,
+                round2_message_2,
+                &fixture.aux[0],
+                &mut rng,
+                TEST_ROUND2_SECURITY,
+            )
+            .err()
+            .unwrap(),
+            PresignStateError::InvalidRound2Proof(2)
+        );
+    }
+
+    #[test]
+    fn presign_round3_rejects_bad_proof_and_global_consistency_mismatch() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
+        let (round2_state_1, round2_message_1) = presign_round2_begin_inner(
+            verified_1,
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round2_state_2, round2_message_2) = presign_round2_begin_inner(
+            verified_2,
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round3_state_1, round3_message_1) = presign_round2_finalize_inner(
+            round2_state_1,
+            round2_message_2,
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+        let (round3_state_2, round3_message_2) = presign_round2_finalize_inner(
+            round2_state_2,
+            round2_message_1,
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND2_SECURITY,
+        )
+        .unwrap();
+
+        let mut bad_proof = round3_message_2;
+        bad_proof.psi_prime.z += Scalar::ONE;
+        assert_eq!(
+            presign_round3_finalize(round3_state_1, bad_proof)
+                .err()
+                .unwrap(),
+            PresignStateError::InvalidRound3Proof(2)
+        );
+
+        let mut inconsistent = round3_message_1;
+        inconsistent.delta += Scalar::ONE;
+        assert_eq!(
+            presign_round3_finalize(round3_state_2, inconsistent)
+                .err()
+                .unwrap(),
+            PresignStateError::ConsistencyMismatch
         );
     }
 
