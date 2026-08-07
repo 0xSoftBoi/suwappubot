@@ -815,7 +815,7 @@ fn sample_half_pm(rng: &mut impl RngCore, range: &Integer) -> Result<Integer, Au
     if range.cmp0().is_le() {
         return Err(AuxError::InvalidParameters);
     }
-    let half = range >> 1u8;
+    let half = range >> 1u32;
     if range.is_even() {
         Ok((range + 1u8).random_below(rng) - half)
     } else {
@@ -824,7 +824,7 @@ fn sample_half_pm(rng: &mut impl RngCore, range: &Integer) -> Result<Integer, Au
 }
 
 fn is_in_half_pm(value: &Integer, range: &Integer) -> bool {
-    let bound = range >> 1u8;
+    let bound = range >> 1u32;
     value.cmp_abs(&bound).is_le()
 }
 
