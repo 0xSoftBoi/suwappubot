@@ -63,7 +63,10 @@ describe('POST /v1/agent/register + /v1/agent/quote — current builder contract
 	it('registers a new agent from the documented name-based payload', async () => {
 		const res = await agentRoutes.request('/register', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: {
+				'Content-Type': 'application/json',
+				'x-forwarded-for': '192.0.2.249',
+			},
 			body: JSON.stringify({
 				name: 'builder_route_test',
 				description: 'Contract test agent',
@@ -82,7 +85,10 @@ describe('POST /v1/agent/register + /v1/agent/quote — current builder contract
 	it('rejects an invalid agent name at the registration boundary', async () => {
 		const res = await agentRoutes.request('/register', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: {
+				'Content-Type': 'application/json',
+				'x-forwarded-for': '192.0.2.249',
+			},
 			body: JSON.stringify({ name: 'x' }),
 		})
 
