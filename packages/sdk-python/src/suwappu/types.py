@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SuwappuConfig(BaseModel):
@@ -120,11 +120,18 @@ class PerpPosition(BaseModel):
 
 
 # Prediction types (Polymarket)
+class PredictionMarketToken(BaseModel):
+    token_id: str
+    outcome: str
+
+
 class PredictionMarket(BaseModel):
     id: str
+    condition_id: str = ""
     question: str
     outcomes: list[str]
     outcome_prices: list[float]
+    tokens: list[PredictionMarketToken] = Field(default_factory=list)
     volume: float
     liquidity: float
     end_date: str

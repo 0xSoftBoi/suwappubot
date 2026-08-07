@@ -25,6 +25,7 @@ from suwappu.types import (
     PerpQuote,
     PredictionMarket,
     PredictionMarketDetail,
+    PredictionMarketToken,
     Quote,
     RegisterAgentResult,
     RotateKeysResult,
@@ -478,9 +479,17 @@ class _PredictNamespace:
         return [
             PredictionMarket(
                 id=m.get("id", ""),
+                condition_id=m.get("conditionId", ""),
                 question=m.get("question", ""),
                 outcomes=m.get("outcomes", []),
                 outcome_prices=m.get("outcomePrices", []),
+                tokens=[
+                    PredictionMarketToken(
+                        token_id=t.get("tokenId", ""),
+                        outcome=t.get("outcome", ""),
+                    )
+                    for t in m.get("tokens", [])
+                ],
                 volume=m.get("volume", 0),
                 liquidity=m.get("liquidity", 0),
                 end_date=m.get("endDate", ""),
@@ -491,13 +500,23 @@ class _PredictNamespace:
         ]
 
     async def market(self, id: str) -> PredictionMarketDetail:
-        data = await self._c._request("GET", f"/v1/agent/predict/market/{id}")
+        data = await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(id, safe='')}"
+        )
         return PredictionMarketDetail(
             id=data.get("id", ""),
+            condition_id=data.get("conditionId", ""),
             question=data.get("question", ""),
             description=data.get("description", ""),
             outcomes=data.get("outcomes", []),
             outcome_prices=data.get("outcomePrices", []),
+            tokens=[
+                PredictionMarketToken(
+                    token_id=t.get("tokenId", ""),
+                    outcome=t.get("outcome", ""),
+                )
+                for t in data.get("tokens", [])
+            ],
             volume=data.get("volume", 0),
             liquidity=data.get("liquidity", 0),
             end_date=data.get("endDate", ""),
@@ -519,17 +538,23 @@ class _PredictNamespace:
         return data.get("events", [])
 
     async def book(self, market_id: str) -> dict[str, Any]:
-        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/book")
+        return await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(market_id, safe='')}/book"
+        )
 
     async def price(self, market_id: str) -> dict[str, Any]:
-        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/price")
+        return await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(market_id, safe='')}/price"
+        )
 
     async def trades(self, market_id: str, limit: int | None = 20) -> dict[str, Any]:
         params: dict[str, str] = {}
         if limit:
             params["limit"] = str(limit)
         return await self._c._request(
-            "GET", f"/v1/agent/predict/market/{market_id}/trades", params=params or None
+            "GET",
+            f"/v1/agent/predict/market/{quote(market_id, safe='')}/trades",
+            params=params or None,
         )
 
     async def order(
@@ -539,8 +564,6 @@ class _PredictNamespace:
         price: str,
         size: str,
         side: str,
-        expiration: int | None = None,
-        fee_rate_bps: int | None = None,
     ) -> dict[str, Any]:
         data = await self._c._request(
             "POST",
@@ -550,14 +573,14 @@ class _PredictNamespace:
                 "price": price,
                 "size": size,
                 "side": side,
-                "expiration": expiration,
-                "feeRateBps": fee_rate_bps,
             },
         )
         return data.get("order", {})
 
     async def cancel_order(self, order_id: str) -> dict[str, Any]:
-        return await self._c._request("DELETE", f"/v1/agent/predict/order/{order_id}")
+        return await self._c._request(
+            "DELETE", f"/v1/agent/predict/order/{quote(order_id, safe='')}"
+        )
 
     async def positions(self) -> list[dict[str, Any]]:
         data = await self._c._request("GET", "/v1/agent/predict/positions")

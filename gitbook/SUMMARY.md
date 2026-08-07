@@ -77,7 +77,7 @@
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
 * [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
 * [Perpetual Futures Research](guides/perps-trading.md)
-* [Prediction Markets](guides/prediction-markets.md)
+* [Prediction Market Research](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
 
 ## Changelog

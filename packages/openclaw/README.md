@@ -142,9 +142,10 @@ it only reads the calling agent's managed EVM wallet.
 | `lend.market(id)` | `GET /v1/agent/lend/market/:id` (read-only) |
 
 Every method mirrors a Suwappu agent API endpoint exactly — there are no
-client-only features. The current Agent API has no perps open/close endpoint and
-no Morpho deposit/withdraw endpoint; these methods are for research, monitoring,
-and product intelligence.
+client-only features. OpenClaw's `predict.*` surface is intentionally read-only
+even though the REST API has a separate prediction-order route. The current
+Agent API has no perps open/close endpoint and no Morpho deposit/withdraw
+endpoint; these methods are for research, monitoring, and product intelligence.
 
 ## Development
 

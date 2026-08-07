@@ -592,22 +592,22 @@ class PredictNamespace {
 
   /** GET /v1/agent/predict/market/:id */
   market(id: string): Promise<PredictionMarketDetail> {
-    return this.c._request<PredictionMarketDetail>("GET", `/v1/agent/predict/market/${id}`);
+    return this.c._request<PredictionMarketDetail>("GET", `/v1/agent/predict/market/${encodeURIComponent(id)}`);
   }
 
   /** GET /v1/agent/predict/market/:id/book */
   book(id: string): Promise<PredictionOrderbook> {
-    return this.c._request<PredictionOrderbook>("GET", `/v1/agent/predict/market/${id}/book`);
+    return this.c._request<PredictionOrderbook>("GET", `/v1/agent/predict/market/${encodeURIComponent(id)}/book`);
   }
 
   /** GET /v1/agent/predict/market/:id/price */
   price(id: string): Promise<PredictionPrices> {
-    return this.c._request<PredictionPrices>("GET", `/v1/agent/predict/market/${id}/price`);
+    return this.c._request<PredictionPrices>("GET", `/v1/agent/predict/market/${encodeURIComponent(id)}/price`);
   }
 
   /** GET /v1/agent/predict/market/:id/trades */
   trades(id: string, limit?: number): Promise<PredictionTrades> {
-    return this.c._request<PredictionTrades>("GET", `/v1/agent/predict/market/${id}/trades`, {
+    return this.c._request<PredictionTrades>("GET", `/v1/agent/predict/market/${encodeURIComponent(id)}/trades`, {
       params: { limit: limit?.toString() },
     });
   }
@@ -662,7 +662,7 @@ class PredictNamespace {
 
   /** DELETE /v1/agent/predict/order/:id — cancel a resting order */
   cancelOrder(id: string): Promise<Record<string, unknown>> {
-    return this.c._request("DELETE", `/v1/agent/predict/order/${id}`);
+    return this.c._request("DELETE", `/v1/agent/predict/order/${encodeURIComponent(id)}`);
   }
 }
 

@@ -290,10 +290,27 @@ describe("predict namespace", () => {
   });
 
   test("market fetches by id", async () => {
-    const calls = stubFetch({ id: "m1", question: "?", outcomes: [], outcomePrices: [], volume: 0, liquidity: 0, endDate: "", active: true, category: "", description: "", createdAt: "", resolvedOutcome: null });
-    const m = await client.predict.market("m1");
+    const calls = stubFetch({
+      id: "m1",
+      conditionId: "0xcondition",
+      question: "?",
+      outcomes: ["Yes"],
+      outcomePrices: [0.5],
+      tokens: [{ tokenId: "yes-token", outcome: "Yes" }],
+      volume: 0,
+      liquidity: 0,
+      endDate: "",
+      active: true,
+      category: "",
+      description: "",
+      createdAt: "",
+      resolvedOutcome: null,
+    });
+    const m = await client.predict.market("m/1");
     expect(m.id).toBe("m1");
-    expect(calls[0].url).toContain("/predict/market/m1");
+    expect(m.conditionId).toBe("0xcondition");
+    expect(m.tokens[0]?.tokenId).toBe("yes-token");
+    expect(calls[0].url).toContain("/predict/market/m%2F1");
   });
 });
 

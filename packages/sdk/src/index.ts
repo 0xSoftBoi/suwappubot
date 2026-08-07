@@ -36,6 +36,7 @@ export type {
   PerpMarket,
   PerpQuote,
   PerpPosition,
+  PredictionMarketToken,
   PredictionMarket,
   PredictionMarketDetail,
   PredictionOrderbook,

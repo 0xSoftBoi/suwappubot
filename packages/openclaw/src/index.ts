@@ -276,11 +276,18 @@ export interface PerpPosition {
 }
 
 // Prediction types (Polymarket)
+export interface PredictionMarketToken {
+	tokenId: string
+	outcome: string
+}
+
 export interface PredictionMarket {
 	id: string
+	conditionId: string
 	question: string
 	outcomes: string[]
 	outcomePrices: number[]
+	tokens: PredictionMarketToken[]
 	volume: number
 	liquidity: number
 	endDate: string
@@ -753,7 +760,10 @@ export function createClient(config?: SuwappuConfig) {
 				return res.markets
 			},
 			async market(id: string): Promise<PredictionMarketDetail> {
-				return request<PredictionMarketDetail>(`/v1/agent/predict/market/${id}`, config)
+				return request<PredictionMarketDetail>(
+					`/v1/agent/predict/market/${encodeURIComponent(id)}`,
+					config,
+				)
 			},
 		},
 

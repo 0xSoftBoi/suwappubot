@@ -188,9 +188,7 @@ export const PlaceOrderSchema = z.object({
 			return !isNaN(n) && n > 0
 		}, 'size must be a positive number'),
 	side: z.enum(['BUY', 'SELL']),
-	expiration: z.number().optional(),
-	feeRateBps: z.number().min(0).max(500).optional(),
-})
+}).strict()
 
 export const CancelOrderSchema = z.object({
 	orderId: z.string().min(1, 'orderId is required'),
