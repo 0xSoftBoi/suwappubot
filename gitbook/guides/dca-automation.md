@@ -91,10 +91,11 @@ The ID is durable business state. Do not derive it from an array index or regene
 
 The reference accepts five-field cron with one literal minute (`0`–`59`), so each plan runs no faster than hourly. Timezone defaults to UTC and otherwise must be a valid IANA timezone. That cap is intentional for a recurring-purchase reference; a high-frequency strategy belongs in a different scheduler/execution design.
 
-For the US daylight-saving fallback, both occurrences of local 01:30 resolve to the same slot identity:
+For example, consider a separate `dst-eth` plan scheduled with `30 1 * * *`. During the US daylight-saving fallback, both occurrences of that plan's local 01:30 resolve to the same slot identity:
 
 ```text
-plan: daily-eth
+plan: dst-eth
+schedule: 30 1 * * *
 timezone: America/New_York
 local slot: 2026-11-01 01:30
 action: schedule.20261101T0130
