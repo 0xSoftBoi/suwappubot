@@ -20,7 +20,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
