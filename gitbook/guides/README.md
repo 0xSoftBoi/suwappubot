@@ -8,6 +8,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 |-------|-------------------|
 | [Build a Business on Suwappu](build-a-business.md) | Revenue models, customer billing boundaries, and a builder-margin ledger |
 | [Strategy Lifecycle](strategy-lifecycle.md) | Backtest/replay -> paper -> live gates, net P&L, and operational safety |
+| [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 
 ## Core Walkthroughs
 
