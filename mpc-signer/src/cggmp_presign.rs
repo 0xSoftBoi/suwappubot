@@ -758,7 +758,13 @@ pub fn presign_round1_begin(
     ),
     PresignStateError,
 > {
-    presign_round1_begin_inner(execution, share, aux, rng, PresignRound1Security::PRODUCTION)
+    presign_round1_begin_inner(
+        execution,
+        share,
+        aux,
+        rng,
+        PresignRound1Security::PRODUCTION,
+    )
 }
 
 /// Fix the received round-one view and emit the digest that must be echoed by
@@ -2029,7 +2035,10 @@ mod tests {
     fn round1_fixture() -> Round1Fixture {
         let aux_execution = ExecutionId::new(b"presign-round1-aux-fixture").unwrap();
         let aux = crate::cggmp_aux::presign_test_aux_sets(aux_execution);
-        let signing_pair = [ParticipantId::new(1).unwrap(), ParticipantId::new(2).unwrap()];
+        let signing_pair = [
+            ParticipantId::new(1).unwrap(),
+            ParticipantId::new(2).unwrap(),
+        ];
         let shares = crate::ecdsa_cggmp::test_additive_signing_shares(
             signing_pair,
             [Scalar::from(31u64), Scalar::from(37u64)],
@@ -2539,13 +2548,8 @@ mod tests {
             &fixture.aux[0],
         )
         .unwrap();
-        let (received_2, echo_2) = presign_round1_receive(
-            state_2,
-            broadcast_1,
-            proofs_1,
-            &fixture.aux[1],
-        )
-        .unwrap();
+        let (received_2, echo_2) =
+            presign_round1_receive(state_2, broadcast_1, proofs_1, &fixture.aux[1]).unwrap();
         assert_eq!(echo_1.digest(), echo_2.digest());
         let echoes = [echo_1, echo_2];
         let verified_1 = presign_round1_finalize_inner(
@@ -2590,13 +2594,8 @@ mod tests {
         .unwrap();
         let (received_1, echo_1) =
             presign_round1_receive(state_1, broadcast_2, proofs_2, &fixture.aux[0]).unwrap();
-        let (_, mut echo_2) = presign_round1_receive(
-            state_2,
-            broadcast_1,
-            proofs_1,
-            &fixture.aux[1],
-        )
-        .unwrap();
+        let (_, mut echo_2) =
+            presign_round1_receive(state_2, broadcast_1, proofs_1, &fixture.aux[1]).unwrap();
         echo_2.digest[0] ^= 1;
         assert_eq!(
             presign_round1_finalize_inner(
@@ -2632,14 +2631,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            presign_round1_receive(
-                state_2,
-                broadcast_1,
-                proofs_1,
-                &fixture.aux[2],
-            )
-            .err()
-            .unwrap(),
+            presign_round1_receive(state_2, broadcast_1, proofs_1, &fixture.aux[2],)
+                .err()
+                .unwrap(),
             PresignStateError::AuxiliaryMismatch
         );
 

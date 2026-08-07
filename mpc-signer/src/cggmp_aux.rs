@@ -1641,9 +1641,7 @@ fn presign_test_paillier() -> DecryptionKey {
 /// this fixture bypasses those expensive proofs while preserving the exact
 /// `VerifiedAuxSet` type boundary and internally consistent Paillier keys.
 #[cfg(test)]
-pub(crate) fn presign_test_aux_sets(
-    execution: ExecutionId,
-) -> [VerifiedAuxSet; PARTICIPANT_COUNT] {
+pub(crate) fn presign_test_aux_sets(execution: ExecutionId) -> [VerifiedAuxSet; PARTICIPANT_COUNT] {
     let paillier = presign_test_paillier().encryption_key().clone();
     let public: [CandidateAuxPublic; PARTICIPANT_COUNT] = std::array::from_fn(|index| {
         let participant = ParticipantId::new((index + 1) as u16).unwrap();
