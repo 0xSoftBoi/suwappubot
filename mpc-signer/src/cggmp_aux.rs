@@ -621,9 +621,7 @@ pub fn provision_reveal(
         &reveal.decommitment,
     ) != own.digest
     {
-        return Err(AuxError::CommitmentOpeningMismatch(
-            state.identifier.get(),
-        ));
+        return Err(AuxError::CommitmentOpeningMismatch(state.identifier.get()));
     }
     Ok(reveal)
 }
@@ -849,12 +847,8 @@ fn validate_aux_reveals(
         if reveal.identifier() != expected_id {
             return Err(AuxError::InvalidPackageSet);
         }
-        if aux_opening_digest(
-            execution,
-            &reveal.public,
-            &reveal.rho,
-            &reveal.decommitment,
-        ) != commitments[index].digest
+        if aux_opening_digest(execution, &reveal.public, &reveal.rho, &reveal.decommitment)
+            != commitments[index].digest
         {
             return Err(AuxError::CommitmentOpeningMismatch(expected_id.get()));
         }
@@ -921,10 +915,7 @@ fn aux_opening_digest(
     hasher.finalize().into()
 }
 
-fn aux_echo_digest(
-    execution: ExecutionId,
-    commitments: &[AuxRound1Commitment],
-) -> [u8; 32] {
+fn aux_echo_digest(execution: ExecutionId, commitments: &[AuxRound1Commitment]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(AUX_ECHO_TAG);
     hasher.update(execution.digest());
@@ -2040,13 +2031,9 @@ mod tests {
         let culprit = inboxes[0][0].prover.get();
         inboxes[0][0].pi_fac.z1 += Integer::from(1u8);
         assert_eq!(
-            provision_finalize_inner(
-                pendings.remove(0),
-                &inboxes[0],
-                TEST_AUX_PROTOCOL_SECURITY,
-            )
-            .err()
-            .unwrap(),
+            provision_finalize_inner(pendings.remove(0), &inboxes[0], TEST_AUX_PROTOCOL_SECURITY,)
+                .err()
+                .unwrap(),
             AuxError::InvalidPeerProof(culprit)
         );
     }
