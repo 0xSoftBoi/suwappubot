@@ -9,12 +9,12 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 export const metadata: Metadata = {
   title: 'Data & code availability — Suwappu Research',
   description:
-    'Full working papers, collection harness, analysis code and datasets behind the Suwappu Research papers on USDT0 collateralization and points-program equilibria. Public RPC only, no credentials required.',
+    'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, and completed airdrop allocations.',
   alternates: { canonical: BASE },
   openGraph: {
     title: 'Data & code availability — Suwappu Research',
     description:
-      'Papers, code and data behind the USDT0 collateral reconciliation and the Tullock-contest analysis of points programs.',
+      'Papers, code and data behind the USDT0 backing-account reconciliation, Tullock-contest model, and its empirical test against completed airdrops.',
     type: 'article',
     url: BASE,
   },
@@ -26,7 +26,7 @@ const PAPERS: Row[] = [
   {
     file: 'papers/usdt0-collateral-reconciliation.md',
     size: '33 KB',
-    desc: 'Measuring Collateral Backing of an Omnichain Dollar: A Point-in-Time Reconciliation of USDT0, Twice Corrected (v3, 31 Jul 2026).',
+    desc: 'Measuring Protocol Backing of an Omnichain Dollar: A Point-in-Time USDT0 Token-Unit Reconciliation, Twice Corrected (v3, revised 6 Aug 2026).',
   },
   {
     file: 'papers/points-tullock-contests.md',
@@ -61,7 +61,7 @@ const CODE_USDT0: Row[] = [
   {
     file: 'code/buffer_dynamics.py',
     size: '5.3 KB',
-    desc: 'Flow-coupling regressions (Δcollateral on Δliabilities, both regimes), level tests, and the discrete-operation table.',
+    desc: 'Flow-coupling regressions using the legacy backing/supply data fields, level tests, and the discrete-operation table.',
   },
   {
     file: 'code/head_snapshot.py',
@@ -88,7 +88,7 @@ const CODE_POINTS: Row[] = [
 
 const DATA_USDT0: Row[] = [
   { file: 'data/usdt0_panel.csv', size: '268 KB', desc: '3,843 raw entity-date observations across 21 measured entities, with per-cell status.' },
-  { file: 'data/usdt0_timeseries.csv', size: '68 KB', desc: '183 aligned rows: per-chain supply, collateral, ratio, legacy-escrow controls.' },
+  { file: 'data/usdt0_timeseries.csv', size: '68 KB', desc: '183 aligned rows: per-chain supply, observed backing, ratio, and legacy-escrow controls.' },
   { file: 'data/usdt0_break.csv', size: '2.0 KB', desc: 'Six-hourly bracketing panel, 2025-08-25 to 2025-09-01.' },
   { file: 'data/usdt0_summary.json', size: '2.4 KB', desc: 'Computed summary statistics reproduced in Tables 1, 3 and 5.' },
   { file: 'data/robustness.json', size: '2.5 KB', desc: 'Every statistic in Section 4, including the coverage-sensitivity thresholds.' },
@@ -104,7 +104,7 @@ const DATA_USDT0: Row[] = [
     desc: 'Correction 2’s evidence: canonical-predicate balances at the 16 pre-break aligned blocks ($1.22–1.39bn throughout).',
   },
   { file: 'data/buffer_dynamics.json', size: '3 KB', desc: 'Per-leg and aggregate flow betas, the full census of eleven >$100m discretionary operations, and the terminal drawdown.' },
-  { file: 'data/head_snapshot_20260801.json', size: '2 KB', desc: 'The complete-universe head reading: 20 legs, ratio 1.0003, buffer $1.03m, HyperCore containment check.' },
+  { file: 'data/head_snapshot_20260801.json', size: '2 KB', desc: 'Complete documented head reading: 20 direct supply legs, ratio 1.000298, 1.029m-unit arithmetic difference, HyperCore containment check.' },
 ];
 
 const CODE_AIRDROP: Row[] = [
@@ -166,15 +166,14 @@ function FileTable({ rows }: { rows: Row[] }) {
 }
 
 export default function ReplicationPage() {
-  // Dataset markup: this page is the landing page for two released datasets, and
-  // that is what makes them discoverable in dataset search rather than only as
-  // prose on an article page.
+  // Dataset markup makes the released evidence discoverable as data rather than
+  // only as prose on an article page.
   const datasetLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: 'Suwappu Research replication bundle — USDT0 collateralization and points-program equilibria',
+    name: 'Suwappu Research replication bundle — stablecoins, incentive design, and airdrop concentration',
     description:
-      'Twelve months of block-height-aligned USDT0 collateral and cross-chain supply read directly from public EVM state across 17 chains, plus the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs.',
+      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and complete HYPE and EIGEN recipient vectors used to test that model.',
     url: `${SITE}${BASE}`,
     datePublished: '2026-07-26',
     isAccessibleForFree: true,
@@ -184,13 +183,14 @@ export default function ReplicationPage() {
     keywords: [
       'omnichain stablecoin',
       'USDT0',
-      'stablecoin collateralization',
-      'proof of reserves',
+      'stablecoin backing reconciliation',
+      'stablecoin issuer risk',
       'Tullock contest',
       'points program design',
       'airdrop concentration',
     ],
-    measurementTechnique: 'Direct eth_call reads of totalSupply() and balanceOf() at point-in-time-aligned block heights',
+    measurementTechnique:
+      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and complete recipient-vector concentration analysis',
     temporalCoverage: '2025-07-26/2026-07-25',
     distribution: [
       {
@@ -210,6 +210,12 @@ export default function ReplicationPage() {
         name: 'tullock_mc.json',
         encodingFormat: 'application/json',
         contentUrl: `${SITE}${BASE}/data/tullock_mc.json`,
+      },
+      {
+        '@type': 'DataDownload',
+        name: 'concentration.json',
+        encodingFormat: 'application/json',
+        contentUrl: `${SITE}${BASE}/data/airdrops/concentration.json`,
       },
     ],
   };
@@ -241,7 +247,10 @@ export default function ReplicationPage() {
           The posts on this site are abridgements. <strong>Where an abridgement and a paper
           disagree, the paper governs.</strong> Start with{' '}
           <a href={`${BASE}/README.md`}>README.md</a>, which carries the run instructions and each
-          paper&rsquo;s stated limits.
+          paper&rsquo;s stated limits. For the institutional report edition of Paper 1, read{' '}
+          <a href="/research/reports/accounting-for-an-omnichain-dollar.pdf">
+            Accounting for an Omnichain Dollar (PDF)
+          </a>.
         </p>
 
         <section className="repl-section">
@@ -250,23 +259,28 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 1 — USDT0 collateral reconciliation</h2>
+          <h2>Paper 1 — USDT0 protocol-backing reconciliation</h2>
           <p>
-            A 12-month, block-height-aligned reconciliation of USDT0&rsquo;s lockbox collateral
-            against circulating liabilities on 17 EVM chains, read directly from chain state. No
-            block explorer API, subgraph or third-party indexer is used anywhere in the panel.
+            A 12-month, block-height-aligned reconciliation of USDT token units in USDT0&rsquo;s
+            backing accounts against documented direct USDT0 supply, plus a complete documented
+            head snapshot read from chain state. The measurement does not test Tether&rsquo;s underlying
+            reserve assets, redemption capacity, legal claims, or stressed liquidity. No block
+            explorer API, subgraph or third-party indexer is used anywhere in the panel.
           </p>
           <h3>Code</h3>
           <FileTable rows={CODE_USDT0} />
           <h3>Data</h3>
           <FileTable rows={DATA_USDT0} />
           <p className="repl-caveat">
-            <strong>Stated limits.</strong> Tron, TON and MegaETH are unmeasured, so measured
-            liabilities are a lower bound and every ratio is an <em>upper</em> bound. The panel is
-            unbalanced — chains returning live supply rise from 8 to 17 across the sample — so the
-            level of the ratio is not comparable across time. The not-deployed label is not verified
-            by an <code>eth_getCode</code> check, so archive-depth failure and genuine non-deployment
-            are not distinguished; both are zero-filled and both bias the ratio up.
+            <strong>Stated limits.</strong> The historical panel remains unbalanced — chains
+            returning live supply rise from 8 to 17 — and zero-fills archive-depth failures, so
+            historical direct supply is a lower bound. The separate 1 August head check measures
+            every documented direct USDT0 supply leg, but its reads are not block-aligned. At a
+            1.029m-unit measured difference, legal availability, messages in flight, registry
+            completeness and ordinary read-time drift can each dominate the sign. Tron and TON are Legacy Mesh,
+            MegaETH is now measured, and HyperCore is verified as a contained sub-ledger rather than
+            an additional supply leg. The ratio is a protocol accounting control, not a reserve
+            attestation, credit conclusion, or prudential classification.
           </p>
         </section>
 
@@ -296,7 +310,7 @@ export default function ReplicationPage() {
           <h2>Paper 3 — Airdrop concentration: testing the model</h2>
           <p>
             Complete recipient-level allocation vectors for Hyperliquid&rsquo;s HYPE genesis and
-            EigenLayer&rsquo;s EIGEN Season 1 — 309,000 rows — plus the formal sup-over-σ rejection
+            EigenLayer&rsquo;s EIGEN Season 1 — 329,947 recipient rows — plus the formal sup-over-σ rejection
             of the theory paper&rsquo;s active-set prediction. The raw pre-exclusion HYPE state is
             included so the paper&rsquo;s single most judgment-laden step is inspectable.
           </p>
@@ -306,10 +320,10 @@ export default function ReplicationPage() {
           <FileTable rows={DATA_AIRDROP} />
           <p className="repl-caveat">
             <strong>Stated limits.</strong> All concentration figures are wallet-level and are
-            therefore lower bounds on person-level concentration. EIGEN is claims data (unclaimed
-            allocations invisible, biasing concentration up); HYPE is true allocation. The ENA
-            vector is deliberately partial — its distribution ran through custodial channels that
-            chain state cannot attribute to persons.
+            therefore lower bounds on person-level concentration. HYPE is a post-enforcement
+            allocation, EIGEN is claims data with unclaimed allocations invisible, and ENA claim
+            executors may aggregate custodially. The full paper states the direction of each bias
+            and does not use ENA as the anchor for the formal rejection.
           </p>
         </section>
 
