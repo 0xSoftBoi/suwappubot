@@ -42,7 +42,7 @@ peer-specific `Pi_fac` no-small-factor proof, and the fixed 3-party reliable
 commit/echo/reveal/proof state transitions. Only the final peer-proof verifier
 can construct `VerifiedAuxSet`.
 
-`cggmp_presign.rs` begins section 4.3 with the current reference `Pi_enc-elg`,
+`cggmp_presign.rs` implements section 4.3 with the current reference `Pi_enc-elg`,
 `Pi_elog`, and `Pi_aff` constructions. `Pi_enc-elg` binds Paillier
 encryption-in-range to the ElGamal-style curve relation used for both `k_i`
 and `gamma_i`, with separate transcript labels for the two witnesses.
@@ -51,15 +51,24 @@ and `gamma_i`, with separate transcript labels for the two witnesses.
 relation `D = x*C + Enc(y)` while binding `x` to `X = x*G`, binding the same
 `y` under the prover's Paillier key, and enforcing the `ell=256`,
 `ell'=1280`, `epsilon=512` range profile. Transcript labels distinguish each
-proof's protocol role. These are only proof cores; they cannot construct
-`PresignatureShare`.
+proof's protocol role.
 
-The first presigning state transition is also explicit now: the fixed two-party
-signing pair generates round-1a `K/G/Y/A/B` data and verifier-specific
-`Pi_enc-elg` round-1b proofs, fixes the canonical round-1a view with a
-reliable-broadcast echo, and only then verifies both peer proofs. Only that
-sequence can construct `PresignRound1Verified`; it still cannot construct a
-presignature.
+The fixed two-party signing pair generates round-1a `K/G/Y/A/B` data and
+verifier-specific `Pi_enc-elg` round-1b proofs, fixes the canonical round-1a
+view with a reliable-broadcast echo, and only then verifies both peer proofs.
+Round two performs both MtA relations with verifier-specific `Pi_aff` proofs
+and proves the gamma relation with `Pi_elog`; peer MtA ciphertexts are not
+decrypted until all three proofs verify. Round three proves the local
+presignature consistency relation, then requires both global equations
+`G*delta = Delta` and `PK*delta = S`. Only that final consuming transition can
+construct `PresignatureShare`.
+
+The online presignature API no longer accepts a raw 32-byte hash. Public callers
+must construct `KnownMessageDigest` by giving this crate the message/signing
+payload preimage, which it hashes internally with SHA-256 or legacy
+Keccak-256. This follows the current reference's `DataToSign` boundary and
+closes the raw attacker-chosen-hash interface described in
+https://eprint.iacr.org/2021/1330.
 
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
@@ -75,25 +84,19 @@ by the reference implementation; the CGGMP24 paper itself describes n-of-n.
 Our 2-of-3 use therefore requires dedicated cryptographic review even if the
 reference implementation has been audited.
 
-### Remaining hard gate before presigning can exist
+### Remaining production gates
 
-`PresignatureShare` still has no public constructor. The following pieces are
-intentionally missing or incomplete, and all must be implemented and tested:
+The protocol core can now produce a presignature, but `MALICIOUS_ECDSA_READY`
+and `PRODUCTION_READY` remain `false`. The following operational/security gates
+must still be completed before user funds can use this path:
 
-1. Finish section 4.3 presigning: round-two MtA message/state equations,
-   round-three proofs, and final consistency/state checks. The current proof
-   cores and round-one reliability gate do not authorize a presignature.
-2. Production serialization plus authenticated broadcasts, encrypted
+1. Production serialization plus authenticated broadcasts, encrypted
    point-to-point messages, durable unique execution IDs, timeout/abort
    behavior, and persisted one-shot presignatures.
-3. Replace the current raw-prehash partial-signature entry point with a
-   known-preimage/validated-transaction-digest boundary before presignatures
-   become constructible. Raw attacker-chosen hashes are unsafe with ECDSA
-   presignatures; see https://eprint.iacr.org/2021/1330.
-4. Full-size auxiliary-generation performance/soak vectors plus bigint
+2. Full-size auxiliary-generation performance/soak vectors plus bigint
    side-channel and memory-erasure hardening. The current bigint backend does
    not justify a zeroizing-deallocation claim for Paillier secret factors.
-5. Adversarial vectors, differential final-signature tests, and an independent
+3. Expanded adversarial/differential vectors and an independent
    cryptographic audit.
 
 No shortcut around these gates is acceptable: a Paillier MtA exchange without

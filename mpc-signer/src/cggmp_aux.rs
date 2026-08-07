@@ -4,8 +4,8 @@
 //! material, Ring-Pedersen parameters, the `Pi_prm` parameter-relation proof,
 //! the `Pi_mod` Paillier-Blum modulus proof, the peer-specific `Pi_fac`
 //! no-small-factor proof, and the reliable commit/echo/reveal/proof state machine.
-//! Only the final all-peer verification step can construct
-//! `VerifiedAuxSet`; even that type has no presigning API yet.
+//! Only the final all-peer verification step can construct `VerifiedAuxSet`,
+//! which is the mandatory auxiliary input to the presigning state machine.
 //!
 //! `fast-paillier` is used only as the low-level Paillier/big-integer primitive.
 //! The protocol transcript, state boundary, and proof below are implemented in
@@ -393,7 +393,7 @@ pub struct PendingAuxSet {
 
 /// Auxiliary material after every committed opening, `Pi_prm`, `Pi_mod`, and
 /// peer-specific `Pi_fac` has verified. The constructor is private to this
-/// module so future presigning can require this type as an unskippable gate.
+/// module so presigning requires this type as an unskippable gate.
 pub struct VerifiedAuxSet {
     execution: ExecutionId,
     identifier: ParticipantId,
@@ -435,7 +435,7 @@ impl VerifiedAuxSet {
 }
 
 /// Private auxiliary material retained by one signer for auxiliary proofs and
-/// future presigning. It is intentionally non-cloneable.
+/// presigning. It is intentionally non-cloneable.
 ///
 /// The current bigint backend does not promise constant-time arithmetic or
 /// zeroizing deallocation. That is recorded as a production hardening gate;

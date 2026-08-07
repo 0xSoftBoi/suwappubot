@@ -1,6 +1,7 @@
 //! Threshold secp256k1/ECDSA state boundaries from CGGMP24.
 //!
-//! This module deliberately stops before malicious presigning. It implements:
+//! This module owns the signing-set and final-signature boundary around the
+//! malicious presigning state machine. It implements:
 //! - the t-of-n -> t-of-t Lagrange conversion from CGGMP24 section 4.3.2;
 //! - the consumed-on-use partial-signature equation from section 4.4; and
 //! - per-partial verification, final ECDSA verification, low-s normalization,
@@ -184,6 +185,35 @@ pub struct PresignaturePublic {
     gamma: ProjectivePoint,
     commitments: [PresignatureCommitment; THRESHOLD],
     group_public_key: ProjectivePoint,
+}
+
+impl PresignaturePublic {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn signing_pair(&self) -> [ParticipantId; THRESHOLD] {
+        self.signing_pair
+    }
+
+    pub fn gamma_bytes(&self) -> Result<[u8; 33], EcdsaError> {
+        encode_point(&self.gamma)
+    }
+
+    pub fn commitment_bytes(&self) -> Result<[[[u8; 33]; 2]; THRESHOLD], EcdsaError> {
+        let mut out = [[[0u8; 33]; 2]; THRESHOLD];
+        for (index, commitment) in self.commitments.iter().enumerate() {
+            out[index] = [
+                encode_point(&commitment.delta_tilde)?,
+                encode_point(&commitment.s_tilde)?,
+            ];
+        }
+        Ok(out)
+    }
+
+    pub fn group_public_key_bytes(&self) -> Result<[u8; 33], EcdsaError> {
+        encode_point(&self.group_public_key)
+    }
 }
 
 /// Secret output for one signer. This type is consumed when a partial
@@ -552,5 +582,14 @@ mod tests {
         assert_ne!(sha.prehash_bytes(), keccak.prehash_bytes());
         assert_ne!(sha.prehash_bytes(), [0u8; 32]);
         assert_ne!(keccak.prehash_bytes(), [0u8; 32]);
+
+        assert_eq!(
+            hex::encode(KnownMessageDigest::sha256(b"abc").prehash_bytes()),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            hex::encode(KnownMessageDigest::keccak256(b"abc").prehash_bytes()),
+            "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+        );
     }
 }

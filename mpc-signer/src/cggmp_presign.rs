@@ -1,9 +1,10 @@
-//! Malicious-presigning proof foundations for secp256k1 CGGMP24.
+//! Malicious-secure presigning state machine for secp256k1 CGGMP24.
 //!
-//! This module starts with the `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof
-//! cores used by CGGMP24 presigning plus the reliable round-one state gate. It
-//! deliberately does not expose a presignature constructor: MtA round two,
-//! round three, and the remaining consistency checks must all land first.
+//! This module implements the `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof
+//! cores, reliable round-one agreement, verifier-specific MtA round two, and
+//! round-three/final consistency checks. A secret presignature can only be
+//! obtained by consuming `PresignRound3State` after every proof and both
+//! global consistency equations have verified.
 
 use fast_paillier::{backend::Integer, Ciphertext, EncryptionKey};
 use k256::{

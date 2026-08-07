@@ -26,10 +26,10 @@ pub const PRODUCTION_READY: bool = false;
 /// implement a fully analysed malicious DKG with complaints and recovery.
 pub const MALICIOUS_DKG_READY: bool = false;
 
-/// The secp256k1 DKG, signing-set conversion, final ECDSA equations, and the
-/// auxiliary-provisioning proof cores and reliable state transitions are
-/// implemented. Malicious presigning now has `Pi_enc-elg`, `Pi_elog`, and
-/// `Pi_aff` proof cores plus its reliable round-one gate, but its MtA/final
-/// state transitions and authenticated wire transport are not complete. There
-/// is deliberately no public way to manufacture a presignature.
+/// The secp256k1 DKG, auxiliary provisioning, signing-set conversion, complete
+/// three-round malicious presigning state machine, and final ECDSA equations
+/// are implemented. A presignature is released only after the CGGMP proof and
+/// global consistency gates, and it can sign only a known-preimage digest.
+/// Production authenticated/encrypted transport, durable deployment wiring,
+/// full-size soak coverage, and independent cryptographic review remain open.
 pub const MALICIOUS_ECDSA_READY: bool = false;

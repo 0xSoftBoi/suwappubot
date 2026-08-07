@@ -21,29 +21,31 @@ Current milestone:
   reveal, reliable-echo agreement, private Feldman-verified Shamir shares, and
   a final Schnorr proof of knowledge of every resulting share.
 - Any selected secp256k1 signing pair is converted from Shamir shares to the
-  additive shares used by CGGMP using Lagrange coefficients. The final CGGMP
-  partial-signature equations are implemented with per-partial verification,
-  low-s normalization, ordinary ECDSA verification, and recovery-ID derivation.
-- There is deliberately no public constructor for a CGGMP presignature yet.
-  Threshold ECDSA cannot run until the malicious auxiliary/presigning proof
-  layer produces that state after all required checks.
-- The first auxiliary-provisioning slice now generates the CGGMP24 128-bit
-  Paillier profile (1536-bit safe-prime factors, public modulus >=3071 bits),
-  constructs separate Ring-Pedersen parameters, and implements the 128-fold
-  Fiat-Shamir `Pi_prm` relation proof plus the 128-fold `Pi_mod` Paillier-Blum
-  modulus proof. `Pi_mod` is bound to the collective 32-byte `rho` seed that a
-  future reliable commit/echo/reveal state machine must establish. The
-  resulting type is explicitly a `CandidateAuxPublic`: it cannot be promoted
-  into presigning state while `Pi_fac` and that state machine are absent.
+  additive shares used by CGGMP using Lagrange coefficients. Auxiliary
+  provisioning includes `Pi_prm`, `Pi_mod`, peer-specific `Pi_fac`, and the
+  reliable commit/echo/reveal/proof promotion into `VerifiedAuxSet`.
+- Malicious presigning implements `Pi_enc-elg`, `Pi_elog`, `Pi_aff`, reliable
+  round-one agreement, verifier-specific MtA, proof-before-decrypt ordering,
+  round-three consistency proofs, and the final `G*delta = Delta` /
+  `PK*delta = S` checks. Only that final transition releases a consumed-on-use
+  `PresignatureShare`.
+- Presignatures cannot accept raw attacker-selected hashes. The public signing
+  API hashes a supplied message/signing payload into `KnownMessageDigest` with
+  SHA-256 or legacy Keccak-256, then performs per-partial verification, low-s
+  normalization, ordinary ECDSA verification, and recovery-ID derivation.
+- The auxiliary profile remains the CGGMP24 128-bit profile: 1536-bit
+  safe-prime factors, public moduli >=3071 bits, 128-fold Fiat-Shamir proof
+  repetitions, and a collective 32-byte `rho` seed.
 
 `PRODUCTION_READY`, `MALICIOUS_DKG_READY`, and `MALICIOUS_ECDSA_READY` are all
-hard-coded `false`. The DKG still needs a formally pinned malicious complaint /
-disqualification protocol for the Ed25519 path. The secp256k1 ECDSA path still
-needs the remaining CGGMP auxiliary proofs and malicious presigning proofs. Do
-not activate this signer for user funds.
+hard-coded `false`. The Ed25519 path still needs its malicious DKG hardening.
+The secp256k1 ECDSA protocol core is complete through presigning, but production
+serialization/authenticated+encrypted transport, durable deployment wiring,
+full-size soak/side-channel hardening, and independent cryptographic review
+remain mandatory. Do not activate this signer for user funds.
 
 Primitive dependencies are deliberately narrow: `curve25519-dalek` for group
-arithmetic, `sha2` for SHA-512, `rand_core` for OS entropy, `zeroize` for secret
+arithmetic, `sha2`/`sha3` for hashing, `rand_core` for OS entropy, `zeroize` for secret
 state cleanup, `ed25519-dalek` only as an independent Ed25519 compatibility
 verifier, `k256` for secp256k1 arithmetic plus independent final ECDSA
 verification, and pinned `fast-paillier` as a low-level Paillier/big-integer
