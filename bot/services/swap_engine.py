@@ -6,6 +6,7 @@ Providers:
 - Jupiter + Jito: Solana swaps with MEV protection
 - SunSwap V2: TRON on-chain DEX
 - OKX DEX: Multi-chain aggregator (TRON, EVM, Solana) — 400+ DEXes
+- 0x Cross-Chain: Bridge + destination swap into Robinhood Chain
 - Li.Fi: Cross-chain & EVM aggregator
 - LayerZero/Stargate: Same-token cross-chain bridges
 - CoW Protocol: MEV-protected EVM batch auctions
@@ -111,6 +112,7 @@ EXECUTABLE_PROVIDERS = frozenset(
         "okx_dex",
         "1inch",
         "0x",
+        "0x_crosschain",
         "kyberswap",
         "avnu",
         "goatswap",
@@ -820,6 +822,23 @@ class SwapEngine:
             return False
         return self.across.is_supported_route(from_chain, to_chain, from_token)
 
+    def _is_0x_robinhood_cross_chain_route(self, from_chain: str, to_chain: str) -> bool:
+        """0x bridge+swap fallback for Robinhood funding, scoped deliberately.
+
+        Cross-Chain API supports many networks, but this integration exists to
+        close the launch-token funding gap on Robinhood. Keeping the eligibility
+        narrow avoids changing routing behavior for unrelated bridge flows.
+        """
+        source = from_chain.lower()
+        destination = to_chain.lower()
+        return (
+            self.zerox.is_configured
+            and source != destination
+            and destination == "robinhood"
+            and source in ZEROX_CHAIN_IDS
+            and destination in ZEROX_CHAIN_IDS
+        )
+
     def _is_wormhole_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
     ) -> bool:
@@ -1474,6 +1493,26 @@ class SwapEngine:
                     platform_fee_bps=platform_fee_bps,
                 )
             )
+
+            # Robinhood funding fallback: 0x Cross-Chain can combine an
+            # origin swap, Relay/Across bridge, and destination swap in one
+            # route.  This is especially important for fresh launch tokens
+            # that 0x indexes before a generic bridge aggregator does.
+            if self._is_0x_robinhood_cross_chain_route(from_chain, to_chain):
+                tasks.append(
+                    self._get_0x_cross_chain_quote(
+                        from_chain,
+                        to_chain,
+                        from_token,
+                        to_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                        slippage,
+                        platform_fee_bps=platform_fee_bps,
+                    )
+                )
 
             # Additional providers — raced in parallel; best price wins.
             # CCTP: preferred for native USDC (zero fee).
@@ -2730,6 +2769,86 @@ class SwapEngine:
             gas_cost_trusted=gas_cost_trusted,
         )
 
+    async def _get_0x_cross_chain_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
+        slippage: float,
+        platform_fee_bps: Optional[int] = None,
+    ) -> SwapQuote:
+        """Get a 0x bridge+destination-swap quote into Robinhood Chain."""
+        origin_chain_id = ZEROX_CHAIN_IDS.get(from_chain.lower())
+        destination_chain_id = ZEROX_CHAIN_IDS.get(to_chain.lower())
+        if not origin_chain_id or not destination_chain_id:
+            raise SwapError(f"0x Cross-Chain does not support {from_chain} -> {to_chain}")
+        if from_chain.lower() == to_chain.lower() or to_chain.lower() != "robinhood":
+            raise SwapError("0x Cross-Chain fallback is restricted to Robinhood funding")
+
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+        if from_token_address is None or to_token_address is None:
+            raise SwapError(
+                f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}"
+            )
+
+        recipient = to_address or from_address
+        quote = await self.zerox.get_cross_chain_quote(
+            origin_chain_id=origin_chain_id,
+            destination_chain_id=destination_chain_id,
+            from_token=self._to_0x_token(from_token_address),
+            to_token=self._to_0x_token(to_token_address),
+            amount=amount_raw,
+            origin_address=from_address,
+            destination_address=recipient,
+            slippage=slippage,
+            platform_fee_bps=platform_fee_bps,
+        )
+
+        to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        # Use the same real-gas estimator as 0x same-chain quotes. The API's
+        # gasLimit is for the origin transaction; bridge/provider fees remain
+        # reflected in the quoted output amount.
+        gas_cost_usd, gas_cost_trusted = await self._real_gas_cost_usd(
+            from_chain, quote.estimated_gas
+        )
+
+        return SwapQuote(
+            provider="0x_crosschain",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.to_amount_min,
+            gas_cost_usd=gas_cost_usd,
+            fee_cost_usd=0.0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=quote.estimated_time or 60,
+            price_impact=0.0,
+            exchange_rate=exchange_rate,
+            platform_fee_bps=platform_fee_bps,
+            raw_quote={
+                "zerox_crosschain_quote": quote.raw_response,
+                "quote_id": quote.quote_id,
+                "origin_chain_id": origin_chain_id,
+                "destination_chain_id": destination_chain_id,
+                "to_address": recipient,
+                "slippage": slippage,
+            },
+            gas_cost_trusted=gas_cost_trusted,
+        )
+
     @staticmethod
     def _to_kyber_token(address: str) -> str:
         """Map this codebase's native sentinel (0x000…0) to KyberSwap's (0xEeee…EEeE)."""
@@ -3609,6 +3728,11 @@ class SwapEngine:
                         to_amount_usd=to_amount_usd,
                         status=SwapStatus.EXECUTING.value,
                         route_provider=quote.provider,
+                        route_data=(
+                            json.dumps({"quote_id": quote.raw_quote.get("quote_id")})
+                            if quote.provider == "0x_crosschain"
+                            else None
+                        ),
                         gas_fee=quote.gas_cost_usd,
                         bridge_fee=quote.fee_cost_usd,
                         idempotency_key=idempotency_key,
@@ -3704,6 +3828,8 @@ class SwapEngine:
                     tx_hash = await self._execute_1inch_swap(quote, wallet)
                 elif quote.provider == "0x":
                     tx_hash = await self._execute_0x_swap(quote, wallet)
+                elif quote.provider == "0x_crosschain":
+                    tx_hash = await self._execute_0x_cross_chain_swap(quote, wallet)
                 elif quote.provider == "kyberswap":
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
                 elif quote.provider == "avnu":
@@ -3756,6 +3882,10 @@ class SwapEngine:
                         if db_tx:
                             db_tx.tx_hash = tx_hash
                             db_tx.status = SwapStatus.SUBMITTED.value
+                            if quote.provider == "0x_crosschain":
+                                db_tx.route_data = json.dumps(
+                                    {"quote_id": quote.raw_quote.get("quote_id")}
+                                )
 
                 await run_in_db(_update_tx_hash)
 
@@ -6401,6 +6531,204 @@ class SwapEngine:
         logger.info(f"0x swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
 
+    async def _execute_0x_cross_chain_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a 0x bridge+swap route into Robinhood Chain (EVM-only).
+
+        Cross-chain calldata is recipient-bound, so execution always re-quotes
+        with the signer as BOTH origin and destination. This intentionally does
+        not trust a recipient copied from the earlier display quote. The fresh
+        min-out must also be at least the amount the user approved before any
+        approval or swap transaction is signed.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        # Numeric chain ids in raw_quote can come from rehydrated API input, so
+        # they are audit metadata only. Derive the executable route from the
+        # canonical chain names and fail closed if stored metadata disagrees.
+        origin_chain_id = ZEROX_CHAIN_IDS.get(quote.from_chain.lower())
+        destination_chain_id = ZEROX_CHAIN_IDS.get(quote.to_chain.lower())
+        if not origin_chain_id or not destination_chain_id:
+            raise SwapError(
+                f"0x Cross-Chain does not support {quote.from_chain} -> {quote.to_chain}"
+            )
+        raw_quote = quote.raw_quote or {}
+        try:
+            stored_origin_chain_id = raw_quote.get("origin_chain_id")
+            stored_destination_chain_id = raw_quote.get("destination_chain_id")
+            if (
+                stored_origin_chain_id is not None
+                and int(stored_origin_chain_id) != origin_chain_id
+            ) or (
+                stored_destination_chain_id is not None
+                and int(stored_destination_chain_id) != destination_chain_id
+            ):
+                raise SwapError("0x Cross-Chain stored chain IDs do not match canonical route")
+        except (TypeError, ValueError) as exc:
+            raise SwapError("0x Cross-Chain stored chain IDs do not match canonical route") from exc
+        if (
+            quote.from_chain.lower() == quote.to_chain.lower()
+            or quote.to_chain.lower() != "robinhood"
+        ):
+            raise SwapError("0x Cross-Chain execution is restricted to Robinhood funding")
+
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        to_token_address = get_token_address(quote.to_token, quote.to_chain)
+        if from_token_address is None or to_token_address is None:
+            raise SwapError("0x Cross-Chain execution could not resolve token addresses")
+
+        sender_address = wallet_data["address"]
+        swap_slippage = raw_quote.get("slippage", 0.5)
+        swap_result = await self.zerox.get_cross_chain_quote(
+            origin_chain_id=origin_chain_id,
+            destination_chain_id=destination_chain_id,
+            from_token=self._to_0x_token(from_token_address),
+            to_token=self._to_0x_token(to_token_address),
+            amount=quote.from_amount,
+            origin_address=sender_address,
+            destination_address=sender_address,
+            slippage=swap_slippage,
+            platform_fee_bps=quote.platform_fee_bps,
+        )
+
+        if (
+            swap_result.origin_chain_id != origin_chain_id
+            or swap_result.destination_chain_id != destination_chain_id
+        ):
+            raise SwapError("0x Cross-Chain returned a route for the wrong chain pair")
+        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "0x Cross-Chain")
+
+        tx_data = swap_result.tx_data
+        if not tx_data:
+            raise SwapError("0x Cross-Chain did not return transaction data")
+
+        # Persist the exact submitted quote id after execute_swap receives the
+        # tx hash so the background poller can disambiguate lifecycle status.
+        quote.raw_quote["quote_id"] = swap_result.quote_id
+        quote.raw_quote["zerox_crosschain_quote"] = swap_result.raw_response
+
+        chain = get_chain_by_name(quote.from_chain)
+        if chain is None or chain.chain_type != ChainType.EVM:
+            raise SwapError("0x Cross-Chain execution requires an EVM origin chain")
+        web3 = self.wallet_service._get_web3(quote.from_chain)
+        sender = Web3.to_checksum_address(sender_address)
+        tx_to = Web3.to_checksum_address(tx_data.get("to", ""))
+
+        # Cross-Chain uses the same 0x AllowanceHolder model as Swap API.
+        # The approval spender comes from issues.allowance.spender and MUST NOT
+        # be inferred from transaction.to (the execution target can differ).
+        if from_token_address != NATIVE_TOKEN_ADDRESS:
+            routes = swap_result.raw_response.get("quotes") or []
+            route_raw = routes[0] if routes else {}
+            issues = route_raw.get("issues") or swap_result.raw_response.get("issues") or {}
+            allowance_issue = issues.get("allowance") or {}
+            spender_raw = allowance_issue.get("spender")
+
+            if spender_raw:
+                spender = Web3.to_checksum_address(spender_raw)
+                token_addr = Web3.to_checksum_address(from_token_address)
+                erc20_abi = [
+                    {
+                        "inputs": [
+                            {"name": "owner", "type": "address"},
+                            {"name": "spender", "type": "address"},
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "type": "function",
+                        "stateMutability": "view",
+                    },
+                    {
+                        "inputs": [
+                            {"name": "spender", "type": "address"},
+                            {"name": "amount", "type": "uint256"},
+                        ],
+                        "name": "approve",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function",
+                        "stateMutability": "nonpayable",
+                    },
+                ]
+                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+                amount_needed = int(quote.from_amount)
+                current_allowance = await asyncio.to_thread(
+                    lambda: token_contract.functions.allowance(sender, spender).call()
+                )
+
+                if current_allowance < amount_needed:
+                    nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                    nonce = await self._send_reset_approval_if_needed(
+                        web3=web3,
+                        token_contract=token_contract,
+                        token_addr=token_addr,
+                        spender=spender,
+                        current_allowance=current_allowance,
+                        sender=sender,
+                        chain_id=chain.chain_id,
+                        gas_price=gas_price,
+                        nonce=nonce,
+                        wallet=wallet,
+                    )
+                    approve_data = token_contract.functions.approve(
+                        spender, self._approval_amount(amount_needed)
+                    ).build_transaction(
+                        {
+                            "from": sender,
+                            "nonce": nonce,
+                            "chainId": chain.chain_id,
+                            "gasPrice": gas_price,
+                        }
+                    )
+                    approve_tx = {
+                        "to": token_addr,
+                        "data": approve_data["data"],
+                        "value": 0,
+                        "gas": approve_data.get("gas", 60000),
+                        "gasPrice": approve_data["gasPrice"],
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                    }
+                    signed_approve = await self.wallet_service.sign_evm_transaction(
+                        wallet, approve_tx
+                    )
+                    approve_hash = await asyncio.to_thread(
+                        lambda: web3.eth.send_raw_transaction(
+                            bytes.fromhex(signed_approve.replace("0x", ""))
+                        )
+                    )
+                    logger.info(
+                        "0x Cross-Chain approval tx (spender=%s): %s",
+                        spender,
+                        approve_hash.hex(),
+                    )
+                    await asyncio.to_thread(
+                        lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    )
+
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        provider_gas_price = _parse_int(tx_data.get("gasPrice"), 0)
+        if provider_gas_price <= 0:
+            provider_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+        tx = {
+            "to": tx_to,
+            "data": tx_data.get("data", ""),
+            "value": _parse_int(tx_data.get("value"), 0),
+            "gas": _parse_int(tx_data.get("gas"), 500000),
+            "gasPrice": provider_gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
+
+        logger.info("0x Cross-Chain swap tx: %s", tx_hash.hex())
+        return tx_hash.hex()
+
     async def _execute_kyberswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via the KyberSwap Aggregator (EVM-only).
 
@@ -6665,6 +6993,8 @@ class SwapEngine:
         elif swap_tx.route_provider == "sunswap":
             # Check TRON transaction status
             status = await self._check_tron_tx_status(swap_tx.tx_hash)
+        elif swap_tx.route_provider == "0x_crosschain":
+            status = await self._check_0x_cross_chain_status(swap_tx)
         else:
             # Check via Li.Fi status API
             if swap_tx.from_chain != swap_tx.to_chain:
@@ -6808,6 +7138,57 @@ class SwapEngine:
             logger.error(f"Li.Fi status check failed for {swap_tx.tx_hash}: {e}")
             return SwapStatus.FAILED.value
 
+    async def _check_0x_cross_chain_status(self, swap_tx: SwapTransaction) -> str:
+        """Check a 0x Cross-Chain route through destination settlement."""
+        try:
+            route_data = json.loads(swap_tx.route_data or "{}")
+            origin_chain_id = ZEROX_CHAIN_IDS.get(swap_tx.from_chain.lower())
+            destination_chain_id = ZEROX_CHAIN_IDS.get(swap_tx.to_chain.lower())
+            if not origin_chain_id or not destination_chain_id:
+                raise SwapError("Stored 0x Cross-Chain swap has an unsupported chain")
+
+            result = await self.zerox.get_cross_chain_status(
+                origin_chain_id=origin_chain_id,
+                origin_tx_hash=swap_tx.tx_hash,
+                quote_id=route_data.get("quote_id"),
+            )
+            provider_status = result.get("status")
+
+            if provider_status == "bridge_filled":
+                destination_hash = None
+                for tx in result.get("transactions") or []:
+                    try:
+                        tx_chain_id = int(tx.get("chainId"))
+                    except (TypeError, ValueError):
+                        continue
+                    if tx_chain_id == destination_chain_id and tx.get("txHash"):
+                        destination_hash = tx["txHash"]
+                if destination_hash:
+
+                    def _update_dest_hash():
+                        with get_session() as session:
+                            tx = (
+                                session.query(SwapTransaction)
+                                .filter(SwapTransaction.id == swap_tx.id)
+                                .first()
+                            )
+                            if tx:
+                                tx.destination_tx_hash = destination_hash
+
+                    await run_in_db(_update_dest_hash)
+                    swap_tx.destination_tx_hash = destination_hash
+                return SwapStatus.COMPLETED.value
+
+            if provider_status in ("origin_tx_reverted", "bridge_failed"):
+                return SwapStatus.FAILED.value
+            return SwapStatus.CONFIRMING.value
+        except Exception as e:
+            # A status service failure is not evidence that the bridge failed.
+            # Keep polling rather than turning a temporary 0x/API outage into a
+            # false terminal failure in the user's transaction history.
+            logger.error(f"0x Cross-Chain status check failed for {swap_tx.tx_hash}: {e}")
+            return SwapStatus.CONFIRMING.value
+
     async def execute_multi_swap(
         self,
         quotes_with_wallets: List[tuple[SwapQuote, int]],
@@ -6829,9 +7210,18 @@ class SwapEngine:
         for i, (quote, wallet_id) in enumerate(quotes_with_wallets):
             # Create a unique idempotency key for each wallet in the set
             idempotency_key = f"multi:{user_id}:{wallet_id}:{attempt_id}:{i}"
+            # 0x Cross-Chain execution refreshes recipient-bound calldata and
+            # its quote_id immediately before signing. The Telegram multi-wallet
+            # path intentionally supplies the same display quote to every task,
+            # so isolate both the dataclass and its mutable raw metadata before
+            # concurrent execution. Otherwise wallet B can overwrite wallet A's
+            # quote_id and make A's already-funded bridge impossible to track.
+            execution_quote = quote
+            if quote.provider == "0x_crosschain":
+                execution_quote = replace(quote, raw_quote=dict(quote.raw_quote or {}))
             tasks.append(
                 self.execute_swap(
-                    quote=quote,
+                    quote=execution_quote,
                     wallet_id=wallet_id,
                     user_id=user_id,
                     idempotency_key=idempotency_key,

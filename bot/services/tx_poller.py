@@ -1,6 +1,7 @@
 """Transaction status polling service."""
 
 import asyncio
+import json
 import logging
 import time
 from typing import Optional, List
@@ -15,6 +16,7 @@ from database.db import get_session as get_db_session
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
+from bot.services.zerox_api import ZeroXAPI, ZEROX_CHAIN_IDS
 from bot.utils import ws_confirm
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ class TransactionPoller:
         self._max_age_hours = max_age_hours
         self._bot = None
         self._lifi = LiFiAPI()
+        self._zerox = ZeroXAPI()
         # Active Solana websocket watchers keyed by tx id (avoid duplicate subscriptions)
         self._ws_watchers: dict[int, asyncio.Task] = {}
         logger.info(f"Transaction poller initialized (interval: {poll_interval}s)")
@@ -106,6 +109,10 @@ class TransactionPoller:
                             SwapStatus.SUBMITTED.value,
                             SwapStatus.EXECUTING.value,
                             SwapStatus.PENDING.value,
+                            # Cross-chain routes enter CONFIRMING after the
+                            # source tx lands and must keep polling until the
+                            # destination provider reports a terminal state.
+                            SwapStatus.CONFIRMING.value,
                         ]
                     ),
                     SwapTransaction.created_at >= cutoff,
@@ -125,6 +132,7 @@ class TransactionPoller:
                     "from_chain": tx.from_chain,
                     "to_chain": tx.to_chain,
                     "route_provider": getattr(tx, "route_provider", None),
+                    "route_data": getattr(tx, "route_data", None),
                     "status": tx.status,
                     "user_id": tx.user_id,
                     "from_token": tx.from_token,
@@ -266,6 +274,9 @@ class TransactionPoller:
         if tx_dict.get("route_provider") == "lifi" and tx_dict["from_chain"] != tx_dict["to_chain"]:
             return await self._check_lifi_status_dict(tx_dict)
 
+        if tx_dict.get("route_provider") == "0x_crosschain":
+            return await self._check_zerox_crosschain_status_dict(tx_dict)
+
         if chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
             status = await self._check_evm_tx(tx_hash, rpc_url)
@@ -303,6 +314,52 @@ class TransactionPoller:
             logger.error(f"Li.Fi status check error: {e}")
             return None, None
 
+    async def _check_zerox_crosschain_status_dict(
+        self, tx_dict: dict
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Check 0x Cross-Chain through destination fill, not just origin mining."""
+        try:
+            origin_chain_id = ZEROX_CHAIN_IDS.get(tx_dict["from_chain"].lower())
+            destination = get_chain_by_name(tx_dict["to_chain"])
+            if not origin_chain_id or not destination:
+                return None, None
+
+            try:
+                route_data = json.loads(tx_dict.get("route_data") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                route_data = {}
+
+            result = await asyncio.wait_for(
+                self._zerox.get_cross_chain_status(
+                    origin_chain_id=origin_chain_id,
+                    origin_tx_hash=tx_dict["tx_hash"],
+                    quote_id=route_data.get("quote_id"),
+                ),
+                timeout=10,
+            )
+            provider_status = result.get("status")
+
+            if provider_status == "bridge_filled":
+                destination_hash = None
+                for transaction in result.get("transactions") or []:
+                    try:
+                        chain_id = int(transaction.get("chainId"))
+                    except (TypeError, ValueError):
+                        continue
+                    if chain_id == destination.chain_id and transaction.get("txHash"):
+                        destination_hash = transaction["txHash"]
+                return SwapStatus.COMPLETED.value, destination_hash
+
+            if provider_status in ("origin_tx_reverted", "bridge_failed"):
+                return SwapStatus.FAILED.value, None
+
+            # origin_tx_pending / origin_tx_confirmed / bridge_pending / unknown
+            # are all non-terminal according to 0x's lifecycle contract.
+            return SwapStatus.CONFIRMING.value, None
+        except Exception as e:
+            logger.error(f"0x Cross-Chain status check error: {e}")
+            return None, None
+
     async def _check_tx_status(self, tx: SwapTransaction) -> Optional[str]:
         """Check transaction status on chain (legacy ORM-object interface)."""
         tx_dict = {
@@ -311,6 +368,7 @@ class TransactionPoller:
             "from_chain": tx.from_chain,
             "to_chain": tx.to_chain,
             "route_provider": getattr(tx, "route_provider", None),
+            "route_data": getattr(tx, "route_data", None),
         }
         status, _ = await self._check_tx_status_dict(tx_dict)
         return status
