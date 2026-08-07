@@ -40,13 +40,15 @@ type McpContext = { Variables: { agent: Agent } }
 
 const mcpRoutes = new Hono<McpContext>()
 
-// MCP handshake/discovery methods must work without auth (anonymous initialize is
-// part of the spec) — auth is enforced per-method inside the POST handler instead
-// of a blanket `use('*', ...)` gate so unhappy paths stay inside the JSON-RPC envelope.
+// MCP discovery and the legacy handshake must work without auth — auth is
+// enforced per-method inside the POST handler instead of a blanket `use('*', ...)`
+// gate so unhappy paths stay inside the JSON-RPC envelope.
 const PUBLIC_MCP_METHODS = new Set([
 	'initialize',
+	'server/discover',
 	'tools/list',
 	'resources/list',
+	'resources/templates/list',
 	'resources/read',
 	'prompts/list',
 	'prompts/get',
@@ -66,23 +68,31 @@ const PUBLIC_MCP_METHODS = new Set([
 const PUBLIC_READ_TOOLS = new Set(['list_chains', 'list_tokens', 'get_tempo_tokens', 'browse_mpp_directory'])
 
 // ---------------------------------------------------------------
-// Protocol version negotiation (MCP spec: lifecycle / initialize)
+// Protocol eras (MCP 2026-07-28 + legacy initialize compatibility)
 //
-// We are a simple JSON-RPC 2.0 server — none of our tools/resources/prompts
-// behavior is gated on protocolVersion, so negotiation is limited to the
-// initialize handshake. Per spec: if the client's requested version is one
-// we support, echo it back; otherwise respond with our latest supported
-// version (the client may then decide whether to proceed or disconnect).
-// Do NOT bump this to unreleased/RC spec revisions.
+// 2026-07-28 is the first stateless/core-modern revision: every request is
+// self-describing via params._meta and mirrored HTTP headers. Legacy revisions
+// still negotiate through initialize. Keep those paths separate — initialize
+// must never negotiate a modern revision because modern MCP has no handshake.
 // ---------------------------------------------------------------
-const SUPPORTED_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
-const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1]
+const LEGACY_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
+const MODERN_MCP_VERSION = '2026-07-28' as const
+const SUPPORTED_MCP_VERSIONS = [...LEGACY_MCP_VERSIONS, MODERN_MCP_VERSION] as const
+const LATEST_LEGACY_MCP_VERSION = LEGACY_MCP_VERSIONS[LEGACY_MCP_VERSIONS.length - 1]
+const LATEST_MCP_VERSION = MODERN_MCP_VERSION
+
+const MCP_PROTOCOL_VERSION_META = 'io.modelcontextprotocol/protocolVersion'
+const MCP_CLIENT_CAPABILITIES_META = 'io.modelcontextprotocol/clientCapabilities'
+const MCP_SERVER_INFO_META = 'io.modelcontextprotocol/serverInfo'
+const MCP_SERVER_INFO = { name: 'suwappu', version: '0.6.0' } as const
+const MCP_CATALOG_TTL_MS = 60_000
+const MCP_DISCOVERY_TTL_MS = 3_600_000
 
 function negotiateProtocolVersion(requested: unknown): string {
-	if (typeof requested === 'string' && (SUPPORTED_MCP_VERSIONS as readonly string[]).includes(requested)) {
+	if (typeof requested === 'string' && (LEGACY_MCP_VERSIONS as readonly string[]).includes(requested)) {
 		return requested
 	}
-	return LATEST_MCP_VERSION
+	return LATEST_LEGACY_MCP_VERSION
 }
 
 
@@ -164,6 +174,177 @@ function rpcErr(
 			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: agentErrorCode }
 			: data
 	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(errData !== undefined && { data: errData }) } }
+}
+
+type McpWireRequest = {
+	jsonrpc: string
+	id: string | number | null
+	method: string
+	params?: Record<string, unknown>
+}
+
+type McpTransportHeaders = {
+	protocolVersion?: string
+	method?: string
+	name?: string
+}
+
+type ModernMcpValidation =
+	| { modern: false }
+	| { modern: true; protocolVersion: typeof MODERN_MCP_VERSION }
+	| {
+			modern: true
+			error: { code: number; message: string; data?: unknown; httpStatus: 200 | 400 }
+	  }
+
+function asRecord(value: unknown): Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {}
+}
+
+/** Decode Mcp-Name's 2026-07-28 Base64 sentinel form before comparison. */
+export function decodeMcpHeaderValue(value: string): string | null {
+	if (!(value.startsWith('=?base64?') && value.endsWith('?='))) {
+		// Edge whitespace is not safely representable as a plain HTTP field value;
+		// compliant clients Base64-wrap it so intermediaries cannot trim it.
+		if (/^[\t ]|[\t ]$/.test(value)) return null
+		return /^[\x20-\x7e\t]*$/.test(value) ? value : null
+	}
+
+	const match = /^=\?base64\?([A-Za-z0-9+/]*={0,2})\?=$/.exec(value)
+	if (!match || match[1].length % 4 !== 0) return null
+	const bytes = Buffer.from(match[1], 'base64')
+	if (bytes.toString('base64') !== match[1]) return null
+	const decoded = bytes.toString('utf8')
+	if (!Buffer.from(decoded, 'utf8').equals(bytes)) return null
+	return decoded
+}
+
+/**
+ * Validate the transport/body invariants that distinguish modern MCP from the
+ * legacy initialize era. Legacy traffic is deliberately left byte-compatible.
+ */
+export function validateModernMcpRequest(
+	req: McpWireRequest,
+	headers: McpTransportHeaders,
+): ModernMcpValidation {
+	const params = asRecord(req.params)
+	const meta = asRecord(params._meta)
+	const metaProtocol =
+		typeof meta[MCP_PROTOCOL_VERSION_META] === 'string'
+			? (meta[MCP_PROTOCOL_VERSION_META] as string)
+			: undefined
+	const headerProtocol = headers.protocolVersion
+	const legacyVersions = LEGACY_MCP_VERSIONS as readonly string[]
+	const modern =
+		(metaProtocol !== undefined && !legacyVersions.includes(metaProtocol)) ||
+		(headerProtocol !== undefined && !legacyVersions.includes(headerProtocol))
+
+	if (!modern) return { modern: false }
+
+	if (!metaProtocol || !headerProtocol) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: 'Header mismatch: MCP-Protocol-Version must match params._meta protocolVersion',
+				httpStatus: 400,
+			},
+		}
+	}
+	if (metaProtocol !== headerProtocol) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: `Header mismatch: MCP-Protocol-Version '${headerProtocol}' does not match body value '${metaProtocol}'`,
+				httpStatus: 400,
+			},
+		}
+	}
+	if (metaProtocol !== MODERN_MCP_VERSION) {
+		return {
+			modern: true,
+			error: {
+				code: -32022,
+				message: 'Unsupported protocol version',
+				data: { supported: [...SUPPORTED_MCP_VERSIONS], requested: metaProtocol },
+				httpStatus: 400,
+			},
+		}
+	}
+	if (!headers.method || headers.method !== req.method) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: headers.method
+					? `Header mismatch: Mcp-Method '${headers.method}' does not match body value '${req.method}'`
+					: 'Header mismatch: required Mcp-Method header is missing',
+				httpStatus: 400,
+			},
+		}
+	}
+
+	let bodyName: unknown
+	if (req.method === 'tools/call' || req.method === 'prompts/get') bodyName = params.name
+	if (req.method === 'resources/read') bodyName = params.uri
+	if (bodyName !== undefined || ['tools/call', 'prompts/get', 'resources/read'].includes(req.method)) {
+		if (!headers.name) {
+			return {
+				modern: true,
+				error: {
+					code: -32020,
+					message: 'Header mismatch: required Mcp-Name header is missing',
+					httpStatus: 400,
+				},
+			}
+		}
+		const decodedName = decodeMcpHeaderValue(headers.name)
+		if (decodedName === null || typeof bodyName !== 'string' || decodedName !== bodyName) {
+			return {
+				modern: true,
+				error: {
+					code: -32020,
+					message: `Header mismatch: Mcp-Name does not match the request body`,
+					httpStatus: 400,
+				},
+			}
+		}
+	}
+
+	const clientCapabilities = meta[MCP_CLIENT_CAPABILITIES_META]
+	if (clientCapabilities === null || typeof clientCapabilities !== 'object' || Array.isArray(clientCapabilities)) {
+		return {
+			modern: true,
+			error: {
+				code: -32602,
+				message: `Missing required ${MCP_CLIENT_CAPABILITIES_META} request metadata`,
+				httpStatus: 400,
+			},
+		}
+	}
+
+	return { modern: true, protocolVersion: MODERN_MCP_VERSION }
+}
+
+type McpCacheHint = { ttlMs: number; cacheScope: 'public' | 'private' }
+
+/** Attach the result fields required by the stateless 2026-07-28 core. */
+export function completeModernMcpResult(result: unknown, cache?: McpCacheHint): Record<string, unknown> {
+	const base = asRecord(result)
+	const meta = asRecord(base._meta)
+	return {
+		...base,
+		resultType: 'complete',
+		_meta: { ...meta, [MCP_SERVER_INFO_META]: MCP_SERVER_INFO },
+		...(cache ?? {}),
+	}
+}
+
+function resultForMcpEra(result: unknown, modern: boolean, cache?: McpCacheHint): unknown {
+	return modern ? completeModernMcpResult(result, cache) : result
 }
 
 // ---------------------------------------------------------------
@@ -1191,15 +1372,11 @@ const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]
 // MCP JSON-RPC endpoint
 // ---------------------------------------------------------------
 
-// MCP Streamable HTTP transport (spec: 2025-03-26+) defines a single endpoint
-// supporting POST (JSON-RPC messages) and, optionally, GET to open a
-// server-initiated SSE stream. We are a stateless request/response JSON-RPC
-// server — every tools/call response is a synchronous JSON body, never SSE —
-// so we do not offer that optional GET stream. Per spec: "If the server does
-// not offer an SSE stream at this endpoint, it MUST respond with 405 Method
-// Not Allowed." Do NOT confuse this with the legacy (pre-2025-03-26) HTTP+SSE
-// transport, which required a long-lived GET SSE connection for every response —
-// we never implemented and are explicitly not adopting that transport.
+// Modern MCP 2026-07-28 Streamable HTTP is POST-only at the endpoint and has no
+// standalone GET stream. Older Streamable HTTP revisions allowed a GET SSE
+// stream, but Suwappu never offered one; GET therefore remains 405 for both
+// eras. Individual modern POST responses may still use request-scoped SSE in a
+// future implementation, but today's handlers return synchronous JSON.
 mcpRoutes.get('/', (c) => {
 	c.header('Allow', 'POST')
 	return c.body(null, 405)
@@ -1213,13 +1390,26 @@ mcpRoutes.post('/', async (c) => {
 		return c.json(rpcErr(null, -32700, 'Parse error', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	const req = body as { jsonrpc: string; id: string | number | null; method: string; params?: any }
+	const req = body as McpWireRequest
 	if (!req || req.jsonrpc !== '2.0' || !req.method) {
 		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	// Only gate non-public methods on auth so anonymous MCP clients can complete the
-	// initialize/tools-list handshake before ever presenting an API key (spec compliance).
+	const modernValidation = validateModernMcpRequest(req, {
+		protocolVersion: c.req.header('MCP-Protocol-Version'),
+		method: c.req.header('Mcp-Method'),
+		name: c.req.header('Mcp-Name'),
+	})
+	if ('error' in modernValidation) {
+		return c.json(
+			rpcErr(req.id, modernValidation.error.code, modernValidation.error.message, modernValidation.error.data),
+			modernValidation.error.httpStatus,
+		)
+	}
+	const modern = modernValidation.modern
+
+	// Only gate non-public methods on auth so anonymous MCP clients can discover
+	// the server/catalog (or complete a legacy initialize) before presenting a key.
 	// A tools/call targeting a PUBLIC_READ_TOOLS entry is likewise exempt — read/discovery
 	// tools must not require payment-capable auth (registry acceptance criteria).
 	const isPublicToolCall =
@@ -1246,31 +1436,60 @@ mcpRoutes.post('/', async (c) => {
 	}
 
 	switch (req.method) {
+		case 'server/discover':
+			if (!modern) return c.json(rpcErr(req.id, -32601, 'Unknown method: server/discover', undefined, 'NOT_FOUND'), 200)
+			return c.json(rpcOk(req.id, completeModernMcpResult({
+				supportedVersions: [...SUPPORTED_MCP_VERSIONS],
+				capabilities: { tools: {}, resources: {}, prompts: {} },
+				instructions:
+					'Suwappu provides market reads, quotes, simulation, and unsigned transaction preparation. execute_swap never signs or broadcasts. Treat tool annotations as hints and enforce an application-owned allowlist.',
+			}, { ttlMs: MCP_DISCOVERY_TTL_MS, cacheScope: 'public' })), 200)
+
 		case 'initialize':
+			if (modern) return c.json(rpcErr(req.id, -32601, 'Unknown method: initialize', undefined, 'NOT_FOUND'), 404)
 			return c.json(rpcOk(req.id, {
 				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
-				serverInfo: { name: 'suwappu', version: '0.6.0' },
+				serverInfo: MCP_SERVER_INFO,
 			}), 200)
 
 		case 'tools/list':
-			return c.json(rpcOk(req.id, { tools: TOOLS_WITH_ANNOTATIONS }), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ tools: TOOLS_WITH_ANNOTATIONS },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 
 		case 'resources/list':
-			return c.json(rpcOk(req.id, { resources: RESOURCES }), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ resources: RESOURCES },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
+
+		case 'resources/templates/list':
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ resourceTemplates: [] },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 
 		case 'resources/read': {
 			const uri = (req.params || {}).uri as string | undefined
 			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri', undefined, 'VALIDATION_ERROR'), 200)
 			const res = readResource(uri)
 			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`, undefined, 'NOT_FOUND'), 200)
-			return c.json(rpcOk(req.id, res), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				res,
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 		}
 
 		case 'prompts/list':
-			return c.json(rpcOk(req.id, {
+			return c.json(rpcOk(req.id, resultForMcpEra({
 				prompts: PROMPTS.map((p) => ({ name: p.name, description: p.description, arguments: p.arguments })),
-			}), 200)
+			}, modern, { ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' })), 200)
 
 		case 'prompts/get': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, string> }
@@ -1279,10 +1498,10 @@ mcpRoutes.post('/', async (c) => {
 			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`, undefined, 'NOT_FOUND'), 200)
 			const missing = prompt.arguments.filter((a) => a.required && !(args || {})[a.name]).map((a) => a.name)
 			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`, undefined, 'VALIDATION_ERROR'), 200)
-			return c.json(rpcOk(req.id, {
+			return c.json(rpcOk(req.id, resultForMcpEra({
 				description: prompt.description,
 				messages: [{ role: 'user', content: { type: 'text', text: prompt.build(args || {}) } }],
-			}), 200)
+			}, modern)), 200)
 		}
 
 		case 'tools/call': {
@@ -1297,7 +1516,7 @@ mcpRoutes.post('/', async (c) => {
 			// Validate the tool exists and its required args are present BEFORE any
 			// metering — nonexistent tools or malformed args must never consume credits.
 			if (!TOOL_NAMES.has(name)) {
-				return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+				return c.json(rpcErr(req.id, modern ? -32602 : -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
 			}
 			const argsError = validateToolArgs(name, args || {})
 			if (argsError) {
@@ -1485,7 +1704,7 @@ mcpRoutes.post('/', async (c) => {
 				})
 			}
 
-			return c.json(rpcOk(req.id, withStructuredContent(name, result)), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(withStructuredContent(name, result), modern)), 200)
 		}
 
 		case 'notifications/initialized':
@@ -1493,7 +1712,10 @@ mcpRoutes.post('/', async (c) => {
 			return c.body(null, 204)
 
 		default:
-			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
+			return c.json(
+				rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'),
+				modern ? 404 : 200,
+			)
 	}
 })
 
@@ -1502,5 +1724,12 @@ export { mcpRoutes }
 // for llms.txt (app.ts) to generate its MCP tool list from the single source of
 // truth instead of a hand-written list that can drift out of sync.
 export { TOOLS, TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
-// Exported for unit testing protocol version negotiation.
-export { SUPPORTED_MCP_VERSIONS, LATEST_MCP_VERSION, negotiateProtocolVersion }
+// Exported for unit testing dual-era protocol negotiation.
+export {
+	LEGACY_MCP_VERSIONS,
+	MODERN_MCP_VERSION,
+	SUPPORTED_MCP_VERSIONS,
+	LATEST_LEGACY_MCP_VERSION,
+	LATEST_MCP_VERSION,
+	negotiateProtocolVersion,
+}

@@ -20,11 +20,53 @@ Obtain a token by registering at `POST /v1/agent/register`.
 
 ## Protocol
 
-All requests and responses follow JSON-RPC 2.0. The server negotiates `protocolVersion` on `initialize`: if your client requests a version we support (`2024-11-05`, `2025-03-26`, or `2025-06-18`), we echo it back; otherwise we respond with our latest supported version (`2025-06-18`). We're a simple JSON-RPC server with no version-gated tool/resource behavior, so negotiation is limited to the handshake.
+Suwappu source `0.6.0` supports both MCP eras on the same endpoint:
 
-## Handshake: Initialize
+- **Modern (recommended): `2026-07-28`.** It is stateless: there is no `initialize` session. Every request carries its protocol version and client capabilities in `params._meta`; Streamable HTTP mirrors the version/method/name into request headers. Successful results include `resultType: "complete"` and server identity in `_meta`. Cacheable discovery/list/resource results also include `ttlMs` and `cacheScope`.
+- **Legacy compatibility:** `2024-11-05`, `2025-03-26`, and `2025-06-18`. These continue to use the `initialize` handshake. If a legacy client requests an unsupported version, `initialize` answers with `2025-06-18`; it never negotiates the modern revision through the legacy handshake.
 
-Before calling any tools, initialize the MCP session:
+For application code, prefer an official MCP SDK that supports the 2026 revision and dual-era negotiation. If you are writing raw HTTP, the modern request shape below is the contract to implement.
+
+## Modern discovery: `server/discover`
+
+`server/discover` is public and is the cleanest way to probe the hosted server before your first tool call.
+
+**HTTP headers:**
+
+```text
+Content-Type: application/json
+Accept: application/json, text/event-stream
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: server/discover
+```
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "discover-1",
+  "method": "server/discover",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "my-suwappu-app",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}
+```
+
+The response advertises the server's supported revisions and capabilities and includes `resultType: "complete"`, `_meta.io.modelcontextprotocol/serverInfo`, and public cache hints. `clientInfo` is recommended but optional; `protocolVersion` and `clientCapabilities` are required on every modern request.
+
+For every modern HTTP POST, `MCP-Protocol-Version` and `Mcp-Method` must match the body. `tools/call`, `resources/read`, and `prompts/get` also require `Mcp-Name` matching `params.name` or `params.uri`. Suwappu rejects missing/mismatched modern transport metadata before authentication or per-tool metering.
+
+## Legacy fallback: `initialize`
+
+Only legacy clients initialize. A modern `2026-07-28` client should not send this handshake.
 
 **Request:**
 
@@ -58,7 +100,7 @@ Before calling any tools, initialize the MCP session:
 }
 ```
 
-If `params.protocolVersion` is omitted or is a version we don't recognize, `result.protocolVersion` will be our latest supported version (`2025-06-18`) rather than an echo.
+If `params.protocolVersion` is omitted, asks for `2026-07-28`, or names another version the legacy path does not recognize, `result.protocolVersion` is the latest supported **legacy** revision (`2025-06-18`) rather than an echo.
 
 ## Discover Tools: tools/list
 
@@ -110,11 +152,11 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 
 `predict_market_detail` is a legacy alias for `predict_market` kept for older clients — both route to the same handler and cost.
 
-The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods (`initialize`, `tools/list`, resources, and prompts) are public as well. Other tools require agent authentication even when their purpose is read-only.
+The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods (`server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts) are public as well. Other tools require agent authentication even when their purpose is read-only.
 
 ## Selected Tool Examples
 
-The examples below cover the core patterns. Do not hard-code this numbered subset as the complete inventory; discover the live catalog with `tools/list`.
+The examples below focus on method parameters. Do not hard-code this numbered subset as the complete inventory; discover the live catalog with `tools/list`. When sending them as raw `2026-07-28` HTTP, also include the modern `_meta` and matching headers described above; an MCP SDK should do that for you.
 
 ### 1. get_quote
 
@@ -494,13 +536,20 @@ Get details for one Morpho lending market. Market identity is chain-scoped, so p
 
 ## Response Format
 
-All `tools/call` responses return content as an array of parts:
+All `tools/call` responses return content as an array of parts. Modern `2026-07-28` results also carry `resultType` and server identity:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 3,
   "result": {
+    "resultType": "complete",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "suwappu",
+        "version": "0.6.0"
+      }
+    },
     "content": [
       {
         "type": "text",
@@ -511,11 +560,13 @@ All `tools/call` responses return content as an array of parts:
 }
 ```
 
-For tools that declare an MCP `outputSchema`, Suwappu also returns `structuredContent`; prefer it when your client exposes it. The `content` text part remains available for compatibility and contains the same JSON value. Tool-level failures set `isError: true`; do not treat a syntactically successful JSON-RPC response as proof the tool action succeeded.
+For tools that declare an MCP `outputSchema`, Suwappu also returns `structuredContent`; prefer it when your client exposes it. The `content` text part remains available for compatibility and contains the same JSON value. Tool-level failures set `isError: true`; do not treat a syntactically successful JSON-RPC response as proof the tool action succeeded. Legacy results omit `resultType`; clients should interpret that as a completed result for compatibility.
 
 ## Client Setup
 
-Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp` (Streamable HTTP transport) — there is no local stdio server to install. Point any MCP-compatible client at that URL with your Bearer key in the `Authorization` header. See [MCP Client Setup](../quickstart/mcp-clients.md) for exact config snippets for Claude Code, Claude Desktop, Cursor, Codex, and OpenCode.
+Suwappu's preferred MCP path is the hosted Streamable HTTP server at `https://api.suwappu.bot/mcp`. Point any remote-capable MCP client at that URL with your Bearer key in the `Authorization` header. See [MCP Client Setup](../quickstart/mcp-clients.md) for exact config snippets for Claude Code, Claude Desktop, Cursor, Codex, and OpenCode.
+
+Source `0.6.0` also contains `@suwappu/mcp-server`, a thin stdio bridge for clients that require a local process. The npm registry can lag source, so check the published version before using `npx`; the hosted endpoint is the canonical catalog either way.
 
 If you're building an agent programmatically instead of using an interactive client, the `@suwappu/openclaw` npm package wraps this same MCP surface (and the REST API) as a typed skill client:
 
@@ -527,9 +578,11 @@ npm install @suwappu/openclaw
 
 Suwappu publishes a manifest (`packages/openclaw/server.json`) to the official
 [MCP registry](https://registry.modelcontextprotocol.io) under the
-domain-verified namespace `bot.suwappu/mcp`, so MCP-aware clients that browse
+domain namespace `bot.suwappu/mcp`, so MCP-aware clients that browse
 the registry (rather than being hand-configured) can discover the remote
-endpoint above. See the publishing steps and DNS-verification note in
+endpoint above. The checked-in manifest is intentionally remote-only while
+source `@suwappu/mcp-server@0.6.0` is newer than the npm release, so registry
+clients are not sent to an unpublished stdio package. See the publishing steps and DNS-verification note in
 [`packages/openclaw/README.md`](../../packages/openclaw/README.md#publishing-to-the-mcp-registry).
 
 ## Claude Desktop Configuration
@@ -564,22 +617,33 @@ Claude will automatically discover the available tools and call them on your beh
 ## Full Example: Quote Flow with curl
 
 ```bash
-# Step 1: Initialize
+# Modern 2026-07-28: every POST is self-contained; there is no initialize step.
+# Step 1: Discover server capabilities
 curl -X POST https://api.suwappu.bot/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: server/discover" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl-example","version":"1.0.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
 
 # Step 2: List available tools
 curl -X POST https://api.suwappu.bot/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 
 # Step 3: Get a quote
 curl -X POST https://api.suwappu.bot/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/call" \
+  -H "Mcp-Name: get_quote" \
   -d '{
     "jsonrpc":"2.0","id":3,"method":"tools/call",
     "params":{
@@ -589,6 +653,10 @@ curl -X POST https://api.suwappu.bot/mcp \
         "to_token":"USDC",
         "amount":"0.5",
         "chain":"base"
+      },
+      "_meta":{
+        "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities":{}
       }
     }
   }'

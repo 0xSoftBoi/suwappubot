@@ -182,9 +182,10 @@ gated on a one-time DNS `TXT` record proving ownership of `bot.suwappu`
 (human/registrar step, not agent-automatable).
 
 **Why two manifest files exist:** `packages/openclaw/server.json` is the
-canonical file actually submitted via `mcp-publisher` (it sits next to the
-`@suwappu/mcp-server` npm package it also declares as an alternate stdio
-transport). `api-ts/mcp-server.json` is a co-located descriptor of the exact
+canonical file actually submitted via `mcp-publisher`. It currently advertises
+the hosted remote only: source `@suwappu/mcp-server` is `0.6.0`, while the npm
+registry still serves `0.1.1`, so an alternate stdio package entry would be a
+dead or stale install path until the bridge is released. `api-ts/mcp-server.json` is a co-located descriptor of the exact
 same remote server (`bot.suwappu/mcp`, same URL), kept next to the serving
 code (`api-ts/src/routes/mcp.ts`) for directories that expect a manifest
 alongside the API implementation rather than inside an SDK package (Coinbase

@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "bot.suwappu/mcp",
-  "description": "Cross-chain, x402-metered DEX execution for AI agents — quote, execute, and track swaps across 14+ chains (12 EVM + Solana + TRON), plus portfolio, perps, prediction-market, and lending reads. Streamable HTTP transport; the 4 discovery tools (list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory) are free/public, all other tools require a bearer key and metered ones are pay-per-call.",
-  "version": "0.4.0",
+  "description": "Cross-chain DeFi tools for AI agents: quotes, swap simulation and unsigned transaction preparation, portfolio/prices, perps, prediction-market, and lending research. Streamable HTTP transport; public discovery plus four zero-cost discovery tools work without a key, while scoped/metered tools require bearer auth.",
+  "version": "0.6.0",
   "repository": {
     "url": "https://github.com/0xSoftBoi/suwappubot",
     "source": "github"
@@ -25,10 +25,10 @@
   "_meta": {
     "bot.suwappu/tools": [
       { "name": "get_quote", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Get a swap quote for exchanging tokens across EVM (Li.Fi), Solana (Jupiter), and Tempo (internal router)." },
-      { "name": "execute_swap", "readOnly": false, "auth": "bearer", "credits": 5, "description": "Execute a swap from a previously obtained quote_id; returns an unsigned transaction to sign." },
+      { "name": "execute_swap", "readOnly": false, "auth": "bearer", "credits": 5, "description": "Prepare an unsigned self-custody transaction from a quote_id; never signs or broadcasts." },
       { "name": "simulate_swap", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Dry-run a swap (balance/allowance/gas/eth_call checks) with zero funds moved." },
-      { "name": "get_swap_status", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Get the status of a previously executed swap." },
-      { "name": "get_swap_history", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Paginated swap history for the authenticated agent." },
+      { "name": "get_swap_status", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Get status for a managed swap created through the REST managed-execution path." },
+      { "name": "get_swap_history", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Paginated managed-swap history for the authenticated agent." },
       { "name": "get_portfolio", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Token balances and USD portfolio value for a wallet across all supported chains." },
       { "name": "get_prices", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Current USD prices with 24h change for up to 20 symbols." },
       { "name": "list_chains", "readOnly": true, "auth": "none", "credits": 0, "description": "List all supported blockchain networks. Public, no API key required." },

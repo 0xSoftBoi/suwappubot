@@ -19,7 +19,8 @@ Auth: Bearer token — \`Authorization: Bearer suwappu_sk_...\` (get a key from 
 SDK source contracts: @suwappu/sdk 0.6.x (TypeScript), suwappu 0.3.x (Python, async), @suwappu/openclaw.
 Package registries can lag the repository; verify the installed version and use REST/OpenAPI as the canonical fallback.
 MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 22 tools). MCP
-execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
+2026-07-28 is the preferred stateless protocol revision, with legacy initialize compatibility through 2025-06-18.
+MCP execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
 https://api.suwappu.bot/.well-known/agent.json (alias: /.well-known/agent-card.json). A2A is quote/price/discovery only; it does not execute trades.
 OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: https://api.suwappu.bot/v1/agent/postman.`;

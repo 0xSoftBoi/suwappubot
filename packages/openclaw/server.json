@@ -15,27 +15,8 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer <SUWAPPU_API_KEY>. Get one at POST https://api.suwappu.bot/v1/agent/register",
-          "isRequired": true,
-          "isSecret": true
-        }
-      ]
-    }
-  ],
-  "packages": [
-    {
-      "registryType": "npm",
-      "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@suwappu/mcp-server",
-      "version": "0.6.0",
-      "transport": {
-        "type": "stdio"
-      },
-      "environmentVariables": [
-        {
-          "name": "SUWAPPU_API_KEY",
-          "description": "Suwappu agent API key (suwappu_sk_...). Register at POST /v1/agent/register.",
-          "isRequired": true,
+          "description": "Bearer <SUWAPPU_API_KEY>. Optional for public MCP discovery and four zero-cost discovery tools; required for scoped/metered tools. Get one at POST https://api.suwappu.bot/v1/agent/register",
+          "isRequired": false,
           "isSecret": true
         }
       ]

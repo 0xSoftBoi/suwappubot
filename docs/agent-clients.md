@@ -41,7 +41,9 @@ Authenticated clients send:
 Authorization: Bearer $SUWAPPU_API_KEY
 ```
 
-The server currently supports MCP protocol versions `2024-11-05`, `2025-03-26`, and `2025-06-18`, with `2025-06-18` as the latest. A raw client should send `initialize` with its protocol version/capabilities/client info, then `notifications/initialized`.
+Source `0.6.0` supports modern MCP `2026-07-28` plus the existing `2024-11-05`, `2025-03-26`, and `2025-06-18` legacy path. Prefer the modern stateless revision: each request carries `params._meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities`, with matching `MCP-Protocol-Version` / `Mcp-Method` HTTP headers (`Mcp-Name` is also required for tool, resource, and prompt calls that name a target). Modern clients probe with `server/discover`; they do **not** initialize a session.
+
+Legacy clients can continue to negotiate with `initialize` and `notifications/initialized`; the legacy handshake's newest supported revision remains `2025-06-18`. If you are writing a production client instead of configuring an MCP host, prefer the official MCP SDK's dual-era negotiation rather than maintaining the wire protocol yourself.
 
 ### Client configuration
 
@@ -122,11 +124,12 @@ The endpoint also exposes MCP resources and prompts. Discover them with
 
 These lifecycle/discovery methods are public:
 
+- `server/discover` (modern)
 - `initialize`
 - `tools/list`
-- `resources/list` / `resources/read`
+- `resources/list` / `resources/templates/list` / `resources/read`
 - `prompts/list` / `prompts/get`
-- `notifications/initialized`
+- `notifications/initialized` (legacy)
 
 These four tool calls are also public:
 
@@ -142,11 +145,13 @@ Everything else should be treated as authenticated unless discovery says otherwi
 A robust client should:
 
 1. Check the JSON-RPC envelope for `error`.
-2. Check a successful `tools/call` result for `isError: true`.
-3. Prefer `structuredContent` when the tool declares an `outputSchema`.
-4. Fall back to text content for tools that do not yet expose structured output.
-5. Treat `annotations` as descriptive behavioral hints, **not authorization**.
-6. Intersect discovered tools with an application-owned allowlist before calling them.
+2. On `2026-07-28`, require/handle `resultType`; `complete` is final and `input_required` would require a multi-round-trip retry. Suwappu's current handlers complete in one round trip.
+3. Check a successful `tools/call` result for `isError: true`.
+4. Prefer `structuredContent` when the tool declares an `outputSchema`.
+5. Fall back to text content for tools that do not yet expose structured output.
+6. Honor `ttlMs` / `cacheScope` on modern catalog and resource responses instead of rediscovering on every turn.
+7. Treat `annotations` as descriptive behavioral hints, **not authorization**.
+8. Intersect discovered tools with an application-owned allowlist before calling them.
 
 ### Important: MCP `execute_swap` prepares, it does not execute
 

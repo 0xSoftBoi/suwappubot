@@ -7,7 +7,7 @@ import type { AgentErrorCode } from './lib/agentError'
 import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware, otelRequestTracing } from './middleware'
+import { adminKeyAuth, createCorsMiddleware, createMcpOriginGuard, otelRequestTracing } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
@@ -188,6 +188,10 @@ export function createApp(config: AppConfig) {
 	// MCP endpoint for OpenClaw and other MCP-compatible agents
 	// Generous IP rate limit — public methods (initialize, tools/list, etc.) are
 	// unauthenticated, so this is the only throttle protecting them from abuse.
+	// Streamable HTTP additionally requires rejecting an invalid Origin (when
+	// present) to prevent DNS-rebinding attacks against MCP endpoints.
+	app.use('/mcp', createMcpOriginGuard(config.allowedOrigins))
+	app.use('/mcp/*', createMcpOriginGuard(config.allowedOrigins))
 	app.use('/mcp', ipRateLimit(60))
 	app.use('/mcp/*', ipRateLimit(60))
 	app.route('/mcp', mcpRoutes)
