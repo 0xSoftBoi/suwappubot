@@ -19,5 +19,11 @@ zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
 tempfile = "3.20"
 
+# fast-paillier 0.3.2 currently reaches yanked core2 0.4.0 through
+# glass_pumpkin. Pin the exact upstream core2 source commit instead of asking
+# Cargo to select a yanked registry release.
+[patch.crates-io]
+core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84bcb0f235b12e21351e0c69767958efe2a7" }
+
 [lints.rust]
 unsafe_code = "forbid"
