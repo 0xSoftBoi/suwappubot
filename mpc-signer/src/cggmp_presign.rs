@@ -341,8 +341,7 @@ pub fn verify_pi_elog(
         return Err(PresignProofError::InvalidPiElog);
     }
     let challenge = pi_elog_challenge(execution, prover, kind, statement, &proof.commitment)?;
-    if ProjectivePoint::GENERATOR * proof.z
-        != proof.commitment.a + statement.l * challenge
+    if ProjectivePoint::GENERATOR * proof.z != proof.commitment.a + statement.l * challenge
         || ProjectivePoint::GENERATOR * proof.u + statement.x * proof.z
             != proof.commitment.n + statement.m * challenge
         || statement.h * proof.u != proof.commitment.b + statement.y * challenge
