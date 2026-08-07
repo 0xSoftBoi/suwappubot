@@ -14,8 +14,7 @@
 use std::collections::BTreeSet;
 
 use curve25519_dalek::{
-    constants::ED25519_BASEPOINT_POINT, edwards::EdwardsPoint, scalar::Scalar,
-    traits::Identity,
+    constants::ED25519_BASEPOINT_POINT, edwards::EdwardsPoint, scalar::Scalar, traits::Identity,
 };
 use rand_core::OsRng;
 use sha2::{Digest, Sha512};
@@ -342,8 +341,7 @@ fn verify_proof(package: &Round1Package) -> Result<(), DkgError> {
 mod tests {
     use super::*;
     use crate::frost_ed25519::{
-        aggregate, verify_with_ed25519, ParticipantCommitment, SignatureShare,
-        VerificationShare,
+        aggregate, verify_with_ed25519, ParticipantCommitment, SignatureShare, VerificationShare,
     };
 
     fn build_dkg() -> (Vec<KeyPackage>, Vec<Round1Package>) {

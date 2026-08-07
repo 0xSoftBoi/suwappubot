@@ -160,9 +160,15 @@ impl KeyPackage {
         group_public_key_bytes: [u8; 32],
     ) -> Result<Self, FrostError> {
         let signing_share = deserialize_scalar(signing_share_bytes)?;
-        let verification_share = VerificationShare::from_bytes(identifier, verification_share_bytes)?;
+        let verification_share =
+            VerificationShare::from_bytes(identifier, verification_share_bytes)?;
         let group_public_key = deserialize_element(group_public_key_bytes)?;
-        Self::from_scalars(identifier, signing_share, verification_share.point, group_public_key)
+        Self::from_scalars(
+            identifier,
+            signing_share,
+            verification_share.point,
+            group_public_key,
+        )
     }
 
     pub(crate) fn from_scalars(
@@ -205,11 +211,8 @@ impl KeyPackage {
             let mut binding_randomness = [0u8; 32];
             rng.fill_bytes(&mut hiding_randomness);
             rng.fill_bytes(&mut binding_randomness);
-            let result = commit_with_randomness(
-                self.signing_share,
-                hiding_randomness,
-                binding_randomness,
-            );
+            let result =
+                commit_with_randomness(self.signing_share, hiding_randomness, binding_randomness);
             hiding_randomness.zeroize();
             binding_randomness.zeroize();
             if let Some(result) = result {
@@ -246,16 +249,11 @@ impl KeyPackage {
             message,
             self.identifier,
         )?;
-        let group_commitment = compute_group_commitment(
-            &self.group_public_key,
-            commitment_list,
-            message,
-        )?;
+        let group_commitment =
+            compute_group_commitment(&self.group_public_key, commitment_list, message)?;
         let lambda = derive_interpolating_value(commitment_list, self.identifier)?;
         let challenge = compute_challenge(&group_commitment, &self.group_public_key, message);
-        let z = nonces.hiding
-            + (nonces.binding * rho)
-            + (lambda * self.signing_share * challenge);
+        let z = nonces.hiding + (nonces.binding * rho) + (lambda * self.signing_share * challenge);
 
         Ok(SignatureShare {
             identifier: self.identifier,
@@ -322,22 +320,25 @@ pub fn verify_signature_share(
     commitment_list: &[ParticipantCommitment],
 ) -> Result<(), FrostError> {
     if verification_share.identifier != signature_share.identifier {
-        return Err(FrostError::InvalidSignatureShare(signature_share.identifier.get()));
+        return Err(FrostError::InvalidSignatureShare(
+            signature_share.identifier.get(),
+        ));
     }
     validate_commitment_list(commitment_list)?;
     let group_public_key = deserialize_element(group_public_key_bytes)?;
     let own = commitment_list
         .iter()
         .find(|entry| entry.identifier == signature_share.identifier)
-        .ok_or(FrostError::MissingParticipant(signature_share.identifier.get()))?;
+        .ok_or(FrostError::MissingParticipant(
+            signature_share.identifier.get(),
+        ))?;
     let rho = binding_factor(
         &group_public_key,
         commitment_list,
         message,
         signature_share.identifier,
     )?;
-    let group_commitment =
-        compute_group_commitment(&group_public_key, commitment_list, message)?;
+    let group_commitment = compute_group_commitment(&group_public_key, commitment_list, message)?;
     let lambda = derive_interpolating_value(commitment_list, signature_share.identifier)?;
     let challenge = compute_challenge(&group_commitment, &group_public_key, message);
 
@@ -345,7 +346,9 @@ pub fn verify_signature_share(
     let commitment_share = own.commitments.hiding + (own.commitments.binding * rho);
     let right = commitment_share + (verification_share.point * (challenge * lambda));
     if left != right {
-        return Err(FrostError::InvalidSignatureShare(signature_share.identifier.get()));
+        return Err(FrostError::InvalidSignatureShare(
+            signature_share.identifier.get(),
+        ));
     }
     Ok(())
 }
@@ -401,8 +404,7 @@ pub fn aggregate(
     }
 
     let group_public_key = deserialize_element(group_public_key_bytes)?;
-    let group_commitment =
-        compute_group_commitment(&group_public_key, commitment_list, message)?;
+    let group_commitment = compute_group_commitment(&group_public_key, commitment_list, message)?;
     let response = signature_shares
         .iter()
         .fold(Scalar::from(0u64), |acc, share| acc + share.scalar);
@@ -437,8 +439,8 @@ pub fn verify_with_ed25519(
     message: &[u8],
     signature: &FrostSignature,
 ) -> Result<(), FrostError> {
-    let verifying_key =
-        VerifyingKey::from_bytes(&group_public_key_bytes).map_err(|_| FrostError::InvalidElement)?;
+    let verifying_key = VerifyingKey::from_bytes(&group_public_key_bytes)
+        .map_err(|_| FrostError::InvalidElement)?;
     let signature = Ed25519Signature::from_bytes(&signature.to_bytes());
     verifying_key
         .verify_strict(message, &signature)
@@ -529,9 +531,7 @@ fn commit_with_randomness(
     Some((SigningNonces { hiding, binding }, commitments))
 }
 
-fn validate_commitment_list(
-    commitment_list: &[ParticipantCommitment],
-) -> Result<(), FrostError> {
+fn validate_commitment_list(commitment_list: &[ParticipantCommitment]) -> Result<(), FrostError> {
     if commitment_list.len() < 2 {
         return Err(FrostError::InvalidCommitmentList);
     }
@@ -610,12 +610,7 @@ fn compute_group_commitment(
     validate_commitment_list(commitment_list)?;
     let mut group_commitment = EdwardsPoint::identity();
     for entry in commitment_list {
-        let rho = binding_factor(
-            group_public_key,
-            commitment_list,
-            message,
-            entry.identifier,
-        )?;
+        let rho = binding_factor(group_public_key, commitment_list, message, entry.identifier)?;
         group_commitment += entry.commitments.hiding + (entry.commitments.binding * rho);
     }
     validate_element(&group_commitment)?;
@@ -681,17 +676,12 @@ mod tests {
     fn matches_rfc9591_ed25519_vector_byte_for_byte() {
         // RFC 9591 Appendix E.1: 2-of-3, signers 1 and 3, message "test".
         let message = b"test";
-        let group_public_key = point(
-            "15d21ccd7ee42959562fc8aa63224c8851fb3ec85a3faf66040d380fb9738673",
-        );
+        let group_public_key =
+            point("15d21ccd7ee42959562fc8aa63224c8851fb3ec85a3faf66040d380fb9738673");
         let p1_id = ParticipantIdentifier::new(1).unwrap();
         let p3_id = ParticipantIdentifier::new(3).unwrap();
-        let p1_share = scalar(
-            "929dcc590407aae7d388761cddb0c0db6f5627aea8e217f4a033f2ec83d93509",
-        );
-        let p3_share = scalar(
-            "d3cb090a075eb154e82fdb4b3cb507f110040905468bb9c46da8bdea643a9a02",
-        );
+        let p1_share = scalar("929dcc590407aae7d388761cddb0c0db6f5627aea8e217f4a033f2ec83d93509");
+        let p3_share = scalar("d3cb090a075eb154e82fdb4b3cb507f110040905468bb9c46da8bdea643a9a02");
 
         let (p1_nonces, p1_commitments) = commit_with_randomness(
             p1_share,

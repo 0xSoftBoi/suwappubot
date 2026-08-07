@@ -80,11 +80,7 @@ impl ExecutionLedger {
 
         let record_id = record_id(key_id, execution_id);
         let path = self.root.join(format!("{record_id}.exec"));
-        let mut file = match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(LedgerError::Replay)
@@ -160,9 +156,7 @@ mod tests {
     fn execution_id_is_one_shot_even_after_success() {
         let temp = tempfile::tempdir().unwrap();
         let ledger = ExecutionLedger::open(temp.path().join("ledger")).unwrap();
-        let reservation = ledger
-            .reserve("key-1", "execution-1", [7u8; 32])
-            .unwrap();
+        let reservation = ledger.reserve("key-1", "execution-1", [7u8; 32]).unwrap();
         assert!(matches!(
             ledger.reserve("key-1", "execution-1", [7u8; 32]),
             Err(LedgerError::Replay)
