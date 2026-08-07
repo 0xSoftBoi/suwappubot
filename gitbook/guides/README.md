@@ -33,7 +33,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | Guide | What you'll build |
 |-------|-------------------|
 | [Building a Trading Bot](building-a-trading-bot.md) | A price-triggered bot; add the lifecycle and accounting gates before live use |
-| [Portfolio Rebalancer](portfolio-rebalancer.md) | A preview-first periodic rebalancer using portfolio + quote + simulation |
+| [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
 | [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
