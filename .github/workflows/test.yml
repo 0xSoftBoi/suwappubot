@@ -90,6 +90,9 @@ jobs:
       - name: OpenAPI spec drift check
         run: bun run check:openapi
 
+      - name: MCP schema drift check
+        run: bun run check:mcp
+
       - name: Run TypeScript tests
         run: bun run test
 

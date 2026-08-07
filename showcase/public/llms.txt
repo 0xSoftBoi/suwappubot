@@ -8,7 +8,8 @@ Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `P
 SDK source contracts: @suwappu/sdk 0.6.x (TypeScript), suwappu 0.3.x (Python, async), @suwappu/openclaw.
 Package registries can lag the repository; verify the installed version and use REST/OpenAPI as the canonical fallback.
 MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 22 tools). MCP
-execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
+2026-07-28 is the preferred stateless protocol revision, with legacy initialize compatibility through 2025-06-18.
+MCP execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
 https://api.suwappu.bot/.well-known/agent.json (alias: /.well-known/agent-card.json). A2A is quote/price/discovery only; it does not execute trades.
 OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: https://api.suwappu.bot/v1/agent/postman.
@@ -94,7 +95,7 @@ OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: ht
 - [Build a Lending Monitor](https://suwappu.bot/docs/guides/lending-monitor.md): Build a useful lending product before you build an executor. Suwappu exposes current Morpho market snapshots through a small read-only REST/SDK/MCP surface, which is enough for screeners, watchlists,
 - [Trading CLI](https://suwappu.bot/docs/guides/trading-cli.md): Build a small command-line tool around the Suwappu REST API. The CLI separates **quote**, **preview**, and **managed execution** so a copied command never moves funds by default.
 - [Natural Language Trade CLI](https://suwappu.bot/docs/guides/natural-language-cli.md): Build a CLI that takes plain-English commands and routes them through the Suwappu `/execute` endpoint. Instead of constructing JSON for each swap, you type `swap 0.5 ETH to USDC on base` and the API p
-- [MCP Portfolio Advisor](https://suwappu.bot/docs/guides/mcp-portfolio-advisor.md): Build a conversational portfolio advisor on Suwappu's hosted MCP server. The useful product boundary is deliberate: let the model read balances, prices, policies, and quotes freely, then require expli
+- [Build an MCP Portfolio Product](https://suwappu.bot/docs/guides/mcp-portfolio-advisor.md): Build a portfolio product on Suwappu's hosted MCP server, from a one-shot report to a paid monitoring workspace. The useful product boundary is deliberate: let the model read balances, prices, policie
 - [Perpetual Futures Research](https://suwappu.bot/docs/guides/perps-trading.md): Build a Hyperliquid market, position-risk, and alerting product on Suwappu. The current Agent API is a **read/quote surface**: it can browse supported markets, estimate a hypothetical position, and in
 - [Prediction Market Research](https://suwappu.bot/docs/guides/prediction-markets.md): Use Suwappu's prediction-market reads to build screeners, watchlists, alerts, research workspaces, forecasting tools, and agent workflows on top of Polymarket data. Start read-only. Add trading author
 - [Limit Orders](https://suwappu.bot/docs/guides/limit-orders-dca.md): Set price-triggered swap orders that execute automatically when your target price is reached.

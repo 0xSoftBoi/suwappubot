@@ -1,6 +1,6 @@
 # Claim the `bot.suwappu` MCP-registry namespace (DNS verification)
 
-`server.json` publishes under `bot.suwappu/mcp-server`. That reverse-DNS namespace must be proven
+`server.json` publishes under `bot.suwappu/mcp`. That reverse-DNS namespace must be proven
 via a DNS TXT record on `suwappu.bot`. (Tool: the official `mcp-publisher` — a **Go binary** from
 `github.com/modelcontextprotocol/registry`, *not* the `mcp-publisher` npm package, which is unrelated.)
 
@@ -35,8 +35,9 @@ mcp-publisher login dns --domain suwappu.bot --private-key "$(cat registry-claim
 mcp-publisher publish ./server.json
 ```
 
-That registers `bot.suwappu/mcp-server` at `registry.modelcontextprotocol.io`, which crawlers
-(Smithery, Glama, PulseMCP, GitHub MCP Registry, LobeHub) pick up automatically.
+That registers `bot.suwappu/mcp` at `registry.modelcontextprotocol.io`. Verify the resulting
+official-registry entry directly after publishing; treat third-party directory ingestion as a
+separate distribution check.
 
 ## Alternative — GitHub-org namespace (no DNS)
 

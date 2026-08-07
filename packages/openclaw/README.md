@@ -167,10 +167,14 @@ bun run build       # emit dist/ for publishing
 
 [`server.json`](./server.json) is a manifest for the official
 [MCP registry](https://registry.modelcontextprotocol.io) ([spec/schema](https://github.com/modelcontextprotocol/registry)).
-It declares the `bot.suwappu/mcp` server under the domain-verified `bot.suwappu`
+It declares the `bot.suwappu/mcp` server under the `bot.suwappu`
 namespace (reverse-DNS for `suwappu.bot`), our remote endpoint
-(`https://api.suwappu.bot/mcp`; discovery is public and most tools require bearer auth), and the `@suwappu/mcp-server`
-npm package as an alternate stdio transport.
+(`https://api.suwappu.bot/mcp`; discovery is public and most tools require bearer auth).
+
+The source tree also contains a `0.6.0` stdio bridge, but the npm registry is
+still on `@suwappu/mcp-server@0.1.1` as of 2026-08-07. The registry manifest is
+therefore intentionally remote-only until the forwarding bridge is actually
+published; do not add an unpublished package version to `server.json`.
 
 To (re-)publish after editing `server.json`:
 
@@ -184,15 +188,17 @@ To (re-)publish after editing `server.json`:
    comes from the CLI/registry response). **This step requires access to the
    `suwappu.bot` DNS zone and must be done by a human with registrar access**
    — an agent cannot complete it unattended.
-3. **Authenticate**: `mcp-publisher login dns --domain bot.suwappu` (or the
+3. **Authenticate**: `mcp-publisher login dns --domain suwappu.bot` (or the
    registry's current auth flow for domain namespaces) once the TXT record is
    live and has propagated.
 4. **Publish**: `mcp-publisher publish ./server.json` from this directory.
 5. **Verify**: `curl https://registry.modelcontextprotocol.io/v0/servers?search=suwappu`
    should return the `bot.suwappu/mcp` entry.
 
-Bump `version` in `server.json` (and keep it in sync with the npm package
-version) before re-publishing.
+Bump `version` in `server.json` when the registry entry changes. If the stdio
+package stanza is restored later, publish that exact package version to npm
+first and verify it with `npm view @suwappu/mcp-server version` before
+re-publishing the manifest.
 
 ## License
 

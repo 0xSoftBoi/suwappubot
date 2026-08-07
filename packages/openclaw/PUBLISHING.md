@@ -1,10 +1,10 @@
 # Publishing the Suwappu OpenClaw skill + MCP server
 
-Three distribution surfaces. Do them in order; each is low effort and compounds discoverability.
+Three distribution surfaces. Verify each listing after submission; directory ingestion and review policies change independently.
 
-## 1. MCP Registry (auto-propagates to Smithery / Glama / PulseMCP)
+## 1. MCP Registry
 
-`server.json` in this folder is the registry manifest (`bot.suwappu/mcp-server`).
+`server.json` in this folder is the registry manifest (`bot.suwappu/mcp`). It is intentionally remote-only while npm still serves `@suwappu/mcp-server@0.1.1`; add the source `0.6.0` stdio bridge only after that exact version has been published and verified.
 
 ```bash
 # install the publisher (Go binary from github.com/modelcontextprotocol/registry — NOT the npm pkg)
@@ -17,9 +17,7 @@ mcp-publisher login dns --domain suwappu.bot --private-key "$(cat registry-claim
 mcp-publisher publish ./server.json
 ```
 
-Registering at `registry.modelcontextprotocol.io` means crawlers (Smithery, Glama ~37k servers,
-PulseMCP, GitHub MCP Registry, LobeHub) pick it up automatically. **Claim verified-owner listings**
-on each to block typosquatters (a real post-"ClawHavoc" risk).
+After publishing, query the official registry and verify the remote URL/auth metadata. Other MCP directories may crawl the registry, but treat each directory as a separate distribution surface and verify its resulting listing rather than assuming propagation.
 
 Optionally add discovery endpoints on the API host:
 - `GET /.well-known/mcp.json` (SEP-1960)
@@ -27,9 +25,7 @@ Optionally add discovery endpoints on the API host:
 
 ## 2. ClawHub skill (OpenClaw's own marketplace, Finance category)
 
-`SKILL.md` here is ClawHub-ready. **Lead with security signals** (post-ClawHavoc the registry is
-strict): publish a VirusTotal "Benign" scan, ensure the publishing GitHub account is a verified
-`suwappu` org, and keep the `requires.env` list exactly matching the code's env references.
+Keep the `requires.env` list exactly matching the code's environment-variable references and follow ClawHub's current review/verification requirements at submission time.
 
 ```bash
 # route the FIRST submission through community-vetted repos to clear the trust bar:
@@ -38,16 +34,11 @@ strict): publish a VirusTotal "Benign" scan, ensure the publishing GitHub accoun
 clawhub skill publish ./ --slug suwappu-dex --tags dex,defi,swaps,cross-chain,finance
 ```
 
-Fills the verified gap: OpenClaw's finance category has 100+ skills but **no unified cross-chain DEX
-aggregator** — single-chain competitors (OKX, Symbiosis) are already listed.
-
 ## 3. Awesome-list PRs (free, high-trust backlinks)
 
 - `TensorBlock/awesome-mcp-servers` → `docs/finance--crypto.md` (alongside LI.FI, Jupiter, 1inch, Relay)
 - `VoltAgent/awesome-openclaw-skills` → `categories/finance.md`
 
-## Validation (already proven on 2026-06-18)
+## Validation before each publish
 
-The `openclaw mcp add` one-liner was validated against the live endpoint: 9 tools loaded, a local
-agent successfully called `get_quote` (0.1 ETH → ~172 USDC on Base via OKX). The command in
-`SKILL.md` / README is canonical.
+Do not reuse an old tool count, quote, or venue result as current proof. Exercise the documented connection against the live endpoint, call `tools/list`, verify the public/authenticated boundary, and run a non-custodial quote/simulation smoke test. Record the date and exact revision in the release notes; keep `tools/list` as the runtime catalog source of truth.

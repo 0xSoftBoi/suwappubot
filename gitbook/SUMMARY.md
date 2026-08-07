@@ -76,7 +76,7 @@
 * [Build a Lending Monitor](guides/lending-monitor.md)
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
-* [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
+* [Build an MCP Portfolio Product](guides/mcp-portfolio-advisor.md)
 * [Perpetual Futures Research](guides/perps-trading.md)
 * [Prediction Market Research](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
