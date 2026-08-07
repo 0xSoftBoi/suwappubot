@@ -335,19 +335,20 @@ Search and browse prediction markets on Polymarket with live prices and volumes.
   "params": {
     "name": "predict_markets",
     "arguments": {
-      "category": "crypto"
+      "query": "crypto",
+      "limit": 10
     }
   }
 }
 ```
 
-### 10. predict_market_detail
+### 10. predict_market
 
 Get detailed market information with live CLOB midpoint prices for each outcome.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `market_id` | string | Yes | Polymarket condition ID |
+| `market_id` | string | Yes | Market `id` returned by `predict_markets` (not `conditionId`) |
 
 **Example call:**
 
@@ -357,13 +358,15 @@ Get detailed market information with live CLOB midpoint prices for each outcome.
   "id": 12,
   "method": "tools/call",
   "params": {
-    "name": "predict_market_detail",
+    "name": "predict_market",
     "arguments": {
-      "market_id": "0x1234abcd..."
+      "market_id": "<market-id>"
     }
   }
 }
 ```
+
+Older clients may still call the supported `predict_market_detail` alias, but new integrations should use the name returned by `tools/list`: `predict_market`.
 
 ### 11. perps_markets
 

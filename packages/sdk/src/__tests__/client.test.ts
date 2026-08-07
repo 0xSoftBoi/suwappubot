@@ -72,6 +72,50 @@ function client() {
   return new Suwappu({ apiKey: "test-key", baseUrl });
 }
 
+describe("prediction contracts", () => {
+  it("returns outcome token ids and URL-encodes the market id", async () => {
+    const c = client();
+    nextBody = {
+      id: "market/one",
+      conditionId: "0xcondition",
+      question: "Will it happen?",
+      outcomes: ["Yes", "No"],
+      outcomePrices: [0.42, 0.58],
+      tokens: [
+        { tokenId: "yes-token", outcome: "Yes" },
+        { tokenId: "no-token", outcome: "No" },
+      ],
+      volume: 100,
+      liquidity: 50,
+      endDate: "2026-12-31",
+      active: true,
+      category: "test",
+      description: "",
+      createdAt: "2026-01-01",
+      resolvedOutcome: null,
+    };
+
+    const market = await c.predict.market("market/one");
+
+    expect(seen[0].path).toBe("/v1/agent/predict/market/market%2Fone");
+    expect(market.conditionId).toBe("0xcondition");
+    expect(market.tokens[0]?.tokenId).toBe("yes-token");
+  });
+
+  it("sends only fields supported by the current GTC order route", async () => {
+    const c = client();
+    nextBody = { order: { id: "order-1" } };
+
+    await c.predict.order({ tokenId: "yes-token", price: "0.42", size: "10", side: "BUY" });
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/predict/order",
+      body: { tokenId: "yes-token", price: "0.42", size: "10", side: "BUY" },
+    });
+  });
+});
+
 describe("swap custody boundary", () => {
   it("executeManagedSwap uses the managed execution endpoint", async () => {
     const c = client();

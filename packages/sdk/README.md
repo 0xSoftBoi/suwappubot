@@ -197,11 +197,17 @@ await client.perps.positions(address);
 
 ```ts
 const markets = await client.predict.list({ query: "election", limit: 20 });
-await client.predict.market(id);
+const market = await client.predict.market(id);
 await client.predict.book(id);
 await client.predict.price(id);
 await client.predict.trades(id, 20);
-await client.predict.order({ tokenId, price: "0.55", size: "10", side: "BUY" });
+
+// Trading is a separate authority boundary. Use an outcome token id, not
+// market.id or market.conditionId. The current order route submits GTC limits.
+const tokenId = market.tokens.find((token) => token.outcome === "Yes")?.tokenId;
+if (tokenId) {
+  await client.predict.order({ tokenId, price: "0.55", size: "10", side: "BUY" });
+}
 await client.predict.positions();
 await client.predict.orders(status?);
 ```

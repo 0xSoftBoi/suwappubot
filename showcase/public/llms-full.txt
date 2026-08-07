@@ -2662,43 +2662,57 @@ See [Perpetual Futures Research](../guides/perps-trading.md) for a safe strategy
 
 # Prediction Markets
 
-Trade prediction markets on Polymarket through the Suwappu API. Browse events, check prices, and place orders on binary outcome markets.
+Read Polymarket market/event data through Suwappu, and—only when you intentionally grant trading authority—place or cancel CLOB limit orders with an authenticated Suwappu agent.
 
-## Public Endpoints
+The market-data routes and trading/account routes have different authority. A read-only product does not need to initialize Polymarket trading credentials.
+
+## Identifier contract
+
+Market payloads expose three identifiers that are not interchangeable:
+
+| Field | Meaning |
+|---|---|
+| `id` | Market ID used in `/market/:id` routes and MCP `market_id` |
+| `conditionId` | Venue/on-chain condition ID |
+| `tokens[].tokenId` | Outcome-token ID required by `POST /predict/order` |
+
+## Market-data endpoints
 
 ### GET /v1/agent/predict/markets
 
-Search and browse active prediction markets.
+Search/browse active markets.
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | No | Search term |
-| `category` | string | No | Filter by category (e.g., `"crypto"`, `"politics"`) |
-| `limit` | number | No | Results per page (default 20) |
-| `offset` | number | No | Pagination offset |
+|---|---|---|---|
+| `query` | string | No | Full-text/topic search |
+| `limit` | number | No | Maximum markets to return; default `20` |
+
+`category` and `offset` are not parameters on the current route.
 
 ```bash
-curl "https://api.suwappu.bot/v1/agent/predict/markets?category=crypto&limit=5" \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/markets?query=bitcoin&limit=5"
 ```
 
-**Response:**
+The response envelope is `{ "markets": [...] }`:
 
 ```json
 {
-  "success": true,
   "markets": [
     {
-      "id": "0x1234abcd",
-      "question": "Will ETH reach $5,000 by June 2026?",
-      "category": "crypto",
-      "endDate": "2026-06-30T00:00:00Z",
-      "volume": "2450000",
-      "liquidity": "890000",
-      "outcomes": [
-        { "name": "Yes", "price": 0.42 },
-        { "name": "No", "price": 0.58 }
-      ]
+      "id": "<market-id>",
+      "conditionId": "0x...",
+      "question": "Will ...?",
+      "outcomes": ["Yes", "No"],
+      "outcomePrices": [0.42, 0.58],
+      "tokens": [
+        { "tokenId": "<yes-token-id>", "outcome": "Yes" },
+        { "tokenId": "<no-token-id>", "outcome": "No" }
+      ],
+      "volume": 2450000,
+      "liquidity": 890000,
+      "endDate": "2026-12-31T00:00:00Z",
+      "active": true,
+      "category": "crypto"
     }
   ]
 }
@@ -2706,123 +2720,154 @@ curl "https://api.suwappu.bot/v1/agent/predict/markets?category=crypto&limit=5" 
 
 ### GET /v1/agent/predict/events
 
-Browse prediction events with filtering.
+Search/browse event groupings.
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | No | Search term |
-| `limit` | number | No | Results per page |
-| `offset` | number | No | Pagination offset |
+|---|---|---|---|
+| `query` | string | No | Event title/topic search |
+| `limit` | number | No | Maximum events to return; default `20` |
 
 ```bash
-curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin" \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin&limit=10"
 ```
+
+Response: `{ "events": [...] }`. Each event contains `id`, `title`, `description`, and `markets`.
 
 ### GET /v1/agent/predict/market/:id
 
-Get detailed information about a specific market.
+Get one market's full detail. Use the `id` from `/predict/markets`, not `conditionId`.
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/market/<market-id>"
 ```
+
+The response is the market object directly (there is no `success` or `market` wrapper) and adds `description`, `createdAt`, and `resolvedOutcome` to the fields shown above.
 
 ### GET /v1/agent/predict/market/:id/book
 
-Get the order book for a market.
+Get the current CLOB book for every outcome token in a market.
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/book \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/market/<market-id>/book"
 ```
+
+Response shape:
+
+```json
+{
+  "marketId": "<market-id>",
+  "question": "Will ...?",
+  "outcomes": [
+    {
+      "outcome": "Yes",
+      "tokenId": "<yes-token-id>",
+      "bids": [{ "price": "0.41", "size": "10" }],
+      "asks": [{ "price": "0.43", "size": "8" }],
+      "midpoint": "0.42",
+      "lastTradePrice": "0.42",
+      "tickSize": "0.01"
+    }
+  ]
+}
+```
+
+Additional venue book fields such as `market` and `assetId` can also be present per outcome.
 
 ### GET /v1/agent/predict/market/:id/price
 
-Get the current midpoint price for a market.
+Get current CLOB midpoint data for every outcome.
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/price \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/market/<market-id>/price"
 ```
+
+Response shape: `{ "marketId": "...", "question": "...", "prices": [{ "outcome": "Yes", "tokenId": "...", "mid": "0.42" }] }`.
 
 ### GET /v1/agent/predict/market/:id/trades
 
-Get recent trades for a market.
+Get recent trades merged across a market's outcome tokens.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `limit` | number | No | Maximum merged trades; default `20` |
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/trades \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl "https://api.suwappu.bot/v1/agent/predict/market/<market-id>/trades?limit=20"
 ```
 
-## Authenticated Endpoints
+Response: `{ "marketId": "...", "question": "...", "trades": [...] }`. Each trade is enriched with `outcome` and `tokenId`.
+
+These market-data endpoints are independent live reads. Combining detail, price, book, and trades does not create an atomic venue snapshot.
+
+## Authenticated trading/account endpoints
+
+The following routes use the authenticated Suwappu agent's prediction trading credentials. Keep them outside a research-only agent unless trading authority is intentional.
 
 ### POST /v1/agent/predict/order
 
-Place an order on a prediction market.
+Place a CLOB GTC limit order. This is money-moving.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tokenId` | string | Yes | Outcome token ID |
-| `price` | number | Yes | Price between 0 and 1 (e.g., `0.42` for 42 cents) |
-| `size` | number | Yes | Number of shares |
-| `side` | string | Yes | `"BUY"` or `"SELL"` |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tokenId` | string | Yes | Outcome `tokenId` returned by market data |
+| `price` | string | Yes | Limit price where `0 < price <= 1` |
+| `size` | string | Yes | Positive number of outcome shares |
+| `side` | string | Yes | `BUY` or `SELL` |
+
+The current route does not expose `expiration` or `feeRateBps` request fields. Do not send them and assume they change the signed order.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "tokenId": "71321044878958750425140208824424590210...",
-    "price": 0.42,
-    "size": 100,
+    "tokenId": "<outcome-token-id>",
+    "price": "0.42",
+    "size": "10",
     "side": "BUY"
   }'
 ```
 
-**Response:**
+Response: `{ "order": { ... } }`, where `order` is the current upstream CLOB order response.
 
-```json
-{
-  "success": true,
-  "order": {
-    "id": "ord_abc123",
-    "tokenId": "71321044878958750425140208824424590210...",
-    "side": "BUY",
-    "price": 0.42,
-    "size": 100,
-    "status": "open",
-    "created_at": "2026-03-29T12:00:00Z"
-  }
-}
-```
+Prediction-order placement does not currently expose the same durable request-idempotency contract as managed swap execution. If the client loses the response after submission, do not blindly retry the order. Reconcile account/venue state first.
 
 ### DELETE /v1/agent/predict/order/:id
 
-Cancel an open order.
+Cancel an existing prediction order:
 
 ```bash
-curl -X DELETE https://api.suwappu.bot/v1/agent/predict/order/ord_abc123 \
+curl -X DELETE "https://api.suwappu.bot/v1/agent/predict/order/<order-id>" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
+The agent must already have initialized Polymarket trading credentials.
+
 ### GET /v1/agent/predict/positions
 
-List your open prediction market positions.
+List prediction positions enriched with current midpoint/P&L context:
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/predict/positions \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
+Response: `{ "positions": [...] }`.
+
 ### GET /v1/agent/predict/orders
 
-List your orders (open and filled).
+List existing orders, optionally filtered by venue status:
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/orders \
+curl "https://api.suwappu.bot/v1/agent/predict/orders?status=open" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
+
+Response: `{ "orders": [...] }`.
+
+`positions`, `orders`, and `cancel` require prediction trading credentials. A fresh read-only agent may receive `No Polymarket credentials found. Place an order first to initialize.` That does not mean a research product should place a dummy order; simply omit account views until your product intentionally adds trading authority.
+
+For a safe read-first workflow and product/economics patterns, see [Prediction Market Research](../guides/prediction-markets.md).
 
 
 ---
@@ -3565,19 +3610,20 @@ Search and browse prediction markets on Polymarket with live prices and volumes.
   "params": {
     "name": "predict_markets",
     "arguments": {
-      "category": "crypto"
+      "query": "crypto",
+      "limit": 10
     }
   }
 }
 ```
 
-### 10. predict_market_detail
+### 10. predict_market
 
 Get detailed market information with live CLOB midpoint prices for each outcome.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `market_id` | string | Yes | Polymarket condition ID |
+| `market_id` | string | Yes | Market `id` returned by `predict_markets` (not `conditionId`) |
 
 **Example call:**
 
@@ -3587,13 +3633,15 @@ Get detailed market information with live CLOB midpoint prices for each outcome.
   "id": 12,
   "method": "tools/call",
   "params": {
-    "name": "predict_market_detail",
+    "name": "predict_market",
     "arguments": {
-      "market_id": "0x1234abcd..."
+      "market_id": "<market-id>"
     }
   }
 }
 ```
+
+Older clients may still call the supported `predict_market_detail` alias, but new integrations should use the name returned by `tools/list`: `predict_market`.
 
 ### 11. perps_markets
 
@@ -4802,6 +4850,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) | Executable-route screening, request economics, paid intelligence, and safe two-leg handoff |
 | [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
 | [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
+| [Build Prediction Market Research](prediction-markets.md) | Read-only market-health snapshots, alert economics, calibration, OSS tradeoffs, and a paid-research product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
@@ -4818,7 +4867,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | Guide | What you'll learn |
 |-------|-------------------|
 | [Perpetual Futures Research](perps-trading.md) | Browse/quote HyperLiquid markets and monitor positions; no Agent API execution |
-| [Prediction Markets](prediction-markets.md) | Browse and trade Polymarket binary-outcome markets |
+| [Prediction Market Research](prediction-markets.md) | Browse Polymarket data read-first; keep trading behind a separate authority boundary |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
 ## Tutorials
@@ -4828,6 +4877,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Building a Trading Bot](building-a-trading-bot.md) | A USDC price-target reference with quote guards, idempotency, reconciliation, and product economics |
 | [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
+| [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
 | [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
@@ -4870,7 +4920,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [recurring DCA product](dca-automation.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [recurring DCA product](dca-automation.md), [prediction-market research product](prediction-markets.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
@@ -4978,6 +5028,8 @@ The [Recurring DCA guide](dca-automation.md) shows the production boundary that 
 - **Execution:** unnecessary unless it adds real customer value.
 
 For an executable-route example, the [Arbitrage Monitor](arbitrage-monitor.md) shows why chain-neutral reference prices are not enough, how to budget quote calls, and how to turn a read-only signal into a paid monitor before adding a two-leg execution problem.
+
+For a venue-data example, [Prediction Market Research](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot, then shows how to price watchlists/alerts from request volume and measure forecast calibration separately from customer trading P&L.
 
 ## Production checklist
 
@@ -7839,99 +7891,223 @@ If you later connect a separate execution venue, measure fills, fees, funding, a
 
 ---
 
-# Prediction Markets
+# Prediction Market Research
 
-Trade binary outcome markets on Polymarket through the Suwappu API. Browse events, check live prices, and place orders.
+Use Suwappu's prediction-market reads to build screeners, watchlists, alerts, research workspaces, forecasting tools, and agent workflows on top of Polymarket data. Start read-only. Add trading authority only if it creates customer value and you have a separate approval, risk, and reconciliation workflow.
 
-## How It Works
+The public [Suwappu Prediction Research Bot](https://github.com/0xSoftBoi/suwappu-prediction-bot) is the copyable TypeScript/Python reference for this guide.
 
-Prediction markets let you buy shares in outcomes. Each outcome trades between $0 and $1:
-- **$0.42** means the market gives a 42% probability
-- If the outcome resolves **Yes**, shares pay out $1
-- If the outcome resolves **No**, shares pay out $0
+## Know the three identifiers
 
-## Step 1: Browse Markets
+A market response carries identifiers with different jobs:
 
-Search for active markets by keyword or category:
+| Field | Use it for |
+|---|---|
+| `id` | Suwappu market detail, book, price, and trades routes; pass this to MCP `market_id` |
+| `conditionId` | Venue/on-chain condition identity and settlement context |
+| `tokens[].tokenId` | A specific outcome token; the prediction order endpoint takes this value |
+
+Do not pass `conditionId` where an API or MCP tool asks for the market `id`, and do not place an order with the market `id` where a `tokenId` is required.
+
+## 1. Discover markets and events
+
+Search active markets with `query` and `limit`:
 
 ```bash
-curl "https://api.suwappu.bot/v1/agent/predict/markets?category=crypto&limit=5" \
+curl "https://api.suwappu.bot/v1/agent/predict/markets?query=bitcoin&limit=5" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-Or browse prediction events:
+The current route supports `query` and `limit`; it does not expose `category` or `offset` query parameters. A market result includes the market `id`, `conditionId`, outcome names/prices, outcome token IDs, volume, liquidity, end date, activity state, and category.
+
+Browse events when an event is a better grouping primitive:
 
 ```bash
-curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin" \
+curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin&limit=10" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-## Step 2: Check Prices
+## 2. Inspect one market before you alert on it
 
-Get the current midpoint price for a specific market:
+Use the market `id` returned by discovery:
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/price \
+MARKET_ID="<market-id>"
+
+curl "https://api.suwappu.bot/v1/agent/predict/market/$MARKET_ID" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+
+curl "https://api.suwappu.bot/v1/agent/predict/market/$MARKET_ID/price" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+
+curl "https://api.suwappu.bot/v1/agent/predict/market/$MARKET_ID/book" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+
+curl "https://api.suwappu.bot/v1/agent/predict/market/$MARKET_ID/trades?limit=20" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-View the full order book:
+These reads answer different questions:
+
+| Read | Product question |
+|---|---|
+| detail | Is the market active, when does it end, and which outcome tokens exist? |
+| price | What are the current CLOB midpoints? |
+| book | What are the current bids/asks and how wide is the spread? |
+| trades | Has the market traded recently and at what prices/sizes? |
+
+They are separate live requests, not one atomic venue snapshot. If you combine them, store a capture timestamp and assume the market can move between responses.
+
+## 3. Turn raw reads into a reusable snapshot
+
+The reference repo turns detail + price + book + recent trades into a normalized, read-only market-health snapshot:
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/book \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+git clone https://github.com/0xSoftBoi/suwappu-prediction-bot.git
+cd suwappu-prediction-bot
+bun install --frozen-lockfile
+
+export SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY
+bun run src/cli.ts snapshot --id <market-id> --trades 20
 ```
 
-## Step 3: Place an Order
+The snapshot derives per-outcome midpoint, best bid/ask, spread, one-cent near-book depth, recent-trade freshness, and warnings for inactive, empty, incomplete, or crossed books. It is designed as input to your product logic, not as a forecast or executable quote.
 
-Buy shares in an outcome at a specific price:
+That distinction matters:
 
-```bash
-curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tokenId": "71321044878958750425...",
-    "price": 0.42,
-    "size": 100,
-    "side": "BUY"
-  }'
+- a midpoint is market data, not a guaranteed objective probability;
+- a midpoint is not a fill price;
+- a narrow spread does not guarantee enough depth for your desired size;
+- four responses captured together are still non-atomic;
+- a historical backtest or forecast score is not customer trading P&L.
+
+## Use MCP when the customer experience is conversational
+
+Suwappu's hosted MCP server currently lists five prediction read tools:
+
+- `predict_markets` — discovery/search;
+- `predict_market` — market detail;
+- `predict_book` — outcome books;
+- `predict_price` — midpoint prices;
+- `predict_trades` — recent trades.
+
+`predict_market_detail` remains a legacy alias for market detail, but new clients should use the listed `predict_market` name. For all four tools that take `market_id`, pass the `id` from `predict_markets`, not `conditionId`.
+
+Use the focused repository when you want a narrow prediction-data allowlist. Use hosted MCP when prediction research is one tool set inside a broader assistant that also needs other Suwappu capabilities.
+
+## Choose the SDK surface deliberately
+
+The `suwappubot` source tree can move ahead of published packages. The public prediction reference therefore uses the installed TypeScript SDK for methods that are already published and a tiny read-only REST bridge for newer prediction reads; its Python example pins the source SDK to a known commit.
+
+Before copying a method from `main`, verify that the package version you actually install exports it. The REST examples in this guide show the current wire contract directly.
+
+## Build a product before you build a trading bot
+
+A useful product ladder is:
+
+| Tier | What the customer gets | Authority |
+|---|---|---|
+| Screener | Search + saved markets + market-health snapshots | Read-only |
+| Alerts | State-change alerts with spread/liquidity/freshness context | Read-only |
+| Research workspace/API | History, notes, model forecasts, calibration, exports/webhooks | Read-only |
+| Execution handoff | An explicit action that enters a separate trading workflow | Money-moving |
+
+Start charging at the layer where a customer gets repeated value. You do not need custody or trading authority to sell research, monitoring, workflow, or an API.
+
+For alerts, persist state instead of firing on every poll. A production monitor should have:
+
+- a stable customer + market + rule identity;
+- a threshold plus hysteresis so values near the boundary do not flap;
+- dedupe/cooldown state across restarts;
+- the observed midpoint, spread, depth, and capture time in the alert evidence;
+- a stale-data policy and an upstream-error state distinct from “no change.”
+
+## Budget requests before choosing a price
+
+The reference snapshot is approximately four Suwappu read requests per watched market: detail, price, book, and trades. A rough polling budget is therefore:
+
+```text
+read calls/day ~= watched markets × snapshots per market/day × 4
 ```
 
-The `tokenId` identifies which outcome token you're trading. Get it from the market detail endpoint.
+Watching 25 markets every five minutes is roughly `25 × 288 × 4 = 28,800` Suwappu reads per day before discovery, customer refreshes, retries, model calls, storage, or alert delivery. Do not discover every market and snapshot every result on every loop.
 
-## Step 4: Manage Positions
+Measure real usage and billing, then keep the business ledger separate:
 
-Check your open positions:
-
-```bash
-curl https://api.suwappu.bot/v1/agent/predict/positions \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```text
+builder margin
+  = subscription + usage revenue
+  - Suwappu/API cost
+  - model/provider cost
+  - infrastructure + alert-delivery cost
+  - support/refunds/credits
 ```
 
-List your orders:
+See [Build a Business on Suwappu](build-a-business.md) for the full pricing boundary.
 
-```bash
-curl https://api.suwappu.bot/v1/agent/predict/orders \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+## If you publish forecasts, prove calibration separately
+
+Store an immutable forecast record before resolution:
+
+```text
+customer / model / market id
+forecast probability
+market midpoint at forecast time
+captured_at
+model + prompt/rule version
+eventual resolved outcome
 ```
 
-Cancel an open order:
+After resolution, calculate calibration metrics such as Brier score or log loss across a meaningful sample. Keep that forecast ledger separate from strategy fills, fees, slippage, and realized P&L. A good forecast score does not prove a profitable executable strategy, and a customer subscription is not trading profit.
 
-```bash
-curl -X DELETE https://api.suwappu.bot/v1/agent/predict/order/ord_abc123 \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+## Trading is a separate authority boundary
+
+Suwappu also has authenticated prediction order, cancel, position, and order-history routes. The public prediction reference deliberately does **not** expose order placement or cancellation.
+
+The current order route takes exactly:
+
+```json
+{
+  "tokenId": "<outcome-token-id>",
+  "price": "0.42",
+  "size": "10",
+  "side": "BUY"
+}
 ```
 
-## MCP Tool
+`price` and `size` are strings in the current contract, and the server submits a GTC limit order. Do not invent an `expiration` or `feeRateBps` field and assume it is enforced.
 
-If you're using Claude or another MCP client, two tools are available:
-- `predict_markets` — search and browse markets
-- `predict_market_detail` — get detailed info with live CLOB prices
+Before exposing that route to an agent, add your own approval/policy boundary, per-action and daily caps, durable intent state, and an ambiguous-outcome recovery path. Never blindly retry a money-moving request after a network timeout just because the client did not receive a response.
 
-## Telegram Bot
+`GET /predict/positions` and `GET /predict/orders` are read operations, but they require prediction trading credentials for the agent. A fresh research-only agent can legitimately have none; do not place a dummy order just to initialize those account views.
 
-Use the Telegram bot's prediction market interface for interactive market browsing, price checking, and order placement.
+## How this stacks up against current Polymarket OSS
+
+For new direct-venue integrations, Polymarket's current official references are its unified [TypeScript SDK](https://github.com/Polymarket/ts-sdk) and [Python SDK](https://github.com/Polymarket/py-sdk). Polymarket also documents its current CLOB contract in the [V2 migration guide](https://docs.polymarket.com/v2-migration).
+
+| Need | Suwappu prediction reference | Polymarket unified SDKs |
+|---|---|---|
+| Narrow read-only authority for an analyst/agent | Built in by example design | Build your own boundary |
+| One identity/tool plane alongside other Suwappu capabilities | Yes | No |
+| Copyable market-health/product normalization | Yes | Build it on venue data |
+| Direct venue authentication, trading lifecycle, or venue-specific features | Not the goal of this reference | Better fit |
+| Proof that a strategy will make money | No | No |
+
+The Suwappu reference wins when your product needs a small, understandable authority surface and reusable product logic. The direct SDKs win when you need full venue control. Do not rebuild a venue SDK inside the example repo just to look comprehensive.
+
+## A first paid experiment
+
+Keep the first version narrow: one customer persona, a watchlist of perhaps 10–25 markets, one or two alerts that save real research time, and a weekly/daily evidence summary. Track:
+
+- activation: did the user save a market and receive a useful snapshot/alert?;
+- retention: did they return or keep alerts enabled after the novelty week?;
+- signal quality: what share of alerts were opened, acted on, or muted?;
+- reliability: stale/error rate and time to recover;
+- unit economics: revenue per active customer versus read/model/infra/support cost.
+
+Only add forecasting, more frequent polling, or execution when the retained use tells you why. That is a much stronger path to making money as a builder than promising that a prediction strategy will be profitable.
+
+For exact endpoint shapes, see the [Prediction Markets API reference](../api-reference/predict.md).
 
 
 ---

@@ -114,11 +114,20 @@ export interface PerpPosition {
 
 // --- Predictions (Polymarket) ---
 
+export interface PredictionMarketToken {
+  tokenId: string;
+  outcome: string;
+}
+
 export interface PredictionMarket {
   id: string;
+  /** On-chain condition id used by the venue for settlement. */
+  conditionId: string;
   question: string;
   outcomes: string[];
   outcomePrices: number[];
+  /** Outcome-token ids returned by the API. Orders use tokenId, not market id. */
+  tokens: PredictionMarketToken[];
   volume: number;
   liquidity: number;
   endDate: string;
@@ -184,8 +193,6 @@ export interface PredictionOrderRequest {
   price: string;
   size: string;
   side: "BUY" | "SELL";
-  expiration?: number;
-  feeRateBps?: number;
 }
 
 /** CLOB responses are loosely typed; expose the raw object. */

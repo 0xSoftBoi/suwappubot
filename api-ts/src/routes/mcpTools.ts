@@ -174,7 +174,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -250,7 +250,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -261,7 +261,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -272,7 +272,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 				limit: { type: 'number', description: 'Max trades to return (default 20)' },
 			},
 			required: ['market_id'],

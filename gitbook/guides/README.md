@@ -12,6 +12,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) | Executable-route screening, request economics, paid intelligence, and safe two-leg handoff |
 | [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
 | [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
+| [Build Prediction Market Research](prediction-markets.md) | Read-only market-health snapshots, alert economics, calibration, OSS tradeoffs, and a paid-research product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
@@ -28,7 +29,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | Guide | What you'll learn |
 |-------|-------------------|
 | [Perpetual Futures Research](perps-trading.md) | Browse/quote HyperLiquid markets and monitor positions; no Agent API execution |
-| [Prediction Markets](prediction-markets.md) | Browse and trade Polymarket binary-outcome markets |
+| [Prediction Market Research](prediction-markets.md) | Browse Polymarket data read-first; keep trading behind a separate authority boundary |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
 ## Tutorials
@@ -38,6 +39,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Building a Trading Bot](building-a-trading-bot.md) | A USDC price-target reference with quote guards, idempotency, reconciliation, and product economics |
 | [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
+| [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
 | [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
