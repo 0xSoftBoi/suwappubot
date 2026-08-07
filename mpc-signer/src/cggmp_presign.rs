@@ -485,6 +485,9 @@ pub struct PresignRound1Verified {
     identifier: ParticipantId,
     signing_pair: [ParticipantId; THRESHOLD],
     peer: ParticipantId,
+    // Intentionally opaque until the next MtA type-state transition consumes
+    // these secrets; there is no accessor that can turn them into a presig.
+    #[allow(dead_code)]
     secrets: PresignSecrets,
     local: PresignRound1Broadcast,
     peer_broadcast: PresignRound1Broadcast,
