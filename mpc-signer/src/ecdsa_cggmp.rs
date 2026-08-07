@@ -207,13 +207,14 @@ pub(crate) fn assemble_verified_presignature(
     k_tilde: Scalar,
     chi_tilde: Scalar,
 ) -> Result<(PresignaturePublic, PresignatureShare), EcdsaError> {
-    let commitments = commitments.map(|(identifier, delta_tilde, s_tilde)| {
-        PresignatureCommitment {
-            identifier,
-            delta_tilde,
-            s_tilde,
-        }
-    });
+    let commitments =
+        commitments.map(
+            |(identifier, delta_tilde, s_tilde)| PresignatureCommitment {
+                identifier,
+                delta_tilde,
+                s_tilde,
+            },
+        );
     let public = PresignaturePublic {
         execution,
         signing_pair,
@@ -449,8 +450,7 @@ impl ParticipantScalar for ParticipantId {
 mod tests {
     use super::*;
 
-    fn simulated_verified_presignature(
-    ) -> (
+    fn simulated_verified_presignature() -> (
         PresignaturePublic,
         [PresignatureShare; THRESHOLD],
         KnownMessageDigest,

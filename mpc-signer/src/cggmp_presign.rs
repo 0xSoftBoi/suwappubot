@@ -1068,9 +1068,7 @@ pub fn presign_round3_finalize(
     }
     let delta_point = state.local.delta_point + peer_message.delta_point;
     let s = state.local.s + peer_message.s;
-    if ProjectivePoint::GENERATOR * delta != delta_point
-        || state.group_public_key * delta != s
-    {
+    if ProjectivePoint::GENERATOR * delta != delta_point || state.group_public_key * delta != s {
         return Err(PresignStateError::ConsistencyMismatch);
     }
 
@@ -1191,12 +1189,8 @@ fn presign_round2_begin_inner(
         .encrypt_with(&neg_hat_beta, &hat_r)
         .map_err(|_| PresignStateError::Paillier)?;
 
-    let gamma_statement = PiAffStatement::new(
-        state.peer_broadcast.k.clone(),
-        d.clone(),
-        f.clone(),
-        gamma,
-    );
+    let gamma_statement =
+        PiAffStatement::new(state.peer_broadcast.k.clone(), d.clone(), f.clone(), gamma);
     let psi = prove_pi_aff_inner(
         state.execution,
         state.identifier,
@@ -3359,20 +3353,12 @@ mod tests {
         let fixture = round1_fixture();
         let mut rng = OsRng;
         let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
-        let (round2_state_1, round2_message_1) = presign_round2_begin_inner(
-            verified_1,
-            &fixture.aux[0],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
-        let (round2_state_2, round2_message_2) = presign_round2_begin_inner(
-            verified_2,
-            &fixture.aux[1],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
+        let (round2_state_1, round2_message_1) =
+            presign_round2_begin_inner(verified_1, &fixture.aux[0], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
+        let (round2_state_2, round2_message_2) =
+            presign_round2_begin_inner(verified_2, &fixture.aux[1], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
         let (round3_state_1, round3_message_1) = presign_round2_finalize_inner(
             round2_state_1,
             round2_message_2,
@@ -3402,7 +3388,8 @@ mod tests {
             crate::ecdsa_cggmp::issue_partial_signature(share_2, &public_1, message).unwrap(),
         ];
         let signature =
-            crate::ecdsa_cggmp::aggregate_partial_signatures(&public_1, message, &partials).unwrap();
+            crate::ecdsa_cggmp::aggregate_partial_signatures(&public_1, message, &partials)
+                .unwrap();
         assert_ne!(signature.to_bytes(), [0u8; 64]);
         assert!(signature.recovery_id() <= 3);
     }
@@ -3412,20 +3399,12 @@ mod tests {
         let fixture = round1_fixture();
         let mut rng = OsRng;
         let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
-        let (round2_state_1, _round2_message_1) = presign_round2_begin_inner(
-            verified_1,
-            &fixture.aux[0],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
-        let (_round2_state_2, mut round2_message_2) = presign_round2_begin_inner(
-            verified_2,
-            &fixture.aux[1],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
+        let (round2_state_1, _round2_message_1) =
+            presign_round2_begin_inner(verified_1, &fixture.aux[0], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
+        let (_round2_state_2, mut round2_message_2) =
+            presign_round2_begin_inner(verified_2, &fixture.aux[1], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
         round2_message_2.psi.z1 += Integer::from(1u8);
         assert_eq!(
             presign_round2_finalize_inner(
@@ -3446,20 +3425,12 @@ mod tests {
         let fixture = round1_fixture();
         let mut rng = OsRng;
         let [verified_1, verified_2] = verified_round1_pair(&fixture, &mut rng);
-        let (round2_state_1, round2_message_1) = presign_round2_begin_inner(
-            verified_1,
-            &fixture.aux[0],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
-        let (round2_state_2, round2_message_2) = presign_round2_begin_inner(
-            verified_2,
-            &fixture.aux[1],
-            &mut rng,
-            TEST_ROUND2_SECURITY,
-        )
-        .unwrap();
+        let (round2_state_1, round2_message_1) =
+            presign_round2_begin_inner(verified_1, &fixture.aux[0], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
+        let (round2_state_2, round2_message_2) =
+            presign_round2_begin_inner(verified_2, &fixture.aux[1], &mut rng, TEST_ROUND2_SECURITY)
+                .unwrap();
         let (round3_state_1, round3_message_1) = presign_round2_finalize_inner(
             round2_state_1,
             round2_message_2,
