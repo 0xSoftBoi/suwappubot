@@ -626,10 +626,7 @@ fn prove_pi_fac_inner(
     let two_to_l = Integer::from(1u8) << security.l;
     let two_to_l_plus_epsilon = Integer::from(1u8) << l_plus_epsilon;
     let factor_upper_bound = &two_to_l * &n_root;
-    if p.cmp0().is_le()
-        || q.cmp0().is_le()
-        || p >= &factor_upper_bound
-        || q >= &factor_upper_bound
+    if p.cmp0().is_le() || q.cmp0().is_le() || p >= &factor_upper_bound || q >= &factor_upper_bound
     {
         return Err(AuxError::InvalidParameters);
     }
@@ -719,9 +716,7 @@ fn verify_pi_fac_inner(
         .checked_add(security.epsilon)
         .ok_or(AuxError::InvalidPiFac)?;
     let response_range = (Integer::from(1u8) << l_plus_epsilon) * &n_root;
-    if !is_in_half_pm(&proof.z1, &response_range)
-        || !is_in_half_pm(&proof.z2, &response_range)
-    {
+    if !is_in_half_pm(&proof.z1, &response_range) || !is_in_half_pm(&proof.z2, &response_range) {
         return Err(AuxError::InvalidPiFac);
     }
 
@@ -767,12 +762,7 @@ fn verify_pi_fac_inner(
         .ok_or(AuxError::InvalidPiFac)?;
     let lhs = verifier_params
         .modulus
-        .combine(
-            &proof.commitment.q,
-            &proof.z1,
-            &verifier_params.t,
-            &proof.v,
-        )
+        .combine(&proof.commitment.q, &proof.z1, &verifier_params.t, &proof.v)
         .ok_or(AuxError::InvalidPiFac)?;
     let r_to_challenge = s_to_n
         .pow_mod_ref(&challenge, &verifier_params.modulus)
@@ -1406,13 +1396,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            public.verify_pi_fac(
-                execution,
-                verifier,
-                &public.ring_pedersen,
-                rho,
-                &fac_proof,
-            ),
+            public.verify_pi_fac(execution, verifier, &public.ring_pedersen, rho, &fac_proof,),
             Err(AuxError::ModulusTooSmall)
         );
     }
