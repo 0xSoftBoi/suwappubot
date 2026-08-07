@@ -162,7 +162,7 @@ describe('POST /v1/agent/swap/execute — decimals gate (route-level, MONEY-PATH
 		})
 
 		expect(res.status).toBe(422)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.error_code).toBe('QUOTE_NOT_FOUND')
 
 		// The route must reject before ever reaching the internal Python

@@ -17,7 +17,7 @@ describe('agentOrMppAuth anon 401 path', () => {
 	it('returns 401 (not 500) for a request with no Authorization header', async () => {
 		const res = await app.request('/protected')
 		expect(res.status).toBe(401)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.error_code).toBe('UNAUTHORIZED')
 	})
 
