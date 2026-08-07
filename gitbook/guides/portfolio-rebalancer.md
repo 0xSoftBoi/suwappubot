@@ -1,6 +1,6 @@
 # Portfolio Rebalancer
 
-Run or build a fixed-target treasury workflow that is **preview-only by default** and moves funds only through an explicit, outcome-safe managed-wallet boundary. The maintained v2 reference is now a standalone drift-monitor/rebalancer, not only a code example.
+Run or build a preview-first treasury drift monitor and fixed-target rebalancer with an explicit, outcome-safe managed-wallet boundary.
 
 The maintained reference is [`suwappu-portfolio-rebalancer`](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer). Its most reusable contract is not a particular 50/50 or 60/40 allocation. It is this state machine:
 
