@@ -59,8 +59,6 @@ Set a finite `max_iter` on each agent and measure actual model/tool usage. More 
 CrewAI's current `@tool` decorator can wrap an async function directly. Keep each tool narrow and tell the model what authority it has.
 
 ```python
-import json
-
 from crewai.tools import tool
 from suwappu import create_client
 
