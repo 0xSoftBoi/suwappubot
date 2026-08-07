@@ -1,8 +1,8 @@
 # Build a Quote-Qualified Arbitrage Monitor
 
-[`suwappu-arb-scanner`](https://github.com/0xSoftBoi/suwappu-arb-scanner) is the maintained read-only reference for turning Suwappu swap quotes into a cross-chain market-intelligence product.
+Run or build a stateful, permanently read-only cross-chain opportunity monitor with bounded Suwappu quote work, durable history, and idempotent alerts.
 
-Its useful lesson is not “this spread is profit.” It is how to move from a cheap market screen to size-aware route qualification while keeping execution authority completely outside the scanner.
+The maintained [`suwappu-arb-scanner`](https://github.com/0xSoftBoi/suwappu-arb-scanner) 2.x reference turns that boundary into an operable product surface. Its useful lesson is not “this spread is profit.” It is how to move from a cheap market screen to size-aware route qualification and paid workflow value while keeping execution authority completely outside the scanner.
 
 ```text
 reference market idea
@@ -32,7 +32,7 @@ For a cross-chain route screen, use [`POST /v1/agent/quote`](../api-reference/qu
 
 ## Run the maintained reference
 
-Requirements: Bun 1.3+ and a Suwappu agent key.
+Requirements: Bun 1.3.14+ and a Suwappu agent key.
 
 ```bash
 git clone https://github.com/0xSoftBoi/suwappu-arb-scanner.git
@@ -40,7 +40,8 @@ cd suwappu-arb-scanner
 bun install --frozen-lockfile
 
 export SUWAPPU_API_KEY=suwappu_sk_...
-bun run scan
+bun run scan -- --json --fail-on-degraded
+bun run history -- --json
 ```
 
 The default screen uses a 100 USDC notional for ETH on Ethereum, Arbitrum, Base, and Optimism. Those defaults are intentionally boring: the same ETH/USDC pair is available on every compared chain, which makes the economics comparable.
@@ -52,32 +53,41 @@ bun run scan -- \
   --assets WETH \
   --chains ethereum,arbitrum,base,optimism,polygon \
   --notional 500 \
-  --min-edge 0.25
+  --min-edge 0.25 \
+  --max-quote-calls 50 \
+  --max-concurrent-quotes 4
 ```
 
-The scanner sends quote requests only. It does not pass a wallet, sign, prepare a managed execution, or broadcast a transaction.
+The scanner sends quote requests only. It does not accept a wallet key, sign, submit simulation, prepare a managed execution, or broadcast a transaction. `scan --json` emits a versioned read-only record, while `history` reads local evidence without spending more quote calls.
 
 ## Understand the two-stage request budget
 
 Quoting every exact buy/sell pair at every possible size grows quickly. The reference uses two stages.
 
-For one asset across `N` chains:
+For each asset across `N` chains:
 
 1. Quote `USDC -> asset` with the same USDC notional on every chain.
 2. Take the median expected asset output as a common probe size.
 3. Quote that `asset -> USDC` probe on every covered chain.
 4. Rank cross-chain buy/sell combinations by effective expected price.
-5. Exact-qualify only the best `K` directions.
+5. Exact-qualify only the best `K` directions across the complete scan.
 
-That costs at most:
+For `A` configured assets, that costs at most:
 
 ```text
-quote requests per asset per scan = 2N + K
+worst-case quote requests per scan = 2 × A × N + K
 ```
 
-With the reference defaults (`N=4`, `K<=3`), one asset uses at most 11 quote requests per scan. The program exposes `quoteRequests` so a paid product can measure this rather than hiding its API cost.
+With the reference defaults (`A=1`, `N=4`, `K<=3`), a scan uses at most 11 quote requests. The program exposes `quoteRequests`, `maxQuoteCalls`, and `maxConcurrentQuotes` so a paid product can measure and constrain API work instead of hiding it.
 
-Run multiple assets sequentially or add your own queue/rate limiter. Do not assume the free-tier request budget can absorb an arbitrarily large asset × chain matrix at a short polling interval; read the current [Pricing](../billing/pricing.md), `GET /v1/agent/billing`, and live rate-limit headers.
+Version 2.x enforces both sides of the operational problem:
+
+- `--max-quote-calls` defaults to 100 and rejects the worst-case matrix **before the first request**;
+- `--max-concurrent-quotes` defaults to 8 and bounds a request burst independently of total spend;
+- assets are processed sequentially and exact qualification is sequential; and
+- `watch --interval 60` waits after a completed scan, with exponential backoff up to 8× after consecutive full scan failures.
+
+Do not raise those controls just to make a large configuration fit. Read the current [Pricing](../billing/pricing.md), `GET /v1/agent/billing`, and live rate-limit headers, then choose the monitor/cadence from measured customer economics.
 
 ## Exact qualification is the important step
 
@@ -137,6 +147,26 @@ The reference therefore:
 
 It also rejects a qualified candidate if the older of its two quotes has 5 seconds or less remaining. A product should usually use a much larger operational margin because network, model, human approval, and submission latency consume the same short quote lifetime.
 
+### Bound upstream work and keep errors safe
+
+The maintained adapter bounds each direct quote operation with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default, allowed range 100–30,000 ms). HTTP failures expose the status code without copying an upstream response body into operator logs; timeout/network failures are sanitized too.
+
+Set `SUWAPPU_API_EVENTS=1` when you need machine-readable stderr telemetry. Those events contain only operation, outcome, duration, and HTTP status when present. They intentionally omit API keys, token/chain/notional configuration, quote IDs, response bodies, and error text.
+
+There is no automatic in-scan retry that can silently exceed `--max-quote-calls`. Let the next scheduled scan make the next bounded attempt.
+
+### Persist monitoring evidence safely
+
+State defaults to `~/.suwappu-arb-scanner` and can be moved with `SUWAPPU_ARB_STATE_DIR`. The monitor file is schema-validated fail-closed and replaced atomically after fsync; scan history is bounded by `SUWAPPU_ARB_HISTORY_LIMIT` (5,000 by default).
+
+`monitor.lock` covers the complete local cycle—quote work, state transition, webhook delivery bookkeeping—so a second process sharing that state directory fails before creating another quote burst. A crash can leave a stale lock. Prove the owning process/container is gone before removing that exact lock; age alone is not proof.
+
+The repository's container runs non-root and persists state under `/data`. Its default is one `scan --json --fail-on-degraded` with Compose restart disabled. Continuous `watch` is an explicit operator choice because indefinite polling is also an indefinite API-cost decision.
+
+`--fail-on-degraded` still records state and emits the JSON scan evidence before returning non-zero for partial quote failure, which gives a scheduler a health signal without erasing the failed observation.
+
+For stale-lock recovery, webhook incidents, SLOs, and release gates, follow the reference repository's [operations runbook](https://github.com/0xSoftBoi/suwappu-arb-scanner/blob/main/docs/OPERATIONS.md).
+
 ## “Two legs” still does not mean “cross-chain execution”
 
 The scanner compares two **independent same-chain** routes. Buying ETH on Base does not make ETH appear on Arbitrum.
@@ -176,6 +206,8 @@ Good paid limits are monitor count, cadence, history, delivery destinations, exp
 
 Do not define activation as “found a profitable arb.” A real dislocation may be rare. A healthier activation event is **first configured scan with at least two covered chains plus a verified delivery destination**.
 
+The 2.x reference already gives you the non-custodial substrate for this tier: durable scanner-qualified state/history, config fingerprints, transition/cooldown alerting, stable retry `alertId` values, cost/concurrency bounds, and machine-readable scan records. A hosted product still needs tenant auth/billing, customer-scoped database state, delivery integrations, and a UI/API/MCP surface. Do not share the CLI's local state directory across replicas and call that multi-tenancy.
+
 ### 2. Analyst / approval workspace
 
 Add the workflow around a candidate:
@@ -212,17 +244,30 @@ Use [Strategy Lifecycle](strategy-lifecycle.md) and [Flywheel](flywheel.md) for 
 
 A polling script that repeats the same row every minute is not a durable paid product.
 
-Add state around the screen:
+The maintained reference now implements the base alert-state contract:
 
-- deduplicate the same asset/buy-chain/sell-chain direction;
-- alert on transition into a qualified state instead of every poll;
-- use separate enter/exit thresholds (hysteresis);
-- surface market-coverage degradation;
-- measure how often a first-pass screen survives exact qualification;
-- store quote age and how long the candidate remained valid;
-- label downstream outcomes: ignored, decayed, rejected by risk, approved, executed, reconciled.
+- fingerprint the normalized market/notional/threshold/request policy;
+- keep bounded local scan history and scanner-qualified candidate state;
+- alert on entry and optional cooldown rather than every poll;
+- keep an undelivered/retried alert's `alertId` stable so receivers can deduplicate it;
+- mark a candidate inactive only when an error-free scan can actually establish absence; and
+- keep degraded coverage visible instead of manufacturing a decay/re-entry notification loop.
 
-Those features reduce notification cost and create data you can use to improve ranking without weakening the custody boundary.
+Set `--alert-cooldown 0` for transition-only delivery; the default 900 seconds permits a reminder for a continuously qualified candidate. A webhook is marked delivered only after HTTP 2xx. Timeout/transport failure is **delivery-outcome unknown**—the receiver may have processed it—so downstream `alertId` idempotency still matters.
+
+For production webhook delivery, set an exact `SUWAPPU_WEBHOOK_ALLOWED_HOSTS` allowlist and a random `SUWAPPU_WEBHOOK_SECRET`. Signed requests use `X-Suwappu-Timestamp` plus `X-Suwappu-Signature: sha256=<HMAC>` over `timestamp + "." + rawBody`. Require HTTPS, reject stale timestamps, use constant-time signature comparison, and deduplicate `alertId`. The CLI's hostname checks are not a complete DNS-rebinding/SSRF boundary; a multi-tenant service accepting untrusted URLs needs connection-time egress controls.
+
+Then build the product-specific moat on top: enter/exit hysteresis, longer database-backed history, explicit decay-duration analytics, useful/irrelevant feedback labels, ranking, team review, and downstream outcomes such as ignored, rejected by risk, approved, or reconciled. Do not describe those hosted extensions as features of the local reference until you implement them.
+
+## Put the same product behind REST, SDK, or MCP
+
+The maintained scanner calls REST directly so its quote count and economic evidence are easy to audit. Your customer surface does not have to.
+
+- For application code, use the current [SDK examples](../quickstart/sdk-examples.md) when the **published** `@suwappu/sdk` version contains the method you need; verify the registry version instead of assuming core source has shipped.
+- For an LLM/agent product, connect the [hosted MCP server](../quickstart/mcp-clients.md) and discover its live tools with `tools/list`. Keep your own monitor/call budget around agent loops; MCP tool discovery is not permission to spend without bounds.
+- For this monitor's canonical quote-evidence path, REST [`POST /v1/agent/quote`](../api-reference/quote.md) remains a stable fallback.
+
+Whichever interface you choose, preserve the same customer contract: quote evidence is read-only, alerts are stateful/idempotent, and a later execution workflow has a visibly different authority boundary. MCP's historically named `execute_swap` prepares an **unsigned self-custody transaction**; it is not managed broadcast and should not be wired into the read-only monitor as a hidden action.
 
 ## Measure business economics separately from strategy P&L
 
@@ -236,6 +281,18 @@ builder contribution margin
   - payment fees
   - attributable support and operations cost
 ```
+
+Turn those costs into product limits instead of hoping usage averages out. For each plan, choose an explicit maximum monitor count, asset × chain matrix, cadence, retained-history window, and delivery destinations. Then model:
+
+```text
+monthly quote-call ceiling/customer
+  = worst-case calls/scan × scheduled scans/month
+
+target contribution/customer
+  = plan revenue - measured variable customer cost
+```
+
+Use actual billing data and retained usage to set the price/fences. Higher cadence is valuable only if customers repeatedly act on fresher evidence; otherwise it is just a more expensive polling loop. See [Build a Business on Suwappu](build-a-business.md) for the broader billing/attribution model.
 
 For an executed customer strategy:
 
@@ -272,12 +329,14 @@ That is the benchmark for claiming “arbitrage execution engine.” The Suwappu
 | Suwappu executable-route screening | Yes |
 | Exact second-leg qualification | Yes |
 | Minimum-output + estimated-gas guard | Yes |
+| Durable scan/candidate state + idempotent alerts | Yes, local single-writer |
+| Hard per-scan request + concurrency bounds | Yes |
 | Read-only/no wallet authority | Always |
 | Two-leg order/fill lifecycle | No |
 | Inventory/rebalancing engine | No |
 | Historical strategy evaluation | No |
 
-That narrower scope is valuable when you use it as an **integration and product reference**, not when you market it as a substitute for a mature trading framework.
+That narrower scope is valuable when you use it as a **Suwappu-native intelligence/operations product**, not when you market it as a substitute for a mature trading framework. Hummingbot sets the execution-engine bar; this reference intentionally competes on safe quote provenance, alert state, request economics, and an explicit handoff to separate authority.
 
 ## Production checklist
 
@@ -290,11 +349,16 @@ Before charging for an arb monitor or workflow, verify:
 - missing gas/cost coverage cannot silently become “profit”;
 - expired/nearly expired quotes cannot be promoted;
 - failed markets remain visible as partial coverage;
-- quote-call volume fits the customer's current Suwappu tier and your margin;
-- watch jobs cannot overlap and create request storms;
-- webhook delivery is observable and safe for your threat model;
+- the worst-case quote matrix fits `--max-quote-calls` **before** work starts and concurrency fits your rate/upstream budget;
+- per-operation deadlines are bounded and telemetry cannot leak keys/raw response bodies/customer market parameters;
+- scan/history state is persisted, backed up where needed, and one state directory has exactly one writer;
+- watch jobs cannot overlap and failure backoff cannot turn an outage into a request storm;
+- webhook delivery uses stable `alertId` deduplication and, in production, an allowlist + HMAC + bounded egress policy;
+- webhook timeout/transport failure is treated as delivery-outcome unknown rather than proof the receiver did nothing;
+- hosted/multi-replica products move local JSON/locks to customer-scoped service storage instead of sharing one CLI state directory;
 - alerts state the pre-positioned-inventory assumption;
 - builder revenue and customer strategy P&L use different ledgers;
+- releases pass typecheck/tests/build, dependency audit, the non-root container contract, and code scanning; and
 - any future execution path has simulation, approval, idempotency, reconciliation, caps, a kill switch, and a tested one-leg failure policy.
 
 Copy the maintained implementation and regression tests from [`suwappu-arb-scanner`](https://github.com/0xSoftBoi/suwappu-arb-scanner), then add the customer workflow that makes the signal worth paying for.
