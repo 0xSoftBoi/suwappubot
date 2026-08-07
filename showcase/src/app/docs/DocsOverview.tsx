@@ -72,8 +72,9 @@ export default function DocsOverview() {
             <h1 className="section__heading">Suwappu API</h1>
             <p className="section__body" style={{ marginBottom: '2.5rem' }}>
               The cross-chain DeFi API built for AI agents. Register an agent, get
-              best-price quotes, and execute swaps, perps, and gasless trades across{' '}
-              {stats.platformChains} chains: through one REST API, a TypeScript SDK, and an MCP server.
+              best-price quotes, simulate and execute swaps, research HyperLiquid perps,
+              and inspect DeFi markets across {stats.platformChains} chains: through one
+              REST API, a TypeScript SDK, and an MCP server.
             </p>
 
             <div className="docs-quicklinks">

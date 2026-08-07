@@ -1,6 +1,6 @@
 ---
 name: suwappu-dex
-description: "Cross-chain token swaps, quotes, portfolio and prices across 14 chains, plus Hyperliquid perps, Polymarket predictions and Morpho lending, via the Suwappu DEX MCP server. Read-only by default; swap execution is opt-in and gated."
+description: "Use Suwappu's hosted MCP server for cross-chain quotes, swap simulation and unsigned transaction preparation, managed-wallet portfolio reads, prices, prediction-market research, Hyperliquid research, and Morpho market data."
 homepage: https://suwappu.bot
 metadata:
   {
@@ -14,183 +14,117 @@ metadata:
   }
 tools:
   - get_quote
-  - execute_swap
   - get_portfolio
   - get_prices
   - list_chains
   - list_tokens
+  - execute_swap
+  - simulate_swap
   - get_tempo_tokens
   - browse_mpp_directory
+  - predict_markets
+  - predict_market
   - perps_markets
   - perps_quote
   - perps_positions
-  - predict_markets
-  - predict_market
   - lend_markets
   - lend_market
+  - get_swap_status
+  - get_swap_history
+  - predict_book
+  - predict_price
+  - predict_trades
+  - list_wallet_policies
 ---
 
-# Suwappu — Cross-chain DEX 🌸
+# Suwappu MCP 🌸
 
-Swap, quote, and track tokens across **14 chains** (12 EVM + Solana + TRON) through Suwappu's
-hosted **MCP server** — plus Hyperliquid perps, Polymarket prediction markets, and Morpho
-lending. Routing is automatic across 10+ providers (Li.Fi, CoW Protocol, OKX, 1inch, KyberSwap,
-Jupiter, Wormhole, Across, CCTP, …). This skill wraps the live server — no SDK or wrapper code required.
+Use Suwappu's hosted MCP server for DeFi data, swap routing, simulation, and
+self-custody transaction preparation. The source 0.6 server advertises **22 tools**;
+always treat the runtime `tools/list` response as canonical because deployed versions
+can move independently of this skill.
 
-## Setup (one command)
+## Setup
 
-1. Get a free API key:
-   ```bash
-   curl -X POST https://api.suwappu.bot/v1/agent/register \
-     -H "Content-Type: application/json" -d '{"name":"my-openclaw"}'
-   # -> save the suwappu_sk_... value
-   export SUWAPPU_API_KEY=suwappu_sk_...
-   ```
-2. Register the MCP server with OpenClaw. **Read-only by default** (swap execution excluded):
-   ```bash
-   openclaw mcp add suwappu \
-     --url https://api.suwappu.bot/mcp \
-     --transport streamable-http \
-     --header "Authorization=Bearer $SUWAPPU_API_KEY" \
-     --exclude execute_swap
-   openclaw mcp probe suwappu      # should list the tools
-   ```
-3. To **enable swap execution**, re-add without `--exclude execute_swap` on a dedicated trading
-   agent only (see Safety). Verify with `openclaw mcp doctor`.
+Register for an API key:
 
-`SUWAPPU_API_KEY` is sent as `Authorization: Bearer <key>`. `execute_swap`, `get_portfolio`,
-and `perps_quote` require authentication.
-
-## Swap tools
-
-### get_quote
-Get the best swap route for a token pair.
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-openclaw"}'
+export SUWAPPU_API_KEY=suwappu_sk_...
 ```
-get_quote <from_token> <to_token> <amount> <chain>
-```
-Returns: price, route, gas estimate, fee breakdown, price impact, expiry, and a `quote_id`.
 
-### execute_swap
-Build an **unsigned** transaction for a previously quoted swap. Suwappu is non-custodial and
-never broadcasts — it returns a transaction (EVM unsigned tx, or Solana base64 serialized tx)
-for you to sign and submit with your own wallet. **Excluded unless explicitly enabled** (see Setup).
-```
-execute_swap <quote_id> <wallet_address>
-```
-`wallet_address` is required and must be your managed wallet (EVM ownership is enforced
-server-side). Returns: `status: "ready"`, swap summary, the transaction to sign, and
-step-by-step instructions. Preserve the `quote_id` end to end for audit.
+Then connect OpenClaw:
 
-### get_portfolio
-Check wallet balances across all chains.
+```bash
+openclaw mcp add suwappu \
+  --url https://api.suwappu.bot/mcp \
+  --transport streamable-http \
+  --header "Authorization=Bearer $SUWAPPU_API_KEY"
+openclaw mcp probe suwappu
 ```
-get_portfolio <wallet_address> [chain]
-```
-`wallet_address` is required — there is no implicit "current wallet." Returns: token balances
-and USD values.
 
-### get_prices
-Get current token prices.
-```
-get_prices <token[,token...]> [chain]
-```
-Returns: price in USD, 24h change.
+MCP initialization, `tools/list`, and the pure discovery tools `list_chains`,
+`list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` are public. Other
+tool calls require the bearer key. Keep the key in an environment variable or
+secret manager, never a committed config file.
 
-### list_chains
-List all supported chains.
-```
-list_chains
-```
-Returns: chain names, IDs, and status.
+## Tool map
 
-### list_tokens
-List popular tokens on a chain.
-```
-list_tokens <chain>
-```
-Returns: token symbols, addresses, decimals.
+| Goal | Tools | Important boundary |
+| --- | --- | --- |
+| Route a swap | `get_quote`, `simulate_swap`, `execute_swap` | `execute_swap` returns an unsigned transaction; it never signs or broadcasts. |
+| Inspect assets | `get_portfolio`, `get_prices`, `list_chains`, `list_tokens` | Portfolio reads are scoped to the caller's managed EVM wallet. |
+| Reconcile managed swaps | `get_swap_status`, `get_swap_history` | These refer to swaps created by REST `POST /v1/agent/swap/execute`, not MCP `execute_swap`. |
+| Prediction research | `predict_markets`, `predict_market`, `predict_book`, `predict_price`, `predict_trades` | MCP prediction tools are read-only. REST has a separate explicit order surface. |
+| Perps research | `perps_markets`, `perps_quote`, `perps_positions` | The Agent API does not expose open/close execution. Treat quote/funding fields as research data; current funding can be a placeholder. |
+| Lending research | `lend_markets`, `lend_market` | Read-only Morpho market data; no deposit/withdraw tool. |
+| Managed-wallet controls | `list_wallet_policies` | Inspect existing policy guardrails. |
+| Extra discovery | `get_tempo_tokens`, `browse_mpp_directory` | Public discovery; MPP directory is a third-party directory. |
 
-## Perps tools (Hyperliquid)
+## Safe swap flow
 
-### perps_markets
-List available perpetual markets.
-```
-perps_markets
-```
-Returns: market name, asset, max leverage, mark price, funding rate.
+1. Call `get_quote` and preserve `quote_id`.
+2. Call `simulate_swap` with that `quote_id` and, when available, the signing
+   wallet address. Inspect `would_execute`, checks, warnings, expected output,
+   price impact, and fees.
+3. Show the economic terms to the user and get explicit approval.
+4. Call `execute_swap <quote_id> <wallet_address>` to prepare the transaction.
+5. Review, sign, and broadcast the returned transaction with the user's wallet.
+6. Reconcile on-chain using the transaction hash from the user's broadcaster.
 
-### perps_quote
-Quote a perp position. **Requires authentication.**
-```
-perps_quote <market> <long|short> <size> <leverage>
-```
-Returns: entry price, margin, liquidation price, funding rate, fee.
+`execute_swap` consumes/prepares from the cached quote but does **not** create a
+managed swap record. A timeout on this MCP tool therefore does not mean Suwappu
+broadcast anything. If you need server-side signing and managed status/history,
+use the explicit REST managed-wallet flow documented at
+https://suwappu.bot/docs.
 
-### perps_positions
-List open positions for an address.
-```
-perps_positions <address>
-```
-Returns: open positions with size, leverage, entry/mark price, unrealized PnL.
+## Product-building patterns
 
-## Prediction tools (Polymarket)
+- **Paid intelligence:** combine prices, prediction books/trades, perps market
+  reads, or lending data into alerts, research, scoring, or reports.
+- **Approval-based automation:** monitor conditions continuously, then quote +
+  simulate + ask for approval before preparing a self-custody swap.
+- **Operator tooling:** surface wallet policies, managed-swap history, and market
+  context in an internal dashboard or agent console.
 
-### predict_markets
-Browse or search active prediction markets.
-```
-predict_markets [query] [limit]
-```
-Returns: question, outcomes, outcome prices, volume, liquidity, end date.
+Do not describe Suwappu's x402/API metering as builder revenue. Those charges pay
+for Suwappu API usage. Price your own product separately and track its revenue and
+costs independently from strategy P&L.
 
-### predict_market
-Get full detail for a single prediction market.
-```
-predict_market <market_id>
-```
-Returns: market detail incl. description and resolution status.
+## Safety and economics
 
-## Lending tools (Morpho)
+- Never claim an MCP swap was broadcast: the MCP execution-shaped tool only
+  prepares an unsigned transaction.
+- Never claim the perps or lending MCP tools execute positions; they are research
+  surfaces today.
+- Do not hardcode chain counts, provider counts, API credit prices, or swap fees.
+  Discover chains with `list_chains`; check live billing/pricing before making an
+  economic decision.
+- A profitable-looking spread is not a business model. Include API costs, gas,
+  route fees, slippage, failed attempts, and your own product costs before calling
+  an opportunity profitable.
 
-### lend_markets
-List Morpho lending markets, optionally filtered by chain.
-```
-lend_markets [chain_id]
-```
-Returns: loan/collateral token, LLTV, supply/borrow APY, utilization.
-
-### lend_market
-Get full detail for a single lending market.
-```
-lend_market <market_id>
-```
-Returns: market detail incl. oracle and IRM addresses.
-
-## Typical swap flow
-
-1. `list_chains` → see what's available
-2. `get_quote ETH USDC 0.1 base` → best route (returns a `quote_id`)
-3. (trading agent only) confirm with the user → `execute_swap <quote_id> <wallet_address>` → unsigned tx
-4. Sign + broadcast the returned transaction with your wallet
-5. `get_portfolio <wallet_address>` → verify the swap landed
-
-## Examples
-
-- "Quote 0.5 ETH to USDC on Base" → `get_quote`
-- "What's my portfolio worth across chains?" → `get_portfolio`
-- "Best price to bridge 500 USDC to Arbitrum" → `get_quote`
-
-## Safety
-
-- **Read-only by default.** `execute_swap` is excluded via `--exclude` and should only be enabled
-  on an isolated trading agent with explicit tool-allowlisting (`agents.json`).
-- **Agent proposes, user approves.** Always `get_quote` first, show the route/price impact, and
-  require user confirmation before any `execute_swap`. Preserve the `quote_id` end to end for audit.
-- **Non-custodial.** The API only ever returns unsigned transactions — signing happens in your
-  wallet. Keys live in Turnkey TEE enclaves and never leave; users can export anytime. Suwappu
-  enforces 2FA + per-swap/hourly/daily spending limits + tx simulation server-side — these
-  guardrails hold even if the agent errs.
-- **Never** put `SUWAPPU_API_KEY` in committed files — pass it as an env var / SecretRef.
-
-## Fees & docs
-
-0.3% per swap, gas from wallet balance, no subscription. Full API: https://api.suwappu.bot/docs
+Canonical docs: https://suwappu.bot/docs
+Machine-readable docs: https://suwappu.bot/llms.txt

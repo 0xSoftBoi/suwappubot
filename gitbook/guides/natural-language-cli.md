@@ -104,14 +104,31 @@ If the chain is omitted, it defaults to Ethereum. For Solana, include `on solana
 
 ## Executing the Quote
 
-`/execute` returns a quote (and optionally unsigned transaction data). To run it server-side with a managed wallet, take the `quote_id` and call `POST /v1/agent/swap/execute`:
+`/execute` returns a quote (and optionally unsigned transaction data). It does not perform managed execution. Before acting on a read-only quote, re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`; simulate that exact quote against the same address, then, after explicit approval, hand it to the managed endpoint:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command": "swap 0.5 ETH to USDC on base", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+```
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+```
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: nl-intent-001" \
   -d '{"quote_id": "q_abc123"}'
 ```
+
+If the managed call has an unknown outcome, reconcile before retrying and reuse that idempotency key.
 
 ## Related
 

@@ -93,7 +93,9 @@ function parseSummary(): DocsData {
       const filePath = join(GITBOOK_DIR, linkPath);
       const content = readMarkdown(filePath);
 
-      if (!content) continue;
+      if (!content) {
+        throw new Error(`SUMMARY target is missing or empty: ${linkPath}`);
+      }
 
       const slug = basename(linkPath, '.md');
       // Skip section README overview pages — they'll be inlined

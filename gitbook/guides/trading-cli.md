@@ -1,26 +1,23 @@
 # Trading CLI
 
-Build a small command-line tool that quotes and executes swaps against the Suwappu API. It's a thin wrapper over the REST endpoints — useful for manual trading, scripting, and as a starting point for richer tooling.
+Build a small command-line tool around the Suwappu REST API. The CLI separates **quote**, **preview**, and **managed execution** so a copied command never moves funds by default.
 
-## What You'll Build
+## Commands
 
-A `suwappu` CLI with three commands:
-
-- `suwappu quote <amount> <from> <to> [chain]` — get a quote
-- `suwappu swap <quote_id>` — execute a quote from your managed wallet
-- `suwappu status <swap_id>` — check a swap's status
+- `suwappu quote <amount> <from> <to> [chain]` — fetch a fresh quote.
+- `suwappu preview <quote_id> <wallet_address>` — run a zero-funds simulation.
+- `suwappu execute <quote_id> --live` — explicitly submit through the authenticated agent's managed wallet.
+- `suwappu status <swap_id>` — reconcile a managed swap.
 
 ## Setup
-
-Export your key (register via `POST /v1/agent/register` if you don't have one):
 
 ```bash
 export SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY
 ```
 
-## The Script
+## The script
 
-```typescript
+```ts
 #!/usr/bin/env bun
 const BASE = 'https://api.suwappu.bot/v1/agent'
 const API_KEY = process.env.SUWAPPU_API_KEY
@@ -28,76 +25,90 @@ if (!API_KEY) { console.error('Set SUWAPPU_API_KEY'); process.exit(1) }
 
 const headers = { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }
 
-async function get(path: string) {
-  return (await fetch(`${BASE}${path}`, { headers })).json()
+async function request(path: string, init: RequestInit = {}) {
+  const response = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { ...headers, ...(init.headers ?? {}) },
+  })
+  const raw = await response.text()
+  let body: any
+  try {
+    body = raw ? JSON.parse(raw) : {}
+  } catch {
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 160) || response.statusText}`)
+    throw new Error(`HTTP ${response.status}: expected a JSON response`)
+  }
+  if (!response.ok || body.success === false) throw new Error(body.error ?? `HTTP ${response.status}`)
+  return body
 }
-async function post(path: string, body: unknown) {
-  return (await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })).json()
+
+async function post(path: string, body: unknown, extraHeaders = {}) {
+  return request(path, {
+    method: 'POST',
+    headers: extraHeaders,
+    body: JSON.stringify(body),
+  })
 }
 
 const [cmd, ...args] = process.argv.slice(2)
 
+try {
 switch (cmd) {
   case 'quote': {
     const [amount, from, to, chain = 'base'] = args
     const q = await post('/quote', { from_token: from, to_token: to, amount, chain })
-    if (!q.success) { console.error('Error:', q.error); process.exit(1) }
     console.log(`Quote ${q.quote_id}`)
-    console.log(`  ${amount} ${from} -> ${q.expected_output} ${to} on ${chain}`)
-    console.log(`  Run: suwappu swap ${q.quote_id}`)
+    console.log(`  ${q.amount_in} ${from} -> ${q.amount_out} ${to}`)
+    console.log(`  minimum output: ${q.amount_out_min}`)
+    console.log(`  preview with a wallet before executing`)
     break
   }
-  case 'swap': {
-    const [quoteId] = args
-    const s = await post('/swap/execute', { quote_id: quoteId })
-    if (!s.success) { console.error('Error:', s.error); process.exit(1) }
-    console.log(`Submitted swap ${s.swap_id} (${s.status})`)
-    console.log(`  Run: suwappu status ${s.swap_id}`)
+  case 'preview': {
+    const [quoteId, walletAddress] = args
+    const report = await post('/swap/simulate', {
+      quote_id: quoteId,
+      wallet_address: walletAddress,
+    })
+    console.log(JSON.stringify(report, null, 2))
+    break
+  }
+  case 'execute': {
+    const [quoteId, flag] = args
+    if (flag !== '--live') {
+      console.error('Refusing to execute without explicit --live')
+      process.exit(2)
+    }
+    const idempotencyKey = `cli.${quoteId}`.slice(0, 64)
+    const s = await post('/swap/execute', { quote_id: quoteId }, { 'Idempotency-Key': idempotencyKey })
+    console.log(`Submitted managed swap ${s.swap_id} (${s.status})`)
     break
   }
   case 'status': {
     const [swapId] = args
-    const s = await get(`/swap/status/${swapId}`)
+    const s = await request(`/swap/status/${swapId}`)
     console.log(`Status: ${s.status}${s.tx_hash ? ` (${s.tx_hash})` : ''}`)
     break
   }
-  case 'prices': {
-    const p = await get(`/prices?symbols=${args.join(',') || 'ETH,BTC,SOL'}`)
-    for (const [sym, data] of Object.entries<any>(p.prices)) {
-      console.log(`${sym}: $${data.usd.toFixed(2)}`)
-    }
-    break
-  }
   default:
-    console.log('Usage: suwappu <quote|swap|status|prices> ...')
+    console.log('Usage: suwappu <quote|preview|execute|status> ...')
+}
+} catch (error) {
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 ```
 
 ## Usage
 
 ```bash
-# Get a quote
 bun suwappu.ts quote 0.5 ETH USDC base
-# Quote q_abc123
-#   0.5 ETH -> 1247.50 USDC on base
-#   Run: suwappu swap q_abc123
+bun suwappu.ts preview q_abc123 0xYOUR_WALLET
 
-# Execute it (requires a funded managed wallet)
-bun suwappu.ts swap q_abc123
-# Submitted swap sw_xyz789 (pending)
-
-# Check status
-bun suwappu.ts status sw_xyz789
-# Status: completed (0x...)
-
-# Check prices
-bun suwappu.ts prices ETH BTC SOL
+# Only after reviewing the quote + simulation:
+bun suwappu.ts execute q_abc123 --live
+bun suwappu.ts status 42
 ```
 
-## Next Steps
+The `execute` command uses `POST /swap/execute`, so it requires a funded [managed wallet](managed-wallets.md). For self-custody, call `POST /swap` instead; that returns an unsigned transaction that your wallet must sign and broadcast.
 
-- Add a `wallet` command that calls `POST /v1/agent/wallets` to provision a managed wallet.
-- Prefer natural-language input? See [Natural-Language CLI](natural-language-cli.md), which uses the `/execute` endpoint.
-- Wrap quote → swap → status into a single command with automatic status polling.
-
-Requires a funded [managed wallet](managed-wallets.md) for the `swap` command to execute server-side.
+For a natural-language interface, see [Natural-Language CLI](natural-language-cli.md). For unattended automation, use the stricter [Strategy Lifecycle](strategy-lifecycle.md) rather than wrapping `quote -> execute` into a one-shot command.

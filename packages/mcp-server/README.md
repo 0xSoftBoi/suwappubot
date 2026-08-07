@@ -4,7 +4,9 @@ A thin stdio bridge to Suwappu's hosted MCP endpoint.
 
 The bridge intentionally owns **zero Suwappu tool, resource, or prompt definitions**. It forwards discovery and calls to `https://api.suwappu.bot/mcp`, so the hosted endpoint stays the single source of truth.
 
-> **Release status:** this repository contains `@suwappu/mcp-server` source `0.6.0`; the latest npm release is currently `0.1.1`. Use the hosted endpoint for the current catalog until the forwarding bridge is published.
+> **Version check:** this repository describes bridge source `0.6.0`. Run
+> `npm view @suwappu/mcp-server version` before installing. If the registry is
+> behind, use the hosted endpoint for the current catalog.
 
 ## Prefer hosted MCP
 
@@ -35,7 +37,7 @@ bun run build
 SUWAPPU_API_KEY=suwappu_sk_... node dist/index.js
 ```
 
-After `0.6.0` is published, the same bridge can be run from npm with `npx @suwappu/mcp-server`.
+When npm reports `0.6.0` or newer, run the same bridge with `npx @suwappu/mcp-server`.
 
 The bridge forwards tools, resources, and prompts. It also leaves authorization decisions to the hosted server, so anonymous public tool calls work over stdio instead of being blocked by a second hard-coded policy.
 

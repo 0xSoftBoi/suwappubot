@@ -32,7 +32,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://suwappu.bot"
-Documentation = "https://docs.suwappu.bot"
+Documentation = "https://suwappu.bot/docs"
 Repository = "https://github.com/0xSoftBoi/suwappubot"
 Source = "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python"
 Issues = "https://github.com/0xSoftBoi/suwappubot/issues"

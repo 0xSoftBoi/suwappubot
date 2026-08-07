@@ -11,7 +11,8 @@
  *   2. tools/list is forwarded and returned verbatim, so this package can
  *      never drift back into carrying its own catalogue.
  *   3. tools/call forwards the tool name, the arguments, AND the Bearer token.
- *   4. A missing SUWAPPU_API_KEY produces an actionable error, not a crash.
+ *   4. A missing SUWAPPU_API_KEY stays unauthenticated instead of being blocked
+ *      locally, so hosted public tools remain usable and hosted MCP owns auth.
  */
 import { spawn } from 'node:child_process'
 import http from 'node:http'
@@ -143,17 +144,20 @@ function assert(cond, msg) {
 	)
 }
 
-// 4: no key -> actionable error, not a crash.
+// 4: no key -> public calls still reach hosted MCP without an Authorization header.
 {
+	lastCall = null
 	const { msgs } = await run(
-		[INIT, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_quote', arguments: {} } }],
+		[INIT, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_chains', arguments: {} } }],
 		{ SUWAPPU_API_KEY: '' },
 	)
-	const errMsg = msgs.find((m) => m.result?.isError)
-	assert(errMsg, 'missing API key yields isError rather than a crash')
 	assert(
-		errMsg.result.content[0].text.includes('SUWAPPU_API_KEY'),
-		'the error names the missing variable',
+		lastCall?.params?.name === 'list_chains' && lastCall?.auth === undefined,
+		'missing API key forwards public tools without Authorization',
+	)
+	assert(
+		msgs.some((m) => JSON.stringify(m.result ?? '').includes('mock-ok')),
+		'public tool result is returned without a local auth gate',
 	)
 }
 

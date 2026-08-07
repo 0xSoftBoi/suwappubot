@@ -410,14 +410,33 @@ export interface AgentTopupArgs {
 
 // --- Swap simulation & history ---
 
+export interface SwapSimulationCheck {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+  unverified?: boolean;
+}
+
+/** Camel-cased view of POST /v1/agent/swap/simulate. Nothing is broadcast. */
 export interface SwapSimulation {
-  /** Whether the simulated execution succeeded. */
   success: boolean;
-  /** Human-readable reason when the simulation reverted. */
-  reason?: string;
-  gasEstimate?: string;
-  amountOut?: string;
-  [key: string]: unknown;
+  /** True only when the server's safety-critical preflight checks allow execution. */
+  wouldExecute: boolean;
+  quoteId: string;
+  chainType: "evm" | "solana";
+  expectedOutput: {
+    token: string;
+    amount: string;
+    amountUsd: string | null;
+  };
+  minOutputAfterSlippage: string;
+  priceImpactPct: number | null;
+  fees: {
+    protocol: string | null;
+    gasEstimate: string | null;
+  };
+  checks: SwapSimulationCheck[];
+  warnings: string[];
 }
 
 export interface SwapHistoryItem {

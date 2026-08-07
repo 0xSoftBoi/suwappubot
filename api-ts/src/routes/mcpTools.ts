@@ -126,7 +126,7 @@ const TOOLS = [
 			properties: {
 				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
 				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
-				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
+				idempotency_key: { type: 'string', description: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.' },
 			},
 			required: ['quote_id', 'wallet_address'],
 		},

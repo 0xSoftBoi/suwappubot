@@ -21,6 +21,7 @@ let baseUrl: string;
 /** Overrides the next response body, for error-path tests. */
 let nextStatus = 200;
 let nextBody: unknown = null;
+let lastIdempotencyKey: string | null = null;
 
 const OK = {
   success: true,
@@ -43,6 +44,7 @@ beforeAll(() => {
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      lastIdempotencyKey = req.headers.get("Idempotency-Key");
       let body: unknown = null;
       if (req.method !== "GET") {
         const text = await req.text();
@@ -66,6 +68,7 @@ afterAll(() => server.stop(true));
 
 function client() {
   seen = [];
+  lastIdempotencyKey = null;
   return new Suwappu({ apiKey: "test-key", baseUrl });
 }
 
@@ -79,7 +82,9 @@ describe("swap custody boundary", () => {
       tracking: { poll_url: "/v1/agent/swap/status/7" },
     };
 
-    const result = await c.executeManagedSwap("q-managed");
+    const result = await c.executeManagedSwap("q-managed", {
+      idempotencyKey: "strategy-run-7",
+    });
 
     expect(seen[0]).toEqual({
       method: "POST",
@@ -87,6 +92,7 @@ describe("swap custody boundary", () => {
       body: { quote_id: "q-managed" },
     });
     expect(result.swapId).toBe(7);
+    expect(lastIdempotencyKey).toBe("strategy-run-7");
   });
 
   it("legacy swap remains managed and ignores the old walletAddress argument", async () => {
@@ -123,14 +129,30 @@ describe("swap custody boundary", () => {
 });
 
 describe("swap simulation & history", () => {
-  it("simulateSwap posts snake_case fields", async () => {
+  it("simulateSwap posts snake_case fields and maps the report to camelCase", async () => {
     const c = client();
-    await c.simulateSwap({ quoteId: "q1", walletAddress: "0xabc" });
+    nextBody = {
+      success: true,
+      would_execute: true,
+      quote_id: "q1",
+      chain_type: "evm",
+      expected_output: { token: "USDC", amount: "100", amount_usd: "100" },
+      min_output_after_slippage: "99.5",
+      price_impact_pct: 0.1,
+      fees: { protocol: "0.10", gas_estimate: "0.02" },
+      checks: [{ name: "balance_sufficient", status: "pass", detail: "ok" }],
+      warnings: [],
+    };
+    const simulation = await c.simulateSwap({ quoteId: "q1", walletAddress: "0xabc" });
     expect(seen[0]).toEqual({
       method: "POST",
       path: "/v1/agent/swap/simulate",
       body: { quote_id: "q1", wallet_address: "0xabc" },
     });
+    expect(simulation.wouldExecute).toBe(true);
+    expect(simulation.expectedOutput).toEqual({ token: "USDC", amount: "100", amountUsd: "100" });
+    expect(simulation.minOutputAfterSlippage).toBe("99.5");
+    expect(simulation.fees.gasEstimate).toBe("0.02");
   });
 
   it("listSwaps forwards filters and maps pagination to camelCase", async () => {

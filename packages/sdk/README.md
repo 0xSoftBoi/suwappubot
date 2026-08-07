@@ -2,7 +2,10 @@
 
 TypeScript client for the [Suwappu](https://suwappu.bot) agent API: quotes, custody-aware swaps, portfolios, prices, perps, prediction markets, lending, and agent controls. Discover the current chain set with `listChains()` instead of hard-coding a count.
 
-> **Release status:** this repository currently contains SDK source `0.6.0`, while the latest npm release is `0.4.0`. The API below describes the `0.6.0` source being prepared for publication. If you install from npm before that release, verify the installed version before copying newer examples.
+> **Version check:** this repository describes SDK source `0.6.0`. Run
+> `npm view @suwappu/sdk version` before installing; if the registry is still
+> behind `0.6.0`, newer methods on this page are not in that package yet. REST
+> and the live OpenAPI contract remain the fallback compatibility surface.
 
 ## Install
 
@@ -74,7 +77,7 @@ const sim = await client.simulateSwap({
   quoteId: quote.id,
   walletAddress: "0xYourWallet",
 });
-if (!sim.success) throw new Error(sim.reason);
+if (!sim.wouldExecute) throw new Error(sim.warnings.join("; "));
 
 const prepared = await client.prepareSwap({
   quoteId: quote.id,
@@ -105,9 +108,11 @@ const sim = await client.simulateSwap({
   quoteId: quote.id,
   walletAddress: wallet.address,
 });
-if (!sim.success) throw new Error(sim.reason);
+if (!sim.wouldExecute) throw new Error(sim.warnings.join("; "));
 
-const execution = await client.executeManagedSwap(quote);
+const execution = await client.executeManagedSwap(quote, {
+  idempotencyKey: "rebalance-2026-08-06-001",
+});
 console.log(execution.swapId, execution.status, execution.txHash);
 ```
 
@@ -115,6 +120,10 @@ console.log(execution.swapId, execution.status, execution.txHash);
 authenticated agent's managed wallet is resolved server-side. Existing
 `swap()` and `executeSwap()` methods remain backwards-compatible aliases for
 this managed path; new code should prefer the explicit name.
+
+Use a stable `idempotencyKey` for each intended managed trade. If a timeout,
+network error, or 5xx leaves the on-chain outcome unknown, reconcile status or
+history and retry with that same key instead of creating a fresh execution.
 
 `getSwapStatus()` and `listSwaps()` inspect managed swap records:
 
@@ -139,7 +148,7 @@ await client.agent.listWallets();
 
 // Dry-run before you commit. Surfaces reverts and gas while nothing is at stake.
 const sim = await client.simulateSwap({ quoteId: quote.quote_id, walletAddress: "0x…" });
-if (!sim.success) throw new Error(sim.reason);
+if (!sim.wouldExecute) throw new Error(sim.warnings.join("; "));
 
 await client.listSwaps({ status: "completed", limit: 20 }); // this agent's history
 ```

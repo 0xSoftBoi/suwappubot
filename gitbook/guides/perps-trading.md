@@ -1,34 +1,18 @@
-# Perpetual Futures Trading
+# Perpetual Futures Research
 
-Trade perpetual futures through Suwappu's HyperLiquid integration. Open leveraged long and short positions on 10 major crypto assets.
+Build a HyperLiquid market and position research agent on Suwappu. The current Agent API is a **read/quote surface**: it can browse markets, estimate a hypothetical position, and inspect an address's open positions, but it cannot open or close a perpetual position.
 
-## Available Markets
+That makes the useful product today an explorer, risk monitor, alerting service, or signal engine — not an autonomous perps trader.
 
-| Market | Max Leverage |
-|--------|-------------|
-| BTC-USD | 20x |
-| ETH-USD | 20x |
-| SOL-USD | 20x |
-| ARB-USD | 20x |
-| AVAX-USD | 20x |
-| DOGE-USD | 20x |
-| MATIC-USD | 20x |
-| OP-USD | 20x |
-| SUI-USD | 20x |
-| APT-USD | 20x |
-
-## Step 1: Browse Markets
-
-Check current prices, funding rates, and open interest:
+## 1. Browse markets
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/perps/markets \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+curl https://api.suwappu.bot/v1/agent/perps/markets
 ```
 
-## Step 2: Get a Quote
+Use the returned `name` values as the market identifiers. Do not hard-code a list: HyperLiquid's universe and Suwappu's supported subset can change.
 
-Before opening a position, get a quote to see entry price, liquidation price, and required margin:
+## 2. Price a hypothetical position
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
@@ -37,58 +21,56 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
   -d '{
     "market": "ETH-USD",
     "side": "long",
-    "size": "0.5",
+    "size": 0.5,
     "leverage": 10
   }'
 ```
 
-Key fields in the response:
-- `entryPrice` — the price at entry
-- `liquidationPrice` — price at which the position gets liquidated
-- `margin` — required collateral
-- `fee` — trading fee
+The quote gives you an indicative entry price, margin, approximate liquidation price, and fee estimate. It is not an executable order and does not model a guaranteed fill.
 
-## Step 3: Check Positions
-
-Monitor your open positions:
+## 3. Inspect real positions by address
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/perps/positions \
+curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUID_ADDRESS" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-## TypeScript Example
+Useful alerts include:
 
-```typescript
-const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY })
+- distance from mark price to liquidation price, only when `liquidationPrice > 0` (zero means HyperLiquid did not report one on this path);
+- leverage or margin above a user-defined risk ceiling;
+- unrealized P&L crossing a user-defined threshold;
+- a meaningful change in the indicative fee/margin for a contemplated position.
 
-// Browse markets
-const markets = await fetch('https://api.suwappu.bot/v1/agent/perps/markets', {
-  headers: { Authorization: `Bearer ${apiKey}` }
-}).then(r => r.json())
+Do not alert on `fundingRate` yet: this Agent API path currently reports a placeholder zero rather than live funding.
 
-console.log(markets.markets.map(m => `${m.symbol}: $${m.markPrice}`))
+## TypeScript SDK (`0.6.x`)
 
-// Get a quote for 0.5 ETH long at 10x
-const quote = await fetch('https://api.suwappu.bot/v1/agent/perps/quote', {
-  method: 'POST',
-  headers: {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    market: 'ETH-USD',
-    side: 'long',
-    size: '0.5',
-    leverage: 10
-  })
-}).then(r => r.json())
+Check the [SDK version note](../quickstart/sdk-examples.md) before installing; the repository can be ahead of npm.
 
-console.log(`Entry: $${quote.quote.entryPrice}`)
-console.log(`Liquidation: $${quote.quote.liquidationPrice}`)
-console.log(`Margin required: $${quote.quote.margin}`)
+```ts
+import { Suwappu } from '@suwappu/sdk'
+
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY })
+
+const markets = await client.perps.markets()
+const eth = markets.find((market) => market.name === 'ETH-USD')
+console.log(eth)
+
+const hypothetical = await client.perps.quote({
+  market: 'ETH-USD',
+  side: 'long',
+  size: 0.5,
+  leverage: 10,
+})
+console.log(hypothetical)
+
+const positions = await client.perps.positions('0xYOUR_HYPERLIQUID_ADDRESS')
+console.table(positions)
 ```
 
-## Telegram Bot
+## Turn research into a paid product
 
-Use `/perps` in the Telegram bot for an interactive trading interface with market selection, side, amount, leverage, and confirmation steps.
+The clean monetization boundary is the analysis you add: risk scoring, alerts, watchlists, scenario reports, or a portfolio dashboard. Charge customers for that service and keep the downstream trading integration explicit.
+
+If you later connect a separate execution venue, measure fills, fees, funding, and slippage in your own ledger and label that connector clearly. Do not present a signal as an executed Suwappu trade. See [Build a Business on Suwappu](build-a-business.md) and [Strategy Lifecycle](strategy-lifecycle.md).

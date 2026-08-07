@@ -124,7 +124,7 @@ The A2A endpoint understands these intents:
 | Tokens | `tokens on solana`, `list tokens` | `list_tokens` |
 | Help | `help`, `hi` | `help` |
 
-A2A returns swap **quotes** (priced against the requesting agent's own managed wallet) rather than executing them. To execute, use the managed-swap REST flow (`POST /v1/agent/swap/execute`) or the natural-language `POST /v1/agent/execute` endpoint. Starknet messages are answered with a note that signing is handled by the bot backend.
+A2A returns swap **quotes** rather than executing them. If the user approves a real managed-wallet trade, hand the quote into the explicit REST `POST /v1/agent/swap/execute` flow. The similarly named natural-language `POST /v1/agent/execute` endpoint is also a quote/unsigned-transaction preparation shim; it does not perform managed execution. Keep the final money-moving authority explicit.
 
 ## JSON-RPC Error Codes
 

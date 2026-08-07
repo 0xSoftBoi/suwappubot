@@ -9,7 +9,7 @@ from suwappu import create_client
 from suwappu.client import SuwappuClient, SuwappuError
 from suwappu.types import (
     Chain, LendingMarket, PerpMarket, PerpQuote, PredictionMarket,
-    Quote, SwapResult, Token, TokenBalance, TokenPrice, TokenRef,
+    Quote, SwapResult, SwapSimulation, Token, TokenBalance, TokenPrice, TokenRef,
 )
 
 MOCK_BASE = "https://test.suwappu.bot"
@@ -254,6 +254,53 @@ class TestExecuteSwap:
             json={"quote_id": "q-managed"},
         )
         assert result.swap_id == 43
+
+    @pytest.mark.asyncio
+    async def test_managed_method_forwards_idempotency_key(self, client: SuwappuClient) -> None:
+        mock_data = {"swap_id": 44, "status": "pending", "tx_hash": None}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            await client.execute_managed_swap(
+                "q-idempotent", idempotency_key="strategy-run-44"
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/execute",
+            params=None,
+            json={"quote_id": "q-idempotent"},
+            headers={"Idempotency-Key": "strategy-run-44"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_simulate_swap_validates_full_report(self, client: SuwappuClient) -> None:
+        mock_data = {
+            "success": True,
+            "would_execute": True,
+            "quote_id": "q-sim",
+            "chain_type": "evm",
+            "expected_output": {"token": "USDC", "amount": "3190", "amount_usd": "3190"},
+            "min_output_after_slippage": "3174.05",
+            "price_impact_pct": 0.12,
+            "fees": {"protocol": "25.52", "gas_estimate": "0.08"},
+            "checks": [{"name": "balance", "status": "pass", "detail": "sufficient"}],
+            "warnings": [],
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            report = await client.simulate_swap(quote_id="q-sim", wallet_address="0xabc")
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/simulate",
+            params=None,
+            json={"quote_id": "q-sim", "wallet_address": "0xabc"},
+        )
+        assert isinstance(report, SwapSimulation)
+        assert report.would_execute is True
+        assert report.expected_output.amount_usd == "3190"
+        assert report.fees.gas_estimate == "0.08"
+        assert report.checks[0].status == "pass"
 
     @pytest.mark.asyncio
     async def test_prepare_swap_uses_unsigned_self_custody_endpoint(self, client: SuwappuClient) -> None:

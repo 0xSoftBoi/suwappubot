@@ -1,6 +1,13 @@
 # Guides
 
-Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guide is self-contained and uses real endpoints against the production base URL `https://api.suwappu.bot`. Start with cross-chain swaps and managed wallets, then move on to full bot and automation tutorials.
+Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guide uses real endpoints against `https://api.suwappu.bot` and states whether it is read-only, preview-only, self-custody, or managed execution. Start with the product and strategy lifecycle before putting capital behind automation.
+
+## Build a Product
+
+| Guide | What you'll learn |
+|-------|-------------------|
+| [Build a Business on Suwappu](build-a-business.md) | Revenue models, customer billing boundaries, and a builder-margin ledger |
+| [Strategy Lifecycle](strategy-lifecycle.md) | Backtest/replay -> paper -> live gates, net P&L, and operational safety |
 
 ## Core Walkthroughs
 
@@ -14,7 +21,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 
 | Guide | What you'll learn |
 |-------|-------------------|
-| [Perpetual Futures](perps-trading.md) | Open leveraged long/short positions via HyperLiquid |
+| [Perpetual Futures Research](perps-trading.md) | Browse/quote HyperLiquid markets and monitor positions; no Agent API execution |
 | [Prediction Markets](prediction-markets.md) | Browse and trade Polymarket binary-outcome markets |
 | [Limit Orders & DCA](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
 
@@ -22,11 +29,11 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 
 | Guide | What you'll build |
 |-------|-------------------|
-| [Building a Trading Bot](building-a-trading-bot.md) | A simple price-triggered trading bot on the API |
-| [Portfolio Rebalancer](portfolio-rebalancer.md) | A periodic rebalancer using quote + swap + portfolio |
+| [Building a Trading Bot](building-a-trading-bot.md) | A price-triggered bot; add the lifecycle and accounting gates before live use |
+| [Portfolio Rebalancer](portfolio-rebalancer.md) | A preview-first periodic rebalancer using portfolio + quote + simulation |
 | [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
 | [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
-| [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | Use the MCP server in Claude or Cursor as a portfolio advisor |
+| [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | A read-first advisor with an explicit unsigned-transaction handoff |
 
 ## Prerequisites
 

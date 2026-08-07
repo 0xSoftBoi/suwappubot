@@ -74,6 +74,7 @@ export type {
   BillingSubscribe,
   BillingTopup,
   SwapSimulation,
+  SwapSimulationCheck,
   SwapHistoryItem,
   SwapHistoryResult,
   AgentWallet,

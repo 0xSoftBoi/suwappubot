@@ -1,60 +1,87 @@
 # MCP Portfolio Advisor
 
-Turn Suwappu's MCP server into a hands-on portfolio advisor inside Claude, Cursor, or any MCP client. Once connected, your agent can read live balances and prices, reason about allocation, and propose (or execute) rebalancing swaps — all through natural conversation.
+Build a conversational portfolio advisor on Suwappu's hosted MCP server. The useful product boundary is deliberate: let the model read balances, prices, policies, and quotes freely, then require explicit approval before it can even prepare a transaction.
 
-## 1. Connect the MCP server
+## 1. Connect the hosted MCP server
 
-Add Suwappu to your MCP client's server config. In Claude Desktop, that's `claude_desktop_config.json`:
+There is no local package required for the hosted path. Point your MCP client at:
+
+```text
+https://api.suwappu.bot/mcp
+```
+
+For example, a project-scoped MCP config can look like:
 
 ```json
 {
   "mcpServers": {
     "suwappu": {
-      "command": "npx",
-      "args": ["-y", "@suwappu/mcp"],
-      "env": { "SUWAPPU_API_KEY": "suwappu_sk_YOUR_KEY" }
+      "type": "http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": {
+        "Authorization": "Bearer suwappu_sk_YOUR_KEY"
+      }
     }
   }
 }
 ```
 
-Get your API key from the [registration endpoint](../api-reference/registration.md). See the [MCP Protocol](../protocols/mcp.md) page for the full tool list and transport details.
+Get the API key from [registration](../api-reference/registration.md). See [MCP Client Setup](../quickstart/mcp-clients.md) for client-specific configuration.
 
-## 2. Tools the advisor uses
+## 2. Give the advisor a narrow tool policy
 
-The advisor flow leans on a few read tools plus the swap tools:
+Discover the live tool catalog with `tools/list`, then allow only the tools your product actually needs. A read-first advisor usually needs:
 
-| Tool | Role in the advisor |
-|------|---------------------|
-| `get_portfolio` | Current holdings and USD values across every chain |
-| `get_prices` | Live token prices for valuation and drift checks |
-| `list_chains` / `list_tokens` | Resolve symbols and supported routes |
-| `get_quote` | Price a proposed rebalancing swap before acting |
-| `execute_swap` | Execute an approved quote (managed-wallet only) |
+| Tool | Role | Moves funds? |
+|------|------|--------------|
+| `get_portfolio` | Current balances and USD values | No |
+| `get_prices` | Current token prices | No |
+| `list_chains` / `list_tokens` | Resolve supported assets | No |
+| `list_wallet_policies` | Explain the managed-wallet guardrails | No |
+| `get_quote` | Price a proposed rebalance | No |
+| `simulate_swap` | Dry-run a quote and surface safety checks | No |
+| `execute_swap` | Prepare an unsigned self-custody transaction | **No broadcast** |
 
-## 3. Example conversation
+Despite its historical name, MCP `execute_swap` does **not** execute a managed-wallet swap. It returns an unsigned transaction for a wallet to review, sign, and submit. A managed execution is a separate REST operation (`POST /v1/agent/swap/execute`) and should remain a visibly separate approval boundary in your product.
 
-Once connected, you can simply ask:
+## 3. Use an advice -> quote -> preview -> approval flow
 
-> "Show my portfolio and tell me if I'm over-weight any single asset."
+Give the model an instruction like:
 
-The agent calls `get_portfolio` + `get_prices`, then reasons over the result:
+> Analyze the portfolio and propose a rebalance. Never claim a trade is profitable. Show current allocation, target drift, quote expiry, minimum output, route fees/gas when available, and the expected post-trade allocation. Do not call `execute_swap` until I explicitly approve the exact quote. If approved, return the unsigned transaction and stop; never claim it was submitted.
 
-> Your portfolio is **$12,480**. ETH is **63%** of it — above a typical 40% target.
-> To rebalance toward 40/30/30 ETH/USDC/SOL, I'd swap **~1.1 ETH → USDC**.
-> Want me to quote it?
+A good conversation then has four distinct stages:
 
-On approval, it calls `get_quote`, shows the route and gas, and — if you've enabled a managed wallet — `execute_swap` to settle it.
+1. **Advice** — read portfolio and prices; calculate drift.
+2. **Quote** — price the smallest trade that clears your rebalance threshold.
+3. **Preview** — run `simulate_swap`, show costs and warnings, and re-check the quote if it is stale.
+4. **Approval** — on an explicit human yes, optionally prepare the unsigned transaction. Signing is still outside the MCP server.
 
-## 4. Keep it safe
+That state machine is easier to audit than giving a model a broad tool set and hoping the prompt carries the safety policy.
 
-Because the same MCP connection can execute swaps, scope it like any other agent credential:
+## 4. Make the advice economically useful
 
-- Use a dedicated API key with **wallet policy limits** (per-swap and daily caps) — see [Managed Wallets](./managed-wallets.md).
-- Keep `execute_swap` behind an explicit human "yes" in the conversation; have the agent **quote first, execute second**.
-- Review the [Authentication](../authentication/README.md) guardrails before pointing an autonomous advisor at a funded wallet.
+Do not rebalance just because a target moved by a percentage point. Compare the expected benefit with execution cost:
+
+```text
+estimated_net_improvement
+  = expected_rebalance_benefit
+  - route_fee
+  - gas
+  - expected_slippage
+  - your_service_fee
+```
+
+Only propose a trade when the reason and the estimated costs are visible. Store the before/after allocation, quote ID, model recommendation, human approval, prepared transaction hash/id (if any), and eventual on-chain transaction hash supplied by the signing wallet.
+
+## 5. Turn it into a product
+
+The advisor is a good paid-agent pattern because customers can pay for the **intelligence and automation layer** without giving the model invisible custody. Common models are a monthly portfolio-monitoring subscription, a per-report/per-alert charge, or an automation tier with customer-specific policy limits.
+
+Suwappu's own x402 metering pays for Suwappu API usage; it does not automatically charge your customer on your behalf. Keep your customer revenue ledger separate from Suwappu/API, model, gas, venue, and slippage costs. See [Build a Business on Suwappu](build-a-business.md) for the unit-economics template.
 
 ## Next steps
 
-- [Portfolio Rebalancer](./portfolio-rebalancer.md) — the same logic as a scheduled script instead of a chat.
-- [MCP Protocol](../protocols/mcp.md) — full tool reference and client setup.
+- [Portfolio Rebalancer](portfolio-rebalancer.md) — turn the same decision rule into a scheduled, preview-first worker.
+- [Strategy Lifecycle](strategy-lifecycle.md) — backtest/replay, paper, and live gates.
+- [MCP Protocol](../protocols/mcp.md) — live tool contract, costs, and response semantics.

@@ -342,9 +342,9 @@ export default function KakisPage() {
           </div>
           <nav className={styles.footerNav} aria-label="Site navigation">
             {[
-              { label: 'Docs',     href: 'https://docs.suwappu.bot' },
+              { label: 'Docs',     href: 'https://suwappu.bot/docs' },
               { label: 'Pricing',  href: '/pricing' },
-              { label: 'Agents',   href: 'https://docs.suwappu.bot/agents' },
+              { label: 'Agents',   href: 'https://suwappu.bot/agents' },
               { label: 'Terminal', href: 'https://terminal.suwappu.bot' },
               { label: 'Telegram', href: 'https://t.me/suwappu_bot' },
             ].map((link, i, arr) => (

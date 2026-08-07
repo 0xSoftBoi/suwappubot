@@ -10,11 +10,11 @@ Requests are limited per agent over a rolling 60-second window, keyed by `rate_l
 |------|-------------------|----------------|
 | `free` | 30 | Default for every new agent |
 | `agent` | 100 | Bypasses per-call metering; not self-serve purchasable via `/billing/subscribe` |
-| `pro` | 500 | `POST /v1/agent/billing/subscribe` with `tier: "pro"`, or Stripe checkout |
-| `premium` | 500 | `POST /v1/agent/billing/subscribe` with `tier: "premium"`, or Stripe checkout |
-| `enterprise` | 500 | `POST /v1/agent/billing/subscribe` with `tier: "enterprise"`, or Stripe checkout |
+| `pro` | 500 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "pro"` |
+| `premium` | 2,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "premium"` |
+| `enterprise` | 10,000 | Agent crypto subscription: `POST /v1/agent/billing/subscribe` with `tier: "enterprise"` |
 
-`pro`, `premium`, and `enterprise` share the same 500 req/min ceiling today — they differ in price and (for premium/enterprise) support/SLA expectations rather than raw throughput. Check your live tier via [`GET /v1/agent/me`](../api-reference/agent-profile.md) or `GET /v1/agent/billing`.
+These are the current source limits. Check your live tier via [`GET /v1/agent/me`](../api-reference/agent-profile.md) or `GET /v1/agent/billing`, and honor the response rate-limit headers rather than hardcoding a client delay.
 
 ## Subscription prices (30-day prepaid window)
 
@@ -24,7 +24,9 @@ Requests are limited per agent over a rolling 60-second window, keyed by `rate_l
 | `premium` | $29.99 |
 | `enterprise` | $99.99 |
 
-Pay with USDC on Base (`POST /v1/agent/billing/subscribe`) or Stripe (`GET /billing/stripe/checkout?tier=`). These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three tiers bypass per-call metering entirely for the duration of the window.
+For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`; that writes the agent's `subscriptionTier`/expiry. These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
+
+Stripe checkout (`GET /billing/stripe/checkout?tier=`) belongs to the human/webapp account subscription flow. It does **not** currently promote a separate `suwappu_sk_...` Agent API key's subscription tier. Treat the account plan and Agent API billing ledgers as separate unless the API explicitly reports otherwise.
 
 ## Per-call credit costs
 
@@ -35,12 +37,14 @@ Only applies to the `free` tier when server-side metering is enabled (`AGENT_MET
 | Endpoint | Credits |
 |----------|---------|
 | `POST /quote` | 1 |
+| `POST /swap/simulate` | 1 |
 | `POST /swap` | 5 |
+| `POST /execute` | 5 |
 | `POST /swap/execute` | 5 |
 | `GET /portfolio` | 1 |
 | `GET /prices` | 1 |
-| `GET /tokens` | 1 |
-| `GET /chains` | 1 |
+| `GET /tokens` | 0 (free) |
+| `GET /chains` | Public; not metered |
 | Everything else (profile, wallets, webhooks, keys, billing) | Not metered |
 
 ### MCP (`POST /mcp`, `tools/call`)
@@ -61,15 +65,22 @@ Only applies to the `free` tier when server-side metering is enabled (`AGENT_MET
 | `perps_positions` | 1 |
 | `lend_markets` | 1 |
 | `lend_market` | 1 |
+| `simulate_swap` | 1 |
 | `execute_swap` | 5 |
+| `get_swap_status` | 1 |
+| `get_swap_history` | 1 |
+| `predict_book` | 1 |
+| `predict_price` | 1 |
+| `predict_trades` | 1 |
+| `list_wallet_policies` | 1 |
 
 A 402 response tells you exactly which tool/endpoint triggered the charge and its cost — see [Agentic Payments](agentic-payments.md#the-402-challenge).
 
 ## Swap execution fees
 
-Suwappu charges a flat **0.3% (30 bps)** platform fee on the traded amount for agent-surface swaps (EVM via Li.Fi, Solana via Jupiter), taken as part of the routed swap rather than billed separately — it's already reflected in the `amount_out` a quote returns. This fee is not tier-aware; it applies the same way regardless of your rate-limit or subscription tier.
+Agent-surface swap fees are route/configuration-specific, not derived from the API subscription tier. The current source defaults are **0.8% on EVM routes** (Li.Fi integrator fee) and **0.3% / 30 bps on Solana routes** (Jupiter platform fee). Deployment configuration can change these values, so use the live quote as the economic source of truth instead of hardcoding either number. The routed output already reflects the applicable platform fee.
 
-Perpetual futures (HyperLiquid, via `/v1/agent/perps/*`) carry their own separate trading fee (2 bps notional), distinct from the swap fee above and set by the HyperLiquid integration.
+`POST /v1/agent/perps/quote` includes an indicative HyperLiquid fee estimate, but the current Agent API does **not** expose a perps open/close execution endpoint. Do not model that quote as a Suwappu-executed fill.
 
 ## Checking your own numbers live
 
