@@ -26,7 +26,8 @@ pub const PRODUCTION_READY: bool = false;
 pub const MALICIOUS_DKG_READY: bool = false;
 
 /// The secp256k1 DKG, signing-set conversion, final ECDSA equations, and the
-/// auxiliary-provisioning proof cores are implemented, but the auxiliary
-/// commit/echo/reveal state machine and malicious presigning proofs are not.
-/// There is deliberately no public way to manufacture a presignature.
+/// auxiliary-provisioning proof cores and reliable state transitions are
+/// implemented, but authenticated wire transport and malicious presigning
+/// proofs are not. There is deliberately no public way to manufacture a
+/// presignature.
 pub const MALICIOUS_ECDSA_READY: bool = false;

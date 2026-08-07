@@ -2,10 +2,10 @@
 //!
 //! This module owns the first malicious-presigning prerequisite: Paillier key
 //! material, Ring-Pedersen parameters, the `Pi_prm` parameter-relation proof,
-//! the `Pi_mod` Paillier-Blum modulus proof, and the peer-specific `Pi_fac`
-//! no-small-factor proof. It does not promote this material to a
-//! presigning-capable state: the reliable auxiliary provisioning state machine
-//! is still required before peers may trust it.
+//! the `Pi_mod` Paillier-Blum modulus proof, the peer-specific `Pi_fac`
+//! no-small-factor proof, and the reliable commit/echo/reveal/proof state machine.
+//! Only the final all-peer verification step can construct
+//! `VerifiedAuxSet`; even that type has no presigning API yet.
 //!
 //! `fast-paillier` is used only as the low-level Paillier/big-integer primitive.
 //! The protocol transcript, state boundary, and proof below are implemented in
@@ -20,7 +20,7 @@ use rand_core::{CryptoRng, OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::secp256k1_dkg::{ExecutionId, ParticipantId};
+use crate::secp256k1_dkg::{ExecutionId, ParticipantId, PARTICIPANT_COUNT};
 
 /// CGGMP24's 128-bit profile uses two 1536-bit safe primes per RSA modulus.
 pub const RSA_PRIME_BITS: u32 = 1536;
@@ -41,6 +41,8 @@ pub const SHARED_RANDOMNESS_BYTES: usize = 32;
 const PI_PRM_TAG: &[u8] = b"suwappu/cggmp24/pi-prm/challenge/v1";
 const PI_MOD_TAG: &[u8] = b"suwappu/cggmp24/pi-mod/challenge/v1";
 const PI_FAC_TAG: &[u8] = b"suwappu/cggmp24/pi-fac/challenge/v1";
+const AUX_COMMIT_TAG: &[u8] = b"suwappu/cggmp24/aux/commit/v1";
+const AUX_ECHO_TAG: &[u8] = b"suwappu/cggmp24/aux/echo/v1";
 const HASH_STREAM_TAG: &[u8] = b"suwappu/cggmp24/hash-stream/v1";
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -59,6 +61,18 @@ pub enum AuxError {
     InvalidPiFac,
     #[error("auxiliary material belongs to a different execution")]
     ExecutionMismatch,
+    #[error("expected one canonical auxiliary package for each participant")]
+    InvalidPackageSet,
+    #[error("auxiliary reliability-echo digests do not all match")]
+    EchoMismatch,
+    #[error("participant {0} opened different auxiliary data than it committed")]
+    CommitmentOpeningMismatch(u16),
+    #[error("participant {0} supplied invalid auxiliary public data or PiPrm")]
+    InvalidPublicPackage(u16),
+    #[error("participant {0} supplied an invalid peer proof")]
+    InvalidPeerProof(u16),
+    #[error("peer proof is addressed to a different auxiliary verifier")]
+    WrongRecipient,
     #[error("modular exponentiation failed")]
     ModularExponentiation,
 }
@@ -170,6 +184,7 @@ impl PiPrmProof {
 /// Public auxiliary data after local generation but before the complete peer
 /// proof set has been verified. Keeping "Candidate" in the type name is
 /// deliberate: this state cannot be used to manufacture a CGGMP presignature.
+#[derive(Clone)]
 pub struct CandidateAuxPublic {
     execution: [u8; 32],
     participant: ParticipantId,
@@ -265,6 +280,147 @@ impl CandidateAuxPublic {
             PiFacSecurity::PRODUCTION,
             RSA_PUBLIC_MIN_BITS,
         )
+    }
+}
+
+/// Round-one hash commitment. Only this digest may be broadcast before all
+/// participants have fixed their auxiliary public values and `rho_i` shares.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuxRound1Commitment {
+    pub identifier: ParticipantId,
+    execution: [u8; 32],
+    digest: [u8; 32],
+}
+
+impl AuxRound1Commitment {
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+}
+
+/// Local state retained between auxiliary commitment and proof rounds.
+/// Paillier factors remain private and the state is intentionally non-cloneable.
+pub struct AuxRound1State {
+    execution: ExecutionId,
+    identifier: ParticipantId,
+    private: AuxPrivate,
+    public: CandidateAuxPublic,
+    rho: [u8; SHARED_RANDOMNESS_BYTES],
+    decommitment: [u8; SHARED_RANDOMNESS_BYTES],
+}
+
+/// Reliability-check digest over the complete canonical round-one commitment
+/// set. Reveals are unavailable until all three echoes match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuxEcho {
+    pub identifier: ParticipantId,
+    execution: [u8; 32],
+    digest: [u8; 32],
+}
+
+impl AuxEcho {
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+}
+
+/// Round-two opening containing the committed public auxiliary package,
+/// participant randomness, and decommitment nonce.
+#[derive(Clone)]
+pub struct AuxRound2Reveal {
+    public: CandidateAuxPublic,
+    rho: [u8; SHARED_RANDOMNESS_BYTES],
+    decommitment: [u8; SHARED_RANDOMNESS_BYTES],
+}
+
+impl AuxRound2Reveal {
+    pub fn identifier(&self) -> ParticipantId {
+        self.public.participant
+    }
+
+    pub fn public(&self) -> &CandidateAuxPublic {
+        &self.public
+    }
+
+    pub fn rho_bytes(&self) -> [u8; SHARED_RANDOMNESS_BYTES] {
+        self.rho
+    }
+
+    pub fn decommitment_bytes(&self) -> [u8; SHARED_RANDOMNESS_BYTES] {
+        self.decommitment
+    }
+}
+
+/// Point-to-point round-three message. `Pi_mod` is the same for each receiver;
+/// `Pi_fac` is receiver-specific because it uses the receiver's Ring-Pedersen
+/// parameters.
+#[derive(Clone)]
+pub struct AuxPeerProof {
+    execution: [u8; 32],
+    prover: ParticipantId,
+    recipient: ParticipantId,
+    pi_mod: PiModProof,
+    pi_fac: PiFacProof,
+}
+
+impl AuxPeerProof {
+    pub fn prover(&self) -> ParticipantId {
+        self.prover
+    }
+
+    pub fn recipient(&self) -> ParticipantId {
+        self.recipient
+    }
+
+    pub fn pi_mod(&self) -> &PiModProof {
+        &self.pi_mod
+    }
+
+    pub fn pi_fac(&self) -> &PiFacProof {
+        &self.pi_fac
+    }
+}
+
+/// Holds local Paillier factors while peer `Pi_mod`/`Pi_fac` proofs are still
+/// outstanding. This type deliberately exposes no presigning transition.
+pub struct PendingAuxSet {
+    execution: ExecutionId,
+    identifier: ParticipantId,
+    private: AuxPrivate,
+    public: [CandidateAuxPublic; PARTICIPANT_COUNT],
+    shared_randomness: [u8; SHARED_RANDOMNESS_BYTES],
+}
+
+/// Auxiliary material after every committed opening, `Pi_prm`, `Pi_mod`, and
+/// peer-specific `Pi_fac` has verified. The constructor is private to this
+/// module so future presigning can require this type as an unskippable gate.
+pub struct VerifiedAuxSet {
+    execution: ExecutionId,
+    identifier: ParticipantId,
+    private: AuxPrivate,
+    public: [CandidateAuxPublic; PARTICIPANT_COUNT],
+    shared_randomness: [u8; SHARED_RANDOMNESS_BYTES],
+}
+
+impl VerifiedAuxSet {
+    pub fn identifier(&self) -> ParticipantId {
+        self.identifier
+    }
+
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution.digest()
+    }
+
+    pub fn shared_randomness(&self) -> [u8; SHARED_RANDOMNESS_BYTES] {
+        self.shared_randomness
+    }
+
+    pub fn public_for(&self, participant: ParticipantId) -> &CandidateAuxPublic {
+        &self.public[usize::from(participant.get() - 1)]
+    }
+
+    pub fn local_paillier_modulus_bytes(&self) -> Vec<u8> {
+        self.private.paillier_modulus_bytes()
     }
 }
 
@@ -369,6 +525,415 @@ pub fn generate_candidate(
     };
     let private = AuxPrivate { paillier };
     Ok((private, public))
+}
+
+#[derive(Clone, Copy)]
+struct AuxProtocolSecurity {
+    min_modulus_bits: u64,
+    pi_fac: PiFacSecurity,
+}
+
+impl AuxProtocolSecurity {
+    const PRODUCTION: Self = Self {
+        min_modulus_bits: RSA_PUBLIC_MIN_BITS,
+        pi_fac: PiFacSecurity::PRODUCTION,
+    };
+}
+
+/// Start auxiliary provisioning by generating the expensive private/public
+/// candidate and broadcasting only its hash commitment.
+pub fn provision_round1(
+    execution: ExecutionId,
+    identifier: ParticipantId,
+) -> Result<(AuxRound1State, AuxRound1Commitment), AuxError> {
+    let (private, public) = generate_candidate(execution, identifier)?;
+    provision_round1_from_candidate(execution, identifier, private, public)
+}
+
+fn provision_round1_from_candidate(
+    execution: ExecutionId,
+    identifier: ParticipantId,
+    private: AuxPrivate,
+    public: CandidateAuxPublic,
+) -> Result<(AuxRound1State, AuxRound1Commitment), AuxError> {
+    if public.execution != execution.digest() {
+        return Err(AuxError::ExecutionMismatch);
+    }
+    if public.participant != identifier || private.paillier.n() != public.paillier.n() {
+        return Err(AuxError::InvalidPublicPackage(identifier.get()));
+    }
+
+    let mut rho = [0u8; SHARED_RANDOMNESS_BYTES];
+    let mut decommitment = [0u8; SHARED_RANDOMNESS_BYTES];
+    OsRng.fill_bytes(&mut rho);
+    OsRng.fill_bytes(&mut decommitment);
+    let digest = aux_opening_digest(execution, &public, &rho, &decommitment);
+    Ok((
+        AuxRound1State {
+            execution,
+            identifier,
+            private,
+            public,
+            rho,
+            decommitment,
+        },
+        AuxRound1Commitment {
+            identifier,
+            execution: execution.digest(),
+            digest,
+        },
+    ))
+}
+
+/// Produce the reliability-check echo only after receiving the canonical
+/// round-one commitment from every participant.
+pub fn provision_echo(
+    state: &AuxRound1State,
+    commitments: &[AuxRound1Commitment],
+) -> Result<AuxEcho, AuxError> {
+    validate_aux_commitment_set(state.execution, commitments)?;
+    Ok(AuxEcho {
+        identifier: state.identifier,
+        execution: state.execution.digest(),
+        digest: aux_echo_digest(state.execution, commitments),
+    })
+}
+
+/// Open the local commitment only after all reliability echoes agree on the
+/// same round-one view.
+pub fn provision_reveal(
+    state: &AuxRound1State,
+    commitments: &[AuxRound1Commitment],
+    echoes: &[AuxEcho],
+) -> Result<AuxRound2Reveal, AuxError> {
+    validate_aux_commitment_set(state.execution, commitments)?;
+    validate_aux_echoes(state.execution, commitments, echoes)?;
+    let reveal = AuxRound2Reveal {
+        public: state.public.clone(),
+        rho: state.rho,
+        decommitment: state.decommitment,
+    };
+    let own = &commitments[usize::from(state.identifier.get() - 1)];
+    if aux_opening_digest(
+        state.execution,
+        &reveal.public,
+        &reveal.rho,
+        &reveal.decommitment,
+    ) != own.digest
+    {
+        return Err(AuxError::CommitmentOpeningMismatch(
+            state.identifier.get(),
+        ));
+    }
+    Ok(reveal)
+}
+
+/// Validate every committed opening and `Pi_prm`, mix the committed `rho_i`
+/// values, then build the local `Pi_mod` plus one verifier-specific `Pi_fac`
+/// message for each peer. The returned pending state is still unusable for
+/// presigning.
+pub fn provision_proofs(
+    state: AuxRound1State,
+    commitments: &[AuxRound1Commitment],
+    echoes: &[AuxEcho],
+    reveals: &[AuxRound2Reveal],
+) -> Result<(PendingAuxSet, Vec<AuxPeerProof>), AuxError> {
+    provision_proofs_inner(
+        state,
+        commitments,
+        echoes,
+        reveals,
+        AuxProtocolSecurity::PRODUCTION,
+    )
+}
+
+fn provision_proofs_inner(
+    state: AuxRound1State,
+    commitments: &[AuxRound1Commitment],
+    echoes: &[AuxEcho],
+    reveals: &[AuxRound2Reveal],
+    security: AuxProtocolSecurity,
+) -> Result<(PendingAuxSet, Vec<AuxPeerProof>), AuxError> {
+    validate_aux_commitment_set(state.execution, commitments)?;
+    validate_aux_echoes(state.execution, commitments, echoes)?;
+    validate_aux_reveals(state.execution, commitments, reveals, security)?;
+    let shared_randomness = mix_aux_randomness(reveals)?;
+
+    let mut rng = OsRng;
+    let pi_mod = prove_pi_mod_inner(
+        state.execution,
+        state.identifier,
+        &shared_randomness,
+        state.private.paillier.n(),
+        state.private.paillier.p(),
+        state.private.paillier.q(),
+        &mut rng,
+        security.min_modulus_bits,
+    )?;
+    let mut peer_proofs = Vec::with_capacity(PARTICIPANT_COUNT - 1);
+    for reveal in reveals {
+        let recipient = reveal.identifier();
+        if recipient == state.identifier {
+            continue;
+        }
+        let pi_fac = prove_pi_fac_inner(
+            state.execution,
+            state.identifier,
+            recipient,
+            &shared_randomness,
+            state.private.paillier.n(),
+            state.private.paillier.p(),
+            state.private.paillier.q(),
+            &reveal.public.ring_pedersen,
+            &mut rng,
+            security.pi_fac,
+            security.min_modulus_bits,
+        )?;
+        peer_proofs.push(AuxPeerProof {
+            execution: state.execution.digest(),
+            prover: state.identifier,
+            recipient,
+            pi_mod: pi_mod.clone(),
+            pi_fac,
+        });
+    }
+
+    let public: [CandidateAuxPublic; PARTICIPANT_COUNT] = reveals
+        .iter()
+        .map(|reveal| reveal.public.clone())
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| AuxError::InvalidPackageSet)?;
+    Ok((
+        PendingAuxSet {
+            execution: state.execution,
+            identifier: state.identifier,
+            private: state.private,
+            public,
+            shared_randomness,
+        },
+        peer_proofs,
+    ))
+}
+
+/// Complete auxiliary provisioning only after the local signer has received
+/// and verified exactly one `Pi_mod`/`Pi_fac` message from every peer.
+pub fn provision_finalize(
+    pending: PendingAuxSet,
+    peer_proofs: &[AuxPeerProof],
+) -> Result<VerifiedAuxSet, AuxError> {
+    provision_finalize_inner(pending, peer_proofs, AuxProtocolSecurity::PRODUCTION)
+}
+
+fn provision_finalize_inner(
+    pending: PendingAuxSet,
+    peer_proofs: &[AuxPeerProof],
+    security: AuxProtocolSecurity,
+) -> Result<VerifiedAuxSet, AuxError> {
+    if peer_proofs.len() != PARTICIPANT_COUNT - 1 {
+        return Err(AuxError::InvalidPackageSet);
+    }
+    let local_index = usize::from(pending.identifier.get() - 1);
+    if pending.private.paillier.n() != pending.public[local_index].paillier.n() {
+        return Err(AuxError::InvalidPublicPackage(pending.identifier.get()));
+    }
+    let local_params = &pending.public[local_index].ring_pedersen;
+
+    let mut received = peer_proofs.iter();
+    for candidate in &pending.public {
+        if candidate.participant == pending.identifier {
+            continue;
+        }
+        let proof = received.next().ok_or(AuxError::InvalidPackageSet)?;
+        if proof.prover != candidate.participant {
+            return Err(AuxError::InvalidPackageSet);
+        }
+        if proof.recipient != pending.identifier {
+            return Err(AuxError::WrongRecipient);
+        }
+        if proof.execution != pending.execution.digest() {
+            return Err(AuxError::ExecutionMismatch);
+        }
+        verify_pi_mod_inner(
+            pending.execution,
+            candidate.participant,
+            &pending.shared_randomness,
+            candidate.paillier.n(),
+            &proof.pi_mod,
+            security.min_modulus_bits,
+        )
+        .map_err(|_| AuxError::InvalidPeerProof(candidate.participant.get()))?;
+        verify_pi_fac_inner(
+            pending.execution,
+            candidate.participant,
+            pending.identifier,
+            &pending.shared_randomness,
+            candidate.paillier.n(),
+            local_params,
+            &proof.pi_fac,
+            security.pi_fac,
+            security.min_modulus_bits,
+        )
+        .map_err(|_| AuxError::InvalidPeerProof(candidate.participant.get()))?;
+    }
+    if received.next().is_some() {
+        return Err(AuxError::InvalidPackageSet);
+    }
+
+    Ok(VerifiedAuxSet {
+        execution: pending.execution,
+        identifier: pending.identifier,
+        private: pending.private,
+        public: pending.public,
+        shared_randomness: pending.shared_randomness,
+    })
+}
+
+fn validate_aux_commitment_set(
+    execution: ExecutionId,
+    commitments: &[AuxRound1Commitment],
+) -> Result<(), AuxError> {
+    if commitments.len() != PARTICIPANT_COUNT {
+        return Err(AuxError::InvalidPackageSet);
+    }
+    for (index, commitment) in commitments.iter().enumerate() {
+        if commitment.execution != execution.digest() {
+            return Err(AuxError::ExecutionMismatch);
+        }
+        if usize::from(commitment.identifier.get()) != index + 1 {
+            return Err(AuxError::InvalidPackageSet);
+        }
+    }
+    Ok(())
+}
+
+fn validate_aux_echoes(
+    execution: ExecutionId,
+    commitments: &[AuxRound1Commitment],
+    echoes: &[AuxEcho],
+) -> Result<(), AuxError> {
+    validate_aux_commitment_set(execution, commitments)?;
+    if echoes.len() != PARTICIPANT_COUNT {
+        return Err(AuxError::InvalidPackageSet);
+    }
+    let expected = aux_echo_digest(execution, commitments);
+    for (index, echo) in echoes.iter().enumerate() {
+        if echo.execution != execution.digest() {
+            return Err(AuxError::ExecutionMismatch);
+        }
+        if usize::from(echo.identifier.get()) != index + 1 {
+            return Err(AuxError::InvalidPackageSet);
+        }
+        if echo.digest != expected {
+            return Err(AuxError::EchoMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn validate_aux_reveals(
+    execution: ExecutionId,
+    commitments: &[AuxRound1Commitment],
+    reveals: &[AuxRound2Reveal],
+    security: AuxProtocolSecurity,
+) -> Result<(), AuxError> {
+    validate_aux_commitment_set(execution, commitments)?;
+    if reveals.len() != PARTICIPANT_COUNT {
+        return Err(AuxError::InvalidPackageSet);
+    }
+    for (index, reveal) in reveals.iter().enumerate() {
+        let expected_id = commitments[index].identifier;
+        if reveal.public.execution != execution.digest() {
+            return Err(AuxError::ExecutionMismatch);
+        }
+        if reveal.identifier() != expected_id {
+            return Err(AuxError::InvalidPackageSet);
+        }
+        if aux_opening_digest(
+            execution,
+            &reveal.public,
+            &reveal.rho,
+            &reveal.decommitment,
+        ) != commitments[index].digest
+        {
+            return Err(AuxError::CommitmentOpeningMismatch(expected_id.get()));
+        }
+        if reveal.public.paillier.n().significant_bits() < security.min_modulus_bits
+            || validate_ring_pedersen(&reveal.public.ring_pedersen, security.min_modulus_bits)
+                .is_err()
+            || verify_pi_prm_inner(
+                execution,
+                expected_id,
+                &reveal.public.ring_pedersen,
+                &reveal.public.pi_prm,
+                security.min_modulus_bits,
+            )
+            .is_err()
+        {
+            return Err(AuxError::InvalidPublicPackage(expected_id.get()));
+        }
+    }
+    Ok(())
+}
+
+fn mix_aux_randomness(
+    reveals: &[AuxRound2Reveal],
+) -> Result<[u8; SHARED_RANDOMNESS_BYTES], AuxError> {
+    if reveals.len() != PARTICIPANT_COUNT {
+        return Err(AuxError::InvalidPackageSet);
+    }
+    let mut shared = [0u8; SHARED_RANDOMNESS_BYTES];
+    for reveal in reveals {
+        for (output, input) in shared.iter_mut().zip(reveal.rho) {
+            *output ^= input;
+        }
+    }
+    Ok(shared)
+}
+
+fn aux_opening_digest(
+    execution: ExecutionId,
+    public: &CandidateAuxPublic,
+    rho: &[u8; SHARED_RANDOMNESS_BYTES],
+    decommitment: &[u8; SHARED_RANDOMNESS_BYTES],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(AUX_COMMIT_TAG);
+    hasher.update(execution.digest());
+    hasher.update(public.participant.get().to_be_bytes());
+    transcript_integer(&mut hasher, public.paillier.n());
+    transcript_integer(&mut hasher, &public.ring_pedersen.modulus);
+    transcript_integer(&mut hasher, &public.ring_pedersen.s);
+    transcript_integer(&mut hasher, &public.ring_pedersen.t);
+    hasher.update((PI_PRM_REPETITIONS as u64).to_be_bytes());
+    for (commitment, response) in public
+        .pi_prm
+        .commitments
+        .iter()
+        .zip(&public.pi_prm.responses)
+    {
+        transcript_integer(&mut hasher, commitment);
+        transcript_integer(&mut hasher, response);
+    }
+    hasher.update((SHARED_RANDOMNESS_BYTES as u64).to_be_bytes());
+    hasher.update(rho);
+    hasher.update(decommitment);
+    hasher.finalize().into()
+}
+
+fn aux_echo_digest(
+    execution: ExecutionId,
+    commitments: &[AuxRound1Commitment],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(AUX_ECHO_TAG);
+    hasher.update(execution.digest());
+    hasher.update((commitments.len() as u64).to_be_bytes());
+    for commitment in commitments {
+        hasher.update(commitment.identifier.get().to_be_bytes());
+        hasher.update(commitment.digest);
+    }
+    hasher.finalize().into()
 }
 
 fn build_ring_pedersen(
@@ -1074,9 +1639,16 @@ impl RngCore for HashStreamRng {
 mod tests {
     use super::*;
 
-    const TEST_PI_FAC_SECURITY: PiFacSecurity = PiFacSecurity { l: 2, epsilon: 32 };
+    const TEST_PI_FAC_SECURITY: PiFacSecurity = PiFacSecurity { l: 2, epsilon: 64 };
+    const TEST_AUX_PROTOCOL_SECURITY: AuxProtocolSecurity = AuxProtocolSecurity {
+        min_modulus_bits: 1,
+        pi_fac: TEST_PI_FAC_SECURITY,
+    };
 
-    fn small_candidate(execution: ExecutionId) -> (AuxPrivate, CandidateAuxPublic) {
+    fn small_candidate_for(
+        execution: ExecutionId,
+        participant: ParticipantId,
+    ) -> (AuxPrivate, CandidateAuxPublic) {
         let mut rng = OsRng;
         // Tiny safe primes are test-only. Production construction never calls
         // this helper and always enforces the 1536/3071-bit profile above.
@@ -1084,7 +1656,6 @@ mod tests {
             DecryptionKey::from_primes(Integer::from(47u8), Integer::from(59u8)).unwrap();
         let (ring_pedersen, pedersen_phi, pedersen_lambda) =
             build_ring_pedersen(&mut rng, Integer::from(83u8), Integer::from(107u8)).unwrap();
-        let participant = ParticipantId::new(1).unwrap();
         let pi_prm = prove_pi_prm_inner(
             execution,
             participant,
@@ -1104,6 +1675,58 @@ mod tests {
         };
         let private = AuxPrivate { paillier };
         (private, public)
+    }
+
+    fn small_candidate(execution: ExecutionId) -> (AuxPrivate, CandidateAuxPublic) {
+        small_candidate_for(execution, ParticipantId::new(1).unwrap())
+    }
+
+    fn small_protocol_round1(
+        execution: ExecutionId,
+    ) -> (Vec<AuxRound1State>, Vec<AuxRound1Commitment>) {
+        let mut states = Vec::with_capacity(PARTICIPANT_COUNT);
+        let mut commitments = Vec::with_capacity(PARTICIPANT_COUNT);
+        for raw in 1..=PARTICIPANT_COUNT as u16 {
+            let participant = ParticipantId::new(raw).unwrap();
+            let (private, public) = small_candidate_for(execution, participant);
+            let (state, commitment) =
+                provision_round1_from_candidate(execution, participant, private, public).unwrap();
+            states.push(state);
+            commitments.push(commitment);
+        }
+        (states, commitments)
+    }
+
+    fn small_protocol_pending(
+        execution: ExecutionId,
+    ) -> (Vec<PendingAuxSet>, [Vec<AuxPeerProof>; PARTICIPANT_COUNT]) {
+        let (states, commitments) = small_protocol_round1(execution);
+        let echoes = states
+            .iter()
+            .map(|state| provision_echo(state, &commitments).unwrap())
+            .collect::<Vec<_>>();
+        let reveals = states
+            .iter()
+            .map(|state| provision_reveal(state, &commitments, &echoes).unwrap())
+            .collect::<Vec<_>>();
+        let mut inboxes: [Vec<AuxPeerProof>; PARTICIPANT_COUNT] =
+            std::array::from_fn(|_| Vec::new());
+        let mut pendings = Vec::with_capacity(PARTICIPANT_COUNT);
+        for state in states {
+            let (pending, proofs) = provision_proofs_inner(
+                state,
+                &commitments,
+                &echoes,
+                &reveals,
+                TEST_AUX_PROTOCOL_SECURITY,
+            )
+            .unwrap();
+            for proof in proofs {
+                inboxes[usize::from(proof.recipient.get() - 1)].push(proof);
+            }
+            pendings.push(pending);
+        }
+        (pendings, inboxes)
     }
 
     #[test]
@@ -1335,6 +1958,96 @@ mod tests {
                 1,
             ),
             Err(AuxError::InvalidPiFac)
+        );
+    }
+
+    #[test]
+    fn auxiliary_state_machine_reaches_verified_state_only_after_all_peer_proofs() {
+        let execution = ExecutionId::new(b"aux-state-machine-honest").unwrap();
+        let (pendings, inboxes) = small_protocol_pending(execution);
+        let verified = pendings
+            .into_iter()
+            .zip(inboxes)
+            .map(|(pending, proofs)| {
+                provision_finalize_inner(pending, &proofs, TEST_AUX_PROTOCOL_SECURITY).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let shared_randomness = verified[0].shared_randomness();
+        for (index, aux) in verified.iter().enumerate() {
+            assert_eq!(aux.identifier().get(), (index + 1) as u16);
+            assert_eq!(aux.execution_digest(), execution.digest());
+            assert_eq!(aux.shared_randomness(), shared_randomness);
+            assert_eq!(
+                aux.local_paillier_modulus_bytes(),
+                aux.public_for(aux.identifier()).paillier_modulus_bytes()
+            );
+            for raw in 1..=PARTICIPANT_COUNT as u16 {
+                let participant = ParticipantId::new(raw).unwrap();
+                assert_eq!(aux.public_for(participant).participant(), participant);
+            }
+        }
+    }
+
+    #[test]
+    fn auxiliary_split_view_echo_blocks_reveal() {
+        let execution = ExecutionId::new(b"aux-state-machine-split-view").unwrap();
+        let (states, commitments) = small_protocol_round1(execution);
+        let mut echoes = states
+            .iter()
+            .map(|state| provision_echo(state, &commitments).unwrap())
+            .collect::<Vec<_>>();
+        echoes[1].digest[0] ^= 1;
+        assert_eq!(
+            provision_reveal(&states[0], &commitments, &echoes)
+                .err()
+                .unwrap(),
+            AuxError::EchoMismatch
+        );
+    }
+
+    #[test]
+    fn auxiliary_changed_opening_aborts_before_peer_proofs() {
+        let execution = ExecutionId::new(b"aux-state-machine-opening").unwrap();
+        let (mut states, commitments) = small_protocol_round1(execution);
+        let echoes = states
+            .iter()
+            .map(|state| provision_echo(state, &commitments).unwrap())
+            .collect::<Vec<_>>();
+        let mut reveals = states
+            .iter()
+            .map(|state| provision_reveal(state, &commitments, &echoes).unwrap())
+            .collect::<Vec<_>>();
+        reveals[2].rho[0] ^= 1;
+        assert_eq!(
+            provision_proofs_inner(
+                states.remove(0),
+                &commitments,
+                &echoes,
+                &reveals,
+                TEST_AUX_PROTOCOL_SECURITY,
+            )
+            .err()
+            .unwrap(),
+            AuxError::CommitmentOpeningMismatch(3)
+        );
+    }
+
+    #[test]
+    fn auxiliary_tampered_peer_proof_cannot_promote_pending_state() {
+        let execution = ExecutionId::new(b"aux-state-machine-peer-proof").unwrap();
+        let (mut pendings, mut inboxes) = small_protocol_pending(execution);
+        let culprit = inboxes[0][0].prover.get();
+        inboxes[0][0].pi_fac.z1 += Integer::from(1u8);
+        assert_eq!(
+            provision_finalize_inner(
+                pendings.remove(0),
+                &inboxes[0],
+                TEST_AUX_PROTOCOL_SECURITY,
+            )
+            .err()
+            .unwrap(),
+            AuxError::InvalidPeerProof(culprit)
         );
     }
 

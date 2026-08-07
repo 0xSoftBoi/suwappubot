@@ -37,8 +37,10 @@ domain-separated Suwappu byte encoding, so it is not claiming wire
 interoperability with the reference library. `ecdsa_cggmp.rs` implements the
 section 4.3.2 Shamir-to-additive conversion and section 4.4 final signature
 equations. `cggmp_aux.rs` now implements the first section 4.1 provisioning
-slices: Paillier/Ring-Pedersen candidate generation, `Pi_prm`, `Pi_mod`, and
-the peer-specific `Pi_fac` no-small-factor proof.
+slices: Paillier/Ring-Pedersen candidate generation, `Pi_prm`, `Pi_mod`, the
+peer-specific `Pi_fac` no-small-factor proof, and the fixed 3-party reliable
+commit/echo/reveal/proof state transitions. Only the final peer-proof verifier
+can construct `VerifiedAuxSet`.
 
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
@@ -59,19 +61,16 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Finish section 4.1 provisioning with the reliable commit/echo/reveal state
-   machine. `Pi_prm`, `Pi_mod`, and peer-specific `Pi_fac` proof cores and their
-   pre-arithmetic domain checks are present; callers cannot use them to promote
-   a candidate to trusted auxiliary state.
-2. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
+1. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
    Paillier affine-with-group-commitment, encryption/ElGamal relations, and the
    elliptic-curve discrete-log relations used by the protocol.
-3. Authenticated broadcasts, encrypted point-to-point messages, durable unique
-   execution IDs, timeout/abort behavior, and persisted one-shot presignatures.
-4. Full-size auxiliary-generation performance/soak vectors plus bigint
+2. Production serialization plus authenticated broadcasts, encrypted
+   point-to-point messages, durable unique execution IDs, timeout/abort
+   behavior, and persisted one-shot presignatures.
+3. Full-size auxiliary-generation performance/soak vectors plus bigint
    side-channel and memory-erasure hardening. The current bigint backend does
    not justify a zeroizing-deallocation claim for Paillier secret factors.
-5. Adversarial vectors, differential final-signature tests, and an independent
+4. Adversarial vectors, differential final-signature tests, and an independent
    cryptographic audit.
 
 No shortcut around these gates is acceptable: a Paillier MtA exchange without
