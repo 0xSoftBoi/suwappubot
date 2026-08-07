@@ -1,7 +1,6 @@
 export const DEMO_QUOTE_PAIRS = [
   {
     id: 'usdc-eth-base',
-    labelKey: 'baseEth',
     from: 'USDC',
     to: 'ETH',
     chain: 'base',
@@ -10,7 +9,6 @@ export const DEMO_QUOTE_PAIRS = [
   },
   {
     id: 'usdc-base-usdt-polygon',
-    labelKey: 'basePolygon',
     from: 'USDC',
     to: 'USDT',
     chain: 'base',
@@ -19,7 +17,6 @@ export const DEMO_QUOTE_PAIRS = [
   },
   {
     id: 'usdc-base-eth-arbitrum',
-    labelKey: 'baseArbitrum',
     from: 'USDC',
     to: 'ETH',
     chain: 'base',

@@ -305,7 +305,12 @@
 
 .home-interface-register strong { font-size: 0.95rem; }
 .home-interface-register small { grid-column: 2; line-height: 1.45; }
-.home-interface-register b { color: var(--sw-accent-muted, #BD7526); font-weight: 400; }
+.home-interface-register b {
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--sw-accent-muted, #BD7526);
+  font-weight: 400;
+}
 
 .sw .home-interface-note {
   margin: 1.25rem 0 0;

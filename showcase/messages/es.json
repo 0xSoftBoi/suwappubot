@@ -66,7 +66,7 @@
     }
   },
   "hero": {
-    "kicker": "El único bot que hace las tres cosas",
+    "kicker": "Ahora en beta abierta · 42 cadenas",
     "h1": "La capa de ejecución entre la intención y los mercados.",
     "lead": "Suwappu convierte una intención de trading en una ruta verificable y una ejecución controlada en los mercados compatibles. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
     "cta_bot": "Empieza gratis",

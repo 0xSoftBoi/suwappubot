@@ -164,7 +164,11 @@ export default async function Home() {
                 <p>{h('interfaces.lead')}</p>
               </div>
 
-              <div className="home-interface-register" aria-label={h('interfaces.ariaLabel')}>
+              <div
+                className="home-interface-register"
+                role="group"
+                aria-label={h('interfaces.ariaLabel')}
+              >
                 <a href={TERMINAL_URL}>
                   <span>01</span><strong>{h('interfaces.terminal')}</strong><small>{h('interfaces.terminalMeta')}</small><b aria-hidden="true">→</b>
                 </a>
