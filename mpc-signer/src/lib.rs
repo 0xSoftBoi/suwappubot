@@ -11,8 +11,10 @@
 //! the complaint/recovery machinery required for a malicious-production DKG.
 
 pub mod dkg;
+pub mod ecdsa_cggmp;
 pub mod frost_ed25519;
 pub mod ledger;
+pub mod secp256k1_dkg;
 
 /// This is a deliberately hard-coded safety claim, not a feature flag.
 /// Production integration must refuse to activate while this is false.
@@ -22,5 +24,7 @@ pub const PRODUCTION_READY: bool = false;
 /// implement a fully analysed malicious DKG with complaints and recovery.
 pub const MALICIOUS_DKG_READY: bool = false;
 
-/// Threshold ECDSA is not implemented in this milestone.
+/// The secp256k1 DKG, signing-set conversion, and final ECDSA equations are
+/// implemented, but the malicious Paillier/Ring-Pedersen presigning proofs
+/// are not. There is deliberately no public way to manufacture a presignature.
 pub const MALICIOUS_ECDSA_READY: bool = false;
