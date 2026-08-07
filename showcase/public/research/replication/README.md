@@ -5,8 +5,9 @@ Code, data and full working papers for the three research papers published at
 Nothing in this bundle requires credentials: the chain reads use public RPC
 endpoints, and the simulation runs offline.
 
-First published 26 July 2026; USDT0 paper revised 6 August 2026; report edition
-published 6 August 2026. Author: Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
+First published 26 July 2026; all three working papers materially reviewed or revised
+6 August 2026; report edition published 6 August 2026. Author: Tsolmondorj Natsagdorj
+(0xSoftBoi), Suwappu Research.
 
 **Report edition:** [*Accounting for an Omnichain Dollar*](../reports/accounting-for-an-omnichain-dollar.pdf)
 packages the USDT0 findings, both corrections, the proof boundary and the replication
@@ -20,8 +21,8 @@ USDT issuer, legal, liquidity and prudential questions. The working paper remain
 | File | Paper |
 |---|---|
 | `papers/usdt0-collateral-reconciliation.md` | *Measuring Protocol Backing of an Omnichain Dollar: A Point-in-Time USDT0 Token-Unit Reconciliation, Twice Corrected* |
-| `papers/points-tullock-contests.md` | *Points Programs as Tullock Contests: Equilibrium Concentration, Denomination, and Sybil Neutrality* |
-| `papers/airdrop-concentration.md` | *Who Actually Collected the Airdrops: Testing the Tullock Active-Set Prediction Against Completed Allocations* |
+| `papers/points-tullock-contests.md` | *Points-Program Economics After Empirical Rejection: Conditional Tullock Benchmarks for Participation, Dissipation, Fee Denomination, and Wallet Splitting* |
+| `papers/airdrop-concentration.md` | *Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model* |
 
 The web posts on suwappu.bot are abridgements. Where an abridgement and a paper
 disagree, the paper governs.
@@ -93,14 +94,14 @@ python3 code/robustness.py
 
 ---
 
-## Paper 2 — Points programs as Tullock contests
+## Paper 2 — Points-program economics after empirical rejection
 
 ### Code
 
 | File | What it does |
 |---|---|
-| `code/tullock_sim.py` | Exact active-set equilibrium solver, cost-invariance and revenue-capture scenarios, sybil tests. |
-| `code/tullock_mc.py` | 500-draw Monte Carlo per σ at n = 5,000, plus the sybil-gain sensitivity sweep. |
+| `code/tullock_sim.py` | Exact active-set equilibrium solver, scalar cost-invariance and revenue-capture scenarios, wallet-splitting tests. |
+| `code/tullock_mc.py` | 500-draw Monte Carlo per σ at n = 5,000, plus the wallet-splitting sensitivity sweep. |
 | `code/verify_equilibrium.py` | Four-check verification suite (FOC residuals, entry conditions, grid search over unilateral deviations, independent damped best-response). |
 
 Seeded with `np.random.default_rng(20260726)`. No network access required; the
@@ -116,35 +117,39 @@ python3 code/verify_equilibrium.py
 
 | File | Contents |
 |---|---|
-| `data/tullock_results.json` | Propositions 1–4: symmetric equilibrium, cost invariance, heterogeneous active sets, sybil neutrality, revenue capture. |
-| `data/tullock_mc.json` | Monte Carlo sampling distributions per σ, and the sybil sensitivity sweep. |
+| `data/tullock_results.json` | Propositions 1–4: symmetric equilibrium, scalar cost invariance, heterogeneous active sets, fixed-budget wallet-splitting invariance, and modeled revenue capture. |
+| `data/tullock_mc.json` | Monte Carlo sampling distributions per σ, and the wallet-splitting sensitivity sweep. |
 | `data/verify_output.txt` | Raw output of the verification suite. |
 | `data/sim_output.txt` | Raw output of the simulation. |
 
 ### Known limits, stated in the paper
 
-- **No number here is calibrated against an observed points program.** This is
-  the equilibrium of a stated game, with sampling bands — theory, not measurement.
+- The model scenarios are not calibrated against an observed points program. The
+  HYPE/EIGEN figures cited in the revised executive summary come from Paper 3 and
+  are not inputs to the simulation.
 - Checks A, B and D in the verification suite all evaluate or solve the model's
   own first-order condition. Only check C is calculus-free. The suite establishes
   that the solver solves the stated game correctly. It does not establish that
   the game describes reality.
 - The model assumes complete information, simultaneous moves, risk neutrality,
-  linear costs and no capital constraint. Convex costs and risk aversion both
-  push realised concentration below the modelled band.
+  linear costs and no capital constraint. Paper 3 rejects the active-set result
+  as a wallet-level description for the primary measured programs.
+- Proposition 2 is invariant to a scalar common marginal cost in the symmetric
+  unconstrained game. A binding hard quantity cap is a separate corner constraint
+  and is **not** solved by that proposition; the original cap generalization was retracted.
 - Proposition 3 is not new. It restates the standard asymmetric-Tullock
   active-set characterisation; see the paper's Section 1 for attribution.
 
 ---
 
-## Paper 3 — Airdrop concentration
+## Paper 3 — Wallet-level airdrop allocation concentration
 
 ### Code
 
 | File | What it does |
 |---|---|
 | `code/collect_airdrops.py` | Collects the HYPE genesis vector and the EIGEN/ENA distribution logs with checkpointed, range-splitting public-RPC reads. |
-| `code/analyze_airdrops.py` | Computes concentration statistics, matched-n model bands, Lorenz curves and the sup-over-σ rejection test. |
+| `code/analyze_airdrops.py` | Computes concentration statistics, matched-*n* model bands, Lorenz curves and the prespecified finite-grid joint simulation test. |
 
 ### Data
 
@@ -158,9 +163,14 @@ python3 code/verify_equilibrium.py
 
 ### Known limits, stated in the paper
 
-- All concentration measurements are wallet-level, so they are lower bounds on person-level concentration when one entity controls multiple wallets.
-- HYPE is a post-enforcement allocation; EIGEN is claims data, so unclaimed allocations are absent; ENA claim executors can aggregate custodially.
-- The formal rejection is anchored on HYPE and EIGEN. ENA is a lower-resolution replication of the distributional shape, not the load-bearing datapoint.
+- All concentration measurements are wallet-level. Wallet splitting can make
+  beneficial-owner concentration higher; omnibus or custodial addresses can make
+  one wallet represent many beneficiaries and move the bias in the opposite direction.
+- HYPE is a post-eligibility allocation; EIGEN is claims data, so owed-but-unclaimed
+  allocations are absent; ENA claim executors can aggregate beneficiaries.
+- The model rejection is anchored on HYPE and EIGEN. ENA is a lower-resolution
+  cross-check, not equal-quality primary evidence. The paper does not identify the
+  causal mechanism behind the model failure; the capital-mirror explanation is a hypothesis.
 
 ---
 
@@ -176,11 +186,12 @@ Released for verification and reuse. Cite as:
 > Natsagdorj, T. (2026). *Measuring Protocol Backing of an Omnichain Dollar:
 > A Point-in-Time USDT0 Token-Unit Reconciliation, Twice Corrected.* Suwappu Research.
 
-> Natsagdorj, T. (2026). *Points Programs as Tullock Contests: Equilibrium
-> Concentration, Denomination, and Sybil Neutrality.* Suwappu Research.
+> Natsagdorj, T. (2026). *Points-Program Economics After Empirical Rejection:
+> Conditional Tullock Benchmarks for Participation, Dissipation, Fee Denomination,
+> and Wallet Splitting.* Suwappu Research.
 
-> Natsagdorj, T. (2026). *Who Actually Collected the Airdrops: Testing the
-> Tullock Active-Set Prediction Against Completed Allocations.* Suwappu Research.
+> Natsagdorj, T. (2026). *Airdrop Allocation Concentration: A Wallet-Level Field
+> Test of the Tullock Active-Set Model.* Suwappu Research.
 
 ## Disclosures
 
