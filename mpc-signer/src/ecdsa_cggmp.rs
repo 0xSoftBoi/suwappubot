@@ -72,6 +72,25 @@ impl AdditiveSigningShare {
     pub fn group_public_key_bytes(&self) -> [u8; 33] {
         encode_point(&self.group_public_key).expect("group-key invariant")
     }
+
+    pub(crate) fn secret_share_for_presign(&self) -> Scalar {
+        self.secret_share
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_additive_signing_shares(
+    signing_pair: [ParticipantId; THRESHOLD],
+    secrets: [Scalar; THRESHOLD],
+) -> [AdditiveSigningShare; THRESHOLD] {
+    let group_public_key = ProjectivePoint::GENERATOR * (secrets[0] + secrets[1]);
+    std::array::from_fn(|index| AdditiveSigningShare {
+        identifier: signing_pair[index],
+        signing_pair,
+        secret_share: secrets[index],
+        public_share: ProjectivePoint::GENERATOR * secrets[index],
+        group_public_key,
+    })
 }
 
 /// Convert a Shamir share to the additive share used by the two parties taking

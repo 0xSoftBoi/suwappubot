@@ -54,6 +54,13 @@ relation `D = x*C + Enc(y)` while binding `x` to `X = x*G`, binding the same
 proof's protocol role. These are only proof cores; they cannot construct
 `PresignatureShare`.
 
+The first presigning state transition is also explicit now: the fixed two-party
+signing pair generates round-1a `K/G/Y/A/B` data and verifier-specific
+`Pi_enc-elg` round-1b proofs, fixes the canonical round-1a view with a
+reliable-broadcast echo, and only then verifies both peer proofs. Only that
+sequence can construct `PresignRound1Verified`; it still cannot construct a
+presignature.
+
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
 32-byte collective `rho`, matching the current reference implementation's
@@ -73,10 +80,9 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Finish section 4.3 presigning: MtA message/state equations, reliable
-   first-round broadcast, and final consistency/state checks. The current
-   `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof cores do not authorize a
-   presignature.
+1. Finish section 4.3 presigning: round-two MtA message/state equations,
+   round-three proofs, and final consistency/state checks. The current proof
+   cores and round-one reliability gate do not authorize a presignature.
 2. Production serialization plus authenticated broadcasts, encrypted
    point-to-point messages, durable unique execution IDs, timeout/abort
    behavior, and persisted one-shot presignatures.

@@ -1627,6 +1627,55 @@ impl RngCore for HashStreamRng {
 }
 
 #[cfg(test)]
+fn presign_test_paillier() -> DecryptionKey {
+    // Known Mersenne primes. Their product is intentionally test-sized but
+    // large enough for the 256-bit Fiat-Shamir challenges in presigning unit
+    // tests without paying the production safe-prime generation cost.
+    let p = (Integer::from(1u8) << 521usize) - 1u8;
+    let q = (Integer::from(1u8) << 607usize) - 1u8;
+    DecryptionKey::from_primes(p, q).expect("test Paillier factors are valid")
+}
+
+/// Test-only fixture for higher-level presigning state-machine tests. The
+/// auxiliary verification state machine has its own adversarial tests below;
+/// this fixture bypasses those expensive proofs while preserving the exact
+/// `VerifiedAuxSet` type boundary and internally consistent Paillier keys.
+#[cfg(test)]
+pub(crate) fn presign_test_aux_sets(
+    execution: ExecutionId,
+) -> [VerifiedAuxSet; PARTICIPANT_COUNT] {
+    let paillier = presign_test_paillier().encryption_key().clone();
+    let public: [CandidateAuxPublic; PARTICIPANT_COUNT] = std::array::from_fn(|index| {
+        let participant = ParticipantId::new((index + 1) as u16).unwrap();
+        let base = (index + 2) as u16;
+        let offset = (index + 5) as u16;
+        CandidateAuxPublic {
+            execution: execution.digest(),
+            participant,
+            paillier: paillier.clone(),
+            ring_pedersen: RingPedersenParams {
+                modulus: Integer::from(83u16) * Integer::from(107u16),
+                s: Integer::from(base * base),
+                t: Integer::from(offset * offset),
+            },
+            pi_prm: PiPrmProof {
+                commitments: std::array::from_fn(|_| Integer::from(1u8)),
+                responses: std::array::from_fn(|_| Integer::from(1u8)),
+            },
+        }
+    });
+    std::array::from_fn(|index| VerifiedAuxSet {
+        execution,
+        identifier: ParticipantId::new((index + 1) as u16).unwrap(),
+        private: AuxPrivate {
+            paillier: presign_test_paillier(),
+        },
+        public: std::array::from_fn(|public_index| public[public_index].clone()),
+        shared_randomness: [0x5au8; SHARED_RANDOMNESS_BYTES],
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1,9 +1,9 @@
 //! Malicious-presigning proof foundations for secp256k1 CGGMP24.
 //!
 //! This module starts with the `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof
-//! cores used by CGGMP24 presigning. It deliberately does not expose a
-//! presignature constructor: MtA message/state transitions, reliable
-//! broadcast, and the remaining consistency checks must all land first.
+//! cores used by CGGMP24 presigning plus the reliable round-one state gate. It
+//! deliberately does not expose a presignature constructor: MtA round two,
+//! round three, and the remaining consistency checks must all land first.
 
 use fast_paillier::{backend::Integer, Ciphertext, EncryptionKey};
 use k256::{
@@ -13,10 +13,12 @@ use k256::{
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use zeroize::Zeroize;
 
 use crate::{
-    cggmp_aux::RingPedersenParams,
-    secp256k1_dkg::{ExecutionId, ParticipantId},
+    cggmp_aux::{RingPedersenParams, VerifiedAuxSet},
+    ecdsa_cggmp::AdditiveSigningShare,
+    secp256k1_dkg::{ExecutionId, ParticipantId, THRESHOLD},
 };
 
 /// `ell` for `Pi_enc-elg` at CGGMP24's 128-bit security profile.
@@ -36,6 +38,7 @@ const PI_ELOG_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/challenge/v1";
 const PI_ELOG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/hash-stream/v1";
 const PI_AFF_TAG: &[u8] = b"suwappu/cggmp24/pi-aff/challenge/v1";
 const PI_AFF_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-aff/hash-stream/v1";
+const PRESIGN_R1_ECHO_TAG: &[u8] = b"suwappu/cggmp24/presign/round1-echo/v1";
 const SECP256K1_ORDER: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
@@ -65,6 +68,24 @@ pub enum PresignProofError {
     InvalidPiAff,
     #[error("Paillier operation failed while constructing a presigning proof")]
     Paillier,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum PresignStateError {
+    #[error("presigning share, signing pair, or auxiliary identity is inconsistent")]
+    InvalidSigningContext,
+    #[error("presigning state was resumed with a different verified auxiliary set")]
+    AuxiliaryMismatch,
+    #[error("round-one broadcast/proof metadata or public data is invalid")]
+    InvalidRound1Message,
+    #[error("round-one reliable-broadcast echo digests do not all match")]
+    EchoMismatch,
+    #[error("participant {0} supplied an invalid round-one PiEncElg proof")]
+    InvalidRound1Proof(u16),
+    #[error("Paillier operation failed while building presigning round one")]
+    Paillier,
+    #[error(transparent)]
+    Proof(#[from] PresignProofError),
 }
 
 /// Distinguishes the two first-round proofs so a proof for `k_i` cannot be
@@ -320,6 +341,185 @@ impl PiAffProof {
     }
 }
 
+/// Reliable-broadcast payload for CGGMP24 presigning round 1a.
+#[derive(Clone, Debug)]
+pub struct PresignRound1Broadcast {
+    execution: [u8; 32],
+    participant: ParticipantId,
+    k: Ciphertext,
+    g: Ciphertext,
+    y: ProjectivePoint,
+    a1: ProjectivePoint,
+    a2: ProjectivePoint,
+    b1: ProjectivePoint,
+    b2: ProjectivePoint,
+}
+
+impl PresignRound1Broadcast {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn participant(&self) -> ParticipantId {
+        self.participant
+    }
+
+    pub fn ciphertext_bytes(&self) -> [Vec<u8>; 2] {
+        [self.k.to_bytes_msf(), self.g.to_bytes_msf()]
+    }
+
+    pub fn curve_points_bytes(&self) -> Result<[[u8; 33]; 5], PresignProofError> {
+        Ok([
+            encode_point(&self.y)?,
+            encode_point(&self.a1)?,
+            encode_point(&self.a2)?,
+            encode_point(&self.b1)?,
+            encode_point(&self.b2)?,
+        ])
+    }
+}
+
+/// Verifier-specific round 1b proofs for one peer.
+#[derive(Clone, Debug)]
+pub struct PresignRound1Proofs {
+    execution: [u8; 32],
+    prover: ParticipantId,
+    recipient: ParticipantId,
+    pi_k: PiEncElgProof,
+    pi_gamma: PiEncElgProof,
+}
+
+impl PresignRound1Proofs {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn prover(&self) -> ParticipantId {
+        self.prover
+    }
+
+    pub fn recipient(&self) -> ParticipantId {
+        self.recipient
+    }
+
+    pub fn ephemeral_key_proof(&self) -> &PiEncElgProof {
+        &self.pi_k
+    }
+
+    pub fn gamma_proof(&self) -> &PiEncElgProof {
+        &self.pi_gamma
+    }
+}
+
+/// Reliable-broadcast digest for the canonical two-party round-one view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PresignRound1Echo {
+    execution: [u8; 32],
+    participant: ParticipantId,
+    digest: [u8; 32],
+}
+
+impl PresignRound1Echo {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution
+    }
+
+    pub fn participant(&self) -> ParticipantId {
+        self.participant
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+}
+
+struct PresignSecrets {
+    x_i: Scalar,
+    gamma_i: Scalar,
+    k_i: Scalar,
+    a_i: Scalar,
+    b_i: Scalar,
+}
+
+impl Drop for PresignSecrets {
+    fn drop(&mut self) {
+        self.x_i.zeroize();
+        self.gamma_i.zeroize();
+        self.k_i.zeroize();
+        self.a_i.zeroize();
+        self.b_i.zeroize();
+    }
+}
+
+/// Local secrets after generating round 1a/1b but before receiving the peer.
+pub struct PresignRound1State {
+    execution: ExecutionId,
+    aux_execution: [u8; 32],
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    peer: ParticipantId,
+    secrets: PresignSecrets,
+    local: PresignRound1Broadcast,
+}
+
+/// Round-one state after fixing the local view and emitting its reliability
+/// echo. Peer proofs are deliberately not accepted until every echo agrees.
+pub struct PresignRound1Received {
+    execution: ExecutionId,
+    aux_execution: [u8; 32],
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    peer: ParticipantId,
+    secrets: PresignSecrets,
+    local: PresignRound1Broadcast,
+    peer_broadcast: PresignRound1Broadcast,
+    peer_proofs: PresignRound1Proofs,
+    echo_digest: [u8; 32],
+}
+
+/// Round-one output obtainable only after reliable-broadcast agreement and
+/// both peer `Pi_enc-elg` proofs have verified.
+pub struct PresignRound1Verified {
+    execution: ExecutionId,
+    aux_execution: [u8; 32],
+    identifier: ParticipantId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    peer: ParticipantId,
+    secrets: PresignSecrets,
+    local: PresignRound1Broadcast,
+    peer_broadcast: PresignRound1Broadcast,
+}
+
+impl PresignRound1Verified {
+    pub fn execution_digest(&self) -> [u8; 32] {
+        self.execution.digest()
+    }
+
+    pub fn auxiliary_execution_digest(&self) -> [u8; 32] {
+        self.aux_execution
+    }
+
+    pub fn identifier(&self) -> ParticipantId {
+        self.identifier
+    }
+
+    pub fn signing_pair(&self) -> [ParticipantId; THRESHOLD] {
+        self.signing_pair
+    }
+
+    pub fn round1_broadcasts(&self) -> [&PresignRound1Broadcast; THRESHOLD] {
+        if self.identifier == self.signing_pair[0] {
+            [&self.local, &self.peer_broadcast]
+        } else {
+            [&self.peer_broadcast, &self.local]
+        }
+    }
+
+    pub fn peer(&self) -> ParticipantId {
+        self.peer
+    }
+}
+
 #[derive(Clone, Copy)]
 struct PiEncElgSecurity {
     l: usize,
@@ -345,6 +545,19 @@ impl PiEncElgSecurity {
     const PRODUCTION: Self = Self {
         l: PI_ENC_ELG_L_BITS,
         epsilon: PI_ENC_ELG_EPSILON_BITS,
+    };
+}
+
+#[derive(Clone, Copy)]
+struct PresignRound1Security {
+    pi_enc_elg: PiEncElgSecurity,
+    min_modulus_bits: u64,
+}
+
+impl PresignRound1Security {
+    const PRODUCTION: Self = Self {
+        pi_enc_elg: PiEncElgSecurity::PRODUCTION,
+        min_modulus_bits: crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
     };
 }
 
@@ -528,6 +741,348 @@ pub fn verify_pi_aff(
         PiAffSecurity::PRODUCTION,
         crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
     )
+}
+
+/// Generate CGGMP24 presigning round 1a and the one verifier-specific round
+/// 1b proof pair for the other signer in this fixed 2-of-3 signing set.
+pub fn presign_round1_begin(
+    execution: ExecutionId,
+    share: &AdditiveSigningShare,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+) -> Result<
+    (
+        PresignRound1State,
+        PresignRound1Broadcast,
+        PresignRound1Proofs,
+    ),
+    PresignStateError,
+> {
+    presign_round1_begin_inner(execution, share, aux, rng, PresignRound1Security::PRODUCTION)
+}
+
+/// Fix the received round-one view and emit the digest that must be echoed by
+/// both signers before either peer proof is accepted.
+pub fn presign_round1_receive(
+    state: PresignRound1State,
+    peer_broadcast: PresignRound1Broadcast,
+    peer_proofs: PresignRound1Proofs,
+    aux: &VerifiedAuxSet,
+) -> Result<(PresignRound1Received, PresignRound1Echo), PresignStateError> {
+    validate_aux_binding(
+        state.identifier,
+        state.aux_execution,
+        aux,
+        PresignStateError::AuxiliaryMismatch,
+    )?;
+    let peer_key = &aux.public_for(state.peer).paillier;
+    if !round1_broadcast_is_valid(
+        &peer_broadcast,
+        state.execution.digest(),
+        state.peer,
+        peer_key,
+    ) || peer_proofs.execution != state.execution.digest()
+        || peer_proofs.prover != state.peer
+        || peer_proofs.recipient != state.identifier
+    {
+        return Err(PresignStateError::InvalidRound1Message);
+    }
+    let echo_digest = round1_echo_digest(
+        state.execution,
+        state.signing_pair,
+        &state.local,
+        &peer_broadcast,
+    )?;
+    let echo = PresignRound1Echo {
+        execution: state.execution.digest(),
+        participant: state.identifier,
+        digest: echo_digest,
+    };
+    let received = PresignRound1Received {
+        execution: state.execution,
+        aux_execution: state.aux_execution,
+        identifier: state.identifier,
+        signing_pair: state.signing_pair,
+        peer: state.peer,
+        secrets: state.secrets,
+        local: state.local,
+        peer_broadcast,
+        peer_proofs,
+        echo_digest,
+    };
+    Ok((received, echo))
+}
+
+/// Accept round one only after both canonical echo messages agree and the
+/// peer's `k_i` and `gamma_i` `Pi_enc-elg` proofs verify.
+pub fn presign_round1_finalize(
+    state: PresignRound1Received,
+    echoes: &[PresignRound1Echo; THRESHOLD],
+    aux: &VerifiedAuxSet,
+) -> Result<PresignRound1Verified, PresignStateError> {
+    presign_round1_finalize_inner(state, echoes, aux, PresignRound1Security::PRODUCTION)
+}
+
+fn presign_round1_begin_inner(
+    execution: ExecutionId,
+    share: &AdditiveSigningShare,
+    aux: &VerifiedAuxSet,
+    rng: &mut (impl RngCore + CryptoRng),
+    security: PresignRound1Security,
+) -> Result<
+    (
+        PresignRound1State,
+        PresignRound1Broadcast,
+        PresignRound1Proofs,
+    ),
+    PresignStateError,
+> {
+    let identifier = share.identifier();
+    let signing_pair = share.signing_pair();
+    if aux.identifier() != identifier
+        || signing_pair[0] >= signing_pair[1]
+        || !signing_pair.contains(&identifier)
+    {
+        return Err(PresignStateError::InvalidSigningContext);
+    }
+    let peer = if signing_pair[0] == identifier {
+        signing_pair[1]
+    } else {
+        signing_pair[0]
+    };
+    let x_i = share.secret_share_for_presign();
+    if x_i == Scalar::ZERO {
+        return Err(PresignStateError::InvalidSigningContext);
+    }
+    let secrets = PresignSecrets {
+        x_i,
+        gamma_i: sample_nonzero_scalar(rng),
+        k_i: sample_nonzero_scalar(rng),
+        a_i: sample_nonzero_scalar(rng),
+        b_i: sample_nonzero_scalar(rng),
+    };
+    let mut y_i = sample_nonzero_scalar(rng);
+    let y_point = ProjectivePoint::GENERATOR * y_i;
+    y_i.zeroize();
+
+    let local_aux = aux.public_for(identifier);
+    let peer_aux = aux.public_for(peer);
+    let local_key = &local_aux.paillier;
+    let rho_i = Integer::sample_in_mult_group_of(rng, local_key.n());
+    let v_i = Integer::sample_in_mult_group_of(rng, local_key.n());
+    let k_plaintext = scalar_to_centered_integer(secrets.k_i);
+    let gamma_plaintext = scalar_to_centered_integer(secrets.gamma_i);
+    let k = local_key
+        .encrypt_with(&k_plaintext, &rho_i)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let g = local_key
+        .encrypt_with(&gamma_plaintext, &v_i)
+        .map_err(|_| PresignStateError::Paillier)?;
+    let a1 = ProjectivePoint::GENERATOR * secrets.a_i;
+    let a2 = y_point * secrets.a_i + ProjectivePoint::GENERATOR * secrets.k_i;
+    let b1 = ProjectivePoint::GENERATOR * secrets.b_i;
+    let b2 = y_point * secrets.b_i + ProjectivePoint::GENERATOR * secrets.gamma_i;
+    let local = PresignRound1Broadcast {
+        execution: execution.digest(),
+        participant: identifier,
+        k,
+        g,
+        y: y_point,
+        a1,
+        a2,
+        b1,
+        b2,
+    };
+
+    let k_statement = PiEncElgStatement::new(local.k.clone(), local.y, local.a1, local.a2);
+    let pi_k = prove_pi_enc_elg_inner(
+        execution,
+        identifier,
+        peer,
+        PiEncElgKind::EphemeralKey,
+        peer_aux.ring_pedersen(),
+        local_key,
+        &k_statement,
+        &k_plaintext,
+        &rho_i,
+        secrets.a_i,
+        rng,
+        security.pi_enc_elg,
+        security.min_modulus_bits,
+    )?;
+    let gamma_statement = PiEncElgStatement::new(local.g.clone(), local.y, local.b1, local.b2);
+    let pi_gamma = prove_pi_enc_elg_inner(
+        execution,
+        identifier,
+        peer,
+        PiEncElgKind::Gamma,
+        peer_aux.ring_pedersen(),
+        local_key,
+        &gamma_statement,
+        &gamma_plaintext,
+        &v_i,
+        secrets.b_i,
+        rng,
+        security.pi_enc_elg,
+        security.min_modulus_bits,
+    )?;
+    let proofs = PresignRound1Proofs {
+        execution: execution.digest(),
+        prover: identifier,
+        recipient: peer,
+        pi_k,
+        pi_gamma,
+    };
+    let outbound = local.clone();
+    let state = PresignRound1State {
+        execution,
+        aux_execution: aux.execution_digest(),
+        identifier,
+        signing_pair,
+        peer,
+        secrets,
+        local,
+    };
+    Ok((state, outbound, proofs))
+}
+
+fn presign_round1_finalize_inner(
+    state: PresignRound1Received,
+    echoes: &[PresignRound1Echo; THRESHOLD],
+    aux: &VerifiedAuxSet,
+    security: PresignRound1Security,
+) -> Result<PresignRound1Verified, PresignStateError> {
+    validate_aux_binding(
+        state.identifier,
+        state.aux_execution,
+        aux,
+        PresignStateError::AuxiliaryMismatch,
+    )?;
+    for (index, echo) in echoes.iter().enumerate() {
+        if echo.execution != state.execution.digest()
+            || echo.participant != state.signing_pair[index]
+            || echo.digest != state.echo_digest
+        {
+            return Err(PresignStateError::EchoMismatch);
+        }
+    }
+
+    let local_params = aux.public_for(state.identifier).ring_pedersen();
+    let peer_key = &aux.public_for(state.peer).paillier;
+    let k_statement = PiEncElgStatement::new(
+        state.peer_broadcast.k.clone(),
+        state.peer_broadcast.y,
+        state.peer_broadcast.a1,
+        state.peer_broadcast.a2,
+    );
+    if verify_pi_enc_elg_inner(
+        state.execution,
+        state.peer,
+        state.identifier,
+        PiEncElgKind::EphemeralKey,
+        local_params,
+        peer_key,
+        &k_statement,
+        &state.peer_proofs.pi_k,
+        security.pi_enc_elg,
+        security.min_modulus_bits,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound1Proof(state.peer.get()));
+    }
+    let gamma_statement = PiEncElgStatement::new(
+        state.peer_broadcast.g.clone(),
+        state.peer_broadcast.y,
+        state.peer_broadcast.b1,
+        state.peer_broadcast.b2,
+    );
+    if verify_pi_enc_elg_inner(
+        state.execution,
+        state.peer,
+        state.identifier,
+        PiEncElgKind::Gamma,
+        local_params,
+        peer_key,
+        &gamma_statement,
+        &state.peer_proofs.pi_gamma,
+        security.pi_enc_elg,
+        security.min_modulus_bits,
+    )
+    .is_err()
+    {
+        return Err(PresignStateError::InvalidRound1Proof(state.peer.get()));
+    }
+
+    Ok(PresignRound1Verified {
+        execution: state.execution,
+        aux_execution: state.aux_execution,
+        identifier: state.identifier,
+        signing_pair: state.signing_pair,
+        peer: state.peer,
+        secrets: state.secrets,
+        local: state.local,
+        peer_broadcast: state.peer_broadcast,
+    })
+}
+
+fn validate_aux_binding(
+    identifier: ParticipantId,
+    aux_execution: [u8; 32],
+    aux: &VerifiedAuxSet,
+    error: PresignStateError,
+) -> Result<(), PresignStateError> {
+    if aux.identifier() != identifier || aux.execution_digest() != aux_execution {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn round1_broadcast_is_valid(
+    message: &PresignRound1Broadcast,
+    execution: [u8; 32],
+    participant: ParticipantId,
+    key: &EncryptionKey,
+) -> bool {
+    message.execution == execution
+        && message.participant == participant
+        && message.k.in_mult_group_of(key.nn())
+        && message.g.in_mult_group_of(key.nn())
+        && message.y != ProjectivePoint::IDENTITY
+        && message.a1 != ProjectivePoint::IDENTITY
+        && message.a2 != ProjectivePoint::IDENTITY
+        && message.b1 != ProjectivePoint::IDENTITY
+        && message.b2 != ProjectivePoint::IDENTITY
+}
+
+fn round1_echo_digest(
+    execution: ExecutionId,
+    signing_pair: [ParticipantId; THRESHOLD],
+    local: &PresignRound1Broadcast,
+    peer: &PresignRound1Broadcast,
+) -> Result<[u8; 32], PresignStateError> {
+    let ordered = if local.participant == signing_pair[0] {
+        [local, peer]
+    } else {
+        [peer, local]
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(PRESIGN_R1_ECHO_TAG);
+    hasher.update(execution.digest());
+    for participant in signing_pair {
+        hasher.update(participant.get().to_be_bytes());
+    }
+    for message in ordered {
+        hasher.update(message.participant.get().to_be_bytes());
+        transcript_integer(&mut hasher, &message.k);
+        transcript_integer(&mut hasher, &message.g);
+        transcript_point(&mut hasher, &message.y)?;
+        transcript_point(&mut hasher, &message.a1)?;
+        transcript_point(&mut hasher, &message.a2)?;
+        transcript_point(&mut hasher, &message.b1)?;
+        transcript_point(&mut hasher, &message.b2)?;
+    }
+    Ok(hasher.finalize().into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1181,7 +1736,15 @@ fn pi_elog_challenge(
     Ok(Scalar::generate_vartime(&mut rng))
 }
 
-#[cfg(test)]
+fn sample_nonzero_scalar(rng: &mut impl RngCore) -> Scalar {
+    loop {
+        let scalar = Scalar::generate_vartime(rng);
+        if scalar != Scalar::ZERO {
+            return scalar;
+        }
+    }
+}
+
 fn scalar_to_centered_integer(scalar: Scalar) -> Integer {
     let order = secp256k1_order();
     let x = Integer::from_bytes_msf(&scalar.to_bytes());
@@ -1331,6 +1894,13 @@ mod tests {
         l_y: 8,
         epsilon: 512,
     };
+    const TEST_ROUND1_SECURITY: PresignRound1Security = PresignRound1Security {
+        pi_enc_elg: PiEncElgSecurity {
+            l: PI_ENC_ELG_L_BITS,
+            epsilon: PI_ENC_ELG_EPSILON_BITS,
+        },
+        min_modulus_bits: 1,
+    };
 
     fn test_params() -> RingPedersenParams {
         RingPedersenParams {
@@ -1447,6 +2017,27 @@ mod tests {
             y,
             nonce,
             nonce_y,
+        }
+    }
+
+    struct Round1Fixture {
+        execution: ExecutionId,
+        aux: [VerifiedAuxSet; crate::secp256k1_dkg::PARTICIPANT_COUNT],
+        shares: [AdditiveSigningShare; THRESHOLD],
+    }
+
+    fn round1_fixture() -> Round1Fixture {
+        let aux_execution = ExecutionId::new(b"presign-round1-aux-fixture").unwrap();
+        let aux = crate::cggmp_aux::presign_test_aux_sets(aux_execution);
+        let signing_pair = [ParticipantId::new(1).unwrap(), ParticipantId::new(2).unwrap()];
+        let shares = crate::ecdsa_cggmp::test_additive_signing_shares(
+            signing_pair,
+            [Scalar::from(31u64), Scalar::from(37u64)],
+        );
+        Round1Fixture {
+            execution: ExecutionId::new(b"presign-round1-signing-fixture").unwrap(),
+            aux,
+            shares,
         }
     }
 
@@ -1919,6 +2510,171 @@ mod tests {
         assert_eq!(PI_AFF_X_BITS, 256);
         assert_eq!(PI_AFF_Y_BITS, 1280);
         assert_eq!(PI_AFF_EPSILON_BITS, 512);
+    }
+
+    #[test]
+    fn presign_round1_requires_echo_then_accepts_peer_proofs() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let (state_1, broadcast_1, proofs_1) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[0],
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (state_2, broadcast_2, proofs_2) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[1],
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (received_1, echo_1) = presign_round1_receive(
+            state_1,
+            broadcast_2.clone(),
+            proofs_2.clone(),
+            &fixture.aux[0],
+        )
+        .unwrap();
+        let (received_2, echo_2) = presign_round1_receive(
+            state_2,
+            broadcast_1,
+            proofs_1,
+            &fixture.aux[1],
+        )
+        .unwrap();
+        assert_eq!(echo_1.digest(), echo_2.digest());
+        let echoes = [echo_1, echo_2];
+        let verified_1 = presign_round1_finalize_inner(
+            received_1,
+            &echoes,
+            &fixture.aux[0],
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let verified_2 = presign_round1_finalize_inner(
+            received_2,
+            &echoes,
+            &fixture.aux[1],
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        assert_eq!(verified_1.identifier().get(), 1);
+        assert_eq!(verified_2.identifier().get(), 2);
+        assert_eq!(verified_1.signing_pair(), verified_2.signing_pair());
+        assert_eq!(verified_1.round1_broadcasts()[1].participant().get(), 2);
+    }
+
+    #[test]
+    fn presign_round1_split_view_echo_cannot_reach_verified_state() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let (state_1, broadcast_1, proofs_1) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[0],
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (state_2, broadcast_2, proofs_2) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[1],
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (received_1, echo_1) =
+            presign_round1_receive(state_1, broadcast_2, proofs_2, &fixture.aux[0]).unwrap();
+        let (_, mut echo_2) = presign_round1_receive(
+            state_2,
+            broadcast_1,
+            proofs_1,
+            &fixture.aux[1],
+        )
+        .unwrap();
+        echo_2.digest[0] ^= 1;
+        assert_eq!(
+            presign_round1_finalize_inner(
+                received_1,
+                &[echo_1, echo_2],
+                &fixture.aux[0],
+                TEST_ROUND1_SECURITY,
+            )
+            .err()
+            .unwrap(),
+            PresignStateError::EchoMismatch
+        );
+    }
+
+    #[test]
+    fn presign_round1_tampered_peer_proof_and_aux_swap_are_rejected() {
+        let fixture = round1_fixture();
+        let mut rng = OsRng;
+        let (state_1, broadcast_1, proofs_1) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[0],
+            &fixture.aux[0],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        let (state_2, broadcast_2, mut proofs_2) = presign_round1_begin_inner(
+            fixture.execution,
+            &fixture.shares[1],
+            &fixture.aux[1],
+            &mut rng,
+            TEST_ROUND1_SECURITY,
+        )
+        .unwrap();
+        assert_eq!(
+            presign_round1_receive(
+                state_2,
+                broadcast_1,
+                proofs_1,
+                &fixture.aux[2],
+            )
+            .err()
+            .unwrap(),
+            PresignStateError::AuxiliaryMismatch
+        );
+
+        proofs_2.pi_k.z1 += Integer::from(1u8);
+        let (received_1, echo_1) =
+            presign_round1_receive(state_1, broadcast_2, proofs_2, &fixture.aux[0]).unwrap();
+        let echo_2 = PresignRound1Echo {
+            execution: fixture.execution.digest(),
+            participant: ParticipantId::new(2).unwrap(),
+            digest: echo_1.digest(),
+        };
+        assert_eq!(
+            presign_round1_finalize_inner(
+                received_1,
+                &[echo_1, echo_2],
+                &fixture.aux[0],
+                TEST_ROUND1_SECURITY,
+            )
+            .err()
+            .unwrap(),
+            PresignStateError::InvalidRound1Proof(2)
+        );
+
+        let production_execution = ExecutionId::new(b"presign-round1-production-gate").unwrap();
+        assert_eq!(
+            presign_round1_begin(
+                production_execution,
+                &fixture.shares[0],
+                &fixture.aux[0],
+                &mut rng,
+            )
+            .err()
+            .unwrap(),
+            PresignStateError::Proof(PresignProofError::ModulusTooSmall)
+        );
     }
 
     #[test]
