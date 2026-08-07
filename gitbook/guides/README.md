@@ -10,7 +10,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Strategy Lifecycle](strategy-lifecycle.md) | Backtest/replay -> paper -> live gates, net P&L, and operational safety |
 | [Build a Strategy Product with Flywheel](flywheel.md) | Outcome-safe execution, evaluation boundaries, OSS positioning, and paid product patterns |
 | [Build a Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) | Executable-route screening, request economics, paid intelligence, and safe two-leg handoff |
-| [Build a Trading Bot](building-a-trading-bot.md) | Signal vs route authority, durable managed execution, OSS tradeoffs, and a monitor-to-automation product ladder |
+| [Build a Standalone Trading Bot](building-a-trading-bot.md) | Single-node execution safety, REST/SDK/MCP authority, OSS tradeoffs, and a monitor-to-automation business ladder |
 | [Build a Recurring DCA Product](dca-automation.md) | Schedule identity, outcome-safe recurring execution, bounded request economics, and a preview-to-automation product ladder |
 | [Build Prediction Market Research](prediction-markets.md) | Read-only market-health snapshots, alert economics, calibration, OSS tradeoffs, and a paid-research product ladder |
 | [Build a Lending Monitor](lending-monitor.md) | Risk-aware Morpho snapshots, alert state, polling economics, OSS boundaries, and a paid-monitor product ladder |
@@ -38,7 +38,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 
 | Guide | What you'll build |
 |-------|-------------------|
-| [Building a Trading Bot](building-a-trading-bot.md) | A USDC price-target reference with quote guards, idempotency, reconciliation, and product economics |
+| [Building a Standalone Trading Bot](building-a-trading-bot.md) | A USDC price-target product with single-writer state, outcome recovery, observability, and builder economics |
 | [Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with DST-safe action identity, cost guards, recovery, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
