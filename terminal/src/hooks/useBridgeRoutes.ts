@@ -1,15 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api } from "../lib/api";
+import { waitForIntent } from "../lib/intentDelay";
 import type { BridgeRoutesRequest, BridgeTransfer } from "../types/bridge";
 import { STATE_COPY } from "../components/bridge/custody";
-
-const QUOTE_DEBOUNCE_MS = 500;
 
 /**
  * Cross-chain routes for a token.
  *
- * Mirrors useSwapQuote's debounce/stale behaviour so route refreshes feel the
+ * Mirrors useSwapQuote's intent/stale behaviour so route refreshes feel the
  * same as quote refreshes elsewhere in the terminal.
  */
 export function useBridgeRoutes(
@@ -40,9 +39,9 @@ export function useBridgeRoutes(
 
   return useQuery({
     queryKey,
-    queryFn: async () => {
-      await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS));
-      return api.getBridgeRoutes(request as BridgeRoutesRequest);
+    queryFn: async ({ signal }) => {
+      await waitForIntent(signal);
+      return api.getBridgeRoutes(request as BridgeRoutesRequest, signal);
     },
     enabled: enabled && isValidRequest,
     staleTime: 10_000,

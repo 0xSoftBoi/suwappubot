@@ -12,6 +12,7 @@ show_wallet_selection (which enforces 2FA + spending limits) — and never calls
 execute_swap directly.
 """
 
+import asyncio
 import os
 import re
 from types import SimpleNamespace
@@ -796,6 +797,88 @@ async def test_single_wallet_confirm_rejects_forged_multiwallet_state(tmp_db, mo
     get_quote.assert_not_awaited()
     last_message = update.callback_query.edit_message_text.call_args.args[0].lower()
     assert "one wallet" in last_message
+
+
+@pytest.mark.asyncio
+async def test_swap_confirm_renders_preflight_before_slow_balance_validation(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+    from bot.models.user import User, Wallet
+    from database.db import SessionLocal
+
+    with SessionLocal() as session:
+        user = User(telegram_id=777469, tos_accepted=True)
+        session.add(user)
+        session.flush()
+        wallet = Wallet(
+            user_id=user.id,
+            name="Preflight Wallet",
+            address="0x00000000000000000000000000000000000000c3",
+            chain_type="evm",
+            is_default=True,
+        )
+        session.add(wallet)
+        session.commit()
+        user_id, wallet_id = user.id, wallet.id
+
+    update, context = _cb_update("swap_confirm", user_id=777469), _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "quote": SimpleNamespace(),
+                "wallet_id": wallet_id,
+                "selected_wallets": [wallet_id],
+            },
+        }
+    )
+
+    preflight_rendered = asyncio.Event()
+    validation_started = asyncio.Event()
+    release_validation = asyncio.Event()
+    order = []
+
+    async def record_edit(text, *args, **kwargs):
+        order.append(("edit", text))
+        if "Validating balances & gas" in text:
+            preflight_rendered.set()
+
+    async def slow_balance_validation(*args, **kwargs):
+        order.append(("balance", "started"))
+        validation_started.set()
+        await release_validation.wait()
+        return True
+
+    update.callback_query.edit_message_text = AsyncMock(side_effect=record_edit)
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    monkeypatch.setattr(swap.quote_validator, "validate_balance", slow_balance_validation)
+    monkeypatch.setattr(swap.quote_validator, "validate_gas", AsyncMock(return_value=True))
+    run_confirmed = AsyncMock(return_value=swap.ConversationHandler.END)
+    monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
+
+    task = asyncio.create_task(swap.confirm_swap(update, context))
+    await asyncio.wait_for(validation_started.wait(), timeout=1)
+
+    assert preflight_rendered.is_set()
+    assert order[:2] == [
+        ("edit", "⏳ Validating balances & gas…"),
+        ("balance", "started"),
+    ]
+    assert not task.done()
+
+    release_validation.set()
+    await asyncio.wait_for(task, timeout=1)
+    run_confirmed.assert_awaited_once()
+
+    # The preflight paint is UX-only. A transient Telegram edit failure must not
+    # become a new dependency that blocks otherwise-valid execution handoff.
+    from telegram.error import TelegramError
+
+    run_confirmed.reset_mock()
+    update.callback_query.edit_message_text = AsyncMock(
+        side_effect=TelegramError("temporary Telegram edit failure")
+    )
+    await asyncio.wait_for(swap.confirm_swap(update, context), timeout=1)
+    run_confirmed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
