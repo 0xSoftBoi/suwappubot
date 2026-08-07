@@ -42,14 +42,17 @@ peer-specific `Pi_fac` no-small-factor proof, and the fixed 3-party reliable
 commit/echo/reveal/proof state transitions. Only the final peer-proof verifier
 can construct `VerifiedAuxSet`.
 
-`cggmp_presign.rs` begins section 4.3 with the current reference `Pi_enc-elg`
-and `Pi_elog` constructions. `Pi_enc-elg` binds Paillier encryption-in-range
-to the ElGamal-style curve relation used for both `k_i` and `gamma_i`, with
-separate transcript labels for the two witnesses. `Pi_elog` proves knowledge
-of `(y, lambda)` for `L = lambda*G`, `M = lambda*X + y*G`, and `Y = y*H`; its
-Fiat-Shamir context separately labels the round-two gamma proof and the later
-presignature consistency proof. These are only proof cores; they cannot
-construct `PresignatureShare`.
+`cggmp_presign.rs` begins section 4.3 with the current reference `Pi_enc-elg`,
+`Pi_elog`, and `Pi_aff` constructions. `Pi_enc-elg` binds Paillier
+encryption-in-range to the ElGamal-style curve relation used for both `k_i`
+and `gamma_i`, with separate transcript labels for the two witnesses.
+`Pi_elog` proves knowledge of `(y, lambda)` for `L = lambda*G`,
+`M = lambda*X + y*G`, and `Y = y*H`. `Pi_aff` proves the Paillier affine MtA
+relation `D = x*C + Enc(y)` while binding `x` to `X = x*G`, binding the same
+`y` under the prover's Paillier key, and enforcing the `ell=256`,
+`ell'=1280`, `epsilon=512` range profile. Transcript labels distinguish each
+proof's protocol role. These are only proof cores; they cannot construct
+`PresignatureShare`.
 
 The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
 public RSA moduli of at least 3071 bits, `m = 128` proof repetitions, and a
@@ -70,9 +73,10 @@ reference implementation has been audited.
 `PresignatureShare` still has no public constructor. The following pieces are
 intentionally missing or incomplete, and all must be implemented and tested:
 
-1. Finish section 4.3 presigning: `Pi_aff`, MtA equations, reliable first-round
-   broadcast, and final consistency/state checks. The current `Pi_enc-elg` and
-   `Pi_elog` proof cores do not authorize a presignature.
+1. Finish section 4.3 presigning: MtA message/state equations, reliable
+   first-round broadcast, and final consistency/state checks. The current
+   `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof cores do not authorize a
+   presignature.
 2. Production serialization plus authenticated broadcasts, encrypted
    point-to-point messages, durable unique execution IDs, timeout/abort
    behavior, and persisted one-shot presignatures.

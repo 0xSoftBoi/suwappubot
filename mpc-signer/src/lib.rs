@@ -28,8 +28,8 @@ pub const MALICIOUS_DKG_READY: bool = false;
 
 /// The secp256k1 DKG, signing-set conversion, final ECDSA equations, and the
 /// auxiliary-provisioning proof cores and reliable state transitions are
-/// implemented. Malicious presigning now has `Pi_enc-elg` and `Pi_elog` proof
-/// cores, but its remaining proofs/state transitions and authenticated wire
-/// transport are not complete. There is deliberately no public way to
+/// implemented. Malicious presigning now has `Pi_enc-elg`, `Pi_elog`, and
+/// `Pi_aff` proof cores, but its remaining state transitions and authenticated
+/// wire transport are not complete. There is deliberately no public way to
 /// manufacture a presignature.
 pub const MALICIOUS_ECDSA_READY: bool = false;

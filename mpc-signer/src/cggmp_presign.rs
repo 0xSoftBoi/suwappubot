@@ -1,9 +1,9 @@
 //! Malicious-presigning proof foundations for secp256k1 CGGMP24.
 //!
-//! This module starts with the `Pi_enc-elg` and `Pi_elog` proof cores used by
-//! CGGMP24 presigning. It deliberately does not expose a presignature
-//! constructor: `Pi_aff`, MtA, reliable broadcast, and the remaining state
-//! transitions/final consistency checks must all land first.
+//! This module starts with the `Pi_enc-elg`, `Pi_elog`, and `Pi_aff` proof
+//! cores used by CGGMP24 presigning. It deliberately does not expose a
+//! presignature constructor: MtA message/state transitions, reliable
+//! broadcast, and the remaining consistency checks must all land first.
 
 use fast_paillier::{backend::Integer, Ciphertext, EncryptionKey};
 use k256::{
@@ -23,11 +23,19 @@ use crate::{
 pub const PI_ENC_ELG_L_BITS: usize = 256;
 /// Statistical slack for `Pi_enc-elg` at the 128-bit profile.
 pub const PI_ENC_ELG_EPSILON_BITS: usize = 512;
+/// Multiplicative witness size `ell` for `Pi_aff` at the 128-bit profile.
+pub const PI_AFF_X_BITS: usize = 256;
+/// Additive mask size `ell'` for `Pi_aff` at the 128-bit profile.
+pub const PI_AFF_Y_BITS: usize = 1280;
+/// Statistical slack for `Pi_aff` at the 128-bit profile.
+pub const PI_AFF_EPSILON_BITS: usize = 512;
 
 const PI_ENC_ELG_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/challenge/v1";
 const PI_ENC_ELG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-enc-elg/hash-stream/v1";
 const PI_ELOG_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/challenge/v1";
 const PI_ELOG_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-elog/hash-stream/v1";
+const PI_AFF_TAG: &[u8] = b"suwappu/cggmp24/pi-aff/challenge/v1";
+const PI_AFF_STREAM_TAG: &[u8] = b"suwappu/cggmp24/pi-aff/hash-stream/v1";
 const SECP256K1_ORDER: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
@@ -49,7 +57,13 @@ pub enum PresignProofError {
     InvalidPiElogWitness,
     #[error("PiElog proof is invalid")]
     InvalidPiElog,
-    #[error("Paillier operation failed while constructing PiEncElg")]
+    #[error("PiAff public statement is outside the required domains")]
+    InvalidPiAffStatement,
+    #[error("PiAff witness does not match the public statement")]
+    InvalidPiAffWitness,
+    #[error("PiAff proof is invalid")]
+    InvalidPiAff,
+    #[error("Paillier operation failed while constructing a presigning proof")]
     Paillier,
 }
 
@@ -220,10 +234,111 @@ impl PiElogProof {
     }
 }
 
+/// Separates the gamma MtA proof from the long-term signing-share MtA proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PiAffKind {
+    GammaShare,
+    SigningShare,
+}
+
+impl PiAffKind {
+    fn transcript_byte(self) -> u8 {
+        match self {
+            Self::GammaShare => 0,
+            Self::SigningShare => 1,
+        }
+    }
+}
+
+/// Public `Pi_aff` statement `(C, D, Y, X)`.
+///
+/// `C` and `D` use the verifier/peer Paillier key, `Y` uses the prover's
+/// Paillier key, and `X = x*G` binds the multiplicative witness to secp256k1.
+#[derive(Clone, Debug)]
+pub struct PiAffStatement {
+    c: Ciphertext,
+    d: Ciphertext,
+    y: Ciphertext,
+    x: ProjectivePoint,
+}
+
+impl PiAffStatement {
+    pub fn new(c: Ciphertext, d: Ciphertext, y: Ciphertext, x: ProjectivePoint) -> Self {
+        Self { c, d, y, x }
+    }
+
+    pub fn ciphertext_bytes(&self) -> [Vec<u8>; 3] {
+        [
+            self.c.to_bytes_msf(),
+            self.d.to_bytes_msf(),
+            self.y.to_bytes_msf(),
+        ]
+    }
+
+    pub fn curve_point_bytes(&self) -> Result<[u8; 33], PresignProofError> {
+        encode_point(&self.x).map_err(|_| PresignProofError::InvalidPiAffStatement)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PiAffCommitment {
+    a: Integer,
+    b_x: ProjectivePoint,
+    b_y: Integer,
+    e: Integer,
+    s: Integer,
+    f: Integer,
+    t: Integer,
+}
+
+/// Non-interactive CGGMP24 `Pi_aff` proof.
+#[derive(Clone, Debug)]
+pub struct PiAffProof {
+    commitment: PiAffCommitment,
+    z1: Integer,
+    z2: Integer,
+    z3: Integer,
+    z4: Integer,
+    w: Integer,
+    w_y: Integer,
+}
+
+impl PiAffProof {
+    pub fn commitment_integer_bytes(&self) -> [Vec<u8>; 6] {
+        [
+            self.commitment.a.to_bytes_msf(),
+            self.commitment.b_y.to_bytes_msf(),
+            self.commitment.e.to_bytes_msf(),
+            self.commitment.s.to_bytes_msf(),
+            self.commitment.f.to_bytes_msf(),
+            self.commitment.t.to_bytes_msf(),
+        ]
+    }
+
+    pub fn commitment_curve_bytes(&self) -> Result<[u8; 33], PresignProofError> {
+        encode_point(&self.commitment.b_x).map_err(|_| PresignProofError::InvalidPiAff)
+    }
+}
+
 #[derive(Clone, Copy)]
 struct PiEncElgSecurity {
     l: usize,
     epsilon: usize,
+}
+
+#[derive(Clone, Copy)]
+struct PiAffSecurity {
+    l_x: usize,
+    l_y: usize,
+    epsilon: usize,
+}
+
+impl PiAffSecurity {
+    const PRODUCTION: Self = Self {
+        l_x: PI_AFF_X_BITS,
+        l_y: PI_AFF_Y_BITS,
+        epsilon: PI_AFF_EPSILON_BITS,
+    };
 }
 
 impl PiEncElgSecurity {
@@ -349,6 +464,70 @@ pub fn verify_pi_elog(
         return Err(PresignProofError::InvalidPiElog);
     }
     Ok(())
+}
+
+/// Prove the verifier-specific CGGMP24 Paillier affine relation used by MtA.
+#[allow(clippy::too_many_arguments)]
+pub fn prove_pi_aff(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    kind: PiAffKind,
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    x: &Integer,
+    y: &Integer,
+    nonce: &Integer,
+    nonce_y: &Integer,
+    rng: &mut (impl RngCore + CryptoRng),
+) -> Result<PiAffProof, PresignProofError> {
+    prove_pi_aff_inner(
+        execution,
+        prover,
+        verifier,
+        kind,
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        x,
+        y,
+        nonce,
+        nonce_y,
+        rng,
+        PiAffSecurity::PRODUCTION,
+        crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
+    )
+}
+
+/// Verify the verifier-specific CGGMP24 Paillier affine relation used by MtA.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_pi_aff(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    kind: PiAffKind,
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    proof: &PiAffProof,
+) -> Result<(), PresignProofError> {
+    verify_pi_aff_inner(
+        execution,
+        prover,
+        verifier,
+        kind,
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        proof,
+        PiAffSecurity::PRODUCTION,
+        crate::cggmp_aux::RSA_PUBLIC_MIN_BITS,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -522,6 +701,321 @@ fn verify_pi_enc_elg_inner(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn prove_pi_aff_inner(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    kind: PiAffKind,
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    x: &Integer,
+    y: &Integer,
+    nonce: &Integer,
+    nonce_y: &Integer,
+    rng: &mut (impl RngCore + CryptoRng),
+    security: PiAffSecurity,
+    min_modulus_bits: u64,
+) -> Result<PiAffProof, PresignProofError> {
+    validate_pi_aff_statement(
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        security,
+        min_modulus_bits,
+    )?;
+    let x_range = Integer::from(1u8) << security.l_x;
+    let y_range = Integer::from(1u8) << security.l_y;
+    if !is_in_half_pm(x, &x_range)
+        || !is_in_half_pm(y, &y_range)
+        || !key_j.in_signed_group(y)
+        || !key_i.in_signed_group(y)
+        || !nonce.in_mult_group_of(key_j.n())
+        || !nonce_y.in_mult_group_of(key_i.n())
+    {
+        return Err(PresignProofError::InvalidPiAffWitness);
+    }
+    let x_at_c = key_j
+        .omul(x, &statement.c)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let y_under_j = key_j
+        .encrypt_with(y, nonce)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let expected_d = key_j
+        .oadd(&x_at_c, &y_under_j)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let expected_y = key_i
+        .encrypt_with(y, nonce_y)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    if ProjectivePoint::GENERATOR * integer_to_scalar(x) != statement.x
+        || expected_d != statement.d
+        || expected_y != statement.y
+    {
+        return Err(PresignProofError::InvalidPiAffWitness);
+    }
+
+    let l_x_epsilon = security
+        .l_x
+        .checked_add(security.epsilon)
+        .ok_or(PresignProofError::InvalidPiAffWitness)?;
+    let l_y_epsilon = security
+        .l_y
+        .checked_add(security.epsilon)
+        .ok_or(PresignProofError::InvalidPiAffWitness)?;
+    let two_to_l_x_epsilon = Integer::from(1u8) << l_x_epsilon;
+    let two_to_l_y_epsilon = Integer::from(1u8) << l_y_epsilon;
+    let aux_at_two_to_l_x_epsilon = &verifier_params.modulus * &two_to_l_x_epsilon;
+    let aux_at_two_to_l_x = &verifier_params.modulus * &x_range;
+
+    let alpha = loop {
+        let candidate = sample_half_pm(rng, &two_to_l_x_epsilon)
+            .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+        if integer_to_scalar(&candidate) != Scalar::ZERO {
+            break candidate;
+        }
+    };
+    let beta = sample_half_pm(rng, &two_to_l_y_epsilon)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let r = Integer::sample_in_mult_group_of(rng, key_j.n());
+    let r_y = Integer::sample_in_mult_group_of(rng, key_i.n());
+    let gamma = sample_half_pm(rng, &aux_at_two_to_l_x_epsilon)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let delta = sample_half_pm(rng, &aux_at_two_to_l_x_epsilon)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let m = sample_half_pm(rng, &aux_at_two_to_l_x)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+    let mu = sample_half_pm(rng, &aux_at_two_to_l_x)
+        .map_err(|_| PresignProofError::InvalidPiAffWitness)?;
+
+    let alpha_at_c = key_j
+        .omul(&alpha, &statement.c)
+        .map_err(|_| PresignProofError::Paillier)?;
+    let beta_encrypted_j = key_j
+        .encrypt_with(&beta, &r)
+        .map_err(|_| PresignProofError::Paillier)?;
+    let a = key_j
+        .oadd(&alpha_at_c, &beta_encrypted_j)
+        .map_err(|_| PresignProofError::Paillier)?;
+    let commitment = PiAffCommitment {
+        a,
+        b_x: ProjectivePoint::GENERATOR * integer_to_scalar(&alpha),
+        b_y: key_i
+            .encrypt_with(&beta, &r_y)
+            .map_err(|_| PresignProofError::Paillier)?,
+        e: ring_combine(verifier_params, &alpha, &gamma)?,
+        s: ring_combine(verifier_params, x, &m)?,
+        f: ring_combine(verifier_params, &beta, &delta)?,
+        t: ring_combine(verifier_params, y, &mu)?,
+    };
+    let challenge = pi_aff_challenge(
+        execution,
+        prover,
+        verifier,
+        kind,
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        &commitment,
+        security,
+    )?;
+    let nonce_to_challenge = nonce
+        .pow_mod_ref(&challenge, key_j.n())
+        .ok_or(PresignProofError::Paillier)?;
+    let nonce_y_to_challenge = nonce_y
+        .pow_mod_ref(&challenge, key_i.n())
+        .ok_or(PresignProofError::Paillier)?;
+    Ok(PiAffProof {
+        z1: &alpha + &challenge * x,
+        z2: &beta + &challenge * y,
+        z3: &gamma + &challenge * &m,
+        z4: &delta + &challenge * &mu,
+        w: (&r * nonce_to_challenge).modulo(key_j.n()),
+        w_y: (&r_y * nonce_y_to_challenge).modulo(key_i.n()),
+        commitment,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_pi_aff_inner(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    kind: PiAffKind,
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    proof: &PiAffProof,
+    security: PiAffSecurity,
+    min_modulus_bits: u64,
+) -> Result<(), PresignProofError> {
+    validate_pi_aff_statement(
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        security,
+        min_modulus_bits,
+    )?;
+    if !proof.commitment.a.in_mult_group_of(key_j.nn())
+        || proof.commitment.b_x == ProjectivePoint::IDENTITY
+        || !proof.commitment.b_y.in_mult_group_of(key_i.nn())
+        || !proof
+            .commitment
+            .e
+            .in_mult_group_of(&verifier_params.modulus)
+        || !proof
+            .commitment
+            .s
+            .in_mult_group_of(&verifier_params.modulus)
+        || !proof
+            .commitment
+            .f
+            .in_mult_group_of(&verifier_params.modulus)
+        || !proof
+            .commitment
+            .t
+            .in_mult_group_of(&verifier_params.modulus)
+        || !proof.w.in_mult_group_of(key_j.n())
+        || !proof.w_y.in_mult_group_of(key_i.n())
+    {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+    let l_x_epsilon = security
+        .l_x
+        .checked_add(security.epsilon)
+        .ok_or(PresignProofError::InvalidPiAff)?;
+    let l_y_epsilon = security
+        .l_y
+        .checked_add(security.epsilon)
+        .ok_or(PresignProofError::InvalidPiAff)?;
+    let z1_range = Integer::from(1u8) << l_x_epsilon;
+    let z2_range = Integer::from(1u8) << l_y_epsilon;
+    if !is_in_half_pm(&proof.z1, &z1_range)
+        || !is_in_half_pm(&proof.z2, &z2_range)
+        || !key_j.in_signed_group(&proof.z2)
+        || !key_i.in_signed_group(&proof.z2)
+    {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+
+    let challenge = pi_aff_challenge(
+        execution,
+        prover,
+        verifier,
+        kind,
+        verifier_params,
+        key_j,
+        key_i,
+        statement,
+        &proof.commitment,
+        security,
+    )?;
+
+    let z1_at_c = key_j
+        .omul(&proof.z1, &statement.c)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let encrypted_z2 = key_j
+        .encrypt_with(&proof.z2, &proof.w)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let lhs_affine = key_j
+        .oadd(&z1_at_c, &encrypted_z2)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let challenge_at_d = key_j
+        .omul(&challenge, &statement.d)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let rhs_affine = key_j
+        .oadd(&proof.commitment.a, &challenge_at_d)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    if lhs_affine != rhs_affine {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+
+    if ProjectivePoint::GENERATOR * integer_to_scalar(&proof.z1)
+        != proof.commitment.b_x + statement.x * integer_to_scalar(&challenge)
+    {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+
+    let encrypted_z2_i = key_i
+        .encrypt_with(&proof.z2, &proof.w_y)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let challenge_at_y = key_i
+        .omul(&challenge, &statement.y)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let rhs_y = key_i
+        .oadd(&proof.commitment.b_y, &challenge_at_y)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    if encrypted_z2_i != rhs_y {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+
+    let lhs_x = ring_combine(verifier_params, &proof.z1, &proof.z3)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let s_to_challenge = proof
+        .commitment
+        .s
+        .pow_mod_ref(&challenge, &verifier_params.modulus)
+        .ok_or(PresignProofError::InvalidPiAff)?;
+    let rhs_x = (&proof.commitment.e * s_to_challenge).modulo(&verifier_params.modulus);
+    if lhs_x != rhs_x {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+
+    let lhs_y = ring_combine(verifier_params, &proof.z2, &proof.z4)
+        .map_err(|_| PresignProofError::InvalidPiAff)?;
+    let t_to_challenge = proof
+        .commitment
+        .t
+        .pow_mod_ref(&challenge, &verifier_params.modulus)
+        .ok_or(PresignProofError::InvalidPiAff)?;
+    let rhs_y = (&proof.commitment.f * t_to_challenge).modulo(&verifier_params.modulus);
+    if lhs_y != rhs_y {
+        return Err(PresignProofError::InvalidPiAff);
+    }
+    Ok(())
+}
+
+fn validate_pi_aff_statement(
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    security: PiAffSecurity,
+    min_modulus_bits: u64,
+) -> Result<(), PresignProofError> {
+    if key_j.n().significant_bits() < min_modulus_bits
+        || key_i.n().significant_bits() < min_modulus_bits
+        || verifier_params.modulus.significant_bits() < min_modulus_bits
+    {
+        return Err(PresignProofError::ModulusTooSmall);
+    }
+    if key_j.n().cmp0().is_le()
+        || key_j.n().is_even()
+        || key_i.n().cmp0().is_le()
+        || key_i.n().is_even()
+        || verifier_params.modulus.cmp0().is_le()
+        || verifier_params.modulus.is_even()
+        || !verifier_params.s.in_mult_group_of(&verifier_params.modulus)
+        || !verifier_params.t.in_mult_group_of(&verifier_params.modulus)
+        || !statement.c.in_mult_group_of(key_j.nn())
+        || !statement.d.in_mult_group_of(key_j.nn())
+        || !statement.y.in_mult_group_of(key_i.nn())
+        || statement.x == ProjectivePoint::IDENTITY
+        || security.l_x == 0
+        || security.l_y == 0
+        || security.l_x.checked_add(security.epsilon).is_none()
+        || security.l_y.checked_add(security.epsilon).is_none()
+    {
+        return Err(PresignProofError::InvalidPiAffStatement);
+    }
+    Ok(())
+}
+
 fn validate_statement(
     verifier_params: &RingPedersenParams,
     key: &EncryptionKey,
@@ -598,6 +1092,49 @@ fn pi_enc_elg_challenge(
     transcript_point(&mut hasher, &commitment.z)?;
     let seed: [u8; 32] = hasher.finalize().into();
     let mut rng = HashStreamRng::new(seed, PI_ENC_ELG_STREAM_TAG);
+    sample_half_pm(&mut rng, &secp256k1_order())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pi_aff_challenge(
+    execution: ExecutionId,
+    prover: ParticipantId,
+    verifier: ParticipantId,
+    kind: PiAffKind,
+    verifier_params: &RingPedersenParams,
+    key_j: &EncryptionKey,
+    key_i: &EncryptionKey,
+    statement: &PiAffStatement,
+    commitment: &PiAffCommitment,
+    security: PiAffSecurity,
+) -> Result<Integer, PresignProofError> {
+    let mut hasher = Sha256::new();
+    hasher.update(PI_AFF_TAG);
+    hasher.update(execution.digest());
+    hasher.update(prover.get().to_be_bytes());
+    hasher.update(verifier.get().to_be_bytes());
+    hasher.update([kind.transcript_byte()]);
+    hasher.update((security.l_x as u64).to_be_bytes());
+    hasher.update((security.l_y as u64).to_be_bytes());
+    hasher.update((security.epsilon as u64).to_be_bytes());
+    transcript_integer(&mut hasher, &verifier_params.modulus);
+    transcript_integer(&mut hasher, &verifier_params.s);
+    transcript_integer(&mut hasher, &verifier_params.t);
+    transcript_integer(&mut hasher, key_j.n());
+    transcript_integer(&mut hasher, key_i.n());
+    transcript_integer(&mut hasher, &statement.c);
+    transcript_integer(&mut hasher, &statement.d);
+    transcript_integer(&mut hasher, &statement.y);
+    transcript_point(&mut hasher, &statement.x)?;
+    transcript_integer(&mut hasher, &commitment.a);
+    transcript_point(&mut hasher, &commitment.b_x)?;
+    transcript_integer(&mut hasher, &commitment.b_y);
+    transcript_integer(&mut hasher, &commitment.e);
+    transcript_integer(&mut hasher, &commitment.s);
+    transcript_integer(&mut hasher, &commitment.f);
+    transcript_integer(&mut hasher, &commitment.t);
+    let seed: [u8; 32] = hasher.finalize().into();
+    let mut rng = HashStreamRng::new(seed, PI_AFF_STREAM_TAG);
     sample_half_pm(&mut rng, &secp256k1_order())
 }
 
@@ -789,6 +1326,11 @@ mod tests {
     use super::*;
 
     const TEST_SECURITY: PiEncElgSecurity = PiEncElgSecurity { l: 8, epsilon: 512 };
+    const TEST_AFF_SECURITY: PiAffSecurity = PiAffSecurity {
+        l_x: 8,
+        l_y: 8,
+        epsilon: 512,
+    };
 
     fn test_params() -> RingPedersenParams {
         RingPedersenParams {
@@ -853,6 +1395,61 @@ mod tests {
             h,
         };
         (execution, prover, statement, y, lambda)
+    }
+
+    struct AffFixture {
+        execution: ExecutionId,
+        prover: ParticipantId,
+        verifier: ParticipantId,
+        params: RingPedersenParams,
+        key_j: EncryptionKey,
+        key_i: EncryptionKey,
+        statement: PiAffStatement,
+        x: Integer,
+        y: Integer,
+        nonce: Integer,
+        nonce_y: Integer,
+    }
+
+    fn honest_aff_fixture() -> AffFixture {
+        let execution = ExecutionId::new(b"pi-aff-test").unwrap();
+        let prover = ParticipantId::new(1).unwrap();
+        let verifier = ParticipantId::new(2).unwrap();
+        let params = test_params();
+        let key_j = test_key();
+        let key_i = test_key();
+        let x = Integer::from(7u8);
+        let y = -Integer::from(9u8);
+        let mut rng = OsRng;
+        let c_nonce = Integer::sample_in_mult_group_of(&mut rng, key_j.n());
+        let c = key_j
+            .encrypt_with(&Integer::from(3u8), &c_nonce)
+            .unwrap();
+        let nonce = Integer::sample_in_mult_group_of(&mut rng, key_j.n());
+        let nonce_y = Integer::sample_in_mult_group_of(&mut rng, key_i.n());
+        let x_at_c = key_j.omul(&x, &c).unwrap();
+        let y_under_j = key_j.encrypt_with(&y, &nonce).unwrap();
+        let d = key_j.oadd(&x_at_c, &y_under_j).unwrap();
+        let y_ciphertext = key_i.encrypt_with(&y, &nonce_y).unwrap();
+        let statement = PiAffStatement {
+            c,
+            d,
+            y: y_ciphertext,
+            x: ProjectivePoint::GENERATOR * integer_to_scalar(&x),
+        };
+        AffFixture {
+            execution,
+            prover,
+            verifier,
+            params,
+            key_j,
+            key_i,
+            statement,
+            x,
+            y,
+            nonce,
+            nonce_y,
+        }
     }
 
     #[test]
@@ -1127,6 +1724,203 @@ mod tests {
             ),
             Err(PresignProofError::InvalidPiElogStatement)
         );
+    }
+
+    #[test]
+    fn pi_aff_accepts_honest_mta_relation_and_binds_verifier() {
+        let fixture = honest_aff_fixture();
+        let mut rng = OsRng;
+        let proof = prove_pi_aff_inner(
+            fixture.execution,
+            fixture.prover,
+            fixture.verifier,
+            PiAffKind::GammaShare,
+            &fixture.params,
+            &fixture.key_j,
+            &fixture.key_i,
+            &fixture.statement,
+            &fixture.x,
+            &fixture.y,
+            &fixture.nonce,
+            &fixture.nonce_y,
+            &mut rng,
+            TEST_AFF_SECURITY,
+            1,
+        )
+        .unwrap();
+        verify_pi_aff_inner(
+            fixture.execution,
+            fixture.prover,
+            fixture.verifier,
+            PiAffKind::GammaShare,
+            &fixture.params,
+            &fixture.key_j,
+            &fixture.key_i,
+            &fixture.statement,
+            &proof,
+            TEST_AFF_SECURITY,
+            1,
+        )
+        .unwrap();
+
+        let other_verifier = ParticipantId::new(3).unwrap();
+        assert_eq!(
+            verify_pi_aff_inner(
+                fixture.execution,
+                fixture.prover,
+                other_verifier,
+                PiAffKind::GammaShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &fixture.statement,
+                &proof,
+                TEST_AFF_SECURITY,
+                1,
+            ),
+            Err(PresignProofError::InvalidPiAff)
+        );
+        assert_eq!(
+            verify_pi_aff_inner(
+                fixture.execution,
+                fixture.prover,
+                fixture.verifier,
+                PiAffKind::SigningShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &fixture.statement,
+                &proof,
+                TEST_AFF_SECURITY,
+                1,
+            ),
+            Err(PresignProofError::InvalidPiAff)
+        );
+    }
+
+    #[test]
+    fn pi_aff_rejects_tampered_response_and_ciphertext_domain() {
+        let fixture = honest_aff_fixture();
+        let mut rng = OsRng;
+        let mut proof = prove_pi_aff_inner(
+            fixture.execution,
+            fixture.prover,
+            fixture.verifier,
+            PiAffKind::SigningShare,
+            &fixture.params,
+            &fixture.key_j,
+            &fixture.key_i,
+            &fixture.statement,
+            &fixture.x,
+            &fixture.y,
+            &fixture.nonce,
+            &fixture.nonce_y,
+            &mut rng,
+            TEST_AFF_SECURITY,
+            1,
+        )
+        .unwrap();
+        proof.z2 += Integer::from(1u8);
+        assert_eq!(
+            verify_pi_aff_inner(
+                fixture.execution,
+                fixture.prover,
+                fixture.verifier,
+                PiAffKind::SigningShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &fixture.statement,
+                &proof,
+                TEST_AFF_SECURITY,
+                1,
+            ),
+            Err(PresignProofError::InvalidPiAff)
+        );
+
+        let mut invalid_statement = fixture.statement;
+        invalid_statement.d = Integer::from(0u8);
+        assert_eq!(
+            verify_pi_aff_inner(
+                fixture.execution,
+                fixture.prover,
+                fixture.verifier,
+                PiAffKind::SigningShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &invalid_statement,
+                &proof,
+                TEST_AFF_SECURITY,
+                1,
+            ),
+            Err(PresignProofError::InvalidPiAffStatement)
+        );
+    }
+
+    #[test]
+    fn pi_aff_rejects_wrong_witness_and_production_rejects_test_moduli() {
+        let fixture = honest_aff_fixture();
+        let mut rng = OsRng;
+        let mut wrong_y = fixture.y.clone();
+        wrong_y += Integer::from(1u8);
+        assert_eq!(
+            prove_pi_aff_inner(
+                fixture.execution,
+                fixture.prover,
+                fixture.verifier,
+                PiAffKind::GammaShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &fixture.statement,
+                &fixture.x,
+                &wrong_y,
+                &fixture.nonce,
+                &fixture.nonce_y,
+                &mut rng,
+                TEST_AFF_SECURITY,
+                1,
+            )
+            .unwrap_err(),
+            PresignProofError::InvalidPiAffWitness
+        );
+
+        let proof = prove_pi_aff_inner(
+            fixture.execution,
+            fixture.prover,
+            fixture.verifier,
+            PiAffKind::GammaShare,
+            &fixture.params,
+            &fixture.key_j,
+            &fixture.key_i,
+            &fixture.statement,
+            &fixture.x,
+            &fixture.y,
+            &fixture.nonce,
+            &fixture.nonce_y,
+            &mut rng,
+            TEST_AFF_SECURITY,
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            verify_pi_aff(
+                fixture.execution,
+                fixture.prover,
+                fixture.verifier,
+                PiAffKind::GammaShare,
+                &fixture.params,
+                &fixture.key_j,
+                &fixture.key_i,
+                &fixture.statement,
+                &proof,
+            ),
+            Err(PresignProofError::ModulusTooSmall)
+        );
+        assert_eq!(PI_AFF_X_BITS, 256);
+        assert_eq!(PI_AFF_Y_BITS, 1280);
+        assert_eq!(PI_AFF_EPSILON_BITS, 512);
     }
 
     #[test]
