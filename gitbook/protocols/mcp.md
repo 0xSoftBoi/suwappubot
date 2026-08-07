@@ -96,9 +96,9 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `browse_mpp_directory` | Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory | `category`, `limit` | 0 (free) |
 | `predict_markets` | Search and browse Polymarket prediction markets with live prices/volumes | `query`, `limit` | 1 |
 | `predict_market` | Detailed market info with live CLOB midpoint prices per outcome (alias: `predict_market_detail`) | `market_id` | 1 |
-| `perps_markets` | List HyperLiquid perpetual futures markets (mark price, funding rate, max leverage) | — | 1 |
-| `perps_quote` | Quote a HyperLiquid perp position: entry price, margin, liquidation price, fees | `market`, `side`, `size`, `leverage` | 1 |
-| `perps_positions` | Open HyperLiquid perp positions for a wallet (size, entry, PnL, liquidation price) | `address` | 1 |
+| `perps_markets` | List supported HyperLiquid perpetual futures markets (live mark/funding, Suwappu quote max, raw venue max) | — | 1 |
+| `perps_quote` | Quote a HyperLiquid perp position: indicative entry, margin, liquidation price, current funding, fees | `market`, `side`, `size`, `leverage` | 1 |
+| `perps_positions` | Open HyperLiquid perp positions for a wallet (size, entry, PnL, liquidation price, current market funding) | `address` | 1 |
 | `lend_markets` | List Morpho lending markets on a chain (supply/borrow APY, LLTV, utilization, TVL) | `chain_id` | 1 |
 | `lend_market` | Detail for a single Morpho lending market by ID | `market_id` | 1 |
 | `get_swap_status` | Status of a managed swap created through REST `/swap/execute` | `swap_id` | 1 |
@@ -370,7 +370,7 @@ Older clients may still call the supported `predict_market_detail` alias, but ne
 
 ### 11. perps_markets
 
-List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals. No parameters required.
+List supported Hyperliquid perpetual futures markets with live mark/funding context, the Suwappu quote `maxLeverage`, raw `venueMaxLeverage`, and size decimals. No parameters required.
 
 **Example call:**
 
@@ -388,14 +388,14 @@ List available Hyperliquid perpetual futures markets with mark price, funding ra
 
 ### 12. perps_quote
 
-Quote a Hyperliquid perpetual position: entry price, margin required, liquidation price, funding rate, and fees. Requires authentication.
+Quote a Hyperliquid perpetual position: indicative entry price, margin required, approximate liquidation price, current raw market funding rate, and fees. Requires authentication and does not execute a position.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `market` | string | Yes | Perp market symbol (e.g. "ETH-PERP", "BTC-PERP") from `perps_markets` |
+| `market` | string | Yes | Perp market `name` (e.g. `"ETH-USD"`, `"BTC-USD"`) returned by `perps_markets` |
 | `side` | string | Yes | Position direction: `long` or `short` |
 | `size` | number | Yes | Position size in the base asset |
-| `leverage` | number | Yes | Leverage multiplier (e.g. 10) |
+| `leverage` | number | Yes | Leverage multiplier from 1 through that market's returned `maxLeverage` |
 
 **Example call:**
 
@@ -407,7 +407,7 @@ Quote a Hyperliquid perpetual position: entry price, margin required, liquidatio
   "params": {
     "name": "perps_quote",
     "arguments": {
-      "market": "ETH-PERP",
+      "market": "ETH-USD",
       "side": "long",
       "size": 1.5,
       "leverage": 10
@@ -418,7 +418,7 @@ Quote a Hyperliquid perpetual position: entry price, margin required, liquidatio
 
 ### 13. perps_positions
 
-List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, and liquidation price.
+List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, liquidation price, and current raw market funding rate. The funding field is market context, not accrued position funding PnL.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

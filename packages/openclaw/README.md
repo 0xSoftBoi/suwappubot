@@ -146,6 +146,9 @@ client-only features. OpenClaw's `predict.*` surface is intentionally read-only
 even though the REST API has a separate prediction-order route. The current
 Agent API has no perps open/close endpoint and no Morpho deposit/withdraw
 endpoint; these methods are for research, monitoring, and product intelligence.
+For perps markets, `maxLeverage` is the current Suwappu quote cap while
+`venueMaxLeverage` is Hyperliquid's raw venue maximum; `fundingRate` is current
+market context rather than accrued position funding P&L.
 
 ## Development
 

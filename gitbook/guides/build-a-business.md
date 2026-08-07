@@ -13,7 +13,7 @@ Three business models fit the current APIs well.
 Sell information or decisions without taking custody:
 
 - portfolio analysis and rebalance recommendations;
-- perps liquidation-risk or market alerts;
+- perps liquidation-buffer, live-funding, or position-risk alerts;
 - lending-rate/risk monitors;
 - prediction-market research and calibration;
 - route, price, or cross-chain opportunity alerts.

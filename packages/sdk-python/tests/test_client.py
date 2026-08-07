@@ -510,7 +510,7 @@ class TestPerpsNamespace:
     @pytest.mark.asyncio
     async def test_markets(self, client: SuwappuClient) -> None:
         mock_data = {"markets": [
-            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "markPrice": 2847, "fundingRate": 0.01}
+            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "venueMaxLeverage": 25, "markPrice": 2847, "fundingRate": 0.000125}
         ]}
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
@@ -519,6 +519,19 @@ class TestPerpsNamespace:
         assert len(markets) == 1
         assert isinstance(markets[0], PerpMarket)
         assert markets[0].name == "ETH-USD"
+        assert markets[0].max_leverage == 20
+        assert markets[0].venue_max_leverage == 25
+        assert markets[0].funding_rate == 0.000125
+
+    @pytest.mark.asyncio
+    async def test_markets_do_not_invent_missing_live_funding(self, client: SuwappuClient) -> None:
+        mock_data = {"markets": [
+            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "venueMaxLeverage": 25, "markPrice": 2847}
+        ]}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            with pytest.raises(KeyError, match="fundingRate"):
+                await client.perps.markets()
 
     @pytest.mark.asyncio
     async def test_quote(self, client: SuwappuClient) -> None:

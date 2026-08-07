@@ -116,6 +116,55 @@ describe("prediction contracts", () => {
   });
 });
 
+describe("perps contracts", () => {
+  it("preserves the effective and venue leverage caps plus live funding", async () => {
+    const c = client();
+    nextBody = {
+      markets: [
+        {
+          name: "ETH-USD",
+          asset: "ETH",
+          szDecimals: 4,
+          maxLeverage: 20,
+          venueMaxLeverage: 25,
+          markPrice: 3200,
+          fundingRate: 0.000125,
+        },
+      ],
+    };
+
+    const markets = await c.perps.markets();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/agent/perps/markets", body: null });
+    expect(markets[0]?.maxLeverage).toBe(20);
+    expect(markets[0]?.venueMaxLeverage).toBe(25);
+    expect(markets[0]?.fundingRate).toBe(0.000125);
+  });
+
+  it("posts only the documented perps quote fields", async () => {
+    const c = client();
+    nextBody = {
+      market: "ETH-USD",
+      side: "long",
+      size: 1,
+      leverage: 5,
+      entryPrice: 3199,
+      margin: 639.8,
+      liquidationPrice: 2623.18,
+      fundingRate: 0.000125,
+      fee: 0.6398,
+    };
+
+    await c.perps.quote({ market: "ETH-USD", side: "long", size: 1, leverage: 5 });
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/perps/quote",
+      body: { market: "ETH-USD", side: "long", size: 1, leverage: 5 },
+    });
+  });
+});
+
 describe("swap custody boundary", () => {
   it("executeManagedSwap uses the managed execution endpoint", async () => {
     const c = client();

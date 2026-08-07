@@ -417,8 +417,9 @@ class _PerpsNamespace:
                 asset=m.get("asset", ""),
                 sz_decimals=m.get("szDecimals", 0),
                 max_leverage=m.get("maxLeverage", 0),
-                mark_price=m.get("markPrice", 0),
-                funding_rate=m.get("fundingRate", 0),
+                venue_max_leverage=m.get("venueMaxLeverage", m.get("maxLeverage", 0)),
+                mark_price=m["markPrice"],
+                funding_rate=m["fundingRate"],
             )
             for m in data.get("markets", [])
         ]
@@ -437,7 +438,7 @@ class _PerpsNamespace:
             entry_price=data.get("entryPrice", 0),
             margin=data.get("margin", 0),
             liquidation_price=data.get("liquidationPrice", 0),
-            funding_rate=data.get("fundingRate", 0),
+            funding_rate=data["fundingRate"],
             fee=data.get("fee", 0),
         )
 
@@ -457,7 +458,7 @@ class _PerpsNamespace:
                 margin=p.get("margin", 0),
                 unrealized_pnl=p.get("unrealizedPnl", 0),
                 liquidation_price=p.get("liquidationPrice", 0),
-                funding_rate=p.get("fundingRate", 0),
+                funding_rate=p["fundingRate"],
             )
             for p in data.get("positions", [])
         ]

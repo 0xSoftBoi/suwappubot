@@ -245,6 +245,7 @@ export interface PerpMarket {
 	asset: string
 	szDecimals: number
 	maxLeverage: number
+	venueMaxLeverage: number
 	markPrice: number
 	fundingRate: number
 }

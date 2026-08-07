@@ -67,10 +67,12 @@ const SIMULATE_SWAP_INPUT = mcpInputSchema(SimulateSwapSchema, {
 })
 
 const PERPS_QUOTE_INPUT = mcpInputSchema(PerpsQuoteSchema, {
-	market: 'Perp market symbol (e.g. "ETH-PERP", "BTC-PERP") from perps_markets',
+	market:
+		'Perp market name (e.g. "ETH-USD", "BTC-USD") returned by perps_markets',
 	side: 'Position direction',
 	size: 'Position size in the base asset',
-	leverage: 'Leverage multiplier (e.g. 10). Between 1 and 20.',
+	leverage:
+		'Leverage multiplier (e.g. 10). Use the market maxLeverage returned by perps_markets; current Suwappu ceiling is 20.',
 })
 
 const TOOLS = [
