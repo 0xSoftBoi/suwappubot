@@ -36,30 +36,40 @@ boundaries for our fixed 2-of-3 profile. The implementation uses a fixed,
 domain-separated Suwappu byte encoding, so it is not claiming wire
 interoperability with the reference library. `ecdsa_cggmp.rs` implements the
 section 4.3.2 Shamir-to-additive conversion and section 4.4 final signature
-equations.
+equations. `cggmp_aux.rs` now implements the first section 4.1 provisioning
+slice: Paillier/Ring-Pedersen candidate generation and `Pi_prm`.
+
+The 128-bit auxiliary profile is pinned to 1536-bit safe-prime factors,
+public RSA moduli of at least 3071 bits, and `m = 128` `Pi_prm` repetitions,
+matching the current reference implementation's `SecurityLevel128`. Paillier
+arithmetic comes from pinned `fast-paillier` 0.3.2; it is a primitive
+dependency, not an MPC/protocol dependency. Our Fiat-Shamir transcript uses a
+fixed Suwappu domain and length-delimited integer encoding, so it does not
+claim wire interoperability with the reference implementation.
 
 Important: sections 4.2.2 and 4.3.2 are an arbitrary-threshold extension made
 by the reference implementation; the CGGMP24 paper itself describes n-of-n.
 Our 2-of-3 use therefore requires dedicated cryptographic review even if the
 reference implementation has been audited.
 
-### Hard gate before presigning can exist
+### Remaining hard gate before presigning can exist
 
-The following pieces are intentionally missing. `PresignatureShare` has no
-public constructor until all of them are implemented and tested:
+`PresignatureShare` still has no public constructor. The following pieces are
+intentionally missing or incomplete, and all must be implemented and tested:
 
-1. 3072-bit Paillier key generation for a 128-bit target and signed-message
-   encryption/decryption/homomorphic operations.
-2. Ring-Pedersen auxiliary parameters.
-3. Provisioning proofs from section 4.1: `Pi_prm`, `Pi_mod`, and `Pi_fac`, with
-   domain validation before arithmetic.
-4. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
+1. Finish section 4.1 provisioning with `Pi_mod` and `Pi_fac`, including the
+   reliable commit/echo/reveal state machine. `Pi_prm` and its pre-arithmetic
+   domain checks are present; they are not sufficient by themselves.
+2. Presigning proofs/equations from section 4.3: Paillier encryption-in-range,
    Paillier affine-with-group-commitment, encryption/ElGamal relations, and the
    elliptic-curve discrete-log relations used by the protocol.
-5. Authenticated broadcasts, encrypted point-to-point messages, durable unique
+3. Authenticated broadcasts, encrypted point-to-point messages, durable unique
    execution IDs, timeout/abort behavior, and persisted one-shot presignatures.
-6. Adversarial vectors, differential final-signature tests, side-channel
-   review, and an independent cryptographic audit.
+4. Full-size auxiliary-generation performance/soak vectors plus bigint
+   side-channel and memory-erasure hardening. The current bigint backend does
+   not justify a zeroizing-deallocation claim for Paillier secret factors.
+5. Adversarial vectors, differential final-signature tests, and an independent
+   cryptographic audit.
 
 No shortcut around these gates is acceptable: a Paillier MtA exchange without
 the specified range/relationship proofs is not malicious-secure threshold
