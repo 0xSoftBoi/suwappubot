@@ -1422,9 +1422,7 @@ mod tests {
         let y = -Integer::from(9u8);
         let mut rng = OsRng;
         let c_nonce = Integer::sample_in_mult_group_of(&mut rng, key_j.n());
-        let c = key_j
-            .encrypt_with(&Integer::from(3u8), &c_nonce)
-            .unwrap();
+        let c = key_j.encrypt_with(&Integer::from(3u8), &c_nonce).unwrap();
         let nonce = Integer::sample_in_mult_group_of(&mut rng, key_j.n());
         let nonce_y = Integer::sample_in_mult_group_of(&mut rng, key_i.n());
         let x_at_c = key_j.omul(&x, &c).unwrap();
