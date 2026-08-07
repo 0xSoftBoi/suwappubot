@@ -10,9 +10,7 @@
 //! The protocol transcript, state boundary, and proof below are implemented in
 //! this crate and use an explicitly domain-separated Suwappu encoding.
 
-use fast_paillier::{
-    backend::Integer, DecryptionKey, EncryptionKey,
-};
+use fast_paillier::{backend::Integer, DecryptionKey, EncryptionKey};
 use rand_core::{CryptoRng, OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -79,17 +77,11 @@ pub struct PiPrmProof {
 
 impl PiPrmProof {
     pub fn commitment_bytes(&self) -> Vec<Vec<u8>> {
-        self.commitments
-            .iter()
-            .map(Integer::to_bytes_msf)
-            .collect()
+        self.commitments.iter().map(Integer::to_bytes_msf).collect()
     }
 
     pub fn response_bytes(&self) -> Vec<Vec<u8>> {
-        self.responses
-            .iter()
-            .map(Integer::to_bytes_msf)
-            .collect()
+        self.responses.iter().map(Integer::to_bytes_msf).collect()
     }
 }
 
@@ -356,20 +348,14 @@ fn transcript_integer(hasher: &mut Sha256, value: &Integer) {
 mod tests {
     use super::*;
 
-    fn small_candidate(
-        execution: ExecutionId,
-    ) -> (AuxPrivate, CandidateAuxPublic) {
+    fn small_candidate(execution: ExecutionId) -> (AuxPrivate, CandidateAuxPublic) {
         let mut rng = OsRng;
         // Tiny safe primes are test-only. Production construction never calls
         // this helper and always enforces the 1536/3071-bit profile above.
-        let paillier = DecryptionKey::from_primes(Integer::from(47u8), Integer::from(59u8))
-            .unwrap();
-        let (ring_pedersen, pedersen_phi, pedersen_lambda) = build_ring_pedersen(
-            &mut rng,
-            Integer::from(83u8),
-            Integer::from(107u8),
-        )
-        .unwrap();
+        let paillier =
+            DecryptionKey::from_primes(Integer::from(47u8), Integer::from(59u8)).unwrap();
+        let (ring_pedersen, pedersen_phi, pedersen_lambda) =
+            build_ring_pedersen(&mut rng, Integer::from(83u8), Integer::from(107u8)).unwrap();
         let participant = ParticipantId::new(1).unwrap();
         let pi_prm = prove_pi_prm_inner(
             execution,
