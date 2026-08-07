@@ -1320,7 +1320,10 @@ class SwapEngine:
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
         # tiers (different fee) never collide.
-        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}:fee{platform_fee_bps or 0}"
+        # Recipient is execution-bound input: aggregators may bake it into
+        # calldata. Two otherwise-identical quotes for different recipients
+        # must therefore never share a cached quote.
+        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}:to{to_address or 'none'}:fee{platform_fee_bps or 0}"
         cached = await quote_cache.get(cache_key)
         if cached is not None:
             return cached

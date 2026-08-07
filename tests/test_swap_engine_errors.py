@@ -217,6 +217,29 @@ async def test_get_quote_singleflight_last_waiter_cancellation_cleans_up_task():
     assert engine._quote_flights == {}
 
 
+@pytest.mark.asyncio
+async def test_get_quote_cache_key_separates_recipient(monkeypatch):
+    """Recipient-bound calldata must never be reused across destinations."""
+    seen_keys = []
+
+    async def _capture_cache_key(key):
+        seen_keys.append(key)
+        raise RuntimeError("cache-key-captured")
+
+    monkeypatch.setattr("bot.services.swap_engine.quote_cache.get", _capture_cache_key)
+    engine = SwapEngine()
+    recipients = ["0x" + "b" * 40, "0x" + "c" * 40]
+
+    for recipient in recipients:
+        with pytest.raises(RuntimeError, match="cache-key-captured"):
+            await engine._get_quote_impl(**_quote_kwargs(to_address=recipient))
+
+    assert len(seen_keys) == 2
+    assert seen_keys[0] != seen_keys[1]
+    assert f":to{recipients[0]}:" in seen_keys[0]
+    assert f":to{recipients[1]}:" in seen_keys[1]
+
+
 # ---------------------------------------------------------------------------
 # get_quote — all providers fail
 # ---------------------------------------------------------------------------
