@@ -60,7 +60,7 @@ bun run src/cli.ts scalp --amount 2
 bun run src/tui.ts
 ```
 
-`arb` is intentionally quote/screening-only. A real cross-chain arbitrage workflow needs both legs, bridge/inventory handling, reconciliation, and an unwind policy; executing one buy leg is not arbitrage.
+`arb` is intentionally quote/screening-only. A real cross-chain arbitrage workflow needs both legs, bridge/inventory handling, reconciliation, and an unwind policy; executing one buy leg is not arbitrage. For the dedicated size-aware screening and paid-monitor pattern, use the [Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) and its maintained `suwappu-arb-scanner` reference.
 
 ## Copy the money-moving boundary first
 

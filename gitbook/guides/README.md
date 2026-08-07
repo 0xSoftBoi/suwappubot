@@ -9,6 +9,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Business on Suwappu](build-a-business.md) | Revenue models, customer billing boundaries, and a builder-margin ledger |
 | [Strategy Lifecycle](strategy-lifecycle.md) | Backtest/replay -> paper -> live gates, net P&L, and operational safety |
 | [Build a Strategy Product with Flywheel](flywheel.md) | Outcome-safe execution, evaluation boundaries, OSS positioning, and paid product patterns |
+| [Build a Quote-Qualified Arbitrage Monitor](arbitrage-monitor.md) | Executable-route screening, request economics, paid intelligence, and safe two-leg handoff |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
 
