@@ -20,7 +20,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
@@ -116,6 +116,8 @@ The [Portfolio Rebalancer guide](portfolio-rebalancer.md) shows the concrete pro
 - **Free:** delayed or limited watchlist.
 - **Paid:** lower-latency alerts, custom rules, historical context, exports/webhooks, or a customer-facing MCP tool.
 - **Execution:** unnecessary unless it adds real customer value.
+
+For an executable-route example, the [Arbitrage Monitor](arbitrage-monitor.md) shows why chain-neutral reference prices are not enough, how to budget quote calls, and how to turn a read-only signal into a paid monitor before adding a two-leg execution problem.
 
 ## Production checklist
 

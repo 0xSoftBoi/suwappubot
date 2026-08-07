@@ -64,6 +64,7 @@
 * [Build a Business on Suwappu](guides/build-a-business.md)
 * [Strategy Lifecycle](guides/strategy-lifecycle.md)
 * [Build a Strategy Product with Flywheel](guides/flywheel.md)
+* [Build a Quote-Qualified Arbitrage Monitor](guides/arbitrage-monitor.md)
 * [Build with LangChain](guides/langchain.md)
 * [Build with CrewAI](guides/crewai.md)
 * [Cross-Chain Swaps](guides/cross-chain-swaps.md)
