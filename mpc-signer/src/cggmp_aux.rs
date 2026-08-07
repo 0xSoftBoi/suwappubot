@@ -403,13 +403,7 @@ fn prove_pi_mod_inner(
 
     // The commitment must be fixed before Fiat-Shamir challenges are derived.
     let w = sample_negative_jacobi(modulus, rng);
-    let challenges = pi_mod_challenges(
-        execution,
-        participant,
-        shared_randomness,
-        modulus,
-        &w,
-    );
+    let challenges = pi_mod_challenges(execution, participant, shared_randomness, modulus, &w);
     let points: [PiModProofPoint; PI_MOD_REPETITIONS] = challenges
         .iter()
         .map(|challenge| {
@@ -462,13 +456,8 @@ fn verify_pi_mod_inner(
         }
     }
 
-    let challenges = pi_mod_challenges(
-        execution,
-        participant,
-        shared_randomness,
-        modulus,
-        &proof.w,
-    );
+    let challenges =
+        pi_mod_challenges(execution, participant, shared_randomness, modulus, &proof.w);
     for (point, challenge) in proof.points.iter().zip(&challenges) {
         let nth_power = point
             .z
@@ -511,9 +500,13 @@ fn validate_pi_mod_witness(
     if p.mod_u(4) != 3 || q.mod_u(4) != 3 {
         return Err(AuxError::InvalidParameters);
     }
-    if !matches!(p.is_probably_prime(25, rng), IsPrime::Yes | IsPrime::Probably)
-        || !matches!(q.is_probably_prime(25, rng), IsPrime::Yes | IsPrime::Probably)
-    {
+    if !matches!(
+        p.is_probably_prime(25, rng),
+        IsPrime::Yes | IsPrime::Probably
+    ) || !matches!(
+        q.is_probably_prime(25, rng),
+        IsPrime::Yes | IsPrime::Probably
+    ) {
         return Err(AuxError::InvalidParameters);
     }
     Ok(())
