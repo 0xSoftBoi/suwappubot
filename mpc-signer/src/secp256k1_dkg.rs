@@ -12,12 +12,7 @@
 use std::collections::BTreeSet;
 
 use k256::{
-    elliptic_curve::{
-        bigint::U256,
-        ff::PrimeField,
-        ops::Reduce,
-        sec1::ToEncodedPoint,
-    },
+    elliptic_curve::{bigint::U256, ff::PrimeField, ops::Reduce, sec1::ToEncodedPoint},
     FieldBytes, ProjectivePoint, Scalar,
 };
 use rand_core::{OsRng, RngCore};
@@ -423,14 +418,14 @@ pub fn round3(
         return Err(DkgError::InvalidPackageSet);
     }
 
-    let aggregate_commitments = reveals.iter().fold(
-        [ProjectivePoint::IDENTITY; THRESHOLD],
-        |mut acc, reveal| {
-            acc[0] += reveal.coefficient_commitments[0];
-            acc[1] += reveal.coefficient_commitments[1];
-            acc
-        },
-    );
+    let aggregate_commitments =
+        reveals
+            .iter()
+            .fold([ProjectivePoint::IDENTITY; THRESHOLD], |mut acc, reveal| {
+                acc[0] += reveal.coefficient_commitments[0];
+                acc[1] += reveal.coefficient_commitments[1];
+                acc
+            });
     let group_public_key = aggregate_commitments[0];
     if group_public_key == ProjectivePoint::IDENTITY {
         signing_share.zeroize();
@@ -441,7 +436,10 @@ pub fn round3(
         aggregate_commitments[0] + aggregate_commitments[1] * Scalar::from(2u64),
         aggregate_commitments[0] + aggregate_commitments[1] * Scalar::from(3u64),
     ];
-    if verification_shares.iter().any(|point| *point == ProjectivePoint::IDENTITY) {
+    if verification_shares
+        .iter()
+        .any(|point| *point == ProjectivePoint::IDENTITY)
+    {
         signing_share.zeroize();
         return Err(DkgError::InvalidPoint(state.identifier.get()));
     }
@@ -613,8 +611,7 @@ fn verify_private_share(share: &PrivateShare, reveal: &Round2Reveal) -> Result<(
         return Err(DkgError::InvalidShare(share.sender.get()));
     }
     let x = share.recipient.scalar();
-    let expected =
-        reveal.coefficient_commitments[0] + reveal.coefficient_commitments[1] * x;
+    let expected = reveal.coefficient_commitments[0] + reveal.coefficient_commitments[1] * x;
     if ProjectivePoint::GENERATOR * share.value != expected {
         return Err(DkgError::InvalidShare(share.sender.get()));
     }
@@ -628,9 +625,10 @@ fn opening_digest(reveal: &Round2Reveal) -> Result<[u8; 32], DkgError> {
     hasher.update(reveal.identifier.get().to_be_bytes());
     hasher.update(reveal.rid);
     for point in &reveal.coefficient_commitments {
-        hasher.update(encode_nonidentity_point(point).map_err(|_| {
-            DkgError::InvalidPoint(reveal.identifier.get())
-        })?);
+        hasher.update(
+            encode_nonidentity_point(point)
+                .map_err(|_| DkgError::InvalidPoint(reveal.identifier.get()))?,
+        );
     }
     hasher.update(
         encode_nonidentity_point(&reveal.schnorr_commitment)
@@ -640,10 +638,7 @@ fn opening_digest(reveal: &Round2Reveal) -> Result<[u8; 32], DkgError> {
     Ok(hasher.finalize().into())
 }
 
-fn expected_echo_digest(
-    execution: [u8; 32],
-    commitments: &[Round1Commitment],
-) -> [u8; 32] {
+fn expected_echo_digest(execution: [u8; 32], commitments: &[Round1Commitment]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(ECHO_TAG);
     hasher.update(execution);
@@ -706,7 +701,8 @@ mod tests {
         let mut states = Vec::new();
         let mut commitments = Vec::new();
         for raw_id in 1..=3 {
-            let (state, commitment) = round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
+            let (state, commitment) =
+                round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
             states.push(state);
             commitments.push(commitment);
         }
@@ -726,9 +722,7 @@ mod tests {
         let pendings: Vec<_> = states
             .into_iter()
             .zip(inboxes)
-            .map(|(state, shares)| {
-                round3(state, &commitments, &echoes, &reveals, shares).unwrap()
-            })
+            .map(|(state, shares)| round3(state, &commitments, &echoes, &reveals, shares).unwrap())
             .collect();
         let proofs: Vec<_> = pendings.iter().map(PendingKeyPackage::proof).collect();
         pendings
@@ -758,7 +752,8 @@ mod tests {
         let mut states = Vec::new();
         let mut commitments = Vec::new();
         for raw_id in 1..=3 {
-            let (state, commitment) = round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
+            let (state, commitment) =
+                round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
             states.push(state);
             commitments.push(commitment);
         }
@@ -786,7 +781,8 @@ mod tests {
         let mut states = Vec::new();
         let mut commitments = Vec::new();
         for raw_id in 1..=3 {
-            let (state, commitment) = round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
+            let (state, commitment) =
+                round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
             states.push(state);
             commitments.push(commitment);
         }
@@ -808,7 +804,8 @@ mod tests {
         let mut states = Vec::new();
         let mut commitments = Vec::new();
         for raw_id in 1..=3 {
-            let (state, commitment) = round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
+            let (state, commitment) =
+                round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
             states.push(state);
             commitments.push(commitment);
         }
@@ -836,7 +833,8 @@ mod tests {
         let mut states = Vec::new();
         let mut commitments = Vec::new();
         for raw_id in 1..=3 {
-            let (state, commitment) = round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
+            let (state, commitment) =
+                round1(execution, ParticipantId::new(raw_id).unwrap()).unwrap();
             states.push(state);
             commitments.push(commitment);
         }
@@ -854,9 +852,7 @@ mod tests {
         let pendings: Vec<_> = states
             .into_iter()
             .zip(inboxes)
-            .map(|(state, shares)| {
-                round3(state, &commitments, &echoes, &reveals, shares).unwrap()
-            })
+            .map(|(state, shares)| round3(state, &commitments, &echoes, &reveals, shares).unwrap())
             .collect();
         let mut proofs: Vec<_> = pendings.iter().map(PendingKeyPackage::proof).collect();
         proofs[1].response += Scalar::ONE;

@@ -11,9 +11,7 @@
 //! only after all CGGMP zero-knowledge proofs and consistency equations pass.
 
 use k256::{
-    ecdsa::{
-        signature::hazmat::PrehashVerifier, RecoveryId, Signature, VerifyingKey,
-    },
+    ecdsa::{signature::hazmat::PrehashVerifier, RecoveryId, Signature, VerifyingKey},
     elliptic_curve::{bigint::U256, ops::Reduce, sec1::ToEncodedPoint},
     FieldBytes, ProjectivePoint, Scalar,
 };
@@ -245,9 +243,7 @@ pub fn aggregate_partial_signatures(
         if commitment.identifier != expected_id {
             return Err(EcdsaError::InvalidPartialSet);
         }
-        if public.gamma * partial.sigma
-            != commitment.delta_tilde * m + commitment.s_tilde * r
-        {
+        if public.gamma * partial.sigma != commitment.delta_tilde * m + commitment.s_tilde * r {
             return Err(EcdsaError::InvalidPartialSignature(expected_id.get()));
         }
         sigma += partial.sigma;
@@ -276,7 +272,9 @@ pub fn aggregate_partial_signatures(
 
 fn validate_signing_pair(pair: [ParticipantId; THRESHOLD]) -> Result<(), EcdsaError> {
     if pair[0].get() >= pair[1].get()
-        || pair.iter().any(|id| !(1..=PARTICIPANT_COUNT as u16).contains(&id.get()))
+        || pair
+            .iter()
+            .any(|id| !(1..=PARTICIPANT_COUNT as u16).contains(&id.get()))
     {
         return Err(EcdsaError::InvalidSigningSet);
     }
@@ -345,11 +343,8 @@ mod tests {
 
     use super::*;
 
-    fn simulated_verified_presignature() -> (
-        PresignaturePublic,
-        [PresignatureShare; THRESHOLD],
-        [u8; 32],
-    ) {
+    fn simulated_verified_presignature(
+    ) -> (PresignaturePublic, [PresignatureShare; THRESHOLD], [u8; 32]) {
         let id1 = ParticipantId::new(1).unwrap();
         let id2 = ParticipantId::new(2).unwrap();
         let signing_pair = [id1, id2];
