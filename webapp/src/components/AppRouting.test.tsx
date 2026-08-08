@@ -29,12 +29,12 @@ afterEach(() => {
     root = null
   }
   document.body.innerHTML = ''
-  window.history.replaceState({}, '', '/')
+  window.location.href = 'https://app.suwappu.bot/'
 })
 
 describe('public app routing', () => {
   it('keeps a signed-out visitor on /discover', async () => {
-    window.history.replaceState({}, '', '/discover')
+    window.location.href = 'https://app.suwappu.bot/discover'
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
