@@ -23,9 +23,9 @@ const decisionLenses = [
   },
   {
     seat: 'Execution',
-    question: 'What does the router actually optimize, and how should the decision change when cost, time, or venue evidence is weak?',
-    href: '/research/best-price-routing',
-    label: 'Routing policy',
+    question: 'What is a minute of cross-chain speed worth, and which measured cost should justify paying basis points for it?',
+    href: '/research/pricing-cross-chain-latency',
+    label: 'Latency economics',
   },
   {
     seat: 'Product / incentives',

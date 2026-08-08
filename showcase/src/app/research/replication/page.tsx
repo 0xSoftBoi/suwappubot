@@ -9,12 +9,12 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 export const metadata: Metadata = {
   title: 'Data & code availability — Suwappu Research',
   description:
-    'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, and completed airdrop allocations.',
+    'Full working papers, code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, airdrop allocations, and cross-chain latency economics.',
   alternates: { canonical: BASE },
   openGraph: {
     title: 'Data & code availability — Suwappu Research',
     description:
-      'Papers, code and data behind the USDT0 backing-account reconciliation, Tullock-contest model, and its empirical test against completed airdrops.',
+      'Papers, code and data behind the USDT0 reconciliation, Tullock-contest model and field test, and a source-locked calibration of cross-chain execution latency.',
     type: 'article',
     url: BASE,
   },
@@ -37,6 +37,11 @@ const PAPERS: Row[] = [
     file: 'papers/airdrop-concentration.md',
     size: '29 KB',
     desc: 'Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model — revised to separate measurement from causal interpretation.',
+  },
+  {
+    file: 'papers/settlement-latency-value.md',
+    size: '25 KB',
+    desc: 'What Is a Minute of Cross-Chain Execution Worth? — a source-locked calibration of the 10bp speed ceiling against simple SOFR carry, with ETA kept separate from finality.',
   },
 ];
 
@@ -136,6 +141,22 @@ const DATA_POINTS: Row[] = [
   { file: 'data/sim_output.txt', size: '596 B', desc: 'Raw output of the simulation.' },
 ];
 
+const CODE_LATENCY: Row[] = [
+  {
+    file: 'code/settlement_latency_value.py',
+    size: '7.2 KB',
+    desc: 'Standard-library reproduction of the ACT/360 carry scenarios. Regenerates the released CSV and web SVG from pinned inputs; no network call or credential required.',
+  },
+];
+
+const DATA_LATENCY: Row[] = [
+  {
+    file: 'data/settlement_latency_value.csv',
+    size: '608 B',
+    desc: 'Five scenario rows (1, 5, 10, 30, 60 minutes): carry bps, 10bp/carry multiple, implied simple annual rate, and $1m scale illustration at 3.65% SOFR.',
+  },
+];
+
 function FileTable({ rows }: { rows: Row[] }) {
   return (
     <div className="repl-tablewrap">
@@ -171,12 +192,12 @@ export default function ReplicationPage() {
   const datasetLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: 'Suwappu Research replication bundle — stablecoins, incentive design, and airdrop concentration',
+    name: 'Suwappu Research replication bundle — stablecoins, incentive design, airdrop concentration, and execution latency',
     description:
-      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and the HYPE genesis and both-phase EIGEN claim-recipient vectors used to test that model.',
+      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium and field-test evidence behind the points-program studies, and a pinned SOFR scenario dataset for calibrating a source-verified cross-chain speed policy.',
     url: `${SITE}${BASE}`,
     datePublished: '2026-07-26',
-    dateModified: '2026-08-06',
+    dateModified: '2026-08-08',
     isAccessibleForFree: true,
     license: `${SITE}${BASE}/README.md`,
     creator: { '@type': 'Person', name: AUTHOR_NAME },
@@ -189,10 +210,13 @@ export default function ReplicationPage() {
       'Tullock contest',
       'points program design',
       'airdrop concentration',
+      'cross-chain execution latency',
+      'transaction cost analysis',
+      'SOFR',
     ],
     measurementTechnique:
-      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and wallet-level recipient-vector concentration analysis',
-    temporalCoverage: '2025-07-26/2026-07-25',
+      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, wallet-level recipient-vector concentration analysis, and source-locked ACT/360 financing calibration',
+    temporalCoverage: '2025-07-26/2026-08-06',
     distribution: [
       {
         '@type': 'DataDownload',
@@ -217,6 +241,12 @@ export default function ReplicationPage() {
         name: 'concentration.json',
         encodingFormat: 'application/json',
         contentUrl: `${SITE}${BASE}/data/airdrops/concentration.json`,
+      },
+      {
+        '@type': 'DataDownload',
+        name: 'settlement_latency_value.csv',
+        encodingFormat: 'text/csv',
+        contentUrl: `${SITE}${BASE}/data/settlement_latency_value.csv`,
       },
     ],
   };
@@ -327,6 +357,28 @@ export default function ReplicationPage() {
             unclaimed allocations unobserved, and ENA claim executors may aggregate beneficiaries.
             The field test rejects the stated model at wallet level; it does not identify the causal
             mechanism behind the discrepancy.
+          </p>
+        </section>
+
+        <section className="repl-section">
+          <h2>Paper 4 — Pricing cross-chain latency</h2>
+          <p>
+            A source-locked calibration of Suwappu&rsquo;s current 10bp cross-chain speed-tiebreak
+            ceiling against a pinned 3.65% SOFR benchmark. The paper derives the simple ACT/360
+            carry for one to sixty minutes, independently checks the arithmetic with Wolfram, and
+            specifies the quote-to-outcome telemetry needed to replace the fixed heuristic with an
+            evidence-backed willingness-to-pay curve.
+          </p>
+          <h3>Code</h3>
+          <FileTable rows={CODE_LATENCY} />
+          <h3>Data</h3>
+          <FileTable rows={DATA_LATENCY} />
+          <p className="repl-caveat">
+            <strong>Stated limits.</strong> This is a scenario calibration, not production TCA. The
+            study does not measure how often the speed tiebreak fires, affected order values,
+            provider-ETA accuracy, realized savings, route failures, or legal finality. SOFR is a
+            reproducible cash-carry benchmark, not Suwappu&rsquo;s disclosed funding cost. The
+            router&rsquo;s 10bp comparison is relative to winner score, not automatically input notional.
           </p>
         </section>
 

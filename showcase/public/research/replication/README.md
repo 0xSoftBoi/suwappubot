@@ -1,13 +1,13 @@
 # Suwappu Research — replication bundle
 
-Code, data and full working papers for the three research papers published at
+Code, data and full working papers for the four research papers published at
 <https://suwappu.bot/research>. Everything here is the material the papers cite.
 Nothing in this bundle requires credentials: the chain reads use public RPC
 endpoints, and the simulation runs offline.
 
-First published 26 July 2026; all three working papers materially reviewed or revised
-6 August 2026; report edition published 6 August 2026. Author: Tsolmondorj Natsagdorj
-(0xSoftBoi), Suwappu Research.
+First published 26 July 2026; Papers 2 and 3 materially revised 8 August 2026;
+Paper 4 published 8 August 2026; report edition published 6 August 2026. Author:
+Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
 
 **Report edition:** [*Accounting for an Omnichain Dollar*](../reports/accounting-for-an-omnichain-dollar.pdf)
 packages the USDT0 findings, both corrections, the proof boundary and the replication
@@ -23,6 +23,7 @@ USDT issuer, legal, liquidity and prudential questions. The working paper remain
 | `papers/usdt0-collateral-reconciliation.md` | *Measuring Protocol Backing of an Omnichain Dollar: A Point-in-Time USDT0 Token-Unit Reconciliation, Twice Corrected* |
 | `papers/points-tullock-contests.md` | *Points-Program Economics After Empirical Rejection: Conditional Tullock Benchmarks for Participation, Dissipation, Fee Denomination, and Wallet Splitting* |
 | `papers/airdrop-concentration.md` | *Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model* |
+| `papers/settlement-latency-value.md` | *What Is a Minute of Cross-Chain Execution Worth? Pricing Latency Without Confusing ETA for Finality* |
 
 The web posts on suwappu.bot are abridgements. Where an abridgement and a paper
 disagree, the paper governs.
@@ -174,10 +175,53 @@ python3 code/verify_equilibrium.py
 
 ---
 
+## Paper 4 — Cross-chain execution latency calibration
+
+Paper 4 tests one narrow economic explanation for Suwappu's current cross-chain
+speed tiebreak: whether minute-scale financing carry can calibrate a policy that
+permits up to a 10bp winner-score concession for a sufficiently faster trusted-time
+route. It cannot at the pinned benchmark. At 3.65% SOFR on a simple ACT/360 basis,
+10bp equals 9.8630 days of carry. The paper then specifies the outcome data needed
+to estimate the non-carry value of speed rather than assuming it.
+
+### Code
+
+| File | What it does |
+|---|---|
+| `code/settlement_latency_value.py` | Standard-library calculation of the five latency/carry scenarios. Regenerates both the CSV and `/research/latency-carry.svg` from pinned inputs. |
+
+Run from this directory:
+
+```bash
+python3 code/settlement_latency_value.py
+```
+
+### Data
+
+| File | Contents |
+|---|---|
+| `data/settlement_latency_value.csv` | SOFR value date/rate, ACT/360 convention, 10bp policy ceiling, carry bps, cap/carry multiple, implied simple annual rate, and $1m scale illustration for 1, 5, 10, 30 and 60 minutes saved. |
+
+### Known limits, stated in the paper
+
+- The study is a scenario calibration, **not production TCA**. It does not measure
+  speed-tiebreak frequency, affected order values, provider-ETA accuracy, realized
+  savings, failure/retry outcomes, or time to a legally defined finality point.
+- The 10bp source rule is relative to winner score, not automatically input notional.
+  Dollar examples require a credible economic mark for the scoring unit.
+- SOFR is a public cash-carry benchmark, not Suwappu's disclosed funding cost or a
+  universal institutional hurdle rate. Non-carry terms such as market exposure,
+  failure/retry, operational liquidity and explicit SLA value remain unestimated.
+- Provider-reported ETA is treated as route-duration evidence. It is not promoted
+  into legal settlement finality without a separately defined endpoint.
+
+---
+
 ## Environment
 
 Python 3.12+ with `numpy`, `pandas`, `scipy`, `statsmodels`, `matplotlib`.
-Chain reads use the standard library only.
+Chain reads use the standard library only. Paper 4's reproduction script is also
+standard-library-only and makes no network call.
 
 ## Licence and citation
 
@@ -193,10 +237,14 @@ Released for verification and reuse. Cite as:
 > Natsagdorj, T. (2026). *Airdrop Allocation Concentration: A Wallet-Level Field
 > Test of the Tullock Active-Set Model.* Suwappu Research.
 
+> Natsagdorj, T. (2026). *What Is a Minute of Cross-Chain Execution Worth?
+> Pricing Latency Without Confusing ETA for Finality.* Suwappu Research.
+
 ## Disclosures
 
 Suwappu builds cross-chain execution infrastructure spanning several of the
 chains measured in Paper 1 and operates a points program of the class analysed
-in Paper 2. Full disclosures are in each paper's final section. This is
+in Paper 2. Paper 4 evaluates Suwappu's own current cross-chain speed-tiebreak
+policy. Full disclosures are in each paper's final section. This is
 research, not investment advice, a reserve attestation, legal opinion, credit rating,
 regulatory classification or prudential-capital opinion.
