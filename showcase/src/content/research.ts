@@ -44,7 +44,13 @@ export type ResearchPost = {
     pages: number;
     metrics: Array<{ value: string; label: string }>;
   };
-  /** Evidence visual surfaced by the research index for a featured paper. */
+  /** Editorial artwork: conceptual, never the quantitative evidence object. */
+  heroArt?: {
+    src: string;
+    alt: string;
+    caption: string;
+  };
+  /** Quantitative evidence visual; used on the index when no editorial art exists. */
   indexFigure?: {
     src: string;
     alt: string;
@@ -818,6 +824,11 @@ export const researchPosts: ResearchPost[] = [
       boundary: 'Scenario calibration, not production TCA; realized latency value and finality remain unmeasured.',
     },
     paperPath: '/research/replication/papers/settlement-latency-value.md',
+    heroArt: {
+      src: '/research/cross-chain-latency-editorial.jpg',
+      alt: 'A precision stopwatch feeds an amber ribbon across a navy ledger gap into a long accordion of ivory paper leaves, representing minute-scale execution time expanding into a multi-day financing horizon.',
+      caption: 'Editorial illustration: one minute unspools into the financing horizon. At 3.65% SOFR, the source-verified 10bp policy ceiling equals 9.86 days of simple ACT/360 carry; the generated figure below contains the quantitative evidence.',
+    },
     indexFigure: {
       src: '/research/latency-carry.svg',
       alt: 'Log-scale chart comparing the 10bp routing-policy ceiling with simple SOFR financing carry for one to sixty minutes saved.',

@@ -5546,6 +5546,20 @@ button:focus:not(:focus-visible) {
 .research-post__artifacts a { color: var(--summer-muted); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
 .research-post__artifacts a:hover { color: var(--summer-ink); }
 .research-post__artifacts .research-post__report { color: var(--sw-accent); }
+.research-post__hero-art { margin: 22px 0 0; }
+.research-post__hero-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--summer-line);
+  background: rgba(255, 255, 255, 0.72);
+}
+.research-post__hero-art figcaption {
+  margin-top: 8px;
+  color: var(--summer-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
 .research-post__evidence {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

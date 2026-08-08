@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
@@ -88,6 +89,15 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE}/research/${post.slug}` },
     url: `${SITE}/research/${post.slug}`,
+    ...(post.heroArt && {
+      image: {
+        '@type': 'ImageObject',
+        url: `${SITE}${post.heroArt.src}`,
+        width: 1536,
+        height: 1024,
+        caption: post.heroArt.caption,
+      },
+    }),
     ...(post.report && {
       associatedMedia: {
         '@type': 'MediaObject',
@@ -146,6 +156,18 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
               {post.paperPath && <a href={post.paperPath}>Full working paper →</a>}
               {post.kind === 'research' && <a href="/research/replication">Data &amp; code →</a>}
             </div>
+          )}
+          {post.heroArt && (
+            <figure className="research-post__hero-art">
+              <Image
+                src={post.heroArt.src}
+                alt={post.heroArt.alt}
+                width={1536}
+                height={1024}
+                priority
+              />
+              <figcaption>{post.heroArt.caption}</figcaption>
+            </figure>
           )}
           {post.evidence && (
             <dl className="research-post__evidence" aria-label="Evidence standard">
