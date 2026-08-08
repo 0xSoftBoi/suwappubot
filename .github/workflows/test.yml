@@ -285,7 +285,9 @@ jobs:
       # Audit the exact locked graph that the Python service installs. Running
       # bare pip-audit here audits the runner/tool environment instead.
       - name: Python dependency audit (locked application graph)
+        id: python-audit
         uses: pypa/gh-action-pip-audit@v1.1.0
+        continue-on-error: true
         with:
           inputs: requirements.txt
 
@@ -297,6 +299,8 @@ jobs:
       # after one failure so a single CI run reports every affected workspace,
       # then fail the job if any high/critical advisory was found.
       - name: Bun dependency audits (locked workspaces)
+        id: bun-audit
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
@@ -326,5 +330,31 @@ jobs:
       # webapp intentionally uses npm/package-lock.json in its quality and
       # production install path, so audit that lock with npm rather than Bun.
       - name: Webapp dependency audit (npm lock)
+        id: npm-audit
+        continue-on-error: true
         working-directory: webapp
         run: npm audit --audit-level=high
+
+      # Audit steps continue long enough to report the complete dependency
+      # surface, but the job remains blocking unless all three completed cleanly.
+      - name: Enforce dependency audit results
+        if: always()
+        env:
+          PYTHON_AUDIT: ${{ steps.python-audit.outcome }}
+          BUN_AUDIT: ${{ steps.bun-audit.outcome }}
+          NPM_AUDIT: ${{ steps.npm-audit.outcome }}
+        run: |
+          status=0
+          if [[ "$PYTHON_AUDIT" != "success" ]]; then
+            echo "::error::Python locked dependency audit: $PYTHON_AUDIT"
+            status=1
+          fi
+          if [[ "$BUN_AUDIT" != "success" ]]; then
+            echo "::error::Bun workspace dependency audits: $BUN_AUDIT"
+            status=1
+          fi
+          if [[ "$NPM_AUDIT" != "success" ]]; then
+            echo "::error::Webapp npm dependency audit: $NPM_AUDIT"
+            status=1
+          fi
+          exit "$status"
