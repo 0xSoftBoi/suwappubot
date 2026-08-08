@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
+import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useSnapshot } from '../../src/hooks/use-gecko'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
@@ -67,6 +67,7 @@ export default function TodayScreen() {
         </View>
       </View>
       {isError && data ? <Text selectable style={local.stale}>Offline for now — showing your last saved snapshot.</Text> : null}
+      <LegalLinks />
     </ScrollView>
   )
 }

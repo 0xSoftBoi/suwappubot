@@ -3,28 +3,36 @@
     "name": "Gecko",
     "slug": "suwappu",
     "version": "0.1.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "scheme": "suwappu",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "jsEngine": "hermes",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "bot.suwappu.app",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "privacyManifests": {
+        "NSPrivacyTracking": false
       }
     },
     "android": {
-      "package": "bot.suwappu.app",
-      "edgeToEdgeEnabled": true
+      "package": "bot.suwappu.app"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
           "backgroundColor": "#FFFDF9",
           "resizeMode": "contain"
         }
@@ -32,7 +40,10 @@
       [
         "expo-build-properties",
         {
-          "ios": { "useFrameworks": "static" },
+          "ios": {
+            "useFrameworks": "static",
+            "privacyManifestAggregationEnabled": true
+          },
           "android": { "enableProguardInReleaseBuilds": true, "enableShrinkResourcesInReleaseBuilds": true }
         }
       ]

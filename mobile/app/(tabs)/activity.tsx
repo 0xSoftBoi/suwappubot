@@ -47,7 +47,6 @@ export default function ActivityScreen() {
       data={data ?? []}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
-      estimatedItemSize={ROW_HEIGHT}
       contentContainerStyle={local.content}
       ListEmptyComponent={<View style={local.empty}><Text style={s.muted}>Nothing here yet.</Text></View>}
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} tintColor={palette.accent} />}

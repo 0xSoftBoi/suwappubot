@@ -1,5 +1,5 @@
 {
-  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "cli": { "version": ">= 16.0.1", "appVersionSource": "remote" },
   "build": {
     "development": {
       "developmentClient": true,
@@ -12,6 +12,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "ios": { "image": "sdk-57" },
       "env": { "EXPO_PUBLIC_API_URL": "https://api.suwappu.bot" }
     }
   },

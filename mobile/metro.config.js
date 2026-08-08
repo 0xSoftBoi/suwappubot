@@ -14,14 +14,12 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ]
-config.resolver.disableHierarchicalLookup = true
 
 // inlineRequires defers module evaluation until first use. This is the single
 // biggest TTI win on a large bundle — modules for screens the user hasn't
 // opened yet never execute at startup.
 config.transformer.getTransformOptions = async () => ({
   transform: {
-    experimentalImportSupport: true,
     inlineRequires: true,
   },
 })
