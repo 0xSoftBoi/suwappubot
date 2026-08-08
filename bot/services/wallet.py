@@ -109,6 +109,16 @@ def _key_fingerprint(encrypted_private_key: str) -> str:
     return hashlib.sha256((encrypted_private_key or "").encode("utf-8")).hexdigest()[:16]
 
 
+class _EvmExecutionReverted(ConnectionError):
+    """JSON-RPC eth_call reverted at the CONTRACT level.
+
+    Subclasses ConnectionError so existing callers' except clauses behave
+    unchanged; exists so the RPC layer can tell 'the endpoint is broken'
+    (report to the circuit breaker) from 'the contract rejected the call'
+    (endpoint healthy — never report).
+    """
+
+
 # ERC20 ABI for balance checking
 ERC20_ABI = [
     {
@@ -134,6 +144,9 @@ class WalletService:
     def __init__(self):
         self._solana_client: Optional[SolanaClient] = None
         self._http_connector: Optional[aiohttp.TCPConnector] = None
+        # (chain, token_address) -> negative-cache expiry for contracts whose
+        # balanceOf deterministically reverts; see get_evm_token_balance.
+        self._reverting_tokens: dict = {}
 
     def _get_connector(self) -> aiohttp.TCPConnector:
         """Lazily create a single shared TCP connector.
@@ -199,9 +212,22 @@ class WalletService:
                         raise ConnectionError(f"http_{resp.status}")
                     data = await resp.json()
                     if "error" in data:
-                        raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
+                        err = str(data["error"])[:60]
+                        # An execution revert proves the node RAN the call —
+                        # the endpoint is healthy; the CONTRACT rejected it.
+                        # Feeding reverts to report_failure() opens the chain's
+                        # circuit breaker and punishes every legitimate call on
+                        # that chain (this flooded prod logs for weeks via
+                        # uninitialized TIP-20 contracts on Tempo). Same
+                        # distinction rpc_manager._is_method_unsupported draws
+                        # for the health-check path.
+                        if "execution reverted" in err or "'code': 3" in err:
+                            raise _EvmExecutionReverted(f"rpc_error: {err}")
+                        raise ConnectionError(f"rpc_error: {err}")
                     rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
                     return data.get("result")
+        except _EvmExecutionReverted:
+            raise
         except Exception as e:
             rpc_manager.report_failure(chain_name, url, str(e)[:80])
             raise
@@ -793,6 +819,14 @@ class WalletService:
         if token_address.replace("0x", "").strip("0") == "":
             return await self.get_evm_native_balance(chain_name, address)
 
+        # Deterministically-reverting contracts (e.g. TIP-20 slots that are
+        # uninitialized on this network) revert on EVERY balanceOf — re-polling
+        # them each refresher cycle wastes an RPC call per wallet per minute.
+        # Negative-cache them for an hour; a revert is not a balance.
+        cache_key = (chain_name, token_address.lower())
+        if self._reverting_tokens.get(cache_key, 0) > time.time():
+            return 0.0
+
         # ABI-encode balanceOf(address): selector + 32-byte padded address
         selector = "70a08231"
         padded_addr = address.lower().replace("0x", "").zfill(64)
@@ -810,6 +844,9 @@ class WalletService:
             balance_raw = int(result, 16)
             decimals = get_token_decimals(token_symbol, chain_name)
             return balance_raw / (10**decimals)
+        except _EvmExecutionReverted:
+            self._reverting_tokens[cache_key] = time.time() + 3600
+            return 0.0
         except Exception:
             return 0.0
 

@@ -1154,6 +1154,14 @@ async def health_ready():
                 "redis": "connected" if redis_ok else "memory-fallback",
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
+                # Drift alarm: python-worker has no GitHub auto-deploy, so it
+                # can silently fall behind python-api for days (it ran
+                # 3-day-old code in Aug 2026 with nothing surfacing it). False
+                # means the two services are on different builds — deploy the
+                # worker ("unknown" worker fingerprint also reads as drift).
+                # Inside "checks" so scripts/status.py's subsystem walker
+                # flags it automatically; deliberately NOT part of readiness.
+                "worker_code_matches_api": worker_fingerprint == SOURCE_FINGERPRINT,
             },
         },
     )
