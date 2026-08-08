@@ -41,13 +41,15 @@ jobs:
           (cd webapp && npm install --package-lock-only --ignore-scripts)
           (cd webapp && npm audit fix --package-lock-only --ignore-scripts)
 
-      - name: Refresh compatible Bun dependency locks
+      - name: Re-resolve Bun dependency locks from manifests
         shell: bash
         run: |
           set -euo pipefail
           for dir in api-ts terminal showcase extension packages/mcp-server; do
-            echo "::group::bun update ($dir)"
-            (cd "$dir" && bun update --lockfile-only --ignore-scripts)
+            echo "::group::bun install ($dir)"
+            backup="$RUNNER_TEMP/${dir//\//_}.bun.lock.before"
+            mv "$dir/bun.lock" "$backup"
+            (cd "$dir" && bun install --lockfile-only --ignore-scripts)
             echo "::endgroup::"
           done
 
