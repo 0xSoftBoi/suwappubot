@@ -39,6 +39,7 @@ jobs:
           python -m pip install --disable-pip-version-check pip-tools==7.6.0 pip-audit==2.10.1
           pip-compile --no-strip-extras --output-file=requirements.txt requirements.in
           (cd webapp && npm install --package-lock-only --ignore-scripts)
+          (cd webapp && npm audit fix --package-lock-only --ignore-scripts)
 
       - name: Refresh compatible Bun dependency locks
         shell: bash
