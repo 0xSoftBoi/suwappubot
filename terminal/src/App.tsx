@@ -123,6 +123,7 @@ export function App() {
       <HotkeysHelpOverlay />
       <Toaster
         position="bottom-right"
+        containerClassName="terminal-toast-container"
         toastOptions={{
           style: {
             background: 'rgb(var(--terminal-c-panel))',
