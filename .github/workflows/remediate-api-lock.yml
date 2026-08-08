@@ -1,0 +1,66 @@
+name: Temporary API lock regeneration
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/remediate-api-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Regenerate and verify API lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd api-ts && bun install --lockfile-only --ignore-scripts)
+          (cd api-ts && bun audit --audit-level=high)
+          (cd api-ts && bun install --frozen-lockfile --ignore-scripts)
+          (cd api-ts && bun run check)
+          git diff --check
+          unexpected="$(git diff --name-only | grep -Ev '^api-ts/bun\.lock$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "::error::Generator changed unexpected files:"
+            echo "$unexpected"
+            exit 1
+          fi
+
+      - name: Commit API lock
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add api-ts/bun.lock
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: regenerate API lock [api-lock-remediated]"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push API lock
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
