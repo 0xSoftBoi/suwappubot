@@ -530,7 +530,7 @@
 /* The same predicate as useIsMobile(): portrait phones plus coarse-pointer
    landscape phones. Keep these rules capability/layout driven rather than
    sniffing MetaMask, Phantom, or any other in-app browser user-agent. */
-@media (max-width: 767px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 900px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
   .terminal-mobile-header {
     overflow: visible;
   }
