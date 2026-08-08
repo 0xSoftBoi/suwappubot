@@ -202,15 +202,16 @@ jobs:
         working-directory: mobile/ios
         run: pod install
 
-      - name: Compile release app for iOS Simulator
+      - name: Compile unsigned Release app for iOS device
         run: >-
           xcodebuild
           -workspace ios/Gecko.xcworkspace
           -scheme Gecko
           -configuration Release
-          -sdk iphonesimulator
-          -destination 'generic/platform=iOS Simulator'
+          -sdk iphoneos
+          -destination 'generic/platform=iOS'
           CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
           build
 
   # ---------------------------------------------------------------------------
@@ -357,4 +358,3 @@ jobs:
       # runtime, so it must be installed explicitly.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14   # pinned: stable cache key avoids re-downloading Bun on every run
