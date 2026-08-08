@@ -71,7 +71,7 @@
 * [Managed Wallets](guides/managed-wallets.md)
 * [Webhook Setup](guides/webhook-setup.md)
 * [Building a Standalone Trading Bot](guides/building-a-trading-bot.md)
-* [Build a Recurring DCA Product](guides/dca-automation.md)
+* [Build a Standalone Recurring DCA Product](guides/dca-automation.md)
 * [Portfolio Rebalancer](guides/portfolio-rebalancer.md)
 * [Build a Lending Monitor](guides/lending-monitor.md)
 * [Trading CLI](guides/trading-cli.md)
