@@ -161,8 +161,8 @@ export function Header() {
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18v10H3z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M16 12h2M3 7l3-3h11l1 3" />
       </svg>
-      <span className="hidden sm:inline">
-        {walletWorking ? 'Signing…' : useInjectedPhantom ? 'Phantom' : 'Connect wallet'}
+      <span className="whitespace-nowrap">
+        {walletWorking ? 'Signing…' : useInjectedPhantom ? 'Phantom' : isMobile ? 'Connect' : 'Connect wallet'}
       </span>
     </button>
   ) : null
