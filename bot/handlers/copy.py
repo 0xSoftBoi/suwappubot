@@ -780,9 +780,14 @@ async def copy_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     success, message, swap_id = await copy_service.execute_copy(user_id, copy_trade_id)
 
-    if success:
+    if success is True:
         await query.edit_message_text(
             f"✅ *Trade Copied!*\n\n{message}\n\n" f"Swap ID: `{swap_id}`",
+            parse_mode="Markdown",
+        )
+    elif success is None:
+        await query.edit_message_text(
+            f"⚠️ *Copy Outcome Unknown*\n\n{message}",
             parse_mode="Markdown",
         )
     else:

@@ -169,3 +169,15 @@ class Wallet(Base):
     def is_local_wallet(self) -> bool:
         """Check if wallet is stored locally."""
         return self.wallet_provider == "local"
+
+    @property
+    def can_server_sign(self) -> bool:
+        """Whether unattended server-side execution has a real signing capability."""
+        provider = (self.wallet_provider or "local").lower()
+        if provider == "turnkey":
+            return bool(self.turnkey_sub_org_id and self.address)
+        return bool(
+            provider == "local"
+            and self.encrypted_private_key
+            and self.encrypted_private_key != "turnkey_managed"
+        )

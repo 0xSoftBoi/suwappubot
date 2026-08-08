@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import toast from 'react-hot-toast'
 import { useFollowing, useUnfollowTrader, useUpdateFollowSettings } from '../../hooks/useCopyTrading'
 import { CopySettingsModal } from './CopySettingsModal'
 import type { FollowedTrader, FollowSettings } from '../../types/api'
+import { useAuth } from '../../contexts/AuthContext'
+import { WalletConnect } from '../auth/WalletConnect'
 
 function truncateAddress(addr: string): string {
   if (addr.length <= 12) return addr
@@ -9,7 +12,7 @@ function truncateAddress(addr: string): string {
 }
 
 function formatPnl(value: number): string {
-  const prefix = value >= 0 ? '+' : ''
+  const prefix = value >= 0 ? '+' : '-'
   return `${prefix}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -20,15 +23,35 @@ const MODE_LABELS: Record<string, string> = {
 }
 
 export function FollowingList() {
+  const { isAuthenticated, needsTradingProof, isExternalWallet } = useAuth()
   const { data: following, isLoading } = useFollowing()
   const { mutate: unfollow } = useUnfollowTrader()
   const { mutate: updateSettings } = useUpdateFollowSettings()
   const [settingsTrader, setSettingsTrader] = useState<FollowedTrader | null>(null)
+  const autoCopyAvailable = isAuthenticated && !needsTradingProof && !isExternalWallet
 
   const handleSaveSettings = (settings: FollowSettings) => {
     if (!settingsTrader) return
-    updateSettings({ traderId: settingsTrader.traderId, settings })
+    updateSettings(
+      { traderId: settingsTrader.traderId, settings },
+      {
+        onSuccess: () => toast.success(settings.copyMode === 'notify' ? 'Follow settings saved' : 'Copy rules saved'),
+        onError: error => toast.error(copyErrorMessage(error)),
+      },
+    )
     setSettingsTrader(null)
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="mx-auto flex max-w-sm flex-col gap-3 px-4 py-8 text-center">
+        <div>
+          <div className="text-sm font-semibold text-terminal-text">Sign in to see traders you follow</div>
+          <p className="mt-1 text-xs text-terminal-text-muted">The trader leaderboard stays public.</p>
+        </div>
+        <WalletConnect showGoogle />
+      </div>
+    )
   }
 
   if (isLoading) {
@@ -113,7 +136,15 @@ export function FollowingList() {
         onSave={handleSaveSettings}
         initialSettings={settingsTrader?.settings}
         traderName={settingsTrader?.name || (settingsTrader ? truncateAddress(settingsTrader.address) : undefined)}
+        autoCopyAvailable={autoCopyAvailable}
       />
     </>
   )
+}
+
+function copyErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'detail' in error) {
+    return String((error as { detail?: unknown }).detail || 'Copy settings request failed')
+  }
+  return error instanceof Error ? error.message : 'Copy settings request failed'
 }

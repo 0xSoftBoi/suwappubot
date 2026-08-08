@@ -12,7 +12,7 @@ import logging
 from typing import Optional, List, Tuple
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import func, desc, and_
+from sqlalchemy import func, desc, and_, or_
 from sqlalchemy.orm import Session
 
 from bot.config.chains import get_chain_by_name
@@ -411,20 +411,38 @@ class CopyService:
                 )
                 session.add(trader_trade)
 
-                # Realized PnL via average-cost basis: the sell side realizes PnL
-                # against the trader's tracked cost; the buy side adds to it.
-                pnl, pnl_pct, is_win = self._settle_pnl(session, trader_id, swap, amount_usd)
-                trader_trade.pnl_usd = pnl
-                trader_trade.pnl_percent = pnl_pct
-                trader_trade.is_winning = is_win
-                if pnl != 0.0:
-                    trader_trade.is_closed = True
-                    trader_trade.closed_at = datetime.utcnow()
-                # update_stats rolls up total_trades/volume/pnl/win_rate/best/worst/rank.
-                profile.update_stats(pnl, amount_usd, is_win)
+                if amount_usd > 0:
+                    # Realized PnL via average-cost basis: the sell side realizes PnL
+                    # against the trader's tracked cost; the buy side adds to it.
+                    # Unpriced trades stay visible as activity but never mutate
+                    # cost basis or performance stats; a zero-dollar cost basis
+                    # would manufacture fake profit on a later priced sell.
+                    pnl, pnl_pct, is_win = self._settle_pnl(session, trader_id, swap, amount_usd)
+                    trader_trade.pnl_usd = pnl
+                    trader_trade.pnl_percent = pnl_pct
+                    trader_trade.is_winning = is_win
+                    if pnl != 0.0:
+                        trader_trade.is_closed = True
+                        trader_trade.closed_at = datetime.utcnow()
+                    # update_stats rolls up total_trades/volume/pnl/win_rate/best/worst/rank.
+                    profile.update_stats(pnl, amount_usd, is_win)
 
-        # Award points to trader for potential copy trades
-        if created_trader_trade and profile.is_public:
+        # Notify followers if profile is public
+        if not profile.is_public:
+            return []
+
+        # Copy allocations are denominated in USD. If the source notional was
+        # not priced, never substitute source-token units as dollars: doing so
+        # can turn e.g. a 1 ETH trade into a "$1" denominator and massively
+        # oversize a follower's token amount. Keep the activity in the public
+        # track record, but do not create executable follower signals.
+        if amount_usd <= 0:
+            logger.warning("Copy signal skipped for swap %s: USD notional unavailable", swap.id)
+            return []
+
+        # Award points only once the trade is actually eligible for follower
+        # signals; an unpriced event must not become a zero-cost points faucet.
+        if created_trader_trade:
             points_service.award_points(
                 user_id=trader_id,
                 action="get_copied",
@@ -432,16 +450,16 @@ class CopyService:
                 description="Trade recorded for copying",
             )
 
-        # Notify followers if profile is public
-        if not profile.is_public:
-            return []
-
         notified_users = []
 
         with get_session() as session:
             followers = (
                 session.query(CopyFollow)
                 .filter(CopyFollow.trader_id == trader_id, CopyFollow.is_active == True)
+                # Serialize budget reservations for each follow. Without this,
+                # two trader events could both observe the same remaining daily
+                # budget and each schedule an automatic copy.
+                .with_for_update()
                 .all()
             )
 
@@ -451,7 +469,10 @@ class CopyService:
                     allowed_chains = {
                         chain.strip().lower() for chain in chains_filter.split(",") if chain.strip()
                     }
-                    if allowed_chains and swap.from_chain.lower() not in allowed_chains:
+                    if allowed_chains and (
+                        swap.from_chain.lower() not in allowed_chains
+                        or swap.to_chain.lower() not in allowed_chains
+                    ):
                         continue
 
                 # --- Advanced filters ---
@@ -477,8 +498,35 @@ class CopyService:
 
                 copy_amount = follow.get_copy_amount(amount_usd)
 
-                # Check daily limit
-                if not follow.check_daily_limit(copy_amount):
+                # Automatic copies reserve daily budget while still pending so
+                # concurrent trader events cannot oversubscribe the configured
+                # limit before the first on-chain execution finishes. Copied
+                # rows count by execution date; pending rows count by creation.
+                if follow.copy_mode == "auto":
+                    follow.check_daily_limit(0)
+                    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                    reserved_usd = (
+                        session.query(func.coalesce(func.sum(CopyTrade.copy_amount_usd), 0.0))
+                        .filter(
+                            CopyTrade.follow_id == follow.id,
+                            or_(
+                                and_(
+                                    CopyTrade.status.in_(
+                                        ["copied", "executing", "outcome_unknown"]
+                                    ),
+                                    CopyTrade.copied_at >= day_start,
+                                ),
+                                and_(
+                                    CopyTrade.status.in_(["pending", "auto_pending"]),
+                                    CopyTrade.created_at >= day_start,
+                                ),
+                            ),
+                        )
+                        .scalar()
+                    )
+                    if float(reserved_usd or 0) + copy_amount > follow.daily_limit_usd:
+                        continue
+                elif not follow.check_daily_limit(copy_amount):
                     continue
 
                 copy_trade = (
@@ -491,12 +539,16 @@ class CopyService:
                     .first()
                 )
                 if copy_trade:
-                    if copy_trade.status in ["pending", "notified"]:
+                    if copy_trade.status in ["pending", "auto_pending", "notified"]:
                         notified_users.append(
                             {
                                 "user_id": follow.follower_id,
                                 "copy_trade_id": copy_trade.id,
-                                "copy_mode": follow.copy_mode,
+                                # Recover authority from the persisted signal,
+                                # never the follow's mutable current mode.
+                                "copy_mode": (
+                                    "auto" if copy_trade.status == "auto_pending" else "notify"
+                                ),
                                 "copy_amount": copy_trade.copy_amount_usd,
                             }
                         )
@@ -513,7 +565,10 @@ class CopyService:
                     to_chain=swap.to_chain,
                     trader_amount_usd=amount_usd,
                     copy_amount_usd=copy_amount,
-                    status="pending",
+                    # Persist whether this signal carried unattended authority.
+                    # Follow settings can change before the event is processed,
+                    # so deriving this later from mutable state is unsafe.
+                    status="auto_pending" if follow.copy_mode == "auto" else "pending",
                 )
                 session.add(copy_trade)
                 session.flush()
@@ -539,7 +594,10 @@ class CopyService:
                 return []
             if swap.status not in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]:
                 return []
-            amount_usd = float(swap.from_amount_usd or swap.from_amount or 0)
+            try:
+                amount_usd = float(swap.from_amount_usd or 0)
+            except (TypeError, ValueError):
+                amount_usd = 0.0
             swap_data = {
                 "user_id": swap.user_id,
                 "from_chain": swap.from_chain,
@@ -561,10 +619,15 @@ class CopyService:
             copy_trade_id = follower_info["copy_trade_id"]
             if follower_info["copy_mode"] == "auto":
                 success, message, swap_id = await self.execute_copy(follower_id, copy_trade_id)
+                result_status = (
+                    "copied"
+                    if success is True
+                    else "outcome_unknown" if success is None else "failed"
+                )
                 processed.append(
                     {
                         **follower_info,
-                        "status": "copied" if success else "failed",
+                        "status": result_status,
                         "message": message,
                         "swap_id": swap_id,
                     }
@@ -595,12 +658,14 @@ class CopyService:
         copier_id: int,
         copy_trade_id: int,
         custom_amount: Optional[float] = None,
-    ) -> Tuple[bool, str, Optional[int]]:
+    ) -> Tuple[Optional[bool], str, Optional[int]]:
         """
         Execute a copy trade.
 
         Returns:
-            Tuple of (success, message, swap_id)
+            Tuple of (success, message, swap_id). ``success`` is None when a
+            submission may have landed but confirmation is unknown; callers
+            must not present that state as failed or invite a retry.
         """
         with get_session() as session:
             copy_trade = (
@@ -612,8 +677,26 @@ class CopyService:
             if not copy_trade:
                 return False, "Copy trade not found.", None
 
-            if copy_trade.status not in ["pending", "notified"]:
+            if copy_trade.status not in ["pending", "auto_pending", "notified"]:
                 return False, f"Trade already {copy_trade.status}.", None
+
+            follow = session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
+            if not follow or not follow.is_active:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Trader follow is no longer active"
+                return False, copy_trade.failure_reason, None
+
+            if copy_trade.status == "auto_pending":
+                automatic = True
+            elif copy_trade.status == "notified":
+                automatic = False
+            else:
+                # Generic pending predates the explicit authority snapshot and
+                # is ambiguous. Never upgrade it to unattended spend from a
+                # mutable follow setting.
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Pending copy requires explicit user confirmation"
+                return False, copy_trade.failure_reason, None
 
             # Get the original swap details
             original_swap = (
@@ -627,12 +710,40 @@ class CopyService:
                 copy_trade.failure_reason = "Original swap not found"
                 return False, "Original swap not found.", None
 
+            try:
+                original_notional_usd = float(original_swap.from_amount_usd or 0)
+            except (TypeError, ValueError):
+                original_notional_usd = 0.0
+            if original_notional_usd <= 0:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Original trade USD notional is unavailable"
+                return False, copy_trade.failure_reason, None
+
             copy_amount = float(custom_amount or copy_trade.copy_amount_usd)
+            if copy_amount <= 0:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Copy amount must be positive"
+                return False, copy_trade.failure_reason, None
             original_amount = self._copy_from_amount(original_swap, copy_trade, copy_amount)
+            if original_amount <= 0:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Unable to derive a safe source-token copy amount"
+                return False, copy_trade.failure_reason, None
             source_chain = get_chain_by_name(copy_trade.from_chain)
             if not source_chain:
                 copy_trade.status = "failed"
                 copy_trade.failure_reason = f"Unsupported source chain {copy_trade.from_chain}"
+                return False, copy_trade.failure_reason, None
+            destination_chain = get_chain_by_name(copy_trade.to_chain)
+            if not destination_chain:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = f"Unsupported destination chain {copy_trade.to_chain}"
+                return False, copy_trade.failure_reason, None
+            if source_chain.chain_type != destination_chain.chain_type:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = (
+                    "Cross-wallet-family copy requires an explicit destination wallet"
+                )
                 return False, copy_trade.failure_reason, None
 
             wallet = (
@@ -662,13 +773,37 @@ class CopyService:
                 copy_trade.failure_reason = f"No active {source_chain.chain_type.value} wallet"
                 return False, copy_trade.failure_reason, None
 
-            follow = session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
+            if not wallet.can_server_sign:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = "Copy execution requires a Suwappu signing wallet"
+                return False, copy_trade.failure_reason, None
+
+            slippage = float(follow.max_slippage_percent or 1.0)
+
+        if automatic:
+            # Re-check the future-spend authority at execution time. A subscriber
+            # can downgrade/expire or change wallets after saving the copy rule;
+            # a stale rule must never retain broader authority than the account
+            # has right now.
+            from bot.models.subscription import SubscriptionTier
+            from bot.services.x402_service import x402_service
+
+            tier = await x402_service.get_tier(copier_id)
+            if tier not in {
+                SubscriptionTier.PRO,
+                SubscriptionTier.PREMIUM,
+                SubscriptionTier.ENTERPRISE,
+            }:
+                reason = "Automatic copy requires an active Pro subscription"
+                self._mark_copy_failed(copy_trade_id, reason)
+                return False, reason, None
 
         # Execute the swap via swap engine
         from bot.services.swap_engine import SwapEngine
 
         swap_engine = SwapEngine()
 
+        execution_claimed = False
         try:
             quote = await swap_engine.get_quote(
                 from_chain=copy_trade.from_chain,
@@ -678,9 +813,37 @@ class CopyService:
                 amount=original_amount,
                 from_address=wallet.address,
                 to_address=wallet.address,
-                slippage=(follow.max_slippage_percent if follow else 1.0),
+                slippage=slippage,
                 user_id=copy_trade.copier_id,
             )
+
+            # Quote generation is asynchronous, so mutable authorization may
+            # have changed while it was in flight. Re-check Pro, then atomically
+            # revalidate the follow/settings/wallet and claim this copy before
+            # any signing or submission begins.
+            if automatic:
+                tier = await x402_service.get_tier(copier_id)
+                if tier not in {
+                    SubscriptionTier.PRO,
+                    SubscriptionTier.PREMIUM,
+                    SubscriptionTier.ENTERPRISE,
+                }:
+                    reason = "Automatic copy requires an active Pro subscription"
+                    self._mark_copy_failed(copy_trade_id, reason)
+                    return False, reason, None
+
+            claimed, claim_error = self._claim_copy_for_execution(
+                copier_id=copier_id,
+                copy_trade_id=copy_trade_id,
+                wallet_id=wallet.id,
+                automatic=automatic,
+                copy_amount=copy_amount,
+                slippage=slippage,
+            )
+            if not claimed:
+                return False, claim_error, None
+            execution_claimed = True
+
             swap_tx = await swap_engine.execute_swap(
                 quote=quote,
                 wallet_id=wallet.id,
@@ -747,10 +910,151 @@ class CopyService:
 
             with get_session() as session:
                 copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
-                copy_trade.status = "failed"
-                copy_trade.failure_reason = str(e)[:255]
+                if copy_trade:
+                    # Once execution has been claimed, an RPC/provider error
+                    # may have happened after broadcast. Preserve the budget
+                    # reservation until reconciliation rather than allowing a
+                    # later copy to spend the same daily allocation again.
+                    if execution_claimed and copy_trade.status == "executing":
+                        copy_trade.status = "outcome_unknown"
+                    elif not execution_claimed:
+                        copy_trade.status = "failed"
+                    copy_trade.failure_reason = str(e)[:255]
 
+            if execution_claimed:
+                return (
+                    None,
+                    "Copy submission outcome is unknown. Do not retry until your wallet "
+                    "or transaction history confirms whether it landed.",
+                    None,
+                )
             return False, f"Copy failed: {str(e)}", None
+
+    @staticmethod
+    def _mark_copy_failed(copy_trade_id: int, reason: str) -> None:
+        """Persist a fail-closed pre-execution outcome for an auto-copy attempt."""
+        with get_session() as session:
+            copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
+            if copy_trade and copy_trade.status in [
+                "pending",
+                "auto_pending",
+                "notified",
+            ]:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = reason[:255]
+
+    @staticmethod
+    def _claim_copy_for_execution(
+        *,
+        copier_id: int,
+        copy_trade_id: int,
+        wallet_id: int,
+        automatic: bool,
+        copy_amount: float,
+        slippage: float,
+    ) -> Tuple[bool, str]:
+        """Atomically revalidate mutable authority and claim one copy execution."""
+        with get_session() as session:
+            copy_trade = (
+                session.query(CopyTrade)
+                .filter(CopyTrade.id == copy_trade_id, CopyTrade.copier_id == copier_id)
+                .with_for_update()
+                .first()
+            )
+            if not copy_trade or copy_trade.status not in [
+                "pending",
+                "auto_pending",
+                "notified",
+            ]:
+                return False, "Copy trade is no longer pending"
+
+            def reject(reason: str) -> Tuple[bool, str]:
+                copy_trade.status = "failed"
+                copy_trade.failure_reason = reason[:255]
+                return False, reason
+
+            follow = (
+                session.query(CopyFollow)
+                .filter(CopyFollow.id == copy_trade.follow_id)
+                .with_for_update()
+                .first()
+            )
+            if not follow or not follow.is_active:
+                return reject("Trader follow is no longer active")
+            if automatic:
+                if follow.copy_mode != "auto" or copy_trade.status != "auto_pending":
+                    return reject("Automatic copy was disabled before execution")
+            elif follow.copy_mode == "auto" or copy_trade.status != "notified":
+                return reject("Copy mode changed before manual execution")
+
+            source_chain = get_chain_by_name(copy_trade.from_chain)
+            if not source_chain:
+                return reject(f"Unsupported source chain {copy_trade.from_chain}")
+            current_wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == copier_id,
+                    Wallet.chain_type == source_chain.chain_type.value,
+                    Wallet.is_active == True,
+                )
+                .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+                .first()
+            )
+            if (
+                not current_wallet
+                or current_wallet.id != wallet_id
+                or not current_wallet.can_server_sign
+            ):
+                return reject("Copy signing wallet changed before execution")
+
+            chains_filter = getattr(follow, "chains_filter", None)
+            if chains_filter:
+                allowed_chains = {
+                    chain.strip().lower() for chain in chains_filter.split(",") if chain.strip()
+                }
+                if allowed_chains and (
+                    copy_trade.from_chain.lower() not in allowed_chains
+                    or copy_trade.to_chain.lower() not in allowed_chains
+                ):
+                    return reject("Copy chain is no longer allowed")
+
+            current_copy_cap = follow.get_copy_amount(float(copy_trade.trader_amount_usd or 0))
+            if copy_amount > current_copy_cap + 1e-9:
+                return reject("Copy amount exceeds the current per-trade limit")
+
+            current_slippage = float(follow.max_slippage_percent or 1.0)
+            if slippage > current_slippage + 1e-9:
+                return reject("Copy slippage exceeds the current limit")
+
+            day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            reserved_other = (
+                session.query(func.coalesce(func.sum(CopyTrade.copy_amount_usd), 0.0))
+                .filter(
+                    CopyTrade.follow_id == follow.id,
+                    CopyTrade.id != copy_trade.id,
+                    or_(
+                        and_(
+                            CopyTrade.status.in_(["copied", "executing", "outcome_unknown"]),
+                            CopyTrade.copied_at >= day_start,
+                        ),
+                        and_(
+                            CopyTrade.status.in_(["pending", "auto_pending"]),
+                            CopyTrade.created_at >= day_start,
+                        ),
+                    ),
+                )
+                .scalar()
+            )
+            if float(reserved_other or 0) + copy_amount > float(follow.daily_limit_usd or 0):
+                return reject("Copy amount exceeds the current daily limit")
+
+            copy_trade.copy_amount_usd = copy_amount
+            copy_trade.status = "executing"
+            # This is the execution-attempt timestamp. Successful execution
+            # overwrites it below; ambiguous outcomes retain it so the daily
+            # reservation expires predictably at the next UTC boundary.
+            copy_trade.copied_at = datetime.now(timezone.utc)
+            return True, ""
 
     def skip_copy(self, copier_id: int, copy_trade_id: int) -> bool:
         """Mark a copy trade as skipped."""
@@ -790,10 +1094,10 @@ class CopyService:
             trader_amount = float(copy_trade.trader_amount_usd or 0)
             original_from_amount = float(original_swap.from_amount or 0)
         except (TypeError, ValueError):
-            return copy_amount
+            return 0.0
 
         if trader_amount <= 0 or original_from_amount <= 0:
-            return copy_amount
+            return 0.0
 
         return max(0.0, original_from_amount * (copy_amount / trader_amount))
 
@@ -884,7 +1188,7 @@ class CopyService:
             logger.warning("Paper copy failed for user %s: %s", copier_id, exc)
 
     async def _notify_copy_result(
-        self, bot, follower_info: dict, swap_data: dict, success: bool, message: str
+        self, bot, follower_info: dict, swap_data: dict, success: Optional[bool], message: str
     ) -> None:
         if not bot:
             return
@@ -902,7 +1206,12 @@ class CopyService:
                         return
             if not follower or not follower.telegram_id:
                 return
-            prefix = "Auto-copy submitted" if success else "Auto-copy failed"
+            if success is True:
+                prefix = "Auto-copy submitted"
+            elif success is None:
+                prefix = "Auto-copy outcome unknown — do not retry"
+            else:
+                prefix = "Auto-copy failed"
             await bot.send_message(
                 chat_id=follower.telegram_id,
                 text=f"{prefix}: {swap_data['from_token']} -> {swap_data['to_token']}\n{message}",
