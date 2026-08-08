@@ -122,18 +122,55 @@ def _is_evm_address(value: Optional[str]) -> bool:
     return True
 
 
+# TRON base58check addresses: leading 'T', 34 chars, Bitcoin base58 alphabet
+# (no 0/O/I/l). Unlike EVM hex these are CASE-SENSITIVE — lowercasing one
+# destroys it, so normalization below is chain-aware.
+_TRON_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _is_tron_address(value: Optional[str]) -> bool:
+    """True for a plausible TRON base58check (``T…``) address."""
+    if not value or not isinstance(value, str):
+        return False
+    v = value.strip()
+    if len(v) != 34 or not v.startswith("T"):
+        return False
+    return all(c in _TRON_B58_ALPHABET for c in v)
+
+
+def _is_screenable_address(value: Optional[str]) -> bool:
+    """True for any address family this service can screen (EVM or TRON)."""
+    return _is_evm_address(value) or _is_tron_address(value)
+
+
+def _normalize_address(value: str) -> str:
+    """Canonical blocklist key for an address.
+
+    EVM hex is case-insensitive, so it is lowercased. TRON base58 is
+    case-SENSITIVE and is preserved verbatim — lowercasing a ``T…`` address
+    would make it match nothing, silently disabling the screen.
+    """
+    v = (value or "").strip()
+    return v.lower() if _is_evm_address(v) else v
+
+
 def _parse_csv_addresses(raw: str) -> Set[str]:
-    """Parse a comma-separated address string into a lowercased EVM-address set."""
+    """Parse a comma-separated address string into a normalized address set.
+
+    Accepts EVM and TRON addresses. TRON matters here because OFAC SDN listings
+    include TRON addresses (USDT-TRC20 is a primary sanctions-evasion rail) and
+    the operator blocklist is how they get supplied.
+    """
     out: Set[str] = set()
     for tok in (raw or "").split(","):
-        norm = tok.strip().lower()
-        if _is_evm_address(norm):
+        norm = _normalize_address(tok)
+        if _is_screenable_address(norm):
             out.add(norm)
     return out
 
 
 class AddressComplianceService:
-    """Screens EVM addresses for a transaction against allow/block lists.
+    """Screens EVM and TRON addresses for a transaction against allow/block lists.
 
     Usage::
 
@@ -146,9 +183,9 @@ class AddressComplianceService:
         if not result.allowed:
             raise SwapError(result.reason)
 
-    Non-EVM addresses (Solana, TRON, Starknet, …) are skipped — this gate only
-    understands 0x-style addresses. Lists are loaded once at construction and
-    can be rebuilt with :meth:`reload`.
+    Understands EVM (``0x…``) and TRON (``T…`` base58check) addresses. Other
+    families (Solana, Starknet, …) are skipped. Lists are loaded once at
+    construction and can be rebuilt with :meth:`reload`.
     """
 
     def __init__(self) -> None:
@@ -202,14 +239,18 @@ class AddressComplianceService:
 
     def is_sanctioned(self, address: Optional[str]) -> bool:
         """True if ``address`` is on the blocklist (OFAC seed + operator)."""
-        return _is_evm_address(address) and address.strip().lower() in self._blocklist
+        if not _is_screenable_address(address):
+            return False
+        return _normalize_address(address) in self._blocklist
 
     def screen_address(self, address: str, role: Optional[str] = None) -> AddressVerdict:
-        """Screen a single EVM address against the active policy.
+        """Screen a single address (EVM or TRON) against the active policy.
 
-        Assumes ``address`` is already a valid EVM address (caller filters).
+        Assumes ``address`` is already a screenable address (caller filters).
+        Normalization is chain-aware: EVM hex is lowercased, TRON base58 is kept
+        verbatim because it is case-sensitive.
         """
-        addr = address.strip().lower()
+        addr = _normalize_address(address)
         policy = self.policy
 
         # Blocklist always wins, regardless of policy.
@@ -248,7 +289,8 @@ class AddressComplianceService:
             router: DEX/bridge contract the swap interacts with.
             tokens: Token contract addresses involved.
             extra: Any additional addresses to screen.
-            chain: Chain name (informational; only EVM addresses are screened).
+            chain: Chain name (informational). EVM and TRON addresses are
+                screened; other families (e.g. Solana) are skipped.
 
         Returns:
             A :class:`ComplianceResult`. In ``MONITOR`` mode ``allowed`` is
@@ -274,8 +316,8 @@ class AddressComplianceService:
                 candidates.append((e, "address"))
 
         for value, role in candidates:
-            if not _is_evm_address(value):
-                continue  # Non-EVM (Solana/TRON/…) — out of scope for this gate.
+            if not _is_screenable_address(value):
+                continue  # Address families we cannot screen yet (e.g. Solana).
             verdict = self.screen_address(value, role=role)
             result.verdicts.append(verdict)
             if not verdict.allowed:
