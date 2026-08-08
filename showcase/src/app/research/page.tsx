@@ -28,6 +28,12 @@ const decisionLenses = [
     label: 'Routing policy',
   },
   {
+    seat: 'Tokenization / interface',
+    question: 'What happens when a stock split changes the share-equivalent position without changing the raw ERC-20 balance?',
+    href: '/research/erc8056-stock-split-interface-risk',
+    label: 'ERC-8056 integration',
+  },
+  {
     seat: 'Product / incentives',
     question: 'Where does a reward budget land, and which rule changes reward real activity versus additional identities?',
     href: '/research/points-programs-tullock-contests',
@@ -45,7 +51,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
-    'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
+    'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };
 
 function fmtDate(iso: string) {
@@ -98,7 +104,7 @@ export default function ResearchPage() {
         <header className={styles.hero}>
           <div className={styles.heroTopline}>
             <p className="summer-kicker">Suwappu Research</p>
-            <p className={styles.series}>Treasury · payments · execution · model risk</p>
+            <p className={styles.series}>Treasury · payments · execution · tokenization · model risk</p>
           </div>
 
           <div className={styles.heroGrid}>
