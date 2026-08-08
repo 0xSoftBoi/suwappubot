@@ -21,6 +21,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Solutions',
     links: [
+      { label: 'Enterprise', href: '/enterprise' },
       { label: 'Trading agents', href: '/solutions#trading' },
       { label: 'Portfolio agents', href: '/solutions#portfolio' },
       { label: 'Payment & commerce agents', href: '/solutions#payments' },
@@ -33,6 +34,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: 'Documentation', href: '/docs' },
       { label: 'API Reference', href: '/docs/api-reference/overview' },
+      { label: 'Architecture', href: '/architecture' },
       { label: 'Changelog', href: '/changelog' },
       { label: 'Research', href: '/research' },
       { label: 'llms.txt', href: '/llms.txt', external: true },

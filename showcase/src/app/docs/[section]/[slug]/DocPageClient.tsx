@@ -19,7 +19,7 @@ type Props = {
 export default function DocPageClient({ section, page, html, toc }: Props) {
   const sections = docsData.sections.filter((s) => s.pages.length > 0);
   return (
-    <div className="summer-page docs-shell sw-dark">
+    <div className="summer-page docs-shell institutional-page">
       <div className="docs-page docs-page--reader">
         <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} currentSection={section.id} currentSlug={page.slug} />
