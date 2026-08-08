@@ -147,6 +147,26 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
               {post.kind === 'research' && <a href="/research/replication">Data &amp; code →</a>}
             </div>
           )}
+          {post.evidence && (
+            <dl className="research-post__evidence" aria-label="Evidence standard">
+              <div>
+                <dt>Evidence</dt>
+                <dd className="research-post__evidence-status">{post.evidence.status}</dd>
+              </div>
+              <div>
+                <dt>As of</dt>
+                <dd>{fmtDate(post.evidence.asOf)}</dd>
+              </div>
+              <div>
+                <dt>Basis</dt>
+                <dd>{post.evidence.basis}</dd>
+              </div>
+              <div>
+                <dt>Boundary</dt>
+                <dd>{post.evidence.boundary}</dd>
+              </div>
+            </dl>
+          )}
         </header>
 
         <DocsReader html={html} title={post.title} />
