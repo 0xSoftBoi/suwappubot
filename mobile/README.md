@@ -17,7 +17,7 @@ Point at a development API with `EXPO_PUBLIC_API_URL=https://devapi.suwappu.bot 
 
 Native `ios/` and `android/` directories are generated. Run `bun run prebuild` rather than committing them.
 
-For App Store builds, `eas.json` pins the Expo SDK 57 iOS image line so EAS uses Xcode 26. The app declares no tracking, aggregates dependency privacy manifests, suppresses an unused Face ID permission, and links Privacy, Terms, and Support from the native UI.
+For App Store builds, `eas.json` pins the Expo SDK 57 iOS image line so EAS uses Xcode 26. Apple has required App Store Connect uploads to use Xcode 26+ and the iOS 26 SDK since April 28, 2026; see <https://developer.apple.com/news/upcoming-requirements/>. The app declares no tracking, aggregates dependency privacy manifests, suppresses an unused Face ID permission, and links Privacy, Terms, and Support from the native UI.
 
 ## V0 API contract
 
