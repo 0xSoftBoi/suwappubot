@@ -54,14 +54,16 @@ jobs:
       - name: Prove regenerated dependency locks are clear
         shell: bash
         run: |
-          set -euo pipefail
-          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
-          (cd webapp && npm audit --audit-level=high)
+          set -uo pipefail
+          status=0
+          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325 || status=1
+          (cd webapp && npm audit --audit-level=high) || status=1
           for dir in api-ts terminal showcase extension packages/sdk packages/mcp-server packages/openclaw packages/design-tokens; do
             echo "::group::bun audit ($dir)"
-            (cd "$dir" && bun audit --audit-level=high)
+            (cd "$dir" && bun audit --audit-level=high) || status=1
             echo "::endgroup::"
           done
+          exit "$status"
 
       - name: Commit generated lockfiles
         id: commit
