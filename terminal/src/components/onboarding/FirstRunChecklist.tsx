@@ -28,7 +28,10 @@ export function FirstRunChecklist() {
   const [dismissed, setDismissed] = usePersistentState('onboarding-checklist-dismissed', false)
   const [completed, setCompleted] = useState<Set<Step['id']>>(new Set())
 
-  if (isAuthenticated || dismissed) return null
+  // The desktop checklist is a fixed overlay; on phones it obscures the
+  // persistent trading navigation and the swap CTA. Mobile already exposes a
+  // wallet-first header and dedicated Swap tab, so keep the trading surface clear.
+  if (isAuthenticated || dismissed || isMobile) return null
 
   const markDone = (id: Step['id']) => setCompleted((prev) => new Set(prev).add(id))
 
