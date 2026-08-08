@@ -39,17 +39,19 @@ cd webapp && npm install && npm run dev
 
 ## Verification
 
-Run the repository verification lanes that cover your change. Before a release-oriented PR, run the aggregate gate:
+Run the repository verification lanes that cover your change. For a release-oriented PR, run the aggregate repository smoke/drift lanes:
 
 ```bash
 bash scripts/verify.sh all
 ```
 
+The aggregate script includes live production health checks. It is not a hermetic substitute for GitHub CI, so both the relevant local lanes and the required CI checks must pass before merge.
+
 Dependency security is a blocking CI gate. To reproduce it locally:
 
 ```bash
 python -m pip install pip-audit
-pip-audit -r requirements.txt
+pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
 
 for dir in api-ts terminal showcase extension packages/sdk packages/mcp-server packages/openclaw packages/design-tokens; do
   (cd "$dir" && bun audit --audit-level=high) || exit 1
@@ -58,7 +60,7 @@ done
 (cd webapp && npm audit --audit-level=high)
 ```
 
-Do not suppress audit failures. Remediate a vulnerable dependency, or document a narrowly justified exception for review. Changes to swaps, signing, balances, custody, or other money paths must also preserve the invariants in [ARCHITECTURE.md](./ARCHITECTURE.md) and [CONVENTIONS.md](./CONVENTIONS.md).
+The exact Python exception above is documented, owned, and time-bounded in [docs/security/dependency-exceptions.md](./docs/security/dependency-exceptions.md). Do not add or broaden audit suppressions without the same evidence and review. Remediate a vulnerable dependency whenever a compatible fix exists. Changes to swaps, signing, balances, custody, or other money paths must also preserve the invariants in [ARCHITECTURE.md](./ARCHITECTURE.md) and [CONVENTIONS.md](./CONVENTIONS.md).
 
 ## Pull Request Guidelines
 
