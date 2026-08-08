@@ -176,7 +176,7 @@ jobs:
         run: bun run test
 
       - name: Export production iOS bundle
-        run: bunx expo export --platform ios --clear
+        run: node ./node_modules/expo/bin/cli export --platform ios --clear
 
   ios-native-build:
     name: Gecko iOS native build (Xcode 26)
@@ -196,7 +196,7 @@ jobs:
         run: bun install
 
       - name: Generate native iOS project
-        run: bunx expo prebuild --platform ios --clean --no-install
+        run: node ./node_modules/expo/bin/cli prebuild --platform ios --clean --no-install
 
       - name: Install CocoaPods
         working-directory: mobile/ios
