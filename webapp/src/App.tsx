@@ -149,6 +149,18 @@ function AppContent() {
   useDesktopHotkeys()
 
   useEffect(() => {
+    // The API intentionally trusts only Suwappu-owned browser origins for CORS
+    // and wallet-signature domain binding. Keep Railway's generated hostname as
+    // an infrastructure origin, never as a user-facing entry point.
+    if (window.location.hostname.endsWith('.up.railway.app')) {
+      const canonical = new URL(window.location.href)
+      canonical.protocol = 'https:'
+      canonical.host = 'app.suwappu.bot'
+      window.location.replace(canonical.toString())
+    }
+  }, [])
+
+  useEffect(() => {
     // Sync theme with Telegram or default to light
     if (colorScheme === 'dark') {
       document.documentElement.classList.add('dark')
@@ -183,6 +195,14 @@ function AppContent() {
             </PublicRoute>
           }
         />
+        <Route
+          path="/discover"
+          element={
+            <PageTransition>
+              <Discover />
+            </PageTransition>
+          }
+        />
 
         {/* Protected routes */}
         <Route
@@ -191,16 +211,6 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Home />
-              </PageTransition>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/discover"
-          element={
-            <ProtectedRoute>
-              <PageTransition>
-                <Discover />
               </PageTransition>
             </ProtectedRoute>
           }
