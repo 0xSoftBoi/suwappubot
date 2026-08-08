@@ -222,7 +222,7 @@ export default function ReplicationPage() {
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetLd) }} />
       <Navigation />
       <div className="summer-shell mkt-page repl-page">
