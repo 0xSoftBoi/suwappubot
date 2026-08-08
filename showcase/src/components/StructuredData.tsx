@@ -7,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        `Cross-chain DeFi platform for AI agents: swap tokens, research HyperLiquid perps and Morpho markets, access prediction markets, and build automations across ${stats.platformChains} blockchains.`,
+        `Execution infrastructure between trade intent and supported markets, with ${stats.platformChains} platform chains and route-specific interface coverage.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -17,7 +17,7 @@ export default function StructuredData() {
       featureList: [
         `Cross-chain token swaps across ${stats.platformChains} blockchains`,
         'HyperLiquid market, quote, and position research via the Agent API',
-        'Gasless fee-sponsored swaps on Tempo',
+        'Tempo token discovery with execution availability varying by interface',
         'Prediction markets via Polymarket',
         'Morpho lending-market research',
         'MCP server for Claude and AI agents',
@@ -63,7 +63,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: `Suwappu supports ${stats.platformChains} chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across ${stats.routerCount} providers.`,
+            text: `Suwappu supports ${stats.platformChains} platform chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, with ${stats.routerCount} integrated routing venues. Venue availability varies by route.`,
           },
         },
         {

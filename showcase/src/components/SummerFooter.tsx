@@ -69,7 +69,7 @@ export default function SummerFooter() {
             <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
+          <p>Cross-chain execution for agents and humans: routed swaps, HyperLiquid perps, and gas-sponsored Tempo trades across {stats.platformChains} platform chains.</p>
           <div className="summer-footer__social">
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
