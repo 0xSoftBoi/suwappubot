@@ -292,7 +292,7 @@ export function Header() {
                   </a>
                 )}
                 <a
-                  href={`https://link.metamask.io/dapp/${window.location.href.replace(/^https?:\\/\\//, '')}`}
+                  href={`https://link.metamask.io/dapp/${window.location.href.replace('https://', '').replace('http://', '')}`}
                   className="terminal-theme-control flex min-h-11 items-center justify-center px-3 text-center text-sm font-semibold text-terminal-text"
                 >
                   Open in MetaMask
