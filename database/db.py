@@ -194,6 +194,10 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # OAuth models
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
 
+        # Public JellyJelly creator-account claims. Only proof metadata and a
+        # canonical source ID are stored; source media remains at JellyJelly.
+        from bot.models.social import JellyAccountClaim
+
         # Agent registration models
         from bot.models.agent import RegisteredAgent
 

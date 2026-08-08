@@ -17,6 +17,34 @@ import type { P2POffersQuery, P2POffersResponse, P2PTradesResponse, P2PMyOffersR
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
+export interface JellyCard {
+  id: string
+  title: string
+  summary: string
+  username: string
+  thumbnailUrl: string | null
+  watchUrl: string | null
+  likesCount: number
+  viewsCount: number
+  createdAt: string | null
+}
+
+export interface JellyClaimChallenge {
+  challengeId: string
+  phrase: string
+  expiresAt: string
+  instructions: string
+}
+
+export interface JellyClaim {
+  username: string
+  claimJellyId: string
+  watchUrl: string
+  walletAddress: string
+  walletProof: 'siwe-session'
+  claimedAt: string
+}
+
 class ApiClient {
   private baseUrl: string
 
@@ -140,6 +168,34 @@ class ApiClient {
    */
   async validateAuth(): Promise<{ valid: boolean; user?: unknown }> {
     return this.fetch('/webapp/validate', { method: 'POST' })
+  }
+
+  // === Social discovery ===
+
+  /** Search public JellyJelly content via Suwappu's privacy-preserving proxy. */
+  async searchJellies(query: string): Promise<{ items: JellyCard[]; page: number }> {
+    return this.fetch(`/webapp/social/jellies?q=${encodeURIComponent(query)}`)
+  }
+
+  /** Start a wallet-backed, Jelly-native creator-account claim. */
+  async createJellyClaimChallenge(): Promise<JellyClaimChallenge> {
+    return this.fetch('/webapp/social/jelly/claims/challenge', { method: 'POST' })
+  }
+
+  /** Verify one public canonical Jelly as the account-control proof. */
+  async verifyJellyClaim(challengeId: string, jellyUrl: string): Promise<{ claim: JellyClaim }> {
+    return this.fetch('/webapp/social/jelly/claims/verify', {
+      method: 'POST',
+      body: JSON.stringify({ challengeId, jellyUrl }),
+    })
+  }
+
+  async getMyJellyClaim(): Promise<{ claim: JellyClaim | null }> {
+    return this.fetch('/webapp/social/me/jelly')
+  }
+
+  async removeMyJellyClaim(): Promise<{ removed: boolean }> {
+    return this.fetch('/webapp/social/me/jelly', { method: 'DELETE' })
   }
 
   /**
@@ -1390,4 +1446,3 @@ export const api = new ApiClient(API_BASE)
 
 // Export for testing with different base URLs
 export { ApiClient }
-
