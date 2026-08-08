@@ -17,8 +17,8 @@ See the [CLAUDE.md](./CLAUDE.md) file for build commands and project structure.
 ### Prerequisites
 
 - Python 3.11+ (bot + API)
-- Bun (TypeScript API)
-- Node.js 18+ (webapp)
+- Bun 1.3.14 (TypeScript workspaces; matches CI)
+- Node.js 20+ (webapp; matches CI)
 - PostgreSQL (local instance or a dev database connection string)
 
 ### Quick start
@@ -36,6 +36,29 @@ cd api-ts && bun install && bun run dev
 # Webapp
 cd webapp && npm install && npm run dev
 ```
+
+## Verification
+
+Run the repository verification lanes that cover your change. Before a release-oriented PR, run the aggregate gate:
+
+```bash
+bash scripts/verify.sh all
+```
+
+Dependency security is a blocking CI gate. To reproduce it locally:
+
+```bash
+python -m pip install pip-audit
+pip-audit -r requirements.txt
+
+for dir in api-ts terminal showcase extension packages/sdk packages/mcp-server packages/openclaw packages/design-tokens; do
+  (cd "$dir" && bun audit --audit-level=high) || exit 1
+done
+
+(cd webapp && npm audit --audit-level=high)
+```
+
+Do not suppress audit failures. Remediate a vulnerable dependency, or document a narrowly justified exception for review. Changes to swaps, signing, balances, custody, or other money paths must also preserve the invariants in [ARCHITECTURE.md](./ARCHITECTURE.md) and [CONVENTIONS.md](./CONVENTIONS.md).
 
 ## Pull Request Guidelines
 
