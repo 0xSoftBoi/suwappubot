@@ -526,6 +526,122 @@
   }
 }
 
+
+/* The same predicate as useIsMobile(): portrait phones plus coarse-pointer
+   landscape phones. Keep these rules capability/layout driven rather than
+   sniffing MetaMask, Phantom, or any other in-app browser user-agent. */
+@media (max-width: 767px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
+  .terminal-mobile-header {
+    overflow: visible;
+  }
+
+  .terminal-mobile-header-menu {
+    max-height: 28rem;
+    max-height: min(72dvh, 28rem);
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-mobile-mode-switch > button {
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 0;
+    padding-inline: 0.5rem;
+    touch-action: manipulation;
+  }
+
+  .terminal-mobile-nav button,
+  .terminal-mobile-header button,
+  .terminal-mobile-header a {
+    touch-action: manipulation;
+  }
+
+  .terminal-mobile-scroll {
+    min-height: 0;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* iOS and WKWebView zoom focused controls below 16px. Force the mobile form
+     floor, then restore the intentionally larger trade amount field. */
+  .terminal-theme-root :where(input, select, textarea) {
+    font-size: 16px;
+  }
+
+  .terminal-theme-root .terminal-amount-input {
+    font-size: 1.25rem;
+  }
+
+  /* Command palette becomes a keyboard-safe bottom sheet instead of a 12vh
+     desktop dialog. dvh shrinks with dynamic browser chrome and supported
+     interactive keyboards. */
+  .terminal-command-scrim {
+    align-items: flex-end;
+    overflow-y: auto;
+    padding: max(0.5rem, env(safe-area-inset-top))
+      max(0.5rem, env(safe-area-inset-right))
+      max(0.5rem, env(safe-area-inset-bottom))
+      max(0.5rem, env(safe-area-inset-left));
+  }
+
+  .terminal-command-palette {
+    display: flex;
+    width: 100%;
+    height: min(88vh, 42rem);
+    max-height: calc(100vh - 1rem);
+    flex-direction: column;
+  }
+
+  .terminal-command-results {
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-command-input {
+    font-size: 16px;
+  }
+
+  @supports (height: 100dvh) {
+    .terminal-command-palette {
+      height: min(88dvh, 42rem);
+      max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
+    }
+  }
+
+  /* Token dropdowns otherwise get clipped by the scrollable Swap panel. On
+     phones they are a fixed sheet above the persistent trading nav. */
+  .terminal-token-selector {
+    position: fixed;
+    top: auto;
+    right: max(0.5rem, env(safe-area-inset-right));
+    bottom: calc(3.75rem + env(safe-area-inset-bottom));
+    left: max(0.5rem, env(safe-area-inset-left));
+    z-index: 120;
+    width: auto;
+    max-height: 60vh;
+    overflow: hidden;
+  }
+
+  .terminal-token-selector [role='listbox'] {
+    max-height: 45vh;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  @supports (height: 100dvh) {
+    .terminal-token-selector {
+      max-height: 60dvh;
+    }
+
+    .terminal-token-selector [role='listbox'] {
+      max-height: 45dvh;
+    }
+  }
+}
+
 /* All motion is opt-in for users who have not asked for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .flash-up {
