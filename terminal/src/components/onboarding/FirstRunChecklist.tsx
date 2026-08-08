@@ -21,7 +21,13 @@ interface Step {
 // existing action (no fake modal, no dead links). Dismissal persists in
 // localStorage so it doesn't nag returning visitors who chose to skip it.
 export function FirstRunChecklist() {
-  const { isAuthenticated, signInWithWallet, isWalletConnecting, isWalletAuthAvailable } = useAuth()
+  const {
+    isAuthenticated,
+    needsTradingProof,
+    signInWithWallet,
+    isWalletConnecting,
+    isWalletAuthAvailable,
+  } = useAuth()
   const { setTradingMode } = useTrading()
   const { setActiveTab } = useBottomTab()
   const isMobile = useIsMobile()
@@ -31,7 +37,7 @@ export function FirstRunChecklist() {
   // The desktop checklist is a fixed overlay; on phones it obscures the
   // persistent trading navigation and the swap CTA. Mobile already exposes a
   // wallet-first header and dedicated Swap tab, so keep the trading surface clear.
-  if (isAuthenticated || dismissed || isMobile) return null
+  if ((isAuthenticated && !needsTradingProof) || dismissed || isMobile) return null
 
   const markDone = (id: Step['id']) => setCompleted((prev) => new Set(prev).add(id))
 
@@ -50,8 +56,10 @@ export function FirstRunChecklist() {
   const steps: Step[] = [
     {
       id: 'connect',
-      label: 'Connect wallet',
-      hint: 'Non-custodial — sign in with a SIWE signature',
+      label: needsTradingProof ? 'Verify wallet' : 'Connect wallet',
+      hint: needsTradingProof
+        ? 'Prove wallet control before trading'
+        : 'Non-custodial — sign in with a SIWE signature',
       run: () => {
         markDone('connect')
         void signInWithWallet()

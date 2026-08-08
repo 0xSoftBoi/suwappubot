@@ -39,7 +39,14 @@ const PRO_FEE_RATE = 0.005
 const PRICING_URL = 'https://suwappu.bot/pricing'
 
 export function SwapPanel() {
-  const { isAuthenticated, isExternalWallet, externalChain } = useAuth()
+  const {
+    isAuthenticated,
+    needsTradingProof,
+    walletAddress,
+    connectedAddress,
+    isExternalWallet,
+    externalChain,
+  } = useAuth()
   const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
@@ -63,6 +70,16 @@ export function SwapPanel() {
   const quoteToken = selectedPair.quote
   const fromToken = side === 'buy' ? quoteToken : baseToken
   const toToken = side === 'buy' ? baseToken : quoteToken
+  const requiredExternalChain = fromToken?.chain === 'solana' ? 'solana' : 'evm'
+  const connectedEvmMatchesSession =
+    externalChain !== 'evm' ||
+    (!!connectedAddress &&
+      !!walletAddress &&
+      connectedAddress.toLowerCase() === walletAddress.toLowerCase())
+  const externalWalletNeedsReconnect =
+    isExternalWallet &&
+    (externalChain !== requiredExternalChain ||
+      (requiredExternalChain === 'evm' && !connectedEvmMatchesSession))
 
   // Write a token change back into the shared pair so the chart, order book and
   // header all follow. Token selectors stay free to pick any chain — overriding
@@ -193,6 +210,16 @@ export function SwapPanel() {
     if (isExternalWallet) {
       if (!fromToken || !toToken || !amount) return
       const tokenIsSolana = fromToken.chain === 'solana'
+
+      if (externalWalletNeedsReconnect) {
+        telegramErrorHaptic()
+        toast.error(
+          tokenIsSolana
+            ? 'Connect the Phantom account for this session before trading.'
+            : 'Connect the EVM account for this session before trading.',
+        )
+        return
+      }
 
       if (tokenIsSolana && externalChain !== 'solana') {
         telegramErrorHaptic()
@@ -478,8 +505,8 @@ export function SwapPanel() {
 
       {/* Execute button (or connect/sign-in when not authenticated). Buy =
           up-fill, Sell = down-fill, dark ink text (AA-safe on both). */}
-      {!isAuthenticated ? (
-        <WalletConnect />
+      {!isAuthenticated || needsTradingProof || externalWalletNeedsReconnect ? (
+        <WalletConnect preferredChain={fromToken?.chain} showGoogle={!isAuthenticated} />
       ) : (
         <button
           onClick={isQuoteStale ? refreshExpiredQuote : handleSwap}

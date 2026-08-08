@@ -12,6 +12,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useCoinbaseFeed } from '../../hooks/useCoinbaseFeed'
 import { usePoints } from '../../hooks/usePoints'
 import { cexSymbol, coinbaseProductId } from '../../lib/marketSupport'
+import { metamaskDappUrl, phantomBrowseUrl } from '../../lib/walletLinks'
 import { PersimmonMark } from '../brand/PersimmonLogo'
 
 // Compact "connected" indicator for the live market-data feed backing the
@@ -66,10 +67,11 @@ function SeasonPointsChip() {
 }
 
 export function Header() {
-  const { selectedChain, setSelectedChain } = usePair()
-  const { tradingMode } = useTrading()
+  const { selectedChain, setSelectedChain, selectedPair } = usePair()
+  const { tradingMode, side } = useTrading()
   const {
     isAuthenticated,
+    needsTradingProof,
     walletAddress,
     isLoading,
     signIn,
@@ -130,7 +132,10 @@ export function Header() {
   // On Solana, an injected Phantom provider is the shortest and most reliable
   // path inside Phantom's mobile browser. EVM wallets stay inside wagmi /
   // RainbowKit so injected EIP-1193/EIP-6963 state and signing never diverge.
-  const isSolanaSelected = selectedChain === 'solana'
+  const spendChain = tradingMode === 'spot'
+    ? (side === 'buy' ? selectedPair.quote?.chain : selectedPair.base?.chain) ?? selectedChain
+    : selectedChain
+  const isSolanaSelected = spendChain === 'solana'
   const useInjectedPhantom = isSolanaSelected && isPhantomAvailable
   const walletAuthBlocked = !isSolanaSelected && !isWalletAuthAvailable
   const walletWorking = isLoading || (!isSolanaSelected && isWalletConnecting)
@@ -140,15 +145,13 @@ export function Header() {
       return
     }
     if (isSolanaSelected) {
-      window.location.assign(
-        `https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`,
-      )
+      window.location.assign(phantomBrowseUrl(window.location.href, window.location.origin))
       return
     }
     void signInWithWallet()
   }
 
-  const walletButton = !isAuthenticated && !isTelegram ? (
+  const walletButton = (!isAuthenticated || needsTradingProof) && !isTelegram ? (
     <button
       type="button"
       data-testid="connect-wallet"
@@ -179,6 +182,8 @@ export function Header() {
       <span className="whitespace-nowrap">
         {walletWorking
           ? 'Signing…'
+          : needsTradingProof
+            ? 'Verify wallet'
           : useInjectedPhantom
             ? 'Phantom'
             : isSolanaSelected
@@ -268,7 +273,7 @@ export function Header() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          {isAuthenticated ? authButton : walletButton}
+          {isAuthenticated && !needsTradingProof ? authButton : walletButton}
         </div>
 
         {menuOpen && (
@@ -292,7 +297,7 @@ export function Header() {
               <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
             </div>
 
-            {!isAuthenticated && !isTelegram && (
+            {(!isAuthenticated || needsTradingProof) && !isTelegram && (
               <div className="grid grid-cols-2 gap-2 border-t border-terminal-border pt-3">
                 {isPhantomAvailable ? (
                   <button
@@ -308,26 +313,36 @@ export function Header() {
                   </button>
                 ) : (
                   <a
-                    href={`https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`}
+                    href={phantomBrowseUrl(window.location.href, window.location.origin)}
                     className="terminal-theme-control flex min-h-11 items-center justify-center px-3 text-center text-sm font-semibold text-terminal-text"
                   >
                     Open in Phantom
                   </a>
                 )}
                 <a
-                  href={`https://link.metamask.io/dapp/${window.location.href.replace('https://', '').replace('http://', '')}`}
+                  href={metamaskDappUrl(window.location.href)}
                   className="terminal-theme-control flex min-h-11 items-center justify-center px-3 text-center text-sm font-semibold text-terminal-text"
                 >
                   Open in MetaMask
                 </a>
-                <button
-                  type="button"
-                  onClick={() => signInWithGoogle()}
-                  disabled={isLoading}
-                  className="terminal-theme-control col-span-2 min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
-                >
-                  Google
-                </button>
+                {!isAuthenticated ? (
+                  <button
+                    type="button"
+                    onClick={() => signInWithGoogle()}
+                    disabled={isLoading}
+                    className="terminal-theme-control col-span-2 min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
+                  >
+                    Google
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => signOut()}
+                    className="terminal-theme-control col-span-2 min-h-11 px-3 text-sm font-semibold text-terminal-text-secondary"
+                  >
+                    Sign out
+                  </button>
+                )}
               </div>
             )}
           </div>

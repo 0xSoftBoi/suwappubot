@@ -1909,11 +1909,14 @@ class SwapEngine:
             raise SwapError("This route can't be signed by an external wallet yet.")
 
         web3 = self.wallet_service._get_web3(from_chain)
-        sender = Web3.to_checksum_address(from_address)
-        spender = Web3.to_checksum_address(to_target)
+        try:
+            sender = Web3.to_checksum_address(from_address)
+            swap_target = Web3.to_checksum_address(to_target)
+        except (TypeError, ValueError) as exc:
+            raise SwapError("Li.Fi returned an invalid transaction target.") from exc
 
         swap_tx = {
-            "to": spender,
+            "to": swap_target,
             "data": call_data,
             "value": hex(_parse_int(tx_request.get("value"), 0)),
             "gas": hex(_parse_int(tx_request.get("gasLimit"), 500_000)),
@@ -1926,8 +1929,21 @@ class SwapEngine:
         # approval_mode on a reset-required token (e.g. USDT) would need a zero-out
         # approval first; the default 'unlimited' mode approves max once and is safe.
         approval = None
+        spender = None
         from_token_address = get_token_address(from_token, from_chain)
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            # Li.Fi explicitly tells us which contract is allowed to pull the
+            # sell token. It is NOT guaranteed to equal transactionRequest.to;
+            # approving the swap tx target can waste gas or leave allowance on
+            # the wrong contract. Fail closed if an ERC-20 route omits it.
+            approval_target = (quote.raw_quote.get("estimate") or {}).get("approvalAddress")
+            if not approval_target:
+                raise SwapError("Li.Fi did not provide an ERC-20 approval target.")
+            try:
+                spender = Web3.to_checksum_address(approval_target)
+            except (TypeError, ValueError) as exc:
+                raise SwapError("Li.Fi returned an invalid ERC-20 approval target.") from exc
+
             token_addr = Web3.to_checksum_address(from_token_address)
             erc20_abi = [
                 {
@@ -1975,7 +1991,7 @@ class SwapEngine:
             "chainId": chain.chain_id,
             "tx": swap_tx,
             "approval": approval,
-            "spender": spender,
+            "spender": spender or swap_target,
         }
         return quote, payload
 

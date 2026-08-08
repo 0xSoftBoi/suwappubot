@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 import jwt
 import httpx
 
+from api.authz import require_proof_of_possession
 from bot.config.chains import CHAINS, ChainType
 from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_decimals
 from bot.config.settings import settings
@@ -160,11 +161,10 @@ async def get_terminal_auth_payload(
     request: Request,
     auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
 ) -> Optional[Dict]:
-    token = auth_token
-    if not token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    # Match /auth/me, /terminal/* and api-ts: an explicit bearer token wins
+    # over a potentially stale OAuth cookie so every surface acts as one user.
+    auth_header = request.headers.get("Authorization")
+    token = auth_header[7:] if auth_header and auth_header.startswith("Bearer ") else auth_token
     return _decode_terminal_auth_token(token)
 
 
@@ -956,6 +956,102 @@ def _default_terminal_wallet(db: Session, user_id: int) -> Optional[Wallet]:
         .order_by(Wallet.is_default.desc(), Wallet.id.asc())
         .first()
     )
+
+
+def _terminal_chain_type(chain: str) -> str:
+    normalized = (chain or "").strip().lower()
+    if normalized in {"solana", "tron", "starknet"}:
+        return normalized
+    return "evm"
+
+
+def _reject_cross_family_terminal_swap(from_chain: str, to_chain: str) -> None:
+    """Fail closed until Terminal can bind an explicit destination wallet.
+
+    The current Terminal swap request only carries a source wallet address. An
+    EVM address is not a valid Solana recipient (and vice versa), so reusing the
+    source address for a cross-family quote can produce provider calldata for
+    the wrong recipient. Same-family cross-chain swaps (for example Base to
+    Arbitrum) remain supported.
+    """
+    if _terminal_chain_type(from_chain) != _terminal_chain_type(to_chain):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cross-family swaps need an explicit destination wallet. "
+                "Choose chains using the same wallet family for now."
+            ),
+        )
+
+
+def _terminal_wallet_for_chain(db: Session, user_id: int, chain: str) -> Optional[Wallet]:
+    """Select the user's active wallet for the quote source chain."""
+    return (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user_id,
+            Wallet.is_active == True,
+            Wallet.chain_type == _terminal_chain_type(chain),
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
+
+
+def _wallet_address_matches(wallet: Wallet, address: str) -> bool:
+    if wallet.chain_type == "evm":
+        return wallet.address.lower() == address.lower()
+    return wallet.address == address
+
+
+def _require_server_signing_wallet(wallet: Wallet) -> None:
+    """Fail closed unless Python actually has a signing capability for this wallet."""
+    provider = (wallet.wallet_provider or "local").lower()
+    if provider == "turnkey" and wallet.turnkey_sub_org_id and wallet.address:
+        return
+    if (
+        provider == "local"
+        and wallet.encrypted_private_key
+        and wallet.encrypted_private_key != "turnkey_managed"
+    ):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail="This wallet signs in the browser. Reconnect it and request a fresh quote.",
+    )
+
+
+def _require_session_wallet_address(
+    db: Session,
+    auth_payload: Optional[Dict],
+    address: str,
+    chain: str,
+) -> Wallet:
+    """Bind a client-signing request to the wallet that proved this session."""
+    user_id = require_proof_of_possession(auth_payload)
+    session_address = str((auth_payload or {}).get("address") or "")
+    chain_type = _terminal_chain_type(chain)
+    address_matches_session = (
+        session_address.lower() == address.lower()
+        if chain_type == "evm"
+        else session_address == address
+    )
+    if not session_address or not address_matches_session:
+        raise HTTPException(status_code=403, detail="Reconnect the wallet you are trading from")
+
+    wallet_query = db.query(Wallet).filter(
+        Wallet.user_id == user_id,
+        Wallet.is_active == True,
+        Wallet.chain_type == chain_type,
+    )
+    if chain_type == "evm":
+        wallet_query = wallet_query.filter(Wallet.address.ilike(address))
+    else:
+        wallet_query = wallet_query.filter(Wallet.address == address)
+    wallet = wallet_query.first()
+    if not wallet or not _wallet_address_matches(wallet, address):
+        raise HTTPException(status_code=403, detail="Trading wallet is not bound to this session")
+    return wallet
 
 
 def _require_terminal_user(auth_payload: Optional[Dict]) -> int:
@@ -3587,11 +3683,13 @@ async def create_terminal_swap_quote(
 
     from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
     to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+    _reject_cross_family_terminal_swap(body.fromChain, body.toChain)
 
     from_address = "0x0000000000000000000000000000000000000001"
     user_id = auth_payload.get("user_id") if auth_payload else None
+    wallet = None
     if user_id:
-        wallet = _default_terminal_wallet(db, int(user_id))
+        wallet = _terminal_wallet_for_chain(db, int(user_id), body.fromChain)
         if wallet and wallet.address:
             from_address = wallet.address
 
@@ -3617,6 +3715,11 @@ async def create_terminal_swap_quote(
         "created_at": time.time(),
         "quote": quote,
         "user_id": user_id,
+        # Provider calldata is built for this exact sender/recipient. Execution
+        # must never silently switch to a newly-selected default wallet while the
+        # quote is still live.
+        "wallet_id": wallet.id if wallet else None,
+        "wallet_address": wallet.address if wallet else None,
     }
 
     from_token = _webapp_swap_token(from_symbol, body.fromChain)
@@ -3683,24 +3786,40 @@ async def execute_terminal_swap(
     """
     from bot.services.swap_engine import SwapEngine, SwapError
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = require_proof_of_possession(auth_payload)
 
     _cleanup_terminal_quote_cache()
     cached = _terminal_quote_cache.get(body.quoteId)
     if not cached:
         raise HTTPException(status_code=404, detail="Quote expired or not found")
 
-    user_id = int(auth_payload["user_id"])
     quote_user_id = cached.get("user_id")
     if quote_user_id and int(quote_user_id) != user_id:
         raise HTTPException(status_code=403, detail="Quote does not belong to this user")
 
-    wallet = _default_terminal_wallet(db, user_id)
-    if not wallet:
-        raise HTTPException(status_code=400, detail="No active wallet found")
-
     quote = cached["quote"]
+    wallet_id = cached.get("wallet_id")
+    wallet_address = cached.get("wallet_address")
+    if not wallet_id or not wallet_address:
+        raise HTTPException(status_code=409, detail="Quote is not bound to a trading wallet")
+
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.id == int(wallet_id),
+            Wallet.user_id == user_id,
+            Wallet.is_active == True,
+            Wallet.chain_type == _terminal_chain_type(quote.from_chain),
+        )
+        .first()
+    )
+    if not wallet or not _wallet_address_matches(wallet, str(wallet_address)):
+        raise HTTPException(
+            status_code=409,
+            detail="Trading wallet changed after this quote. Request a fresh quote.",
+        )
+    _require_server_signing_wallet(wallet)
+
     try:
         swap = await SwapEngine().execute_swap(
             quote=quote,
@@ -3745,9 +3864,6 @@ async def build_terminal_swap(
     """
     from bot.services.swap_engine import SwapEngine, SwapError
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     try:
         amount = float(body.amount)
     except ValueError:
@@ -3759,6 +3875,8 @@ async def build_terminal_swap(
     is_solana = body.fromChain.lower() == "solana"
     if not is_solana and not (address.startswith("0x") and len(address) == 42):
         raise HTTPException(status_code=400, detail="Invalid wallet address")
+    _reject_cross_family_terminal_swap(body.fromChain, body.toChain)
+    _require_session_wallet_address(db, auth_payload, address, body.fromChain)
 
     from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
     to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
@@ -3863,8 +3981,7 @@ async def submit_jito_swap(
     block engine so it lands as a bundle (the server never holds the key). Returns
     the transaction signature for /swap/record.
     """
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    require_proof_of_possession(auth_payload)
 
     from bot.services.jito_api import jito_api, JitoError
 
@@ -3895,8 +4012,7 @@ async def record_terminal_swap(
     from bot.config.chains import get_chain_by_name
     from bot.models.swap import SwapTransaction, SwapStatus
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = require_proof_of_possession(auth_payload)
 
     tx_hash = body.txHash.strip()
     # EVM tx hash: 0x + 64 hex. Solana signature: base58, ~64–90 chars (no 0x).
@@ -3910,7 +4026,6 @@ async def record_terminal_swap(
     if not cached:
         raise HTTPException(status_code=404, detail="Quote expired or not found")
 
-    user_id = int(auth_payload["user_id"])
     quote_user_id = cached.get("user_id")
     if quote_user_id and int(quote_user_id) != user_id:
         raise HTTPException(status_code=403, detail="Quote does not belong to this user")
