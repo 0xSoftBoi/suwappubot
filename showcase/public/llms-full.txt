@@ -4997,7 +4997,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | Guide | What you'll build |
 |-------|-------------------|
 | [Building a Standalone Trading Bot](building-a-trading-bot.md) | A USDC price-target product with single-writer state, outcome recovery, observability, and builder economics |
-| [Standalone Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with intended-time identity, cost guards, recovery, observability, reconciliation, and product economics |
+| [Build a Standalone Recurring DCA Product](dca-automation.md) | Fixed-USDC schedules with intended-time identity, cost guards, recovery, observability, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
 | [Lending Monitor](lending-monitor.md) | A snapshot/delta/alert pipeline you can turn into a paid research product |
@@ -5142,7 +5142,7 @@ The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action bou
 - **Paid:** notifications, approvals, retained history, team roles, and budget reporting.
 - **Execution:** optional bounded automation where one schedule slot maps to one durable economic action.
 
-The [Recurring DCA guide](dca-automation.md) shows the production boundary that cron examples usually miss: timezone/DST-stable slot identity, no accidental catch-up, cost gates, same-key ambiguous recovery, and a reconciled outcome before the next installment. It also shows why time-based scheduling can have much more predictable request economics than continuous price polling.
+[Build a Standalone Recurring DCA Product](dca-automation.md) shows the production boundary that cron examples usually miss: scheduler-intended slot identity across delayed/DST callbacks, enforced local writer ownership, no accidental catch-up, cost gates, same-key ambiguous recovery, and a reconciled outcome before the next installment. It also shows why time-based scheduling can have much more predictable request economics than continuous price polling.
 
 ### Market intelligence API
 
@@ -5328,7 +5328,7 @@ See [Build a Business on Suwappu](build-a-business.md) for the builder-margin mo
 
 [`suwappu-flywheel`](https://github.com/0xSoftBoi/suwappu-flywheel) is the ecosystem's strategy-lab example. Its job is to make this replay -> paper -> live contract reusable so DCA, rebalancing, arbitrage research, and trading examples do not each reinvent accounting and promotion rules. The [Flywheel product guide](flywheel.md) walks through its durable execution boundary, OSS tradeoffs, and concrete paid-product patterns.
 
-For time-based recurring purchases specifically, the [Recurring DCA guide](dca-automation.md) adds schedule-slot identity, daylight-saving deduplication, missed-slot policy, and the rule that an unresolved prior economic action blocks the next installment.
+For time-based recurring purchases specifically, [Build a Standalone Recurring DCA Product](dca-automation.md) adds scheduler-intended slot identity, enforced local writer ownership, explicit missed-slot policy, and the rule that an unresolved prior economic action blocks the next installment.
 
 Treat any example strategy as educational infrastructure, not a promise of profit. Promote based on measured evidence and operational safety, not backtest cosmetics.
 

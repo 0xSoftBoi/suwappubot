@@ -39,7 +39,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | Guide | What you'll build |
 |-------|-------------------|
 | [Building a Standalone Trading Bot](building-a-trading-bot.md) | A USDC price-target product with single-writer state, outcome recovery, observability, and builder economics |
-| [Standalone Recurring DCA Automation](dca-automation.md) | Fixed-USDC schedules with intended-time identity, cost guards, recovery, observability, reconciliation, and product economics |
+| [Build a Standalone Recurring DCA Product](dca-automation.md) | Fixed-USDC schedules with intended-time identity, cost guards, recovery, observability, reconciliation, and product economics |
 | [Portfolio Rebalancer](portfolio-rebalancer.md) | Fixed-target treasury workflow with explicit holdings, durable managed execution, reconciliation, and monetization patterns |
 | [Prediction Market Research](prediction-markets.md) | A screener/watchlist/alerts path built from market detail, book, midpoint, and trade snapshots |
 | [Lending Monitor](lending-monitor.md) | A snapshot/delta/alert pipeline you can turn into a paid research product |

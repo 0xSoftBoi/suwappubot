@@ -119,7 +119,7 @@ The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action bou
 - **Paid:** notifications, approvals, retained history, team roles, and budget reporting.
 - **Execution:** optional bounded automation where one schedule slot maps to one durable economic action.
 
-The [Recurring DCA guide](dca-automation.md) shows the production boundary that cron examples usually miss: timezone/DST-stable slot identity, no accidental catch-up, cost gates, same-key ambiguous recovery, and a reconciled outcome before the next installment. It also shows why time-based scheduling can have much more predictable request economics than continuous price polling.
+[Build a Standalone Recurring DCA Product](dca-automation.md) shows the production boundary that cron examples usually miss: scheduler-intended slot identity across delayed/DST callbacks, enforced local writer ownership, no accidental catch-up, cost gates, same-key ambiguous recovery, and a reconciled outcome before the next installment. It also shows why time-based scheduling can have much more predictable request economics than continuous price polling.
 
 ### Market intelligence API
 
