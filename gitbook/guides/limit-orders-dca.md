@@ -2,7 +2,7 @@
 
 Set price-triggered swap orders that execute automatically when your target price is reached.
 
-This page documents the Telegram Mini App's **price-triggered limit-order** surface. If you are building scheduled fixed-dollar recurring purchases with an agent API key, use [Build a Recurring DCA Product](dca-automation.md) instead.
+This page documents the Telegram Mini App's **price-triggered limit-order** surface. If you are building scheduled fixed-dollar recurring purchases with an agent API key, use [Build a Standalone Recurring DCA Product](dca-automation.md) instead.
 
 > **Authentication note:** The `/webapp/me/limit-orders` endpoints are protected by Telegram Mini App authentication (`X-Telegram-Init-Data`). They are accessible only from inside the Suwappu Telegram Mini App, not via agent API keys. Agent/API-key access to limit orders is not yet available.
 
