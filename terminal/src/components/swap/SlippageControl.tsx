@@ -28,7 +28,7 @@ export function SlippageControl({ value, onChange }: Props) {
               setCustom(false);
             }}
             className={joinClasses(
-              "terminal-theme-control tnum min-h-[32px] min-w-[56px] px-2.5 py-1 font-mono text-[11px] transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
+              "terminal-theme-control tnum min-h-11 min-w-[56px] px-2.5 py-1 font-mono text-[11px] transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
               !custom && value === preset
                 ? "terminal-theme-control-active text-terminal-text"
                 : "text-terminal-text-secondary hover:text-terminal-text",
@@ -39,7 +39,7 @@ export function SlippageControl({ value, onChange }: Props) {
         ))}
         <label
           className={joinClasses(
-            "terminal-theme-control relative flex min-h-[32px] min-w-[72px] flex-1 items-center px-2.5 hover:translate-y-0 focus-within:translate-y-0",
+            "terminal-theme-control relative flex min-h-11 min-w-[72px] flex-1 items-center px-2.5 hover:translate-y-0 focus-within:translate-y-0",
             custom
               ? "terminal-theme-control-active text-terminal-text"
               : "text-terminal-text-secondary",
