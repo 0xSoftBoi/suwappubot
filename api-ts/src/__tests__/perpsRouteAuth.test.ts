@@ -14,6 +14,10 @@ afterAll(() => {
 let agentAuthCalls = 0
 let userAuthCalls = 0
 
+// Routing-only stubs are intentional here: a positive agentBearerAuth() integration
+// test requires a registered DB-backed agent. Existing middleware tests own malformed/
+// anonymous credential rejection; this suite proves that the perps route sends each
+// credential class to the correct real middleware rather than claiming to test DB auth.
 mock.module('../middleware', () => ({
 	agentBearerAuth: () => async (_c: any, next: any) => {
 		agentAuthCalls++
@@ -52,6 +56,17 @@ describe('GET /v1/agent/perps/positions auth compatibility', () => {
 		const beforeUser = userAuthCalls
 		const res = await perpsRoutes.request(path, {
 			headers: { Authorization: 'Bearer suwappu_sk_test_key_00000000000000000000' },
+		})
+		expect(res.status).toBe(200)
+		expect(agentAuthCalls).toBe(beforeAgent + 1)
+		expect(userAuthCalls).toBe(beforeUser)
+	})
+
+	it('matches agentBearerAuth whitespace normalization when selecting the agent-key path', async () => {
+		const beforeAgent = agentAuthCalls
+		const beforeUser = userAuthCalls
+		const res = await perpsRoutes.request(path, {
+			headers: { Authorization: 'Bearer    suwappu_sk_test_key_00000000000000000000   ' },
 		})
 		expect(res.status).toBe(200)
 		expect(agentAuthCalls).toBe(beforeAgent + 1)
