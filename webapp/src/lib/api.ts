@@ -45,6 +45,13 @@ export interface JellyClaim {
   claimedAt: string
 }
 
+export interface WalletAuthResult {
+  success: boolean
+  token: string
+  expiresAt: string
+  user?: { id?: number; address?: string; username?: string }
+}
+
 class ApiClient {
   private baseUrl: string
 
@@ -163,6 +170,24 @@ class ApiClient {
 
   // === Auth ===
 
+  /** Request the nonce-bound message used to prove an external wallet. */
+  async requestExternalWalletChallenge(address: string, chain: 'evm' | 'solana'): Promise<{ challenge: string; nonce: string; expiresAt: string }> {
+    const endpoint = chain === 'solana' ? '/auth/solana/challenge' : '/auth/turnkey/challenge'
+    return this.fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
+  }
+
+  /** Exchange an EVM SIWE or Solana SIWS signature for a normal Suwappu session. */
+  async verifyExternalWallet(address: string, signature: string, nonce: string, chain: 'evm' | 'solana'): Promise<WalletAuthResult> {
+    const endpoint = chain === 'solana' ? '/auth/solana/verify' : '/auth/turnkey/verify'
+    return this.fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ address, signature, nonce }),
+    })
+  }
+
   /**
    * Validate Telegram init data (for testing auth)
    */
@@ -178,24 +203,33 @@ class ApiClient {
   }
 
   /** Start a wallet-backed, Jelly-native creator-account claim. */
-  async createJellyClaimChallenge(): Promise<JellyClaimChallenge> {
-    return this.fetch('/webapp/social/jelly/claims/challenge', { method: 'POST' })
+  async createJellyClaimChallenge(walletProofToken: string): Promise<JellyClaimChallenge> {
+    return this.fetch('/webapp/social/jelly/claims/challenge', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
   }
 
   /** Verify one public canonical Jelly as the account-control proof. */
-  async verifyJellyClaim(challengeId: string, jellyUrl: string): Promise<{ claim: JellyClaim }> {
+  async verifyJellyClaim(challengeId: string, jellyUrl: string, walletProofToken: string): Promise<{ claim: JellyClaim }> {
     return this.fetch('/webapp/social/jelly/claims/verify', {
       method: 'POST',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
       body: JSON.stringify({ challengeId, jellyUrl }),
     })
   }
 
-  async getMyJellyClaim(): Promise<{ claim: JellyClaim | null }> {
-    return this.fetch('/webapp/social/me/jelly')
+  async getMyJellyClaim(walletProofToken: string): Promise<{ claim: JellyClaim | null }> {
+    return this.fetch('/webapp/social/me/jelly', {
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
   }
 
-  async removeMyJellyClaim(): Promise<{ removed: boolean }> {
-    return this.fetch('/webapp/social/me/jelly', { method: 'DELETE' })
+  async removeMyJellyClaim(walletProofToken: string): Promise<{ removed: boolean }> {
+    return this.fetch('/webapp/social/me/jelly', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
   }
 
   /**

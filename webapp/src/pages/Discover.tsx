@@ -6,6 +6,12 @@ import { SkeletonCard, AnimatedListItem } from '../components/ui'
 import { useTrendingTokens } from '../hooks/useChart'
 import type { LineData, Time } from 'lightweight-charts'
 import { api, type JellyCard, type JellyClaim, type JellyClaimChallenge } from '../lib/api'
+import {
+  connectEvmWallet,
+  connectPhantomWallet,
+  signEvmMessage,
+  signPhantomMessage,
+} from '../lib/injected-wallet'
 
 const CHAIN_FILTERS = [
   { id: undefined, label: 'All' },
@@ -60,6 +66,9 @@ export default function Discover() {
   const [claim, setClaim] = useState<JellyClaim | null>(null)
   const [claimLoading, setClaimLoading] = useState(false)
   const [claimError, setClaimError] = useState<string | null>(null)
+  const [walletProof, setWalletProof] = useState<{ token: string; address: string } | null>(null)
+  const [walletConnecting, setWalletConnecting] = useState<'evm' | 'solana' | null>(null)
+  const [walletError, setWalletError] = useState<string | null>(null)
   const { data: trendingData, isLoading } = useTrendingTokens(chainFilter)
 
   const tokens = trendingData || []
@@ -67,16 +76,43 @@ export default function Discover() {
   const header = <AppHeader title="Discover" />
 
   useEffect(() => {
+    if (!walletProof) {
+      setClaim(null)
+      return
+    }
     let current = true
-    api.getMyJellyClaim()
+    api.getMyJellyClaim(walletProof.token)
       .then(({ claim: existingClaim }) => {
         if (current) setClaim(existingClaim)
       })
-      // Browsing is public; a Telegram-only or signed-out session simply has
-      // no profile claim to show yet.
       .catch(() => undefined)
     return () => { current = false }
-  }, [])
+  }, [walletProof])
+
+  const connectClaimWallet = async (chain: 'evm' | 'solana') => {
+    setClaimError(null)
+    setWalletError(null)
+    setWalletConnecting(chain)
+    try {
+      const address = chain === 'solana'
+        ? await connectPhantomWallet()
+        : await connectEvmWallet()
+      const { challenge, nonce } = await api.requestExternalWalletChallenge(address, chain)
+      const signature = chain === 'solana'
+        ? await signPhantomMessage(challenge)
+        : await signEvmMessage(address, challenge)
+      const result = await api.verifyExternalWallet(address, signature, nonce, chain)
+      if (!result.success || !result.token) throw new Error('Wallet proof did not complete.')
+      // Deliberately scoped to this social surface. Do not replace the app's
+      // Telegram/passkey Bearer session or unlock protected trading routes.
+      setWalletProof({ token: result.token, address })
+    } catch (err: any) {
+      const detail = err?.detail || err?.message || 'Failed to prove wallet ownership.'
+      setWalletError(/reject|denied|cancel/i.test(detail) ? 'Signature request was cancelled.' : detail)
+    } finally {
+      setWalletConnecting(null)
+    }
+  }
 
   const searchSocial = async (event: FormEvent) => {
     event.preventDefault()
@@ -94,10 +130,11 @@ export default function Discover() {
   }
 
   const startJellyClaim = async () => {
+    if (!walletProof) return
     setClaimLoading(true)
     setClaimError(null)
     try {
-      setClaimChallenge(await api.createJellyClaimChallenge())
+      setClaimChallenge(await api.createJellyClaimChallenge(walletProof.token))
       setClaimJellyUrl('')
     } catch {
       setClaimError('Connect and sign in with a wallet before claiming a Jelly account.')
@@ -108,11 +145,11 @@ export default function Discover() {
 
   const verifyJellyClaim = async (event: FormEvent) => {
     event.preventDefault()
-    if (!claimChallenge || !claimJellyUrl.trim()) return
+    if (!walletProof || !claimChallenge || !claimJellyUrl.trim()) return
     setClaimLoading(true)
     setClaimError(null)
     try {
-      const result = await api.verifyJellyClaim(claimChallenge.challengeId, claimJellyUrl.trim())
+      const result = await api.verifyJellyClaim(claimChallenge.challengeId, claimJellyUrl.trim(), walletProof.token)
       setClaim(result.claim)
       setClaimChallenge(null)
       setClaimJellyUrl('')
@@ -124,10 +161,11 @@ export default function Discover() {
   }
 
   const removeJellyClaim = async () => {
+    if (!walletProof) return
     setClaimLoading(true)
     setClaimError(null)
     try {
-      await api.removeMyJellyClaim()
+      await api.removeMyJellyClaim(walletProof.token)
       setClaim(null)
     } catch {
       setClaimError('We could not remove this claim right now. Try again shortly.')
@@ -169,7 +207,17 @@ export default function Discover() {
                 <button type="button" onClick={removeJellyClaim} disabled={claimLoading} className="shrink-0 text-xs font-semibold text-suwappu-text-secondary hover:text-red-500 disabled:opacity-50">Unlink</button>
               </div>
             )}
-            {!claim && !claimChallenge && (
+            {!claim && !walletProof && (
+              <div className="mt-3 rounded-suwappu-lg bg-white px-3 py-3 border border-suwappu-sakura-mid/20">
+                <p className="text-xs text-suwappu-text-secondary">Connect the wallet you want bound to your creator identity.</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button type="button" onClick={() => connectClaimWallet('evm')} disabled={walletConnecting !== null} className="px-3 py-2 text-xs font-semibold rounded-suwappu-lg bg-suwappu-gradient text-white disabled:opacity-50">{walletConnecting === 'evm' ? 'Connecting' : 'Connect EVM wallet'}</button>
+                  <button type="button" onClick={() => connectClaimWallet('solana')} disabled={walletConnecting !== null} className="px-3 py-2 text-xs font-semibold rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/30 text-suwappu-purple-deep disabled:opacity-50">{walletConnecting === 'solana' ? 'Connecting' : 'Connect Phantom'}</button>
+                </div>
+                {walletError && <p className="mt-2 text-xs text-red-500">{walletError}</p>}
+              </div>
+            )}
+            {!claim && walletProof && !claimChallenge && (
               <button type="button" onClick={startJellyClaim} disabled={claimLoading} className="mt-3 px-3 py-2 text-sm font-semibold rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/30 text-suwappu-purple-deep hover:border-suwappu-magenta-mid disabled:opacity-50">{claimLoading ? 'Preparing proof' : 'Claim my Jelly account'}</button>
             )}
             {!claim && claimChallenge && (
