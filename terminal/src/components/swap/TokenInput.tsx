@@ -80,7 +80,7 @@ export function TokenInput({
             aria-haspopup="listbox"
             aria-expanded={selectorOpen}
             aria-label={token ? `Change token, currently ${token.symbol}` : 'Select a token'}
-            className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-full
+            className="terminal-mobile-touch flex items-center gap-1.5 px-3 py-1.5 rounded-full
                        bg-terminal-bg-tertiary border border-terminal-border
                        hover:border-terminal-border-active transition-colors"
           >
@@ -123,7 +123,7 @@ export function TokenInput({
                     role="option"
                     aria-selected={t.address === token?.address && t.chain === token?.chain}
                     onClick={() => { onTokenSelect(t); setSelectorOpen(false) }}
-                    className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm
+                    className="terminal-mobile-touch flex w-full items-center gap-2 px-3 py-2 text-sm
                                hover:bg-terminal-bg-tertiary transition-colors"
                   >
                     {t.logoUrl ? (
