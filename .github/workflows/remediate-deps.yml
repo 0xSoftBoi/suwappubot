@@ -1,9 +1,9 @@
 name: Temporary dependency lock remediation
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/blocking-dependency-security-gate
+      - main
     paths:
       - .github/workflows/remediate-deps.yml
 
@@ -12,11 +12,12 @@ permissions:
 
 jobs:
   refresh-bun-locks:
-    if: github.repository == '0xSoftBoi/suwappubot' && github.ref == 'refs/heads/agent/blocking-dependency-security-gate'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
