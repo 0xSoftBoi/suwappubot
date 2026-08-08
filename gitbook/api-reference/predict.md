@@ -207,4 +207,4 @@ Response: `{ "orders": [...] }`.
 
 `positions`, `orders`, and `cancel` require prediction trading credentials. A fresh read-only agent may receive `No Polymarket credentials found. Place an order first to initialize.` That does not mean a research product should place a dummy order; simply omit account views until your product intentionally adds trading authority.
 
-For a safe read-first workflow and product/economics patterns, see [Prediction Market Research](../guides/prediction-markets.md).
+For a safe read-first workflow and product/economics patterns, see [Build a Standalone Prediction Monitor](../guides/prediction-markets.md).
