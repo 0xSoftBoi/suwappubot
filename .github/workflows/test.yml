@@ -120,6 +120,31 @@ jobs:
         run: bun run build
 
   # ---------------------------------------------------------------------------
+  # Terminal — unit tests + the exact Vite production compile
+  # ---------------------------------------------------------------------------
+  terminal-production-build:
+    name: Terminal production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terminal
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install terminal dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run terminal unit tests
+        run: bun run test
+
+      - name: Build terminal production bundle
+        run: bun run build
+
+  # ---------------------------------------------------------------------------
   # Deployment contracts — exact production build + shared-DB migration safety
   # ---------------------------------------------------------------------------
   showcase-production-build:

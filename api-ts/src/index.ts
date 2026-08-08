@@ -35,6 +35,7 @@ async function main() {
 		allowedOrigins: env.ALLOWED_ORIGINS,
 		adminApiKey: env.ADMIN_API_KEY,
 		internalApiKey: env.INTERNAL_API_KEY,
+		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
 	})
 

@@ -183,6 +183,7 @@ export const api = {
       userId?: number
       address?: string
       walletProvider?: string
+      sessionSource?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
@@ -191,7 +192,15 @@ export const api = {
       userId: result.userId,
       walletAddress: result.address,
       walletProvider: result.walletProvider ?? null,
+      sessionSource: result.sessionSource ?? null,
     }
+  },
+
+  logout() {
+    return request<{ success: boolean }>('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over

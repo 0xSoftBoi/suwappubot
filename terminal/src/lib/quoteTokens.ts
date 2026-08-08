@@ -15,6 +15,23 @@ const USDC: Record<string, { address: string; decimals: number }> = {
   solana: { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
 }
 
+const EVM_NATIVE_ADDRESS = '0xEeeeeEeeeEeEeeEeEeeEEEeeeeEeeeeeeeEEeE'
+const NATIVE: Record<string, { symbol: string; name: string; address: string; decimals: number }> = {
+  ethereum: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  arbitrum: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  base: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  optimism: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  polygon: { symbol: 'POL', name: 'POL', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  bsc: { symbol: 'BNB', name: 'BNB', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  avalanche: { symbol: 'AVAX', name: 'Avalanche', address: EVM_NATIVE_ADDRESS, decimals: 18 },
+  solana: {
+    symbol: 'SOL',
+    name: 'Solana',
+    address: 'So11111111111111111111111111111111111111112',
+    decimals: 9,
+  },
+}
+
 /**
  * Build the canonical USDC quote token for a chain. Falls back to the Ethereum
  * USDC contract for unknown chains so the UI never renders a broken pair.
@@ -28,6 +45,12 @@ export function usdcFor(chain: string): SwapToken {
     chain,
     decimals: entry.decimals,
   }
+}
+
+/** Build the chain's canonical native-token leg for a fresh pair. */
+export function nativeTokenFor(chain: string): SwapToken {
+  const entry = NATIVE[chain] ?? NATIVE.ethereum
+  return { ...entry, chain }
 }
 
 /**

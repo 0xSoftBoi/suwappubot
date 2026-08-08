@@ -25,6 +25,8 @@ import {
 	perpsRoutes,
 	rewardsRoutes,
 	predictRoutes,
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
 	publicSwapRoutes,
 	smartAccountRoutes,
 	stakingRoutes,
@@ -57,6 +59,7 @@ export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string | undefined
 	internalApiKey?: string | undefined
+	internalApiUrl?: string | undefined
 	// String 'true'/'false' (matches the *_ENABLED convention in EnvService).
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
@@ -143,7 +146,12 @@ export function createApp(config: AppConfig) {
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
 
-	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
+	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
+	// This exact-path gateway must be mounted before swapRoutes; requests carrying
+	// Telegram init-data fall through to the existing api-ts implementation.
+	app.route('/', createTerminalSwapProxyRoutes({ baseUrl: config.internalApiUrl }))
+
+	// Native api-ts swap routes are still ahead of the general /webapp routers below.
 	app.route('/webapp/swap', swapRoutes)
 
 	// P2P marketplace (native offer book + trades; external aggregation via bot)
@@ -160,6 +168,12 @@ export function createApp(config: AppConfig) {
 
 	// Webapp feature stubs - intentional placeholders for in-development features
 	app.route('/webapp', webappStubs)
+
+	// Terminal is built with https://api.suwappu.bot as its production API origin,
+	// while browser auth and a small set of read-only Terminal feeds still live in
+	// Python. Bridge only that explicit allowlist; money-changing Python routes stay
+	// unreachable from api-ts until they receive their own reviewed implementation.
+	app.route('/', createPythonProxyRoutes({ baseUrl: config.internalApiUrl }))
 
 	// Staking routes - SUWP token staking dashboard
 	app.route('/staking', stakingRoutes)
