@@ -347,6 +347,9 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 	const agent = c.get('agent')
 	const orderId = c.req.param('id')
+	if (!orderId) {
+		return c.json({ error: 'Validation Error', message: 'Invalid order ID' }, 400)
+	}
 	const agentId = String(agent.id)
 	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 
