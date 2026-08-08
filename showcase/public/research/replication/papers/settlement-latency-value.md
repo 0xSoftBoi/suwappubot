@@ -4,7 +4,7 @@
 Suwappu Research  
 8 August 2026
 
-*What this is: a quantitative policy-calibration paper built around Suwappu's own cross-chain routing rule. Current source allows a sufficiently faster route to replace the score winner when both timing inputs are trusted, the faster route's score is no more than 10 basis points worse, and its provider ETA is less than half the winner's. We ask what that 10bp ceiling means economically. The answer is deliberately narrow: at the 3.65% SOFR observation for 6 August 2026 and a simple ACT/360 convention, 10bp equals 9.863 days of financing carry. Minute-scale financing carry is therefore far too small, by itself, to calibrate a 10bp speed concession. The paper does **not** say faster routing is worth zero, estimate production savings, or treat a provider ETA as legal settlement finality.*
+*What this is: a quantitative policy-calibration paper built around Suwappu's own cross-chain routing rule as implemented in the pinned repository snapshot. That implementation allows a sufficiently faster route to replace the score winner when both timing inputs are trusted, the faster route's score is no more than 10 basis points worse, and its provider ETA is less than half the winner's. We ask what that 10bp ceiling means economically. The answer is deliberately narrow: at the 3.65% SOFR observation for 6 August 2026 and a simple ACT/360 convention, 10bp equals 9.863 days of financing carry. Minute-scale financing carry is therefore far too small, by itself, to calibrate a 10bp speed concession. The paper does **not** say faster routing is worth zero, estimate production savings, or treat a provider ETA as legal settlement finality.*
 
 *Suwappu builds the routing infrastructure whose policy is examined here. The code observation, assumptions, arithmetic, limitations, and replication files are released so the critique can be reproduced. Full disclosures are in Section 9.*
 
@@ -12,7 +12,7 @@ Suwappu Research
 
 ## Executive summary
 
-- **The 10bp rule is a policy ceiling, not an empirically estimated value of time.** In the [8 August source snapshot](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589), the speed tiebreak is cross-chain only. Both timing inputs must be provider-reported under the router's trust flag; the candidate ETA must be strictly less than half the score winner's ETA; and its score may be at most 0.001 below the winner on the same scoring basis.
+- **The 10bp rule is a policy ceiling, not an empirically estimated value of time.** In the pinned repository snapshot, the [speed-tiebreak helper](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589) is cross-chain only and the [quote path invokes it after value ranking](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L1658-L1666). Both timing inputs must carry the implementation's `time_trusted` provenance flag; the candidate ETA must be strictly less than half the score winner's ETA; and its score may be at most 0.001 below the winner on the same scoring basis. These links establish repository behavior at that commit, not production-runtime activation or frequency.
 
 - **Pure USD financing carry cannot explain a 10bp concession over minutes.** The latest SOFR observation available when this paper was written is **3.65% for 6 August 2026** ([FRED series sourced from the Federal Reserve Bank of New York](https://fred.stlouisfed.org/series/SOFR)). The New York Fed describes SOFR as a broad overnight Treasury-secured cash-borrowing measure and applies actual calendar days with a 360-day year to its SOFR averages and index ([rate methodology](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates)). On a simple ACT/360 basis, 10bp equals **9.8630 days** of 3.65% carry.
 
@@ -22,7 +22,7 @@ Suwappu Research
 
 - **ETA, funds availability, reconciliation and finality are different endpoints.** The CPMI glossary defines final settlement as an irrevocable and unconditional transfer/discharge at a legally defined moment ([CPMI glossary](https://www.bis.org/cpmi/glossary.pdf)). The FSB's cross-border-payment speed target separately measures crediting/availability and reconciliation ([G20 targets](https://www.fsb.org/work-of-the-fsb/financial-innovation-and-structural-change/cross-border-payments/g20-targets-for-enhancing-cross-border-payments-2/)). A bridge or aggregator ETA is useful operational evidence; it is not, without an explicit rule, evidence of legal finality.
 
-- **The implementable replacement is a measured willingness-to-pay curve for speed.** Keep security/finality eligibility as constraints, value the quote-score concession on a consistent economic basis, estimate route-class outcome costs from decision and completion telemetry, and run the calibrated rule in shadow mode before it can steer. The present 10bp number can remain a hard ceiling while the evidence needed to justify any portion of it is collected.
+- **The implementable replacement is a measured willingness-to-pay curve for speed.** Keep security/finality eligibility as constraints, value the quote-score concession on a consistent economic basis, collect decision and completion telemetry, and run any candidate policy in shadow mode first. But shadow choices plus chosen-route outcomes do not identify the losing route's counterfactual outcome. Any causal "loss avoided" term used for steering therefore needs safe controlled exploration or a predeclared causal/off-policy design with adequate overlap, support diagnostics and sensitivity analysis. If that identification is unavailable, leave the term unestimated rather than filling it with a guessed premium.
 
 The central conclusion is not "speed is cheap." It is more precise: **a universal bps price for speed is not supported by a minute-scale funding-cost argument.** If an execution desk wishes to spend basis points for minutes, the value must come from a documented risk, outcome, or service preference other than cash carry alone.
 
@@ -30,13 +30,13 @@ The central conclusion is not "speed is cheap." It is more precise: **a universa
 
 The research question is deliberately falsifiable:
 
-> Does minute-scale USD financing carry provide an economically plausible calibration for Suwappu's current 10bp cross-chain speed-tiebreak ceiling?
+> Does minute-scale USD financing carry provide an economically plausible calibration for the pinned repository implementation's 10bp cross-chain speed-tiebreak ceiling?
 
-For the 3.65% benchmark and the current policy, the answer is no. That answer is arithmetic conditional on the stated inputs. It is not a claim that every faster route should lose.
+For the 3.65% benchmark and the pinned policy, the answer is no. That answer is arithmetic conditional on the stated inputs. It is not a claim that every faster route should lose.
 
 | Claim | Evidence state | Basis |
 |---|---|---|
-| Router may trade up to 10bp of winner score for a trusted-time route with ETA < ½ winner ETA | **SOURCE-VERIFIED** | Immutable Suwappu source snapshot linked above |
+| Repository implementation may trade up to 10bp of winner score for a trusted-time route with ETA < ½ winner ETA | **SOURCE-VERIFIED** | Immutable helper + active quote-path callsite linked above; runtime frequency not established |
 | SOFR benchmark = 3.65%, value date 6 Aug 2026 | **SOURCE-VERIFIED** | FRED observation; source listed as Federal Reserve Bank of New York |
 | ACT/360 convention | **SOURCE-VERIFIED** | New York Fed SOFR averages/index methodology |
 | 10bp = 9.8630 days of simple carry at 3.65% | **MODEL / REPRODUCED** | Closed-form arithmetic; released standard-library script; key outputs independently evaluated in Wolfram Language |
@@ -48,7 +48,7 @@ This distinction matters. Repository source can establish the decision rule. A r
 
 ## 2. The decision rule under test
 
-Current routing first chooses a value winner. When the evidence gates support output pricing and gas, the score can be net of trusted gas converted into output-token units; when those gates fail, selection falls back to gross quoted output. The speed tiebreak then operates on **the same score basis that produced the winner**.
+At the pinned repository commit, routing first chooses a value winner and the active quote path then invokes the speed tiebreak. When the evidence gates support output pricing and gas, the score can be net of trusted gas converted into output-token units; when those gates fail, selection falls back to gross quoted output. The speed tiebreak then operates on **the same score basis that produced the winner**. This is a source-code statement, not evidence about whether, how often, or at what sizes the branch fires in production.
 
 For a cross-chain order, let:
 
@@ -65,7 +65,7 @@ Three details prevent over-reading that inequality.
 
 **First, 10bp is relative to winner score, not automatically to input notional.** If the score is in output-token units, a dollar illustration requires a contemporaneous economic value for those units. This paper therefore uses `V` for the *USD-equivalent economic value of the winner score* when it gives dollar examples. It does not say a $1m input order necessarily has a $1,000 speed budget.
 
-**Second, "trusted" is a provenance label, not a forecast-accuracy result.** The source currently marks timing as trusted when it is provider-reported for the relevant adapters and excludes several hard-coded duration estimates from the tiebreak. That is a good evidence boundary, but the paper does not test whether provider ETAs are calibrated.
+**Second, "trusted" is a provenance label, not a forecast-accuracy result.** The pinned source marks timing as trusted when it is provider-reported for the relevant adapters and excludes several hard-coded duration estimates from the tiebreak. That is a good evidence boundary, but the paper does not test whether provider ETAs are calibrated.
 
 **Third, the policy is intentionally discontinuous.** A candidate at exactly half the winner ETA does not qualify; one just below half can. A candidate 10.01bp worse does not qualify; one exactly 10bp worse can. Those cutoffs are auditable controls, but auditability is not evidence that the thresholds maximize expected value.
 
@@ -103,7 +103,7 @@ And the time needed for 3.65% simple carry to accumulate to 10bp is:
 
 That last result is the core calibration. A tiebreak designed for routes whose duration differences are measured in minutes is spending from a ceiling equal to almost ten days of the selected financing benchmark.
 
-SOFR is useful here because it is public, transaction-based and reproducible. It is **not** asserted to be Suwappu's own cost of funds, a user's opportunity cost, a bridge risk premium, or the correct hurdle rate for every institution. It is a clean cash-carry benchmark against which to test one narrow economic story.
+SOFR is useful here because it is public, transaction-based and reproducible. The New York Fed documents actual calendar days over a 360-day year for its SOFR averages and index; those official series use daily compounding. **This study's conversion of one annualized SOFR observation into minute-scale simple carry is an explicit linear interpolation assumption, not a New York Fed-published minute-accrual methodology.** SOFR is **not** asserted to be Suwappu's own cost of funds, a user's opportunity cost, a bridge risk premium, or the correct hurdle rate for every institution. It is a clean cash-carry benchmark against which to test one narrow economic story.
 
 ## 4. Results: minutes do not generate 10bp of cash carry
 
@@ -117,7 +117,7 @@ SOFR is useful here because it is public, transaction-based and reproducible. It
 | 30 | 0.021123 | 473.42× | 1,728% | $2.11 |
 | 60 | 0.042245 | 236.71× | 864% | $4.22 |
 
-The released CSV contains the unrounded values. The key outputs were separately evaluated in Wolfram Language and agree with the standard-library replication script to the displayed precision.
+The released CSV contains higher-precision rounded outputs generated from the same `Decimal` calculations: carry is stored to nine decimal places in basis points, cap/carry multiples to six decimals, implied annual rates to three decimals and dollar illustrations to cents. The key outputs were separately evaluated in Wolfram Language and agree with the standard-library replication script to the displayed precision.
 
 ![A log-scale line chart showing the ratio of the 10bp policy ceiling to simple SOFR financing carry for one, five, ten, thirty, and sixty minutes saved. The ratio falls from 14,203 times at one minute to 237 times at sixty minutes.](/research/latency-carry.svg)
 
@@ -157,7 +157,7 @@ For Suwappu, `estimated_time` should therefore be described as **provider-report
 
 ## 6. From a heuristic to a calibratable execution control
 
-The current 10bp / half-time rule has two virtues: it is deterministic and simple to audit. The next version should preserve those virtues while making the willingness to pay observable.
+The pinned 10bp / half-time rule has two virtues: it is deterministic and simple to audit. The next version should preserve those virtues while making the willingness to pay observable.
 
 ### 6.1 Keep risk eligibility outside the price function
 
@@ -169,18 +169,19 @@ For each quote race, persist the initial winner and candidate on the exact scori
 
 `score_concession_usd = (S_w - S_f) × output_usd_price`.
 
-When that conversion is not credible, retain the native-unit concession and do not fabricate a dollar TCA result. This mirrors the current router's useful principle that untrusted gas evidence should not be promoted into precision.
+When that conversion is not credible, retain the native-unit concession and do not fabricate a dollar TCA result. This mirrors the pinned router implementation's useful principle that untrusted gas evidence should not be promoted into precision.
 
 ### 6.3 Measure a route outcome, not an ETA claim
 
-Each decision needs a durable `decision_id`, policy version and four clocks where they are technically observable:
+Each decision needs a durable `decision_id`, policy version, four clocks where they are technically observable, and a separate governed legal-finality basis where that conclusion is required:
 
 | Field | Purpose |
 |---|---|
 | `decision_at` | Quote/routing decision timestamp |
 | `submitted_at` | Transaction or route submission timestamp |
 | `funds_available_at` | Destination funds meet the documented usability condition |
-| `finality_observed_at` + `finality_definition` | A separately defined technical/legal-finality proxy, only when the system can support that claim |
+| `technical_finality_observed_at` + `technical_finality_rule_version` | A separately defined route/protocol confirmation milestone; never relabelled legal finality by itself |
+| `legal_finality_basis` + `legal_finality_policy_version` | The governed legal/policy basis for a finality conclusion, where applicable; a network timestamp alone cannot establish it |
 
 For every candidate, retain provider, raw output, score, gas input and trust status, provider ETA and trust status, and the benchmark price used for any conversion. For the chosen route, join realized output, realized fee/gas, failure/retry state, time to usable funds, exception handling, and the benchmark price at predeclared horizons.
 
@@ -203,9 +204,13 @@ The result can be a versioned allowed-premium curve. In bps of normalized score 
 
 The formula is a governance template, not an estimated coefficient from this paper. An unmeasured risk premium should not enter as a guessed number merely to make the equation close.
 
-### 6.5 Shadow the policy before letting it steer
+### 6.5 Shadow first; identify counterfactuals before steering
 
-Run the proposed calibrated rule on the same quote races without changing the winner. Compare its counterfactual choices with the existing heuristic and then with realized outcomes. Promote it only when predeclared coverage, timestamp completeness and outcome-quality checks pass. That produces a correction path: a parameter can be challenged with evidence rather than defended because it is already in production.
+Run the proposed calibrated rule on the same quote races without changing the winner. Shadow mode is useful for measuring decision disagreement, data coverage and whether the proposed rule can be computed reliably. **It does not reveal the realized outcome of a losing route.** Only the route actually executed produces an observed fill, failure state and completion path, so route choice is endogenous and naive chosen-versus-losing comparisons are not causal estimates of "loss avoided."
+
+Before a non-carry premium can steer, predeclare how its counterfactual is identified. Where policy, risk and user consent permit, the strongest design is bounded randomized or controlled exploration **only among already-eligible routes and inside conservative loss limits**. Where exploration is not appropriate, use an explicit off-policy/causal design that records selection propensities where available, tests common support/overlap, reports estimator diagnostics (for example inverse-propensity and/or doubly robust estimates), and includes sensitivity bounds for residual confounding. If overlap is inadequate, the route class stays unestimated. Shadow evidence can validate implementation; it cannot manufacture the missing counterfactual.
+
+Promotion therefore requires two gates: operational evidence (coverage, timestamp completeness, ETA calibration and outcome quality) and identification evidence adequate for every causal premium that can change a winner. That produces a correction path in which a parameter can be challenged with evidence rather than defended because it is already in production.
 
 ## 7. Falsification and decision thresholds
 
@@ -213,13 +218,13 @@ This paper is designed to be superseded by better data.
 
 **The narrow financing conclusion would change** if the stated inputs or formula were wrong. The inputs are pinned, the formula is closed form, the outputs are reproduced in CSV and SVG, and the key values were independently evaluated in Wolfram Language. Changing from 3.65% to another funding benchmark changes the result linearly and can be rerun in one script constant.
 
-**The policy assessment would change** if joined route outcomes show that the expected non-carry loss avoided by faster trusted-time routes is persistently large enough to justify the concession. For a given route class and size band, evidence that `expected avoided loss + carry + explicit SLA value >= score concession` would support paying that concession. Evidence materially below it would support a lower threshold.
+**The policy assessment would change** if a predeclared identification design — bounded controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support and sensitivity analysis — shows that the expected non-carry loss avoided by faster trusted-time routes is persistently large enough to justify the concession. Joined chosen-route telemetry alone is insufficient. For a given route class and size band, identified evidence that `expected avoided loss + carry + explicit SLA value >= score concession` would support paying that concession. Evidence materially below it would support a lower threshold; inadequate support would leave the premium unestimated.
 
 **The use of ETA would change** if provider-reported durations are poorly calibrated. If an ETA source cannot predict the defined usability endpoint with acceptable error and coverage, it should lose steering authority even though its provenance is "trusted."
 
 **The endpoint would change** if a bank or treasury requires a different definition of completion. A route that makes tokens visible in a destination wallet before they are usable, reconciled, or considered final under the relevant policy has not necessarily satisfied the same business objective.
 
-This gives the control a clean governance question: *what observed cost or explicit preference pays for each basis point of speed premium?* A route can still be chosen for speed, but the answer becomes reviewable.
+This gives the control a clean governance question: *what identified cost or explicit preference pays for each basis point of speed premium?* A route can still be chosen for speed, but the answer becomes reviewable.
 
 ## 8. Reproducibility and limitations
 
@@ -246,6 +251,7 @@ The main limitations are intentional and material:
 5. **Provider ETA is not legal finality.** This paper measures no jurisdiction-specific legal settlement point and makes no claim that a bridge's completion semantics meet one.
 6. **Non-carry value is unestimated.** Market exposure, failure, retry, liquidity, operating exceptions and SLA preferences are the variables a production calibration must measure next.
 7. **Source observations are versioned.** A later routing policy can change. The immutable commit link defines the implementation perimeter for this edition.
+8. **Losing-route outcomes are counterfactual.** Shadow routing can record alternative choices but cannot observe how an unexecuted route would have filled. Any causal avoided-loss estimate needs a stated identification design and support diagnostics.
 
 ## 9. Sources and disclosures
 
@@ -261,6 +267,7 @@ Primary institutional sources:
 
 Implementation source:
 
-- Suwappu, [`bot/services/swap_engine.py` at commit `52d901923a725e7440693ba050733def13d71895`](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589).
+- Suwappu, [speed-tiebreak helper at commit `52d901923a725e7440693ba050733def13d71895`](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589).
+- Suwappu, [active quote-path callsite at the same commit](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L1658-L1666).
 
-*Disclosures: Suwappu builds cross-chain execution infrastructure and this paper evaluates Suwappu's own routing policy. That creates an obvious commercial and authorship interest; the paper therefore treats source code as a case study, publishes the adverse result that financing carry does not justify the existing ceiling, and does not infer production performance. No provider named in the routing source reviewed this paper before publication. Wolfram was used as an independent arithmetic check, not as peer review or evidence about routing outcomes. This is research, not investment advice, a legal-finality opinion, a regulatory best-execution determination, or a claim that conventional FX rules apply to crypto routing.*
+*Disclosures: Suwappu builds cross-chain execution infrastructure and this paper evaluates Suwappu's own routing policy. That creates an obvious commercial and authorship interest; the paper therefore treats source code as a case study, publishes the adverse result that financing carry does not justify the pinned ceiling, and does not infer production performance. No provider named in the routing source reviewed this paper before publication. Wolfram was used as an independent arithmetic check, not as peer review or evidence about routing outcomes. This is research, not investment advice, a legal-finality opinion, a regulatory best-execution determination, or a claim that conventional FX rules apply to crypto routing.*

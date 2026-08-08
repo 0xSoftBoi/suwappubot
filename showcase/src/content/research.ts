@@ -272,15 +272,15 @@ For a banking audience, that is the appropriate claim boundary: **source-verifie
 
 const LATENCY_BODY = `# What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality
 
-*Quantitative policy-calibration paper. Published 8 August 2026. The routing rule is source-verified, the financing scenario is reproducible and independently checked with Wolfram, and the realized production value of speed remains unmeasured.*
+*Quantitative policy-calibration paper. Dated 8 August 2026. The repository routing rule is source-verified at a pinned commit, the financing scenario is reproducible and independently checked with Wolfram, and production runtime behavior plus the realized value of speed remain unmeasured.*
 
-Suwappu's current cross-chain router can spend **up to 10 basis points of winner score** to take a sufficiently faster route. That is an intelligible control: the value winner can lose only when both timing inputs are trusted, the alternative's provider ETA is less than half the winner's, and the score concession remains inside a hard ceiling.
+At the repository snapshot used for this paper, Suwappu's cross-chain router implementation can spend **up to 10 basis points of winner score** to take a sufficiently faster route. That is an intelligible control: the value winner can lose only when both timing inputs carry the implementation's trusted-time flag, the alternative's ETA is less than half the winner's, and the score concession remains inside a hard ceiling. Source state establishes the decision rule; it does not establish how often that branch fires in production.
 
 But what is 10bp actually paying for?
 
 One tempting answer is the time value of money. The arithmetic rejects that explanation at minute horizons. Using the latest SOFR observation available when this paper was written — **3.65% for 6 August 2026** — and the New York Fed's ACT/360 money-market convention, **10bp equals 9.863 days of simple financing carry**.
 
-Five minutes of that carry is only **0.003520bp**. The current 10bp ceiling is **2,840.55×** larger.
+Five minutes of that carry is only **0.003520bp**. The pinned 10bp ceiling is **2,840.55×** larger.
 
 That is not evidence that speed is worthless. It is evidence that, if an execution policy pays basis points for minutes, **cash carry is not the economic story doing the work**. Market exposure, failure and retry cost, liquidity exceptions, operational deadlines, or explicit service-level preference must supply the rest — and they should be measured rather than hidden inside a universal constant.
 
@@ -302,7 +302,7 @@ The result is not sensitive to fine precision in today's rate. Even at a 10% ann
 
 ## What the router actually does
 
-The implementation claim is narrower than "Suwappu pays 10bp for speed." In the immutable [source snapshot](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589), the cross-chain tiebreak starts only after a value winner has been selected.
+The implementation claim is narrower than "Suwappu pays 10bp for speed." In the immutable repository snapshot, the [tiebreak helper](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589) defines the gate and the [active quote path invokes it after value ranking](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L1658-L1666). Those links prove repository behavior at that commit, not production-runtime activation or frequency.
 
 For winner score **S_w**, faster-candidate score **S_f**, and their trusted provider ETAs **T_w** and **T_f**, the economic part of the gate is:
 
@@ -312,7 +312,7 @@ Three boundaries matter.
 
 **10bp is relative to winner score, not automatically input notional.** The underlying score can be net of trusted gas when the pricing evidence supports that conversion, or gross output when it does not. Dollar examples in this paper therefore introduce **V**: the USD-equivalent economic value of the winner score under a credible contemporaneous mark. A $1m input is not asserted to create a $1,000 speed budget.
 
-**"Trusted time" describes provenance, not forecast accuracy.** The current code permits provider-reported timing for the tiebreak and excludes several hard-coded adapter durations. That is a useful trust boundary; it is not an empirical test that the providers' ETAs predict the defined completion endpoint.
+**"Trusted time" describes provenance, not forecast accuracy.** The pinned source classifies several provider-supplied timing fields as trusted for the tiebreak and excludes several hard-coded adapter durations. That is a useful implementation boundary; it is not an empirical test that those ETAs predict the defined completion endpoint.
 
 **The threshold is a heuristic, not a fitted optimum.** Exactly half the winner ETA does not qualify; just under half can. 10.01bp does not qualify; 10bp can. Deterministic cutoffs are easy to audit, but their existence is not evidence of optimality.
 
@@ -326,7 +326,9 @@ Let **V** be the USD-equivalent winner-score value, **Δt** the minutes saved, *
 
 The value **V** cancels from the ratio. At **r = 0.0365**, the time needed for financing carry alone to reach 10bp is **0.001 × 360 / 0.0365 = 9.8630137 days**.
 
-The [New York Fed](https://www.newyorkfed.org/markets/reference-rates/sofr) defines SOFR as a broad measure of overnight Treasury-secured cash-borrowing cost and publishes it each business day. Its [reference-rate methodology](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates) applies actual calendar days over a 360-day year to SOFR averages and the index. The 3.65% 6 August observation is available in [FRED](https://fred.stlouisfed.org/series/SOFR), whose series source is the Federal Reserve Bank of New York.
+The [New York Fed](https://www.newyorkfed.org/markets/reference-rates/sofr) defines SOFR as a broad measure of overnight Treasury-secured cash-borrowing cost and publishes it each business day. Its [reference-rate methodology](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates) applies actual calendar days over a 360-day year to SOFR averages and the index, which use daily compounding. The 3.65% 6 August observation is available in [FRED](https://fred.stlouisfed.org/series/SOFR), whose series source is the Federal Reserve Bank of New York.
+
+**The minute interpolation is this study's modeling convention.** We linearly prorate one annualized SOFR observation to minutes on a simple ACT/360 basis. That is not the New York Fed's published SOFR Index or an official minute-accrual methodology.
 
 SOFR is used here as a reproducible benchmark. It is **not** Suwappu's disclosed funding cost, a user's opportunity cost, a bridge risk premium, or a universal institutional hurdle rate.
 
@@ -364,23 +366,23 @@ That is why the right implementation is not "replace 10bp with SOFR carry." It i
 
 **2. Preserve the exact economic decision.** Give every quote race a durable decision ID and policy version. Store every returned quote, raw and net score, gas/price trust flags, timing provenance, the initial winner and the candidate's score concession. Convert that concession to USD only when the output price is credible.
 
-**3. Join the outcome.** Persist decision, submission, usable-funds and separately defined finality timestamps; realized output and fees; failure/retry state; and a predeclared market benchmark. The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ/mktc13.pdf) is useful methodology by analogy: its TCA discussion centers accurate lifecycle timestamps and outcome measures such as slippage, market impact and rejected trades.
+**3. Join the outcome without collapsing finality layers.** Persist decision, submission and usable-funds timestamps; separately defined technical-finality telemetry with its rule/version; realized output and fees; failure/retry state; and a predeclared market benchmark. If a legal-finality conclusion is required, store its governed basis and policy version separately — a network timestamp alone cannot establish it. The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ/mktc13.pdf) is useful methodology by analogy: its TCA discussion centers accurate lifecycle timestamps and outcome measures such as slippage, market impact and rejected trades.
 
 **4. Validate the ETA itself.** Report median and tail ETA error, percentile coverage, failure and retry distributions, and time-to-usable-funds by route class and relevant size band. "Provider-reported" should be the beginning of the trust test, not the end.
 
-**5. Shadow before steering.** A candidate calibrated policy can run on the same quote races without changing winners. Only after predeclared outcome-coverage and timestamp-quality checks pass should it acquire steering authority.
+**5. Shadow first; identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome; shadow choices cannot reveal how a losing route would have filled. Any causal "loss avoided" premium that can change a winner therefore needs bounded controlled exploration among already-eligible routes where policy and risk permit, or a predeclared causal/off-policy estimator with adequate overlap/support diagnostics and sensitivity analysis. If support is inadequate, leave that premium unestimated. Steering requires both operational evidence and identification evidence.
 
 A conservative control template is:
 
 **allowed speed premium = min(10bp, carry + measured approved risk premium + explicit SLA value)**.
 
-That is a governance equation, not an estimated result from this paper. An unmeasured risk term should not be filled with a guessed number merely to defend the existing ceiling.
+That is a governance equation, not an estimated result from this paper. An unmeasured risk term should not be filled with a guessed number merely to defend the pinned ceiling.
 
 ## What would change the conclusion
 
 The financing result can be rerun by changing one pinned rate input. The more important conclusion is designed to be challenged by production evidence.
 
-If joined outcomes show that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. If the avoided cost is materially lower, the threshold should fall. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
+If a predeclared identification design — controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support — shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. Joined chosen-route telemetry alone is insufficient. If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
 
 The question becomes reviewable: **what observed cost or explicit preference pays for each basis point of speed premium?**
 
@@ -820,14 +822,14 @@ export const researchPosts: ResearchPost[] = [
     evidence: {
       status: 'RESEARCH — SOURCE-VERIFIED',
       asOf: '2026-08-08',
-      basis: 'Current router source + NY Fed rate benchmark · code/data released',
+      basis: 'Pinned router source + NY Fed rate benchmark · code/data released',
       boundary: 'Scenario calibration, not production TCA; realized latency value and finality remain unmeasured.',
     },
     paperPath: '/research/replication/papers/settlement-latency-value.md',
     heroArt: {
       src: '/research/cross-chain-latency-editorial.jpg',
-      alt: 'A precision stopwatch feeds an amber ribbon across a navy ledger gap into a long accordion of ivory paper leaves, representing minute-scale execution time expanding into a multi-day financing horizon.',
-      caption: 'Editorial illustration: one minute unspools into the financing horizon. At 3.65% SOFR, the source-verified 10bp policy ceiling equals 9.86 days of simple ACT/360 carry; the generated figure below contains the quantitative evidence.',
+      alt: 'A precision stopwatch feeds an amber ribbon across a navy ledger gap, through a translucent ETA marker and then a separate navy-and-brass finality gate before continuing into a long accordion of ivory paper leaves.',
+      caption: 'Editorial illustration, not quantitative evidence: the translucent marker represents the provider-reported ETA/expected-arrival milestone; the separate sealed gate represents an independently defined finality endpoint. At 3.65% SOFR, the pinned 10bp policy ceiling equals 9.86 days of simple ACT/360 carry; the study’s reproducible calibration figure contains the quantitative evidence.',
     },
     indexFigure: {
       src: '/research/latency-carry.svg',

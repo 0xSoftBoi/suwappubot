@@ -6,7 +6,9 @@ The inputs are deliberately pinned rather than fetched at runtime:
 * 10bp is the cross-chain speed-tiebreak ceiling in the source snapshot.
 * 3.65% is the New York Fed SOFR observation for 2026-08-06, the latest
   available observation when the paper was written on 2026-08-08.
-* ACT/360 follows the New York Fed's USD money-market day-count convention.
+* The day-count basis uses the actual-calendar-day/360 convention documented
+  by the New York Fed for SOFR averages/index. Minute-level simple interpolation
+  is this study's explicit modeling assumption, not a New York Fed methodology.
 
 This script uses only the Python standard library. It writes the CSV used by
 the paper and the SVG used by the web article from the same calculations.
