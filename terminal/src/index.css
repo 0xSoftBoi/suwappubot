@@ -556,6 +556,11 @@
     touch-action: manipulation;
   }
 
+
+  .terminal-toast-container {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom)) !important;
+  }
+
   .terminal-mobile-scroll {
     min-height: 0;
     overscroll-behavior-y: contain;
