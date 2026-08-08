@@ -291,11 +291,17 @@ export function Header() {
                     Open in Phantom
                   </a>
                 )}
+                <a
+                  href={`https://link.metamask.io/dapp/${window.location.href.replace(/^https?:\\/\\//, '')}`}
+                  className="terminal-theme-control flex min-h-11 items-center justify-center px-3 text-center text-sm font-semibold text-terminal-text"
+                >
+                  Open in MetaMask
+                </a>
                 <button
                   type="button"
                   onClick={() => signInWithGoogle()}
                   disabled={isLoading}
-                  className="terminal-theme-control min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
+                  className="terminal-theme-control col-span-2 min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
                 >
                   Google
                 </button>
