@@ -16,11 +16,11 @@ import uuid
 from urllib.parse import parse_qs, unquote
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 import jwt
 import httpx
@@ -605,16 +605,41 @@ class WebAppSwapRecordResponse(BaseModel):
 
 
 class WebAppFollowSettings(BaseModel):
-    copyMode: str = "notify"
-    fixedAmount: Optional[float] = None
-    percentageAmount: Optional[float] = None
-    maxPerTrade: Optional[float] = None
-    dailyLimit: Optional[float] = None
+    copyMode: Literal["notify", "fixed", "percentage"] = "notify"
+    fixedAmount: Optional[float] = Field(default=None, gt=0, le=1_000_000)
+    percentageAmount: Optional[float] = Field(default=None, gt=0, le=100)
+    maxPerTrade: Optional[float] = Field(default=None, gt=0, le=1_000_000)
+    dailyLimit: Optional[float] = Field(default=None, gt=0, le=10_000_000)
     autoSellEnabled: Optional[bool] = None
     stopLossPercent: Optional[float] = None
     takeProfitPercent: Optional[float] = None
-    chainFilter: Optional[List[str]] = None
-    maxSlippage: Optional[float] = None
+    chainFilter: Optional[
+        List[
+            Literal[
+                "ethereum",
+                "arbitrum",
+                "base",
+                "optimism",
+                "polygon",
+                "bsc",
+                "avalanche",
+                "solana",
+            ]
+        ]
+    ] = Field(default=None, max_length=8)
+    maxSlippage: Optional[float] = Field(default=None, gt=0, le=10)
+
+    @model_validator(mode="after")
+    def validate_automatic_copy_settings(self):
+        if self.copyMode == "notify":
+            return self
+        if not self.chainFilter:
+            raise ValueError("Automatic copy requires at least one chain")
+        if self.copyMode == "fixed" and self.fixedAmount is None:
+            raise ValueError("Fixed auto-copy requires a fixed amount")
+        if self.copyMode == "percentage" and self.percentageAmount is None:
+            raise ValueError("Percentage auto-copy requires a percentage amount")
+        return self
 
 
 class WebAppCreateAlertRequest(BaseModel):
@@ -1006,14 +1031,7 @@ def _wallet_address_matches(wallet: Wallet, address: str) -> bool:
 
 def _require_server_signing_wallet(wallet: Wallet) -> None:
     """Fail closed unless Python actually has a signing capability for this wallet."""
-    provider = (wallet.wallet_provider or "local").lower()
-    if provider == "turnkey" and wallet.turnkey_sub_org_id and wallet.address:
-        return
-    if (
-        provider == "local"
-        and wallet.encrypted_private_key
-        and wallet.encrypted_private_key != "turnkey_managed"
-    ):
+    if wallet.can_server_sign:
         return
     raise HTTPException(
         status_code=409,
@@ -1162,6 +1180,46 @@ def _copy_settings_response(follow) -> Dict[str, Any]:
     }
 
 
+async def _require_automatic_copy_access(
+    db: Session, auth_payload: Optional[Dict], user_id: int
+) -> None:
+    """Fail closed before persisting settings that can move funds later.
+
+    Notify-only follows are social state and may use any authenticated session.
+    Automatic copy is different: it authorizes a future server-side swap without
+    another browser signature, so it requires both a possession-backed session,
+    a wallet the server can actually sign with, and the existing Pro entitlement.
+    """
+    proven_user_id = require_proof_of_possession(auth_payload)
+    if proven_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Copy-trading session mismatch")
+
+    wallet = _default_terminal_wallet(db, user_id)
+    if not wallet:
+        raise HTTPException(status_code=409, detail="Create a Suwappu signing wallet first")
+    try:
+        _require_server_signing_wallet(wallet)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Automatic copy needs a Suwappu signing wallet. External wallets can "
+                "follow signals and review each trade before signing."
+            ),
+        ) from exc
+
+    from bot.models.subscription import SubscriptionTier
+    from bot.services.x402_service import x402_service
+
+    tier = await x402_service.get_tier(user_id)
+    if tier not in {
+        SubscriptionTier.PRO,
+        SubscriptionTier.PREMIUM,
+        SubscriptionTier.ENTERPRISE,
+    }:
+        raise HTTPException(status_code=403, detail="Automatic copy trading requires Pro")
+
+
 def _trader_address(db: Session, user_id: int) -> str:
     wallet = _default_terminal_wallet(db, user_id)
     if wallet and wallet.address:
@@ -1169,8 +1227,127 @@ def _trader_address(db: Session, user_id: int) -> str:
     return f"user:{user_id}"
 
 
+def _trader_addresses_by_user(db: Session, user_ids: List[int]) -> Dict[int, str]:
+    """Resolve public trader display addresses without an N+1 wallet query."""
+    if not user_ids:
+        return {}
+    wallets = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id.in_(set(user_ids)),
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.user_id.asc(), Wallet.is_default.desc(), Wallet.id.asc())
+        .all()
+    )
+    addresses: Dict[int, str] = {}
+    for wallet in wallets:
+        if wallet.address and wallet.user_id not in addresses:
+            addresses[wallet.user_id] = wallet.address
+    return {user_id: addresses.get(user_id, f"user:{user_id}") for user_id in user_ids}
+
+
 def _trader_name(profile, user: Optional[User] = None) -> Optional[str]:
     return profile.display_name or (user.username if user else None)
+
+
+def _jelly_claims_by_user(db: Session, user_ids: List[int]) -> Dict[int, Any]:
+    """Load public Jelly linkage in one query for trader discovery.
+
+    A claim proves control of a Jelly account with a wallet-backed Suwappu
+    session; it is not a legal-identity/KYC assertion.  The API therefore calls
+    this relationship ``jellyLinked`` and always links back to JellyJelly's
+    canonical watch page instead of proxying media.
+    """
+    if not user_ids:
+        return {}
+    from bot.models.social import JellyAccountClaim
+
+    claims = db.query(JellyAccountClaim).filter(JellyAccountClaim.user_id.in_(user_ids)).all()
+    return {claim.user_id: claim for claim in claims}
+
+
+def _jelly_claim_response(claim) -> Dict[str, Any]:
+    if not claim:
+        return {
+            "jellyLinked": False,
+            "jellyUsername": None,
+            "jellyWatchUrl": None,
+        }
+    return {
+        "jellyLinked": True,
+        "jellyUsername": claim.jelly_username,
+        "jellyWatchUrl": f"https://jellyjelly.com/watch/{claim.claim_jelly_id}",
+    }
+
+
+def _trader_track_record_days_by_user(db: Session, user_ids: List[int]) -> Dict[int, int]:
+    """Age of each trader's first observed Suwappu trade, without N+1 queries."""
+    if not user_ids:
+        return {}
+    from sqlalchemy import func
+
+    from bot.models.copy_trading import TraderTrade
+
+    rows = (
+        db.query(TraderTrade.trader_id, func.min(TraderTrade.created_at).label("first_trade_at"))
+        .filter(TraderTrade.trader_id.in_(set(user_ids)))
+        .group_by(TraderTrade.trader_id)
+        .all()
+    )
+    now = datetime.utcnow()
+    return {
+        row.trader_id: max(0, (now - row.first_trade_at.replace(tzinfo=None)).days)
+        for row in rows
+        if row.first_trade_at is not None
+    }
+
+
+def _public_trader_trade(trade) -> Dict[str, Any]:
+    stablecoins = {"USDC", "USDT", "DAI", "USDS", "USDG"}
+    funding_assets = {
+        "ETH",
+        "WETH",
+        "SOL",
+        "WSOL",
+        "BNB",
+        "POL",
+        "MATIC",
+        "AVAX",
+        "TRX",
+        "BTC",
+        "WBTC",
+    }
+    from_symbol = trade.from_token.upper()
+    to_symbol = trade.to_token.upper()
+    # Stable/native assets are common funding legs for on-chain buys. In
+    # particular, pump-style Solana trades are SOL -> MEME, not USDC -> MEME;
+    # treating every non-stable source as a sell hid the token the trader was
+    # actually buying. Prefer stablecoin direction first, then native funding.
+    if from_symbol in stablecoins and to_symbol not in stablecoins:
+        is_buy = True
+    elif to_symbol in stablecoins and from_symbol not in stablecoins:
+        is_buy = False
+    elif from_symbol in funding_assets and to_symbol not in funding_assets:
+        is_buy = True
+    else:
+        is_buy = False
+    token = trade.to_token if is_buy else trade.from_token
+    chain = trade.to_chain if is_buy else trade.from_chain
+    return {
+        "id": str(trade.id),
+        "action": "buy" if is_buy else "sell",
+        "token": token,
+        "tokenPair": f"{trade.from_token}/{trade.to_token}",
+        "chain": chain,
+        "fromToken": trade.from_token,
+        "toToken": trade.to_token,
+        "fromChain": trade.from_chain,
+        "toChain": trade.to_chain,
+        "amountUsd": float(trade.amount_usd or 0),
+        "pnlUsd": float(trade.pnl_usd or 0),
+        "timestamp": trade.created_at.isoformat() if trade.created_at else "",
+    }
 
 
 def _alert_response(alert) -> Dict[str, Any]:
@@ -2147,43 +2324,94 @@ def _windowed_trader_pnl(db, trader_user_ids):
 @router.get("/copy-trading/top-traders")
 async def get_terminal_top_traders(
     timeframe: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=80),
     limit: int = Query(default=50, ge=1, le=100),
-    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
     db: Session = Depends(get_db),
 ):
-    """Return real public trader profiles for the terminal copy-trading surface."""
-    _require_terminal_user(auth_payload)
-    from bot.models.copy_trading import TraderProfile
+    """Return opted-in trader profiles for public Terminal discovery.
 
-    # Pull a generous pool by all-time rank, then (if a timeframe is selected) re-rank
-    # by real windowed PnL so the 7d/30d toggle actually changes the order.
-    profiles = (
+    This is intentionally read-only and does not require a session.  Following,
+    copy settings, and copy history remain behind authenticated routes below.
+    """
+    from sqlalchemy import func, or_
+
+    from bot.models.copy_trading import TraderProfile, TraderTrade
+    from bot.models.social import JellyAccountClaim
+
+    # Rank the full public population in SQL. Re-ranking an all-time top-N pool
+    # would permanently hide a breakout 7d/30d trader who sat outside that
+    # cohort before the selected window.
+    profile_query = (
         db.query(TraderProfile, User)
         .join(User, TraderProfile.user_id == User.id)
         .filter(
             TraderProfile.is_public == True,
         )
-        .order_by(
+    )
+    search_term = (q or "").strip()
+    if search_term:
+        pattern = f"%{search_term}%"
+        matching_jelly_users = (
+            db.query(JellyAccountClaim.user_id)
+            .filter(JellyAccountClaim.jelly_username.ilike(pattern))
+            .scalar_subquery()
+        )
+        matching_wallet_users = (
+            db.query(Wallet.user_id)
+            .filter(
+                Wallet.is_active == True,
+                Wallet.is_default == True,
+                Wallet.address.ilike(pattern),
+            )
+            .scalar_subquery()
+        )
+        profile_query = profile_query.filter(
+            or_(
+                TraderProfile.display_name.ilike(pattern),
+                User.username.ilike(pattern),
+                TraderProfile.user_id.in_(matching_jelly_users),
+                TraderProfile.user_id.in_(matching_wallet_users),
+            )
+        )
+
+    tf = (timeframe or "").lower()
+    if tf in ("7d", "30d"):
+        window_start = datetime.utcnow() - timedelta(days=7 if tf == "7d" else 30)
+        window_pnl = (
+            db.query(
+                TraderTrade.trader_id.label("trader_id"),
+                func.sum(TraderTrade.pnl_usd).label("window_pnl"),
+            )
+            .filter(TraderTrade.created_at >= window_start)
+            .group_by(TraderTrade.trader_id)
+            .subquery()
+        )
+        profile_query = profile_query.outerjoin(
+            window_pnl, window_pnl.c.trader_id == TraderProfile.user_id
+        ).order_by(
+            func.coalesce(window_pnl.c.window_pnl, 0.0).desc(),
             TraderProfile.rank_score.desc(),
             TraderProfile.total_pnl_usd.desc(),
             TraderProfile.total_trades.desc(),
         )
-        .limit(max(limit, 100))
-        .all()
-    )
+    else:
+        profile_query = profile_query.order_by(
+            TraderProfile.rank_score.desc(),
+            TraderProfile.total_pnl_usd.desc(),
+            TraderProfile.total_trades.desc(),
+        )
+
+    profiles = profile_query.limit(limit).all()
 
     pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
-
-    tf = (timeframe or "").lower()
-    if tf in ("7d", "30d"):
-        idx = 0 if tf == "7d" else 1
-        profiles.sort(key=lambda pu: pnl_windows.get(pu[0].user_id, (0.0, 0.0))[idx], reverse=True)
-    profiles = profiles[:limit]
+    jelly_claims = _jelly_claims_by_user(db, [p.user_id for p, _u in profiles])
+    trader_addresses = _trader_addresses_by_user(db, [p.user_id for p, _u in profiles])
+    track_record_days = _trader_track_record_days_by_user(db, [p.user_id for p, _u in profiles])
 
     return [
         {
             "id": str(profile.id),
-            "address": _trader_address(db, profile.user_id),
+            "address": trader_addresses[profile.user_id],
             "name": _trader_name(profile, user),
             "pnl7d": pnl_windows.get(profile.user_id, (0.0, 0.0))[0],
             "pnl30d": pnl_windows.get(profile.user_id, (0.0, 0.0))[1],
@@ -2191,6 +2419,8 @@ async def get_terminal_top_traders(
             "followers": int(profile.follower_count or 0),
             "copiers": int(profile.times_copied or 0),
             "totalTrades": int(profile.total_trades or 0),
+            "trackRecordDays": track_record_days.get(profile.user_id, 0),
+            **_jelly_claim_response(jelly_claims.get(profile.user_id)),
         }
         for profile, user in profiles
     ]
@@ -2202,8 +2432,7 @@ async def get_terminal_trader_profile(
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
     db: Session = Depends(get_db),
 ):
-    user_id = _require_terminal_user(auth_payload)
-    from bot.models.copy_trading import CopyFollow, TraderProfile
+    from bot.models.copy_trading import CopyFollow, TraderProfile, TraderTrade
 
     profile = (
         db.query(TraderProfile)
@@ -2216,21 +2445,40 @@ async def get_terminal_trader_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
 
-    follow = (
-        db.query(CopyFollow)
-        .filter(
-            CopyFollow.follower_id == user_id,
-            CopyFollow.trader_id == profile.user_id,
-            CopyFollow.is_active == True,
+    viewer_user_id = (
+        int(auth_payload["user_id"]) if auth_payload and auth_payload.get("user_id") else None
+    )
+    follow = None
+    if viewer_user_id is not None:
+        follow = (
+            db.query(CopyFollow)
+            .filter(
+                CopyFollow.follower_id == viewer_user_id,
+                CopyFollow.trader_id == profile.user_id,
+                CopyFollow.is_active == True,
+            )
+            .first()
         )
-        .first()
+
+    user = db.query(User).filter(User.id == profile.user_id).first()
+    jelly_claim = _jelly_claims_by_user(db, [profile.user_id]).get(profile.user_id)
+    recent_trades = (
+        db.query(TraderTrade)
+        .filter(TraderTrade.trader_id == profile.user_id)
+        .order_by(TraderTrade.created_at.desc())
+        .limit(12)
+        .all()
+    )
+    track_record_days = _trader_track_record_days_by_user(db, [profile.user_id]).get(
+        profile.user_id, 0
     )
 
     _pw = _windowed_trader_pnl(db, [profile.user_id]).get(profile.user_id, (0.0, 0.0))
     return {
         "id": str(profile.id),
         "address": _trader_address(db, profile.user_id),
-        "name": _trader_name(profile),
+        "name": _trader_name(profile, user),
+        "bio": profile.bio,
         "pnl7d": _pw[0],
         "pnl30d": _pw[1],
         "winRate": float(profile.win_rate or 0),
@@ -2240,7 +2488,49 @@ async def get_terminal_trader_profile(
         "worstTrade": float(profile.worst_trade_pnl_usd or 0),
         "avgTradeSize": float(profile.avg_trade_size_usd or 0),
         "isFollowing": bool(follow),
+        "trackRecordDays": track_record_days,
+        "recentTrades": [_public_trader_trade(trade) for trade in recent_trades],
+        **_jelly_claim_response(jelly_claim),
     }
+
+
+@router.get("/copy-trading/feed")
+async def get_terminal_trader_feed(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Recent real trades from opted-in public trader profiles.
+
+    This is the social discovery tape: public/read-only like the leaderboard,
+    sourced only from Suwappu-recorded trades. It contains no copier state and
+    cannot authorize an execution.
+    """
+    from bot.models.copy_trading import TraderProfile, TraderTrade
+
+    rows = (
+        db.query(TraderTrade, TraderProfile, User)
+        .join(TraderProfile, TraderTrade.trader_id == TraderProfile.user_id)
+        .join(User, TraderTrade.trader_id == User.id)
+        .filter(TraderProfile.is_public == True)
+        .order_by(TraderTrade.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    trader_user_ids = [profile.user_id for _trade, profile, _user in rows]
+    jelly_claims = _jelly_claims_by_user(db, trader_user_ids)
+    trader_addresses = _trader_addresses_by_user(db, trader_user_ids)
+
+    return [
+        {
+            **_public_trader_trade(trade),
+            "traderId": str(profile.id),
+            "traderName": _trader_name(profile, user),
+            "traderAddress": trader_addresses[profile.user_id],
+            "winRate": float(profile.win_rate or 0),
+            **_jelly_claim_response(jelly_claims.get(profile.user_id)),
+        }
+        for trade, profile, user in rows
+    ]
 
 
 @router.post("/copy-trading/follow/{trader_id}")
@@ -2265,6 +2555,8 @@ async def follow_terminal_trader(
         raise HTTPException(status_code=404, detail="Trader not found")
     if profile.user_id == user_id:
         raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    if settings.copyMode != "notify":
+        await _require_automatic_copy_access(db, auth_payload, user_id)
 
     follow = (
         db.query(CopyFollow)
@@ -2400,6 +2692,8 @@ async def update_terminal_follow_settings(
     profile = db.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
+    if settings.copyMode != "notify":
+        await _require_automatic_copy_access(db, auth_payload, user_id)
 
     follow = (
         db.query(CopyFollow)
