@@ -339,7 +339,7 @@ export function SwapPanel() {
           onClick={() => changeSide('buy')}
           aria-pressed={side === 'buy'}
           disabled={executingAny}
-          className={`py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
+          className={`min-h-11 py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'buy'
               ? 'bg-bull/20 text-bull'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -351,7 +351,7 @@ export function SwapPanel() {
           onClick={() => changeSide('sell')}
           aria-pressed={side === 'sell'}
           disabled={executingAny}
-          className={`py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
+          className={`min-h-11 py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'sell'
               ? 'bg-bear/20 text-bear'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -379,8 +379,8 @@ export function SwapPanel() {
           onClick={flipTokens}
           disabled={executingAny}
           aria-label="Flip swap direction"
-          className="w-8 h-8 rounded-full bg-terminal-bg-tertiary border border-terminal-border
-                     flex items-center justify-center text-terminal-text-secondary
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-terminal-bg-tertiary border border-terminal-border
+                     text-terminal-text-secondary
                      hover:text-sakura-400 hover:border-sakura-600
                      transition-[transform,color,border-color] duration-75 active:scale-[0.94]
                      motion-reduce:transform-none motion-reduce:transition-none
@@ -434,7 +434,7 @@ export function SwapPanel() {
                 aria-checked={priorityTier === val}
                 title={hint}
                 onClick={() => changePriorityTier(val)}
-                className={`terminal-theme-control min-h-[32px] flex-1 px-2.5 py-1 text-[11px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${
+                className={`terminal-theme-control min-h-11 flex-1 px-2.5 py-1 text-[11px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${
                   priorityTier === val
                     ? 'terminal-theme-control-active text-terminal-text'
                     : 'text-terminal-text-secondary hover:text-terminal-text'
