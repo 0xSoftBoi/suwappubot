@@ -1,7 +1,12 @@
 name: Deploy to Railway
 
+# Manual recovery/operations deploy only. Normal main/dev deploys are created by
+# Railway's native GitHub integration, which applies per-service watch paths and can
+# wait for GitHub status checks. Keeping a second push-triggered `railway up` path
+# would duplicate deployments (and notifications) for the same commit.
+#
 # Replaces the AWS ECS workflows (deploy-api.yml / deploy-frontend.yml, kept for
-# reversibility but now manual-only). Deploys the four services to Railway.
+# reversibility but now manual-only).
 #
 # Auth: each GitHub Environment (production, development) holds a RAILWAY_TOKEN secret =
 # a Railway PROJECT token, which is scoped to one Railway project + environment. So
@@ -14,8 +19,6 @@ name: Deploy to Railway
 # The matrix `service` values MUST match the service names in the Railway dashboard.
 
 on:
-  push:
-    branches: [main, dev]
   workflow_dispatch:
     inputs:
       service:
