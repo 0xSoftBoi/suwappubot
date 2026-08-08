@@ -75,6 +75,8 @@ export function Header() {
     signIn,
     signInWithGoogle,
     signInWithWallet,
+    signInWithPhantom,
+    isPhantomAvailable,
     signOut,
     clearError,
     error,
@@ -125,30 +127,42 @@ export function Header() {
     </button>
   ) : null
 
-  // Wallet-connect (SIWE) is the primary signed-out path now that the
-  // /auth/turnkey/challenge + /verify pair is wired through wagmi. Honest about
-  // server state: if those endpoints answer 404/501/503, isWalletAuthAvailable
-  // flips false and the button disables with an explanatory tooltip rather than
-  // opening a wallet picker that can't complete sign-in.
+  // On Solana, an injected Phantom provider is the shortest and most reliable
+  // path inside Phantom's mobile browser. EVM wallets stay inside wagmi /
+  // RainbowKit so injected EIP-1193/EIP-6963 state and signing never diverge.
+  const useInjectedPhantom = selectedChain === 'solana' && isPhantomAvailable
+  const walletAuthBlocked = !useInjectedPhantom && !isWalletAuthAvailable
+  const walletWorking = isLoading || (!useInjectedPhantom && isWalletConnecting)
+  const handleWalletSignIn = () => {
+    if (useInjectedPhantom) {
+      void signInWithPhantom()
+      return
+    }
+    void signInWithWallet()
+  }
+
   const walletButton = !isAuthenticated && !isTelegram ? (
     <button
       type="button"
       data-testid="connect-wallet"
-      onClick={() => void signInWithWallet()}
-      disabled={isLoading || isWalletConnecting || !isWalletAuthAvailable}
-      className="terminal-theme-control flex h-8 items-center gap-1.5 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={handleWalletSignIn}
+      disabled={walletWorking || walletAuthBlocked}
+      className="terminal-theme-control flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 sm:min-w-0 sm:justify-start sm:px-3"
       title={
-        !isWalletAuthAvailable
+        walletAuthBlocked
           ? 'Wallet sign-in is not available on this server yet'
-          : 'Connect a wallet and sign in (SIWE)'
+          : useInjectedPhantom
+            ? 'Connect Phantom for Solana'
+            : 'Connect a wallet and sign in'
       }
+      aria-label={useInjectedPhantom ? 'Connect Phantom for Solana' : 'Connect wallet'}
     >
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18v10H3z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M16 12h2M3 7l3-3h11l1 3" />
       </svg>
       <span className="hidden sm:inline">
-        {isWalletConnecting ? 'Signing…' : 'Connect wallet'}
+        {walletWorking ? 'Signing…' : useInjectedPhantom ? 'Phantom' : 'Connect wallet'}
       </span>
     </button>
   ) : null
@@ -164,7 +178,7 @@ export function Header() {
       type="button"
       onClick={handleAuthClick}
       disabled={isLoading}
-      className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
+      className="terminal-theme-control h-10 max-w-[108px] truncate rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 sm:max-w-none sm:px-3"
       title={isTelegram ? 'Signed in via Telegram' : 'Sign out'}
     >
       {shortAddress || 'Signed in'}
@@ -198,7 +212,7 @@ export function Header() {
         <span className="font-display text-[16px] font-semibold tracking-normal text-terminal-text">
           SUWAPPU
         </span>
-        <span className="terminal-theme-caption font-mono text-[10px] uppercase text-terminal-text-muted">
+        <span className="terminal-theme-caption hidden font-mono text-[10px] uppercase text-terminal-text-muted sm:inline">
           Terminal
         </span>
       </div>
@@ -208,17 +222,19 @@ export function Header() {
 
   if (isMobile) {
     return (
-      <header className="terminal-theme-panel hairline-b relative flex h-11 shrink-0 items-center justify-between rounded-[10px] px-2.5">
-        <div className="flex items-center gap-2">
+      <header className="terminal-mobile-header terminal-theme-panel hairline-b relative z-[60] flex h-12 shrink-0 items-center justify-between rounded-[10px] px-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           {brandLockup}
 
           <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="terminal-theme-control rounded-[7px] p-1 text-terminal-text-secondary"
-            title="Select chain & pair"
-            aria-label="Select chain and pair"
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="terminal-theme-control flex h-11 w-11 shrink-0 items-center justify-center rounded-[7px] text-terminal-text-secondary"
+            title="Terminal menu"
+            aria-label="Open terminal menu"
+            aria-expanded={menuOpen}
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               {menuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -228,30 +244,63 @@ export function Header() {
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <ModeSwitch />
-          <SeasonPointsChip />
-          {walletButton}
-          {googleButton}
-          {authButton}
+        <div className="flex shrink-0 items-center gap-1">
+          {isAuthenticated ? authButton : walletButton}
         </div>
 
         {menuOpen && (
-          <div className="terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-50 flex flex-col gap-3 p-3">
+          <div className="terminal-mobile-header-menu terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex flex-col gap-3 overflow-y-auto p-3">
+            <ModeSwitch className="terminal-mobile-mode-switch w-full justify-between" />
+
             <button
+              type="button"
               onClick={() => {
                 setMenuOpen(false)
                 openCommandPalette()
               }}
-              className="terminal-theme-control flex h-9 items-center gap-2 rounded-[8px] px-3 text-sm text-terminal-text-secondary"
+              className="terminal-theme-control flex min-h-11 items-center gap-2 rounded-[8px] px-3 text-base text-terminal-text-secondary"
             >
-              <span className="text-terminal-text-muted">⌕</span>
+              <span className="text-terminal-text-muted" aria-hidden="true">⌕</span>
               Search markets & tokens
             </button>
-            <div className="flex items-center gap-3">
-              <span className="terminal-theme-caption text-[10px] uppercase w-12 shrink-0">Chain</span>
-              <ChainSelector selected={selectedChain} onSelect={(chain) => { setSelectedChain(chain); }} />
+
+            <div className="flex min-h-11 items-center gap-3">
+              <span className="terminal-theme-caption w-12 shrink-0 text-[10px] uppercase">Chain</span>
+              <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
             </div>
+
+            {!isAuthenticated && !isTelegram && (
+              <div className="grid grid-cols-2 gap-2 border-t border-terminal-border pt-3">
+                {isPhantomAvailable ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void signInWithPhantom()
+                    }}
+                    disabled={isLoading}
+                    className="terminal-theme-control min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
+                  >
+                    Phantom
+                  </button>
+                ) : (
+                  <a
+                    href={`https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`}
+                    className="terminal-theme-control flex min-h-11 items-center justify-center px-3 text-center text-sm font-semibold text-terminal-text"
+                  >
+                    Open in Phantom
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => signInWithGoogle()}
+                  disabled={isLoading}
+                  className="terminal-theme-control min-h-11 px-3 text-sm font-semibold text-terminal-text disabled:opacity-60"
+                >
+                  Google
+                </button>
+              </div>
+            )}
           </div>
         )}
       </header>
