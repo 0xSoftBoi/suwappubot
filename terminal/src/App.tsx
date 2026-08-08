@@ -60,7 +60,7 @@ function TradingWorkspace() {
   // default and re-light the whole workspace.
   return (
     <TerminalThemeScope>
-      <div className="terminal-theme-page relative h-screen overflow-hidden p-1.5 text-terminal-text font-sans md:p-2">
+      <div className="terminal-app-viewport terminal-theme-page relative overflow-hidden text-terminal-text font-sans">
         <div className="relative z-10 mx-auto flex h-full max-w-[1800px] flex-col gap-1.5 md:gap-2">
           <Header />
           <CommandPalette />
