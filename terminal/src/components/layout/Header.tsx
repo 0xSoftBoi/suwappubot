@@ -130,12 +130,19 @@ export function Header() {
   // On Solana, an injected Phantom provider is the shortest and most reliable
   // path inside Phantom's mobile browser. EVM wallets stay inside wagmi /
   // RainbowKit so injected EIP-1193/EIP-6963 state and signing never diverge.
-  const useInjectedPhantom = selectedChain === 'solana' && isPhantomAvailable
-  const walletAuthBlocked = !useInjectedPhantom && !isWalletAuthAvailable
-  const walletWorking = isLoading || (!useInjectedPhantom && isWalletConnecting)
+  const isSolanaSelected = selectedChain === 'solana'
+  const useInjectedPhantom = isSolanaSelected && isPhantomAvailable
+  const walletAuthBlocked = !isSolanaSelected && !isWalletAuthAvailable
+  const walletWorking = isLoading || (!isSolanaSelected && isWalletConnecting)
   const handleWalletSignIn = () => {
     if (useInjectedPhantom) {
       void signInWithPhantom()
+      return
+    }
+    if (isSolanaSelected) {
+      window.location.assign(
+        `https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`,
+      )
       return
     }
     void signInWithWallet()
@@ -153,16 +160,32 @@ export function Header() {
           ? 'Wallet sign-in is not available on this server yet'
           : useInjectedPhantom
             ? 'Connect Phantom for Solana'
-            : 'Connect a wallet and sign in'
+            : isSolanaSelected
+              ? 'Open this terminal in Phantom'
+              : 'Connect a wallet and sign in'
       }
-      aria-label={useInjectedPhantom ? 'Connect Phantom for Solana' : 'Connect wallet'}
+      aria-label={
+        useInjectedPhantom
+          ? 'Connect Phantom for Solana'
+          : isSolanaSelected
+            ? 'Open in Phantom'
+            : 'Connect wallet'
+      }
     >
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18v10H3z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M16 12h2M3 7l3-3h11l1 3" />
       </svg>
       <span className="whitespace-nowrap">
-        {walletWorking ? 'Signing…' : useInjectedPhantom ? 'Phantom' : isMobile ? 'Connect' : 'Connect wallet'}
+        {walletWorking
+          ? 'Signing…'
+          : useInjectedPhantom
+            ? 'Phantom'
+            : isSolanaSelected
+              ? 'Open Phantom'
+              : isMobile
+                ? 'Connect'
+                : 'Connect wallet'}
       </span>
     </button>
   ) : null
