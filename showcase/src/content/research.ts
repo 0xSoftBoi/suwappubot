@@ -384,7 +384,7 @@ The financing result can be rerun by changing one pinned rate input. The more im
 
 If a predeclared identification design — controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support — shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. Joined chosen-route telemetry alone is insufficient. If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
 
-The question becomes reviewable: **what observed cost or explicit preference pays for each basis point of speed premium?**
+The question becomes reviewable: **what identified cost or explicit preference pays for each basis point of speed premium?**
 
 ## Reproducibility and evidence boundary
 
