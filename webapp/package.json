@@ -16,7 +16,7 @@
     "test:all": "bun run test && bun run test:integration"
   },
   "dependencies": {
-    "@p2pdotme/sdk": "^1.2.6",
+    "@p2pdotme/sdk": "^1.2.8",
     "@suwappu/design-tokens": "file:../packages/design-tokens",
     "@tanstack/react-query": "^5.101.4",
     "@turnkey/sdk-browser": "^5.15.1",
@@ -58,5 +58,8 @@
     "typescript": "^5.6.3",
     "vite": "^7.3.6",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "viem": "$viem"
   }
 }
