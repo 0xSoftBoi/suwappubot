@@ -34,7 +34,7 @@ export function ChainSelector({ selected, onSelect }: Props) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex min-h-11 items-center gap-1.5 px-2 py-1 rounded text-sm font-medium
+        className="terminal-mobile-touch flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium
                    hover:bg-terminal-bg-tertiary transition-colors"
       >
         <span style={{ color: current.color }}>{current.icon}</span>
@@ -50,7 +50,7 @@ export function ChainSelector({ selected, onSelect }: Props) {
             <button
               key={chain.id}
               onClick={() => { onSelect(chain.id); setOpen(false) }}
-              className={`flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm hover:bg-terminal-bg-tertiary transition-colors
+              className={`terminal-mobile-touch flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-terminal-bg-tertiary transition-colors
                 ${chain.id === selected ? 'text-sakura-400' : 'text-terminal-text'}`}
             >
               <span style={{ color: chain.color }}>{chain.icon}</span>
