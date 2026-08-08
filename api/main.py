@@ -713,6 +713,11 @@ from api.routes.mobile import router as mobile_router
 
 app.include_router(mobile_router)
 
+# Jelly-native public discovery and wallet-backed creator claims (no third-party login).
+from api.routes.social import router as social_router
+
+app.include_router(social_router)
+
 try:
     from api.routes.internal import router as internal_router
 
