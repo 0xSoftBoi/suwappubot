@@ -282,20 +282,86 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Audit the exact locked graph that the Python service installs. Running
+      # bare pip-audit here audits the runner/tool environment instead.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Python dependency audit (pip-audit)
-        run: |
-          pip install pip-audit
-          pip-audit --desc || true   # advisory — harden to fail later
+      - name: Python dependency audit (locked application graph)
+        id: python-audit
+        uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+        continue-on-error: true
+        with:
+          inputs: requirements.txt
+          # Time-bounded, evidence-backed exception; see
+          # docs/security/dependency-exceptions.md.
+          ignore-vulns: PYSEC-2026-1325
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14   # pinned: stable cache key avoids re-downloading Bun on every run
 
-      - name: TypeScript dependency audit (npm audit)
-        working-directory: api-ts
+      # These packages use bun.lock as their dependency authority. Keep going
+      # after one failure so a single CI run reports every affected workspace,
+      # then fail the job if any high/critical advisory was found.
+      - name: Bun dependency audits (locked workspaces)
+        id: bun-audit
+        continue-on-error: true
+        shell: bash
         run: |
-          npm audit --production --audit-level=high || true   # advisory
+          set -uo pipefail
+          status=0
+          for dir in \
+            api-ts \
+            terminal \
+            showcase \
+            extension \
+            packages/sdk \
+            packages/mcp-server \
+            packages/openclaw \
+            packages/design-tokens
+          do
+            echo "::group::bun audit ($dir)"
+            (cd "$dir" && bun audit --audit-level=high) || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      # webapp intentionally uses npm/package-lock.json in its quality and
+      # production install path, so audit that lock with npm rather than Bun.
+      - name: Webapp dependency audit (npm lock)
+        id: npm-audit
+        continue-on-error: true
+        working-directory: webapp
+        run: npm audit --audit-level=high
+
+      # Audit steps continue long enough to report the complete dependency
+      # surface, but the job remains blocking unless all three completed cleanly.
+      - name: Enforce dependency audit results
+        if: always()
+        env:
+          PYTHON_AUDIT: ${{ steps.python-audit.outcome }}
+          BUN_AUDIT: ${{ steps.bun-audit.outcome }}
+          NPM_AUDIT: ${{ steps.npm-audit.outcome }}
+        run: |
+          status=0
+          if [[ "$PYTHON_AUDIT" != "success" ]]; then
+            echo "::error::Python locked dependency audit: $PYTHON_AUDIT"
+            status=1
+          fi
+          if [[ "$BUN_AUDIT" != "success" ]]; then
+            echo "::error::Bun workspace dependency audits: $BUN_AUDIT"
+            status=1
+          fi
+          if [[ "$NPM_AUDIT" != "success" ]]; then
+            echo "::error::Webapp npm dependency audit: $NPM_AUDIT"
+            status=1
+          fi
+          exit "$status"

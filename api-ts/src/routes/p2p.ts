@@ -203,7 +203,7 @@ p2pRoutes.get('/trades', telegramAuth(), async (c) => {
 // ── GET /trades/:id — single trade (owner only) ─────────────────────────────
 p2pRoutes.get('/trades/:id', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
-	const id = parseInt(c.req.param('id'), 10)
+	const id = parseInt(c.req.param('id') ?? '', 10)
 	if (Number.isNaN(id)) {
 		return c.json({ error: 'Validation Error', message: 'Invalid trade id' }, 400)
 	}
