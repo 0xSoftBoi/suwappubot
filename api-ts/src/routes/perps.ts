@@ -22,7 +22,10 @@ const perpsRoutes = new Hono<AgentContext>()
 function perpsPositionsAuth() {
 	return async (c: Context<AgentContext>, next: Next) => {
 		const authorization = c.req.header('Authorization')
-		if (authorization?.startsWith('Bearer suwappu_sk_')) {
+		const bearerToken = authorization?.startsWith('Bearer ')
+			? authorization.slice(7).trim()
+			: undefined
+		if (bearerToken?.startsWith('suwappu_sk_')) {
 			return agentBearerAuth()(c, next)
 		}
 		return flexAuth()(c, next)
