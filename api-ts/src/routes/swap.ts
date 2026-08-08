@@ -684,7 +684,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
  */
 swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
-	const swapId = parseInt(c.req.param('swapId'), 10)
+	const swapId = parseInt(c.req.param('swapId') ?? '', 10)
 
 	if (isNaN(swapId)) {
 		return c.json({ error: 'Validation Error', message: 'Invalid swap ID' }, 400)
