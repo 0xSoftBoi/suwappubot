@@ -298,13 +298,13 @@ The result is not sensitive to fine precision in today's rate. Even at a 10% ann
 
 The implementation claim is narrower than "Suwappu pays 10bp for speed." In the immutable [source snapshot](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589), the cross-chain tiebreak starts only after a value winner has been selected.
 
-For winner score `S_w`, faster-candidate score `S_f`, and their trusted provider ETAs `T_w` and `T_f`, the economic part of the gate is:
+For winner score **S_w**, faster-candidate score **S_f**, and their trusted provider ETAs **T_w** and **T_f**, the economic part of the gate is:
 
-`T_f < T_w / 2` and `0 <= (S_w - S_f) / S_w <= 0.001`.
+**T_f < T_w / 2** and **0 <= (S_w - S_f) / S_w <= 0.001**.
 
 Three boundaries matter.
 
-**10bp is relative to winner score, not automatically input notional.** The underlying score can be net of trusted gas when the pricing evidence supports that conversion, or gross output when it does not. Dollar examples in this paper therefore introduce `V`: the USD-equivalent economic value of the winner score under a credible contemporaneous mark. A $1m input is not asserted to create a $1,000 speed budget.
+**10bp is relative to winner score, not automatically input notional.** The underlying score can be net of trusted gas when the pricing evidence supports that conversion, or gross output when it does not. Dollar examples in this paper therefore introduce **V**: the USD-equivalent economic value of the winner score under a credible contemporaneous mark. A $1m input is not asserted to create a $1,000 speed budget.
 
 **"Trusted time" describes provenance, not forecast accuracy.** The current code permits provider-reported timing for the tiebreak and excludes several hard-coded adapter durations. That is a useful trust boundary; it is not an empirical test that the providers' ETAs predict the defined completion endpoint.
 
@@ -312,13 +312,13 @@ Three boundaries matter.
 
 ## The minimal financing model
 
-Let `V` be the USD-equivalent winner-score value, `Δt` the minutes saved, `r` the annual simple funding rate and `b = 0.001` the policy ceiling. With 360 days, or 518,400 minutes, in the money-market year:
+Let **V** be the USD-equivalent winner-score value, **Δt** the minutes saved, **r** the annual simple funding rate and **b = 0.001** the policy ceiling. With 360 days, or 518,400 minutes, in the money-market year:
 
-- policy concession = `b × V`;
-- financing carry = `V × r × Δt / 518,400`; and
-- cap / carry = `b × 518,400 / (r × Δt)`.
+- policy concession = **b × V**;
+- financing carry = **V × r × Δt / 518,400**; and
+- cap / carry = **b × 518,400 / (r × Δt)**.
 
-The value `V` cancels from the ratio. At `r = 0.0365`, the time needed for financing carry alone to reach 10bp is `0.001 × 360 / 0.0365 = 9.8630137 days`.
+The value **V** cancels from the ratio. At **r = 0.0365**, the time needed for financing carry alone to reach 10bp is **0.001 × 360 / 0.0365 = 9.8630137 days**.
 
 The [New York Fed](https://www.newyorkfed.org/markets/reference-rates/sofr) defines SOFR as a broad measure of overnight Treasury-secured cash-borrowing cost and publishes it each business day. Its [reference-rate methodology](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates) applies actual calendar days over a 360-day year to SOFR averages and the index. The 3.65% 6 August observation is available in [FRED](https://fred.stlouisfed.org/series/SOFR), whose series source is the Federal Reserve Bank of New York.
 
@@ -366,7 +366,7 @@ That is why the right implementation is not "replace 10bp with SOFR carry." It i
 
 A conservative control template is:
 
-`allowed speed premium = min(10bp, carry + measured approved risk premium + explicit SLA value)`.
+**allowed speed premium = min(10bp, carry + measured approved risk premium + explicit SLA value)**.
 
 That is a governance equation, not an estimated result from this paper. An unmeasured risk term should not be filled with a guessed number merely to defend the existing ceiling.
 
