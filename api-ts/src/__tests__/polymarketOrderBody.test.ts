@@ -60,11 +60,35 @@ describe('buildClobOrderBody', () => {
 		expect(body.order.tokenId).toBe(buyOrder.tokenId)
 		expect(body.order.signature).toBe('0xdeadbeef')
 
-		// Legacy CLOB-model fields use neutral defaults (not part of the digest).
-		expect(body.order.taker).toBe('0x0000000000000000000000000000000000000000')
-		expect(body.order.expiration).toBe('0')
-		expect(body.order.nonce).toBe('0')
-		expect(body.order.feeRateBps).toBe('0')
+		// v2 fields are part of the SIGNED digest, so they must appear in the body.
+		expect(body.order.timestamp).toBe(buyOrder.timestamp)
+		expect(body.order.metadata).toBe(buyOrder.metadata)
+		expect(body.order.builder).toBe(buyOrder.builder)
+
+		// The v1 fields CLOB V2 dropped must NOT be sent — including them makes the
+		// serialized body diverge from the struct that was signed.
+		expect(body.order).not.toHaveProperty('taker')
+		expect(body.order).not.toHaveProperty('expiration')
+		expect(body.order).not.toHaveProperty('nonce')
+		expect(body.order).not.toHaveProperty('feeRateBps')
+
+		// The body's order keys must be exactly the signed struct + signature.
+		expect(Object.keys(body.order).sort()).toEqual(
+			[
+				'builder',
+				'maker',
+				'makerAmount',
+				'metadata',
+				'salt',
+				'side',
+				'signature',
+				'signatureType',
+				'signer',
+				'takerAmount',
+				'timestamp',
+				'tokenId',
+			].sort(),
+		)
 
 		// Envelope.
 		expect(body.owner).toBe(OWNER)
