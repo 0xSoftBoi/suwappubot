@@ -4,7 +4,6 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
-
 PROOF_OF_POSSESSION_SOURCES = frozenset({"telegram", "siwe", "passkey"})
 
 

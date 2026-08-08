@@ -15,7 +15,6 @@ import bot.services.swap_engine as swap_module
 from bot.config.chains import ChainType
 from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
 
-
 SENDER = "0x1111111111111111111111111111111111111111"
 TOKEN = "0x2222222222222222222222222222222222222222"
 TX_TARGET = "0x3333333333333333333333333333333333333333"
