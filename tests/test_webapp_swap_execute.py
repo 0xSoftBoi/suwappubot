@@ -13,6 +13,7 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 import api.webapp as webapp
+from bot.models.user import Wallet
 from bot.services.swap_engine import SwapEngine, SwapQuote
 
 
@@ -47,7 +48,7 @@ def clear_quote_cache():
 
 
 async def test_execute_uses_exact_wallet_bound_at_quote_time(monkeypatch):
-    wallet_a = SimpleNamespace(
+    wallet_a = Wallet(
         id=11,
         user_id=7,
         address="0x1111111111111111111111111111111111111111",
