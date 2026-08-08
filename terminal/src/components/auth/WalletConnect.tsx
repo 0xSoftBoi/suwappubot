@@ -56,22 +56,32 @@ export function WalletConnect() {
         }}
       </ConnectButton.Custom>
 
-      <button
-        onClick={() => void signInWithPhantom()}
-        disabled={isLoading}
-        type="button"
-        className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
-                   bg-transparent hover:bg-terminal-bg-tertiary text-terminal-text
-                   border hairline-strong disabled:opacity-50"
-      >
-        {isPhantomAvailable ? 'Connect Phantom (Solana)' : 'Get Phantom for Solana'}
-      </button>
+      {isPhantomAvailable ? (
+        <button
+          onClick={() => void signInWithPhantom()}
+          disabled={isLoading}
+          type="button"
+          className="w-full py-3 text-base font-semibold rounded-terminal-control transition-colors
+                     bg-transparent hover:bg-terminal-bg-tertiary text-terminal-text
+                     border hairline-strong disabled:opacity-50"
+        >
+          Connect Phantom (Solana)
+        </button>
+      ) : (
+        <a
+          href={`https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`}
+          className="flex min-h-11 w-full items-center justify-center rounded-terminal-control border hairline-strong
+                     bg-transparent px-3 text-center text-base font-semibold text-terminal-text transition-colors
+                     hover:bg-terminal-bg-tertiary"
+        >
+          Open in Phantom
+        </a>
+      )}
 
       <button
         onClick={signInWithGoogle}
         type="button"
-        className="text-xs text-terminal-text-secondary hover:text-terminal-text
-                   transition-colors text-center"
+        className="flex min-h-11 items-center justify-center text-center text-xs text-terminal-text-secondary transition-colors hover:text-terminal-text"
       >
         or continue with Google
       </button>
