@@ -8,15 +8,34 @@ import { keccak_256 } from '@noble/hashes/sha3'
 // exchange 0x4bFb…982E) produced signatures the CLOB rejects — Polymarket migrated
 // to pUSD collateral + a new exchange in April 2026.
 //
-// Neg-risk markets are matched by a separate exchange (NegRiskCtfExchange
-// 0xC5d563A36AE78145C45a50134d48A1215220f80a) with the same domain name/version but
-// a different verifyingContract; pass `verifyingContract` through buildOrderTypedData
-// when adding neg-risk support.
+// Neg-risk (multi-outcome) markets are matched by a SEPARATE exchange deployment.
+// It runs the same contract code, so the EIP-712 domain name/version are identical
+// and ONLY verifyingContract differs — confirmed against Polymarket's own source
+// (Polymarket/ctf-exchange-v2 src/exchange/mixins/Hashing.sol: DOMAIN_NAME =
+// "Polymarket CTF Exchange", DOMAIN_VERSION = "2").
+//
+// Addresses verified 2026-07-26 against Polymarket's official contracts page
+// (docs.polymarket.com/resources/contracts):
+//   CTF Exchange          0xE111180000d2663C0091e4f400237545B87B996B
+//   Neg Risk CTF Exchange 0xe2222d279d744050d28e00520010520000310F59
+// NOTE: 0xC5d563A36AE78145C45a50134d48A1215220f80a (still shipped by
+// py-clob-client 0.34.6) is the DEPRECATED USDC.e-era neg-risk exchange — do not
+// use it. Signing a neg-risk order against the standard exchange (what this file
+// did before) yields a digest the CLOB recovers against the wrong contract, so
+// the order is rejected.
+const CTF_EXCHANGE = '0xE111180000d2663C0091e4f400237545B87B996B' as const
+const NEG_RISK_CTF_EXCHANGE = '0xe2222d279d744050d28e00520010520000310F59' as const
+
 const EIP712_DOMAIN = {
 	name: 'Polymarket CTF Exchange',
 	version: '2',
 	chainId: 137,
-	verifyingContract: '0xE111180000d2663C0091e4f400237545B87B996B' as const,
+	verifyingContract: CTF_EXCHANGE as string,
+}
+
+/** Domain for a market, selecting the neg-risk exchange when applicable. */
+function domainFor(negRisk: boolean) {
+	return { ...EIP712_DOMAIN, verifyingContract: negRisk ? NEG_RISK_CTF_EXCHANGE : CTF_EXCHANGE }
 }
 
 // v2 Order struct, verified against the on-chain ORDER_TYPEHASH
@@ -58,7 +77,7 @@ export interface ClobOrderData {
 export interface EIP712TypedData {
 	types: typeof ORDER_TYPES
 	primaryType: 'Order'
-	domain: typeof EIP712_DOMAIN
+	domain: { name: string; version: string; chainId: number; verifyingContract: string }
 	message: ClobOrderData
 }
 
@@ -118,32 +137,43 @@ function hashStruct(primaryType: string, data: ClobOrderData, types: Record<stri
 	return keccak256(Buffer.concat(encodedValues))
 }
 
-function hashDomain(): Buffer {
+function hashDomain(domain: EIP712TypedData['domain']): Buffer {
 	const domainTypeHash = keccak256(
 		Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
 	)
 	return keccak256(
 		Buffer.concat([
 			domainTypeHash,
-			keccak256(Buffer.from(EIP712_DOMAIN.name)),
-			keccak256(Buffer.from(EIP712_DOMAIN.version)),
-			encodeUint256(String(EIP712_DOMAIN.chainId)),
-			encodeAddress(EIP712_DOMAIN.verifyingContract),
+			keccak256(Buffer.from(domain.name)),
+			keccak256(Buffer.from(domain.version)),
+			encodeUint256(String(domain.chainId)),
+			encodeAddress(domain.verifyingContract),
 		])
 	)
 }
 
-export function buildOrderTypedData(order: ClobOrderData): EIP712TypedData {
+/**
+ * Build the EIP-712 payload for a CLOB order.
+ *
+ * `negRisk` MUST reflect the market the tokenId belongs to (CLOB
+ * `GET /neg-risk?token_id=`). It selects the exchange the signature is bound to;
+ * getting it wrong produces a valid-looking signature that the CLOB recovers
+ * against the wrong contract, and the order is rejected.
+ */
+export function buildOrderTypedData(
+	order: ClobOrderData,
+	opts: { negRisk?: boolean } = {},
+): EIP712TypedData {
 	return {
 		types: ORDER_TYPES,
 		primaryType: 'Order',
-		domain: EIP712_DOMAIN,
+		domain: domainFor(opts.negRisk === true),
 		message: order,
 	}
 }
 
 export function hashEip712Order(typedData: EIP712TypedData): string {
-	const domainSeparator = hashDomain()
+	const domainSeparator = hashDomain(typedData.domain)
 	const structHash = hashStruct(typedData.primaryType, typedData.message, typedData.types)
 	const prefix = Buffer.from('1901', 'hex')
 	const digest = keccak256(Buffer.concat([prefix, domainSeparator, structHash]))
@@ -154,4 +184,4 @@ export function buildClobAuthMessage(timestamp: number): string {
 	return `I want to create a CLOB API key. Timestamp: ${timestamp}`
 }
 
-export { EIP712_DOMAIN, ORDER_TYPES, ZERO_BYTES32 }
+export { EIP712_DOMAIN, ORDER_TYPES, ZERO_BYTES32, CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE, domainFor }
