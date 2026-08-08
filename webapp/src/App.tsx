@@ -12,6 +12,7 @@ import { Welcome } from './pages/Welcome'
 import { Home } from './pages/Home'
 // All other pages: lazy-loaded for code splitting
 const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
+const Discover = lazy(() => import('./pages/Discover'))
 const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
 const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
 const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
@@ -190,6 +191,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Home />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/discover"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Discover />
               </PageTransition>
             </ProtectedRoute>
           }
