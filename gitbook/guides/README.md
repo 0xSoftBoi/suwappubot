@@ -13,6 +13,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 | [Build a Standalone Trading Bot](building-a-trading-bot.md) | Single-node execution safety, REST/SDK/MCP authority, OSS tradeoffs, and a monitor-to-automation business ladder |
 | [Build a Standalone Recurring DCA Product](dca-automation.md) | Single-writer schedule identity, outcome-safe recurring execution, REST/SDK/MCP authority, and a preview-to-automation business ladder |
 | [Build a Standalone Prediction Monitor](prediction-markets.md) | Credential-free snapshots, durable alert state, operating economics, calibration, and OSS tradeoffs |
+| [Build a Standalone Perps Risk Monitor](perps-trading.md) | Read-only position risk, restart-safe alert transitions, operating economics, and Hyperliquid boundaries |
 | [Build a Lending Monitor](lending-monitor.md) | Risk-aware Morpho snapshots, alert state, polling economics, OSS boundaries, and a paid-monitor product ladder |
 | [Build with LangChain](langchain.md) | Schema-defined agent tools, approval-gated execution, and a paid-product blueprint |
 | [Build with CrewAI](crewai.md) | Multi-agent role boundaries, typed plans, host-owned execution, and product economics |
@@ -29,7 +30,7 @@ Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guid
 
 | Guide | What you'll learn |
 |-------|-------------------|
-| [Perpetual Futures Research](perps-trading.md) | Live mark/funding context, quotes, position-risk snapshots, and alert products; no Agent API execution |
+| [Standalone Perps Risk Monitor](perps-trading.md) | Build durable liquidation-distance alerts without adding Agent API execution authority |
 | [Standalone Prediction Monitor](prediction-markets.md) | Run credential-free market monitoring; keep trading behind a separate authority boundary |
 | [Lending Monitor](lending-monitor.md) | Monitor current Morpho rates, liquidity, listing status, and warnings without moving funds |
 | [Limit Orders](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |

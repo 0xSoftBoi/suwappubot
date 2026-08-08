@@ -86,6 +86,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
 
 Read open Hyperliquid positions for a wallet. The `address` query parameter is required.
 
+This Agent API route accepts a `suwappu_sk_*` agent Bearer key. Suwappu's first-party terminal can also reach the same route with its user-session authentication. The hosted MCP `perps_positions` tool has a narrower ownership contract: the requested EVM address must be the authenticated agent's managed wallet.
+
 ```bash
 curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUID_ADDRESS" \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
@@ -121,4 +123,4 @@ The position state and market funding context come from separate Hyperliquid rea
 
 There is intentionally no `/perps/order`, `/perps/open`, or `/perps/close` route in the current Agent API. The Telegram product has separate Hyperliquid trading code, but that does not make execution available to Agent API, SDK, MCP, or A2A callers.
 
-See [Perpetual Futures Research](../guides/perps-trading.md) for a risk-monitoring and paid-product pattern.
+See [Build a Standalone Perps Risk Monitor](../guides/perps-trading.md) for restart-safe alert state, operating economics, and the direct-Hyperliquid boundary.
