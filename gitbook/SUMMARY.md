@@ -77,7 +77,7 @@
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
 * [Build an MCP Portfolio Product](guides/mcp-portfolio-advisor.md)
-* [Perpetual Futures Research](guides/perps-trading.md)
+* [Build a Standalone Perps Risk Monitor](guides/perps-trading.md)
 * [Standalone Prediction Monitor](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
 

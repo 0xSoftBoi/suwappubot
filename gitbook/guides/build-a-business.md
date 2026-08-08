@@ -20,7 +20,7 @@ Sell information or decisions without taking custody:
 
 This is the simplest boundary because the customer can pay you for the insight while Suwappu stays read-only or quote-only. Start here if you do not need to move funds.
 
-Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [recurring DCA product](dca-automation.md), [standalone prediction monitor](prediction-markets.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), [Perpetual Futures Research](perps-trading.md), and the public Suwappu example repositories.
+Good examples to extend are the [Flywheel strategy/product reference](flywheel.md), [quote-qualified arbitrage monitor](arbitrage-monitor.md), [price-target trading product](building-a-trading-bot.md), [recurring DCA product](dca-automation.md), [standalone prediction monitor](prediction-markets.md), [standalone perps risk monitor](perps-trading.md), [MCP Portfolio Advisor](mcp-portfolio-advisor.md), [LangChain integration](langchain.md), [CrewAI integration](crewai.md), and the public Suwappu example repositories.
 
 ### 2. Automation SaaS
 
@@ -130,6 +130,8 @@ The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action bou
 For an executable-route example, the [Arbitrage Monitor](arbitrage-monitor.md) shows why chain-neutral reference prices are not enough, how to budget quote calls, and how to turn a read-only signal into a paid monitor before adding a two-leg execution problem.
 
 For a venue-data example, the [Standalone Prediction Monitor](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot and restart-safe watch state, then shows how to price alerts from measured request volume while keeping forecast calibration separate from customer trading P&L.
+
+For leveraged-position monitoring, the [Standalone Perps Risk Monitor](perps-trading.md) turns authenticated position reads plus shared market context into restart-safe liquidation-distance transitions, then separates alert-delivery economics from customer trading returns and shows where direct Hyperliquid streaming becomes the better architecture.
 
 ## Production checklist
 
