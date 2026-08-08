@@ -141,6 +141,14 @@
       0 0 0 4px rgb(var(--terminal-c-accent));
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -148,7 +156,9 @@
   }
 
   body {
-    min-height: 100vh;
+    min-height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: var(--terminal-shell-background);
     background-color: rgb(var(--terminal-c-canvas));
     color: rgb(var(--terminal-c-text));
@@ -223,7 +233,7 @@
   }
 
   .terminal-theme-page {
-    min-height: 100vh;
+    min-height: 100%;
     background: var(--terminal-shell-background);
     color: rgb(var(--terminal-c-text));
   }
@@ -485,6 +495,35 @@
 /* Connection / live status dot. */
 .pulse-live {
   opacity: 1;
+}
+
+/* Mobile/wallet-browser shell. 100vh is the fallback for older embedded
+   browsers; dvh follows collapsing browser chrome and, where supported,
+   interactive-widget=resizes-content when the software keyboard opens. */
+.terminal-app-viewport {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  padding-top: max(0.375rem, env(safe-area-inset-top));
+  padding-right: max(0.375rem, env(safe-area-inset-right));
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+  padding-left: max(0.375rem, env(safe-area-inset-left));
+}
+
+@supports (height: 100dvh) {
+  .terminal-app-viewport {
+    height: 100dvh;
+  }
+}
+
+@media (min-width: 768px) {
+  .terminal-app-viewport {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
 }
 
 /* All motion is opt-in for users who have not asked for reduced motion. */
