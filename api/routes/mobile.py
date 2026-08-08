@@ -152,9 +152,7 @@ async def _build_snapshot(user_id: int) -> dict:
 
     wallet_service = WalletService()
     wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
-    balances: dict[str, dict[str, Decimal]] = defaultdict(
-        lambda: defaultdict(lambda: Decimal("0"))
-    )
+    balances: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: Decimal("0")))
 
     for wallet in wallets:
         if not wallet.address:
