@@ -1,5 +1,5 @@
 import { Effect, Either } from 'effect'
-import { Hono } from 'hono'
+import { Hono, type Context, type Next } from 'hono'
 import type { Agent } from '../db'
 import { mapErrorToResponse } from '../errors'
 import { agentBearerAuth, flexAuth } from '../middleware'
@@ -14,6 +14,23 @@ type AgentContext = {
 }
 
 const perpsRoutes = new Hono<AgentContext>()
+
+// The perps positions path serves two existing callers with different credential
+// classes: SDK/A2A clients use a suwappu_sk_* agent key, while the first-party
+// terminal uses its user-session JWT/cookie. Keep both paths explicit instead of
+// passing an agent key to flexAuth(), which only understands user-session tokens.
+function perpsPositionsAuth() {
+	return async (c: Context<AgentContext>, next: Next) => {
+		const authorization = c.req.header('Authorization')
+		const bearerToken = authorization?.startsWith('Bearer ')
+			? authorization.slice(7).trim()
+			: undefined
+		if (bearerToken?.startsWith('suwappu_sk_')) {
+			return agentBearerAuth()(c, next)
+		}
+		return flexAuth()(c, next)
+	}
+}
 
 // GET /v1/agent/perps/markets — list available perp markets (public)
 perpsRoutes.get('/markets', async (c) => {
@@ -58,7 +75,7 @@ perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
 })
 
 // GET /v1/agent/perps/positions — list open positions
-perpsRoutes.get('/positions', flexAuth(), async (c) => {
+perpsRoutes.get('/positions', perpsPositionsAuth(), async (c) => {
 	const address = c.req.query('address')
 	if (!address) {
 		return c.json({ error: 'address query parameter required' }, 400)
