@@ -503,7 +503,7 @@
 .terminal-app-viewport {
   box-sizing: border-box;
   width: 100%;
-  height: 100vh;
+  height: var(--terminal-visual-height, 100vh);
   min-height: 0;
   padding-top: max(0.375rem, env(safe-area-inset-top));
   padding-right: max(0.375rem, env(safe-area-inset-right));
@@ -513,7 +513,7 @@
 
 @supports (height: 100dvh) {
   .terminal-app-viewport {
-    height: 100dvh;
+    height: var(--terminal-visual-height, 100dvh);
   }
 }
 
@@ -562,7 +562,9 @@
   }
 
   .terminal-toast-container {
-    bottom: calc(4.25rem + env(safe-area-inset-bottom)) !important;
+    bottom: calc(
+      4.25rem + env(safe-area-inset-bottom) + var(--terminal-keyboard-inset, 0px)
+    ) !important;
   }
 
   .terminal-mobile-scroll {
@@ -585,6 +587,8 @@
      desktop dialog. dvh shrinks with dynamic browser chrome and supported
      interactive keyboards. */
   .terminal-command-scrim {
+    bottom: auto;
+    height: var(--terminal-visual-height, 100vh);
     align-items: flex-end;
     overflow-y: auto;
     padding: max(0.5rem, env(safe-area-inset-top))
@@ -597,7 +601,7 @@
     display: flex;
     width: 100%;
     height: min(88vh, 42rem);
-    max-height: calc(100vh - 1rem);
+    max-height: calc(var(--terminal-visual-height, 100vh) - 1rem);
     flex-direction: column;
   }
 
@@ -614,9 +618,16 @@
   }
 
   @supports (height: 100dvh) {
+    .terminal-command-scrim {
+      height: var(--terminal-visual-height, 100dvh);
+    }
+
     .terminal-command-palette {
       height: min(88dvh, 42rem);
-      max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
+      max-height: calc(
+        var(--terminal-visual-height, 100dvh) - env(safe-area-inset-top) -
+          env(safe-area-inset-bottom) - 1rem
+      );
     }
   }
 
@@ -626,7 +637,9 @@
     position: fixed;
     top: auto;
     right: max(0.5rem, env(safe-area-inset-right));
-    bottom: calc(3.75rem + env(safe-area-inset-bottom));
+    bottom: calc(
+      3.75rem + env(safe-area-inset-bottom) + var(--terminal-keyboard-inset, 0px)
+    );
     left: max(0.5rem, env(safe-area-inset-left));
     z-index: 120;
     width: auto;
