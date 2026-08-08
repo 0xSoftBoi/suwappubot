@@ -45,7 +45,7 @@ jobs:
       gh_env: ${{ steps.decide.outputs.gh_env }}
       services: ${{ steps.decide.outputs.services }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - id: decide
@@ -110,7 +110,7 @@ jobs:
       matrix:
         service: ${{ fromJSON(needs.setup.outputs.services) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Install Railway CLI
         # The CLI's postinstall fetches a binary from GitHub releases, which
         # intermittently 502/504s and fails the whole deploy. Retry with backoff.
