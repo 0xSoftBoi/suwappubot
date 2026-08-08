@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 mock.module('../contexts/AuthContext', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   useAuth: () => ({ isAuthenticated: false, isLoading: false }),
+  formatAddress: (address: string) => address,
 }))
 
 mock.module('../hooks/useTelegram', () => ({
