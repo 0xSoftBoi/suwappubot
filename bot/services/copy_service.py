@@ -28,6 +28,7 @@ from bot.models.copy_trading import (
     TraderPosition,
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
+from bot.services.spending_limits import spending_limit_service
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -102,13 +103,20 @@ class CopyService:
             if not profile:
                 profile = TraderProfile(user_id=user_id, is_public=True)
                 session.add(profile)
-                return True, "Profile is now public! Others can follow your trades."
+                return True, (
+                    "Profile is now public on the Terminal web app. Anyone can see your "
+                    "active wallet address, recent Suwappu trades, performance, and linked "
+                    "social identity."
+                )
 
             profile.is_public = not profile.is_public
             new_status = profile.is_public
 
         if new_status:
-            return True, "Profile is now public! Others can follow your trades."
+            return True, (
+                "Profile is now public on the Terminal web app. Anyone can see your active "
+                "wallet address, recent Suwappu trades, performance, and linked social identity."
+            )
         else:
             return False, "Profile is now private. You won't appear in trader lists."
 
@@ -719,15 +727,10 @@ class CopyService:
                 copy_trade.failure_reason = "Original trade USD notional is unavailable"
                 return False, copy_trade.failure_reason, None
 
-            copy_amount = float(custom_amount or copy_trade.copy_amount_usd)
-            if copy_amount <= 0:
+            target_copy_amount = float(custom_amount or copy_trade.copy_amount_usd)
+            if target_copy_amount <= 0:
                 copy_trade.status = "failed"
                 copy_trade.failure_reason = "Copy amount must be positive"
-                return False, copy_trade.failure_reason, None
-            original_amount = self._copy_from_amount(original_swap, copy_trade, copy_amount)
-            if original_amount <= 0:
-                copy_trade.status = "failed"
-                copy_trade.failure_reason = "Unable to derive a safe source-token copy amount"
                 return False, copy_trade.failure_reason, None
             source_chain = get_chain_by_name(copy_trade.from_chain)
             if not source_chain:
@@ -798,6 +801,23 @@ class CopyService:
                 self._mark_copy_failed(copy_trade_id, reason)
                 return False, reason, None
 
+        # Copy allocations are USD-denominated. SwapTransaction.from_amount is
+        # deliberately stored in raw base units by SwapEngine (wei/lamports/
+        # token atoms), while get_quote() accepts a human-readable token amount.
+        # Derive the source quantity from a current USD price instead of scaling
+        # the leader's raw integer; this also keeps fixed/percentage copy sizing
+        # tied to the user's configured dollar allocation as prices move.
+        source_unit_usd = await spending_limit_service.usd_value(copy_trade.from_token, 1.0)
+        if source_unit_usd is None or source_unit_usd <= 0:
+            reason = "Current source-token USD price is unavailable"
+            self._mark_copy_failed(copy_trade_id, reason)
+            return False, reason, None
+        source_amount = target_copy_amount / float(source_unit_usd)
+        if source_amount <= 0:
+            reason = "Unable to derive a safe source-token copy amount"
+            self._mark_copy_failed(copy_trade_id, reason)
+            return False, reason, None
+
         # Execute the swap via swap engine
         from bot.services.swap_engine import SwapEngine
 
@@ -810,12 +830,25 @@ class CopyService:
                 to_chain=copy_trade.to_chain,
                 from_token=copy_trade.from_token,
                 to_token=copy_trade.to_token,
-                amount=original_amount,
+                amount=source_amount,
                 from_address=wallet.address,
                 to_address=wallet.address,
                 slippage=slippage,
                 user_id=copy_trade.copier_id,
             )
+
+            # Re-price the exact human input returned in the quote immediately
+            # before the locked claim. Limits and accounting below must reserve
+            # what this copy is actually about to spend, not the stale leader
+            # notional or the originally requested allocation.
+            execution_notional_usd = await spending_limit_service.usd_value(
+                quote.from_token, quote.from_amount_human
+            )
+            if execution_notional_usd is None or execution_notional_usd <= 0:
+                reason = "Unable to verify copy USD notional before execution"
+                self._mark_copy_failed(copy_trade_id, reason)
+                return False, reason, None
+            copy_amount = float(execution_notional_usd)
 
             # Quote generation is asynchronous, so mutable authorization may
             # have changed while it was in flight. Re-check Pro, then atomically
@@ -1085,21 +1118,6 @@ class CopyService:
                 return True
 
         return False
-
-    def _copy_from_amount(
-        self, original_swap: SwapTransaction, copy_trade: CopyTrade, copy_amount: float
-    ) -> float:
-        """Convert the configured copy allocation into source-token amount."""
-        try:
-            trader_amount = float(copy_trade.trader_amount_usd or 0)
-            original_from_amount = float(original_swap.from_amount or 0)
-        except (TypeError, ValueError):
-            return 0.0
-
-        if trader_amount <= 0 or original_from_amount <= 0:
-            return 0.0
-
-        return max(0.0, original_from_amount * (copy_amount / trader_amount))
 
     async def _notify_copy_signal(self, bot, follower_info: dict, swap_data: dict) -> None:
         if not bot:

@@ -12,7 +12,6 @@ import { usePair } from '../../contexts/PairContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { WalletConnect } from '../auth/WalletConnect'
 import { api } from '../../lib/api'
-import { pairFromToken } from '../../lib/quoteTokens'
 import { captureTerminalEvent } from '../../lib/posthog'
 import type { FollowSettings, TraderActivity } from '../../types/api'
 
@@ -76,32 +75,47 @@ export function CopyTradingDashboard() {
 
   const handleTrade = async (activity: TraderActivity) => {
     try {
-      const matches = await api.searchTokens(activity.token, activity.chain)
-      const exactMatches = matches.filter(
-        match => match.symbol.toLowerCase() === activity.token.toLowerCase() && match.chain === activity.chain,
+      const [fromMatches, toMatches] = await Promise.all([
+        api.searchTokens(activity.fromToken, activity.fromChain),
+        api.searchTokens(activity.toToken, activity.toChain),
+      ])
+      const exactFrom = fromMatches.filter(
+        match => match.symbol.toLowerCase() === activity.fromToken.toLowerCase() && match.chain === activity.fromChain,
       )
-      if (exactMatches.length === 0) {
+      const exactTo = toMatches.filter(
+        match => match.symbol.toLowerCase() === activity.toToken.toLowerCase() && match.chain === activity.toChain,
+      )
+      if (exactFrom.length === 0 || exactTo.length === 0) {
         captureTerminalEvent('copy_trade_ticket_blocked', {
-          token: activity.token,
-          chain: activity.chain,
+          token: exactFrom.length === 0 ? activity.fromToken : activity.toToken,
+          chain: exactFrom.length === 0 ? activity.fromChain : activity.toChain,
           reason: 'not_found',
         })
-        toast.error(`${activity.token} is not available in the Terminal token registry yet`)
+        toast.error(`${activity.tokenPair} is not fully available in the Terminal token registry yet`)
         return
       }
-      if (exactMatches.length > 1) {
+      if (exactFrom.length > 1 || exactTo.length > 1) {
         captureTerminalEvent('copy_trade_ticket_blocked', {
-          token: activity.token,
-          chain: activity.chain,
+          token: exactFrom.length > 1 ? activity.fromToken : activity.toToken,
+          chain: exactFrom.length > 1 ? activity.fromChain : activity.toChain,
           reason: 'ambiguous_symbol',
         })
         toast.error(
-          `Multiple ${activity.token} tokens match this trade — token-address handoff is required before we can load it safely`,
+          `Multiple tokens match ${activity.tokenPair} — token-address handoff is required before we can load it safely`,
         )
         return
       }
-      const token = exactMatches[0]
-      setSelectedPair(pairFromToken(token))
+      const fromToken = exactFrom[0]
+      const toToken = exactTo[0]
+      // Pair + side encode the exact leader route into the existing spot ticket:
+      // buy => quote(from) -> base(to), sell => base(from) -> quote(to).
+      // This preserves SOL -> MEME and cross-chain routes instead of silently
+      // replacing the other leg with same-chain USDC.
+      setSelectedPair(
+        activity.action === 'buy'
+          ? { base: toToken, quote: fromToken }
+          : { base: fromToken, quote: toToken },
+      )
       setTradingMode('spot')
       setSide(activity.action)
       captureTerminalEvent('copy_trade_ticket_loaded', {
@@ -109,7 +123,7 @@ export function CopyTradingDashboard() {
         chain: activity.chain,
         side: activity.action,
       })
-      toast.success(`${activity.token} loaded in the trade ticket — review before confirming`)
+      toast.success(`${activity.tokenPair} loaded in the trade ticket — review before confirming`)
     } catch (error) {
       toast.error(copyErrorMessage(error))
     }

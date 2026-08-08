@@ -362,12 +362,19 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     visibility = "🟢 Public" if profile.is_public else "🔴 Private"
     pnl_emoji = "📈" if profile.total_pnl_usd >= 0 else "📉"
+    visibility_notice = (
+        "\n🌐 _Public profiles expose your active wallet address, recent Suwappu trades, "
+        "performance, and linked social identity on the Terminal web app._\n"
+        if profile.is_public
+        else ""
+    )
 
     msg = (
         f"👤 *Your Trader Profile*\n\n"
         f"{profile.avatar_emoji} *{profile.display_name or 'Not set'}*\n"
         f"_{profile.bio or 'No bio set'}_\n\n"
         f"*Visibility:* {visibility}\n\n"
+        f"{visibility_notice}"
         f"📊 *Your Stats*\n"
         f"├ Trades: {profile.total_trades}\n"
         f"├ Win Rate: {profile.win_rate:.1f}%\n"
@@ -377,7 +384,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"└ Times Copied: {profile.times_copied}\n"
     )
 
-    toggle_text = "🔴 Go Private" if profile.is_public else "🟢 Go Public"
+    toggle_text = "🔴 Go Private" if profile.is_public else "🌐 Publish on Web"
 
     buttons = [
         [
@@ -416,12 +423,19 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     visibility = "🟢 Public" if profile.is_public else "🔴 Private"
     pnl_emoji = "📈" if profile.total_pnl_usd >= 0 else "📉"
+    visibility_notice = (
+        "\n🌐 _Public profiles expose your active wallet address, recent Suwappu trades, "
+        "performance, and linked social identity on the Terminal web app._\n"
+        if profile.is_public
+        else ""
+    )
 
     msg = (
         f"👤 *Your Trader Profile*\n\n"
         f"{profile.avatar_emoji} *{profile.display_name or 'Not set'}*\n"
         f"_{profile.bio or 'No bio set'}_\n\n"
         f"*Visibility:* {visibility}\n\n"
+        f"{visibility_notice}"
         f"📊 *Your Stats*\n"
         f"├ Trades: {profile.total_trades}\n"
         f"├ Win Rate: {profile.win_rate:.1f}%\n"
@@ -431,7 +445,7 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"└ Times Copied: {profile.times_copied}\n"
     )
 
-    toggle_text = "🔴 Go Private" if profile.is_public else "🟢 Go Public"
+    toggle_text = "🔴 Go Private" if profile.is_public else "🌐 Publish on Web"
 
     buttons = [
         [

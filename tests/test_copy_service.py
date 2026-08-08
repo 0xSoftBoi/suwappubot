@@ -21,12 +21,19 @@ from bot.services.copy_service import CopyService
 def sqlite_db(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'copy-service.db'}"
     assert init_db(database_url)
+
+    async def unit_usd_value(_token_symbol, amount):
+        return float(amount)
+
     monkeypatch.setattr(
         "bot.services.copy_service.points_service.award_points", lambda *_, **__: None
     )
     monkeypatch.setattr(
         "bot.services.copy_service.points_service.award_swap_points",
         lambda *_, **__: (0, None, None),
+    )
+    monkeypatch.setattr(
+        "bot.services.copy_service.spending_limit_service.usd_value", unit_usd_value
     )
     yield
 
@@ -38,12 +45,16 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
     async def pro_tier(_user_id):
         return SubscriptionTier.PRO
 
+    async def usd_value(token_symbol, amount):
+        return amount * (3000.0 if token_symbol == "ETH" else 1.0)
+
     monkeypatch.setattr("bot.services.x402_service.x402_service.get_tier", pro_tier)
+    monkeypatch.setattr("bot.services.copy_service.spending_limit_service.usd_value", usd_value)
 
     class FakeSwapEngine:
         async def get_quote(self, **kwargs):
             captured["quote_kwargs"] = kwargs
-            return SimpleNamespace(**kwargs)
+            return SimpleNamespace(**kwargs, from_amount_human=kwargs["amount"])
 
         async def execute_swap(
             self, *, quote, wallet_id, user_id, idempotency_key, automated=False
@@ -60,8 +71,10 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
                     user_id=user_id,
                     from_chain=quote.from_chain,
                     from_token=quote.from_token,
-                    from_amount=str(quote.amount),
-                    from_amount_usd=quote.amount,
+                    # Match production SwapEngine persistence: raw token atoms,
+                    # not the human-readable get_quote() input.
+                    from_amount=str(int(quote.from_amount_human * 10**18)),
+                    from_amount_usd=quote.from_amount_human * 3000.0,
                     to_chain=quote.to_chain,
                     to_token=quote.to_token,
                     to_amount="0",
@@ -97,16 +110,19 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
             copy_mode="auto",
             copy_type="percentage",
             copy_percentage=50,
-            max_trade_usd=500,
-            daily_limit_usd=1000,
+            max_trade_usd=5000,
+            daily_limit_usd=10000,
             max_slippage_percent=0.5,
         )
         swap = SwapTransaction(
             user_id=1,
             from_chain="ethereum",
             from_token="ETH",
-            from_amount="2",
-            from_amount_usd=2,
+            # SwapEngine stores the 2 ETH source in wei. The old copy path
+            # multiplied this raw integer and then passed it to get_quote() as
+            # human ETH, oversizing the copy by 1e18.
+            from_amount=str(2 * 10**18),
+            from_amount_usd=6000,
             to_chain="ethereum",
             to_token="USDC",
             to_amount="7000",
@@ -119,7 +135,7 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
     processed = asyncio.run(service.handle_swap_submitted(original_swap_id))
 
     assert processed[0]["status"] == "copied"
-    assert captured["quote_kwargs"]["amount"] == 1
+    assert captured["quote_kwargs"]["amount"] == pytest.approx(1.0)
     assert captured["quote_kwargs"]["from_address"] == "0xcopy"
     assert captured["quote_kwargs"]["slippage"] == 0.5
     assert captured["execute_kwargs"]["wallet_id"] == 1
@@ -134,7 +150,8 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
         assert copy_trade.status == "copied"
         assert copy_trade.copy_swap_id is not None
         assert follow.total_copied_trades == 1
-        assert follow.total_copied_volume == 1
+        assert copy_trade.copy_amount_usd == pytest.approx(3000.0)
+        assert follow.total_copied_volume == pytest.approx(3000.0)
         assert session.query(TraderTrade).count() == 1
 
     second_pass = asyncio.run(service.handle_swap_submitted(original_swap_id))
@@ -142,6 +159,91 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
     with get_session() as session:
         assert session.query(CopyTrade).count() == 1
         assert session.query(TraderTrade).count() == 1
+
+
+def test_auto_copy_rechecks_fresh_usd_notional_against_copy_cap(sqlite_db, monkeypatch):
+    service = CopyService()
+    price_calls = 0
+    execute_calls = 0
+
+    async def pro_tier(_user_id):
+        return SubscriptionTier.PRO
+
+    async def rising_usd_value(_token_symbol, amount):
+        nonlocal price_calls
+        price_calls += 1
+        # Size the intended $100 copy at $100/token, then simulate a fast move
+        # to $200/token by the time the exact quoted input is checked.
+        unit_price = 100.0 if price_calls == 1 else 200.0
+        return amount * unit_price
+
+    monkeypatch.setattr("bot.services.x402_service.x402_service.get_tier", pro_tier)
+    monkeypatch.setattr(
+        "bot.services.copy_service.spending_limit_service.usd_value", rising_usd_value
+    )
+
+    class FastMarketSwapEngine:
+        async def get_quote(self, **kwargs):
+            return SimpleNamespace(**kwargs, from_amount_human=kwargs["amount"])
+
+        async def execute_swap(self, **_kwargs):
+            nonlocal execute_calls
+            execute_calls += 1
+            raise AssertionError("execution must not start above the copy USD cap")
+
+    monkeypatch.setattr("bot.services.swap_engine.SwapEngine", FastMarketSwapEngine)
+
+    with get_session() as session:
+        session.add_all(
+            [
+                User(id=1, username="leader"),
+                User(id=2, username="copier"),
+                TraderProfile(user_id=1, is_public=True, display_name="Leader"),
+                Wallet(
+                    user_id=2,
+                    address="0xcopy",
+                    chain_type="evm",
+                    encrypted_private_key="encrypted",
+                    is_active=True,
+                    is_default=True,
+                ),
+            ]
+        )
+        session.flush()
+        session.add(
+            CopyFollow(
+                follower_id=2,
+                trader_id=1,
+                copy_mode="auto",
+                copy_type="fixed",
+                copy_amount_usd=100,
+                max_trade_usd=100,
+                daily_limit_usd=1000,
+            )
+        )
+        swap = SwapTransaction(
+            user_id=1,
+            from_chain="ethereum",
+            from_token="ETH",
+            from_amount=str(10**18),
+            from_amount_usd=100,
+            to_chain="ethereum",
+            to_token="USDC",
+            to_amount="100000000",
+            status=SwapStatus.SUBMITTED.value,
+        )
+        session.add(swap)
+        session.flush()
+        swap_id = swap.id
+
+    processed = asyncio.run(service.handle_swap_submitted(swap_id))
+
+    assert processed[0]["status"] == "failed"
+    assert execute_calls == 0
+    with get_session() as session:
+        copy_trade = session.query(CopyTrade).one()
+        assert copy_trade.status == "failed"
+        assert "per-trade limit" in (copy_trade.failure_reason or "")
 
 
 def test_auto_copy_fails_closed_when_subscription_is_no_longer_pro(sqlite_db, monkeypatch):
@@ -217,7 +319,7 @@ def test_auto_copy_rechecks_follow_mode_after_quote_before_execution(sqlite_db, 
             with get_session() as session:
                 follow = session.query(CopyFollow).one()
                 follow.copy_mode = "notify"
-            return SimpleNamespace(**kwargs)
+            return SimpleNamespace(**kwargs, from_amount_human=kwargs["amount"])
 
         async def execute_swap(self, **_kwargs):
             nonlocal executed
@@ -290,7 +392,7 @@ def test_auto_copy_rechecks_destination_chain_filter_after_quote(sqlite_db, monk
             with get_session() as session:
                 follow = session.query(CopyFollow).one()
                 follow.chains_filter = "ethereum"
-            return SimpleNamespace(**kwargs)
+            return SimpleNamespace(**kwargs, from_amount_human=kwargs["amount"])
 
         async def execute_swap(self, **_kwargs):
             nonlocal executed
@@ -543,7 +645,7 @@ def test_ambiguous_execution_keeps_daily_budget_reserved(sqlite_db, monkeypatch)
 
     class AmbiguousSwapEngine:
         async def get_quote(self, **kwargs):
-            return SimpleNamespace(**kwargs)
+            return SimpleNamespace(**kwargs, from_amount_human=kwargs["amount"])
 
         async def execute_swap(self, **_kwargs):
             nonlocal execute_calls

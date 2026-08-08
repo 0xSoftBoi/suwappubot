@@ -172,6 +172,10 @@ def test_public_trader_profile_exposes_recent_activity_without_follow_state(tmp_
         "token": "SOL",
         "tokenPair": "USDC/SOL",
         "chain": "solana",
+        "fromToken": "USDC",
+        "toToken": "SOL",
+        "fromChain": "solana",
+        "toChain": "solana",
         "amountUsd": 250.0,
         "pnlUsd": 75.0,
         "timestamp": profile["recentTrades"][0]["timestamp"],
@@ -193,6 +197,93 @@ def test_public_trader_feed_connects_activity_to_jelly_identity(tmp_path):
     assert item["jellyLinked"] is True
     assert item["token"] == "SOL"
     assert item["action"] == "buy"
+
+
+def test_native_asset_funded_memecoin_trade_is_a_buy(tmp_path):
+    assert init_db(f"sqlite:///{tmp_path / 'copy-native-buy.db'}")
+    now = datetime.utcnow()
+    with get_session() as session:
+        session.add_all(
+            [
+                User(id=41, username="pumptrader"),
+                TraderProfile(
+                    id=41,
+                    user_id=41,
+                    is_public=True,
+                    display_name="Pump Trader",
+                ),
+                TraderTrade(
+                    trader_id=41,
+                    swap_id=4101,
+                    from_token="SOL",
+                    to_token="MEME",
+                    from_chain="solana",
+                    to_chain="solana",
+                    amount_usd=500.0,
+                    pnl_usd=0.0,
+                    created_at=now,
+                ),
+            ]
+        )
+
+    response = _client().get("/webapp/copy-trading/feed")
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert item["action"] == "buy"
+    assert item["token"] == "MEME"
+    assert item["tokenPair"] == "SOL/MEME"
+    assert item["fromToken"] == "SOL"
+    assert item["toToken"] == "MEME"
+
+
+def test_windowed_leaderboard_ranks_full_public_population(tmp_path):
+    assert init_db(f"sqlite:///{tmp_path / 'copy-window-rank.db'}")
+    now = datetime.utcnow()
+    with get_session() as session:
+        # Fill the old all-time top-100 candidate pool with established traders.
+        for user_id in range(1, 102):
+            session.add(User(id=user_id, username=f"legacy{user_id}"))
+            session.add(
+                TraderProfile(
+                    id=user_id,
+                    user_id=user_id,
+                    is_public=True,
+                    display_name=f"Legacy {user_id}",
+                    rank_score=float(1000 - user_id),
+                )
+            )
+
+        breakout_user_id = 202
+        breakout_profile_id = 202
+        session.add(User(id=breakout_user_id, username="breakout"))
+        session.add(
+            TraderProfile(
+                id=breakout_profile_id,
+                user_id=breakout_user_id,
+                is_public=True,
+                display_name="Breakout",
+                rank_score=-1.0,
+            )
+        )
+        session.add(
+            TraderTrade(
+                trader_id=breakout_user_id,
+                swap_id=20201,
+                from_token="USDC",
+                to_token="SOL",
+                from_chain="solana",
+                to_chain="solana",
+                amount_usd=1000.0,
+                pnl_usd=900.0,
+                created_at=now,
+            )
+        )
+
+    response = _client().get("/webapp/copy-trading/top-traders?timeframe=7d&limit=1")
+
+    assert response.status_code == 200
+    assert [trader["id"] for trader in response.json()] == [str(breakout_profile_id)]
 
 
 def test_private_trader_profile_stays_private(tmp_path):

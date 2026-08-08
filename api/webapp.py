@@ -1305,7 +1305,33 @@ def _trader_track_record_days_by_user(db: Session, user_ids: List[int]) -> Dict[
 
 def _public_trader_trade(trade) -> Dict[str, Any]:
     stablecoins = {"USDC", "USDT", "DAI", "USDS", "USDG"}
-    is_buy = trade.from_token.upper() in stablecoins
+    funding_assets = {
+        "ETH",
+        "WETH",
+        "SOL",
+        "WSOL",
+        "BNB",
+        "POL",
+        "MATIC",
+        "AVAX",
+        "TRX",
+        "BTC",
+        "WBTC",
+    }
+    from_symbol = trade.from_token.upper()
+    to_symbol = trade.to_token.upper()
+    # Stable/native assets are common funding legs for on-chain buys. In
+    # particular, pump-style Solana trades are SOL -> MEME, not USDC -> MEME;
+    # treating every non-stable source as a sell hid the token the trader was
+    # actually buying. Prefer stablecoin direction first, then native funding.
+    if from_symbol in stablecoins and to_symbol not in stablecoins:
+        is_buy = True
+    elif to_symbol in stablecoins and from_symbol not in stablecoins:
+        is_buy = False
+    elif from_symbol in funding_assets and to_symbol not in funding_assets:
+        is_buy = True
+    else:
+        is_buy = False
     token = trade.to_token if is_buy else trade.from_token
     chain = trade.to_chain if is_buy else trade.from_chain
     return {
@@ -1314,6 +1340,10 @@ def _public_trader_trade(trade) -> Dict[str, Any]:
         "token": token,
         "tokenPair": f"{trade.from_token}/{trade.to_token}",
         "chain": chain,
+        "fromToken": trade.from_token,
+        "toToken": trade.to_token,
+        "fromChain": trade.from_chain,
+        "toChain": trade.to_chain,
         "amountUsd": float(trade.amount_usd or 0),
         "pnlUsd": float(trade.pnl_usd or 0),
         "timestamp": trade.created_at.isoformat() if trade.created_at else "",
@@ -2303,13 +2333,14 @@ async def get_terminal_top_traders(
     This is intentionally read-only and does not require a session.  Following,
     copy settings, and copy history remain behind authenticated routes below.
     """
-    from sqlalchemy import or_
+    from sqlalchemy import func, or_
 
-    from bot.models.copy_trading import TraderProfile
+    from bot.models.copy_trading import TraderProfile, TraderTrade
     from bot.models.social import JellyAccountClaim
 
-    # Pull a generous pool by all-time rank, then (if a timeframe is selected) re-rank
-    # by real windowed PnL so the 7d/30d toggle actually changes the order.
+    # Rank the full public population in SQL. Re-ranking an all-time top-N pool
+    # would permanently hide a breakout 7d/30d trader who sat outside that
+    # cohort before the selected window.
     profile_query = (
         db.query(TraderProfile, User)
         .join(User, TraderProfile.user_id == User.id)
@@ -2343,26 +2374,39 @@ async def get_terminal_top_traders(
             )
         )
 
-    profiles = (
-        profile_query.order_by(
+    tf = (timeframe or "").lower()
+    if tf in ("7d", "30d"):
+        window_start = datetime.utcnow() - timedelta(days=7 if tf == "7d" else 30)
+        window_pnl = (
+            db.query(
+                TraderTrade.trader_id.label("trader_id"),
+                func.sum(TraderTrade.pnl_usd).label("window_pnl"),
+            )
+            .filter(TraderTrade.created_at >= window_start)
+            .group_by(TraderTrade.trader_id)
+            .subquery()
+        )
+        profile_query = profile_query.outerjoin(
+            window_pnl, window_pnl.c.trader_id == TraderProfile.user_id
+        ).order_by(
+            func.coalesce(window_pnl.c.window_pnl, 0.0).desc(),
             TraderProfile.rank_score.desc(),
             TraderProfile.total_pnl_usd.desc(),
             TraderProfile.total_trades.desc(),
         )
-        .limit(max(limit, 100))
-        .all()
-    )
+    else:
+        profile_query = profile_query.order_by(
+            TraderProfile.rank_score.desc(),
+            TraderProfile.total_pnl_usd.desc(),
+            TraderProfile.total_trades.desc(),
+        )
+
+    profiles = profile_query.limit(limit).all()
 
     pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
     jelly_claims = _jelly_claims_by_user(db, [p.user_id for p, _u in profiles])
     trader_addresses = _trader_addresses_by_user(db, [p.user_id for p, _u in profiles])
     track_record_days = _trader_track_record_days_by_user(db, [p.user_id for p, _u in profiles])
-
-    tf = (timeframe or "").lower()
-    if tf in ("7d", "30d"):
-        idx = 0 if tf == "7d" else 1
-        profiles.sort(key=lambda pu: pnl_windows.get(pu[0].user_id, (0.0, 0.0))[idx], reverse=True)
-    profiles = profiles[:limit]
 
     return [
         {

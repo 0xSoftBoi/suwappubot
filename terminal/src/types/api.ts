@@ -611,6 +611,10 @@ export interface TraderActivity {
   token: string
   tokenPair: string
   chain: string
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
   amountUsd: number
   pnlUsd: number
   timestamp: string

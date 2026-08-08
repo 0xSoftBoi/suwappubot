@@ -37,9 +37,13 @@ test.describe('Copy Trading Dashboard', () => {
             traderAddress: '0x1111111111111111111111111111111111111111',
             winRate: 64.2,
             action: 'buy',
-            token: 'SOL',
-            tokenPair: 'USDC/SOL',
+            token: 'MEME',
+            tokenPair: 'SOL/MEME',
             chain: 'solana',
+            fromToken: 'SOL',
+            toToken: 'MEME',
+            fromChain: 'solana',
+            toChain: 'solana',
             amountUsd: 250,
             pnlUsd: 75,
             timestamp: new Date().toISOString(),
@@ -54,15 +58,27 @@ test.describe('Copy Trading Dashboard', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            symbol: 'SOL',
-            name: 'Solana',
-            address: 'So11111111111111111111111111111111111111112',
-            chain: 'solana',
-            decimals: 9,
-          },
-        ]),
+        body: JSON.stringify(
+          route.request().url().includes('q=MEME')
+            ? [
+                {
+                  symbol: 'MEME',
+                  name: 'Meme Token',
+                  address: 'Meme111111111111111111111111111111111111111',
+                  chain: 'solana',
+                  decimals: 6,
+                },
+              ]
+            : [
+                {
+                  symbol: 'SOL',
+                  name: 'Solana',
+                  address: 'So11111111111111111111111111111111111111112',
+                  chain: 'solana',
+                  decimals: 9,
+                },
+              ],
+        ),
       }),
     )
     await page.goto('/')
@@ -118,8 +134,8 @@ test.describe('Copy Trading Dashboard', () => {
     await expect(page.getByText('Live public trades')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Real Trader' })).toBeVisible()
     await expect(page.getByRole('link', { name: /Jelly-linked @realtrader/i })).toBeVisible()
-    await page.getByRole('button', { name: 'Trade SOL' }).click()
-    await expect(page.getByText(/SOL loaded in the trade ticket/i)).toBeVisible()
+    await page.getByRole('button', { name: 'Trade MEME' }).click()
+    await expect(page.getByText(/SOL\/MEME loaded in the trade ticket/i)).toBeVisible()
   })
 
   test('trade intent fails closed when a symbol resolves to multiple tokens', async ({ page }) => {
@@ -142,13 +158,20 @@ test.describe('Copy Trading Dashboard', () => {
             chain: 'solana',
             decimals: 9,
           },
+          {
+            symbol: 'MEME',
+            name: 'Meme Token',
+            address: 'Meme111111111111111111111111111111111111111',
+            chain: 'solana',
+            decimals: 6,
+          },
         ]),
       }),
     )
     await page.getByRole('button', { name: 'Live Feed' }).click()
-    await page.getByRole('button', { name: 'Trade SOL' }).click()
+    await page.getByRole('button', { name: 'Trade MEME' }).click()
     await expect(page.getByText(/token-address handoff is required/i)).toBeVisible()
-    await expect(page.getByText(/SOL loaded in the trade ticket/i)).not.toBeVisible()
+    await expect(page.getByText(/SOL\/MEME loaded in the trade ticket/i)).not.toBeVisible()
   })
 
   test('copy feed renders', async ({ page }) => {
