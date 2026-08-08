@@ -50,6 +50,196 @@ def _make_quote(provider="lifi", to_amount_human=1.0, seconds_old=0):
     )
 
 
+def _quote_kwargs(**overrides):
+    kwargs = {
+        "from_chain": "ethereum",
+        "to_chain": "base",
+        "from_token": "USDC",
+        "to_token": "WETH",
+        "amount": 1.0,
+        "from_address": "0x" + "a" * 40,
+        "platform_fee_bps": 80,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _singleflight_engine(fetch):
+    """Minimal engine for exercising get_quote's request coalescing only."""
+    engine = SwapEngine.__new__(SwapEngine)
+    engine._quote_flights = {}
+    engine._get_quote_impl = fetch
+    return engine
+
+
+# ---------------------------------------------------------------------------
+# get_quote — identical in-flight request coalescing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_quote_singleflight_shares_identical_inflight_work():
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+    expected = _make_quote()
+
+    async def _fetch(**kwargs):
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return expected
+
+    engine = _singleflight_engine(_fetch)
+    first = asyncio.create_task(engine.get_quote(**_quote_kwargs()))
+    await started.wait()
+    second = asyncio.create_task(engine.get_quote(**_quote_kwargs()))
+    await asyncio.sleep(0)
+
+    assert calls == 1
+    release.set()
+    assert await first is expected
+    assert await second is expected
+    assert engine._quote_flights == {}
+
+
+@pytest.mark.asyncio
+async def test_get_quote_singleflight_keeps_recipient_and_fee_requests_distinct():
+    release = asyncio.Event()
+    calls = 0
+
+    async def _fetch(**kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        return _make_quote()
+
+    engine = _singleflight_engine(_fetch)
+    calls_in_flight = [
+        asyncio.create_task(engine.get_quote(**_quote_kwargs())),
+        asyncio.create_task(engine.get_quote(**_quote_kwargs(to_address="0x" + "b" * 40))),
+        asyncio.create_task(engine.get_quote(**_quote_kwargs(platform_fee_bps=40))),
+    ]
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert calls == 3
+    release.set()
+    await asyncio.gather(*calls_in_flight)
+    assert engine._quote_flights == {}
+
+
+@pytest.mark.asyncio
+async def test_get_quote_singleflight_cleans_up_after_shared_exception():
+    calls = 0
+
+    async def _fetch(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(0)
+            raise SwapError("provider failed")
+        return _make_quote()
+
+    engine = _singleflight_engine(_fetch)
+    results = await asyncio.gather(
+        engine.get_quote(**_quote_kwargs()),
+        engine.get_quote(**_quote_kwargs()),
+        return_exceptions=True,
+    )
+
+    assert calls == 1
+    assert all(isinstance(result, SwapError) for result in results)
+    assert engine._quote_flights == {}
+
+    retry = await engine.get_quote(**_quote_kwargs())
+    assert retry.provider == "lifi"
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_get_quote_singleflight_cancellation_does_not_cancel_other_waiter():
+    started = asyncio.Event()
+    release = asyncio.Event()
+    underlying_cancelled = asyncio.Event()
+    calls = 0
+
+    async def _fetch(**kwargs):
+        nonlocal calls
+        calls += 1
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            underlying_cancelled.set()
+            raise
+        return _make_quote()
+
+    engine = _singleflight_engine(_fetch)
+    first = asyncio.create_task(engine.get_quote(**_quote_kwargs()))
+    await started.wait()
+    second = asyncio.create_task(engine.get_quote(**_quote_kwargs()))
+    await asyncio.sleep(0)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert calls == 1
+    assert not underlying_cancelled.is_set()
+
+    release.set()
+    assert (await second).provider == "lifi"
+    assert engine._quote_flights == {}
+
+
+@pytest.mark.asyncio
+async def test_get_quote_singleflight_last_waiter_cancellation_cleans_up_task():
+    started = asyncio.Event()
+    underlying_cancelled = asyncio.Event()
+
+    async def _fetch(**kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            underlying_cancelled.set()
+            raise
+
+    engine = _singleflight_engine(_fetch)
+    waiter = asyncio.create_task(engine.get_quote(**_quote_kwargs()))
+    await started.wait()
+    waiter.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert underlying_cancelled.is_set()
+    assert engine._quote_flights == {}
+
+
+@pytest.mark.asyncio
+async def test_get_quote_cache_key_separates_recipient(monkeypatch):
+    """Recipient-bound calldata must never be reused across destinations."""
+    seen_keys = []
+
+    async def _capture_cache_key(key):
+        seen_keys.append(key)
+        raise RuntimeError("cache-key-captured")
+
+    monkeypatch.setattr("bot.services.swap_engine.quote_cache.get", _capture_cache_key)
+    engine = SwapEngine()
+    recipients = ["0x" + "b" * 40, "0x" + "c" * 40]
+
+    for recipient in recipients:
+        with pytest.raises(RuntimeError, match="cache-key-captured"):
+            await engine._get_quote_impl(**_quote_kwargs(to_address=recipient))
+
+    assert len(seen_keys) == 2
+    assert seen_keys[0] != seen_keys[1]
+    assert f":to{recipients[0]}:" in seen_keys[0]
+    assert f":to{recipients[1]}:" in seen_keys[1]
+
+
 # ---------------------------------------------------------------------------
 # get_quote — all providers fail
 # ---------------------------------------------------------------------------
