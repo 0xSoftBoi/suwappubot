@@ -752,14 +752,19 @@ function SendView({
                 : `Sent ${amount} ${selectedToken.symbol} to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`}
             </p>
             <p className="font-mono text-xs text-suwappu-text break-all mb-4 px-2">{txHash}</p>
-            <a
-              href={getExplorerTxUrl(explorerKey, txHash)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block px-6 py-2.5 bg-suwappu-gradient text-white font-heading font-semibold text-sm rounded-suwappu-pill shadow-suwappu-button"
-            >
-              View on Explorer
-            </a>
+            {(() => {
+              const explorerHref = getExplorerTxUrl(explorerKey, txHash)
+              return explorerHref ? (
+                <a
+                  href={explorerHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block px-6 py-2.5 bg-suwappu-gradient text-white font-heading font-semibold text-sm rounded-suwappu-pill shadow-suwappu-button"
+                >
+                  View on Explorer
+                </a>
+              ) : null
+            })()}
           </div>
           {uncertain && (
             <div className="bg-suwappu-warning/10 border border-suwappu-warning/20 rounded-suwappu-lg p-3">
