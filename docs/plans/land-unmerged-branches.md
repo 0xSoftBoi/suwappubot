@@ -97,7 +97,17 @@ branch + applied diff.)
 - **Conflicted, re-landing via fresh branches:** #742, #794.
 - **Phase 3 PRs opened (8):** #808 points double-spend [MONEY-PATH], #809 credit float-precision [MONEY-PATH], #810 bun test isolation, #811 perps agent auth, #812 native MPC, #813 CI trust, #814 builder contract, #815 webapp public-entry tests. 6 of the original 13 orphans were confirmed already in main and dropped.
 - **#760: money-path review BLOCK** — 9 findings posted to the PR (critical: cross-provider bridges falsely marked COMPLETED; high: recipient substitution, 100% fee clamp, fee-bypass race). Fix queued.
-- **Constraint:** remote branch deletion 403's in this environment — Phase 5 deletion needs an unrestricted machine or GitHub auto-delete on merge.
+- **Constraint:** remote branch deletion 403's in this environment (branch *creation* pushes work) — Phase 5 deletion needs an unrestricted machine or GitHub auto-delete on merge.
+
+### Round 2 (same day)
+
+- **Merged:** #810, #811, #815 (orphan land), #812 (native MPC — approved as inert scaffolding, pre-wiring gates posted), #774 (responsiveness — money-path APPROVE, 4 follow-ups posted), #802 (showcase enterprise, reviewer MERGE).
+- **Closed:** #808/#809 (review proved both byte-identical to main — earlier "divergent" triage was wrong), #814 (zero-diff after conflict resolution — fully in main), #647 (ported as #817), #699/#701/#702 (superseded by #816).
+- **Opened:** #816 TS 7.0.2 (api-ts/sdk/openclaw; showcase blocked by Next.js/TS7 upstream — #703 commented+left open; turnkey #698 held for its own money-path PR), #817 Polymarket CLOB V2 port [MONEY-PATH, review in flight].
+- **Fixed on their branches:** #813 (env-schema drift regenerated, CI rerunning), #797 (utcnow→timezone-aware, verified byte-exact push).
+- **#760:** BLOCK verdict posted (critical: cross-provider bridge status falsely COMPLETED; recipient substitution; fee clamp/bypass). Fix queued.
+- **New bugs found in main during review (queued):** PointsService concurrency — double daily check-in credit, double first-swap bonus, double level-up bonus.
+- **Ports in flight:** 648 compliance-spine (pushing), 642 stablecoin-phase0, 616 MCP policy gate. Remaining: 643 (after #817 merges), 641, 639/640, 753, audit 644/646.
 
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
