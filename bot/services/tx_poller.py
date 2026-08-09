@@ -474,6 +474,7 @@ class TransactionPoller:
         # (status 0x1) origin receipt. Track it so a later timeout FAILED
         # can be told apart from a genuine origin-tx revert.
         origin_receipt_mined = False
+        receipt_read_definite = True
         if chain and chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
             receipt_status = await self._check_evm_tx(
@@ -482,6 +483,10 @@ class TransactionPoller:
             if receipt_status == SwapStatus.FAILED.value:
                 return SwapStatus.FAILED.value, None
             origin_receipt_mined = receipt_status == SwapStatus.CONFIRMING.value
+            # None means the RPC read itself failed -- we have no evidence
+            # either way, and the timeout verdict below picks the user-facing
+            # copy ("retry" vs "funds in transit") off this answer.
+            receipt_read_definite = receipt_status is not None
 
         started_at = tx_dict.get("created_at")
         if started_at is not None:
@@ -497,6 +502,13 @@ class TransactionPoller:
 
         elapsed = datetime.now(timezone.utc) - started_at
         if elapsed >= self.ZEROX_UNRESOLVED_FAIL_AFTER:
+            if not receipt_read_definite:
+                # The receipt read failed on the very poll that would go
+                # terminal. A FAILED verdict here would carry the "retry"
+                # copy even though the origin leg may have mined -- the
+                # double-send this path exists to prevent. Wait for a poll
+                # with a definite receipt answer.
+                return SwapStatus.CONFIRMING.value, None
             logger.warning(
                 f"0x Cross-Chain tx {tx_dict.get('id')} unresolved for {elapsed} "
                 f"(bound {self.ZEROX_UNRESOLVED_FAIL_AFTER}); marking FAILED."
@@ -798,7 +810,7 @@ class TransactionPoller:
                         f"⚠️ *Swap Not Confirmed*\n\n"
                         f"Your swap of {tx_dict['from_token']} → {tx_dict['to_token']} "
                         f"could not be confirmed.\n\n"
-                        f"The bridge has not confirmed settlement after 2 hours. "
+                        f"The bridge has not yet confirmed settlement. "
                         f"Your funds are in transit with the bridge — do NOT retry "
                         f"this swap. Support has been flagged."
                     )

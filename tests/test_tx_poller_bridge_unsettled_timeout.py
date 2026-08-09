@@ -147,7 +147,7 @@ def _run_notify(error_message):
 def test_notify_bridge_unsettled_timeout_omits_retry_and_flags_no_retry():
     sent = _run_notify(TransactionPoller.BRIDGE_UNSETTLED_TIMEOUT_REASON)
     text = sent["text"]
-    assert "has not confirmed settlement after 2 hours" in text
+    assert "has not yet confirmed settlement" in text
     assert "do NOT retry this swap" in text
     assert "Support has been flagged" in text
 
