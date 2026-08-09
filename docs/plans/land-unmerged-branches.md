@@ -146,6 +146,18 @@ branch + applied diff.)
 - **#823**: round-3 APPROVE; two mechanical follow-ups being applied pre-merge (withdraw-discriminant pool-id preference + drizzle migration for the varchar widening) — then merge, closing #641 with the KMS-gap pointer.
 - **Phase 4 tail**: assessing #643 (likely superseded by #817+#820), #644/#646 (TP/SL audit), #639/#640 (optional terminal intel).
 
+## Final summary (2026-08-09, end of session)
+
+**27+ PRs merged** into main in one day: 7 deps/docs (#693 #700 #704 #775 #778 #796 #766), 6 fresh code (#802 #774 #812 #797 #813 #818), 5 orphan landings (#810 #811 #815 #816 #819), 7 ports across the Aug-3 history restart (#817 Polymarket CLOB V2, #820 compliance spine, #821 MPP gate, #822 chain coverage, #823 rug auto-sell + redemption idempotency, #825 TP/SL close-cancel, plus re-lands), 2 recreated micro-fixes (#826 #827), and #824 (PointsService races found *during* this session's reviews). **#760** (0x Robinhood cross-chain) passed 4 money-path review rounds; merging on green after a final main-sync.
+
+**~30 PRs closed with evidence** (byte-identical to main, superseded by redesigns, stale WIP), each with a pointer comment. **#725 kept open** (verified-missing service hardening; needs re-port). **#698/#703 kept open** blocked upstream (turnkey 7 needs its own review; Next.js vs TS7).
+
+**Every money-path merge went through adversarial Opus review** — the gate blocked first-pass merges on ALL FIVE money-path PRs and caught, among others: a signature format that would have rejected every Polymarket order in prod, a tick-rounding path that could sign away positions for zero, an OFAC loader silently dropping the TRON addresses it claimed to screen, a rug auto-sell that was a no-op on Postgres, a migration pattern that would have hung boot on the hottest table, and a prod-only migration crash that dev could never see.
+
+**Follow-ups tracked:** KMS-off-event-loop port (#641 remainder), terminal intel tiers (#639/#640, kept open), #725 re-port, pre-wiring gates on the MPC crate (#812 comments), season-accrual idempotency before wiring awardSwapPoints (#824 comments).
+
+**Phase 5:** `scripts/cleanup-dead-branches.sh` (committed) archive-tags + deletes 209 dead branches (7 merged, 167 pre-rewrite relics, 35 junk). Run it from an unrestricted clone — this CI sandbox 403s ref deletion.
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
