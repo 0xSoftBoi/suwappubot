@@ -298,8 +298,10 @@ class CopyFlow(BaseWhatsAppFlow):
                 copier_id=db_uid,
                 copy_trade_id=int(copy_trade_id),
             )
-            if success:
+            if success is True:
                 return FlowResponse(f"*Trade Copied!*\n\n" f"{message}\n\n" f"Swap ID: #{swap_id}")
+            if success is None:
+                return FlowResponse(f"*Copy outcome unknown*\n\n{message}")
             return FlowResponse(f"Copy failed: {message}")
         except Exception as exc:
             logger.error(f"execute_copy failed for user {db_uid} trade {copy_trade_id}: {exc}")

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTopTraders } from '../../hooks/useCopyTrading'
 import type { TopTrader } from '../../types/api'
 
@@ -8,12 +8,13 @@ function truncateAddress(addr: string): string {
 }
 
 function formatPnl(value: number): string {
-  const prefix = value >= 0 ? '+' : ''
+  const prefix = value >= 0 ? '+' : '-'
   return `${prefix}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 type SortKey = 'pnl7d' | 'pnl30d' | 'winRate' | 'followers'
 type SortDir = 'asc' | 'desc'
+type Timeframe = '7d' | '30d'
 
 const PAGE_SIZE = 10
 
@@ -25,9 +26,32 @@ interface TraderLeaderboardProps {
 export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboardProps) {
   const [sortKey, setSortKey] = useState<SortKey>('pnl7d')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [timeframe, setTimeframe] = useState<Timeframe>('7d')
+  const [jellyOnly, setJellyOnly] = useState(false)
   const [search, setSearch] = useState('')
+  const [serverSearch, setServerSearch] = useState('')
   const [page, setPage] = useState(1)
-  const { data: traders, isLoading } = useTopTraders('7d', 50)
+  const { data: traders, isLoading, isError, refetch } = useTopTraders(
+    timeframe,
+    50,
+    serverSearch || undefined,
+  )
+
+  useEffect(() => {
+    const trimmed = search.trim()
+    const timer = window.setTimeout(
+      () => setServerSearch(trimmed.length >= 2 || trimmed.startsWith('0x') ? trimmed : ''),
+      200,
+    )
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  const handleTimeframe = (next: Timeframe) => {
+    setTimeframe(next)
+    setSortKey(next === '7d' ? 'pnl7d' : 'pnl30d')
+    setSortDir('desc')
+    setPage(1)
+  }
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -49,13 +73,15 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
       const term = search.toLowerCase()
       list = list.filter(t =>
         t.address.toLowerCase().includes(term) ||
-        (t.name && t.name.toLowerCase().includes(term))
+        (t.name && t.name.toLowerCase().includes(term)) ||
+        (t.jellyUsername && t.jellyUsername.toLowerCase().includes(term))
       )
     }
+    if (jellyOnly) list = list.filter(t => t.jellyLinked)
     const mul = sortDir === 'desc' ? -1 : 1
     list.sort((a, b) => mul * (a[sortKey] - b[sortKey]))
     return list
-  }, [traders, search, sortKey, sortDir])
+  }, [traders, search, jellyOnly, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -69,14 +95,41 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Search */}
-      <div className="px-3 pt-3">
-        <input
-          placeholder="Search by address or name..."
-          className="terminal-input text-xs w-full"
-          value={search}
-          onChange={e => handleSearchChange(e.target.value)}
-        />
+      <div className="px-3 pt-3 space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            placeholder="Search trader, handle, or wallet..."
+            className="terminal-input text-xs w-full sm:flex-1"
+            value={search}
+            onChange={e => handleSearchChange(e.target.value)}
+          />
+          <div className="flex items-center gap-1 shrink-0">
+            {(['7d', '30d'] as const).map(period => (
+              <button
+                key={period}
+                type="button"
+                onClick={() => handleTimeframe(period)}
+                className={`terminal-button-secondary px-2.5 py-1.5 text-[10px] ${
+                  timeframe === period ? 'border-sakura-500 text-sakura-400' : ''
+                }`}
+              >
+                {period.toUpperCase()}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => { setJellyOnly(value => !value); setPage(1) }}
+              className={`terminal-button-secondary px-2.5 py-1.5 text-[10px] ${
+                jellyOnly ? 'border-sakura-500 text-sakura-400' : ''
+              }`}
+            >
+              Jelly-linked
+            </button>
+          </div>
+        </div>
+        <p className="text-[10px] text-terminal-text-muted">
+          Public performance comes from Suwappu trades. Jelly-linked means the trader proved control of that Jelly account with a wallet-backed session.
+        </p>
       </div>
 
       <div className="overflow-auto">
@@ -124,7 +177,11 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
             {!isLoading && !pageItems.length && (
               <tr>
                 <td colSpan={8} className="text-center text-terminal-text-muted text-sm py-12">
-                  No traders found
+                  {isError ? (
+                    <button type="button" onClick={() => void refetch()} className="text-sakura-400 hover:text-sakura-300">
+                      Trader feed unavailable — retry
+                    </button>
+                  ) : 'No traders found'}
                 </td>
               </tr>
             )}
@@ -143,6 +200,25 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                     <span className="font-mono tnum text-xs text-terminal-text">
                       {trader.name || truncateAddress(trader.address)}
                     </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-8 text-[10px] text-terminal-text-muted">
+                    {trader.jellyLinked && trader.jellyWatchUrl && trader.jellyUsername && (
+                      <>
+                        <a
+                          href={trader.jellyWatchUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Jelly-linked @${trader.jellyUsername}`}
+                          onClick={e => e.stopPropagation()}
+                          className="rounded border border-sakura-500/30 bg-sakura-500/10 px-1.5 py-0.5 text-sakura-400 hover:text-sakura-300"
+                        >
+                          Jelly-linked
+                        </a>
+                        <span className="text-terminal-text-secondary">@{trader.jellyUsername}</span>
+                      </>
+                    )}
+                    <span>{trader.trackRecordDays ?? 0}d track record</span>
+                    <span>{trader.totalTrades.toLocaleString()} trades</span>
                   </div>
                 </td>
                 <td className={`py-2.5 px-3 text-right font-mono tnum text-xs ${trader.pnl7d >= 0 ? 'text-bull' : 'text-bear'}`}>
@@ -173,7 +249,7 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                     onClick={e => { e.stopPropagation(); onFollow(trader.id) }}
                     className="px-3 py-1 rounded text-xs font-semibold bg-sakura-600 hover:bg-sakura-700 text-terminal-on-accent transition-colors"
                   >
-                    Follow
+                    Follow / Copy
                   </button>
                 </td>
               </tr>
