@@ -89,6 +89,16 @@ branch + applied diff.)
     `agent/docs-*` / `codex/docs-*` branches without PRs — that's 18 of
     the 41 orphans.
 
+## Execution log (2026-08-09)
+
+- **Merged (7):** #693, #700, #704, #775, #778, #796 (deps/docs), #766 (un-drafted, PQ docs).
+- **Closed superseded (3):** #531, #692, #705.
+- **RED deps needing fixes (5):** #698, #699 (TS quality), #701, #702 (SDK contract), #703 (showcase build) — TS 7.0.2 / turnkey 7 breakage.
+- **Conflicted, re-landing via fresh branches:** #742, #794.
+- **Phase 3 PRs opened (8):** #808 points double-spend [MONEY-PATH], #809 credit float-precision [MONEY-PATH], #810 bun test isolation, #811 perps agent auth, #812 native MPC, #813 CI trust, #814 builder contract, #815 webapp public-entry tests. 6 of the original 13 orphans were confirmed already in main and dropped.
+- **#760: money-path review BLOCK** — 9 findings posted to the PR (critical: cross-provider bridges falsely marked COMPLETED; high: recipient substitution, 100% fee clamp, fee-bypass race). Fix queued.
+- **Constraint:** remote branch deletion 403's in this environment — Phase 5 deletion needs an unrestricted machine or GitHub auto-delete on merge.
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
