@@ -2074,6 +2074,7 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
         hot_wallet_service,
         WithdrawalsPausedError,
         PostBroadcastAmbiguous,
+        ComplianceBlockedError,
         quantize_to_decimals,
     )
     from bot.models.custodial import TransactionType
@@ -2208,6 +2209,20 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
         )
         hot_wallet_service.release_claimed_transaction(claimed_tx_id)
         raise HTTPException(status_code=503, detail=str(exc))
+    except ComplianceBlockedError as exc:
+        # Sanctions screening happens before any node call — safe to fully
+        # undo. Surface a clear 403 instead of the generic 502 the catch-all
+        # below returns, so the caller (and the user) know this is a
+        # compliance block, not a transient on-chain/RPC failure.
+        logger.warning("terminal withdraw blocked by compliance for user %s: %s", uid, exc)
+        hot_wallet_service.update_custodial_balance(
+            user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="add"
+        )
+        hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+        raise HTTPException(
+            status_code=403,
+            detail="This withdrawal cannot be completed due to compliance restrictions.",
+        )
     except Exception:
         # Anything else here (RPC URL missing, gas estimate failure, nonce
         # fetch, signing) happens strictly BEFORE the broadcast call — the

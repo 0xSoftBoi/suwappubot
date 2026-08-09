@@ -160,6 +160,16 @@ async def p2p_escrow_executor(
         if not token_address:
             raise EscrowConfigError(f"{token} is not configured on {chain}")
         decimals = get_token_decimals(token, chain)
+        # TODO(compliance): escrow refund leg needs defined unwind on block.
+        # send_token screens ``to_address`` via
+        # HotWalletService._assert_recipient_compliant and raises
+        # ComplianceBlockedError on a hit. For "release" that's a clean
+        # failure (the trade just doesn't pay out). For "refund" the funds
+        # are already locked in escrow with no defined unwind path back to
+        # the seller if the refund recipient itself is blocked — the P2P
+        # trade state machine has no handling for that today. No behavior
+        # change here; flagging so the unwind gets designed before it's hit
+        # in practice.
         return await hot_wallet_service.send_token(
             escrow,
             chain,
