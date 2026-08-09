@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import and_, or_
 
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.config.chains import get_chain_by_name, ChainType
@@ -104,16 +105,25 @@ class TransactionPoller:
             pending_txs = (
                 session.query(SwapTransaction)
                 .filter(
-                    SwapTransaction.status.in_(
-                        [
-                            SwapStatus.SUBMITTED.value,
-                            SwapStatus.EXECUTING.value,
-                            SwapStatus.PENDING.value,
-                            # Cross-chain routes enter CONFIRMING after the
-                            # source tx lands and must keep polling until the
-                            # destination provider reports a terminal state.
-                            SwapStatus.CONFIRMING.value,
-                        ]
+                    or_(
+                        SwapTransaction.status.in_(
+                            [
+                                SwapStatus.SUBMITTED.value,
+                                SwapStatus.EXECUTING.value,
+                                SwapStatus.PENDING.value,
+                            ]
+                        ),
+                        # CONFIRMING only has a real cross-chain status check
+                        # for the 0x Cross-Chain provider (destination fill
+                        # tracking via get_cross_chain_status). Any other
+                        # provider in CONFIRMING would fall through to the
+                        # plain EVM origin-receipt check below and get
+                        # falsely marked COMPLETED the moment the origin leg
+                        # mines, before the bridge has actually settled.
+                        and_(
+                            SwapTransaction.status == SwapStatus.CONFIRMING.value,
+                            SwapTransaction.route_provider == "0x_crosschain",
+                        ),
                     ),
                     SwapTransaction.created_at >= cutoff,
                     SwapTransaction.tx_hash.isnot(None),
@@ -279,7 +289,8 @@ class TransactionPoller:
 
         if chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
-            status = await self._check_evm_tx(tx_hash, rpc_url)
+            is_cross_chain = tx_dict["from_chain"] != tx_dict["to_chain"]
+            status = await self._check_evm_tx(tx_hash, rpc_url, is_cross_chain=is_cross_chain)
             return status, None
         elif chain.chain_type == ChainType.SOLANA:
             status = await self._check_solana_tx(tx_hash)
@@ -314,21 +325,26 @@ class TransactionPoller:
             logger.error(f"Li.Fi status check error: {e}")
             return None, None
 
+    # After this many consecutive polls where the 0x status API errors or
+    # returns an unrecognized status, give up and mark the swap FAILED
+    # rather than polling CONFIRMING forever with no path to resolution.
+    ZEROX_MAX_CONSECUTIVE_UNKNOWN = 20
+
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict
     ) -> tuple[Optional[str], Optional[str]]:
         """Check 0x Cross-Chain through destination fill, not just origin mining."""
+        origin_chain_id = ZEROX_CHAIN_IDS.get(tx_dict["from_chain"].lower())
+        destination = get_chain_by_name(tx_dict["to_chain"])
+        if not origin_chain_id or not destination:
+            return None, None
+
         try:
-            origin_chain_id = ZEROX_CHAIN_IDS.get(tx_dict["from_chain"].lower())
-            destination = get_chain_by_name(tx_dict["to_chain"])
-            if not origin_chain_id or not destination:
-                return None, None
+            route_data = json.loads(tx_dict.get("route_data") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            route_data = {}
 
-            try:
-                route_data = json.loads(tx_dict.get("route_data") or "{}")
-            except (TypeError, ValueError, json.JSONDecodeError):
-                route_data = {}
-
+        try:
             result = await asyncio.wait_for(
                 self._zerox.get_cross_chain_status(
                     origin_chain_id=origin_chain_id,
@@ -353,12 +369,103 @@ class TransactionPoller:
             if provider_status in ("origin_tx_reverted", "bridge_failed"):
                 return SwapStatus.FAILED.value, None
 
-            # origin_tx_pending / origin_tx_confirmed / bridge_pending / unknown
-            # are all non-terminal according to 0x's lifecycle contract.
-            return SwapStatus.CONFIRMING.value, None
+            if provider_status in ("origin_tx_pending", "origin_tx_confirmed", "bridge_pending"):
+                # Known non-terminal states: the provider is actively
+                # reporting progress, so reset the unknown-response counter.
+                await self._reset_zerox_unknown_count(tx_dict, route_data)
+                return SwapStatus.CONFIRMING.value, None
+
+            # provider_status missing or not one of the recognized values
+            # ("unknown" or anything new the API starts returning) — treat
+            # the same as a hard error below rather than trusting a status
+            # string we don't understand to mean "still going".
+            return await self._handle_zerox_status_unresolved(tx_dict, route_data)
         except Exception as e:
+            # A bare "keep CONFIRMING forever" here would let a persistent
+            # 0x API outage silently strand a swap in limbo indefinitely,
+            # with no way for the poller (or the user) to ever learn it
+            # actually failed on-chain. Fall back to checking the origin
+            # receipt directly, and eventually fail closed.
             logger.error(f"0x Cross-Chain status check error: {e}")
-            return None, None
+            return await self._handle_zerox_status_unresolved(tx_dict, route_data)
+
+    async def _handle_zerox_status_unresolved(
+        self, tx_dict: dict, route_data: dict
+    ) -> tuple[Optional[str], Optional[str]]:
+        """0x's status API errored or returned an unrecognized status.
+
+        Falls back to an origin-chain receipt check: a reverted origin tx is
+        a definitive FAILED regardless of what the status API says. If the
+        origin tx is fine (or not yet mined), count the consecutive
+        unresolved polls in route_data and fail the swap after too many in a
+        row instead of polling CONFIRMING forever.
+        """
+        chain = get_chain_by_name(tx_dict["from_chain"])
+        if chain and chain.chain_type == ChainType.EVM:
+            rpc_url = rpc_manager.get_rpc_url(chain.name)
+            receipt_status = await self._check_evm_tx(
+                tx_dict["tx_hash"], rpc_url, is_cross_chain=True
+            )
+            if receipt_status == SwapStatus.FAILED.value:
+                return SwapStatus.FAILED.value, None
+
+        count = await self._bump_zerox_unknown_count(tx_dict, route_data)
+        if count >= self.ZEROX_MAX_CONSECUTIVE_UNKNOWN:
+            logger.warning(
+                f"0x Cross-Chain tx {tx_dict.get('id')} exceeded "
+                f"{self.ZEROX_MAX_CONSECUTIVE_UNKNOWN} consecutive unresolved status "
+                "checks; marking FAILED."
+            )
+            return SwapStatus.FAILED.value, None
+        return SwapStatus.CONFIRMING.value, None
+
+    async def _bump_zerox_unknown_count(self, tx_dict: dict, route_data: dict) -> int:
+        """Increment and persist the consecutive-unresolved-status counter."""
+        try:
+            with get_db_session() as session:
+                tx = (
+                    session.query(SwapTransaction)
+                    .filter(SwapTransaction.id == tx_dict["id"])
+                    .first()
+                )
+                if not tx:
+                    return 0
+                try:
+                    data = json.loads(tx.route_data or "{}")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    data = dict(route_data)
+                count = int(data.get("zerox_unknown_count", 0)) + 1
+                data["zerox_unknown_count"] = count
+                tx.route_data = json.dumps(data)
+                session.commit()
+                return count
+        except Exception as e:
+            logger.error(f"Failed to persist 0x unresolved-status counter: {e}")
+            return 0
+
+    async def _reset_zerox_unknown_count(self, tx_dict: dict, route_data: dict) -> None:
+        """Clear the counter once the provider reports real progress again."""
+        if not route_data.get("zerox_unknown_count"):
+            return
+        try:
+            with get_db_session() as session:
+                tx = (
+                    session.query(SwapTransaction)
+                    .filter(SwapTransaction.id == tx_dict["id"])
+                    .first()
+                )
+                if not tx:
+                    return
+                try:
+                    data = json.loads(tx.route_data or "{}")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    data = dict(route_data)
+                if data.get("zerox_unknown_count"):
+                    data["zerox_unknown_count"] = 0
+                    tx.route_data = json.dumps(data)
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Failed to reset 0x unresolved-status counter: {e}")
 
     async def _check_tx_status(self, tx: SwapTransaction) -> Optional[str]:
         """Check transaction status on chain (legacy ORM-object interface)."""
@@ -373,8 +480,18 @@ class TransactionPoller:
         status, _ = await self._check_tx_status_dict(tx_dict)
         return status
 
-    async def _check_evm_tx(self, tx_hash: str, rpc_url: str) -> Optional[str]:
-        """Check EVM transaction status."""
+    async def _check_evm_tx(
+        self, tx_hash: str, rpc_url: str, is_cross_chain: bool = False
+    ) -> Optional[str]:
+        """Check EVM transaction status.
+
+        `is_cross_chain` guards against treating a mined *origin* receipt as
+        proof the whole route is done: a cross-chain swap is only COMPLETED
+        once the destination-chain provider confirms the fill, so this plain
+        origin-receipt check must never itself resolve to COMPLETED for a
+        cross-chain route — only report it as still confirming (or FAILED if
+        the origin leg itself reverted).
+        """
         try:
             http_session = await get_session()
 
@@ -398,6 +515,11 @@ class TransactionPoller:
 
                     status = result.get("status")
                     if status == "0x1":
+                        if is_cross_chain:
+                            # Origin leg mined but this generic check has no
+                            # visibility into destination settlement — stay
+                            # non-terminal rather than falsely completing.
+                            return SwapStatus.CONFIRMING.value
                         return SwapStatus.COMPLETED.value
                     elif status == "0x0":
                         return SwapStatus.FAILED.value

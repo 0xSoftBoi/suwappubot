@@ -35,6 +35,14 @@ ZEROX_QUOTE_PATH = "/swap/allowance-holder/quote"
 ZEROX_CROSS_CHAIN_QUOTES_PATH = "/cross-chain/quotes"
 ZEROX_CROSS_CHAIN_STATUS_PATH = "/cross-chain/status"
 
+# Shared cap for our platform fee across both the same-chain Swap API
+# (swapFeeBps) and the Cross-Chain API (feeBps). The two endpoints previously
+# used different caps (1000 vs 10000) even though the fee is the same
+# platform take-rate concept -- a caller passing an unexpectedly large
+# platform_fee_bps could take 10x more on the cross-chain path than the
+# same-chain path would ever allow. One constant, one cap, everywhere.
+MAX_PLATFORM_FEE_BPS = 1000
+
 # 0x uses native EVM chain IDs (integers in v2).
 ZEROX_CHAIN_IDS = {
     "ethereum": 1,
@@ -65,6 +73,10 @@ class ZeroXQuote:
     router_address: str
     tx_data: Optional[dict]  # Transaction data for execution (only from /quote)
     raw_response: dict
+    # True when 0x omitted minBuyAmount and we derived to_amount_min
+    # client-side from the float slippage tolerance instead of using the
+    # provider's own computed minimum.
+    min_out_synthetic: bool = False
 
 
 @dataclass
@@ -83,6 +95,7 @@ class ZeroXCrossChainQuote:
     quote_id: str
     tx_data: dict
     raw_response: dict
+    min_out_synthetic: bool = False
 
 
 class ZeroXError(Exception):
@@ -158,7 +171,7 @@ class ZeroXAPI:
         collector = settings.fee_collector_address
         if not platform_fee_bps or not collector:
             return {}
-        bps = max(0, min(int(platform_fee_bps), 1000))
+        bps = max(0, min(int(platform_fee_bps), MAX_PLATFORM_FEE_BPS))
         if bps <= 0:
             return {}
         return {
@@ -179,7 +192,7 @@ class ZeroXAPI:
         collector = settings.fee_collector_address
         if not platform_fee_bps or not collector:
             return {}
-        bps = max(0, min(int(platform_fee_bps), 10_000))
+        bps = max(0, min(int(platform_fee_bps), MAX_PLATFORM_FEE_BPS))
         if bps <= 0:
             return {}
         return {
@@ -187,6 +200,40 @@ class ZeroXAPI:
             "feeBps": bps,
             "feeToken": sell_token,
         }
+
+    @staticmethod
+    def _assert_fee_echoed(fee_params: dict, data: dict, route: Optional[dict] = None) -> None:
+        """Fail closed if a platform fee was requested but 0x's response
+        doesn't echo it back anywhere recognizable.
+
+        0x competes in a race against other DEX aggregators (Li.Fi/OKX/
+        1inch/KyberSwap) on quoted output. If we ask 0x for a fee and it is
+        silently dropped, this route looks artificially better than every
+        fee-paying competitor and could win the race on a fee the platform
+        never actually collects -- refuse the route instead of racing it.
+        """
+        if not fee_params:
+            return  # no fee was requested; nothing to verify
+        candidates = [data]
+        if route:
+            candidates.append(route)
+            candidates.append(route.get("transaction") or {})
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            fees_obj = candidate.get("fees")
+            if isinstance(fees_obj, dict) and (
+                fees_obj.get("integratorFee") or fees_obj.get("integrator_fee")
+            ):
+                return
+            for key in ("swapFeeBps", "feeBps", "swapFeeRecipient", "feeRecipient"):
+                if candidate.get(key):
+                    return
+        raise ZeroXError(
+            "0x quote did not echo the requested platform fee in its response "
+            "-- refusing a fee-free quote when a fee was requested",
+            data,
+        )
 
     async def get_quote(
         self,
@@ -209,16 +256,18 @@ class ZeroXAPI:
             amount: Input amount in smallest units
             slippage: Slippage tolerance as a percentage (0.5 = 0.5%)
         """
+        fee_params = self._fee_params(platform_fee_bps, from_token)
         params = {
             "chainId": chain_id,
             "sellToken": from_token,
             "buyToken": to_token,
             "sellAmount": amount,
             "slippageBps": self._slippage_bps(slippage),
-            **self._fee_params(platform_fee_bps, from_token),
+            **fee_params,
         }
 
         data = await self._request(ZEROX_PRICE_PATH, params)
+        self._assert_fee_echoed(fee_params, data)
 
         to_amount = str(data.get("buyAmount", "0"))
         if to_amount == "0":
@@ -226,7 +275,8 @@ class ZeroXAPI:
 
         # 0x returns minBuyAmount directly; fall back to slippage-derived min.
         to_amount_min = data.get("minBuyAmount")
-        if to_amount_min is None:
+        min_out_synthetic = to_amount_min is None
+        if min_out_synthetic:
             slippage_factor = 1 - (slippage / 100)
             to_amount_min = str(int(int(to_amount) * slippage_factor))
         else:
@@ -243,6 +293,7 @@ class ZeroXAPI:
             router_address="",
             tx_data=None,
             raw_response=data,
+            min_out_synthetic=min_out_synthetic,
         )
 
     async def get_swap(
@@ -262,6 +313,7 @@ class ZeroXAPI:
         also carries `issues.allowance.spender` — the AllowanceHolder contract
         to approve (NOT transaction.to, which is the Settler).
         """
+        fee_params = self._fee_params(platform_fee_bps, from_token)
         params = {
             "chainId": chain_id,
             "sellToken": from_token,
@@ -269,10 +321,11 @@ class ZeroXAPI:
             "sellAmount": amount,
             "taker": user_address,
             "slippageBps": self._slippage_bps(slippage),
-            **self._fee_params(platform_fee_bps, from_token),
+            **fee_params,
         }
 
         data = await self._request(ZEROX_QUOTE_PATH, params)
+        self._assert_fee_echoed(fee_params, data)
 
         tx = data.get("transaction", {})
         if not tx:
@@ -280,7 +333,8 @@ class ZeroXAPI:
 
         to_amount = str(data.get("buyAmount", "0"))
         to_amount_min = data.get("minBuyAmount")
-        if to_amount_min is None:
+        min_out_synthetic = to_amount_min is None
+        if min_out_synthetic:
             slippage_factor = 1 - (slippage / 100)
             to_amount_min = str(int(int(to_amount) * slippage_factor)) if to_amount != "0" else "0"
         else:
@@ -297,6 +351,7 @@ class ZeroXAPI:
             router_address=tx.get("to", ""),
             tx_data=tx,
             raw_response=data,
+            min_out_synthetic=min_out_synthetic,
         )
 
     async def get_cross_chain_quote(
@@ -318,6 +373,7 @@ class ZeroXAPI:
         The endpoint may combine an origin swap, bridge, and destination swap
         into the single transaction returned in ``transaction.details``.
         """
+        fee_params = self._cross_chain_fee_params(platform_fee_bps, from_token)
         params = {
             "originChain": origin_chain_id,
             "destinationChain": destination_chain_id,
@@ -329,7 +385,7 @@ class ZeroXAPI:
             "slippageBps": self._slippage_bps(slippage),
             "sortQuotesBy": "price",
             "maxNumQuotes": 1,
-            **self._cross_chain_fee_params(platform_fee_bps, from_token),
+            **fee_params,
         }
 
         data = await self._request(ZEROX_CROSS_CHAIN_QUOTES_PATH, params)
@@ -341,13 +397,15 @@ class ZeroXAPI:
         tx = (route.get("transaction") or {}).get("details") or {}
         if (route.get("transaction") or {}).get("chainType") != "evm" or not tx:
             raise ZeroXError("0x Cross-Chain API did not return an EVM transaction", data)
+        self._assert_fee_echoed(fee_params, data, route=route)
 
         to_amount = str(route.get("buyAmount", "0"))
         if to_amount == "0":
             raise ZeroXError("0x Cross-Chain API returned an empty output", data)
 
         to_amount_min = route.get("minBuyAmount")
-        if to_amount_min is None:
+        min_out_synthetic = to_amount_min is None
+        if min_out_synthetic:
             slippage_factor = 1 - (slippage / 100)
             to_amount_min = str(int(int(to_amount) * slippage_factor))
         else:
@@ -369,6 +427,7 @@ class ZeroXAPI:
             quote_id=str(route.get("quoteId") or ""),
             tx_data=tx,
             raw_response=data,
+            min_out_synthetic=min_out_synthetic,
         )
 
     async def get_cross_chain_status(

@@ -1018,7 +1018,10 @@ class SwapEngine:
 
     @staticmethod
     def _assert_fresh_min_out_acceptable(
-        approved_quote: "SwapQuote", fresh_to_amount_min: str, provider_name: str
+        approved_quote: "SwapQuote",
+        fresh_to_amount_min: str,
+        provider_name: str,
+        fresh_is_synthetic: bool = False,
     ) -> None:
         """Abort the swap if the execution-time re-quote's min-out is worse than
         what the user actually approved on the displayed/confirmed quote.
@@ -1028,7 +1031,25 @@ class SwapEngine:
         authorize a worse minimum than the one the user saw and confirmed —
         otherwise a stale or manipulated re-quote could sign a transaction that
         accepts materially less output than what was approved.
+
+        ``fresh_is_synthetic`` flags that the *fresh* min-out was derived
+        client-side from a float slippage tolerance rather than returned by
+        the provider (e.g. 0x omitted minBuyAmount this time). If the
+        *approved* quote carried a real provider-computed minimum, comparing
+        it against a client-side estimate is not like-for-like -- our
+        fallback formula may not match the provider's true minimum-output
+        guarantee, so a numeric pass here would not mean what the user
+        actually approved. Fail closed and require a real provider min
+        instead of silently accepting the substitution.
         """
+        approved_is_synthetic = bool((approved_quote.raw_quote or {}).get("min_out_synthetic"))
+        if fresh_is_synthetic and not approved_is_synthetic:
+            raise SwapError(
+                f"{provider_name}: execution re-quote did not return a provider-computed "
+                "minimum output, only a client-side estimate -- refusing to substitute an "
+                "estimate for the provider-verified minimum you approved. Please retry."
+            )
+
         try:
             approved_min = int(approved_quote.to_amount_min)
             fresh_min = int(fresh_to_amount_min)
@@ -2885,6 +2906,7 @@ class SwapEngine:
                 "tx_data": quote.tx_data,
                 "chain_id": chain_id,
                 "slippage": slippage,
+                "min_out_synthetic": getattr(quote, "min_out_synthetic", False),
             },
             gas_cost_trusted=gas_cost_trusted,
         )
@@ -2965,6 +2987,7 @@ class SwapEngine:
                 "destination_chain_id": destination_chain_id,
                 "to_address": recipient,
                 "slippage": slippage,
+                "min_out_synthetic": getattr(quote, "min_out_synthetic", False),
             },
             gas_cost_trusted=gas_cost_trusted,
         )
@@ -3949,7 +3972,9 @@ class SwapEngine:
                 elif quote.provider == "0x":
                     tx_hash = await self._execute_0x_swap(quote, wallet)
                 elif quote.provider == "0x_crosschain":
-                    tx_hash = await self._execute_0x_cross_chain_swap(quote, wallet)
+                    tx_hash = await self._execute_0x_cross_chain_swap(
+                        quote, wallet, swap_id=swap_id
+                    )
                 elif quote.provider == "kyberswap":
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
                 elif quote.provider == "avnu":
@@ -6528,7 +6553,12 @@ class SwapEngine:
             slippage=swap_slippage,
             platform_fee_bps=quote.platform_fee_bps,
         )
-        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "0x")
+        self._assert_fresh_min_out_acceptable(
+            quote,
+            swap_result.to_amount_min,
+            "0x",
+            fresh_is_synthetic=getattr(swap_result, "min_out_synthetic", False),
+        )
         tx_data = swap_result.tx_data
         if not tx_data:
             raise SwapError("0x did not return transaction data")
@@ -6651,7 +6681,41 @@ class SwapEngine:
         logger.info(f"0x swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
 
-    async def _execute_0x_cross_chain_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+    async def _persist_0x_crosschain_route_data(
+        self, swap_id: Optional[int], quote_id: str, nonce: Optional[int] = None
+    ) -> None:
+        """Persist the freshly re-quoted quote_id (and intended nonce, if
+        known) to the swap record BEFORE the transaction is broadcast.
+
+        Writing this only after send_raw_transaction (the previous
+        behavior) leaves a window where the broadcast succeeds on-chain but
+        the process dies, or the RPC call itself times out after actually
+        relaying the tx, before that DB write ever runs -- the background
+        poller then has no quote_id to look up destination-fill status
+        with, and no nonce to reconcile against. Persisting first means the
+        worst case is a record that thinks it's about to submit a tx that
+        never actually broadcasts (safe: it just sits SUBMITTED/CONFIRMING
+        and can be reconciled), never the reverse -- a broadcast tx with no
+        record of how to track it.
+        """
+        if not swap_id:
+            return
+
+        def _work():
+            with get_session() as session:
+                db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                if not db_tx:
+                    return
+                data = {"quote_id": quote_id}
+                if nonce is not None:
+                    data["intended_nonce"] = nonce
+                db_tx.route_data = json.dumps(data)
+
+        await run_in_db(_work)
+
+    async def _execute_0x_cross_chain_swap(
+        self, quote: SwapQuote, wallet_data: dict, swap_id: Optional[int] = None
+    ) -> str:
         """Execute a 0x bridge+swap route into Robinhood Chain (EVM-only).
 
         Cross-chain calldata is recipient-bound, so execution always re-quotes
@@ -6699,6 +6763,26 @@ class SwapEngine:
             raise SwapError("0x Cross-Chain execution could not resolve token addresses")
 
         sender_address = wallet_data["address"]
+
+        # The execution re-quote always sends to the signer (see docstring),
+        # but if the earlier *display* quote recorded a different recipient,
+        # that's a signal the wallet backing this execution no longer
+        # matches what the user actually confirmed (e.g. a wallet swap
+        # raced the confirmation). Silently redirecting funds to whichever
+        # wallet happens to sign now — instead of the one the user saw —
+        # is exactly the kind of mismatch that must abort, not proceed.
+        display_to_address = raw_quote.get("to_address")
+        if display_to_address:
+            try:
+                if Web3.to_checksum_address(display_to_address) != Web3.to_checksum_address(
+                    sender_address
+                ):
+                    raise SwapError(
+                        "0x Cross-Chain quote recipient does not match the signing wallet"
+                    )
+            except ValueError as exc:
+                raise SwapError("0x Cross-Chain quote recipient address is invalid") from exc
+
         swap_slippage = raw_quote.get("slippage", 0.5)
         swap_result = await self.zerox.get_cross_chain_quote(
             origin_chain_id=origin_chain_id,
@@ -6717,7 +6801,30 @@ class SwapEngine:
             or swap_result.destination_chain_id != destination_chain_id
         ):
             raise SwapError("0x Cross-Chain returned a route for the wrong chain pair")
-        self._assert_fresh_min_out_acceptable(quote, swap_result.to_amount_min, "0x Cross-Chain")
+        # The re-quote must sell the exact amount the user approved -- if 0x
+        # silently substituted a different sell amount, signing against it
+        # would move an amount the user never confirmed. `from_amount` is a
+        # required field on the real ZeroXCrossChainQuote dataclass; the
+        # getattr default only guards against incomplete test doubles.
+        fresh_from_amount = getattr(swap_result, "from_amount", None)
+        try:
+            fresh_from_amount_matches = fresh_from_amount is None or int(fresh_from_amount) == int(
+                quote.from_amount
+            )
+        except (TypeError, ValueError):
+            fresh_from_amount_matches = False
+        if not fresh_from_amount_matches:
+            raise SwapError(
+                "0x Cross-Chain execution re-quote sell amount "
+                f"({fresh_from_amount}) does not match the approved amount "
+                f"({quote.from_amount}) -- aborting for safety."
+            )
+        self._assert_fresh_min_out_acceptable(
+            quote,
+            swap_result.to_amount_min,
+            "0x Cross-Chain",
+            fresh_is_synthetic=getattr(swap_result, "min_out_synthetic", False),
+        )
 
         tx_data = swap_result.tx_data
         if not tx_data:
@@ -6830,7 +6937,13 @@ class SwapEngine:
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
         provider_gas_price = _parse_int(tx_data.get("gasPrice"), 0)
         if provider_gas_price <= 0:
-            provider_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            # 0x didn't return a gas price -- buffer the live RPC snapshot by
+            # 1.3x so a stale/too-low read doesn't leave the origin leg of a
+            # multi-step cross-chain route stuck unconfirmed while the rest
+            # of the quote's validity window (min-out, bridge liquidity)
+            # ticks away underneath it.
+            live_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            provider_gas_price = int(live_gas_price * 1.3)
         tx = {
             "to": tx_to,
             "data": tx_data.get("data", ""),
@@ -6840,6 +6953,24 @@ class SwapEngine:
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
+
+        # Fail closed (before signing) if the wallet can't actually cover
+        # value + gas at the price we're about to sign for -- a mid-flight
+        # "insufficient funds" RPC rejection here is worse than aborting
+        # early: it can leave the approval tx already spent with no swap to
+        # show for it.
+        required_wei = tx["value"] + tx["gas"] * tx["gasPrice"]
+        native_balance = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
+        if native_balance < required_wei:
+            raise SwapError(
+                "Insufficient native balance to cover 0x Cross-Chain gas: have "
+                f"{native_balance}, need {required_wei}"
+            )
+
+        # Persist the fresh quote_id + intended nonce BEFORE broadcasting.
+        # See _persist_0x_crosschain_route_data docstring for why this must
+        # not wait until after send_raw_transaction.
+        await self._persist_0x_crosschain_route_data(swap_id, swap_result.quote_id, nonce)
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
         tx_hash = await asyncio.to_thread(
@@ -7262,6 +7393,9 @@ class SwapEngine:
         """Check a 0x Cross-Chain route through destination settlement."""
         try:
             route_data = json.loads(swap_tx.route_data or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            route_data = {}
+        try:
             origin_chain_id = ZEROX_CHAIN_IDS.get(swap_tx.from_chain.lower())
             destination_chain_id = ZEROX_CHAIN_IDS.get(swap_tx.to_chain.lower())
             if not origin_chain_id or not destination_chain_id:
@@ -7301,13 +7435,63 @@ class SwapEngine:
 
             if provider_status in ("origin_tx_reverted", "bridge_failed"):
                 return SwapStatus.FAILED.value
-            return SwapStatus.CONFIRMING.value
+            if provider_status in ("origin_tx_pending", "origin_tx_confirmed", "bridge_pending"):
+                return SwapStatus.CONFIRMING.value
+            # Unrecognized status string -- treat like an error below rather
+            # than trusting an unknown value to mean "still going".
+            return await self._resolve_0x_cross_chain_unknown(swap_tx, route_data)
         except Exception as e:
-            # A status service failure is not evidence that the bridge failed.
-            # Keep polling rather than turning a temporary 0x/API outage into a
-            # false terminal failure in the user's transaction history.
+            # A bare "always keep CONFIRMING" here would let a persistent
+            # 0x API outage strand a swap in limbo forever. Fall back to an
+            # on-chain check of the origin tx and fail closed after too many
+            # consecutive unresolved checks.
             logger.error(f"0x Cross-Chain status check failed for {swap_tx.tx_hash}: {e}")
-            return SwapStatus.CONFIRMING.value
+            return await self._resolve_0x_cross_chain_unknown(swap_tx, route_data)
+
+    async def _resolve_0x_cross_chain_unknown(
+        self, swap_tx: SwapTransaction, route_data: dict
+    ) -> str:
+        """0x's status API errored or returned an unrecognized status.
+
+        A reverted origin tx is a definitive FAILED regardless of what the
+        status API said. Otherwise, count consecutive unresolved checks in
+        route_data and fail closed after too many in a row instead of
+        polling CONFIRMING forever.
+        """
+        try:
+            origin_receipt_status = await self._check_evm_tx_status(swap_tx)
+            if origin_receipt_status == SwapStatus.FAILED.value:
+                return SwapStatus.FAILED.value
+        except Exception as receipt_err:
+            logger.debug(f"0x Cross-Chain origin receipt fallback failed: {receipt_err}")
+
+        count = int(route_data.get("zerox_unknown_count", 0)) + 1
+        exceeded = count >= 20
+
+        def _persist_count():
+            with get_session() as session:
+                tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_tx.id).first()
+                if not tx:
+                    return
+                try:
+                    data = json.loads(tx.route_data or "{}")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    data = dict(route_data)
+                data["zerox_unknown_count"] = count
+                tx.route_data = json.dumps(data)
+
+        try:
+            await run_in_db(_persist_count)
+        except Exception as persist_err:
+            logger.debug(f"Failed to persist 0x unresolved-status counter: {persist_err}")
+
+        if exceeded:
+            logger.warning(
+                f"0x Cross-Chain tx {swap_tx.id} exceeded 20 consecutive unresolved "
+                "status checks; marking FAILED."
+            )
+            return SwapStatus.FAILED.value
+        return SwapStatus.CONFIRMING.value
 
     async def execute_multi_swap(
         self,
