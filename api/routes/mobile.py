@@ -7,7 +7,7 @@ copy trading, and sniping.  Delegates to existing service singletons.
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional, List
 
@@ -120,7 +120,7 @@ def _snapshot_payload(
         "byToken": holdings,
         "byChain": chains,
         "history": clean_history,
-        "lastUpdated": datetime.utcnow().isoformat(),
+        "lastUpdated": datetime.now(timezone.utc).isoformat(),
         # WalletService currently degrades individual RPC failures to zero on
         # several providers, so V0 cannot prove that a cross-network read is
         # complete. Never use this snapshot for performance/change claims.
@@ -226,7 +226,7 @@ def _answer_from_snapshot(text: str, snapshot: dict, recent: list[dict]) -> dict
                 "suggestions": suggestions,
             }
         history = snapshot.get("history") or []
-        cutoff = datetime.utcnow().date() - timedelta(days=7)
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=7)
         recent_history = []
         for point in history:
             try:
