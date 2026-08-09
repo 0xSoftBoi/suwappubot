@@ -70,6 +70,7 @@ historical intent, not current behavior. Update this index when adding a doc.
 
 ## Research (market/competitor studies — point-in-time)
 
+[research/institutional-knowledge-practices.md](research/institutional-knowledge-practices.md) (how other companies keep institutional knowledge + our adoption plan),
 [NEOBANK_ROADMAP.md](NEOBANK_ROADMAP.md),
 [research/llm-credits/](research/llm-credits/) (00-strategy → 04-metering),
 [research/launch/erc8056-stock-token-interface-risk.md](research/launch/erc8056-stock-token-interface-risk.md),
