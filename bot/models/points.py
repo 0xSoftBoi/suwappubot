@@ -139,7 +139,14 @@ class UserPoints(Base):
         return LEVELS[next_level]["xp"] - self.xp
 
     def check_level_up(self) -> str:
-        """Check if user should level up and return new level if so."""
+        """Check if user should level up and return new level if so.
+
+        Intentionally unpaid: this only relabels ``level``, it does not credit
+        a level_up bonus. The 100pt level_up bonus is paid exclusively by the
+        api-ts PointsService (see api-ts/src/services/PointsService.ts,
+        awardLevelUpBonusTx) via an insert-guarded ledger row, which is the
+        sole gate preventing a double pay under concurrency.
+        """
         level_order = ["bronze", "silver", "gold", "platinum", "diamond"]
 
         for level_name in reversed(level_order):

@@ -1,5 +1,5 @@
 {
-  "id": "83910c02-3e7a-4ee4-ac20-e2a3c7942b79",
+  "id": "96ce7763-4e03-4669-acc1-2d0e4f33b472",
   "prevId": "04d84426-e3d2-45f0-baaf-ed87298bcecf",
   "version": "7",
   "dialect": "postgresql",
@@ -6760,6 +6760,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "reference": {
+          "name": "reference",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -6816,6 +6822,27 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "point_transactions_user_reference_idx": {
+          "name": "point_transactions_user_reference_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reference",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -10093,7 +10120,7 @@
         },
         "from_token": {
           "name": "from_token",
-          "type": "varchar(64)",
+          "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true
         },
@@ -10117,7 +10144,7 @@
         },
         "to_token": {
           "name": "to_token",
-          "type": "varchar(64)",
+          "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true
         },

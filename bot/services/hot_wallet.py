@@ -62,6 +62,70 @@ def _assert_withdrawals_enabled() -> None:
         )
 
 
+class ComplianceBlockedError(RuntimeError):
+    """Raised when a withdrawal recipient fails sanctions screening."""
+
+
+def _assert_recipient_compliant(
+    to_address: str, chain_name: str, token_address: Optional[str] = None
+) -> None:
+    """Sanctions-screen a withdrawal recipient before any funds move.
+
+    Placed beside the withdrawal kill-switch, inside send_native_token/send_token,
+    so EVERY withdraw surface (terminal API route, Telegram handler, future ones)
+    is covered without duplicating the check per call site.
+
+    Previously ``compliance_service.screen`` had exactly ONE call site —
+    ``SwapEngine.execute_swap`` — so withdrawals, the most obvious
+    funds-leave-the-platform path, were screened by nothing on every chain.
+
+    Only ``to_address`` (the actual recipient) is screened — ``token_address``
+    is accepted for the caller's context/logging but deliberately NOT passed
+    to ``compliance_service.screen``. A token *contract* address is not where
+    funds end up, so screening it as if it were a recipient produced no
+    compliance value and only risked false blocks on legitimate token
+    contracts.
+
+    Behaviour follows ``COMPLIANCE_MODE``:
+      * ``DISABLED`` — skips entirely (today's default).
+      * ``MONITOR``  — logs violations but allows the withdrawal, AND fails
+        OPEN on screener *errors* (an outage in the screener must not become
+        an outage in the product when we're not even enforcing yet).
+      * ``ENFORCE``  — raises on a real blocklist hit, AND fails CLOSED on
+        screener errors: if the screener itself is unavailable/throws while
+        enforcement is on, we cannot prove the recipient is clean, so the
+        withdrawal is blocked rather than silently let through.
+    """
+    from bot.services.compliance import compliance_service
+
+    if not compliance_service.enabled:
+        return
+    try:
+        result = compliance_service.screen(
+            recipient=to_address,
+            chain=chain_name,
+        )
+    except Exception as e:  # noqa: BLE001 — screener failure itself, not a verdict
+        mode = getattr(compliance_service, "mode", None)
+        if mode is not None and getattr(mode, "value", None) == "enforce":
+            logger.error(
+                "Compliance screening errored for %s on %s while ENFORCE is active — "
+                "failing CLOSED: %s",
+                to_address,
+                chain_name,
+                e,
+            )
+            raise ComplianceBlockedError(
+                "Compliance screening is temporarily unavailable; withdrawal blocked "
+                "until it recovers."
+            ) from e
+        logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
+        return
+
+    if not result.allowed:
+        raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
+
+
 class PostBroadcastAmbiguous(RuntimeError):
     """Raised when the actual node broadcast call (send_raw_transaction /
     send_transaction) itself failed or threw AFTER the transaction may
@@ -873,6 +937,7 @@ class HotWalletService:
         always leaves a resolvable hash behind for the withdraw reconciler.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name)
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1133,6 +1198,7 @@ class HotWalletService:
         pre-broadcast hash onto the caller's claimed idempotency placeholder.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name, token_address)
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id
