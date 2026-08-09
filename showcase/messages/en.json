@@ -70,7 +70,7 @@
     }
   },
   "hero": {
-    "kicker": "Now in open beta · 42 chains",
+    "kicker": "Now in open beta · 45 chains",
     "h1": "The execution layer between intent and markets.",
     "lead": "Suwappu turns a trade intent into an inspectable route and controlled execution across supported markets. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
     "cta_bot": "Start trading free",
@@ -214,7 +214,7 @@
   "cta": {
     "kicker": "Start free",
     "heading": "Your first trade takes 30 seconds.",
-    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 42 chains, no wallet setup required.",
+    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 45 chains, no wallet setup required.",
     "open_bot": "Start trading free",
     "whatsapp": "Chat on WhatsApp",
     "docs": "Read the docs"
