@@ -35,6 +35,7 @@ Covers:
 
 import asyncio
 import os
+import time
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
@@ -54,9 +55,18 @@ from bot.services.token_security.rug_service import (
     RugService,
     RAYDIUM_AMM,
     RUG_MIN_DRAINED_NOTIONAL_USD,
+    RUG_MIN_POOL_AGE_SECONDS,
     STABLE_MINTS,
     WSOL_MINT,
 )
+
+
+def _old_enough_timestamp() -> float:
+    """A `_pool_first_seen` monotonic timestamp comfortably older than
+    RUG_MIN_POOL_AGE_SECONDS, for tests exercising logic downstream of the
+    pool-age gate."""
+    return time.monotonic() - (RUG_MIN_POOL_AGE_SECONDS + 60)
+
 
 WSOL = WSOL_MINT
 USDC = next(iter(STABLE_MINTS))
@@ -635,7 +645,13 @@ def test_handle_potential_rug_skips_panic_sell_when_mint_is_none(monkeypatch):
 
 
 def test_handle_potential_rug_fires_panic_sell_when_mint_found(monkeypatch):
+    """Pool-age gate (H3): a sell only arms once the pool has been
+    independently observed for >= RUG_MIN_POOL_AGE_SECONDS. Stamp a
+    sufficiently old first-seen timestamp so this test exercises the
+    downstream fan-out logic, not the age gate itself (see
+    test_pool_age_gating.py-equivalent tests below for that)."""
     service = RugService()
+    service._pool_first_seen[RUGGED_MINT] = _old_enough_timestamp()
 
     async def fake_extract(signature):
         return RUGGED_MINT
@@ -958,3 +974,345 @@ def test_execute_panic_sell_idempotency_key_is_per_user(monkeypatch):
     assert all(k is not None for k in captured_keys)
     assert "1" in captured_keys[0].split(":") and "10" in captured_keys[0].split(":")
     assert "2" in captured_keys[1].split(":") and "20" in captured_keys[1].split(":")
+
+
+# ---------------------------------------------------------------------------
+# 8. H5 — idempotency key is a bounded sha256 hash of the signature, not the
+#    raw signature embedded directly.
+# ---------------------------------------------------------------------------
+
+
+def test_execute_panic_sell_idempotency_key_is_hashed_not_raw_signature():
+    """H5: the idempotency key must never embed the raw signature string —
+    it should carry a fixed-length sha256 hash of it instead (bounded length
+    regardless of RPC signature encoding, and doesn't put a raw external
+    identifier straight into a DB key)."""
+    import hashlib
+
+    service = RugService()
+
+    fake_wallet = SimpleNamespace(
+        id=10, address="SoLWalletAddr1111111111111111111111111", chain_type="solana", is_active=True
+    )
+
+    def fake_get_wallet_by_id(wallet_id):
+        return fake_wallet
+
+    async def fake_get_solana_token_balance(token_mint, address):
+        return 100.0
+
+    service._wallet_service.get_wallet_by_id = fake_get_wallet_by_id
+    service._wallet_service.get_solana_token_balance = fake_get_solana_token_balance
+
+    async def fake_get_quote(**kwargs):
+        return SimpleNamespace(from_chain="solana", to_chain="solana")
+
+    captured = {}
+
+    async def fake_execute_swap(quote, wallet_id, user_id, idempotency_key=None):
+        captured["key"] = idempotency_key
+        return SimpleNamespace(id=1)
+
+    service._swap_engine = SimpleNamespace(get_quote=fake_get_quote, execute_swap=fake_execute_swap)
+
+    asyncio.run(service._execute_panic_sell(1, 10, RUGGED_MINT, SIGNATURE))
+
+    expected_hash = hashlib.sha256(SIGNATURE.encode()).hexdigest()[:32]
+    assert captured["key"] == f"panic_sell:1:10:{expected_hash}"
+    assert SIGNATURE not in captured["key"]
+
+
+def test_execute_panic_sell_uses_reduced_slippage():
+    """H3: panic-sell slippage must be RUG_PANIC_SELL_SLIPPAGE_PCT (8%), not
+    the old 25% — caps an attacker's per-user extraction from a forged
+    single-tx drain signal."""
+    service = RugService()
+
+    fake_wallet = SimpleNamespace(
+        id=10, address="SoLWalletAddr1111111111111111111111111", chain_type="solana", is_active=True
+    )
+    service._wallet_service.get_wallet_by_id = lambda wallet_id: fake_wallet
+
+    async def fake_get_solana_token_balance(token_mint, address):
+        return 100.0
+
+    service._wallet_service.get_solana_token_balance = fake_get_solana_token_balance
+
+    captured_quote_kwargs = {}
+
+    async def fake_get_quote(**kwargs):
+        captured_quote_kwargs.update(kwargs)
+        return SimpleNamespace(from_chain="solana", to_chain="solana")
+
+    async def fake_execute_swap(quote, wallet_id, user_id, idempotency_key=None):
+        return SimpleNamespace(id=1)
+
+    service._swap_engine = SimpleNamespace(get_quote=fake_get_quote, execute_swap=fake_execute_swap)
+
+    asyncio.run(service._execute_panic_sell(1, 10, RUGGED_MINT, SIGNATURE))
+
+    assert captured_quote_kwargs["slippage"] == rug_service_module.RUG_PANIC_SELL_SLIPPAGE_PCT
+    assert captured_quote_kwargs["slippage"] == 8.0
+    assert captured_quote_kwargs["slippage"] != 25.0
+
+
+# ---------------------------------------------------------------------------
+# 9. H3 — flash-loan / single-tx forgery hardening: pool-age gating
+# ---------------------------------------------------------------------------
+
+
+def test_handle_potential_rug_skips_when_pool_never_observed(monkeypatch):
+    """The core single-tx-forgery defense: a mint this service has NEVER
+    observed via `_observe_pool_creation` must never arm a sell, even with a
+    fully-verified drain signal — this is exactly the "create pool, seed it,
+    drain it in one tx" case, where the pool was, by construction, never
+    observed before its own drain."""
+    service = RugService()
+    assert RUGGED_MINT not in service._pool_first_seen
+
+    async def fake_extract(signature):
+        return RUGGED_MINT
+
+    calls = {"panic_sell": 0}
+
+    async def fake_get_users(token_mint):
+        return [(1, 10)]
+
+    async def fake_panic_sell(user_id, wallet_id, token_mint, signature):
+        calls["panic_sell"] += 1
+
+    monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
+    monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
+
+    asyncio.run(service._handle_potential_rug(["Program log: removeLiquidity"], SIGNATURE))
+
+    assert calls["panic_sell"] == 0
+
+
+def test_handle_potential_rug_skips_when_pool_too_young(monkeypatch):
+    """A pool observed only seconds ago (well under RUG_MIN_POOL_AGE_SECONDS)
+    must not arm a sell yet, even though it HAS been observed."""
+    service = RugService()
+    service._pool_first_seen[RUGGED_MINT] = time.monotonic() - 5  # 5s old
+
+    async def fake_extract(signature):
+        return RUGGED_MINT
+
+    calls = {"panic_sell": 0}
+
+    async def fake_get_users(token_mint):
+        return [(1, 10)]
+
+    async def fake_panic_sell(user_id, wallet_id, token_mint, signature):
+        calls["panic_sell"] += 1
+
+    monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
+    monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
+
+    asyncio.run(service._handle_potential_rug(["Program log: removeLiquidity"], SIGNATURE))
+
+    assert calls["panic_sell"] == 0
+
+
+def test_handle_potential_rug_fires_when_pool_old_enough(monkeypatch):
+    """A pool observed well before RUG_MIN_POOL_AGE_SECONDS ago DOES arm a
+    sell once a verified drain is detected -- the gate must not create false
+    negatives on genuine, patiently-executed rugs."""
+    service = RugService()
+    service._pool_first_seen[RUGGED_MINT] = _old_enough_timestamp()
+
+    async def fake_extract(signature):
+        return RUGGED_MINT
+
+    calls = {"panic_sell": 0}
+
+    async def fake_get_users(token_mint):
+        return [(1, 10)]
+
+    async def fake_panic_sell(user_id, wallet_id, token_mint, signature):
+        calls["panic_sell"] += 1
+
+    monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
+    monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
+
+    asyncio.run(service._handle_potential_rug(["Program log: removeLiquidity"], SIGNATURE))
+
+    assert calls["panic_sell"] == 1
+
+
+def test_observe_pool_creation_stamps_first_seen_once(monkeypatch):
+    """`_observe_pool_creation` records a first-seen timestamp for every
+    non-WSOL/non-stable mint touched by a verified Raydium instruction, and
+    NEVER overwrites an already-recorded first-seen time (first-seen
+    semantics, not last-seen)."""
+    account_keys = [PAYER, RAYDIUM_AMM, "PoolVaultCreate1111111111111111111"]
+    tx = _tx_data(
+        account_keys=account_keys,
+        instructions=[_instruction(RAYDIUM_AMM, [account_keys[1], account_keys[2]])],
+        pre_balances=[_balance_entry(2, RUGGED_MINT, 0.0)],
+        post_balances=[_balance_entry(2, RUGGED_MINT, 1_000.0)],
+    )
+    _install_fake_session(monkeypatch, _FakeResp(_rpc_response(tx_data=tx)))
+
+    service = RugService()
+    assert RUGGED_MINT not in service._pool_first_seen
+
+    asyncio.run(service._observe_pool_creation(SIGNATURE))
+    assert RUGGED_MINT in service._pool_first_seen
+    first_stamp = service._pool_first_seen[RUGGED_MINT]
+
+    # A second observation of the SAME mint must NOT push the timestamp
+    # forward (first-seen, not last-seen).
+    asyncio.run(service._observe_pool_creation(SIGNATURE))
+    assert service._pool_first_seen[RUGGED_MINT] == first_stamp
+
+
+def test_observe_pool_creation_never_raises_on_failure(monkeypatch):
+    """Best-effort background-learning path: any failure (network, malformed
+    response) must be swallowed, never raised, since this must never take
+    down the monitor loop."""
+    _install_fake_session(monkeypatch, _FakeResp(raise_on_call=ConnectionError("network down")))
+    service = RugService()
+
+    # Must not raise.
+    asyncio.run(service._observe_pool_creation(SIGNATURE))
+    assert service._pool_first_seen == {}
+
+
+# ---------------------------------------------------------------------------
+# 10. H2 — start() hard-refuses when the DB schema gap is present
+# ---------------------------------------------------------------------------
+
+
+class _FakeConnRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, *_args, **_kwargs):
+        return self
+
+    def fetchall(self):
+        return self._rows
+
+
+class _FakeConnCtx:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def __enter__(self):
+        return _FakeConnRows(self._rows)
+
+    def __exit__(self, *_exc):
+        return False
+
+
+class _FakeEngine:
+    """Stand-in for database.db.engine — just enough surface for
+    RugService._check_schema_capability (dialect.name + connect())."""
+
+    def __init__(self, dialect_name: str, rows):
+        self.dialect = SimpleNamespace(name=dialect_name)
+        self._rows = rows
+
+    def connect(self):
+        return _FakeConnCtx(self._rows)
+
+
+def test_check_schema_capability_raises_when_column_too_narrow(monkeypatch):
+    """H2: swap_transactions.from_token/to_token still at the old VARCHAR(20)
+    width must raise RuntimeError -- refusing to start a service that would
+    detect a verified rug and then die on its own SwapTransaction INSERT."""
+    import database.db as db_module
+
+    fake_engine = _FakeEngine(
+        "postgresql",
+        rows=[("from_token", 20), ("to_token", 20)],
+    )
+    monkeypatch.setattr(db_module, "engine", fake_engine)
+
+    service = RugService()
+    with pytest.raises(RuntimeError, match="from_token"):
+        service._check_schema_capability()
+
+
+def test_check_schema_capability_passes_when_column_wide_enough(monkeypatch):
+    """H2: once the migration has widened both columns to >= 64, the
+    capability check must pass silently."""
+    import database.db as db_module
+
+    fake_engine = _FakeEngine(
+        "postgresql",
+        rows=[("from_token", 64), ("to_token", 64)],
+    )
+    monkeypatch.setattr(db_module, "engine", fake_engine)
+
+    service = RugService()
+    service._check_schema_capability()  # must not raise
+
+
+def test_check_schema_capability_raises_when_column_missing(monkeypatch):
+    """A column information_schema doesn't even return (e.g. mid-migration,
+    or a table that predates the ORM column) must be treated the same as
+    'too narrow' -- refuse rather than guess."""
+    import database.db as db_module
+
+    fake_engine = _FakeEngine("postgresql", rows=[("from_token", 64)])  # to_token missing
+    monkeypatch.setattr(db_module, "engine", fake_engine)
+
+    service = RugService()
+    with pytest.raises(RuntimeError, match="to_token"):
+        service._check_schema_capability()
+
+
+def test_check_schema_capability_skips_for_sqlite(monkeypatch):
+    """SQLite ignores declared VARCHAR length so it structurally cannot have
+    this gap -- the check must no-op rather than query
+    information_schema (which doesn't exist the same way on SQLite)."""
+    import database.db as db_module
+
+    fake_engine = _FakeEngine("sqlite", rows=[])
+    monkeypatch.setattr(db_module, "engine", fake_engine)
+
+    service = RugService()
+    service._check_schema_capability()  # must not raise / not query rows
+
+
+def test_start_refuses_when_schema_capability_check_fails(monkeypatch):
+    """H2: RugService.start() must propagate the RuntimeError from the
+    schema-capability check rather than starting the websocket monitor loop
+    anyway."""
+    service = RugService()
+    monkeypatch.setattr(rug_service_module.settings, "rug_auto_sell_enabled", True)
+
+    def _boom():
+        raise RuntimeError("swap_transactions.from_token is VARCHAR(20)")
+
+    monkeypatch.setattr(service, "_check_schema_capability", _boom)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(service.start(swap_engine=SimpleNamespace()))
+
+    assert service._running is False
+    assert service._ws_task is None
+
+
+def test_start_succeeds_when_schema_capability_check_passes(monkeypatch):
+    """Sanity counterpart: when the capability check passes, start() proceeds
+    to spin up the monitor loop as before."""
+    service = RugService()
+    monkeypatch.setattr(rug_service_module.settings, "rug_auto_sell_enabled", True)
+    monkeypatch.setattr(service, "_check_schema_capability", lambda: None)
+
+    async def fake_monitor_loop():
+        await asyncio.sleep(3600)  # never returns on its own within the test
+
+    monkeypatch.setattr(service, "_monitor_loop", fake_monitor_loop)
+
+    asyncio.run(service.start(swap_engine=SimpleNamespace()))
+
+    assert service._running is True
+    assert service._ws_task is not None
+    service._ws_task.cancel()

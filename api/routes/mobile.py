@@ -5,6 +5,7 @@ All Phase 2 features: wallets, alerts, orders, DCA, points, referrals,
 copy trading, and sniping.  Delegates to existing service singletons.
 """
 
+import hashlib
 import logging
 import threading
 import time
@@ -43,21 +44,21 @@ router = APIRouter(prefix="/v1/mobile", tags=["mobile"])
 # NOT durable across process restarts or multiple worker processes — that's
 # fine, the DB-level lock is the actual safety net.
 #
-# NEW-6 (documented, NOT fixed here — out of scope): this cache is per-process
-# (a plain in-memory dict). On a multi-worker/multi-replica deploy (Railway can
-# run several `uvicorn`/gunicorn workers or replicas), a client retry can land
-# on a DIFFERENT process than the one that handled the original request, miss
-# this cache entirely, and re-invoke points_service — re-charging the user for
-# a redemption whose first response was merely dropped/timed-out in transit.
+# NEW-6, FIXED: this in-process cache is per-process (a plain in-memory dict).
+# On a multi-worker/multi-replica deploy (Railway can run several
+# `uvicorn`/gunicorn workers or replicas), a client retry can land on a
+# DIFFERENT process than the one that handled the original request, miss this
+# cache entirely, and re-invoke points_service — re-charging the user for a
+# redemption whose first response was merely dropped/timed-out in transit.
 # The `.with_for_update()` DB lock still prevents a *lost update*, but it does
 # NOT prevent this *duplicate, independently-successful* spend, since each
 # process-local attempt reads a balance that's genuinely sufficient at the
-# time it runs. The durable fix is a UNIQUE index on
-# `point_redemptions(user_id, idempotency_key)` (mirroring swap_transactions'
-# idempotency_key uniqueness) so a retry's INSERT conflicts and can be turned
-# into a lookup-and-replay at the DB layer instead of the process layer — that
-# requires a new column + migration, which is out of scope for this file set
-# (points_service.py / mobile.py / test files only, no `database/db.py`).
+# time it runs. The durable fix: a UNIQUE(user_id, idempotency_key) partial
+# index on `point_redemptions` (see database/db.py
+# `_add_point_redemption_idempotency_key`), plus a `points_service` /
+# `PointRedemption.idempotency_key` column so a retry's INSERT conflicts and
+# is turned into a lookup-and-replay at the DB layer — durable across process
+# restarts and multi-replica deploys, unlike this in-process cache alone.
 _REDEEM_IDEM_TTL_SECONDS = 300
 _redeem_idem_registry_lock = threading.Lock()
 
@@ -908,8 +909,18 @@ async def get_rewards(request: Request):
 
 
 @router.post("/points/rewards/{reward_id}/redeem")
-async def redeem_reward(request: Request, reward_id: int):
+def redeem_reward(request: Request, reward_id: int):
     """Redeem a reward for points.
+
+    H6 fix: this is a `def`, not `async def`. There is no `await` anywhere in
+    this body — every DB call goes through the synchronous `get_session()` /
+    `points_service` (blocking SQLAlchemy calls) — so FastAPI was running this
+    as a coroutine directly ON the event loop. That made the
+    `threading.Lock()` acquired below (`with lock:`) a REAL blocking call on
+    the loop thread: a slow/blocked redemption for one user stalled the
+    ENTIRE bot's event loop (all other users' requests) for its duration, not
+    just that user's own request. Declaring this `def` makes FastAPI run it
+    in its threadpool, where a real OS lock is the correct primitive.
 
     MONEY-PATH: dispatches to the SAME atomic, all-or-nothing points_service
     methods used by the Telegram /xp flow (bot/handlers/points.py::redeem_callback) —
@@ -964,6 +975,12 @@ async def redeem_reward(request: Request, reward_id: int):
         )
 
     cache_key = _redeem_idempotency_cache_key(request, user_id, reward_id)
+    # Durable (DB-level) idempotency key derived from the SAME cache_key that
+    # guards the in-process cache, so a retry that misses the in-process
+    # cache (different worker/process, or after a restart) still resolves to
+    # the same key at the point_redemptions unique-index layer. Hashed +
+    # truncated to fit the VARCHAR(160) column regardless of header length.
+    idempotency_key = f"redeem:{hashlib.sha256(str(cache_key).encode()).hexdigest()}"
     lock = _redeem_idem_get_lock(cache_key)
 
     with lock:
@@ -977,12 +994,12 @@ async def redeem_reward(request: Request, reward_id: int):
         try:
             if reward_category in ASYNC_CATEGORIES:
                 success, message, order_id = points_service.redeem_marketplace_reward(
-                    user_id=user_id, reward_id=reward_id
+                    user_id=user_id, reward_id=reward_id, idempotency_key=idempotency_key
                 )
                 result = {"success": success, "message": message, "orderId": order_id}
             elif reward_type == "subscription":
                 success, message, expires_at = points_service.redeem_subscription_reward(
-                    user_id=user_id, reward_id=reward_id
+                    user_id=user_id, reward_id=reward_id, idempotency_key=idempotency_key
                 )
                 result = {"success": success, "message": message, "expiresAt": expires_at}
             else:
@@ -992,18 +1009,32 @@ async def redeem_reward(request: Request, reward_id: int):
                     reward_type=reward_type,
                     reward_value=reward_value,
                     duration_days=reward_duration_days,
+                    idempotency_key=idempotency_key,
                 )
                 result = {"success": success, "message": message}
         except HTTPException as he:
+            # Business rejection (e.g. reward validation) — deterministic,
+            # safe to cache and replay on retry.
             _redeem_idem_store(cache_key, he.status_code, {"detail": he.detail})
             raise
         except Exception as e:
+            # Finding 7: an UNEXPECTED exception (network blip, DB hiccup,
+            # transient error) is NOT a deterministic outcome — the actual
+            # spend/no-spend state is unknown here (points_service already
+            # rolls its own transaction back on failure, but we can't prove
+            # that happened for every possible exception source). Caching a
+            # generic failure here would make a legitimate retry replay a
+            # stale "failed" response forever, even once the transient
+            # condition clears and the retry would actually have succeeded.
+            # Let it through uncached so retries actually retry.
             logger.error(f"Reward redemption crashed for user {user_id}, reward {reward_id}: {e}")
-            body = {"detail": "Redemption failed — your points were not spent."}
-            _redeem_idem_store(cache_key, 400, body)
-            raise HTTPException(status_code=400, detail=body["detail"])
+            raise HTTPException(
+                status_code=400, detail="Redemption failed — your points were not spent."
+            )
 
         if not result.get("success"):
+            # Business rejection (insufficient points, reward unavailable,
+            # etc.) — deterministic, safe to cache and replay on retry.
             body = {"detail": result.get("message") or "Redemption failed."}
             _redeem_idem_store(cache_key, 400, body)
             raise HTTPException(status_code=400, detail=body["detail"])

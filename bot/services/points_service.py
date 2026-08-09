@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from bot.models.user import User
@@ -406,6 +407,7 @@ class PointsService:
         reward_type: str,
         reward_value: str,
         duration_days: Optional[int] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Spend points on a reward.
@@ -415,59 +417,119 @@ class PointsService:
         time-bound rewards actually expire — otherwise ``get_active_fee_discount``
         treats a NULL ``expires_at`` as "never expires".
 
+        ``idempotency_key``, when provided, is stamped on the PointRedemption
+        row. A UNIQUE(user_id, idempotency_key) partial index (see
+        database/db.py `_add_point_redemption_idempotency_key`) makes a
+        retried call with the SAME key conflict at commit time instead of
+        double-charging points — caught below and replayed as the original
+        success (H6 durable guard; the in-process cache in mobile.py is the
+        fast path, this is the durable one that survives worker restarts).
+
         Returns:
             Tuple of (success, message)
         """
         if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
             return False, "That reward isn't available — partner redemptions aren't live yet."
 
-        with get_session() as session:
-            # H6 fix: lock the row for the lifetime of this transaction so two
-            # concurrent spend_points calls for the same user CANNOT both read
-            # the same current_points and both pass the balance check (double
-            # spend). See `_get_locked_points_account` for the full rationale
-            # — same no-guard pattern already used by community_service /
-            # battle_service / airdrop_campaign_service.
-            account = self._get_locked_points_account(session, user_id, create=False)
+        try:
+            with get_session() as session:
+                # H6 fix: lock the row for the lifetime of this transaction so two
+                # concurrent spend_points calls for the same user CANNOT both read
+                # the same current_points and both pass the balance check (double
+                # spend). See `_get_locked_points_account` for the full rationale
+                # — same no-guard pattern already used by community_service /
+                # battle_service / airdrop_campaign_service.
+                account = self._get_locked_points_account(session, user_id, create=False)
 
-            if not account:
-                return False, "No points account found"
+                if not account:
+                    return False, "No points account found"
 
-            if account.current_points < amount:
-                return False, f"Not enough points. You have {account.current_points}, need {amount}"
+                if account.current_points < amount:
+                    return (
+                        False,
+                        f"Not enough points. You have {account.current_points}, need {amount}",
+                    )
 
-            # Deduct points
-            account.current_points -= amount
-            account.points_spent += amount
+                # Deduct points
+                account.current_points -= amount
+                account.points_spent += amount
 
-            expires_at = None
-            if duration_days is not None:
-                expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
+                expires_at = None
+                if duration_days is not None:
+                    expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
 
-            # Record redemption
-            redemption = PointRedemption(
-                user_id=user_id,
-                points_spent=amount,
-                reward_type=reward_type,
-                reward_value=reward_value,
-                status="completed",
-                completed_at=datetime.now(timezone.utc),
-                expires_at=expires_at,
-            )
-            session.add(redemption)
+                # Record redemption
+                redemption = PointRedemption(
+                    user_id=user_id,
+                    points_spent=amount,
+                    reward_type=reward_type,
+                    reward_value=reward_value,
+                    status="completed",
+                    completed_at=datetime.now(timezone.utc),
+                    expires_at=expires_at,
+                    idempotency_key=idempotency_key,
+                )
+                session.add(redemption)
 
-            # Record transaction (negative)
-            tx = PointTransaction(
-                user_id=user_id,
-                amount=-amount,
-                action="redemption",
-                description=f"Redeemed: {reward_type}",
-                extra_data={"reward_type": reward_type, "reward_value": reward_value},
-            )
-            session.add(tx)
+                # Record transaction (negative)
+                tx = PointTransaction(
+                    user_id=user_id,
+                    amount=-amount,
+                    action="redemption",
+                    description=f"Redeemed: {reward_type}",
+                    extra_data={"reward_type": reward_type, "reward_value": reward_value},
+                )
+                session.add(tx)
+        except IntegrityError:
+            return self._replay_idempotent_redemption(user_id, idempotency_key, amount)
 
         logger.info(f"User {user_id} spent {amount} points on {reward_type}")
         return True, f"Successfully redeemed {reward_type}!"
+
+    def _replay_idempotent_redemption(
+        self, user_id: int, idempotency_key: Optional[str], expected_amount: Optional[int] = None
+    ) -> Tuple[bool, str]:
+        """Look up the original PointRedemption for a (user_id, idempotency_key)
+        that just conflicted on the durable UNIQUE index, and replay ITS
+        outcome instead of re-charging points.
+
+        A conflict with no key (idempotency_key is None — the index is
+        partial and never matches NULLs) is a genuine unexpected integrity
+        error, not a replay; surface it as a failure rather than mask it.
+        """
+        if not idempotency_key:
+            logger.error(
+                f"spend_points IntegrityError for user {user_id} with no idempotency_key "
+                "(not a replay) — surfacing as failure"
+            )
+            return False, "Redemption failed — your points were not spent."
+        try:
+            with get_session() as session:
+                existing = (
+                    session.query(PointRedemption)
+                    .filter(
+                        PointRedemption.user_id == user_id,
+                        PointRedemption.idempotency_key == idempotency_key,
+                    )
+                    .order_by(PointRedemption.id.desc())
+                    .first()
+                )
+        except Exception as e:
+            logger.error(f"Idempotent replay lookup failed for user {user_id}: {e}")
+            return False, "Redemption failed — your points were not spent."
+
+        if not existing:
+            # Should be unreachable (the conflict means a row with this key
+            # exists) but never fabricate a success if it somehow isn't there.
+            logger.error(
+                f"spend_points IntegrityError for user {user_id} key={idempotency_key} "
+                "but no matching row found on replay lookup"
+            )
+            return False, "Redemption failed — your points were not spent."
+
+        if existing.status == "completed":
+            return True, f"Successfully redeemed {existing.reward_type}! (replayed)"
+        return False, "Redemption failed — your points were not spent."
 
     # ------------------------------------------------------------------
     # Redemption EFFECTS (money path) — applied at swap time.
@@ -589,7 +651,7 @@ class PointsService:
             return 0.0
 
     def redeem_subscription_reward(
-        self, user_id: int, reward_id: int
+        self, user_id: int, reward_id: int, idempotency_key: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """Atomically redeem current_points for a subscription tier grant/extension.
 
@@ -691,6 +753,7 @@ class PointsService:
                         reward_value=reward_value,
                         status="completed",
                         completed_at=now,
+                        idempotency_key=idempotency_key,
                     )
                 )
                 session.add(
@@ -707,12 +770,18 @@ class PointsService:
                 f"User {user_id} redeemed {reward_cost} pts -> {granted_tier} until {expiry_iso}"
             )
             return True, f"{granted_tier} active until {expiry_iso}", expiry_iso
+        except IntegrityError:
+            # H6 durable replay: the retried INSERT conflicted on
+            # UNIQUE(user_id, idempotency_key) — replay the original outcome
+            # instead of surfacing a spurious failure or double-granting.
+            success, message = self._replay_idempotent_redemption(user_id, idempotency_key)
+            return success, message, None
         except Exception as e:
             logger.error(f"redeem_subscription_reward failed for user {user_id}: {e}")
             return False, "Redemption failed — your points were not spent.", None
 
     def redeem_marketplace_reward(
-        self, user_id: int, reward_id: int
+        self, user_id: int, reward_id: int, idempotency_key: Optional[str] = None
     ) -> Tuple[bool, str, Optional[int]]:
         """Atomically redeem points for an ASYNC marketplace reward (gift card, travel,
         merch, donation, experience).
@@ -791,6 +860,7 @@ class PointsService:
                     reward_value=reward_value,
                     status="completed",
                     completed_at=now,
+                    idempotency_key=idempotency_key,
                 )
                 session.add(redemption)
 
@@ -821,6 +891,10 @@ class PointsService:
                 order_id = order.id
 
                 # --- (4) call the provider ---
+                # TODO(redemption): move fulfill outside the debit txn — a slow/
+                # blocking provider.fulfill() call currently holds the points-debit
+                # row lock (and the whole DB transaction) open for its duration.
+                # Pre-existing behavior, out of scope for this fix.
                 try:
                     status, provider_ref, error = provider.fulfill(order, order.payload)
                 except Exception as pe:  # treat any provider crash as a failure -> refund
@@ -870,6 +944,12 @@ class PointsService:
                     f"(order {order_id}, {reward_cost} pts, reason={order.error})"
                 )
                 return False, refund_message, order_id
+        except IntegrityError:
+            # H6 durable replay: the retried INSERT/flush conflicted on
+            # UNIQUE(user_id, idempotency_key) — replay the original outcome
+            # instead of surfacing a spurious failure or double-fulfilling.
+            success, message = self._replay_idempotent_redemption(user_id, idempotency_key)
+            return success, message, None
         except Exception as e:
             # Any unexpected error rolls the whole transaction back (no debit persisted).
             logger.error(f"redeem_marketplace_reward failed for user {user_id}: {e}")

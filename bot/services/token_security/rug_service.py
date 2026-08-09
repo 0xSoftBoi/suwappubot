@@ -1,9 +1,26 @@
-"""Rug Protection Service for Solana."""
+"""Rug Protection Service for Solana.
 
+RESIDUAL RISK (documented, not fully closed here): this service is a
+SINGLE-SIGNAL detector — it arms a panic sell off one on-chain event (a
+verified Raydium liquidity-removal instruction that drained a large share of
+a pool it has independently observed for >= RUG_MIN_POOL_AGE_SECONDS, above a
+USD floor). It does not correlate across multiple independent signals (e.g.
+mint-authority renouncement status, holder concentration, deployer history,
+social/off-chain signals) the way a full rug-detection pipeline would. The
+hardening below (pool-age gating + a reduced panic-sell slippage cap) closes
+the specific "single transaction: create pool, seed it, drain it immediately"
+flash-loan-style forgery, and a below-floor decoy-pool forgery — but a
+patient attacker who seeds a pool, waits out RUG_MIN_POOL_AGE_SECONDS, and
+THEN drains it can still arm a sell off that one signal alone. A full
+multi-signal redesign is out of scope for this fix.
+"""
+
+import hashlib
 import logging
 import asyncio
 import functools
 import json
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import websockets
 
@@ -39,8 +56,8 @@ STABLE_MINTS = frozenset(
 # removed for a detected Raydium instruction to count as a real liquidity
 # rug (as opposed to dust or a tiny partial withdrawal). Deliberately
 # conservative: a false negative just means a user isn't auto-protected (they
-# can still sell manually); a false positive forces a 25%-slippage market
-# sell of a user's ENTIRE balance.
+# can still sell manually); a false positive forces a market sell (at
+# RUG_PANIC_SELL_SLIPPAGE_PCT slippage) of a user's ENTIRE balance.
 RUG_WITHDRAWAL_MIN_FRACTION = 0.5
 
 # --- B1 hardening -------------------------------------------------------
@@ -50,8 +67,8 @@ RUG_WITHDRAWAL_MIN_FRACTION = 0.5
 # adversarial path is: attacker buys a little of victim mint X, creates a
 # brand-new Raydium pool for (X, WSOL) seeded with a few dollars, and
 # immediately withdraws 100% of it in one tx -- every opted-in holder of X
-# then gets force-sold at 25% slippage over a signal that cost the attacker
-# pocket change to forge.
+# then gets force-sold (at RUG_PANIC_SELL_SLIPPAGE_PCT slippage) over a
+# signal that cost the attacker pocket change to forge.
 #
 # We can't price the victim mint X itself (that's the whole point of a rug
 # -- its "price" is whatever the attacker wants it to look like), but every
@@ -75,7 +92,8 @@ RUG_WITHDRAWAL_MIN_FRACTION = 0.5
 # RUG_WITHDRAWAL_MIN_FRACTION above): a small BUT genuine rug under this
 # floor is a false negative (user isn't auto-protected, can still sell
 # manually) -- strictly preferred over a false positive that forces a
-# 25%-slippage market sell of a user's entire balance over a $5 decoy.
+# market sell (at RUG_PANIC_SELL_SLIPPAGE_PCT slippage) of a user's entire
+# balance over a $5 decoy.
 RUG_MIN_DRAINED_NOTIONAL_USD = settings.rug_min_drained_notional_usd
 
 # --- C3 hardening -----------------------------------------------------------
@@ -87,6 +105,35 @@ RUG_MIN_DRAINED_NOTIONAL_USD = settings.rug_min_drained_notional_usd
 # automatic None.
 RUG_TX_FETCH_MAX_ATTEMPTS = 3
 RUG_TX_FETCH_RETRY_DELAY_SECONDS = 0.5
+
+# --- Flash-loan / single-tx forgery hardening ------------------------------
+# H3 review finding: a 25% panic-sell slippage cap combined with zero
+# pool-age requirement meant an attacker could, in ONE transaction (or a
+# handful of adjacent ones), create a fresh Raydium pool for victim mint X,
+# seed it just above RUG_MIN_DRAINED_NOTIONAL_USD, and immediately withdraw
+# 100% -- forging a "verified rug" the service had no prior knowledge of,
+# arming a forced sell of every opted-in holder's ENTIRE balance at up to 25%
+# slippage. Two independent changes close the single-tx variant:
+#
+#   1. RUG_PANIC_SELL_SLIPPAGE_PCT lowered 25% -> 8%. Still generous enough
+#      to fill against a genuinely draining pool, but caps the attacker's
+#      per-user extraction from a forged signal.
+#   2. Pool-age gate (RUG_MIN_POOL_AGE_SECONDS): a drain event only arms a
+#      sell if THIS service independently observed the pool (see
+#      `_pool_first_seen` / `_observe_pool_creation`) at least
+#      RUG_MIN_POOL_AGE_SECONDS before the drain. A pool created and drained
+#      within one transaction (or within the age window) was, by
+#      construction, never observed early enough and is skipped.
+RUG_PANIC_SELL_SLIPPAGE_PCT = 8.0
+
+# Cheap pre-filter for Raydium pool-CREATION logs (mirrors the withdraw/
+# removeLiquidity filter in _monitor_loop), used ONLY to opportunistically
+# stamp `_pool_first_seen` -- independent of, and always earlier than, any
+# drain event for the same pool. Raydium AMM v4's on-chain program logs its
+# init instruction as "... initialize2: InitializeInstruction2 { ... }".
+RUG_POOL_CREATE_LOG_MARKERS = ("initialize2",)
+
+RUG_MIN_POOL_AGE_SECONDS = settings.rug_min_pool_age_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +236,8 @@ def _ui_amount(entry: Optional[Dict[str, Any]]) -> float:
 def _log_b2_gap_once() -> None:
     logger.warning(
         "Rug Protection holder lookup (KNOWN GAP, B2): "
-        "SwapTransaction.to_token stores a token SYMBOL (String(20), "
-        "populated from quote.to_token), never a mint address, so "
+        "SwapTransaction.to_token stores a token SYMBOL for ordinary swaps "
+        "(populated from quote.to_token), never a mint address, so "
         "matching it against a real Solana mint (43-44 chars) cannot "
         "succeed in production. There is no mint/contract-address "
         "column on SwapTransaction to match against instead (adding "
@@ -221,6 +268,12 @@ class RugService:
             .replace("https://", "wss://")
             .replace("http://", "ws://")
         )
+        # Flash-loan hardening: pool_id -> first-seen monotonic timestamp.
+        # Populated by `_observe_pool_creation` (independent of, and always
+        # earlier than, any drain event for the same pool) and consulted by
+        # `_handle_potential_rug` before arming a sell. In-memory/per-process
+        # by design — see module docstring for the residual-risk note.
+        self._pool_first_seen: Dict[str, float] = {}
 
     async def start(self, swap_engine: SwapEngine):
         """Start the rug monitoring service."""
@@ -235,10 +288,59 @@ class RugService:
         if self._running:
             return
 
+        # H2 fix: hard-refuse to start (rather than start a silently-dead
+        # service) if the schema this money-path writes to still can't hold
+        # what it needs to write. Previously this service would happily
+        # start, detect a fully-verified rug, and then die on the
+        # SwapTransaction INSERT (from_token/to_token too narrow for a raw
+        # Solana mint) -- logging "started" while doing nothing on Postgres.
+        await run_in_db(self._check_schema_capability)
+
         self._running = True
         self._swap_engine = swap_engine
         self._ws_task = asyncio.create_task(self._monitor_loop())
         logger.info("Rug Protection Service started")
+
+    def _check_schema_capability(self) -> None:
+        """Raise RuntimeError if swap_transactions.from_token/to_token are too
+        narrow to hold a raw Solana mint address (43-44 base58 chars).
+
+        Postgres only -- SQLite ignores declared VARCHAR length so it cannot
+        have this gap (used in tests). Queries information_schema directly
+        (not the ORM) so this reflects the ACTUAL deployed column width,
+        regardless of whether `database/db.py`'s widening migration has run.
+        """
+        import database.db as db_module
+        from sqlalchemy import text
+
+        engine = db_module.engine
+        if engine is None or engine.dialect.name == "sqlite":
+            return
+
+        min_required = 64
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT column_name, character_maximum_length "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = 'swap_transactions' "
+                    "AND column_name IN ('from_token', 'to_token')"
+                )
+            ).fetchall()
+        widths = {row[0]: row[1] for row in rows}
+
+        for col in ("from_token", "to_token"):
+            width = widths.get(col)
+            if width is None or width < min_required:
+                raise RuntimeError(
+                    f"RugService refusing to start: swap_transactions.{col} is "
+                    f"{'missing' if width is None else f'VARCHAR({width})'}, but "
+                    f"panic-sell writes a raw Solana mint address and needs >= "
+                    f"VARCHAR({min_required}). Run the database migration "
+                    f"(_widen_swap_token_columns in database/db.py, applied "
+                    f"automatically via _ensure_schema on boot) before enabling "
+                    f"RUG_AUTO_SELL_ENABLED."
+                )
 
     async def stop(self):
         """Stop the monitoring service."""
@@ -281,6 +383,16 @@ class RugService:
                                 for log in logs
                             ):
                                 await self._handle_potential_rug(logs, signature)
+                            elif any(
+                                marker in log.lower()
+                                for log in logs
+                                for marker in RUG_POOL_CREATE_LOG_MARKERS
+                            ):
+                                # Pool-age hardening: opportunistically stamp
+                                # first-seen for a newly-created pool, entirely
+                                # decoupled from any drain event. See
+                                # `_observe_pool_creation`.
+                                await self._observe_pool_creation(signature)
 
             except Exception as e:
                 logger.error(f"Rug monitor loop error: {e}")
@@ -301,6 +413,26 @@ class RugService:
             )
             return
 
+        # 1b. Flash-loan hardening: only arm a sell if THIS service
+        # independently observed the pool (via `_observe_pool_creation`) at
+        # least RUG_MIN_POOL_AGE_SECONDS before this drain. A pool created
+        # and drained within the age window (including the single-tx
+        # variant, where the pool was never observed before its own drain
+        # tx) fails this check by construction. See module docstring for the
+        # residual-risk note — a patient attacker who waits out the window
+        # is not defeated by this alone.
+        first_seen = self._pool_first_seen.get(token_mint)
+        pool_age = (time.monotonic() - first_seen) if first_seen is not None else None
+        if pool_age is None or pool_age < RUG_MIN_POOL_AGE_SECONDS:
+            logger.warning(
+                f"Rug detection: pool for mint {token_mint} (tx {signature}) age="
+                f"{pool_age if pool_age is not None else 'unobserved'}s, below the "
+                f"{RUG_MIN_POOL_AGE_SECONDS}s minimum -- skipping to avoid arming a "
+                f"sell off a pool this service never independently observed "
+                f"(flash-loan / single-tx forgery hardening)"
+            )
+            return
+
         # 2. Find all users who hold this token AND have panic sell enabled
         users_to_protect = await self._get_users_holding_token(token_mint)
 
@@ -317,6 +449,55 @@ class RugService:
 
         if tasks:
             await asyncio.gather(*tasks)
+
+    async def _observe_pool_creation(self, signature: str) -> None:
+        """Pool-age hardening: opportunistically stamp `_pool_first_seen` for
+        a freshly-created Raydium pool, entirely decoupled from any drain
+        event -- this is what lets `_handle_potential_rug` require a pool to
+        have been observed BEFORE its own drain, rather than trusting the
+        drain tx's own claim about the pool.
+
+        Reuses the same fetch + executed-instruction verification as the
+        withdraw path (`_fetch_transaction` / `_verify_raydium_execution`),
+        but skips the magnitude/USD-floor checks entirely -- ANY verified
+        Raydium instruction execution here is evidence the pool/mint exists,
+        which is all this needs. Only ever SETS a timestamp if one isn't
+        already recorded (first-seen semantics — never overwritten later).
+        Best-effort: any failure is logged and swallowed, never raised, since
+        this is a background-learning path, not the money-path itself.
+        """
+        try:
+            session = await get_http_session()
+            tx_data = await self._fetch_transaction(session, signature)
+            if not tx_data:
+                return
+
+            verified = self._verify_raydium_execution(tx_data, signature)
+            if verified is None:
+                return
+            meta, account_keys, touched_accounts = verified
+
+            pre_balances = meta.get("preTokenBalances") or []
+            post_balances = meta.get("postTokenBalances") or []
+            mints = set()
+            for entry in pre_balances + post_balances:
+                idx = entry.get("accountIndex")
+                if idx is None or idx >= len(account_keys):
+                    continue
+                if account_keys[idx] not in touched_accounts:
+                    continue
+                mint = entry.get("mint")
+                if mint and mint != WSOL_MINT and mint not in STABLE_MINTS:
+                    mints.add(mint)
+
+            now = time.monotonic()
+            for mint in mints:
+                self._pool_first_seen.setdefault(mint, now)
+
+        except Exception as e:
+            logger.warning(
+                f"Rug detection: pool-creation observation failed for tx {signature}: {e}"
+            )
 
     async def _get_users_holding_token(self, token_mint: str) -> List[tuple]:
         """Find opted-in users with a completed swap into this token, paired
@@ -338,16 +519,18 @@ class RugService:
         multiple times.
 
         B2 — KNOWN NON-FUNCTIONAL GAP, NOT FIXED HERE: `SwapTransaction.to_token`
-        is a `String(20)` column populated from `quote.to_token`, which is a
-        token SYMBOL (e.g. "PEPE"), never a mint/contract address (see
-        swap_engine.py ~2662, `to_token` docstring "Destination token
-        symbol"). A Solana mint is 43-44 base58 characters, so
-        `SwapTransaction.to_token == token_mint` can only match a real mint
-        on a database that doesn't enforce the column's declared length —
-        i.e. SQLite (used in tests), never Postgres (used in production).
-        There is no mint/contract-address column on SwapTransaction to
-        join/filter on instead; adding one is a schema migration and out of
-        scope for this fix (migrations here are additive and deliberate, not
+        is populated from `quote.to_token`, which is a token SYMBOL
+        (e.g. "PEPE"), never a mint/contract address (see swap_engine.py
+        ~2662, `to_token` docstring "Destination token symbol"). This is a
+        SEMANTIC mismatch, not a column-width one (the column was widened to
+        VARCHAR(64) — see database/db.py `_widen_swap_token_columns` — to fix
+        a SEPARATE issue: this service's own panic-SELL write, which stores a
+        real mint address in from_token/to_token). A Solana mint is 43-44
+        base58 characters and just never equals a stored symbol like "PEPE",
+        on any database, regardless of column width. There is no
+        mint/contract-address column on SwapTransaction to join/filter on
+        instead; adding one is a further schema migration and out of scope
+        for this fix (migrations here are additive and deliberate, not
         invented ad hoc mid-fix). NET EFFECT: this holder lookup is currently
         a NO-OP against real trading data — `_handle_potential_rug` can
         detect a fully-verified rug and then find zero holders to protect,
@@ -437,7 +620,13 @@ class RugService:
                 to_token="SOL",
                 amount=balance,
                 from_address=wallet.address,
-                slippage=25.0,  # High slippage for panic sell (25%)
+                # H3 hardening: 25% -> 8%. A single forged/decoy drain signal
+                # (see RUG_PANIC_SELL_SLIPPAGE_PCT / module docstring) could
+                # previously force a fill at up to 25% below market on a
+                # user's ENTIRE balance; 8% is still generous enough to fill
+                # against a genuinely draining pool while capping the
+                # attacker's per-user extraction from a forged signal.
+                slippage=RUG_PANIC_SELL_SLIPPAGE_PCT,
             )
 
             # H1: idempotency key MUST be unique per (user, wallet, triggering
@@ -447,7 +636,14 @@ class RugService:
             # gather() call hit the same idempotency row in SwapEngine and
             # silently returned the FIRST user's SwapTransaction while logging
             # "success" for itself.
-            idempotency_key = f"panic_sell:{user_id}:{wallet_id}:{signature}"
+            #
+            # H5: hash the signature rather than embedding it raw. Bounds the
+            # key to a fixed, short length regardless of the RPC's signature
+            # encoding, comfortably inside SwapTransaction.idempotency_key's
+            # VARCHAR(128), and avoids putting a raw external identifier
+            # straight into a DB key.
+            sig_hash = hashlib.sha256(signature.encode()).hexdigest()[:32]
+            idempotency_key = f"panic_sell:{user_id}:{wallet_id}:{sig_hash}"
 
             # 3. Execute via the swap engine with URGENT priority
             await self._swap_engine.execute_swap(

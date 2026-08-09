@@ -697,6 +697,23 @@ class Settings(BaseSettings):
         ),
     )
 
+    # H3 hardening: flash-loan / single-tx forgery defense. A drain event only
+    # arms a panic sell if rug_service independently observed the pool (via a
+    # separate Raydium pool-creation log match, decoupled from the drain
+    # itself) at least this many seconds before the drain. See
+    # rug_service.RUG_MIN_POOL_AGE_SECONDS / module docstring for the full
+    # rationale and residual-risk note.
+    rug_min_pool_age_seconds: int = Field(
+        default=3600,
+        description=(
+            "Minimum seconds a Raydium pool must have been independently observed by "
+            "rug_service before a drain event on it is allowed to arm a panic sell. "
+            "Defeats the single-transaction 'create pool, seed it, drain it' forgery, "
+            "where the pool never existed in the service's own observation prior to "
+            "the drain."
+        ),
+    )
+
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
     # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
     hl_ws_alerts_enabled: bool = Field(

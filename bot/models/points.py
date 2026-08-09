@@ -210,6 +210,14 @@ class PointRedemption(Base):
     # Optional: expiry for temporary rewards
     expires_at = Column(DateTime, nullable=True)
 
+    # Durable replay guard (H6/MONEY-PATH): when set, a UNIQUE(user_id,
+    # idempotency_key) partial index (see database/db.py
+    # `_add_point_redemption_idempotency_key`) makes a retried redemption's
+    # INSERT conflict instead of double-charging points across a worker
+    # restart or multi-replica deploy. NULL for redemption paths that don't
+    # pass a key (index is partial, so NULLs are unaffected).
+    idempotency_key = Column(String(160), nullable=True)
+
 
 class Milestone(Base):
     """Defines achievement milestones users can unlock."""

@@ -930,10 +930,19 @@ async def post_init(application) -> None:
         logger.info("✓ Token launch detector started")
 
         # Start rug protection service (money-path auto-sell — gated off by
-        # default, see RUG_AUTO_SELL_ENABLED in bot/config/settings.py)
+        # default, see RUG_AUTO_SELL_ENABLED in bot/config/settings.py).
+        # H2: RugService.start() now hard-refuses (raises RuntimeError) if the
+        # DB schema it depends on isn't ready (e.g. swap_transactions.from_token/
+        # to_token not yet widened) rather than starting a silently-dead
+        # service. Caught here so a schema-gap on an opt-in feature doesn't
+        # take the whole bot boot down — it's logged as CRITICAL and the
+        # service simply doesn't run.
         if settings.rug_auto_sell_enabled:
-            await rug_service.start(swap_engine=SwapEngine())
-            logger.info("✓ Rug protection service started")
+            try:
+                await rug_service.start(swap_engine=SwapEngine())
+                logger.info("✓ Rug protection service started")
+            except RuntimeError as e:
+                logger.critical(f"✗ Rug protection service refused to start: {e}")
         else:
             logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
 
@@ -967,6 +976,13 @@ async def post_shutdown(application) -> None:
         await support_notifier.stop()
         await battle_monitor.stop()
 
+    # Finding 4: stop the rug protection service on shutdown too — same gate
+    # (rug_auto_sell_enabled) as the start call in post_init. `stop()` itself
+    # is safe to call even if start() never ran (or refused to start via the
+    # H2 schema-capability guard) — it's a no-op guard on `self._ws_task`.
+    if settings.rug_auto_sell_enabled:
+        await rug_service.stop()
+
     logger.info("Closing HTTP session pool...")
     await close_http_session()
 
@@ -988,7 +1004,10 @@ async def run_headless() -> None:
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     if settings.rug_auto_sell_enabled:
-        await rug_service.start(swap_engine=SwapEngine())
+        try:
+            await rug_service.start(swap_engine=SwapEngine())
+        except RuntimeError as e:
+            logger.critical(f"✗ Rug protection service refused to start: {e}")
     else:
         logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
     await battle_monitor.start(bot=None)

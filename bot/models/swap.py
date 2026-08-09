@@ -43,13 +43,22 @@ class SwapTransaction(Base):
 
     # Source details
     from_chain = Column(String(50), nullable=False)
-    from_token = Column(String(20), nullable=False)
+    # C1 fix: widened from String(20) -> String(64). This column carries a
+    # token SYMBOL in the common case ("SOL", "USDC") but rug_service's panic
+    # sell (a MONEY-PATH auto-sell) passes a raw base58 Solana MINT address
+    # (43-44 chars) as `from_token`/`to_token` — a String(20) column silently
+    # truncates on SQLite (tests) but raises psycopg2.errors.StringDataRightTruncation
+    # on Postgres (prod), so the panic sell's own SwapTransaction write dies
+    # before the sell can execute. 64 comfortably fits any real mint/symbol.
+    # See `database/db.py::_widen_swap_token_columns` for the additive,
+    # idempotent Postgres ALTER COLUMN migration.
+    from_token = Column(String(64), nullable=False)
     from_amount = Column(String(78), nullable=False)  # Store as string for precision
     from_amount_usd = Column(Float, nullable=True)
 
     # Destination details
     to_chain = Column(String(50), nullable=False)
-    to_token = Column(String(20), nullable=False)
+    to_token = Column(String(64), nullable=False)
     to_amount = Column(String(78), nullable=True)  # Estimated/actual amount out
     to_amount_usd = Column(Float, nullable=True)
 

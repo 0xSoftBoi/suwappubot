@@ -88,7 +88,9 @@ class TestRedeemDispatch:
 
         called = {}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             called["args"] = dict(
                 user_id=user_id, amount=amount, reward_type=reward_type, reward_value=reward_value
             )
@@ -115,7 +117,7 @@ class TestRedeemDispatch:
     def test_subscription_reward_uses_redeem_subscription_reward(self, sqlite_db, monkeypatch):
         _make_reward(2, reward_type="subscription", reward_value="pro")
 
-        def fake_redeem_subscription(*, user_id, reward_id):
+        def fake_redeem_subscription(*, user_id, reward_id, idempotency_key=None):
             assert user_id == 1
             assert reward_id == 2
             return True, "PRO active until 2026-08-01", "2026-08-01"
@@ -136,7 +138,7 @@ class TestRedeemDispatch:
     def test_marketplace_reward_uses_redeem_marketplace_reward(self, sqlite_db, monkeypatch):
         _make_reward(3, reward_type="merch", reward_value="hoodie", category="merch")
 
-        def fake_redeem_marketplace(*, user_id, reward_id):
+        def fake_redeem_marketplace(*, user_id, reward_id, idempotency_key=None):
             return True, "Test Reward is on its way — order #42.", 42
 
         monkeypatch.setattr(
@@ -169,7 +171,9 @@ class TestRedeemDispatch:
     def test_service_failure_surfaces_clean_message_not_raw_exception(self, sqlite_db, monkeypatch):
         _make_reward(5, reward_type="fee_discount")
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             return False, "Not enough points. You have 10, need 100."
 
         monkeypatch.setattr(
@@ -271,7 +275,9 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
@@ -298,7 +304,9 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
@@ -324,7 +332,9 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             call_count["n"] += 1
             return False, "Not enough points. You have 10, need 100."
 
@@ -360,7 +370,9 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
@@ -529,3 +541,136 @@ class TestGetPointsFieldMapping:
         body = r.json()
         assert body["canCheckin"] is False
         assert body["lastCheckinAt"] is not None
+
+
+class TestRedeemIsSyncNotAsync:
+    """H6: redeem_reward must be a plain `def`, not `async def`, so FastAPI
+    runs it in its threadpool and the `threading.Lock()` acquired inside is a
+    real OS-level lock (an `async def` would run the whole body, including
+    that blocking `with lock:`, directly on the event loop, stalling every
+    other user's request for its duration)."""
+
+    def test_redeem_reward_is_a_sync_def(self):
+        import inspect
+
+        assert not inspect.iscoroutinefunction(mobile_mod.redeem_reward)
+
+    def test_redeem_reward_still_works_via_testclient(self, sqlite_db, monkeypatch):
+        """Sanity: the endpoint still functions correctly as a sync def
+        dispatched through FastAPI's threadpool (TestClient exercises the
+        real ASGI dispatch, not a direct function call)."""
+        _make_reward(80, reward_type="fee_discount", reward_value="0.5")
+
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
+            return True, "Fee discount active."
+
+        monkeypatch.setattr(
+            "bot.services.points_service.points_service.spend_points", fake_spend_points
+        )
+
+        client = app_client()
+        r = client.post("/v1/mobile/points/rewards/80/redeem", headers=auth_headers())
+
+        assert r.status_code == 200
+        assert r.json()["success"] is True
+
+
+class TestRedeemNoCacheOnTransientFailure:
+    """Finding 7: an UNEXPECTED exception (transient/network/DB hiccup) must
+    NOT be cached — caching it would make a legitimate retry replay a stale
+    "failed" forever, even once the transient condition clears. Only
+    DETERMINISTIC outcomes (HTTPException business rejections, and
+    `result.get("success") is False`) are safe to cache and replay."""
+
+    def test_transient_crash_is_not_cached_and_retry_can_succeed(self, sqlite_db, monkeypatch):
+        _make_reward(90, reward_type="fee_discount", reward_value="0.5", cost=100)
+
+        call_count = {"n": 0}
+
+        def flaky_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ConnectionError("transient DB blip")
+            return True, "Fee discount active."
+
+        monkeypatch.setattr(
+            "bot.services.points_service.points_service.spend_points", flaky_spend_points
+        )
+
+        client = app_client()
+        headers = dict(auth_headers())
+        headers["Idempotency-Key"] = "transient-retry-key"
+
+        r1 = client.post("/v1/mobile/points/rewards/90/redeem", headers=headers)
+        assert r1.status_code == 400  # the transient crash still surfaces as a 400...
+
+        # ...but it must NOT have been cached: a retry with the SAME
+        # idempotency key must re-invoke the service (not replay the cached
+        # failure), and this time succeed.
+        r2 = client.post("/v1/mobile/points/rewards/90/redeem", headers=headers)
+        assert r2.status_code == 200
+        assert r2.json()["success"] is True
+        assert call_count["n"] == 2
+
+    def test_business_rejection_is_still_cached_and_replayed(self, sqlite_db, monkeypatch):
+        """Contrast case: a deterministic business rejection (not a crash)
+        MUST still be cached — this is the pre-existing H6 replay behavior,
+        unaffected by the finding-7 fix."""
+        _make_reward(91, reward_type="fee_discount", reward_value="0.5", cost=100)
+
+        call_count = {"n": 0}
+
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
+            call_count["n"] += 1
+            return False, "Not enough points. You have 10, need 100."
+
+        monkeypatch.setattr(
+            "bot.services.points_service.points_service.spend_points", fake_spend_points
+        )
+
+        client = app_client()
+        headers = dict(auth_headers())
+        headers["Idempotency-Key"] = "business-rejection-key"
+
+        r1 = client.post("/v1/mobile/points/rewards/91/redeem", headers=headers)
+        r2 = client.post("/v1/mobile/points/rewards/91/redeem", headers=headers)
+
+        assert r1.status_code == 400
+        assert r2.status_code == 400
+        assert r1.json() == r2.json()
+        assert call_count["n"] == 1  # replayed, NOT re-invoked
+
+
+class TestRedeemDurableIdempotencyKeyThreaded:
+    """H6 durable guard: the route must derive and pass an `idempotency_key`
+    through to points_service, so a retry that misses the in-process cache
+    (different worker/restart) still resolves at the DB unique-index layer."""
+
+    def test_idempotency_key_is_passed_to_spend_points(self, sqlite_db, monkeypatch):
+        _make_reward(92, reward_type="fee_discount", reward_value="0.5")
+
+        captured = {}
+
+        def fake_spend_points(
+            *, user_id, amount, reward_type, reward_value, duration_days=None, idempotency_key=None
+        ):
+            captured["idempotency_key"] = idempotency_key
+            return True, "Fee discount active."
+
+        monkeypatch.setattr(
+            "bot.services.points_service.points_service.spend_points", fake_spend_points
+        )
+
+        client = app_client()
+        r = client.post("/v1/mobile/points/rewards/92/redeem", headers=auth_headers())
+
+        assert r.status_code == 200
+        assert captured["idempotency_key"]
+        assert isinstance(captured["idempotency_key"], str)
+        assert len(captured["idempotency_key"]) <= 160

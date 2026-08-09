@@ -712,6 +712,88 @@ def _ensure_schema(db_engine) -> None:
     # --- Handle-reservation waitlist + referral leaderboard: waitlist_signups ---
     _create_waitlist_signups_table(db_engine, inspector, is_sqlite)
 
+    # --- swap_transactions: widen from_token/to_token for rug panic-sell mints ---
+    if "swap_transactions" in tables:
+        _widen_swap_token_columns(db_engine, inspector, is_sqlite)
+
+    # --- point_redemptions: idempotency_key for durable redeem-replay guard ---
+    if "point_redemptions" in tables:
+        _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
+
+
+def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
+
+    MONEY-PATH (rug panic sell): rug_service's auto-sell writes a raw base58
+    Solana mint address (43-44 chars) into from_token/to_token when selling an
+    unregistered/rugged token — the old VARCHAR(20) column raised
+    psycopg2.errors.StringDataRightTruncation on Postgres (INSERT), which killed
+    the panic-sell SwapTransaction write and, by extension, the whole sell.
+    SQLite ignores VARCHAR length so this was invisible in tests.
+
+    Additive + idempotent: ALTER COLUMN ... TYPE VARCHAR(64) is safe to widen
+    repeatedly (no-op once already >=64), and never truncates/loses existing
+    data since we're only growing the column. SQLite is skipped — same
+    "ignores VARCHAR length" reasoning as `_widen_totp_secret`.
+    """
+    if is_sqlite:
+        return
+    try:
+        cols = {c["name"]: c for c in inspector.get_columns("swap_transactions")}
+        for column in ("from_token", "to_token"):
+            if column not in cols:
+                continue
+            with db_engine.begin() as conn:
+                conn.execute(
+                    text(f"ALTER TABLE swap_transactions ALTER COLUMN {column} TYPE VARCHAR(64)")
+                )
+        logger.info("Widened swap_transactions.from_token/to_token to VARCHAR(64)")
+    except Exception as e:
+        logger.error("Could not widen swap_transactions.from_token/to_token to VARCHAR(64): %s", e)
+
+
+def _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add point_redemptions.idempotency_key + a partial UNIQUE(user_id, key) index.
+
+    MONEY-PATH: durable replay guard for `/v1/mobile/points/rewards/{id}/redeem`.
+    The route already has an in-process idempotency cache (mobile.py), which is
+    NOT durable across worker restarts / multi-replica deploys — a retry landing
+    on a different process re-invokes points_service and double-charges points
+    for a redemption whose first response merely dropped in transit. This DB-level
+    unique index makes a replayed INSERT conflict (IntegrityError) instead of
+    silently creating a second PointRedemption row, so the caller can catch the
+    conflict and return the original result.
+
+    Additive + idempotent: ADD COLUMN IF NOT EXISTS + CREATE UNIQUE INDEX IF NOT
+    EXISTS. Partial index (WHERE idempotency_key IS NOT NULL) so historical rows
+    and non-idempotent redemption paths (NULL key) are unaffected.
+    """
+    try:
+        cols = {c["name"] for c in inspector.get_columns("point_redemptions")}
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE point_redemptions ADD COLUMN idempotency_key VARCHAR(160)"
+            else:
+                ddl = (
+                    "ALTER TABLE point_redemptions "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(160)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        with db_engine.begin() as conn:
+            # Both SQLite (>=3.8) and Postgres support partial unique indexes.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_point_redemptions_user_idempotency_key "
+                    "ON point_redemptions(user_id, idempotency_key) "
+                    "WHERE idempotency_key IS NOT NULL"
+                )
+            )
+    except Exception as e:
+        logger.error("Could not add point_redemptions idempotency guard: %s", e)
+
 
 def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the waitlist_signups table (idempotent).
