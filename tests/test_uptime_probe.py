@@ -117,3 +117,45 @@ def test_endpoints_file_covers_every_public_service():
     # The two API services expose deep payloads and must be parsed, not just pinged.
     deep = {ep["name"] for ep in prod if ep.get("deep")}
     assert {"python-api", "api-ts"} <= deep
+
+
+def test_subsystem_breakdown_ignores_build_fingerprints():
+    """Fingerprints are hex digests, not health statuses.
+
+    api-ts's /health carries source_fingerprint at the top level (no "checks"
+    subtree), so the walker inspects it directly; before the META_KEYS fix the
+    probe flagged every healthy api-ts response as degraded and the scheduled
+    Health Check failed on every run.
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from status import subsystem_breakdown
+
+    api_ts = json.dumps(
+        {
+            "status": "ok",
+            "service": "suwappu-api-ts",
+            "version": "0.4.0",
+            "source_fingerprint": "24fbdff5aa77",
+            "timestamp": "2026-08-09T00:00:00Z",
+            "db": "connected",
+        }
+    )
+    assert subsystem_breakdown(api_ts) == []
+
+    # A genuinely unhealthy subsystem must still surface.
+    python_api = json.dumps(
+        {
+            "ready": True,
+            "source_fingerprint": "b4bd93e8ce07",
+            "worker_fingerprint": "unknown",
+            "checks": {
+                "database": "connected",
+                "background_services": {"tx_poller": "alive", "balance_refresher": "unknown"},
+            },
+        }
+    )
+    assert subsystem_breakdown(python_api) == [("background_services.balance_refresher", "unknown")]
