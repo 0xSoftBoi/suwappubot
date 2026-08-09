@@ -214,6 +214,13 @@ class ZeroXAPI:
         """
         if not fee_params:
             return  # no fee was requested; nothing to verify
+
+        def _amount_positive(value) -> bool:
+            try:
+                return float(value) > 0
+            except (TypeError, ValueError):
+                return False
+
         candidates = [data]
         if route:
             candidates.append(route)
@@ -222,13 +229,38 @@ class ZeroXAPI:
             if not isinstance(candidate, dict):
                 continue
             fees_obj = candidate.get("fees")
-            if isinstance(fees_obj, dict) and (
-                fees_obj.get("integratorFee") or fees_obj.get("integrator_fee")
-            ):
-                return
+            if isinstance(fees_obj, dict):
+                integrator_fee = fees_obj.get("integratorFee") or fees_obj.get("integrator_fee")
+                if isinstance(integrator_fee, dict):
+                    # {"amount": ..., "token": ..., "type": ...} shape --
+                    # require a positive amount when one is present so a
+                    # zero-amount echo isn't mistaken for a collected fee.
+                    amount = integrator_fee.get("amount")
+                    if amount is None or _amount_positive(amount):
+                        return
+                elif isinstance(integrator_fee, (int, float, str)):
+                    # Bare numeric/string amount rather than a nested
+                    # object -- still require it to be a positive amount.
+                    if _amount_positive(integrator_fee):
+                        return
+                elif integrator_fee:
+                    # Truthy non-numeric echo (e.g. a boolean flag or
+                    # nested structure we don't otherwise recognize).
+                    return
+            # Some responses report fees as a flat list instead of a
+            # `fees` object, e.g. feeCosts: [{"amount": "...", "type": ...}]
+            fee_costs = candidate.get("feeCosts") or candidate.get("fee_costs")
+            if isinstance(fee_costs, list):
+                for item in fee_costs:
+                    if isinstance(item, dict) and _amount_positive(item.get("amount")):
+                        return
             for key in ("swapFeeBps", "feeBps", "swapFeeRecipient", "feeRecipient"):
                 if candidate.get(key):
                     return
+        logger.error(
+            "ZEROX_FEE_NOT_ECHOED: 0x quote did not echo requested platform fee "
+            f"(feeBps={fee_params.get('feeBps')}, feeRecipient={fee_params.get('feeRecipient')})"
+        )
         raise ZeroXError(
             "0x quote did not echo the requested platform fee in its response "
             "-- refusing a fee-free quote when a fee was requested",

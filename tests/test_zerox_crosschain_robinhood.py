@@ -412,9 +412,13 @@ def test_multi_wallet_crosschain_execution_isolates_fresh_quote_ids():
 
 
 def test_poller_only_polls_confirming_for_0x_crosschain(tmp_db):
-    """A non-0x cross-chain route sitting in CONFIRMING must not be re-polled
-    through the plain origin-receipt path (which has no destination-fill
-    visibility and would falsely resolve it to COMPLETED)."""
+    """CONFIRMING re-polling stays scoped to 0x_crosschain: that's the only
+    provider whose SUBMITTED->CONFIRMING transition is legitimate (via its
+    dedicated destination-fill check). Other providers now resolve straight
+    from SUBMITTED to COMPLETED on a mined receipt (see
+    test_evm_receipt_fallback_refuses_completed_for_cross_chain), so they
+    should never legitimately be sitting in CONFIRMING in the first place;
+    this only guards against a stray/legacy row."""
     from bot.models.swap import SwapTransaction
     from bot.models.user import User
     from database.db import get_session as get_db_session
@@ -467,9 +471,15 @@ def test_poller_only_polls_confirming_for_0x_crosschain(tmp_db):
 
 
 def test_evm_receipt_fallback_refuses_completed_for_cross_chain():
-    """Defense in depth: even if a cross-chain route reaches the generic
-    origin-receipt checker, a mined origin tx alone must never resolve to
-    COMPLETED -- only CONFIRMING (or FAILED on an actual revert)."""
+    """The generic origin-receipt checker's "stay CONFIRMING on a mined
+    receipt" refusal is scoped to route_provider == "0x_crosschain" only --
+    that's the only provider with a real destination-fill status check
+    elsewhere. Any other provider (e.g. "across", or no provider at all)
+    must keep the legacy behavior of completing on a mined receipt, since
+    the poller only re-queries CONFIRMING rows for 0x_crosschain (see
+    test_poller_only_polls_confirming_for_0x_crosschain) -- refusing
+    completion for other providers here would strand them in CONFIRMING
+    forever with no path back to being re-checked."""
     poller = TransactionPoller()
 
     class FakeResponse:
@@ -492,15 +502,60 @@ def test_evm_receipt_fallback_refuses_completed_for_cross_chain():
         return FakeHttpSession()
 
     with patch("bot.services.tx_poller.get_session", new=fake_get_session):
-        cross_chain_status = asyncio.run(
-            poller._check_evm_tx("0xhash", "https://rpc.example", is_cross_chain=True)
+        zerox_crosschain_status = asyncio.run(
+            poller._check_evm_tx("0xhash", "https://rpc.example", provider="0x_crosschain")
         )
-        same_chain_status = asyncio.run(
-            poller._check_evm_tx("0xhash", "https://rpc.example", is_cross_chain=False)
+        across_status = asyncio.run(
+            poller._check_evm_tx("0xhash", "https://rpc.example", provider="across")
+        )
+        no_provider_status = asyncio.run(
+            poller._check_evm_tx("0xhash", "https://rpc.example", provider=None)
         )
 
-    assert cross_chain_status == SwapStatus.CONFIRMING.value
-    assert same_chain_status == SwapStatus.COMPLETED.value
+    assert zerox_crosschain_status == SwapStatus.CONFIRMING.value
+    assert across_status == SwapStatus.COMPLETED.value
+    assert no_provider_status == SwapStatus.COMPLETED.value
+
+
+def test_check_tx_status_dict_completes_non_zerox_cross_chain_provider_on_mined_receipt():
+    """Regression for the CONFIRMING black hole: an "across" cross-chain tx
+    must resolve straight to COMPLETED from SUBMITTED (via the generic EVM
+    branch of _check_tx_status_dict), not get stuck non-terminally in
+    CONFIRMING where it would never be re-polled again."""
+    poller = TransactionPoller()
+
+    class FakeResponse:
+        status = 200
+
+        async def json(self):
+            return {"result": {"status": "0x1"}}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeHttpSession:
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    async def fake_get_session():
+        return FakeHttpSession()
+
+    tx_dict = {
+        "id": 99,
+        "tx_hash": "0xacross",
+        "from_chain": "base",
+        "to_chain": "arbitrum",
+        "route_provider": "across",
+    }
+
+    with patch("bot.services.tx_poller.get_session", new=fake_get_session):
+        status, dest_hash = asyncio.run(poller._check_tx_status_dict(tx_dict))
+
+    assert status == SwapStatus.COMPLETED.value
+    assert dest_hash is None
 
 
 # --- Money-path review fix #2: execution must not silently redirect funds --
@@ -754,9 +809,17 @@ def test_assert_fresh_min_out_allows_synthetic_approved_against_real_fresh():
 
 # --- Money-path review fix #7: an unresolved 0x status must eventually -----
 # --- fail closed instead of polling CONFIRMING forever ----------------------
+# --- Round-2 fix: this bound is TIME-based (created_at), not a consecutive- -
+# --- poll counter -- a brief API blip must not burn through a counter and --
+# --- irreversibly FAIL a swap that was actually fine. ----------------------
 
 
-def test_poller_fails_zerox_crosschain_after_too_many_unresolved_checks(tmp_db):
+def test_poller_fails_zerox_crosschain_after_time_bound_exceeded(tmp_db):
+    """A 0x Cross-Chain row unresolved for longer than
+    ZEROX_UNRESOLVED_FAIL_AFTER (created_at-based) is marked FAILED, even on
+    a single poll -- this must not depend on a consecutive-poll count."""
+    from datetime import datetime, timedelta, timezone
+
     from bot.models.swap import SwapTransaction
     from bot.models.user import User
     from database.db import get_session as get_db_session
@@ -776,7 +839,8 @@ def test_poller_fails_zerox_crosschain_after_too_many_unresolved_checks(tmp_db):
             status=SwapStatus.CONFIRMING.value,
             tx_hash="0xorigin",
             route_provider="0x_crosschain",
-            route_data=json.dumps({"quote_id": "0xquote-robinhood", "zerox_unknown_count": 19}),
+            route_data=json.dumps({"quote_id": "0xquote-robinhood"}),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=3),
         )
         session.add(tx)
         session.commit()
@@ -786,7 +850,7 @@ def test_poller_fails_zerox_crosschain_after_too_many_unresolved_checks(tmp_db):
     poller._zerox = MagicMock()
     poller._zerox.get_cross_chain_status = AsyncMock(side_effect=RuntimeError("0x API down"))
 
-    async def fake_check_evm_tx(tx_hash, rpc_url, is_cross_chain=False):
+    async def fake_check_evm_tx(tx_hash, rpc_url, provider=None):
         return SwapStatus.SUBMITTED.value  # origin still not mined; not a revert
 
     poller._check_evm_tx = fake_check_evm_tx
@@ -796,3 +860,124 @@ def test_poller_fails_zerox_crosschain_after_too_many_unresolved_checks(tmp_db):
     with get_db_session() as session:
         stored = session.get(SwapTransaction, tx_id)
         assert stored.status == SwapStatus.FAILED.value
+
+
+def test_poller_keeps_zerox_crosschain_confirming_within_time_bound(tmp_db):
+    """A single unresolved poll (or many, in a short window) must NOT fail
+    the swap as long as it's within the time bound -- this is the fix for
+    the old counter being too aggressive (20 fast polls could previously
+    exhaust it in minutes)."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.models.swap import SwapTransaction
+    from bot.models.user import User
+    from database.db import get_session as get_db_session
+
+    with get_db_session() as session:
+        user = User(telegram_id=760003)
+        session.add(user)
+        session.flush()
+        tx = SwapTransaction(
+            user_id=user.id,
+            from_chain="base",
+            from_token="USDC",
+            from_amount="1000000",
+            to_chain="robinhood",
+            to_token="FRONG",
+            to_amount="1000000000000000000",
+            status=SwapStatus.CONFIRMING.value,
+            tx_hash="0xorigin",
+            route_provider="0x_crosschain",
+            route_data=json.dumps({"quote_id": "0xquote-robinhood"}),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        )
+        session.add(tx)
+        session.commit()
+        tx_id = tx.id
+
+    poller = TransactionPoller()
+    poller._zerox = MagicMock()
+    poller._zerox.get_cross_chain_status = AsyncMock(side_effect=RuntimeError("0x API down"))
+
+    async def fake_check_evm_tx(tx_hash, rpc_url, provider=None):
+        return SwapStatus.SUBMITTED.value
+
+    poller._check_evm_tx = fake_check_evm_tx
+
+    # Poll many times in quick succession -- must not accumulate toward FAILED.
+    for _ in range(25):
+        asyncio.run(poller._check_pending_transactions())
+
+    with get_db_session() as session:
+        stored = session.get(SwapTransaction, tx_id)
+        assert stored.status == SwapStatus.CONFIRMING.value
+
+
+def test_manual_refresh_does_not_mutate_route_data_or_use_poll_counter():
+    """swap_engine.check_status (the user-triggered manual refresh) must be
+    side-effect-free on route_data -- it should never touch the automated
+    poller's own bookkeeping. It resolves via the same time bound but reads
+    swap_tx.created_at directly instead of writing anything."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.services.swap_engine import SwapEngine
+    from bot.models.swap import SwapTransaction
+
+    engine = SwapEngine.__new__(SwapEngine)
+    engine._check_evm_tx_status = AsyncMock(return_value=SwapStatus.SUBMITTED.value)
+
+    swap_tx = SwapTransaction(
+        id=1,
+        user_id=1,
+        from_chain="base",
+        from_token="USDC",
+        from_amount="1000000",
+        to_chain="robinhood",
+        to_token="FRONG",
+        to_amount="1000000000000000000",
+        status=SwapStatus.CONFIRMING.value,
+        tx_hash="0xorigin",
+        route_provider="0x_crosschain",
+        route_data=json.dumps({"quote_id": "0xquote-robinhood"}),
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+
+    route_data = json.loads(swap_tx.route_data)
+    status = asyncio.run(engine._resolve_0x_cross_chain_unknown(swap_tx, route_data))
+
+    assert status == SwapStatus.CONFIRMING.value
+    # No counter/timestamp key was ever written by the manual path.
+    assert json.loads(swap_tx.route_data) == {"quote_id": "0xquote-robinhood"}
+
+
+def test_manual_refresh_fails_after_same_time_bound_as_automated_poller():
+    """The manual refresh path agrees with the automated poller's bound:
+    reads swap_tx.created_at, no DB write required to reach the decision."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.services.swap_engine import SwapEngine
+    from bot.models.swap import SwapTransaction
+
+    engine = SwapEngine.__new__(SwapEngine)
+    engine._check_evm_tx_status = AsyncMock(return_value=SwapStatus.SUBMITTED.value)
+
+    swap_tx = SwapTransaction(
+        id=2,
+        user_id=1,
+        from_chain="base",
+        from_token="USDC",
+        from_amount="1000000",
+        to_chain="robinhood",
+        to_token="FRONG",
+        to_amount="1000000000000000000",
+        status=SwapStatus.CONFIRMING.value,
+        tx_hash="0xorigin",
+        route_provider="0x_crosschain",
+        route_data=json.dumps({"quote_id": "0xquote-robinhood"}),
+        created_at=datetime.now(timezone.utc) - timedelta(hours=3),
+    )
+
+    route_data = json.loads(swap_tx.route_data)
+    status = asyncio.run(engine._resolve_0x_cross_chain_unknown(swap_tx, route_data))
+
+    assert status == SwapStatus.FAILED.value

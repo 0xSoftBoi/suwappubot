@@ -22,7 +22,7 @@ import json
 import logging
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from web3 import Web3
 import aiohttp
 import base64
@@ -4028,9 +4028,21 @@ class SwapEngine:
                             db_tx.tx_hash = tx_hash
                             db_tx.status = SwapStatus.SUBMITTED.value
                             if quote.provider == "0x_crosschain":
-                                db_tx.route_data = json.dumps(
-                                    {"quote_id": quote.raw_quote.get("quote_id")}
-                                )
+                                # Merge into the existing route_data instead
+                                # of replacing it wholesale -- it may already
+                                # carry intended_nonce (and other keys) from
+                                # _persist_0x_crosschain_route_data, written
+                                # BEFORE broadcast so it survives even if the
+                                # process dies before this write runs. A
+                                # bare replace here would silently drop that.
+                                # TODO(recovery): reconcile FAILED 0x-crosschain
+                                # rows with intended_nonce and no tx_hash.
+                                try:
+                                    existing = json.loads(db_tx.route_data or "{}")
+                                except (TypeError, ValueError, json.JSONDecodeError):
+                                    existing = {}
+                                existing["quote_id"] = quote.raw_quote.get("quote_id")
+                                db_tx.route_data = json.dumps(existing)
 
                 await run_in_db(_update_tx_hash)
 
@@ -6842,6 +6854,34 @@ class SwapEngine:
         sender = Web3.to_checksum_address(sender_address)
         tx_to = Web3.to_checksum_address(tx_data.get("to", ""))
 
+        provider_gas_price = _parse_int(tx_data.get("gasPrice"), 0)
+        if provider_gas_price <= 0:
+            # 0x didn't return a gas price -- buffer the live RPC snapshot by
+            # 1.3x so a stale/too-low read doesn't leave the origin leg of a
+            # multi-step cross-chain route stuck unconfirmed while the rest
+            # of the quote's validity window (min-out, bridge liquidity)
+            # ticks away underneath it.
+            live_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            provider_gas_price = int(live_gas_price * 1.3)
+
+        # Fail closed (before signing ANYTHING, including the approval tx)
+        # if the wallet can't actually cover value + gas at the quote's own
+        # gas estimate. Checking this only after the approval already
+        # broadcast (the previous behavior) can leave the approval tx
+        # already spent with no swap to show for it -- an irreversible
+        # partial state for no benefit. This uses the quote's own gas
+        # estimate, not a fully-assembled tx (nonce is irrelevant to
+        # affordability), so it can run before any signing happens.
+        required_wei = _parse_int(tx_data.get("value"), 0) + (
+            _parse_int(tx_data.get("gas"), 500000) * provider_gas_price
+        )
+        native_balance = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
+        if native_balance < required_wei:
+            raise SwapError(
+                "Insufficient native balance to cover 0x Cross-Chain gas: have "
+                f"{native_balance}, need {required_wei}"
+            )
+
         # Cross-Chain uses the same 0x AllowanceHolder model as Swap API.
         # The approval spender comes from issues.allowance.spender and MUST NOT
         # be inferred from transaction.to (the execution target can differ).
@@ -6935,15 +6975,6 @@ class SwapEngine:
                     )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-        provider_gas_price = _parse_int(tx_data.get("gasPrice"), 0)
-        if provider_gas_price <= 0:
-            # 0x didn't return a gas price -- buffer the live RPC snapshot by
-            # 1.3x so a stale/too-low read doesn't leave the origin leg of a
-            # multi-step cross-chain route stuck unconfirmed while the rest
-            # of the quote's validity window (min-out, bridge liquidity)
-            # ticks away underneath it.
-            live_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
-            provider_gas_price = int(live_gas_price * 1.3)
         tx = {
             "to": tx_to,
             "data": tx_data.get("data", ""),
@@ -6953,19 +6984,6 @@ class SwapEngine:
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
-
-        # Fail closed (before signing) if the wallet can't actually cover
-        # value + gas at the price we're about to sign for -- a mid-flight
-        # "insufficient funds" RPC rejection here is worse than aborting
-        # early: it can leave the approval tx already spent with no swap to
-        # show for it.
-        required_wei = tx["value"] + tx["gas"] * tx["gasPrice"]
-        native_balance = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
-        if native_balance < required_wei:
-            raise SwapError(
-                "Insufficient native balance to cover 0x Cross-Chain gas: have "
-                f"{native_balance}, need {required_wei}"
-            )
 
         # Persist the fresh quote_id + intended nonce BEFORE broadcasting.
         # See _persist_0x_crosschain_route_data docstring for why this must
@@ -7448,15 +7466,24 @@ class SwapEngine:
             logger.error(f"0x Cross-Chain status check failed for {swap_tx.tx_hash}: {e}")
             return await self._resolve_0x_cross_chain_unknown(swap_tx, route_data)
 
+    # Keep this bound identical to the automated poller's
+    # (tx_poller.TransactionPoller.ZEROX_UNRESOLVED_FAIL_AFTER) so a manual
+    # refresh and the background poller agree on when a swap is stuck.
+    ZEROX_UNRESOLVED_FAIL_AFTER = timedelta(hours=2)
+
     async def _resolve_0x_cross_chain_unknown(
         self, swap_tx: SwapTransaction, route_data: dict
     ) -> str:
         """0x's status API errored or returned an unrecognized status.
 
         A reverted origin tx is a definitive FAILED regardless of what the
-        status API said. Otherwise, count consecutive unresolved checks in
-        route_data and fail closed after too many in a row instead of
-        polling CONFIRMING forever.
+        status API said. Otherwise this is a read-only, time-based check
+        against the row's created_at -- NOT a consecutive-poll counter. This
+        method backs the *manual* refresh path (user-triggered "check
+        status"), so it must be side-effect-free with respect to the
+        automated poller's own bookkeeping: a user mashing refresh must
+        never move a swap closer to FAILED than the automated poller would
+        on its own, and must never write to route_data here.
         """
         try:
             origin_receipt_status = await self._check_evm_tx_status(swap_tx)
@@ -7465,30 +7492,17 @@ class SwapEngine:
         except Exception as receipt_err:
             logger.debug(f"0x Cross-Chain origin receipt fallback failed: {receipt_err}")
 
-        count = int(route_data.get("zerox_unknown_count", 0)) + 1
-        exceeded = count >= 20
+        created_at = swap_tx.created_at
+        if created_at is None:
+            return SwapStatus.CONFIRMING.value
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
 
-        def _persist_count():
-            with get_session() as session:
-                tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_tx.id).first()
-                if not tx:
-                    return
-                try:
-                    data = json.loads(tx.route_data or "{}")
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    data = dict(route_data)
-                data["zerox_unknown_count"] = count
-                tx.route_data = json.dumps(data)
-
-        try:
-            await run_in_db(_persist_count)
-        except Exception as persist_err:
-            logger.debug(f"Failed to persist 0x unresolved-status counter: {persist_err}")
-
-        if exceeded:
+        elapsed = datetime.now(timezone.utc) - created_at
+        if elapsed >= self.ZEROX_UNRESOLVED_FAIL_AFTER:
             logger.warning(
-                f"0x Cross-Chain tx {swap_tx.id} exceeded 20 consecutive unresolved "
-                "status checks; marking FAILED."
+                f"0x Cross-Chain tx {swap_tx.id} unresolved for {elapsed} "
+                f"(bound {self.ZEROX_UNRESOLVED_FAIL_AFTER}); marking FAILED."
             )
             return SwapStatus.FAILED.value
         return SwapStatus.CONFIRMING.value

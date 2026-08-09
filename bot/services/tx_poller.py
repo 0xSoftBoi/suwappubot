@@ -289,8 +289,20 @@ class TransactionPoller:
 
         if chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
-            is_cross_chain = tx_dict["from_chain"] != tx_dict["to_chain"]
-            status = await self._check_evm_tx(tx_hash, rpc_url, is_cross_chain=is_cross_chain)
+            # The "stay CONFIRMING on a mined origin receipt" refusal below
+            # only applies to the 0x Cross-Chain provider (handled via its
+            # own get_cross_chain_status path elsewhere, or its unresolved-
+            # status fallback). This generic branch never sees provider ==
+            # "0x_crosschain" (that's routed away above), so a mined receipt
+            # here means a real same-provider completion -- restoring the
+            # legacy pre-PR behavior for providers like "across" that have
+            # no dedicated destination-fill check and would otherwise get
+            # stuck in CONFIRMING forever (excluded from re-polling once
+            # there, since the poller only re-queries CONFIRMING rows for
+            # route_provider == "0x_crosschain").
+            status = await self._check_evm_tx(
+                tx_hash, rpc_url, provider=tx_dict.get("route_provider")
+            )
             return status, None
         elif chain.chain_type == ChainType.SOLANA:
             status = await self._check_solana_tx(tx_hash)
@@ -325,10 +337,13 @@ class TransactionPoller:
             logger.error(f"Li.Fi status check error: {e}")
             return None, None
 
-    # After this many consecutive polls where the 0x status API errors or
-    # returns an unrecognized status, give up and mark the swap FAILED
-    # rather than polling CONFIRMING forever with no path to resolution.
-    ZEROX_MAX_CONSECUTIVE_UNKNOWN = 20
+    # A consecutive-poll counter is too aggressive and irreversible -- a
+    # short 0x API blip could burn through it in minutes at the poller's
+    # interval and permanently FAIL a swap that was actually fine. Instead,
+    # only give up on a genuinely stuck 0x Cross-Chain swap once it has been
+    # unresolved (no destination fill, no revert) for this long in wall-clock
+    # time, bounded by the row's created_at.
+    ZEROX_UNRESOLVED_FAIL_AFTER = timedelta(hours=2)
 
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict
@@ -371,8 +386,10 @@ class TransactionPoller:
 
             if provider_status in ("origin_tx_pending", "origin_tx_confirmed", "bridge_pending"):
                 # Known non-terminal states: the provider is actively
-                # reporting progress, so reset the unknown-response counter.
-                await self._reset_zerox_unknown_count(tx_dict, route_data)
+                # reporting progress, so clear any recorded first-unknown
+                # timestamp (only relevant as a fallback when created_at is
+                # unavailable -- see _handle_zerox_status_unresolved).
+                await self._reset_zerox_first_unknown_at(tx_dict, route_data)
                 return SwapStatus.CONFIRMING.value, None
 
             # provider_status missing or not one of the recognized values
@@ -395,32 +412,60 @@ class TransactionPoller:
         """0x's status API errored or returned an unrecognized status.
 
         Falls back to an origin-chain receipt check: a reverted origin tx is
-        a definitive FAILED regardless of what the status API says. If the
-        origin tx is fine (or not yet mined), count the consecutive
-        unresolved polls in route_data and fail the swap after too many in a
-        row instead of polling CONFIRMING forever.
+        a definitive FAILED regardless of what the status API says. Otherwise
+        this must NOT fail closed on a short run of unresolved polls -- a
+        brief 0x API blip could burn through a consecutive-poll counter in
+        minutes and irreversibly FAIL a swap that was actually fine. Instead,
+        only mark FAILED once the row has been unresolved for longer than
+        ZEROX_UNRESOLVED_FAIL_AFTER in wall-clock time, bounded by the row's
+        created_at (or a first-unknown-at fallback if created_at is somehow
+        unavailable).
         """
         chain = get_chain_by_name(tx_dict["from_chain"])
         if chain and chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
             receipt_status = await self._check_evm_tx(
-                tx_dict["tx_hash"], rpc_url, is_cross_chain=True
+                tx_dict["tx_hash"], rpc_url, provider="0x_crosschain"
             )
             if receipt_status == SwapStatus.FAILED.value:
                 return SwapStatus.FAILED.value, None
 
-        count = await self._bump_zerox_unknown_count(tx_dict, route_data)
-        if count >= self.ZEROX_MAX_CONSECUTIVE_UNKNOWN:
+        started_at = tx_dict.get("created_at")
+        if started_at is not None:
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+        else:
+            started_at = await self._get_or_set_zerox_first_unknown_at(tx_dict, route_data)
+
+        if started_at is None:
+            # No timing evidence at all -- stay CONFIRMING rather than
+            # failing a swap we can't actually measure the age of.
+            return SwapStatus.CONFIRMING.value, None
+
+        elapsed = datetime.now(timezone.utc) - started_at
+        if elapsed >= self.ZEROX_UNRESOLVED_FAIL_AFTER:
             logger.warning(
-                f"0x Cross-Chain tx {tx_dict.get('id')} exceeded "
-                f"{self.ZEROX_MAX_CONSECUTIVE_UNKNOWN} consecutive unresolved status "
-                "checks; marking FAILED."
+                f"0x Cross-Chain tx {tx_dict.get('id')} unresolved for {elapsed} "
+                f"(bound {self.ZEROX_UNRESOLVED_FAIL_AFTER}); marking FAILED."
             )
             return SwapStatus.FAILED.value, None
         return SwapStatus.CONFIRMING.value, None
 
-    async def _bump_zerox_unknown_count(self, tx_dict: dict, route_data: dict) -> int:
-        """Increment and persist the consecutive-unresolved-status counter."""
+    async def _get_or_set_zerox_first_unknown_at(
+        self, tx_dict: dict, route_data: dict
+    ) -> Optional[datetime]:
+        """Read (or lazily persist) the first-unresolved timestamp.
+
+        Only used as a fallback when the row's created_at is unavailable.
+        """
+        raw = route_data.get("zerox_first_unknown_at")
+        if raw:
+            try:
+                return datetime.fromisoformat(raw)
+            except ValueError:
+                pass
+
+        now = datetime.now(timezone.utc)
         try:
             with get_db_session() as session:
                 tx = (
@@ -429,23 +474,27 @@ class TransactionPoller:
                     .first()
                 )
                 if not tx:
-                    return 0
+                    return now
                 try:
                     data = json.loads(tx.route_data or "{}")
                 except (TypeError, ValueError, json.JSONDecodeError):
                     data = dict(route_data)
-                count = int(data.get("zerox_unknown_count", 0)) + 1
-                data["zerox_unknown_count"] = count
+                if data.get("zerox_first_unknown_at"):
+                    try:
+                        return datetime.fromisoformat(data["zerox_first_unknown_at"])
+                    except ValueError:
+                        pass
+                data["zerox_first_unknown_at"] = now.isoformat()
                 tx.route_data = json.dumps(data)
                 session.commit()
-                return count
+                return now
         except Exception as e:
-            logger.error(f"Failed to persist 0x unresolved-status counter: {e}")
-            return 0
+            logger.error(f"Failed to persist 0x first-unknown-at fallback: {e}")
+            return now
 
-    async def _reset_zerox_unknown_count(self, tx_dict: dict, route_data: dict) -> None:
-        """Clear the counter once the provider reports real progress again."""
-        if not route_data.get("zerox_unknown_count"):
+    async def _reset_zerox_first_unknown_at(self, tx_dict: dict, route_data: dict) -> None:
+        """Clear the first-unknown-at fallback once the provider reports real progress again."""
+        if not route_data.get("zerox_first_unknown_at"):
             return
         try:
             with get_db_session() as session:
@@ -460,12 +509,12 @@ class TransactionPoller:
                     data = json.loads(tx.route_data or "{}")
                 except (TypeError, ValueError, json.JSONDecodeError):
                     data = dict(route_data)
-                if data.get("zerox_unknown_count"):
-                    data["zerox_unknown_count"] = 0
+                if data.get("zerox_first_unknown_at"):
+                    data.pop("zerox_first_unknown_at", None)
                     tx.route_data = json.dumps(data)
                     session.commit()
         except Exception as e:
-            logger.error(f"Failed to reset 0x unresolved-status counter: {e}")
+            logger.error(f"Failed to reset 0x first-unknown-at fallback: {e}")
 
     async def _check_tx_status(self, tx: SwapTransaction) -> Optional[str]:
         """Check transaction status on chain (legacy ORM-object interface)."""
@@ -480,18 +529,29 @@ class TransactionPoller:
         status, _ = await self._check_tx_status_dict(tx_dict)
         return status
 
+    # Providers with their own destination-fill status check (i.e. a mined
+    # origin receipt is NOT proof the whole route is done). Only these
+    # providers get the "stay CONFIRMING on 0x1" refusal below; every other
+    # provider (including ones with no dedicated cross-chain status check,
+    # e.g. "across") keeps the legacy behavior of completing on a mined
+    # receipt, since there is no other path that will ever resolve them.
+    _PROVIDERS_WITH_DEST_FILL_CHECK = frozenset({"0x_crosschain"})
+
     async def _check_evm_tx(
-        self, tx_hash: str, rpc_url: str, is_cross_chain: bool = False
+        self, tx_hash: str, rpc_url: str, provider: Optional[str] = None
     ) -> Optional[str]:
         """Check EVM transaction status.
 
-        `is_cross_chain` guards against treating a mined *origin* receipt as
-        proof the whole route is done: a cross-chain swap is only COMPLETED
-        once the destination-chain provider confirms the fill, so this plain
-        origin-receipt check must never itself resolve to COMPLETED for a
-        cross-chain route — only report it as still confirming (or FAILED if
-        the origin leg itself reverted).
+        `provider` guards against treating a mined *origin* receipt as proof
+        the whole route is done for providers that have their own
+        destination-fill status check: those providers are only COMPLETED
+        once that check confirms the fill, so this plain origin-receipt
+        check must never itself resolve them to COMPLETED — only report
+        them as still confirming (or FAILED if the origin leg itself
+        reverted). Providers with no such check complete on a mined receipt
+        as before.
         """
+        is_cross_chain = provider in self._PROVIDERS_WITH_DEST_FILL_CHECK
         try:
             http_session = await get_session()
 
