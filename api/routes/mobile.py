@@ -987,10 +987,10 @@ async def redeem_reward(request: Request, reward_id: int):
                 result = {"success": success, "message": message, "expiresAt": expires_at}
             else:
                 success, message = points_service.spend_points(
-                    user_id,
-                    reward_cost,
-                    reward_type,
-                    reward_value,
+                    user_id=user_id,
+                    amount=reward_cost,
+                    reward_type=reward_type,
+                    reward_value=reward_value,
                     duration_days=reward_duration_days,
                 )
                 result = {"success": success, "message": message}

@@ -88,7 +88,7 @@ class TestRedeemDispatch:
 
         called = {}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             called["args"] = dict(
                 user_id=user_id, amount=amount, reward_type=reward_type, reward_value=reward_value
             )
@@ -169,7 +169,7 @@ class TestRedeemDispatch:
     def test_service_failure_surfaces_clean_message_not_raw_exception(self, sqlite_db, monkeypatch):
         _make_reward(5, reward_type="fee_discount")
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             return False, "Not enough points. You have 10, need 100."
 
         monkeypatch.setattr(
@@ -271,7 +271,7 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
@@ -298,7 +298,7 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
@@ -324,7 +324,7 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             call_count["n"] += 1
             return False, "Not enough points. You have 10, need 100."
 
@@ -360,7 +360,7 @@ class TestRedeemIdempotency:
 
         call_count = {"n": 0}
 
-        def fake_spend_points(*, user_id, amount, reward_type, reward_value):
+        def fake_spend_points(*, user_id, amount, reward_type, reward_value, duration_days=None):
             call_count["n"] += 1
             return True, f"Redeemed (call #{call_count['n']})"
 
