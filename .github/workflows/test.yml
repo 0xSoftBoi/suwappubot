@@ -23,7 +23,7 @@ jobs:
       DATABASE_URL: "sqlite:///test.db"
       KMS_PROVIDER: dev
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -75,7 +75,7 @@ jobs:
       run:
         working-directory: api-ts
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -129,7 +129,7 @@ jobs:
       run:
         working-directory: terminal
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -154,7 +154,7 @@ jobs:
       run:
         working-directory: showcase
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -183,7 +183,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Reproduce Python-owned recovery column before Drizzle migration
         run: >-
@@ -213,7 +213,7 @@ jobs:
     name: Builder docs contract
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
@@ -236,7 +236,7 @@ jobs:
     name: SDK package contract
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -275,7 +275,7 @@ jobs:
       run:
         working-directory: webapp
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
@@ -305,7 +305,7 @@ jobs:
     name: Dependency security scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       # Audit the exact locked graph that the Python service installs. Running
       # bare pip-audit here audits the runner/tool environment instead.

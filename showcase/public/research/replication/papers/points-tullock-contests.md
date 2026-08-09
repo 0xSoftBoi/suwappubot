@@ -3,7 +3,7 @@
 **Conditional Tullock benchmarks for participation, dissipation, fee denomination, and wallet splitting**
 
 Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research
-26 July 2026; materially revised 8 August 2026
+26 July 2026; materially revised 6 August 2026
 
 *A closed-form equilibrium model of a pro-rata points contest, retained as a conditional mechanism benchmark after its active-set prediction failed a wallet-level field test. The revision separates solved model identities from rejected descriptive claims and corrects the original treatment of hard quantity caps.*
 
@@ -160,11 +160,11 @@ $$R = \text{spend}^* \cdot \frac{c_{\text{protocol}}}{c} = D(n)\cdot V \cdot \fr
 | volume-denominated (cost is external slippage and gas) | 0.050 | $990k | $49.5k | 5.0% |
 | mixed (fee is half of marginal cost) | 0.500 | $990k | $495k | 49.5% |
 | fee-denominated, low external-cost case | 0.900 | $990k | $891k | 89.1% |
-| fee-denominated, very-low external-cost case | 0.970 | $990k | $960.3k | 96.0% |
+| fee-denominated, very-low external-cost case | 0.970 | $990k | $960k | 96.0% |
 
 Source: Suwappu Research, `data/tullock_results.json` key `P5_revenue_capture`.
 
-**Exhibit 2** (`figures/p2-exhibit-2-denomination.png`) holds modeled spend at $990k and varies the assumed protocol share of marginal cost, moving modeled protocol revenue from $49.5k to $960.3k. It is comparative-static scenario arithmetic, not observed revenue. Source: Suwappu Research, `code/exhibits.py`.
+**Exhibit 2** (`figures/p2-exhibit-2-denomination.png`) holds modeled spend at $990k and varies the assumed protocol share of marginal cost, moving modeled protocol revenue from $49.5k to $960k. It is comparative-static scenario arithmetic, not observed revenue. Source: Suwappu Research, `code/exhibits.py`.
 
 As *c*_protocol/*c* → 1, revenue *R* → *D*(*n*)*V*, which is not *V* unless *n* → ∞ as well. In a live program, external execution costs remain nonzero and participation is endogenous. The identity therefore does not establish full economic cost recovery.
 

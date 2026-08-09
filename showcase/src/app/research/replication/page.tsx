@@ -9,12 +9,12 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 export const metadata: Metadata = {
   title: 'Data & code availability — Suwappu Research',
   description:
-    'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, airdrop allocations, ERC-8056 Stock Token interface risk, and cross-chain latency economics.',
+    'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, and completed airdrop allocations.',
   alternates: { canonical: BASE },
   openGraph: {
     title: 'Data & code availability — Suwappu Research',
     description:
-      'Papers, code and data behind the USDT0 reconciliation, Tullock-contest model and field test, the ERC-8056 public-code integration audit, and a source-locked calibration of cross-chain execution latency.',
+      'Papers, code and data behind the USDT0 backing-account reconciliation, Tullock-contest model, and its empirical test against completed airdrops.',
     type: 'article',
     url: BASE,
   },
@@ -37,16 +37,6 @@ const PAPERS: Row[] = [
     file: 'papers/airdrop-concentration.md',
     size: '29 KB',
     desc: 'Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model — revised to separate measurement from causal interpretation.',
-  },
-  {
-    file: 'papers/erc8056-stock-token-interface-risk.md',
-    size: '14 KB',
-    desc: 'When balanceOf() Stops Meaning What the User Thinks — ERC-8056 integration semantics, a nine-repository public-code audit, and explicit runtime-support limits.',
-  },
-  {
-    file: 'papers/settlement-latency-value.md',
-    size: '25 KB',
-    desc: 'What Is a Minute of Cross-Chain Execution Worth? — a source-locked calibration of the 10bp speed ceiling against simple SOFR carry, with ETA kept separate from finality.',
   },
 ];
 
@@ -146,38 +136,6 @@ const DATA_POINTS: Row[] = [
   { file: 'data/sim_output.txt', size: '596 B', desc: 'Raw output of the simulation.' },
 ];
 
-const CODE_ERC8056: Row[] = [
-  {
-    file: 'code/verify_erc8056_audit.mjs',
-    size: '1.8 KB',
-    desc: 'Offline consistency checks for the released repository/query counts, positive control, Suwappu self-check, and documented 10:1 split arithmetic.',
-  },
-];
-
-const DATA_ERC8056: Row[] = [
-  {
-    file: 'data/erc8056-public-code-audit.json',
-    size: '4.7 KB',
-    desc: 'Observation date, repository and query sets, zero-match results, positive control, pre-change Suwappu check, primary-source URLs, interpretation boundary, and split fixture.',
-  },
-];
-
-const CODE_LATENCY: Row[] = [
-  {
-    file: 'code/settlement_latency_value.py',
-    size: '7.2 KB',
-    desc: 'Standard-library reproduction of the ACT/360 carry scenarios. Regenerates the released CSV and web SVG from pinned inputs; no network call or credential required.',
-  },
-];
-
-const DATA_LATENCY: Row[] = [
-  {
-    file: 'data/settlement_latency_value.csv',
-    size: '608 B',
-    desc: 'Five scenario rows (1, 5, 10, 30, 60 minutes): carry bps, 10bp/carry multiple, implied simple annual rate, and $1m scale illustration at 3.65% SOFR.',
-  },
-];
-
 function FileTable({ rows }: { rows: Row[] }) {
   return (
     <div className="repl-tablewrap">
@@ -213,12 +171,12 @@ export default function ReplicationPage() {
   const datasetLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: 'Suwappu Research replication bundle — stablecoins, incentive design, allocation validation, tokenized-asset interfaces, and execution latency',
+    name: 'Suwappu Research replication bundle — stablecoins, incentive design, and airdrop concentration',
     description:
-      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis, HYPE and EIGEN recipient vectors used to test that model, the released ERC-8056 public-code integration audit, and a pinned SOFR scenario dataset for calibrating a source-verified cross-chain speed policy.',
+      'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis of points programs, and the HYPE genesis and both-phase EIGEN claim-recipient vectors used to test that model.',
     url: `${SITE}${BASE}`,
     datePublished: '2026-07-26',
-    dateModified: '2026-08-08',
+    dateModified: '2026-08-06',
     isAccessibleForFree: true,
     license: `${SITE}${BASE}/README.md`,
     creator: { '@type': 'Person', name: AUTHOR_NAME },
@@ -231,16 +189,10 @@ export default function ReplicationPage() {
       'Tullock contest',
       'points program design',
       'airdrop concentration',
-      'ERC-8056',
-      'Robinhood Stock Tokens',
-      'tokenized asset integration',
-      'cross-chain execution latency',
-      'transaction cost analysis',
-      'SOFR',
     ],
     measurementTechnique:
-      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, wallet-level recipient-vector concentration analysis, scoped public GitHub code search with a positive control, and source-locked ACT/360 financing calibration',
-    temporalCoverage: '2025-07-26/2026-08-06',
+      'Direct chain-state reads at aligned block heights, exact-equilibrium simulation, and wallet-level recipient-vector concentration analysis',
+    temporalCoverage: '2025-07-26/2026-07-25',
     distribution: [
       {
         '@type': 'DataDownload',
@@ -266,23 +218,11 @@ export default function ReplicationPage() {
         encodingFormat: 'application/json',
         contentUrl: `${SITE}${BASE}/data/airdrops/concentration.json`,
       },
-      {
-        '@type': 'DataDownload',
-        name: 'erc8056-public-code-audit.json',
-        encodingFormat: 'application/json',
-        contentUrl: `${SITE}${BASE}/data/erc8056-public-code-audit.json`,
-      },
-      {
-        '@type': 'DataDownload',
-        name: 'settlement_latency_value.csv',
-        encodingFormat: 'text/csv',
-        contentUrl: `${SITE}${BASE}/data/settlement_latency_value.csv`,
-      },
     ],
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <main id="main-content" className="summer-page docs-shell">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetLd) }} />
       <Navigation />
       <div className="summer-shell mkt-page repl-page">
@@ -299,9 +239,8 @@ export default function ReplicationPage() {
           <h1>Everything behind the papers.</h1>
           <p className="mkt-hero__lead">
             Full working papers, the collection harness, the analysis, the statistical tests and
-            every dataset they cite. The released artifacts require no credentials: chain reads use
-            public RPC endpoints, simulations run offline, and the ERC-8056 audit record has an
-            offline consistency check.
+            every dataset they cite. No credentials are required: the chain reads use public RPC
+            endpoints and the simulation runs offline.
           </p>
         </header>
 
@@ -392,59 +331,11 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 4 — ERC-8056 Stock Token interface risk</h2>
-          <p>
-            Primary-source analysis of Robinhood Stock Token amount and price semantics, paired
-            with a 7 August 2026 public-code search across nine wallet, portfolio, explorer,
-            DEX-interface and EVM-library repositories. Eight canonical ERC-8056 searches returned
-            zero matches in the scoped GitHub index; a <code>balanceOf</code> positive control
-            returned indexed code. Suwappu&rsquo;s pre-change <code>main</code> snapshot returned zero
-            canonical markers under the same identifier family.
-          </p>
-          <h3>Code</h3>
-          <FileTable rows={CODE_ERC8056} />
-          <h3>Data</h3>
-          <FileTable rows={DATA_ERC8056} />
-          <p className="repl-caveat">
-            <strong>Stated limits.</strong> This is identifier-based public-code search, not runtime
-            conformance testing or a population estimate. Private services, generated code, dynamic
-            selectors, third-party metadata, unindexed branches and differently named adapters are
-            outside the search. ERC-8056 is Draft. The published 10:1 fixture is Chainlink&rsquo;s
-            documentation example, not evidence of a live user incident. Re-running GitHub search
-            later tests a new index state rather than reproducing the historical index bit-for-bit.
-          </p>
-        </section>
-
-        <section className="repl-section">
-          <h2>Paper 5 — Pricing cross-chain latency</h2>
-          <p>
-            A source-locked calibration of Suwappu&rsquo;s current 10bp cross-chain speed-tiebreak
-            ceiling against a pinned 3.65% SOFR benchmark. The paper derives the simple ACT/360
-            carry for one to sixty minutes, independently checks the arithmetic with Wolfram, and
-            specifies the quote-to-outcome telemetry needed to replace the fixed heuristic with an
-            evidence-backed willingness-to-pay curve.
-          </p>
-          <h3>Code</h3>
-          <FileTable rows={CODE_LATENCY} />
-          <h3>Data</h3>
-          <FileTable rows={DATA_LATENCY} />
-          <p className="repl-caveat">
-            <strong>Stated limits.</strong> This is a scenario calibration, not production TCA. The
-            study does not measure how often the speed tiebreak fires, affected order values,
-            provider-ETA accuracy, realized savings, route failures, or legal finality. SOFR is a
-            reproducible cash-carry benchmark, not Suwappu&rsquo;s disclosed funding cost. The
-            router&rsquo;s 10bp comparison is relative to winner score, not automatically input notional.
-          </p>
-        </section>
-
-        <section className="repl-section">
           <h2>Environment</h2>
           <p>
             Python 3.12+ with <code>numpy</code>, <code>pandas</code>, <code>scipy</code>,{' '}
             <code>statsmodels</code> and <code>matplotlib</code>. The chain reads use the standard
-            library only. Paper 4&rsquo;s audit consistency check uses Node.js 18+ with no
-            third-party packages. Paper 5&rsquo;s reproduction script is standard-library-only and
-            makes no network call.
+            library only.
           </p>
         </section>
 

@@ -43,7 +43,7 @@ const SURFACES = [
 
 export default function StatusPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell sw-dark">
       <Navigation />
       <main id="main-content">
         <div className="summer-shell mkt-page">

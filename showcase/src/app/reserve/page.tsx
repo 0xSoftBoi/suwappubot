@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function ReservePage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <main id="main-content" className="summer-page sw-dark docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <ReserveClient />

@@ -21,8 +21,7 @@ export type ResearchPost = {
     | 'Payments control'
     | 'Execution governance'
     | 'Model risk'
-    | 'Model validation'
-    | 'Tokenized assets';
+    | 'Model validation';
   /**
    * 'research' = measurement/theory with released data and a stated method;
    * 'engineering' = how a shipped system works, verified against the code at
@@ -45,31 +44,18 @@ export type ResearchPost = {
     pages: number;
     metrics: Array<{ value: string; label: string }>;
   };
-  /** Editorial artwork: conceptual, never the quantitative evidence object. */
-  heroArt?: {
-    src: string;
-    alt: string;
-    caption: string;
-  };
-  /** Quantitative evidence visual; used on the index when no editorial art exists. */
+  /** Evidence visual surfaced by the research index for a featured paper. */
   indexFigure?: {
     src: string;
     alt: string;
     caption: string;
-  };
-  /** Compact assurance label rendered above every published article. */
-  evidence?: {
-    status: string;
-    asOf: string;
-    basis: string;
-    boundary: string;
   };
   body?: string;
 };
 
 const TEMPO_BODY = `# The fee payer as a treasury control surface: sponsored execution on Tempo
 
-*Engineering control note. Revised and source-verified on 8 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
+*Engineering control note. Revised and source-verified on 7 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
 
 Viewed from a wallet, fee sponsorship looks like UX. Viewed from a bank, it is **delegated expense authority**: the account that authorizes movement of the asset can be different from the account that accepts the network-fee liability. That is the more interesting primitive.
 
@@ -130,15 +116,13 @@ Two control limits remain important for a bank-grade reading:
 - **Budget accounting uses a fixed estimate, not realized fee receipts.** After broadcast the engine records **$0.001** against the sponsorship budget. Tempo's protocol documentation says the base fee is calibrated so a TIP-20 transfer costs less than $0.001, but an approve-plus-swap transaction is not a TIP-20 transfer and the code does not reconcile the booked estimate to the actual fee paid. The current $100 figure is therefore an **estimated-spend policy limit**, not a realized-cost cap.
 - **Check and record are separate operations.** Eligibility is read before the on-chain transaction and the counter is incremented after broadcast. Concurrent requests can observe the same remaining allowance before either records its spend. Without an atomic reservation, the three-transaction and daily-budget thresholds should not be described as mathematically hard under race conditions.
 
-The scale check makes the first problem easier to see. At the code's fixed **$0.001 booking amount**, a $100 daily counter is arithmetically equivalent to **100,000 booked units** before the global counter reaches its threshold. That is not a throughput claim: the per-user limit, traffic, balances, chain capacity, failures, and actual fees all bind independently. It is simply why the word *budget* should not be read as a reconciled $100 cash ceiling. The counter is only as accurate as the estimate posted into it.
-
 There is also a **configuration-governance issue** to remove before operational reliance. Current source declares both \`tempo_fee_sponsor_enabled\` and \`tempo_fee_sponsorship_enabled\`. The executable swap sponsorship service reads the former; a repository-wide runtime search finds the latter and \`tempo_sponsor_address\` only in settings, tests, and the capability manifest, not in the swap execution path. An operator can therefore set a plausible-looking sponsorship flag that does not activate this control. The appropriate remediation is one canonical enablement variable, one documented sponsor-key source, and a boot-time assertion that the configured control plane matches the executable one.
 
 Those gaps do not invalidate sponsorship. They define the next control step: reserve budget atomically before signing, settle the reservation to the receipt's actual fee, and monitor reservation/settlement exceptions.
 
 ## Stablecoin fees reduce one treasury dependency; they do not remove treasury controls
 
-[Tempo's current fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee) documents stablecoin-denominated network fees, avoiding the need for a separate volatile native gas asset. Its [performance documentation](https://tempo.xyz/developers/performance) scopes the sub-$0.001 statement to a standard TIP-20 transfer; that is why this note does not apply the figure to Suwappu's approve-plus-swap call bundle. Suwappu currently configures \`pathUSD\` as the sponsorship fee token. For an agent or treasury workflow, that removes one funding dependency but introduces another: the sponsor wallet must remain funded in an eligible fee token and its authorization must be governed separately from users' spending authority.
+[Tempo documents stablecoin-denominated network fees](https://tempo.xyz/blog/stablecoin-fees/), avoiding the need for a separate volatile native gas asset. Suwappu currently configures \`pathUSD\` as the sponsorship fee token. For an agent or treasury workflow, that removes one funding dependency but introduces another: the sponsor wallet must remain funded in an eligible fee token and its authorization must be governed separately from users' spending authority.
 
 A useful operating model is therefore:
 
@@ -150,12 +134,6 @@ A useful operating model is therefore:
 | Availability | Explicit behavior when sponsor key, balance, database, or Tempo RPC is unavailable; fail boot on ambiguous sponsorship configuration |
 | Evidence | Receipt-level reconciliation linking user intent, sponsor authorization, fee token, actual fee, and final status |
 
-## Evidence ledger
-
-The protocol claims in this note come from Tempo's [type-0x76 transaction specification](https://docs.tempo.xyz/docs/protocol/transactions/spec-tempo-transaction), [fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee), and current [performance documentation](https://tempo.xyz/developers/performance). The institutional control framing uses [CPMI-IOSCO's stablecoin PFMI guidance](https://www.bis.org/cpmi/publ/d206.htm) only as a risk-separation lens; it is not a classification of Tempo or Suwappu.
-
-The implementation claims are source observations from current Suwappu main: the sponsorship policy service, Tempo swap construction, keychain, settings, persistence model, and their call sites. Repository state can establish what software is written to do. It cannot establish a production feature flag, sponsor balance, key-control procedure, receipt population, realized fee, uptime, or legal settlement status. Those remain outside this note until runtime evidence is collected.
-
 ## Deployment conclusion
 
 The code supports the mechanism and the protocol supports the primitive. The source snapshot does **not** prove that the feature is enabled for users today: \`tempo_fee_sponsor_enabled\` defaults to false, and this review inspected no production flag, sponsor balance, or receipt sample. For that reason the correct status is **implementation verified; production enablement unverified**.
@@ -165,7 +143,7 @@ That is also the reason we no longer use "gasless" as the headline claim. For an
 
 const ROUTING_BODY = `# A router is an execution policy: price, evidence quality, and the TCA gap
 
-*Engineering control note. Revised and verified against current main on 8 August 2026. This describes Suwappu's decision function; it does not claim regulatory "best execution" or prove superior realized execution.*
+*Engineering control note. Revised and verified against current main on 7 August 2026. This describes Suwappu's decision function; it does not claim regulatory "best execution" or prove superior realized execution.*
 
 An aggregator is a list of connectivity. A router is a **policy for making a financial decision under time pressure and imperfect evidence**. That distinction is the institutional story.
 
@@ -193,8 +171,6 @@ Once valid quotes return, the Python execution engine uses a **hierarchical deci
 2. If every candidate has trusted gas, at least two usable output-USD observations support a median output price, and the price/gas sanity checks pass, rank on **quoted output less gas converted into output-token units**.
 3. If any required trust condition fails, fall back to **gross quoted output** rather than pretend an unreliable gas estimate is precise.
 4. For cross-chain routes only, a faster route may replace the value winner if both time estimates are provider-reported, its score is within **10bp**, and its estimated time is **less than half** the winner's.
-
-Ten basis points is **0.10%**. As a scale reference—not a claim about any observed Suwappu order—that is $100 on $100,000 of route value, $1,000 on $1 million, and $10,000 on $10 million. A fixed 10bp speed concession therefore becomes economically material as notional rises; without a calibrated value-of-time function, the present tiebreak is a policy heuristic rather than an estimated optimum.
 
 ![Decision waterfall showing the returned quote set, evidence-quality gate, net-of-gas ranking or gross-output fallback, trusted-time cross-chain tiebreaker, and the remaining ex-post transaction-cost-analysis gap.](/research/routing-decision-waterfall.svg "Selection objective depends on evidence quality: trusted inputs permit net-of-gas ranking; otherwise the engine falls back to gross quoted output. Realized execution still requires ex-post measurement.")
 
@@ -241,163 +217,13 @@ The same discipline applies to every venue-specific protection: capability is no
 
 The engine emits structured \`route_comparison\` telemetry for multi-quote Python races, including winner, quoted output, gas, fees, estimated time, basis-point delta, and any speed tiebreak. The TypeScript agent/web path separately samples and persists LI.FI route candidates; on same-chain EVM it also fetches KyberSwap for comparison, while execution remains LI.FI. Solana uses Jupiter. That means the agent surface does **not** inherit the Python engine's multi-provider winner selection.
 
-These datasets are useful for transaction-cost analysis, but they do not yet justify a "best execution" claim. Quote-stage counterfactuals answer **selection** questions. [The BIS Markets Committee's study of FX execution algorithms](https://www.bis.org/publ/mktc13.pdf) is useful implementation guidance here: its TCA discussion emphasizes accurate timestamps through the trade lifecycle, a relevant benchmark, price slippage and market impact, rejected trades, and measurements before, during, and after execution. We borrow that measurement discipline, not the FX regulatory perimeter.
-
-A defensible cross-chain TCA record would preserve four layers rather than collapse them into one "best route" field:
-
-| Layer | Minimum record | What it can answer |
-|---|---|---|
-| Decision snapshot | Request time, eligible providers, every returned quote, objective branch, gas/price trust flags, policy version | What information and rule selected the route? |
-| Submission | Signed/submitted time, route and bridge, quoted min-out, expected gas, expected duration | What did the user actually authorize? |
-| Outcome | Final status, realized destination amount, realized gas, finality time, retries/re-quotes, exceptions | What did execution actually cost and deliver? |
-| Benchmark | Timestamped reference price and a declared comparison rule | How far did realized economics deviate from a reproducible benchmark? |
-
-The benchmark has to be declared before looking at results. The best returned quote is a valid **ex-ante selection benchmark** but not an observed counterfactual fill: the routes that lost were never executed, so their realized price, gas, failure state, and finality are unknowable. That distinction prevents a common TCA error—calling quoted alternatives realized savings.
-
-With those records, the first publishable study should report the distribution, not a single average: eligible-quote depth; chosen-versus-best-quoted basis points; realized-versus-authorized output; realized gas; failure/retry rate; and time to finality by route class. Outliers and fallback-branch frequency belong beside the headline median because the current engine deliberately changes objective when evidence quality changes.
-
-The [December 2024 FX Global Code](https://www.globalfxc.org/fx-global-code/) and the BIS study both make the same higher-level point: execution quality lives inside disclosure, controls, monitoring, and post-trade evidence. This article applies that operating principle without asserting that wholesale-FX rules govern crypto routing.
-
-## Evidence ledger
-
-The external sources are primary or standards-body materials: the current FX Global Code; the BIS Markets Committee execution-algorithm study; the US banking agencies' [third-party risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html); and venue documentation where a venue-specific protection is described. The executable findings come from current Suwappu main, including the quote race, evidence gates, comparison-only routes, timeout/grace policy, cross-chain speed tiebreak, and route-comparison telemetry.
-
-The boundary is equally important: this review did not replay production orders, observe a counterfactual fill, establish a consolidated reference price, or measure realized failure/finality distributions. Until those records are joined, the strongest supported claim is **source-verified selection policy**—not realized best execution.
+These datasets are useful for transaction-cost analysis, but they do not yet justify a "best execution" claim. Quote-stage counterfactuals answer **selection** questions. A full execution-quality study must join the decision record to the submitted transaction and measure, at minimum, realized receive amount, realized gas, failure/revert rate, latency to finality, re-quote or slippage loss, and venue/bridge exceptions on a consistent basis.
 
 ## Control conclusion
 
 The current ranking logic is stronger than the version this article previously described: it conditionally internalizes trusted gas and can trade up to 10bp of value for a greater-than-2x improvement in trusted cross-chain time. Its principal limitation is no longer "gas is ignored." It is **evidence heterogeneity** — the decision falls back when cost or price inputs cannot be trusted, and the system has not yet published a realized-execution benchmark proving the economic effect of those choices.
 
 For a banking audience, that is the appropriate claim boundary: **source-verified execution policy, not certified best execution; evidence-conditioned decision logic, not a universal objective; quote-level counterfactuals, not yet realized TCA; venue-specific protections, not universal coverage.**
-`;
-
-const LATENCY_BODY = `# What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality
-
-*Quantitative policy-calibration paper. Dated 8 August 2026. The repository routing rule is source-verified at a pinned commit, the financing scenario is reproducible and independently checked with Wolfram, and production runtime behavior plus the realized value of speed remain unmeasured.*
-
-At the repository snapshot used for this paper, Suwappu's cross-chain router implementation can spend **up to 10 basis points of winner score** to take a sufficiently faster route. That is an intelligible control: the value winner can lose only when both timing inputs carry the implementation's trusted-time flag, the alternative's ETA is less than half the winner's, and the score concession remains inside a hard ceiling. Source state establishes the decision rule; it does not establish how often that branch fires in production.
-
-But what is 10bp actually paying for?
-
-One tempting answer is the time value of money. The arithmetic rejects that explanation at minute horizons. Using the latest SOFR observation available when this paper was written — **3.65% for 6 August 2026** — and the New York Fed's ACT/360 money-market convention, **10bp equals 9.863 days of simple financing carry**.
-
-Five minutes of that carry is only **0.003520bp**. The pinned 10bp ceiling is **2,840.55×** larger.
-
-That is not evidence that speed is worthless. It is evidence that, if an execution policy pays basis points for minutes, **cash carry is not the economic story doing the work**. Market exposure, failure and retry cost, liquidity exceptions, operational deadlines, or explicit service-level preference must supply the rest — and they should be measured rather than hidden inside a universal constant.
-
-## The result in one table
-
-| Minutes saved | 3.65% simple carry | 10bp / carry | Annual simple rate implied by full 10bp | Carry on $1m score value |
-|---:|---:|---:|---:|---:|
-| 1 | 0.000704bp | 14,202.74× | 51,840% | $0.07 |
-| 5 | 0.003520bp | 2,840.55× | 10,368% | $0.35 |
-| 10 | 0.007041bp | 1,420.27× | 5,184% | $0.70 |
-| 30 | 0.021123bp | 473.42× | 1,728% | $2.11 |
-| 60 | 0.042245bp | 236.71× | 864% | $4.22 |
-
-![Log-scale calibration chart showing that the 10bp policy ceiling is 14,203 times one minute of simple SOFR carry, 2,841 times five minutes, 1,420 times ten minutes, 473 times thirty minutes, and 237 times sixty minutes.](/research/latency-carry.svg "At 3.65% SOFR on ACT/360, 10bp equals 9.86 days of simple carry. The chart is generated from the released CSV by the released Python script.")
-
-At a hypothetical **$1m USD-equivalent winner-score value**, five minutes of simple SOFR carry is about **$0.35**; the full 10bp concession is **$1,000**. The conclusion is not that a five-minute improvement can never be worth $1,000. It is that roughly $999.65 of that willingness to pay would need an explanation other than the modeled financing carry.
-
-The result is not sensitive to fine precision in today's rate. Even at a 10% annual simple funding rate, accumulating 10bp takes 3.6 days. At an extreme 100% annual rate, it still takes 8.64 hours. Minute-scale carry simply lives at a different order of magnitude.
-
-## What the router actually does
-
-The implementation claim is narrower than "Suwappu pays 10bp for speed." In the immutable repository snapshot, the [tiebreak helper](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L492-L589) defines the gate and the [active quote path invokes it after value ranking](https://github.com/0xSoftBoi/suwappubot/blob/52d901923a725e7440693ba050733def13d71895/bot/services/swap_engine.py#L1658-L1666). Those links prove repository behavior at that commit, not production-runtime activation or frequency.
-
-For winner score **S_w**, faster-candidate score **S_f**, and their trusted provider ETAs **T_w** and **T_f**, the economic part of the gate is:
-
-**T_f < T_w / 2** and **0 <= (S_w - S_f) / S_w <= 0.001**.
-
-Three boundaries matter.
-
-**10bp is relative to winner score, not automatically input notional.** The underlying score can be net of trusted gas when the pricing evidence supports that conversion, or gross output when it does not. Dollar examples in this paper therefore introduce **V**: the USD-equivalent economic value of the winner score under a credible contemporaneous mark. A $1m input is not asserted to create a $1,000 speed budget.
-
-**"Trusted time" describes provenance, not forecast accuracy.** The pinned source classifies several provider-supplied timing fields as trusted for the tiebreak and excludes several hard-coded adapter durations. That is a useful implementation boundary; it is not an empirical test that those ETAs predict the defined completion endpoint.
-
-**The threshold is a heuristic, not a fitted optimum.** Exactly half the winner ETA does not qualify; just under half can. 10.01bp does not qualify; 10bp can. Deterministic cutoffs are easy to audit, but their existence is not evidence of optimality.
-
-## The minimal financing model
-
-Let **V** be the USD-equivalent winner-score value, **Δt** the minutes saved, **r** the annual simple funding rate and **b = 0.001** the policy ceiling. With 360 days, or 518,400 minutes, in the money-market year:
-
-- policy concession = **b × V**;
-- financing carry = **V × r × Δt / 518,400**; and
-- cap / carry = **b × 518,400 / (r × Δt)**.
-
-The value **V** cancels from the ratio. At **r = 0.0365**, the time needed for financing carry alone to reach 10bp is **0.001 × 360 / 0.0365 = 9.8630137 days**.
-
-The [New York Fed](https://www.newyorkfed.org/markets/reference-rates/sofr) defines SOFR as a broad measure of overnight Treasury-secured cash-borrowing cost and publishes it each business day. Its [reference-rate methodology](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates) applies actual calendar days over a 360-day year to SOFR averages and the index, which use daily compounding. The 3.65% 6 August observation is available in [FRED](https://fred.stlouisfed.org/series/SOFR), whose series source is the Federal Reserve Bank of New York.
-
-**The minute interpolation is this study's modeling convention.** We linearly prorate one annualized SOFR observation to minutes on a simple ACT/360 basis. That is not the New York Fed's published SOFR Index or an official minute-accrual methodology.
-
-SOFR is used here as a reproducible benchmark. It is **not** Suwappu's disclosed funding cost, a user's opportunity cost, a bridge risk premium, or a universal institutional hurdle rate.
-
-## Speed is not finality
-
-An ETA field should not quietly become a settlement-risk field.
-
-The [CPMI glossary](https://www.bis.org/cpmi/glossary.pdf) defines final settlement around irrevocable and unconditional transfer or discharge at a legally defined moment. [PFMI Principle 8](https://www.bis.org/pfmi/help/principleid.htm) separately emphasizes clear and certain final settlement, with intraday or real-time settlement where needed or preferable. A bridge provider's expected duration can be operationally useful without proving either concept.
-
-The distinction also matters in conventional markets. The BIS's June 2026 analysis of the 2025 Triennial Survey reports that **90% of average daily FX settlement used methods that eliminate or mitigate settlement risk while 10%, about $1.4tn, remained exposed through gross bilateral settlement**. It also distinguishes principal settlement risk from replacement-cost and liquidity risk even under payment-versus-payment ([BIS Quarterly Review](https://www.bis.org/publ/qtrpdf/r_qt2606c.htm)). That is wholesale-FX evidence, not a claim that its rules apply to crypto bridges. The transferable lesson is that **settlement method and elapsed time are separate risk dimensions**.
-
-The [FSB's G20 cross-border-payment targets](https://www.fsb.org/work-of-the-fsb/financial-innovation-and-structural-change/cross-border-payments/g20-targets-for-enhancing-cross-border-payments-2/) make the endpoint explicit in another way: wholesale speed is measured to crediting, with reconciliation tracked separately. Again, this is measurement discipline, not a regulatory mapping to Suwappu.
-
-For this reason the field examined here should be called what the source proves: **provider-reported route-duration evidence**. Legal or policy finality needs its own definition.
-
-## What can justify paying more than carry?
-
-A complete speed value can contain several terms:
-
-| Component | What must be measured |
-|---|---|
-| Cash carry | Funding benchmark × economic value × time saved |
-| Market exposure | Difference in conditional implementation shortfall between route choices |
-| Failure / retry | Failure probability, retry time, realized repair and re-quote cost |
-| Liquidity / operations | Deadline misses, stuck-balance duration, exception workload, liquidity reuse |
-| Service-level value | Explicit user or treasury willingness to pay for a documented deadline |
-
-Only the first term is estimated here. The others can be larger; the paper has no production outcome sample with which to say how large.
-
-That is why the right implementation is not "replace 10bp with SOFR carry." It is to turn the heuristic into a **versioned willingness-to-pay curve** whose non-carry terms have evidence behind them.
-
-## A bank-grade calibration path
-
-**1. Keep route risk as an eligibility control.** Supported asset and chain, approved bridge/provider class, transaction limits, security requirements, compliance policy and the acceptable completion/finality definition should decide whether a route may compete. A fast ETA should not buy through a hard risk limit.
-
-**2. Preserve the exact economic decision.** Give every quote race a durable decision ID and policy version. Store every returned quote, raw and net score, gas/price trust flags, timing provenance, the initial winner and the candidate's score concession. Convert that concession to USD only when the output price is credible.
-
-**3. Join the outcome without collapsing finality layers.** Persist decision, submission and usable-funds timestamps; separately defined technical-finality telemetry with its rule/version; realized output and fees; failure/retry state; and a predeclared market benchmark. If a legal-finality conclusion is required, store its governed basis and policy version separately — a network timestamp alone cannot establish it. The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ/mktc13.pdf) is useful methodology by analogy: its TCA discussion centers accurate lifecycle timestamps and outcome measures such as slippage, market impact and rejected trades.
-
-**4. Validate the ETA itself.** Report median and tail ETA error, percentile coverage, failure and retry distributions, and time-to-usable-funds by route class and relevant size band. "Provider-reported" should be the beginning of the trust test, not the end.
-
-**5. Shadow first; identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome; shadow choices cannot reveal how a losing route would have filled. Any causal "loss avoided" premium that can change a winner therefore needs bounded controlled exploration among already-eligible routes where policy and risk permit, or a predeclared causal/off-policy estimator with adequate overlap/support diagnostics and sensitivity analysis. If support is inadequate, leave that premium unestimated. Steering requires both operational evidence and identification evidence.
-
-A conservative control template is:
-
-**allowed speed premium = min(10bp, carry + measured approved risk premium + explicit SLA value)**.
-
-That is a governance equation, not an estimated result from this paper. An unmeasured risk term should not be filled with a guessed number merely to defend the pinned ceiling.
-
-## What would change the conclusion
-
-The financing result can be rerun by changing one pinned rate input. The more important conclusion is designed to be challenged by production evidence.
-
-If a predeclared identification design — controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support — shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. Joined chosen-route telemetry alone is insufficient. If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
-
-The question becomes reviewable: **what identified cost or explicit preference pays for each basis point of speed premium?**
-
-## Reproducibility and evidence boundary
-
-The [working paper](/research/replication/papers/settlement-latency-value.md), [standard-library calculation](/research/replication/code/settlement_latency_value.py) and [scenario CSV](/research/replication/data/settlement_latency_value.csv) are public. The script regenerates both the CSV and the figure shown above without credentials or network access. The historical SOFR input is pinned so a future run cannot silently rewrite the result.
-
-The key arithmetic was independently evaluated in Wolfram Language: 10bp / 3.65% × 360 = **9.8630137 days**; the cap-to-carry multiples for 1, 5, 10, 30 and 60 minutes are **14,202.74×, 2,840.55×, 1,420.27×, 473.42× and 236.71×**.
-
-The boundary is equally explicit. This paper uses **no production replay**. It does not measure how often the tiebreak fires, the values of affected orders, actual ETA error, realized savings, route failure, or legal finality. The scenario minutes are a calibration grid, not an empirical latency distribution.
-
----
-
-*Disclosures: Suwappu builds the cross-chain execution infrastructure whose routing policy this paper critiques. That commercial and authorship interest is why the adverse calibration result, code snapshot, formulas, data and limitations are published rather than reduced to a performance claim. No named route provider reviewed the paper before publication. Wolfram was used as an independent arithmetic check, not as peer review or production evidence. This is research, not investment advice, a legal-finality opinion, a regulatory best-execution determination, or a claim that conventional FX rules apply to crypto routing.*
 `;
 
 
@@ -544,11 +370,11 @@ Primary architecture sources used to define the perimeter are USDT0's [developer
 
 const POINTS_BODY = `# Incentive budgets as market design: what survives after the model fails
 
-*Institutional research note. Revised 8 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
+*Institutional research note. Revised 7 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
 
 The bank-relevant way to read a points program is not as token marketing. It is a **budget-allocation mechanism**: a sponsor defines a reward pool, a rule turns customer or participant behavior into claims on that pool, and the rule determines who receives the subsidy, what behavior is encouraged, and how much of the economic cost returns to the sponsor versus leaves the system.
 
-The first version of this paper made a strong descriptive claim: model a pro-rata points pool as a linear-cost Tullock contest and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. Against the matched-program model envelope's roughly 14.3% lower edge, the predicted top share is **19.6× the HYPE observation and 6.0× the EIGEN observation**; participation misses by far more.
+The first version of this paper made a strong descriptive claim: model a pro-rata points pool as a linear-cost Tullock contest and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. It failed by one to two orders of magnitude on the concentration measure and by far more on participation.
 
 That failure changes the paper's decision use. The model remains useful as a **conditional benchmark**; it is not an empirical forecast of program-wide wallet allocation.
 
@@ -561,7 +387,7 @@ That failure changes the paper's decision use. The model remains useful as a **c
 | Fraud / identity | Does the rule reward economic activity or the creation of more identities? | Strict fee proportionality is wallet-count invariant only in a fixed-budget benchmark; per-wallet bonuses mechanically reopen a splitting incentive. |
 | Model risk | Is the model fit for forecasting allocation concentration? | **No on current evidence.** The active-set forecast failed outcome analysis; the model is retained only for bounded comparative statics and mechanism diagnostics. |
 
-This distinction is close to the US banking agencies' [revised 2026 model-risk guidance](https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm), which separates model development and use from validation and monitoring, including outcomes analysis, and from governance and controls. We use that framework as an institutional analogy, not as a claim that this research model is itself subject to the guidance. A solver can be correct and a use case can still be wrong.
+This distinction is close to the one made in the OCC's [revised 2026 model-risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2026/bulletin-2026-13.html), which separates model development and use from validation, monitoring, governance, and controls. We use that framework as an institutional analogy, not as a claim that this research model is itself subject to the bulletin. A solver can be correct and a use case can still be wrong.
 
 | Finding | Current evidence status | Appropriate use |
 |---|---|---|
@@ -608,7 +434,7 @@ Split the cost of acquiring a point into the part paid to the protocol as a fee,
 
 ![Stacked model-scenario chart comparing four assumed cost decompositions, with modeled protocol revenue rising as the protocol share of marginal cost increases while total modeled dissipation is held fixed.](/research/points-denomination.svg "Conditional model arithmetic: the scenario holds total dissipation fixed and changes its assumed destination. These are not measured or forecast revenues.")
 
-Take the symmetric *n* = 100 example on a million-dollar pool: all four simulated designs hold modeled spend at $990k while changing the assumed share of marginal cost captured by the protocol from 5% to 97%. The resulting protocol-revenue arithmetic runs from $49.5k to $960.3k. Those are scenario outputs driven by the assumed cost split—not measurements of a live program or forecasts of realized fee revenue.
+Take the symmetric *n* = 100 example on a million-dollar pool: all four simulated designs hold modeled spend at $990k while changing the assumed share of marginal cost captured by the protocol from 5% to 97%. The resulting protocol-revenue arithmetic runs from $49.5k to $960k. Those are scenario outputs driven by the assumed cost split—not measurements of a live program or forecasts of realized fee revenue.
 
 A limit worth stating: as the protocol's share of marginal cost approaches 1, modeled revenue approaches the dissipated amount, not the whole pool. A live program still faces external execution costs and endogenous participation, so the identity does not establish full economic cost recovery.
 
@@ -666,25 +492,21 @@ For a product or finance owner, there is one additional implication the contest 
 
 This post is an abridgement. [The paper](/research/replication/papers/points-tullock-contests.md) carries the propositions and their proofs, the full robustness section and the references — and where the two disagree, the paper governs.
 
-As a reproducibility cross-check, the symmetric benchmark reconciles directly: *D* = 99/100 = 0.99, so a $1m prize implies $990k of modeled spend; at unit costs of $0.10 and $100 that corresponds to 9.9m and 9,900 points, and 5% and 97% capture imply $49.5k and $960.3k. This checks the article's arithmetic; it is **not** model validation or evidence of realized program economics.
-
 ---
 
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here. The active-set prediction in the first version of this article failed its first published wallet-level empirical test; that correction is part of the research record, not a footnote.*`;
 
 const AIRDROP_BODY = `# When a mathematically correct model is wrong: an allocation-model validation case study
 
-*Institutional empirical note. Revised 8 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
+*Institutional empirical note. Revised 7 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
 
 The most useful result in this paper is not an airdrop statistic. It is a model-governance failure caught in public: **the solver passed its internal checks, the theory generated a sharp prediction, and the prediction failed when it met outcome data.** The implementation was right; the descriptive use was wrong.
 
-That distinction is familiar to bank model-risk teams. The US banking agencies' [revised 2026 model-risk guidance](https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm) separates development and use from validation and monitoring, including outcomes analysis, and from governance and controls; it also notes that a fundamentally sound model can still create high model risk when misapplied or misused. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
+That distinction is familiar to bank model-risk teams. The OCC's [revised 2026 model-risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2026/bulletin-2026-13.html) separates development and use from validation, monitoring, governance, and controls, including outcomes analysis. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
 
 The prior theory paper predicted that a heterogeneous linear-cost Tullock contest would produce a very small active set and a top recipient holding 17.1–40.8% of the pool in the original 5,000-entrant simulations. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3–37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
 
 The prediction is rejected at wallet level. That conclusion is stronger than the causal story we initially attached to it, so this revision separates the two.
-
-The scale of the miss is worth stating directly. Against the model envelope's roughly 14.3% lower edge, HYPE's measured 0.73% top share is **19.6× lower** and EIGEN's 2.40% top share is **6.0× lower**. The two primary vectors contain **329,947 positive-allocation wallets in aggregate** (90,912 HYPE + 239,035 EIGEN). Those are wallet counts, not resolved beneficial owners, so the comparison rejects the wallet-level forecast without establishing person-level diversification.
 
 ## The model-risk reading
 
@@ -763,138 +585,11 @@ For mechanism design, per-wallet nonlinearities should be tested explicitly for 
 
 **[Both primary wallet vectors, the collectors, the analysis, and the simulation test are published here](/research/replication)** — 329,947 recipient rows across the HYPE genesis and EIGEN claim-recipient vectors used for the primary test, the model solver reused verbatim from the theory paper, fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, matched-*n* bands, prespecified grid-based simulation test, and ENA post-mortem, and where the two disagree, the paper governs.
 
-For program-design provenance, the primary external source for EIGEN is the [Eigen Foundation Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1), which documents the two phases and the additional per-address allocation. The outcome quantities above come from the released recipient vectors and collectors rather than from that program document; the distinction between source-defined mechanics and measured outcomes is deliberate.
-
 ---
 
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design; this paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis. No issuer named here reviewed the study. The primary evidence is public chain state or public APIs collected 31 July–1 August 2026, and all headline concentration statistics are wallet-level.*`;
 
-const ERC8056_BODY = `# A 10-for-1 stock split can leave your ERC-20 balance unchanged
-
-*Research note. Published 7 August 2026. Evidence state: RESEARCH. ERC-8056 is a Draft standards-track ERC, not a finalized standard. This study tests integration semantics and public code-search visibility; it does not claim a live user incident or that any named product lacks runtime support.*
-
-Here is a crypto failure mode that can produce a **10x wrong number without a failed RPC call, a reverted transaction, or a broken ERC-20 contract**.
-
-Robinhood Stock Tokens keep the raw ERC-20 balance static when certain corporate actions change the shares represented by each token. The extra meaning lives in an onchain multiplier exposed through **uiMultiplier()**. In Chainlink's official 10-for-1 example, the underlying share price moves from $200 to $20, the multiplier moves from 1x to 10x, and the Chainlink token feed stays at $200.
-
-The raw **balanceOf()** can stay exactly the same.
-
-That sounds like a corner case until you notice what it does to ordinary crypto assumptions. A wallet can decode the balance correctly and show the wrong share-equivalent quantity. A portfolio tracker can read a fresh price and be off by 10x. Another integration can take a correct Chainlink token price, apply the multiplier again, and be off by 10x in the other direction.
-
-**The contract did not break. The abstraction got a new layer.**
-
-![Before and after a documented 10-for-1 split example: raw ERC-20 balance remains one, while the ERC-8056 multiplier moves from one to ten and share-equivalent units move from one to ten.](/research/social/erc8056-v1-split.svg "A 10-for-1 split can leave the raw ERC-20 amount unchanged. Chainlink's adjusted token price remains continuous in the documented example while the share-equivalent amount changes.")
-
-## The same holding now has three different numbers
-
-Robinhood describes its Stock Tokens as tokenised debt securities issued by Robinhood Assets (Jersey) Limited. They provide economic exposure to underlying securities but do **not** grant legal or beneficial rights in those underlying securities. At the contract level they are 18-decimal ERC-20s.
-
-The corporate-action mechanism is where “standard ERC-20” stops being enough context for a UI. [Robinhood's Stock Token documentation](https://docs.robinhood.com/chain/stock-tokens/) says dividends and stock splits adjust the shares-per-token ratio through an onchain multiplier while the raw balance stays static until redemption. Its [developer guide](https://docs.robinhood.com/chain/building-with-stock-tokens/) says **balanceOf()** and **totalSupply()** stay fixed and defines share-equivalent amount as raw token amount multiplied by **uiMultiplier()**.
-
-[Draft ERC-8056](https://eips.ethereum.org/EIPS/eip-8056) standardizes that extra UI layer. Standard ERC-20 operations remain raw. The core extension exposes an 18-decimal **uiMultiplier()**; optional views include **balanceOfUI()** and **totalSupplyUI()**. The draft tells wallet integrators to detect support through ERC-165, display raw and UI amounts clearly, and keep transfers in raw units.
-
-So there are at least three quantities an integration must not collapse into one generic “amount” field:
-
-| Surface | Meaning | Multiplier treatment |
-|---|---|---|
-| ERC-20 balanceOf() | Raw token amount used by standard token operations | Apply once to derive share-equivalent UI amount |
-| Robinhood REST /prices | Raw underlying-equity bid/ask | Apply once when deriving value per raw token |
-| Chainlink Stock Token feed | Price of one token, already underlying price × multiplier | **Do not apply again** |
-
-[Robinhood's API documentation](https://docs.robinhood.com/chain/stock-token-apis/) makes the price split explicit: REST /prices is raw underlying-equity price, while the onchain Chainlink feed is multiplier adjusted. [Chainlink's Robinhood feed documentation](https://docs.chain.link/data-feeds/tokenized-equity-feeds/robinhood) gives the same formula and the 10-for-1 example.
-
-## One official example, three outcomes
-
-Take Chainlink's documented post-split state: one raw token, a $20 underlying share price, a 10x UI multiplier, and a $200 Chainlink token feed.
-
-| Integration path | Reported result | Why |
-|---|---:|---|
-| Correct token valuation | **$200** | 1 raw token × $200 adjusted token feed |
-| Miss the multiplier on raw REST price | **$20** | 1 raw token × $20 raw share price |
-| Apply multiplier again to Chainlink | **$2,000** | $200 adjusted token feed × 10x again |
-
-![Three valuation paths for the same documented split fixture: correct token value at $200, a $20 understatement when the multiplier is omitted from raw equity price, and a $2,000 overstatement when the multiplier is applied twice to the adjusted token feed.](/research/social/erc8056-v2-price.svg "Every input can be fresh and correctly decoded. The failure is losing track of whether a price or amount is raw or already adjusted.")
-
-This is not a claim that a real holder lost money or that a named wallet showed these numbers. It is the arithmetic implied by the documented interfaces. The failure is **semantic provenance**: the application no longer knows which transformation has already happened.
-
-## We searched public crypto code for the new semantic layer
-
-On 7 August 2026 we ran a purposive public-code audit across nine open-source codebases spanning wallets, portfolio/accounting, an explorer frontend, a DEX interface, and general EVM libraries:
-
-| Repository | Layer |
-|---|---|
-| MetaMask/metamask-extension | Wallet |
-| RabbyHub/Rabby | Wallet |
-| rainbow-me/rainbow | Wallet |
-| trustwallet/wallet-core | Wallet core |
-| rotki/rotki | Portfolio/accounting |
-| blockscout/frontend | Explorer frontend |
-| wevm/viem | EVM library |
-| ethers-io/ethers.js | EVM library |
-| Uniswap/interface | DEX interface |
-
-We searched the GitHub-indexed default-branch code for **uiMultiplier**, **balanceOfUI**, **UIMultiplierUpdated**, **ERC-8056**, and the four interface identifiers published by the draft. **All eight searches returned zero matches across the nine-repository scope.** A positive-control search for **balanceOf** returned indexed code in the same scope.
-
-![Public-code audit card listing nine repositories and zero matches for the eight canonical ERC-8056 search markers, plus the same zero-marker result for Suwappu main.](/research/social/erc8056-v3-audit.svg "This is an identifier-based public-code search, not runtime conformance testing. Zero canonical markers do not prove that a product lacks support.")
-
-The caveat is as important as the result. **Zero code-search matches is not zero runtime support.** A product can use a private backend, third-party metadata, dynamically constructed calls, generated code, unindexed branches, or different names. And a generic library does not need a first-class ERC-8056 module for an application to call the extension.
-
-So the finding is deliberately narrow: the canonical ERC-8056 integration vocabulary was not visible in this public-code sample at observation time. We do **not** call these wallets broken, rank their support, or estimate an ecosystem-wide adoption rate.
-
-## Suwappu failed the same search
-
-We ran the same marker set against Suwappu's own pre-study main snapshot, commit **8ca242149eb40c7f90b0c2ac02a4ca850e432e4c**, across the bot, TypeScript API, webapp, terminal, packages, contracts, showcase source, and docs. It returned zero matches too.
-
-That is not evidence of an exposed Suwappu Stock Token trading bug. Current source explicitly keeps canonical Robinhood Stock Token trading **fail-closed** until a dedicated jurisdiction and eligibility flow exists; the guard is visible in the pinned [discovery handler](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/paste_trade.py#L196-L207) and [swap callback](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/swap.py#L2030-L2041).
-
-The useful conclusion is engineering governance: **ERC-8056 handling belongs in the admission criteria before that gate can safely be removed.** Catching the mismatch while the route is closed is the cheap version of finding it.
-
-## What a correct integration has to remember
-
-1. **Detect the scaled-UI interface explicitly.** ERC-8056 is Draft; treat that status as a versioning risk rather than assuming every ERC-20 has these methods.
-2. **Give quantities semantic names.** Raw token amount, share-equivalent amount, raw underlying price, and adjusted token price should not share an ambiguous “amount” or “price” field.
-3. **Apply the multiplier exactly once.** Raw Robinhood REST share price needs it to become per-token value; the Chainlink token feed already has it.
-4. **Model the transition, not just the steady state.** Pending multiplier/effective time, oracle pause, feed staleness, and L2 sequencer state matter around corporate actions.
-5. **Test 10x and 0.1x, not only 1.0x.** A test suite that only sees the launch multiplier cannot distinguish ERC-20-only display logic from correct scaled-UI handling.
-6. **Keep transfers raw.** The multiplier changes presentation semantics; standard ERC-20 transfer operations remain raw.
-
-The invariant we would want before enabling the asset class is simple: for the same holding and observation time, every supported price/amount path must reconcile to the same economic value after its documented transformation. If the REST, Chainlink, and UI paths disagree, fail closed instead of guessing which surface has already been adjusted.
-
-## The broader point
-
-ERC-20 compatibility solved a huge part of composability by making token plumbing generic. Real-world assets bring external state back into the interface: corporate actions, issuer terms, market sessions, oracle pauses, and price provenance.
-
-ERC-8056's design is interesting precisely because it tries to preserve the raw ERC-20 world while adding one missing semantic layer for the UI. That makes the new failure mode subtle: **settlement compatibility can survive while display compatibility does not.**
-
-**[Open the working paper and machine-readable audit](/research/replication)**. The [working paper](/research/replication/papers/erc8056-stock-token-interface-risk.md) is canonical; the released JSON records the repository set, query set, positive control, Suwappu self-check, and split fixture used here.
-
----
-
-*Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product. Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
-
 export const researchPosts: ResearchPost[] = [
-  {
-    slug: 'erc8056-stock-split-interface-risk',
-    title: 'A 10-for-1 stock split can leave your ERC-20 balance unchanged',
-    date: '2026-08-07',
-    category: 'Tokenized assets',
-    kind: 'research',
-    excerpt: 'Robinhood Stock Tokens expose a strange RWA edge: raw ERC-20 balance can stay fixed while share-equivalent units jump 10x. We audited nine open-source crypto codebases for canonical ERC-8056 markers and found none — an integration signal, not proof of broken wallets.',
-    readMins: 9,
-    status: 'published',
-    paperPath: '/research/replication/papers/erc8056-stock-token-interface-risk.md',
-    indexFigure: {
-      src: '/research/social/erc8056-v1-split.svg',
-      alt: 'Before and after a documented 10-for-1 split: raw ERC-20 balance stays at one while the UI multiplier rises from one to ten and share-equivalent units rise from one to ten.',
-      caption: 'A corporate action can change the user-facing share quantity without touching the raw ERC-20 balance. The integration risk is semantic, not transactional.',
-    },
-    keywords: [
-      'ERC-8056', 'EIP-8056', 'Robinhood Stock Tokens', 'Robinhood Chain',
-      'tokenized equities', 'tokenized real-world assets', 'wallet integration',
-      'stock split', 'uiMultiplier', 'Chainlink tokenized equity feeds',
-    ],
-    body: ERC8056_BODY,
-  },
   {
     slug: 'omnichain-dollar-collateral',
     title: 'USDT0 backing reconciliation: separating protocol coverage from issuer risk',
@@ -905,12 +600,6 @@ export const researchPosts: ResearchPost[] = [
     excerpt: 'The documented USDT0 perimeter reconciles to 1.000298x against observed USDT backing at head. That is a protocol-accounting result — not evidence about Tether\'s underlying reserves, redemption capacity, or legal availability.',
     readMins: 13,
     status: 'published',
-    evidence: {
-      status: 'MEASURED',
-      asOf: '2026-08-01',
-      basis: 'Public chain state · code and data released',
-      boundary: 'Protocol token-unit reconciliation; not an issuer reserve attestation.',
-    },
     paperPath: '/research/replication/papers/usdt0-collateral-reconciliation.md',
     report: {
       path: '/research/reports/accounting-for-an-omnichain-dollar.pdf',
@@ -937,54 +626,15 @@ export const researchPosts: ResearchPost[] = [
     body: USDT0_BODY,
   },
   {
-    slug: 'pricing-cross-chain-latency',
-    title: 'What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality',
-    date: '2026-08-08',
-    category: 'Execution governance',
-    kind: 'research',
-    excerpt: 'At 3.65% SOFR, a 10bp speed concession equals 9.86 days of simple ACT/360 carry—not minutes. The paper turns that gap into a falsifiable calibration framework for cross-chain execution, while keeping provider ETA separate from settlement finality.',
-    readMins: 12,
-    status: 'published',
-    evidence: {
-      status: 'RESEARCH — SOURCE-VERIFIED',
-      asOf: '2026-08-08',
-      basis: 'Pinned router source + NY Fed rate benchmark · code/data released',
-      boundary: 'Scenario calibration, not production TCA; realized latency value and finality remain unmeasured.',
-    },
-    paperPath: '/research/replication/papers/settlement-latency-value.md',
-    heroArt: {
-      src: '/research/cross-chain-latency-editorial.jpg',
-      alt: 'A precision stopwatch feeds an amber ribbon across a navy ledger gap, through a translucent ETA marker and then a separate navy-and-brass finality gate before continuing into a long accordion of ivory paper leaves.',
-      caption: 'Editorial illustration, not quantitative evidence: the translucent marker represents the provider-reported ETA/expected-arrival milestone; the separate sealed gate represents an independently defined finality endpoint. At 3.65% SOFR, the pinned 10bp policy ceiling equals 9.86 days of simple ACT/360 carry; the study’s reproducible calibration figure contains the quantitative evidence.',
-    },
-    indexFigure: {
-      src: '/research/latency-carry.svg',
-      alt: 'Log-scale chart comparing the 10bp routing-policy ceiling with simple SOFR financing carry for one to sixty minutes saved.',
-      caption: 'At 3.65% SOFR, 10bp equals 9.86 days of simple ACT/360 carry. Minute-scale speed needs an economic justification beyond cash carry alone.',
-    },
-    keywords: [
-      'cross-chain execution', 'routing latency', 'transaction cost analysis',
-      'settlement finality', 'SOFR', 'execution policy', 'bridge routing',
-      'treasury liquidity', 'latency economics',
-    ],
-    body: LATENCY_BODY,
-  },
-  {
     slug: 'points-programs-tullock-contests',
     title: 'Incentive budgets as market design: what survives after the model fails',
     date: '2026-07-26',
-    updated: '2026-08-08',
+    updated: '2026-08-07',
     category: 'Model risk',
     kind: 'research',
     excerpt: 'Treat the reward pool as a budget-allocation mechanism. The active-set forecast failed; what remains is narrower but useful: a conditional view of cost capture, identity-splitting incentives, and why solver verification is not model validation.',
-    readMins: 14,
+    readMins: 13,
     status: 'published',
-    evidence: {
-      status: 'MODEL — CHALLENGED',
-      asOf: '2026-08-08',
-      basis: 'Exact equilibrium + seeded Monte Carlo · field test released',
-      boundary: 'Retained for conditional mechanism analysis; rejected for wallet-level allocation forecasting.',
-    },
     paperPath: '/research/replication/papers/points-tullock-contests.md',
     indexFigure: {
       src: '/research/points-participation.svg',
@@ -1003,17 +653,11 @@ export const researchPosts: ResearchPost[] = [
     slug: 'airdrop-concentration',
     title: 'When a mathematically correct model is wrong: an allocation-model validation case study',
     date: '2026-07-31',
-    updated: '2026-08-08',
+    updated: '2026-08-07',
     category: 'Model validation',
     kind: 'research',
     excerpt: 'The solver passed; the forecast failed. HYPE and EIGEN reject the model’s wallet-level active-set prediction, turning this into a case study in outcomes analysis, use limitation, data lineage, and the gap between wallets and beneficial owners.',
-    readMins: 13,
-    evidence: {
-      status: 'MEASURED',
-      asOf: '2026-08-01',
-      basis: '329,947 primary recipient wallets · code and data released',
-      boundary: 'Wallet-level outcomes; beneficial owners and causal mechanism unresolved.',
-    },
+    readMins: 12,
     paperPath: '/research/replication/papers/airdrop-concentration.md',
     indexFigure: {
       src: '/research/airdrop-lorenz.svg',
@@ -1032,56 +676,34 @@ export const researchPosts: ResearchPost[] = [
     slug: 'tempo-fee-payer-0x76',
     title: 'The fee payer as a treasury control surface: sponsored execution on Tempo',
     date: '2026-07-31',
-    updated: '2026-08-08',
+    updated: '2026-08-07',
     category: 'Payments control',
     kind: 'engineering',
     excerpt: 'Fee sponsorship is more than “gasless” UX: it separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive but not yet ledger-grade budget control.',
-    readMins: 11,
+    readMins: 9,
     status: 'published',
-    evidence: {
-      status: 'SOURCE-VERIFIED',
-      asOf: '2026-08-08',
-      basis: 'Current main + Tempo primary specifications',
-      boundary: 'Implementation verified; production enablement and realized fee control unverified.',
-    },
     indexFigure: {
       src: '/research/tempo-fee-payer-control.svg',
       alt: 'Control map showing Tempo sender asset authority separated from sponsor network-fee authority in one transaction.',
       caption: 'The fee payer is a separate treasury authority, not “free gas.” Implementation is source-verified; production enablement and receipt-reconciled hard budgets remain unverified.',
     },
-    keywords: [
-      'Tempo blockchain', 'fee sponsorship', 'stablecoin network fees',
-      'treasury controls', 'type 0x76', 'sponsored transactions',
-      'payments operations',
-    ],
     body: TEMPO_BODY,
   },
   {
     slug: 'best-price-routing',
     title: 'A router is an execution policy: price, evidence quality, and the TCA gap',
     date: '2026-07-31',
-    updated: '2026-08-08',
+    updated: '2026-08-07',
     category: 'Execution governance',
     kind: 'engineering',
     excerpt: 'The integration count is inventory; the real product is the decision policy. Current routing changes objective with evidence quality and prices time only narrowly, while realized TCA, failure cost, finality, and route-risk calibration remain open.',
-    readMins: 12,
+    readMins: 10,
     status: 'published',
-    evidence: {
-      status: 'SOURCE-VERIFIED',
-      asOf: '2026-08-08',
-      basis: 'Current main + primary execution/control sources',
-      boundary: 'Quote-selection policy verified; realized TCA and best-execution outcome unproven.',
-    },
     indexFigure: {
       src: '/research/routing-decision-waterfall.svg',
       alt: 'Decision waterfall for quote routing, from the returned comparison set through evidence-quality gates and the final cross-chain tiebreak.',
       caption: 'The integration roster is inventory; the router is the policy. Evidence quality determines whether the current engine may rank net of gas or must fall back to gross output.',
     },
-    keywords: [
-      'DEX routing', 'cross-chain routing', 'transaction cost analysis',
-      'execution policy', 'best execution', 'quote aggregation',
-      'routing governance',
-    ],
     body: ROUTING_BODY,
   },
   {

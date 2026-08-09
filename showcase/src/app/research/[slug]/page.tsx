@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
@@ -89,15 +88,6 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE}/research/${post.slug}` },
     url: `${SITE}/research/${post.slug}`,
-    ...(post.heroArt && {
-      image: {
-        '@type': 'ImageObject',
-        url: `${SITE}${post.heroArt.src}`,
-        width: 1536,
-        height: 1024,
-        caption: post.heroArt.caption,
-      },
-    }),
     ...(post.report && {
       associatedMedia: {
         '@type': 'MediaObject',
@@ -119,7 +109,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <main id="main-content" className="summer-page docs-shell">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
@@ -156,38 +146,6 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
               {post.paperPath && <a href={post.paperPath}>Full working paper →</a>}
               {post.kind === 'research' && <a href="/research/replication">Data &amp; code →</a>}
             </div>
-          )}
-          {post.evidence && (
-            <dl className="research-post__evidence" aria-label="Evidence standard">
-              <div>
-                <dt>Evidence</dt>
-                <dd className="research-post__evidence-status">{post.evidence.status}</dd>
-              </div>
-              <div>
-                <dt>As of</dt>
-                <dd>{fmtDate(post.evidence.asOf)}</dd>
-              </div>
-              <div>
-                <dt>Basis</dt>
-                <dd>{post.evidence.basis}</dd>
-              </div>
-              <div>
-                <dt>Boundary</dt>
-                <dd>{post.evidence.boundary}</dd>
-              </div>
-            </dl>
-          )}
-          {post.heroArt && (
-            <figure className="research-post__hero-art">
-              <Image
-                src={post.heroArt.src}
-                alt={post.heroArt.alt}
-                width={1536}
-                height={1024}
-                priority
-              />
-              <figcaption>{post.heroArt.caption}</figcaption>
-            </figure>
           )}
         </header>
 

@@ -24,7 +24,7 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.120.2
+anthropic==0.120.0
     # via -r requirements.in
 anyio==4.12.1
     # via
@@ -135,7 +135,7 @@ eth-utils==5.3.1
     #   pytempo
     #   rlp
     #   web3
-fastapi==0.141.1
+fastapi==0.140.6
     # via
     #   -r requirements.in
     #   sentry-sdk
@@ -223,7 +223,7 @@ multidict==6.7.1
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
-openai==2.53.0
+openai==2.48.0
     # via -r requirements.in
 orjson==3.11.9
     # via -r requirements.in
@@ -309,7 +309,7 @@ pyyaml==6.0.3
     #   uvicorn
 qrcode==8.2
     # via -r requirements.in
-redis==8.1.0
+redis==8.0.1
     # via -r requirements.in
 regex==2026.1.15
     # via parsimonious
@@ -397,7 +397,7 @@ urllib3==2.7.0
     #   requests
     #   sentry-sdk
     #   types-requests
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.51.0
     # via -r requirements.in
 uvloop==0.22.1
     # via

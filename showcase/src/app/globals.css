@@ -5546,44 +5546,6 @@ button:focus:not(:focus-visible) {
 .research-post__artifacts a { color: var(--summer-muted); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
 .research-post__artifacts a:hover { color: var(--summer-ink); }
 .research-post__artifacts .research-post__report { color: var(--sw-accent); }
-.research-post__hero-art { margin: 22px 0 0; }
-.research-post__hero-art img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--summer-line);
-  background: rgba(255, 255, 255, 0.72);
-}
-.research-post__hero-art figcaption {
-  margin-top: 8px;
-  color: var(--summer-muted);
-  font-size: 0.72rem;
-  line-height: 1.5;
-}
-.research-post__evidence {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  margin: 22px 0 0;
-  border: 1px solid var(--summer-line);
-  border-radius: 10px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.72);
-}
-.research-post__evidence > div { padding: 12px 14px; border-top: 1px solid var(--summer-line); border-left: 1px solid var(--summer-line); }
-.research-post__evidence > div:nth-child(-n + 2) { border-top: 0; }
-.research-post__evidence > div:nth-child(odd) { border-left: 0; }
-.research-post__evidence dt {
-  margin: 0 0 4px;
-  color: var(--summer-muted);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.research-post__evidence dd { margin: 0; color: #345069; font-size: 0.78rem; line-height: 1.45; }
-.research-post__evidence .research-post__evidence-status { color: var(--summer-ink); font-weight: 800; }
 .research-post__back { display: inline-block; margin-top: 2rem; color: var(--sw-accent); font-weight: 700; text-decoration: none; }
 
 /* Changelog (marketing) */
@@ -5641,9 +5603,6 @@ button:focus:not(:focus-visible) {
 @media (max-width: 720px) {
   .research-row, .changelog-entry { grid-template-columns: 1fr; gap: 10px; }
   .research-row__meta, .changelog-entry__rail { flex-direction: row; }
-  .research-post__evidence { grid-template-columns: 1fr; }
-  .research-post__evidence > div { border-left: 0; }
-  .research-post__evidence > div:nth-child(2) { border-top: 1px solid var(--summer-line); }
   .careers-principles, .careers-extra { grid-template-columns: 1fr; }
 }
 

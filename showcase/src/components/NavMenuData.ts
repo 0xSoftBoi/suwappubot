@@ -74,7 +74,6 @@ export const MENU_PANELS: MenuPanel[] = [
         items: [
           { key: 'docs', href: '/docs' },
           { key: 'apiRef', href: '/docs/api-reference/overview' },
-          { key: 'architecture', href: '/architecture' },
           { key: 'github', href: GITHUB_URL, external: true },
         ],
       },
@@ -87,7 +86,6 @@ export const MENU_PANELS: MenuPanel[] = [
       {
         key: 'grpWhy',
         items: [
-          { key: 'enterprise', href: '/enterprise' },
           { key: 'solutions', href: '/solutions' },
           { key: 'compare', href: '/compare' },
           { key: 'security', href: '/security' },

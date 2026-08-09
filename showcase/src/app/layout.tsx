@@ -7,7 +7,6 @@ import Analytics from '@/components/Analytics';
 import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
-import './institutional.css';
 
 // Two families, one voice: Geist carries display + UI + body, JetBrains Mono
 // is rationed to numerals, kickers, and code. Geist is loaded ONCE: globals.css

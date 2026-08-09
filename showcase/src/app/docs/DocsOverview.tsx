@@ -56,7 +56,7 @@ export default function DocsOverview() {
   const sections = docsData.sections.filter((s) => s.pages.length > 0);
 
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell sw-dark">
       <div className="docs-page">
         <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} />
