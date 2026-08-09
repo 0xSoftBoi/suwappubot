@@ -482,7 +482,13 @@ _GENERIC_NETWORK_NEEDLES = (
 )
 
 
-def user_facing_error(exc_or_message: Any, *, prefix: str = "❌ ") -> str:
+def user_facing_error(
+    exc_or_message: Any,
+    *,
+    prefix: str = "❌ ",
+    safe_exceptions: tuple[type[BaseException], ...] = (),
+    escape_for_markdown: bool = False,
+) -> str:
     """Render one calm, human-readable line for a non-swap handler failure.
 
     For handlers that hit a plain service/API error (fetching gas prices, a
@@ -493,8 +499,19 @@ def user_facing_error(exc_or_message: Any, *, prefix: str = "❌ ") -> str:
     - ``ValueError`` is this codebase's convention for a service raising a
       deliberate, already user-safe validation message (see
       ``bot/services/twofa.py``) — shown as-is.
+    - ``safe_exceptions`` extends that same passthrough to other domain error
+      classes that document themselves as user-safe (e.g. ``P2PError``,
+      ``SavingsError``, ``StarknetYieldError``, ``MorphoError`` — each is a
+      thin ``Exception`` subclass whose docstring says its message is safe to
+      surface). Pass the caller's error type(s) in explicitly; nothing is
+      whitelisted by guessing.
     - Anything else is classified into a short, generic cause (network/
       timeout, rate limit) or a calm fallback carrying a reference id.
+
+    Set ``escape_for_markdown=True`` when the caller renders with
+    ``parse_mode="Markdown"`` — it escapes the passthrough message only (the
+    static fallback/rate-limit/network copy below is already Markdown-safe),
+    matching the ``escape_markdown()`` callers previously had to do by hand.
 
     The raw detail is always logged server-side first, so callers don't need
     a separate log line purely to capture the exception text (they should
@@ -504,8 +521,14 @@ def user_facing_error(exc_or_message: Any, *, prefix: str = "❌ ") -> str:
     reference_id = secrets.token_hex(4)
     logger.info("user_facing_error ref=%s detail=%r", reference_id, message[:300])
 
-    if isinstance(exc_or_message, ValueError) and message.strip():
-        return f"{prefix}{message.strip()}"
+    passthrough_types = (ValueError,) + tuple(safe_exceptions)
+    if isinstance(exc_or_message, passthrough_types) and message.strip():
+        text = message.strip()
+        if escape_for_markdown:
+            from bot.utils.formatters import escape_markdown
+
+            text = escape_markdown(text)
+        return f"{prefix}{text}"
 
     lowered = message.lower()
     if any(needle in lowered for needle in _GENERIC_RATE_LIMIT_NEEDLES):

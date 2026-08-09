@@ -14,6 +14,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 import aiohttp
 
+from bot.utils.http_client import get_session as get_http_session
+
 logger = logging.getLogger(__name__)
 
 
@@ -187,31 +189,35 @@ class TurnkeyClient:
             "X-Stamp": stamp,  # Already base64-encoded
         }
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
-            async with session.request(
-                method,
-                url,
-                data=body_str,
-                headers=headers,
-            ) as response:
-                # Get response text first for better error handling
-                text = await response.text()
+        # Signing activities can legitimately take longer than the shared
+        # session's default total timeout (20s) — use the shared session for
+        # pooling/DNS caching but keep a per-request 30s override.
+        session = await get_http_session()
+        async with session.request(
+            method,
+            url,
+            data=body_str,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as response:
+            # Get response text first for better error handling
+            text = await response.text()
 
-                try:
-                    result = json.loads(text) if text else {}
-                except json.JSONDecodeError:
-                    logger.error(f"Turnkey API returned non-JSON: {text[:200]}")
-                    raise TurnkeyAPIError(response.status, f"Invalid JSON response: {text[:200]}")
+            try:
+                result = json.loads(text) if text else {}
+            except json.JSONDecodeError:
+                logger.error(f"Turnkey API returned non-JSON: {text[:200]}")
+                raise TurnkeyAPIError(response.status, f"Invalid JSON response: {text[:200]}")
 
-                if response.status >= 400:
-                    if isinstance(result, dict):
-                        error_msg = result.get("message", str(result))
-                    else:
-                        error_msg = str(result)
-                    logger.error(f"Turnkey API error: {response.status} - {error_msg}")
-                    raise TurnkeyAPIError(response.status, error_msg)
+            if response.status >= 400:
+                if isinstance(result, dict):
+                    error_msg = result.get("message", str(result))
+                else:
+                    error_msg = str(result)
+                logger.error(f"Turnkey API error: {response.status} - {error_msg}")
+                raise TurnkeyAPIError(response.status, error_msg)
 
-                return result
+            return result
 
     async def _submit_activity(
         self,

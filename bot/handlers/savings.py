@@ -27,6 +27,7 @@ from bot.models.savings import SavingsEvent
 from bot.services.savings_service import savings_service, SavingsError
 from bot.services.starknet_yield import VENUES as _BTC_VENUES
 from bot.services.wallet import WalletService
+from bot.services.error_guidance import user_facing_error
 from bot.utils.formatters import format_tx_link, escape_markdown
 from bot.utils.validators import validate_amount
 from bot.utils.tos_utils import enforce_tos
@@ -295,7 +296,11 @@ async def save_select_wallet_callback(update: Update, context: ContextTypes.DEFA
                 savings_service.get_usdc_balance, savings["wallet_address"]
             )
         except SavingsError as e:
-            await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+            logger.error("Savings balance fetch failed: %s", e, exc_info=True)
+            await query.edit_message_text(
+                user_facing_error(e, safe_exceptions=(SavingsError,)),
+                reply_markup=_RETRY_KEYBOARD,
+            )
             return ConversationHandler.END
         savings["available"] = float(available)
         text = (
@@ -309,7 +314,11 @@ async def save_select_wallet_callback(update: Update, context: ContextTypes.DEFA
                 savings_service.get_position, savings["wallet_address"]
             )
         except SavingsError as e:
-            await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+            logger.error("Savings position fetch failed: %s", e, exc_info=True)
+            await query.edit_message_text(
+                user_facing_error(e, safe_exceptions=(SavingsError,)),
+                reply_markup=_RETRY_KEYBOARD,
+            )
             return ConversationHandler.END
         savings["available"] = float(position)
         text = (
@@ -519,8 +528,9 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
             disable_web_page_preview=True,
         )
     except SavingsError as e:
+        logger.error(f"Savings {action} failed for user {user_id}: {e}", exc_info=True)
         await query.edit_message_text(
-            f"❌ {e}",
+            user_facing_error(e, safe_exceptions=(SavingsError,)),
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
             ),
@@ -703,7 +713,11 @@ async def save_btc_venue_callback(update: Update, context: ContextTypes.DEFAULT_
         btc["position_assets"] = position["assets_raw"]
         pos_text = f"{position['assets_btc']:.8f} BTC"
     except StarknetYieldError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_BTC_RETRY_KEYBOARD)
+        logger.error("BTC savings position fetch failed: %s", e, exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(StarknetYieldError,)),
+            reply_markup=_BTC_RETRY_KEYBOARD,
+        )
         return SAVE_BTC_MENU
 
     unbond_note = (
@@ -942,7 +956,11 @@ async def save_btc_execute_callback(update: Update, context: ContextTypes.DEFAUL
             disable_web_page_preview=True,
         )
     except StarknetYieldError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=venue_back)
+        logger.error(f"BTC savings {action} failed for user {user_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(StarknetYieldError,)),
+            reply_markup=venue_back,
+        )
     except Exception as e:
         logger.error(
             f"BTC savings {action} unexpected error for user {user_id}: {e}", exc_info=True
@@ -1035,7 +1053,11 @@ async def save_morpho_menu_callback(update: Update, context: ContextTypes.DEFAUL
             asyncio.to_thread(savings_service.get_usdc_balance, wallet.address),
         )
     except (MorphoError, SavingsError) as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_MORPHO_RETRY_KEYBOARD)
+        logger.error("Morpho vault info fetch failed: %s", e, exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(MorphoError, SavingsError)),
+            reply_markup=_MORPHO_RETRY_KEYBOARD,
+        )
         return SAVE_MORPHO_MENU
     morpho["info"] = info
 
@@ -1263,7 +1285,11 @@ async def save_morpho_execute_callback(update: Update, context: ContextTypes.DEF
             disable_web_page_preview=True,
         )
     except MorphoError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_MORPHO_RETRY_KEYBOARD)
+        logger.error(f"Morpho savings {action} failed for user {user_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(MorphoError,)),
+            reply_markup=_MORPHO_RETRY_KEYBOARD,
+        )
     except Exception as e:
         logger.error(
             f"Morpho savings {action} unexpected error for user {user_id}: {e}", exc_info=True

@@ -128,7 +128,17 @@ async def _revoke(update: Update, user_id: int) -> None:
         else:
             await msg.edit_text(f"✅ Session key revoked.\nTx: `{tx}`", parse_mode="Markdown")
     except Exception as e:
-        await msg.edit_text(f"❌ Revoke failed: {e}")
+        # Same on-chain execution failure modes as _grant (gas, RPC timeout,
+        # revert) — mirror its classify_swap_failure treatment rather than
+        # leaking str(e) into chat.
+        logger.error(
+            "Tempo session key revoke failed for user %s: %s",
+            user_id,
+            type(e).__name__,
+            exc_info=True,
+        )
+        guidance = classify_swap_failure(e, {"chain": "tempo"})
+        await msg.edit_text(guidance.to_message(), parse_mode="Markdown")
 
 
 def get_tempo_handlers():

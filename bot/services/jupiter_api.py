@@ -272,22 +272,24 @@ class JupiterAPI:
             "ids": ",".join(token_ids),
         }
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get(url, params=params) as response:
-                data = await response.json()
-                return {
-                    mint: {"price": info.get("usdPrice", info.get("price"))}
-                    for mint, info in (data or {}).items()
-                    if isinstance(info, dict)
-                }
+        session = await get_session()
+        async with session.get(
+            url, params=params, timeout=aiohttp.ClientTimeout(total=15)
+        ) as response:
+            data = await response.json()
+            return {
+                mint: {"price": info.get("usdPrice", info.get("price"))}
+                for mint, info in (data or {}).items()
+                if isinstance(info, dict)
+            }
 
     async def get_token_list(self) -> list[dict]:
         """Get list of all tradeable tokens on Jupiter."""
         url = "https://token.jup.ag/all"
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get(url) as response:
-                return await response.json()
+        session = await get_session()
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+            return await response.json()
 
     def decode_transaction(self, base64_transaction: str) -> bytes:
         """

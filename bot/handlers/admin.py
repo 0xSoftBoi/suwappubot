@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
 from bot.utils.cache import price_cache, quote_cache, balance_cache, gas_cache
+from bot.utils.http_client import get_session as get_http_session
 from database.db import get_session
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
@@ -132,14 +133,14 @@ async def _check_rpc_endpoints() -> dict:
 
             start = time.time()
 
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                async with session.post(rpc_url, json=payload, timeout=5) as resp:
-                    latency = (time.time() - start) * 1000
+            session = await get_http_session()
+            async with session.post(rpc_url, json=payload, timeout=5) as resp:
+                latency = (time.time() - start) * 1000
 
-                    if resp.status == 200:
-                        results[chain_name] = {"ok": True, "latency": latency}
-                    else:
-                        results[chain_name] = {"ok": False, "error": f"HTTP {resp.status}"}
+                if resp.status == 200:
+                    results[chain_name] = {"ok": True, "latency": latency}
+                else:
+                    results[chain_name] = {"ok": False, "error": f"HTTP {resp.status}"}
         except asyncio.TimeoutError:
             results[chain_name] = {"ok": False, "error": "Timeout"}
         except Exception as e:
@@ -154,28 +155,28 @@ async def _check_external_apis() -> dict:
 
     # Check Li.Fi
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get("https://li.quest/v1/chains", timeout=5) as resp:
-                results["Li.Fi"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get("https://li.quest/v1/chains", timeout=5) as resp:
+            results["Li.Fi"] = {"ok": resp.status == 200}
     except Exception as e:
         results["Li.Fi"] = {"ok": False, "error": str(e)[:50]}
 
     # Check Jupiter
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get(
-                "https://lite-api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000",
-                timeout=5,
-            ) as resp:
-                results["Jupiter"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get(
+            "https://lite-api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000",
+            timeout=5,
+        ) as resp:
+            results["Jupiter"] = {"ok": resp.status == 200}
     except Exception as e:
         results["Jupiter"] = {"ok": False, "error": str(e)[:50]}
 
     # Check CoinGecko
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.get("https://api.coingecko.com/api/v3/ping", timeout=5) as resp:
-                results["CoinGecko"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get("https://api.coingecko.com/api/v3/ping", timeout=5) as resp:
+            results["CoinGecko"] = {"ok": resp.status == 200}
     except Exception as e:
         results["CoinGecko"] = {"ok": False, "error": str(e)[:50]}
 

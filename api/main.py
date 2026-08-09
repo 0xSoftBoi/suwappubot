@@ -85,7 +85,7 @@ from bot.utils.telegram_safe import safe_md
 from bot.main import add_handlers
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import logging
 
@@ -106,6 +106,29 @@ def _mark_degraded(name: str, error: BaseException) -> None:
 
 def _clear_degraded(name: str) -> None:
     DEGRADED_SERVICES.pop(name, None)
+
+
+@contextmanager
+def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
+    """Run one optional startup step, never letting its failure block startup.
+
+    Collapses the try/except/`_mark_degraded`/`_clear_degraded` skeleton that
+    was previously hand-rolled at each optional-service call site (p2p_escrow,
+    discord_alerts, auth_challenge_cleanup, event_bus, internal_api_client,
+    whatsapp_queue) into one reusable wrapper. On a clean exit,
+    `_clear_degraded(name)` runs automatically unless `auto_clear=False` — the
+    event_bus site needs that escape hatch because "connected" and "ran
+    without error but stayed disconnected" are both non-exceptional outcomes
+    that should NOT both clear the degraded flag, so it clears explicitly
+    inside its own body instead.
+    """
+    try:
+        yield
+        if auto_clear:
+            _clear_degraded(name)
+    except Exception as e:  # noqa: BLE001 — deliberately broad: never block startup
+        logger.warning(f"{log_prefix}: {e}")
+        _mark_degraded(name, e)
 
 
 # --- Lifespan Manager ---
@@ -365,14 +388,10 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         # Wire the native P2P escrow executor to the on-chain USDC settlement path.
         if getattr(settings, "p2p_enabled", True):
-            try:
+            with _track_degraded("p2p_escrow", "P2P escrow wiring skipped"):
                 from bot.services.p2p_escrow_executor import wire_p2p_escrow
 
                 wire_p2p_escrow()
-                _clear_degraded("p2p_escrow")
-            except Exception as e:  # noqa: BLE001 — never block startup on P2P
-                logger.warning("P2P escrow wiring skipped: %s", e)
-                _mark_degraded("p2p_escrow", e)
         # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
         await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -398,15 +417,11 @@ async def lifespan(app: FastAPI):
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
-            try:
+            with _track_degraded("discord_alerts", "⚠️ Discord alerts failed to start"):
                 from bot.services.discord_alerts import discord_alert_service
 
                 await discord_alert_service.start(discord_bot)
                 logger.info("✓ Discord alert service started")
-                _clear_degraded("discord_alerts")
-            except Exception as e:
-                logger.warning(f"⚠️ Discord alerts failed to start: {e}")
-                _mark_degraded("discord_alerts", e)
 
         logger.info("✓ All background services running")
     else:
@@ -418,44 +433,29 @@ async def lifespan(app: FastAPI):
 
         while True:
             await asyncio.sleep(300)  # every 5 minutes
-            try:
+            with _track_degraded("auth_challenge_cleanup", "Auth challenge cleanup error"):
                 removed = cleanup_expired_challenges()
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
-                _clear_degraded("auth_challenge_cleanup")
-            except Exception as e:
-                logger.warning(f"Auth challenge cleanup error: {e}")
-                _mark_degraded("auth_challenge_cleanup", e)
 
     auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
 
     # 6. Start cross-service integrations
-    try:
+    with _track_degraded("event_bus", "⚠️ Event bus failed to connect", auto_clear=False):
         await event_bus.connect()
         if event_bus.connected:
             logger.info("✓ Event bus connected (Redis pub/sub)")
             _clear_degraded("event_bus")
         else:
             logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
-    except Exception as e:
-        logger.warning(f"⚠️ Event bus failed to connect: {e}")
-        _mark_degraded("event_bus", e)
 
-    try:
+    with _track_degraded("internal_api_client", "⚠️ Internal API client failed to init"):
         await api_client.init()
         logger.info("✓ Internal API client initialized")
-        _clear_degraded("internal_api_client")
-    except Exception as e:
-        logger.warning(f"⚠️ Internal API client failed to init: {e}")
-        _mark_degraded("internal_api_client", e)
 
     # Start the per-user WhatsApp message queue (ordered processing).
-    try:
+    with _track_degraded("whatsapp_queue", "⚠️ WhatsApp message queue failed to start"):
         await _wa_queue.start()
-        _clear_degraded("whatsapp_queue")
-    except Exception as e:
-        logger.warning(f"⚠️ WhatsApp message queue failed to start: {e}")
-        _mark_degraded("whatsapp_queue", e)
 
     yield
 

@@ -383,46 +383,66 @@ class TestRedeemIdempotency:
         assert r1.json()["message"] != r2.json()["message"]
 
 
-class TestRedeemIdemLockCleanup:
-    """NEW-7: `_redeem_idem_locks` entries created for a cache key must not
-    live forever once that key's cached result has expired/been pruned —
-    otherwise a long-lived worker process accumulates one Lock object per
-    distinct (user_id, Idempotency-Key or auto-bucket) forever."""
+class TestRedeemIdemEntryCleanup:
+    """NEW-7 (now structural): `_redeem_idem_entries` entries created for a
+    cache key must not live forever once that key's cached result has
+    expired/been pruned — otherwise a long-lived worker process accumulates
+    one entry per distinct (user_id, Idempotency-Key or auto-bucket) forever.
 
-    def test_expired_lookup_prunes_its_own_lock(self, sqlite_db):
+    The old implementation kept the lock and the cached result in TWO
+    parallel dicts (`_redeem_idem_locks` + `_redeem_idem_results`), which
+    could drift out of sync (that was the actual NEW-7 bug: a lock outliving
+    its already-pruned result because the bulk sweep only ever walked the
+    results dict). They're now a single `_IdemEntry` per key in one dict, so
+    lock and result are always pruned together by construction — there is no
+    "orphaned lock with no result" state left to test for."""
+
+    def test_expired_lookup_prunes_its_own_entry(self, sqlite_db):
         import api.routes.mobile as mobile_mod
 
         cache_key = (1, "hdr:65:prune-me")
-        mobile_mod._redeem_idem_results[cache_key] = (0.0, 200, {"success": True})  # ts=epoch
-        mobile_mod._redeem_idem_get_lock(cache_key)
+        mobile_mod._redeem_idem_entries[cache_key] = mobile_mod._IdemEntry(
+            lock=mobile_mod.threading.Lock(),
+            timestamp=0.0,  # epoch — long expired
+            status_code=200,
+            body={"success": True},
+        )
 
-        assert cache_key in mobile_mod._redeem_idem_locks
-        assert cache_key in mobile_mod._redeem_idem_results
+        assert cache_key in mobile_mod._redeem_idem_entries
 
         result = mobile_mod._redeem_idem_lookup(cache_key)
 
         assert result is None  # TTL (300s) elapsed since epoch
-        assert cache_key not in mobile_mod._redeem_idem_results
-        assert cache_key not in mobile_mod._redeem_idem_locks  # pruned alongside the result
+        assert cache_key not in mobile_mod._redeem_idem_entries  # lock + result pruned together
 
-    def test_store_sweep_prunes_orphaned_locks(self, monkeypatch):
+    def test_store_sweep_prunes_expired_entries_but_keeps_in_flight_ones(self, monkeypatch):
         import api.routes.mobile as mobile_mod
 
-        monkeypatch.setattr(mobile_mod, "_redeem_idem_results", {})
-        monkeypatch.setattr(mobile_mod, "_redeem_idem_locks", {})
+        monkeypatch.setattr(mobile_mod, "_redeem_idem_entries", {})
 
-        # Simulate an orphaned lock: present in the locks registry with no
-        # matching result at all (e.g. left behind by a lazy-lookup prune that
-        # ran before this sweep, or any other drift between the two dicts).
-        orphan_key = (1, "auto:66:orphan")
-        mobile_mod._redeem_idem_locks[orphan_key] = mobile_mod.threading.Lock()
+        # An expired entry: must be swept.
+        expired_key = (1, "auto:66:expired")
+        mobile_mod._redeem_idem_entries[expired_key] = mobile_mod._IdemEntry(
+            lock=mobile_mod.threading.Lock(),
+            timestamp=0.0,  # epoch — long expired
+            status_code=200,
+            body={"success": True},
+        )
 
-        # Push the results dict over the 1000-entry threshold so the sweep in
+        # An in-flight entry: lock claimed, no result yet (timestamp is None).
+        # Must survive the sweep regardless of dict size — we can't know its
+        # age, and removing it would hand a fresh Lock to a genuinely
+        # concurrent duplicate request instead of making it wait.
+        in_flight_key = (2, "auto:67:in-flight")
+        mobile_mod._redeem_idem_get_lock(in_flight_key)
+
+        # Push the dict over the 1000-entry threshold so the sweep in
         # `_redeem_idem_store` runs.
         for i in range(1001):
             mobile_mod._redeem_idem_store((i, "auto:filler"), 200, {"success": True})
 
-        assert orphan_key not in mobile_mod._redeem_idem_locks
+        assert expired_key not in mobile_mod._redeem_idem_entries
+        assert in_flight_key in mobile_mod._redeem_idem_entries
 
 
 class TestGetPointsFieldMapping:

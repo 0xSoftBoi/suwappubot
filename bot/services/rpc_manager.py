@@ -416,6 +416,9 @@ class RPCManager:
         # raises partway through having already appended some endpoints.
         newly_added: List[RPCEndpoint] = []
         try:
+            # Deliberately not bot.utils.http_client.get_session(): this needs
+            # its own TCPConnector bound to self._ssl_ctx (a custom SSL
+            # context), which the shared session's connector doesn't carry.
             connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
             async with aiohttp.ClientSession(
                 connector=connector, timeout=aiohttp.ClientTimeout(total=15)
@@ -671,6 +674,10 @@ class RPCManager:
             payload = {"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}
             start = time.monotonic()
             try:
+                # Deliberately not bot.utils.http_client.get_session(): each
+                # health check probes an arbitrary (possibly self-signed /
+                # untrusted-CA) RPC endpoint and needs its own TCPConnector
+                # bound to self._ssl_ctx, which the shared session doesn't carry.
                 connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
                 async with aiohttp.ClientSession(
                     connector=connector, timeout=aiohttp.ClientTimeout(total=10)

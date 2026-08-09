@@ -13,6 +13,7 @@ from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.services.rpc_manager import rpc_manager
 from bot.utils.cache import gas_cache, cached
 from bot.utils.retry import async_retry
+from bot.utils.http_client import get_session as get_http_session
 
 
 @dataclass
@@ -67,49 +68,54 @@ class GasTracker:
             if not rpc_url:
                 return None
 
-            # Total timeout so a slow/hanging RPC can't block callers that
-            # race this alongside other quote providers (e.g. OKX/1inch/0x's
-            # real-gas computation in swap_engine._real_gas_cost_usd) past
-            # their own FAST_TIMEOUT — an unbounded session here used to be
-            # able to push the whole race out of its fast path.
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2.0)) as session:
-                # Get gas price from RPC
-                payload = {"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}
-                async with session.post(rpc_url, json=payload) as resp:
-                    result = await resp.json()
-                    if "result" in result:
-                        gas_wei = int(result["result"], 16)
-                        gas_gwei = gas_wei / 1e9
+            # Shared session: pooled connections + DNS cache instead of a
+            # fresh ClientSession per call. Total timeout kept tight (2.0s,
+            # not the shared session's longer default) so a slow/hanging RPC
+            # can't block callers that race this alongside other quote
+            # providers (e.g. OKX/1inch/0x's real-gas computation in
+            # swap_engine._real_gas_cost_usd) past their own FAST_TIMEOUT.
+            session = await get_http_session()
+            # Get gas price from RPC
+            payload = {"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}
+            async with session.post(
+                rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=2.0)
+            ) as resp:
+                result = await resp.json()
+                if "result" in result:
+                    gas_wei = int(result["result"], 16)
+                    gas_gwei = gas_wei / 1e9
 
-                        # Estimate different speeds based on current price
-                        gas_price = GasPrice(
-                            chain=chain_name,
-                            slow=gas_gwei * 0.8,
-                            standard=gas_gwei,
-                            fast=gas_gwei * 1.2,
-                            instant=gas_gwei * 1.5,
-                        )
+                    # Estimate different speeds based on current price
+                    gas_price = GasPrice(
+                        chain=chain_name,
+                        slow=gas_gwei * 0.8,
+                        standard=gas_gwei,
+                        fast=gas_gwei * 1.2,
+                        instant=gas_gwei * 1.5,
+                    )
 
-                        # Try to get base fee for EIP-1559 chains
-                        try:
-                            block_payload = {
-                                "jsonrpc": "2.0",
-                                "method": "eth_getBlockByNumber",
-                                "params": ["latest", False],
-                                "id": 2,
-                            }
-                            async with session.post(rpc_url, json=block_payload) as block_resp:
-                                block_result = await block_resp.json()
-                                if "result" in block_result and block_result["result"]:
-                                    base_fee_hex = block_result["result"].get("baseFeePerGas")
-                                    if base_fee_hex:
-                                        gas_price.base_fee = int(base_fee_hex, 16) / 1e9
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch base fee for {chain_name}: {e}")
+                    # Try to get base fee for EIP-1559 chains
+                    try:
+                        block_payload = {
+                            "jsonrpc": "2.0",
+                            "method": "eth_getBlockByNumber",
+                            "params": ["latest", False],
+                            "id": 2,
+                        }
+                        async with session.post(
+                            rpc_url, json=block_payload, timeout=aiohttp.ClientTimeout(total=15)
+                        ) as block_resp:
+                            block_result = await block_resp.json()
+                            if "result" in block_result and block_result["result"]:
+                                base_fee_hex = block_result["result"].get("baseFeePerGas")
+                                if base_fee_hex:
+                                    gas_price.base_fee = int(base_fee_hex, 16) / 1e9
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch base fee for {chain_name}: {e}")
 
-                        # Cache the result
-                        await gas_cache.set(cache_key, gas_price, ttl=15)
-                        return gas_price
+                    # Cache the result
+                    await gas_cache.set(cache_key, gas_price, ttl=15)
+                    return gas_price
 
             return None
         except Exception as e:
@@ -125,23 +131,27 @@ class GasTracker:
             return cached_fee
 
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "method": "getRecentPrioritizationFees",
-                    "params": [],
-                    "id": 1,
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    result = await resp.json()
-                    if "result" in result and result["result"]:
-                        # Get median fee
-                        fees = [f["prioritizationFee"] for f in result["result"]]
-                        median_fee = sorted(fees)[len(fees) // 2]
-                        fee_sol = median_fee / 1e9
+            session = await get_http_session()
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "getRecentPrioritizationFees",
+                "params": [],
+                "id": 1,
+            }
+            async with session.post(
+                rpc_manager.get_rpc_url("solana"),
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                result = await resp.json()
+                if "result" in result and result["result"]:
+                    # Get median fee
+                    fees = [f["prioritizationFee"] for f in result["result"]]
+                    median_fee = sorted(fees)[len(fees) // 2]
+                    fee_sol = median_fee / 1e9
 
-                        await gas_cache.set(cache_key, fee_sol, ttl=15)
-                        return fee_sol
+                    await gas_cache.set(cache_key, fee_sol, ttl=15)
+                    return fee_sol
 
             # Default fee if API fails
             return 0.000005  # 5000 lamports

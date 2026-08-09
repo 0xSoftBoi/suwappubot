@@ -70,18 +70,19 @@ def format_wallet_pnl_pct(pnl_pct: Optional[float]) -> str:
 
 
 def _wallet_pnl_cache_evict_if_full(cache_key) -> None:
-    """Simple size cap for the module-level PnL cache: when full, evict the
-    entry with the soonest expiry to make room. Not LRU, just a cheap bound
-    so a long-running process can't grow this dict without limit.
+    """Simple size cap for the module-level PnL cache: when full, clear it
+    rather than scanning for a victim to evict. TTL already expires most
+    entries well before the cache fills, so a full-clear has the same
+    amortized effect as evicting one entry at a time (a handful of cold
+    lookups get re-aggregated on the next few calls) without an O(n) scan.
 
-    A3: guarded by `_wallet_pnl_cache_lock` so `min(...)` iterating the dict
-    can never race against a concurrent pop from another thread.
+    A3: guarded by `_wallet_pnl_cache_lock` so the size check and the clear
+    can never race against a concurrent read/write from another thread.
     """
     with _wallet_pnl_cache_lock:
         if cache_key in _wallet_pnl_cache or len(_wallet_pnl_cache) < _WALLET_PNL_CACHE_MAX_SIZE:
             return
-        oldest_key = min(_wallet_pnl_cache, key=lambda k: _wallet_pnl_cache[k][1])
-        _wallet_pnl_cache.pop(oldest_key, None)
+        _wallet_pnl_cache.clear()
 
 
 class CopyService:
@@ -434,42 +435,23 @@ class CopyService:
         """A trader's REALIZED wallet PnL% over a trailing window, sourced from
         already-settled per-trade PnL — never a meaningless same-swap spread.
 
-        v2 (money-path fix): v1 computed
-            (SUM(to_amount_usd) - SUM(from_amount_usd)) / SUM(from_amount_usd)
-        over raw SwapTransaction rows. But from_amount_usd/to_amount_usd are the
-        USD value of the INPUT and OUTPUT legs of the *same* swap (see
-        swap_engine.py ~2595-2599) — to_amount_usd ≈ from_amount_usd * (1 - fee
-        - slippage) for every row, so that ratio converges to a small negative
-        constant (fees/slippage) regardless of whether the trader 10x'd or got
-        rugged. It is not PnL. It also silently blocked every copy for anyone
-        who set `min_wallet_pnl_pct=0` once the filter below was enforced.
-
-        v3 (A1 money-path fix, this version): v2 aggregated
-            pnl_pct = SUM(pnl_usd) / SUM(amount_usd) * 100
-        over is_closed TraderTrade rows, where `TraderTrade.amount_usd` is
-        `_settle_pnl()`'s `amount_usd` param — the USD value of the swap's
-        FROM leg, i.e. the PROCEEDS of the realized sell, not its cost basis
-        (proceeds = cost + pnl). Dividing pnl by proceeds instead of by cost
-        is mathematically CAPPED at +100% (as cost -> 0, pnl/proceeds -> 1),
-        so a trader who genuinely 10x'd showed only +90%, and a follower who
-        set `min_wallet_pnl_pct=100` ("only copy traders who doubled their
-        money") had EVERY copy silently dropped forever — no trader can ever
-        clear a 100 threshold under a ratio that maxes out at 100. Losses
-        were also distorted: selling a large cost basis for near-zero
-        proceeds blew up toward negative infinity instead of reading -100%.
-
-        This version recovers the true cost basis algebraically — since
-        pnl = proceeds - cost, cost = proceeds - pnl — and computes a real
-        return-on-capital that CAN exceed 100%:
+        Computed as return-on-capital against the trader's true cost basis,
+        over is_closed TraderTrade rows in the trailing window:
 
             cost_basis_usd = SUM(amount_usd) - SUM(pnl_usd)
             pnl_pct        = SUM(pnl_usd) / cost_basis_usd * 100
 
-        over is_closed TraderTrade rows in the trailing window. A 10x trade
-        (cost 100, proceeds 1000, pnl 900) now correctly reads +900%, and a
-        trader who exactly doubled (cost 100, proceeds 200, pnl 100) reads
-        +100% — which clears a `min_wallet_pnl_pct=100` threshold instead of
-        being permanently unsatisfiable.
+        `TraderTrade.amount_usd` is the PROCEEDS of the realized sell (the USD
+        value of the swap's FROM leg), not its cost basis — and since
+        proceeds = cost + pnl, cost = proceeds - pnl. The denominator here is
+        deliberately the derived cost, not proceeds: dividing pnl by proceeds
+        instead is mathematically CAPPED at +100% (as cost -> 0, pnl/proceeds
+        -> 1), so a trader who genuinely 10x'd would show only +90%, and a
+        `min_wallet_pnl_pct=100` filter ("only copy traders who doubled their
+        money") could never be satisfied by anyone. Dividing by cost basis
+        instead has no such ceiling: a 10x (cost 100, proceeds 1000, pnl 900)
+        correctly reads +900%, and doubling (cost 100, proceeds 200, pnl 100)
+        reads exactly +100%.
 
         Both source columns are filtered row-wise to be non-NULL together
         (not just coalesced at the aggregate level) so one asymmetric/legacy-
@@ -541,6 +523,100 @@ class CopyService:
                 _wallet_pnl_cache[cache_key] = (pnl_pct, now + _WALLET_PNL_CACHE_TTL_SECONDS)
 
         return pnl_pct
+
+    def _get_wallet_pnl_pct_bulk(
+        self,
+        trader_ids: List[int],
+        days: int = 30,
+        session: Optional[Session] = None,
+    ) -> dict:
+        """Bulk variant of get_wallet_pnl_pct() for rendering a whole page of
+        traders (e.g. the leaderboard) without one aggregate query per row.
+
+        Serves each trader_id from the in-process cache when warm (same
+        (trader_id, days) key as get_wallet_pnl_pct()), and for whatever is
+        left issues ONE grouped query covering all of them instead of one
+        query per trader -- same non-NULL row filters, same cost-basis
+        denominator (SUM(amount_usd) - SUM(pnl_usd)), same None-on-
+        insufficient-data sentinel, same cache population. A trader_id with
+        no matching group in the result set yields None, never 0.0.
+
+        Returns a dict of {trader_id: Optional[float]} covering every id in
+        `trader_ids`.
+        """
+        now = time.time()
+        results: dict = {}
+        missing_ids: List[int] = []
+
+        with _wallet_pnl_cache_lock:
+            for trader_id in trader_ids:
+                cached = _wallet_pnl_cache.get((trader_id, days))
+                if cached is not None and cached[1] > now:
+                    results[trader_id] = cached[0]
+                else:
+                    missing_ids.append(trader_id)
+
+        if not missing_ids:
+            return results
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        def _query(s: Session):
+            return (
+                s.query(
+                    TraderTrade.trader_id,
+                    func.sum(TraderTrade.pnl_usd),
+                    func.sum(TraderTrade.amount_usd),
+                )
+                .filter(
+                    TraderTrade.trader_id.in_(missing_ids),
+                    TraderTrade.is_closed == True,
+                    TraderTrade.created_at >= cutoff,
+                    TraderTrade.pnl_usd.isnot(None),
+                    TraderTrade.amount_usd.isnot(None),
+                )
+                .group_by(TraderTrade.trader_id)
+                .all()
+            )
+
+        if session is not None:
+            rows = _query(session)
+        else:
+            with get_session() as new_session:
+                rows = _query(new_session)
+
+        totals_by_trader = {row[0]: (row[1], row[2]) for row in rows}
+
+        for trader_id in missing_ids:
+            row = totals_by_trader.get(trader_id)
+            if row is None:
+                # No realized closes in the window for this trader -> insufficient
+                # data, not 0.0 (same sentinel as get_wallet_pnl_pct()).
+                pnl_pct = None
+            else:
+                total_realized_pnl_usd, total_realized_proceeds_usd = row
+                if total_realized_pnl_usd is None or total_realized_proceeds_usd is None:
+                    pnl_pct = None
+                else:
+                    # proceeds = cost + pnl  =>  cost = proceeds - pnl.
+                    cost_basis_usd = float(total_realized_proceeds_usd) - float(
+                        total_realized_pnl_usd
+                    )
+                    if cost_basis_usd <= 0:
+                        pnl_pct = None
+                    else:
+                        pnl_pct = float(total_realized_pnl_usd) / cost_basis_usd * 100.0
+
+            results[trader_id] = pnl_pct
+
+            with _wallet_pnl_cache_lock:
+                _wallet_pnl_cache_evict_if_full((trader_id, days))
+                _wallet_pnl_cache[(trader_id, days)] = (
+                    pnl_pct,
+                    now + _WALLET_PNL_CACHE_TTL_SECONDS,
+                )
+
+        return results
 
     async def record_trade(
         self,
@@ -1447,6 +1523,15 @@ class CopyService:
                 .all()
             )
 
+            # 30d REALIZED wallet PnL% (None = insufficient data, not 0) for
+            # every trader on this page, from settled TraderTrade records —
+            # see get_wallet_pnl_pct(). One grouped query covers every cache
+            # miss instead of one aggregate query per row (was N+1 on a cold
+            # cache). Reuses this open session.
+            pnl_pct_by_trader = self._get_wallet_pnl_pct_bulk(
+                [p.user_id for p, _ in profiles], session=session
+            )
+
             return [
                 {
                     "rank": i + 1,
@@ -1459,10 +1544,7 @@ class CopyService:
                     "total_volume": p.total_volume_usd,
                     "follower_count": p.follower_count,
                     "times_copied": p.times_copied,
-                    # 30d REALIZED wallet PnL% (None = insufficient data, not 0)
-                    # from settled TraderTrade records, cached — see
-                    # get_wallet_pnl_pct(). Reuses this open session.
-                    "pnl_pct": self.get_wallet_pnl_pct(p.user_id, session=session),
+                    "pnl_pct": pnl_pct_by_trader.get(p.user_id),
                 }
                 for i, (p, u) in enumerate(profiles)
             ]
