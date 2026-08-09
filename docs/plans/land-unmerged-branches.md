@@ -109,6 +109,13 @@ branch + applied diff.)
 - **New bugs found in main during review (queued):** PointsService concurrency — double daily check-in credit, double first-swap bonus, double level-up bonus.
 - **Ports in flight:** 648 compliance-spine (pushing), 642 stablecoin-phase0, 616 MCP policy gate. Remaining: 643 (after #817 merges), 641, 639/640, 753, audit 644/646.
 
+### Round 3 (same day)
+
+- **Re-lands:** #742→#818, #794→#819 (originals closed). #814 closed — zero-diff vs main after resolution. #616 closed — main runs a superset of the policy gate (unconditional, approval queue).
+- **Ports opened:** #820 compliance-spine (from #648), #821 MPP gate (from #642).
+- **Money-path verdicts:** #817 Polymarket port **BLOCK** (critical: bare-hex signature → every order rejected; no tick rounding; TS neg-risk gap) — fixer dispatched to the branch. #820 compliance port **BLOCK** (critical: OFAC file loader still drops TRON lines; Solana unscreened; ENFORCE fail-open) — fixer dispatched. Both re-review after fixes.
+- **Stray branches for Phase 5 cleanup:** reland/tmp-bin-probe, reland/docs-dark-theme (deletion blocked in this env).
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
