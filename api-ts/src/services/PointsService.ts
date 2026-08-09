@@ -1,7 +1,8 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, lt, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
 	type DbClient,
+	type DbTransaction,
 	DEFAULT_MILESTONES,
 	DEFAULT_REWARDS,
 	type DrizzleService,
@@ -167,6 +168,14 @@ function isYesterday(d1: Date, d2: Date): boolean {
 	const yesterday = new Date(d2)
 	yesterday.setUTCDate(yesterday.getUTCDate() - 1)
 	return isSameDay(d1, yesterday)
+}
+
+// Midnight UTC for `d`. Used as the atomic WHERE-clause boundary for the
+// once-per-day guards below (checkin, first-swap bonus) so the "already
+// happened today" check and the write that marks it happened are the SAME
+// statement — see checkinGuardCondition / firstSwapBonusCondition.
+function startOfDayUtc(d: Date): Date {
+	return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 }
 
 // Internal helper: Get or create user points (not exported as service method)
@@ -386,6 +395,125 @@ function levelFromXpSql(xpIncrement: number) {
 	END`
 }
 
+/**
+ * MONEY-PATH guard for the daily check-in: match the user's row only while
+ * `lastCheckin` is unset or strictly before the start of `today` (UTC).
+ *
+ * Paired with a SET that also stamps `lastCheckin: now` in the SAME UPDATE,
+ * this makes the "already checked in today" check and the write that marks
+ * the check-in the same statement. Read-then-write was not sufficient: two
+ * concurrent /checkin calls both read `lastCheckin` from yesterday, both pass
+ * the JS guard, and both apply a relative `xp + delta` — double credit. The
+ * loser here matches zero rows and the caller maps that to a ValidationError
+ * instead of paying out twice.
+ */
+export function checkinGuardCondition(userId: number, today: Date) {
+	return and(
+		eq(userPoints.userId, userId),
+		or(isNull(userPoints.lastCheckin), lt(userPoints.lastCheckin, today)),
+	)
+}
+
+/**
+ * Same guard shape as {@link checkinGuardCondition}, for the first-swap-of-day
+ * bonus. Split into its own conditional UPDATE (separate from the
+ * always-applies volume-points update) specifically so the WHERE guard and
+ * the `lastSwapDate` write are atomic — the previous code computed
+ * `isFirstSwapToday` from a pre-read snapshot while folding the 50-point
+ * bonus into the same relative `xp + delta` as the (always-correct) volume
+ * points, so two concurrent swaps in the same request window both won the
+ * bonus.
+ */
+export function firstSwapBonusCondition(userId: number, today: Date) {
+	return and(
+		eq(userPoints.userId, userId),
+		or(isNull(userPoints.lastSwapDate), lt(userPoints.lastSwapDate, today)),
+	)
+}
+
+/** Deterministic idempotency key for the once-per-level level_up bonus. */
+export function levelUpReference(level: LevelName): string {
+	return `level_up:${level}`
+}
+
+/**
+ * Pays the one-time level_up bonus for a user reaching `candidateLevel`, and
+ * ONLY that bonus — never twice per crossing.
+ *
+ * `candidateLevel` is derived from a JS-side xp snapshot (may race under
+ * concurrency, same as `oldLevel`/`newLevel` elsewhere in this file) so two
+ * concurrent awards near a threshold can both believe they are the one that
+ * crossed it. Real exactly-once-ness comes from the DB, not the snapshot:
+ * the ledger insert below carries a deterministic `reference` key
+ * (`level_up:{level}`) under a UNIQUE(user_id, reference) index
+ * (point_transactions_user_reference_idx), and `onConflictDoNothing` makes
+ * the insert a no-op for whichever caller loses the race. The 100-point
+ * bonus is credited to userPoints ONLY when the insert actually landed a
+ * row — so the loser's insert being a no-op is what prevents the double pay,
+ * not the JS comparison.
+ *
+ * MONEY-PATH: takes the caller's transaction handle (`tx`), not a fresh
+ * `DbClient`. All three call sites (awardPoints, awardSwapPoints,
+ * dailyCheckin) now run their whole method body — the triggering
+ * UPDATE(s), the triggering ledger insert(s), and this bonus — inside ONE
+ * `db.transaction(async (tx) => {...})`. Running this helper against a
+ * separate connection would let the triggering award commit while this
+ * bonus (or vice versa) rolled back independently, re-opening the same
+ * "wrong-but-consistent" partial-state class of bug the insert-guard above
+ * closes for the level_up row itself. Plain async/await (no Effect) because
+ * it runs inside the raw Promise callback drizzle's `.transaction()` expects.
+ */
+async function awardLevelUpBonusTx(
+	tx: DbTransaction,
+	userId: number,
+	oldLevel: LevelName,
+	candidateLevel: LevelName,
+	seasonId: number | null,
+): Promise<{ applied: boolean; newLevel: LevelName | null }> {
+	if (candidateLevel === oldLevel) {
+		return { applied: false, newLevel: null }
+	}
+
+	const inserted = await tx
+		.insert(pointTransactions)
+		.values({
+			userId,
+			amount: POINT_ACTIONS.level_up.points,
+			action: 'level_up',
+			description: `Leveled up to ${LEVELS[candidateLevel].name}!`,
+			metadata: { oldLevel, newLevel: candidateLevel },
+			reference: levelUpReference(candidateLevel),
+			seasonId,
+		})
+		.onConflictDoNothing({
+			target: [pointTransactions.userId, pointTransactions.reference],
+		})
+		.returning({ id: pointTransactions.id })
+
+	if (inserted.length === 0) {
+		// Already paid — either by a concurrent caller that beat us to the
+		// insert, or by an earlier award for the same crossing.
+		return { applied: false, newLevel: null }
+	}
+
+	await tx
+		.update(userPoints)
+		.set({
+			// DELTA ONLY — see the comment at the awardPoints call site: the
+			// preceding statement already applied the triggering award
+			// relative to the live row, so adding it again here would
+			// credit it twice.
+			xp: sql`${userPoints.xp} + ${POINT_ACTIONS.level_up.points}`,
+			totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${POINT_ACTIONS.level_up.points}`,
+			currentPoints: sql`${userPoints.currentPoints} + ${POINT_ACTIONS.level_up.points}`,
+			level: levelFromXpSql(POINT_ACTIONS.level_up.points),
+			updatedAt: new Date(),
+		})
+		.where(eq(userPoints.userId, userId))
+
+	return { applied: true, newLevel: candidateLevel }
+}
+
 export function pointsDebitSet(cost: number) {
 	return {
 		currentPoints: sql`${userPoints.currentPoints} - ${cost}`,
@@ -419,6 +547,25 @@ function redemptionFailure(e: unknown, context: string) {
 		return new ValidationError({ message: e.message })
 	}
 	return new DatabaseError({ message: `${context}: ${e}`, cause: e })
+}
+
+// Thrown inside the dailyCheckin transaction when checkinGuardCondition
+// matches zero rows (already checked in today) — same "reject, don't fault"
+// shape as RedemptionRejected above, so the Effect `catch` maps it to a
+// ValidationError instead of a DatabaseError / opaque 500.
+class AlreadyCheckedInError extends Error {
+	readonly isAlreadyCheckedIn = true
+	constructor() {
+		super('Already checked in today')
+	}
+}
+
+/** Map a thrown check-in rejection back to a user-facing ValidationError. */
+function checkinFailure(e: unknown) {
+	if (e instanceof AlreadyCheckedInError) {
+		return new ValidationError({ message: e.message })
+	}
+	return new DatabaseError({ message: `Failed to check in: ${e}`, cause: e })
 }
 
 export const PointsServiceLive = Layer.succeed(PointsService, {
@@ -489,93 +636,65 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 			const newXp = current.xp + pointAmount
 			const newLevel = getLevelFromXp(newXp)
-			const leveledUp = newLevel !== oldLevel
 
 			// Active season for transaction stamping (null if none / on error).
 			const seasonId = yield* activeSeasonId(db)
 
-			yield* Effect.tryPromise({
+			// MONEY-PATH: the accumulator UPDATE, the ledger insert, and the
+			// level_up bonus (bug #3 guard) all run in ONE db.transaction so a
+			// crash or failing write in between can't leave xp/currentPoints
+			// updated without the matching ledger row (or vice versa).
+			const levelUpResult = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.update(userPoints)
-						.set({
-							// SQL-relative for the accumulators (see pointsDebitCondition):
-							// an absolute write here would clobber a concurrent debit and hand
-							// the user back points they already spent. `level` stays absolute —
-							// it is derived state, not an accumulator.
-							xp: sql`${userPoints.xp} + ${pointAmount}`,
-							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${pointAmount}`,
-							currentPoints: sql`${userPoints.currentPoints} + ${pointAmount}`,
-							level: levelFromXpSql(pointAmount),
-							updatedAt: new Date(),
+					db.transaction(async (tx) => {
+						await tx
+							.update(userPoints)
+							.set({
+								// SQL-relative for the accumulators (see pointsDebitCondition):
+								// an absolute write here would clobber a concurrent debit and hand
+								// the user back points they already spent. `level` stays absolute —
+								// it is derived state, not an accumulator.
+								xp: sql`${userPoints.xp} + ${pointAmount}`,
+								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${pointAmount}`,
+								currentPoints: sql`${userPoints.currentPoints} + ${pointAmount}`,
+								level: levelFromXpSql(pointAmount),
+								updatedAt: new Date(),
+							})
+							.where(eq(userPoints.userId, userId))
+
+						await tx.insert(pointTransactions).values({
+							userId,
+							amount: pointAmount,
+							action,
+							description: desc,
+							metadata,
+							seasonId,
 						})
-						.where(eq(userPoints.userId, userId)),
-				catch: (e) => new DatabaseError({ message: `Failed to update points: ${e}`, cause: e }),
-			})
 
-			yield* Effect.tryPromise({
-				try: () =>
-					db.insert(pointTransactions).values({
-						userId,
-						amount: pointAmount,
-						action,
-						description: desc,
-						metadata,
-						seasonId,
+						// MONEY-PATH (bug #3, level-up double pay): the insert-guarded
+						// helper is the sole gate on the 100pt bonus. `newLevel` above is
+						// only a JS-side candidate signal — see awardLevelUpBonusTx doc.
+						return awardLevelUpBonusTx(tx, userId, oldLevel, newLevel, seasonId)
 					}),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to record transaction: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to award points: ${e}`, cause: e }),
 			})
 
-			// Accrue season points for allowlisted actions (checkin, referral_*,
-			// copy_trade, milestone, streak_bonus). 'swap'/'first_swap_daily' route
-			// through awardSwapPoints instead, so don't double count here. Pass
-			// swapAmountUsd only if this is a 'swap' action (so the MIN_SWAP gate works).
+			// Season accrual runs after commit — accrueSeason must NEVER fail an
+			// award (see its doc), so it deliberately stays outside the
+			// money-path transaction above. Allowlisted actions only (checkin,
+			// referral_*, copy_trade, milestone, streak_bonus). 'swap'/
+			// 'first_swap_daily' route through awardSwapPoints instead, so don't
+			// double count here. Pass swapAmountUsd only if this is a 'swap'
+			// action (so the MIN_SWAP gate works).
 			const swapUsd =
 				action === 'swap' && typeof metadata?.swapAmountUsd === 'number'
 					? metadata.swapAmountUsd
 					: undefined
 			yield* accrueSeason(db, userId, action, pointAmount, swapUsd)
 
-			if (leveledUp) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
-							userId,
-							amount: POINT_ACTIONS.level_up.points,
-							action: 'level_up',
-							description: `Leveled up to ${LEVELS[newLevel].name}!`,
-							metadata: { oldLevel, newLevel },
-							seasonId,
-						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
-				})
-
-				yield* Effect.tryPromise({
-					try: () =>
-						db
-							.update(userPoints)
-							.set({
-								// DELTA ONLY. The absolute version re-added `pointAmount`, which
-								// was correct only because it recomputed the whole total from the
-								// same pre-update snapshot. Now that the statement above applies
-								// pointAmount relative to the live row, adding it again here would
-								// credit it twice.
-								xp: sql`${userPoints.xp} + ${POINT_ACTIONS.level_up.points}`,
-								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${POINT_ACTIONS.level_up.points}`,
-								currentPoints: sql`${userPoints.currentPoints} + ${POINT_ACTIONS.level_up.points}`,
-								// The bonus xp can itself cross a threshold; keep level derived
-								// from the same live value as every other write site.
-								level: levelFromXpSql(POINT_ACTIONS.level_up.points),
-							})
-							.where(eq(userPoints.userId, userId)),
-					catch: (e) => new DatabaseError({ message: `Failed to add level bonus: ${e}`, cause: e }),
-				})
-			}
-
 			return {
-				points: pointAmount + (leveledUp ? POINT_ACTIONS.level_up.points : 0),
-				newLevel: leveledUp ? newLevel : null,
+				points: pointAmount + (levelUpResult.applied ? POINT_ACTIONS.level_up.points : 0),
+				newLevel: levelUpResult.newLevel,
 			}
 		}),
 
@@ -586,98 +705,159 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			)
 
 			const now = new Date()
+			const today = startOfDayUtc(now)
 			const current = yield* getOrCreateUserPoints(userId)
 
 			const volumePoints = Math.floor(swapAmountUsd / 10)
-			const isFirstSwapToday = !current.lastSwapDate || !isSameDay(current.lastSwapDate, now)
-			const dailyBonus = isFirstSwapToday ? POINT_ACTIONS.first_swap_daily.points : 0
-			const totalPoints = volumePoints + dailyBonus
-
 			const oldLevel = current.level as LevelName
-			const newXp = current.xp + totalPoints
-			const newLevel = getLevelFromXp(newXp)
-			const leveledUp = newLevel !== oldLevel
-			const levelBonus = leveledUp ? POINT_ACTIONS.level_up.points : 0
+			const dailyBonusAmount = POINT_ACTIONS.first_swap_daily.points
 
 			// Active season for transaction stamping (null if none / on error).
 			const seasonId = yield* activeSeasonId(db)
 
-			yield* Effect.tryPromise({
+			// Deterministic idempotency key for the swap volume ledger row (bug #5,
+			// swap-points double credit on retry — same shape as levelUpReference).
+			// Only set when we have a swapId to key on; without one there's nothing
+			// to dedupe against and the insert behaves as before (best-effort).
+			const swapReference = swapId != null ? `swap:${swapId}` : null
+
+			// MONEY-PATH: the first-swap-bonus UPDATE, the volume-gated ledger
+			// insert + UPDATE, the first_swap_daily ledger insert, and the
+			// level_up bonus (bug #3 guard) all run in ONE db.transaction. Before
+			// this fix these were independent statements, so a crash partway
+			// through could leave the accumulators updated without the matching
+			// ledger row, or vice versa.
+			const txResult = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.update(userPoints)
-						.set({
-							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
-							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
-							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
-							level: levelFromXpSql(totalPoints + levelBonus),
-							lastSwapDate: now,
-							totalSwaps: sql`${userPoints.totalSwaps} + 1`,
-							totalVolumeUsd: sql`${userPoints.totalVolumeUsd} + ${swapAmountUsd}`,
-							updatedAt: now,
-						})
-						.where(eq(userPoints.userId, userId)),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to update swap points: ${e}`, cause: e }),
+					db.transaction(async (tx) => {
+						// MONEY-PATH (bug #2, first-swap-of-day double credit): own
+						// conditional UPDATE, gated on `lastSwapDate < today` in the SAME
+						// statement that stamps `lastSwapDate = now`. Previously
+						// `isFirstSwapToday` was computed from the pre-read `current`
+						// snapshot while the 50pt bonus was folded into the always-applies
+						// relative `xp + delta` alongside volume points — two concurrent
+						// swaps both read a stale lastSwapDate and both won the bonus.
+						// Atomic guard+write means only the winner's row matches; the
+						// loser's UPDATE affects zero rows and isFirstSwapToday is false.
+						const dailyBonusResult = await tx
+							.update(userPoints)
+							.set({
+								xp: sql`${userPoints.xp} + ${dailyBonusAmount}`,
+								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${dailyBonusAmount}`,
+								currentPoints: sql`${userPoints.currentPoints} + ${dailyBonusAmount}`,
+								level: levelFromXpSql(dailyBonusAmount),
+								lastSwapDate: now,
+								updatedAt: now,
+							})
+							.where(firstSwapBonusCondition(userId, today))
+							.returning({ id: userPoints.id })
+						const isFirstSwapToday = dailyBonusResult.length > 0
+						const dailyBonus = isFirstSwapToday ? dailyBonusAmount : 0
+
+						// MONEY-PATH (bug #5, swap-points double credit on retry): insert
+						// the ledger row BEFORE the volume UPDATE, carrying the
+						// deterministic `swap:{swapId}` reference under the same
+						// UNIQUE(user_id, reference) index that guards level_up
+						// (point_transactions_user_reference_idx), with
+						// onConflictDoNothing. If the insert lands zero rows, this
+						// swapId's volume points were already recorded by an earlier
+						// (possibly retried) call — skip the volume UPDATE entirely so
+						// totalSwaps/totalVolumeUsd/xp aren't incremented a second time
+						// for the same swap. When swapReference is null (no swapId), the
+						// unique index never conflicts on NULL and the insert always lands.
+						let volumeApplied = false
+						if (volumePoints > 0) {
+							const ledgerInsert = await tx
+								.insert(pointTransactions)
+								.values({
+									userId,
+									amount: volumePoints,
+									action: 'swap',
+									description: `Swap volume: $${swapAmountUsd.toFixed(2)}`,
+									swapId,
+									metadata: { swapAmountUsd },
+									seasonId,
+									reference: swapReference ?? undefined,
+								})
+								.onConflictDoNothing({
+									target: [pointTransactions.userId, pointTransactions.reference],
+								})
+								.returning({ id: pointTransactions.id })
+
+							volumeApplied = ledgerInsert.length > 0
+
+							if (volumeApplied) {
+								await tx
+									.update(userPoints)
+									.set({
+										xp: sql`${userPoints.xp} + ${volumePoints}`,
+										totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${volumePoints}`,
+										currentPoints: sql`${userPoints.currentPoints} + ${volumePoints}`,
+										level: levelFromXpSql(volumePoints),
+										totalSwaps: sql`${userPoints.totalSwaps} + 1`,
+										totalVolumeUsd: sql`${userPoints.totalVolumeUsd} + ${swapAmountUsd}`,
+										updatedAt: now,
+									})
+									.where(eq(userPoints.userId, userId))
+							}
+						}
+
+						if (isFirstSwapToday) {
+							await tx.insert(pointTransactions).values({
+								userId,
+								amount: dailyBonus,
+								action: 'first_swap_daily',
+								description: 'First swap of the day bonus',
+								swapId,
+								seasonId,
+							})
+						}
+
+						const appliedVolumePoints = volumeApplied ? volumePoints : 0
+						const totalPoints = appliedVolumePoints + dailyBonus
+						// `newLevel` is a JS-side candidate signal only — see
+						// awardLevelUpBonusTx doc. Derived from what THIS call actually
+						// applied (appliedVolumePoints), not the raw computed volumePoints,
+						// so a skipped-retry doesn't falsely re-trigger a level check.
+						const newXp = current.xp + totalPoints
+						const newLevel = getLevelFromXp(newXp)
+
+						// MONEY-PATH (bug #3, level-up double pay): insert-guarded helper
+						// is the sole gate on the 100pt bonus (see awardLevelUpBonusTx doc).
+						const levelUpResult = await awardLevelUpBonusTx(
+							tx,
+							userId,
+							oldLevel,
+							newLevel,
+							seasonId,
+						)
+
+						return {
+							isFirstSwapToday,
+							dailyBonus,
+							appliedVolumePoints,
+							totalPoints,
+							levelUpResult,
+						}
+					}),
+				catch: (e) => new DatabaseError({ message: `Failed to award swap points: ${e}`, cause: e }),
 			})
 
-			if (volumePoints > 0) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
-							userId,
-							amount: volumePoints,
-							action: 'swap',
-							description: `Swap volume: $${swapAmountUsd.toFixed(2)}`,
-							swapId,
-							metadata: { swapAmountUsd },
-							seasonId,
-						}),
-					catch: (e) =>
-						new DatabaseError({ message: `Failed to record swap points: ${e}`, cause: e }),
-				})
-			}
+			const { isFirstSwapToday, dailyBonus, appliedVolumePoints, totalPoints, levelUpResult } =
+				txResult
 
-			if (isFirstSwapToday) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
-							userId,
-							amount: dailyBonus,
-							action: 'first_swap_daily',
-							description: 'First swap of the day bonus',
-							swapId,
-							seasonId,
-						}),
-					catch: (e) =>
-						new DatabaseError({ message: `Failed to record daily bonus: ${e}`, cause: e }),
-				})
-			}
-
-			if (leveledUp) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
-							userId,
-							amount: POINT_ACTIONS.level_up.points,
-							action: 'level_up',
-							description: `Leveled up to ${LEVELS[newLevel].name}!`,
-							metadata: { oldLevel, newLevel },
-							seasonId,
-						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
-				})
-			}
-
-			// Accrue season points. Two separate allowlisted actions with their own
-			// base amounts (no double counting): 'swap' and 'first_swap_daily'.
-			// Season points are FEE-DENOMINATED (Tullock self-funding fix): when
-			// feeUsd is provided the accrual funnel overrides the base to
-			// SEASON_POINTS_PER_FEE_USD * feeUsd, so even sub-$10 swaps (volumePoints
-			// == 0) accrue on fees. volumePoints is only the legacy fallback base when
-			// feeUsd is absent. Gate on either having a fee or volume points.
-			if (feeUsd != null || volumePoints > 0) {
-				yield* accrueSeason(db, userId, 'swap', volumePoints, swapAmountUsd, feeUsd)
+			// Season accrual runs after commit — accrueSeason must NEVER fail an
+			// award (see its doc), so it deliberately stays outside the
+			// money-path transaction above. Two separate allowlisted actions with
+			// their own base amounts (no double counting): 'swap' and
+			// 'first_swap_daily'. Season points are FEE-DENOMINATED (Tullock
+			// self-funding fix): when feeUsd is provided the accrual funnel
+			// overrides the base to SEASON_POINTS_PER_FEE_USD * feeUsd, so even
+			// sub-$10 swaps (appliedVolumePoints == 0) accrue on fees.
+			// appliedVolumePoints is only the legacy fallback base when feeUsd is
+			// absent. Gate on either having a fee or applied volume points.
+			if (feeUsd != null || appliedVolumePoints > 0) {
+				yield* accrueSeason(db, userId, 'swap', appliedVolumePoints, swapAmountUsd, feeUsd)
 			}
 			if (isFirstSwapToday && dailyBonus > 0) {
 				yield* accrueSeason(db, userId, 'first_swap_daily', dailyBonus)
@@ -689,11 +869,11 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			const milestoneNames = milestonesAchieved.map((m) => `Milestone #${m.milestoneId}`)
 
 			return {
-				pointsAwarded: totalPoints + levelBonus,
+				pointsAwarded: totalPoints + (levelUpResult.applied ? POINT_ACTIONS.level_up.points : 0),
 				isFirstSwapToday,
 				dailyBonus,
-				volumePoints,
-				newLevel: leveledUp ? newLevel : null,
+				volumePoints: appliedVolumePoints,
+				newLevel: levelUpResult.newLevel,
 				milestonesAchieved: milestoneNames,
 			}
 		}),
@@ -705,11 +885,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			)
 
 			const now = new Date()
+			const today = startOfDayUtc(now)
 			const current = yield* getOrCreateUserPoints(userId)
-
-			if (current.lastCheckin && isSameDay(current.lastCheckin, now)) {
-				return yield* Effect.fail(new ValidationError({ message: 'Already checked in today' }))
-			}
 
 			let newStreak = 1
 			let streakContinued = false
@@ -719,7 +896,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				if (isYesterday(current.lastCheckin, now)) {
 					newStreak = current.dailyStreak + 1
 					streakContinued = true
-				} else {
+				} else if (!isSameDay(current.lastCheckin, now)) {
 					streakBroken = current.dailyStreak > 0
 				}
 			}
@@ -731,78 +908,79 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			const oldLevel = current.level as LevelName
 			const newXp = current.xp + totalPoints
 			const newLevel = getLevelFromXp(newXp)
-			const leveledUp = newLevel !== oldLevel
-			const levelBonus = leveledUp ? POINT_ACTIONS.level_up.points : 0
-
-			yield* Effect.tryPromise({
-				try: () =>
-					db
-						.update(userPoints)
-						.set({
-							xp: sql`${userPoints.xp} + ${totalPoints + levelBonus}`,
-							totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints + levelBonus}`,
-							currentPoints: sql`${userPoints.currentPoints} + ${totalPoints + levelBonus}`,
-							level: levelFromXpSql(totalPoints + levelBonus),
-							dailyStreak: newStreak,
-							longestStreak: Math.max(current.longestStreak, newStreak),
-							lastCheckin: now,
-							updatedAt: now,
-						})
-						.where(eq(userPoints.userId, userId)),
-				catch: (e) => new DatabaseError({ message: `Failed to update checkin: ${e}`, cause: e }),
-			})
 
 			// Active season for transaction stamping (null if none / on error).
 			const seasonId = yield* activeSeasonId(db)
 
-			yield* Effect.tryPromise({
+			// MONEY-PATH: the guarded check-in UPDATE, both ledger inserts, and the
+			// level_up bonus (bug #3 guard) all run in ONE db.transaction so a
+			// crash or failing write in between can't leave the accumulators
+			// updated without the matching ledger row(s).
+			const levelUpResult = yield* Effect.tryPromise({
 				try: () =>
-					db.insert(pointTransactions).values({
-						userId,
-						amount: basePoints,
-						action: 'checkin',
-						description: 'Daily check-in',
-						metadata: { streak: newStreak },
-						seasonId,
-					}),
-				catch: (e) => new DatabaseError({ message: `Failed to record checkin: ${e}`, cause: e }),
-			})
+					db.transaction(async (tx) => {
+						// MONEY-PATH (bug #1, double check-in credit): the "already
+						// checked in today" guard used to be a JS read-then-write — two
+						// concurrent /checkin calls both passed it and both applied a
+						// relative `xp + delta`. The guard now lives in the WHERE clause
+						// (checkinGuardCondition), in the SAME statement that stamps
+						// `lastCheckin = now`, so the loser's UPDATE matches zero rows and
+						// we fail instead of crediting twice.
+						//
+						// Bug #4: longestStreak now uses SQL GREATEST against the live
+						// column instead of Math.max against the stale `current` snapshot,
+						// for the same reason every other accumulator here is SQL-relative.
+						const checkinResult = await tx
+							.update(userPoints)
+							.set({
+								xp: sql`${userPoints.xp} + ${totalPoints}`,
+								totalPointsEarned: sql`${userPoints.totalPointsEarned} + ${totalPoints}`,
+								currentPoints: sql`${userPoints.currentPoints} + ${totalPoints}`,
+								level: levelFromXpSql(totalPoints),
+								dailyStreak: newStreak,
+								longestStreak: sql`GREATEST(${userPoints.longestStreak}, ${newStreak})`,
+								lastCheckin: now,
+								updatedAt: now,
+							})
+							.where(checkinGuardCondition(userId, today))
+							.returning({ id: userPoints.id })
 
-			if (streakBonus > 0) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
+						if (checkinResult.length === 0) {
+							throw new AlreadyCheckedInError()
+						}
+
+						await tx.insert(pointTransactions).values({
 							userId,
-							amount: streakBonus,
-							action: 'streak_bonus',
-							description: `${newStreak}-day streak bonus`,
+							amount: basePoints,
+							action: 'checkin',
+							description: 'Daily check-in',
 							metadata: { streak: newStreak },
 							seasonId,
-						}),
-					catch: (e) =>
-						new DatabaseError({ message: `Failed to record streak bonus: ${e}`, cause: e }),
-				})
-			}
+						})
 
-			if (leveledUp) {
-				yield* Effect.tryPromise({
-					try: () =>
-						db.insert(pointTransactions).values({
-							userId,
-							amount: POINT_ACTIONS.level_up.points,
-							action: 'level_up',
-							description: `Leveled up to ${LEVELS[newLevel].name}!`,
-							metadata: { oldLevel, newLevel },
-							seasonId,
-						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
-				})
-			}
+						if (streakBonus > 0) {
+							await tx.insert(pointTransactions).values({
+								userId,
+								amount: streakBonus,
+								action: 'streak_bonus',
+								description: `${newStreak}-day streak bonus`,
+								metadata: { streak: newStreak },
+								seasonId,
+							})
+						}
+
+						// MONEY-PATH (bug #3, level-up double pay): insert-guarded helper
+						// is the sole gate on the 100pt bonus (see awardLevelUpBonusTx doc).
+						return awardLevelUpBonusTx(tx, userId, oldLevel, newLevel, seasonId)
+					}),
+				catch: (e) => checkinFailure(e),
+			})
 
 			// Accrue season points for the check-in. Two allowlisted actions with
 			// their own base amounts (no double counting): 'checkin' (base) +
 			// 'streak_bonus'. The streak multiplier reads the freshly-updated
-			// dailyStreak above, so the multiplier reflects today's streak.
+			// dailyStreak above, so the multiplier reflects today's streak. Runs
+			// after commit — accrueSeason must NEVER fail an award (see its doc).
 			yield* accrueSeason(db, userId, 'checkin', basePoints)
 			if (streakBonus > 0) {
 				yield* accrueSeason(db, userId, 'streak_bonus', streakBonus)
@@ -813,11 +991,11 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			yield* checkAndAwardMilestones(userId, updated)
 
 			return {
-				pointsEarned: totalPoints + levelBonus,
+				pointsEarned: totalPoints + (levelUpResult.applied ? POINT_ACTIONS.level_up.points : 0),
 				newStreak,
 				streakContinued,
 				streakBroken,
-				newLevel: leveledUp ? newLevel : null,
+				newLevel: levelUpResult.newLevel,
 			}
 		}),
 
