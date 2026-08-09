@@ -78,28 +78,51 @@ def _assert_recipient_compliant(
     ``SwapEngine.execute_swap`` — so withdrawals, the most obvious
     funds-leave-the-platform path, were screened by nothing on every chain.
 
-    Behaviour follows ``COMPLIANCE_MODE``: DISABLED skips entirely (today's
-    default), MONITOR logs, ENFORCE raises. Screening errors are logged and
-    allowed through rather than breaking withdrawals — an outage in the screener
-    must not become an outage in the product. That is a deliberate fail-OPEN on
-    *errors* only; a real blocklist hit in ENFORCE mode always raises.
-    """
-    try:
-        from bot.services.compliance import compliance_service
+    Only ``to_address`` (the actual recipient) is screened — ``token_address``
+    is accepted for the caller's context/logging but deliberately NOT passed
+    to ``compliance_service.screen``. A token *contract* address is not where
+    funds end up, so screening it as if it were a recipient produced no
+    compliance value and only risked false blocks on legitimate token
+    contracts.
 
-        if not compliance_service.enabled:
-            return
+    Behaviour follows ``COMPLIANCE_MODE``:
+      * ``DISABLED`` — skips entirely (today's default).
+      * ``MONITOR``  — logs violations but allows the withdrawal, AND fails
+        OPEN on screener *errors* (an outage in the screener must not become
+        an outage in the product when we're not even enforcing yet).
+      * ``ENFORCE``  — raises on a real blocklist hit, AND fails CLOSED on
+        screener errors: if the screener itself is unavailable/throws while
+        enforcement is on, we cannot prove the recipient is clean, so the
+        withdrawal is blocked rather than silently let through.
+    """
+    from bot.services.compliance import compliance_service
+
+    if not compliance_service.enabled:
+        return
+    try:
         result = compliance_service.screen(
             recipient=to_address,
-            tokens=[token_address] if token_address else None,
             chain=chain_name,
         )
-        if not result.allowed:
-            raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
-    except ComplianceBlockedError:
-        raise
-    except Exception as e:  # noqa: BLE001 — screener failure must not halt withdrawals
+    except Exception as e:  # noqa: BLE001 — screener failure itself, not a verdict
+        mode = getattr(compliance_service, "mode", None)
+        if mode is not None and getattr(mode, "value", None) == "enforce":
+            logger.error(
+                "Compliance screening errored for %s on %s while ENFORCE is active — "
+                "failing CLOSED: %s",
+                to_address,
+                chain_name,
+                e,
+            )
+            raise ComplianceBlockedError(
+                "Compliance screening is temporarily unavailable; withdrawal blocked "
+                "until it recovers."
+            ) from e
         logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
+        return
+
+    if not result.allowed:
+        raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
 
 
 class PostBroadcastAmbiguous(RuntimeError):

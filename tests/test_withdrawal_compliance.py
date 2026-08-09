@@ -66,12 +66,16 @@ def test_clean_recipient_passes(monkeypatch):
     assert svc.calls[0]["recipient"] == EVM_OK
 
 
-def test_token_address_is_screened_too(monkeypatch):
+def test_only_recipient_is_screened_not_token_address(monkeypatch):
+    """Finding 6: a token *contract* address is not where funds end up, so
+    it must not be forwarded to compliance_service.screen — only the actual
+    recipient is screened."""
     svc = _Svc(allow=True)
     _install(monkeypatch, svc)
     _assert_recipient_compliant(EVM_OK, "tron", token_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")
-    assert svc.calls[0]["tokens"] == ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"]
+    assert svc.calls[0]["recipient"] == EVM_OK
     assert svc.calls[0]["chain"] == "tron"
+    assert "tokens" not in svc.calls[0] or not svc.calls[0]["tokens"]
 
 
 def test_disabled_service_short_circuits(monkeypatch):
@@ -83,8 +87,9 @@ def test_disabled_service_short_circuits(monkeypatch):
 
 
 def test_screener_errors_do_not_break_withdrawals(monkeypatch):
-    """Fail OPEN on screener ERRORS — an outage in screening must not become an
-    outage in withdrawals. A real blocklist hit still raises (see above)."""
+    """Fail OPEN on screener ERRORS in MONITOR/other modes — an outage in
+    screening must not become an outage in withdrawals when we're not even
+    enforcing yet. A real blocklist hit still raises (see above)."""
 
     class _Boom:
         enabled = True
@@ -94,6 +99,24 @@ def test_screener_errors_do_not_break_withdrawals(monkeypatch):
 
     _install(monkeypatch, _Boom())
     _assert_recipient_compliant(EVM_OK, "ethereum")  # must not raise
+
+
+def test_screener_errors_fail_closed_in_enforce_mode(monkeypatch):
+    """Finding 3: in ENFORCE mode a screener error must raise
+    ComplianceBlockedError (fail closed) — we cannot prove the recipient is
+    clean, so the withdrawal must not go through."""
+    from bot.services.compliance import ComplianceMode
+
+    class _BoomEnforce:
+        enabled = True
+        mode = ComplianceMode.ENFORCE
+
+        def screen(self, **kwargs):
+            raise RuntimeError("screener exploded")
+
+    _install(monkeypatch, _BoomEnforce())
+    with pytest.raises(ComplianceBlockedError):
+        _assert_recipient_compliant(EVM_OK, "ethereum")
 
 
 def test_block_is_not_swallowed_by_the_error_handler(monkeypatch):

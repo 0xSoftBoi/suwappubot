@@ -2,8 +2,9 @@
 
 Covers the allow/block-list address gate used by SwapEngine.execute_swap:
 mode switching (disabled/monitor/enforce), policy switching (blocklist /
-allowlist), OFAC seed enforcement, non-EVM pass-through, and the OFAC list
-file loader.
+allowlist), OFAC seed enforcement, address-family handling (EVM/TRON/Solana
+screened, everything else fails closed in ENFORCE), and the OFAC list file
+loader. TRON- and Solana-specific cases live in test_compliance_tron.py.
 """
 
 import os
@@ -141,12 +142,23 @@ def test_allowlist_only_ignores_blocklist_for_clean_unapproved(svc):
 # --- address handling -------------------------------------------------------
 
 
-def test_non_evm_addresses_skipped(svc):
+def test_solana_addresses_are_now_screened(svc):
+    """Solana base58 recipients are screenable (see test_compliance_tron.py
+    TestSolanaScreening) — unlike a truly unsupported family (Starknet), an
+    unlisted-but-not-preapproved Solana recipient is blocked under
+    allowlist_only, same as any other screened family."""
     svc.configure(mode="enforce", policy="allowlist_only", allowlist=CLEAN)
-    # Solana address isn't 0x-style → not screened → no violation from it.
     result = svc.screen(recipient=SOLANA_ADDR, chain="solana")
-    assert result.allowed is True
-    assert result.verdicts == []
+    assert result.allowed is False
+    assert result.blocked[0].source == "not_allowlisted"
+
+
+def test_truly_unscreenable_recipient_fails_closed_in_enforce(svc):
+    """A recipient family nothing recognizes (e.g. Starknet) fails CLOSED in
+    ENFORCE mode rather than silently passing through unscreened."""
+    svc.configure(mode="enforce")
+    result = svc.screen(recipient="0x" + "1" * 63, chain="starknet")
+    assert result.allowed is False
 
 
 def test_case_insensitive_matching(svc):

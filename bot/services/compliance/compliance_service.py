@@ -23,13 +23,20 @@ node/EL-level enforcement (which would also cover transactions we don't
 originate) — that is a separate infra track. The relay-routing half of the
 PoC (private orderflow via Flashbots/MEV-Share) is likewise out of scope here.
 
-Wiring: ``SwapEngine.execute_swap`` calls :meth:`AddressComplianceService.screen`
-at the single choke point every swap entry path funnels through, before any
-funds move. Behaviour is governed by ``ComplianceMode``:
+Wiring: ``SwapEngine.execute_swap`` and the withdrawal path in
+``hot_wallet.send_native_token``/``send_token`` call
+:meth:`AddressComplianceService.screen` before any funds move. Behaviour is
+governed by ``ComplianceMode``:
 
   * ``DISABLED`` — no screening (default; preserves existing behaviour).
   * ``MONITOR``  — screen and log violations, but allow the swap (shadow mode).
   * ``ENFORCE``  — block non-compliant swaps.
+
+# TODO(compliance): coverage is NOT total. Unscreened money-movement surfaces
+# today: bulk_pay / p2p transfers, and CCTP bridge legs — none of them call
+# into AddressComplianceService. The OFAC list itself is also static (no
+# scheduled refresh job pulls the live SDN feed); see ``ofac_list`` module
+# docstring. Do not assume "compliance is on" means every surface is covered.
 """
 
 from __future__ import annotations
@@ -40,7 +47,14 @@ from enum import Enum
 from typing import Iterable, List, Optional, Set
 
 from bot.config.settings import settings
-from bot.services.compliance.ofac_list import load_ofac_addresses
+from bot.services.compliance.ofac_list import (
+    load_ofac_addresses,
+    _is_evm_address,
+    _is_solana_address,
+    _is_tron_address,
+    _is_screenable_address,
+    _tron_canonical,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,64 +122,53 @@ def _short(addr: str) -> str:
     return f"{addr[:6]}…{addr[-4:]}"
 
 
-def _is_evm_address(value: Optional[str]) -> bool:
-    """True for a plausible 0x-prefixed 20-byte hex address."""
-    if not value or not isinstance(value, str):
-        return False
-    v = value.strip().lower()
-    if not v.startswith("0x") or len(v) != 42:
-        return False
-    try:
-        int(v, 16)
-    except ValueError:
-        return False
-    return True
-
-
-# TRON base58check addresses: leading 'T', 34 chars, Bitcoin base58 alphabet
-# (no 0/O/I/l). Unlike EVM hex these are CASE-SENSITIVE — lowercasing one
-# destroys it, so normalization below is chain-aware.
-_TRON_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-
-
-def _is_tron_address(value: Optional[str]) -> bool:
-    """True for a plausible TRON base58check (``T…``) address."""
-    if not value or not isinstance(value, str):
-        return False
-    v = value.strip()
-    if len(v) != 34 or not v.startswith("T"):
-        return False
-    return all(c in _TRON_B58_ALPHABET for c in v)
-
-
-def _is_screenable_address(value: Optional[str]) -> bool:
-    """True for any address family this service can screen (EVM or TRON)."""
-    return _is_evm_address(value) or _is_tron_address(value)
+# Address-shape recognition (`_is_evm_address` / `_is_tron_address` /
+# `_is_solana_address` / `_is_screenable_address`) and TRON canonicalization
+# (`_tron_canonical`) live in ``ofac_list`` and are imported above, so the
+# list loader and this service always agree on what counts as a "screenable"
+# address and how it keys into the blocklist. See that module for the shape
+# rules and why TRON's checksum is validated as part of shape-checking.
 
 
 def _normalize_address(value: str) -> str:
     """Canonical blocklist key for an address.
 
-    EVM hex is case-insensitive, so it is lowercased. TRON base58 is
-    case-SENSITIVE and is preserved verbatim — lowercasing a ``T…`` address
-    would make it match nothing, silently disabling the screen.
+    * EVM hex is case-insensitive, so it is lowercased.
+    * TRON (base58check ``T…`` or hex ``41…``/``0x41…``) is canonicalized to
+      its 21-byte hex form via ``ofac_list._tron_canonical`` so every
+      equivalent representation of the same address keys identically,
+      matching the list loader.
+    * Solana base58 has no case-folding convention (unlike EVM hex, it is not
+      case-insensitive) — it is kept verbatim, i.e. exact-match blocklisting
+      only, no canonicalization.
+
+    Assumes ``value`` already passed ``_is_screenable_address`` (callers
+    filter first); an unparseable TRON string falls back to the raw value
+    rather than raising, since normalization must never crash the swap/
+    withdraw path.
     """
     v = (value or "").strip()
-    return v.lower() if _is_evm_address(v) else v
+    if _is_evm_address(v):
+        return v.lower()
+    if _is_tron_address(v):
+        return _tron_canonical(v) or v
+    return v
 
 
 def _parse_csv_addresses(raw: str) -> Set[str]:
     """Parse a comma-separated address string into a normalized address set.
 
-    Accepts EVM and TRON addresses. TRON matters here because OFAC SDN listings
-    include TRON addresses (USDT-TRC20 is a primary sanctions-evasion rail) and
-    the operator blocklist is how they get supplied.
+    Accepts EVM, TRON, and Solana addresses. TRON matters here because OFAC
+    SDN listings include TRON addresses (USDT-TRC20 is a primary
+    sanctions-evasion rail) and the operator blocklist is how they get
+    supplied.
     """
     out: Set[str] = set()
     for tok in (raw or "").split(","):
-        norm = _normalize_address(tok)
-        if _is_screenable_address(norm):
-            out.add(norm)
+        candidate = (tok or "").strip()
+        if not _is_screenable_address(candidate):
+            continue
+        out.add(_normalize_address(candidate))
     return out
 
 
@@ -183,8 +186,11 @@ class AddressComplianceService:
         if not result.allowed:
             raise SwapError(result.reason)
 
-    Understands EVM (``0x…``) and TRON (``T…`` base58check) addresses. Other
-    families (Solana, Starknet, …) are skipped. Lists are loaded once at
+    Understands EVM (``0x…``), TRON (``T…`` base58check or ``41…``/``0x41…``
+    hex), and Solana (base58, 32-byte pubkey) addresses. Other families
+    (Starknet, Bitcoin, …) cannot be screened; in ``ENFORCE`` mode an
+    unscreenable *recipient* is rejected (fail closed) rather than silently
+    passed through — see :meth:`screen`. Lists are loaded once at
     construction and can be rebuilt with :meth:`reload`.
     """
 
@@ -282,15 +288,25 @@ class AddressComplianceService:
         extra: Optional[Iterable[Optional[str]]] = None,
         chain: Optional[str] = None,
     ) -> ComplianceResult:
-        """Screen all EVM addresses involved in a transaction.
+        """Screen all EVM/TRON/Solana addresses involved in a transaction.
 
         Args:
             recipient: Address receiving funds (the UBS "pre-approved" target).
             router: DEX/bridge contract the swap interacts with.
             tokens: Token contract addresses involved.
             extra: Any additional addresses to screen.
-            chain: Chain name (informational). EVM and TRON addresses are
-                screened; other families (e.g. Solana) are skipped.
+            chain: Chain name (informational). EVM, TRON, and Solana
+                addresses are screened; other families (Starknet, Bitcoin, …)
+                cannot be. For those, a non-``recipient`` role is skipped
+                (best-effort — routers/tokens on unsupported chains don't
+                block the tx), but the ``recipient`` role is fail-closed: in
+                ``ENFORCE`` mode an unscreenable recipient is treated as a
+                block (this behaviour is driven by ``compliance_mode``, the
+                same setting that governs everything else here — ``MONITOR``
+                logs-and-allows it like any other would-block verdict,
+                ``ENFORCE`` rejects it). This closes the gap where a
+                recipient address family we simply don't understand yet would
+                otherwise sail through unscreened.
 
         Returns:
             A :class:`ComplianceResult`. In ``MONITOR`` mode ``allowed`` is
@@ -317,7 +333,24 @@ class AddressComplianceService:
 
         for value, role in candidates:
             if not _is_screenable_address(value):
-                continue  # Address families we cannot screen yet (e.g. Solana).
+                if role == "recipient":
+                    # Fail closed on the one role that actually matters: we
+                    # cannot vouch for a recipient address family we don't
+                    # understand. Non-recipient roles (router/token) on an
+                    # unsupported chain are still skipped below — blocking a
+                    # whole swap because we can't screen its router would be
+                    # a much bigger behaviour change with no compliance
+                    # upside, since the router never receives the funds.
+                    verdict = AddressVerdict(
+                        value or "",
+                        allowed=False,
+                        source="unscreenable",
+                        reason="recipient address family is not supported by compliance screening",
+                        role=role,
+                    )
+                    result.verdicts.append(verdict)
+                    result.blocked.append(verdict)
+                continue  # Address families we cannot screen (e.g. Starknet).
             verdict = self.screen_address(value, role=role)
             result.verdicts.append(verdict)
             if not verdict.allowed:
