@@ -59,7 +59,23 @@ describe('bug #1 — daily check-in double credit', () => {
 	it('checks the zero-rows-updated result, not a stale in-memory flag, to reject the dupe', () => {
 		const checkinFn = source.slice(source.indexOf('dailyCheckin: (userId: number)'))
 		expect(checkinFn).toMatch(/checkinResult\.length === 0/)
-		expect(checkinFn).toMatch(/Already checked in today/)
+		expect(checkinFn).toMatch(/throw new AlreadyCheckedInError\(\)/)
+		// AlreadyCheckedInError is defined once, before dailyCheckin, and its
+		// message ('Already checked in today') is what the catch handler maps
+		// back to a user-facing ValidationError.
+		expect(source).toMatch(/class AlreadyCheckedInError extends Error/)
+		expect(source).toMatch(/super\('Already checked in today'\)/)
+	})
+
+	it('dailyCheckin runs the guarded UPDATE, both ledger inserts, and the level-up bonus in one db.transaction', () => {
+		const checkinFn = source.slice(source.indexOf('dailyCheckin: (userId: number)'))
+		const txStart = checkinFn.indexOf('db.transaction(async (tx) => {')
+		expect(txStart).toBeGreaterThan(-1)
+		const txBody = checkinFn.slice(txStart, checkinFn.indexOf('catch: (e) => checkinFailure(e)'))
+		expect(txBody).toMatch(/\.where\(checkinGuardCondition\(/)
+		expect(txBody).toMatch(/tx\.insert\(pointTransactions\)\.values\(\{[\s\S]*action: 'checkin'/)
+		expect(txBody).toMatch(/action: 'streak_bonus'/)
+		expect(txBody).toMatch(/awardLevelUpBonusTx\(tx, userId, oldLevel, newLevel, seasonId\)/)
 	})
 })
 
@@ -105,10 +121,73 @@ describe('bug #2 — first-swap-of-day bonus double credit', () => {
 		)
 		const afterBonusUpdate = swapFn.slice(swapFn.indexOf('firstSwapBonusCondition('))
 		const volumeUpdate = afterBonusUpdate.slice(
-			afterBonusUpdate.indexOf('Volume points'),
-			afterBonusUpdate.indexOf('totalPoints = volumePoints + dailyBonus'),
+			afterBonusUpdate.indexOf('if (volumePoints > 0)'),
+			afterBonusUpdate.indexOf('appliedVolumePoints = volumeApplied ? volumePoints : 0'),
 		)
 		expect(volumeUpdate).not.toMatch(/lastSwapDate:/)
+	})
+})
+
+describe('bug #5 — swap volume points double credit on retry', () => {
+	const swapFn = source.slice(
+		source.indexOf('awardSwapPoints: (userId: number'),
+		source.indexOf('dailyCheckin: (userId: number)'),
+	)
+
+	it('ledgers the swap with a deterministic swap:{swapId} reference', () => {
+		expect(swapFn).toMatch(/swapReference = swapId != null \? `swap:\$\{swapId\}` : null/)
+		expect(swapFn).toMatch(/reference: swapReference \?\? undefined/)
+	})
+
+	it('the ledger insert uses onConflictDoNothing targeting (userId, reference), same guard as level_up', () => {
+		expect(swapFn).toMatch(
+			/\.onConflictDoNothing\(\{\s*target:\s*\[pointTransactions\.userId, pointTransactions\.reference\]/,
+		)
+	})
+
+	it('the volume UPDATE only runs when the ledger insert actually landed a row', () => {
+		const insertIdx = swapFn.indexOf('.returning({ id: pointTransactions.id })')
+		const appliedIdx = swapFn.indexOf('volumeApplied = ledgerInsert.length > 0')
+		const guardIdx = swapFn.indexOf('if (volumeApplied) {')
+		const updateIdx = swapFn.indexOf('.where(eq(userPoints.userId, userId))')
+
+		expect(insertIdx).toBeGreaterThan(-1)
+		expect(appliedIdx).toBeGreaterThan(insertIdx)
+		expect(guardIdx).toBeGreaterThan(appliedIdx)
+		expect(updateIdx).toBeGreaterThan(guardIdx)
+	})
+
+	it('ledger insert precedes the volume UPDATE (insert is the idempotency gate, not an afterthought)', () => {
+		const ledgerInsertIdx = swapFn.indexOf('await tx\n\t\t\t\t\t\t\t\t.insert(pointTransactions)')
+		const volumeUpdateIdx = swapFn.indexOf('totalSwaps: sql`${userPoints.totalSwaps} + 1`')
+		expect(ledgerInsertIdx).toBeGreaterThan(-1)
+		expect(volumeUpdateIdx).toBeGreaterThan(ledgerInsertIdx)
+	})
+})
+
+describe('bug #6 — award transactions are atomic (money-path review)', () => {
+	it('awardPoints wraps its UPDATE, ledger insert, and level-up bonus in one db.transaction', () => {
+		// The implementation's `awardPoints: (` (not the interface declaration
+		// above it, which has the same text) — anchor the search to start after
+		// PointsServiceLive begins.
+		const implStart = source.indexOf('export const PointsServiceLive')
+		const fnStart = source.indexOf('awardPoints: (', implStart)
+		const fn = source.slice(fnStart, source.indexOf('awardSwapPoints: (userId: number'))
+		expect(fn).toMatch(/db\.transaction\(async \(tx\) => \{/)
+		expect(fn).toMatch(/awardLevelUpBonusTx\(tx, userId, oldLevel, newLevel, seasonId\)/)
+	})
+
+	it('awardSwapPoints wraps its UPDATEs, ledger inserts, and level-up bonus in one db.transaction', () => {
+		const fn = source.slice(
+			source.indexOf('awardSwapPoints: (userId: number'),
+			source.indexOf('dailyCheckin: (userId: number)'),
+		)
+		expect(fn).toMatch(/db\.transaction\(async \(tx\) => \{/)
+	})
+
+	it('all three call sites route the level-up bonus through awardLevelUpBonusTx (1 definition + 3 uses)', () => {
+		const uses = source.match(/awardLevelUpBonusTx\(/g) ?? []
+		expect(uses.length).toBe(4)
 	})
 })
 
@@ -128,7 +207,7 @@ describe('bug #3 — level-up bonus paid twice per crossing', () => {
 
 	it('the bonus insert uses onConflictDoNothing targeting (userId, reference)', () => {
 		const helperFn = source.slice(
-			source.indexOf('const awardLevelUpBonus ='),
+			source.indexOf('async function awardLevelUpBonusTx('),
 			source.indexOf('export function pointsDebitSet'),
 		)
 		expect(helperFn).toMatch(/onConflictDoNothing\(\{\s*target:\s*\[pointTransactions\.userId, pointTransactions\.reference\]/)
@@ -137,7 +216,7 @@ describe('bug #3 — level-up bonus paid twice per crossing', () => {
 
 	it('the 100pt bonus credit is unreachable unless the insert returned a row', () => {
 		const helperFn = source.slice(
-			source.indexOf('const awardLevelUpBonus ='),
+			source.indexOf('async function awardLevelUpBonusTx('),
 			source.indexOf('export function pointsDebitSet'),
 		)
 		const insertIdx = helperFn.indexOf('.returning({ id: pointTransactions.id })')
@@ -152,14 +231,14 @@ describe('bug #3 — level-up bonus paid twice per crossing', () => {
 		expect(applyTrueIdx).toBeGreaterThan(guardIdx)
 	})
 
-	it('all three award paths (points, swap, checkin) route the bonus through the same helper', () => {
-		const uses = source.match(/yield\* awardLevelUpBonus\(db, userId, oldLevel, \w+, seasonId\)/g) ?? []
+	it('all three award paths (points, swap, checkin) route the bonus through the same helper, inside their transaction', () => {
+		const uses = source.match(/awardLevelUpBonusTx\(\s*tx,\s*userId,\s*oldLevel,\s*newLevel,\s*seasonId,?\s*\)/g) ?? []
 		expect(uses.length).toBe(3)
 	})
 
 	it('no call site inserts a raw level_up transaction outside the helper (that would bypass the unique guard)', () => {
 		// The only literal "action: 'level_up'" write site left should be inside
-		// awardLevelUpBonus itself.
+		// awardLevelUpBonusTx itself.
 		const occurrences = source.match(/action: 'level_up'/g) ?? []
 		expect(occurrences.length).toBe(1)
 	})

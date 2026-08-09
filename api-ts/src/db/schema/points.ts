@@ -83,6 +83,11 @@ export const userPoints = pgTable(
 		dailyStreak: integer('daily_streak').default(0).notNull(),
 		longestStreak: integer('longest_streak').default(0).notNull(),
 		lastCheckin: timestamp('last_checkin'),
+		// NOT "timestamp of the user's most recent swap" — only stamped by the
+		// first-swap-of-day bonus UPDATE (firstSwapBonusCondition in
+		// PointsService), so it reflects the last swap that WON that bonus.
+		// Every swap still applies volume points/totalSwaps regardless of
+		// whether it touches this column.
 		lastSwapDate: timestamp('last_swap_date'),
 
 		// Lifetime stats

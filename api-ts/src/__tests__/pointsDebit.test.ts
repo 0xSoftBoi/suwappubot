@@ -116,10 +116,9 @@ describe('points debit — helpers are actually wired in at the call sites', () 
 		// If this is ever "cleaned up" to also add pointAmount, every level-up
 		// double-credits the award that triggered it. The preceding statement
 		// already applied pointAmount relative to the live row.
-		const bonusWrite = source.slice(source.indexOf('Failed to add level bonus') - 1200)
+		const helperStart = source.indexOf('async function awardLevelUpBonusTx(')
+		const bonusWrite = source.slice(helperStart, source.indexOf('export function pointsDebitSet'))
 		expect(bonusWrite).toContain('POINT_ACTIONS.level_up.points')
-		expect(bonusWrite.slice(0, bonusWrite.indexOf('Failed to add level bonus'))).not.toMatch(
-			/currentPoints:.*\+ \$\{pointAmount\}/,
-		)
+		expect(bonusWrite).not.toMatch(/currentPoints:.*\+ \$\{pointAmount\}/)
 	})
 })

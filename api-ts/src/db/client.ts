@@ -15,3 +15,14 @@ export function createDbClient(databaseUrl: string) {
 }
 
 export type DbClient = ReturnType<typeof createDbClient>
+
+// The `tx` handle passed into `db.transaction(async (tx) => {...})`. Supports
+// the same query-builder surface as DbClient but not `.transaction()` itself
+// (nested transactions use savepoints, not this type). Used by helpers that
+// must run their writes inside a caller-provided transaction rather than
+// opening their own connection.
+export type DbTransaction = Parameters<DbClient['transaction']>[0] extends (
+	tx: infer T,
+) => unknown
+	? T
+	: never
