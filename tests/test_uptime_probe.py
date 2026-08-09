@@ -159,3 +159,40 @@ def test_subsystem_breakdown_ignores_build_fingerprints():
         }
     )
     assert subsystem_breakdown(python_api) == [("background_services.balance_refresher", "unknown")]
+
+
+def test_send_telegram_retries_plain_text_on_markdown_400(monkeypatch):
+    """A Telegram 400 (unbalanced Markdown entities in dynamic subsystem names)
+    must fall back to a plain-text send, not drop the alert."""
+    import io
+    import urllib.error
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t0k3n")
+    monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "-100123")
+
+    calls = []
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        body = req.data.decode()
+        calls.append(body)
+        if "parse_mode" in body:
+            raise urllib.error.HTTPError(
+                "https://api.telegram.org", 400, "Bad Request", {}, io.BytesIO(b"")
+            )
+        return _Resp()
+
+    monkeypatch.setattr(uptime_probe.urllib.request, "urlopen", fake_urlopen)
+
+    assert uptime_probe.send_telegram("alert with source_fingerprint underscore") is True
+    assert len(calls) == 2
+    assert "parse_mode" in calls[0]
+    assert "parse_mode" not in calls[1]

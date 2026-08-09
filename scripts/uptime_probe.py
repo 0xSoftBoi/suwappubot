@@ -41,6 +41,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -135,16 +136,32 @@ def send_telegram(text: str) -> bool:
     if not token or not chat:
         print("::warning:: TELEGRAM_BOT_TOKEN / TELEGRAM_ALERT_CHAT_ID unset — no alert sent")
         return False
-    payload = urllib.parse.urlencode(
-        {"chat_id": chat, "parse_mode": "Markdown", "text": text}
-    ).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=payload)
-    try:
+
+    def _post(fields: dict) -> bool:
+        payload = urllib.parse.urlencode(fields).encode()
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage", data=payload
+        )
         with urllib.request.urlopen(req, timeout=15) as r:
             return 200 <= r.status < 300
+
+    try:
+        return _post({"chat_id": chat, "parse_mode": "Markdown", "text": text})
+    except urllib.error.HTTPError as e:
+        # A 4xx here is almost always Telegram rejecting the *formatting*, not
+        # the send: dynamic subsystem names like `source_fingerprint` carry
+        # underscores, which legacy Markdown treats as italics markers — an odd
+        # count makes sendMessage 400 with "can't parse entities". The alert
+        # must still land, so retry once as plain text. Log the status code
+        # only — the bot token is in the request URL and urllib errors
+        # routinely echo it back (see send_heartbeat()).
+        print(f"telegram send failed: HTTPError {e.code}; retrying without parse_mode")
+        try:
+            return _post({"chat_id": chat, "text": text})
+        except Exception as e2:
+            print(f"telegram plain-text retry failed: {type(e2).__name__}")
+            return False
     except Exception as e:
-        # Type only — the bot token is in the request URL and urllib errors
-        # routinely echo it back. See send_heartbeat() for the same reasoning.
         print(f"telegram send failed: {type(e).__name__}")
         return False
 
