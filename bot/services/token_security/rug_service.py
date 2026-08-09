@@ -21,6 +21,7 @@ import asyncio
 import functools
 import json
 import time
+import base58
 from typing import Any, Dict, List, Optional, Tuple
 import websockets
 
@@ -134,6 +135,10 @@ RUG_PANIC_SELL_SLIPPAGE_PCT = 8.0
 RUG_POOL_CREATE_LOG_MARKERS = ("initialize2",)
 
 RUG_MIN_POOL_AGE_SECONDS = settings.rug_min_pool_age_seconds
+
+# Finding 6: bound `_pool_first_seen` memory on a long-running process. Swept
+# opportunistically from `_observe_pool_creation` (the only writer).
+POOL_FIRST_SEEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 # ---------------------------------------------------------------------------
@@ -268,12 +273,27 @@ class RugService:
             .replace("https://", "wss://")
             .replace("http://", "ws://")
         )
-        # Flash-loan hardening: pool_id -> first-seen monotonic timestamp.
-        # Populated by `_observe_pool_creation` (independent of, and always
-        # earlier than, any drain event for the same pool) and consulted by
-        # `_handle_potential_rug` before arming a sell. In-memory/per-process
-        # by design — see module docstring for the residual-risk note.
-        self._pool_first_seen: Dict[str, float] = {}
+        # Flash-loan hardening: pool_id -> (mint, first-seen monotonic
+        # timestamp). Keyed by the ACTUAL Raydium pool (amm) account, not the
+        # traded mint -- a rugged mint can have MULTIPLE pools, and keying by
+        # mint let an attacker create pool A early (satisfying the age gate)
+        # then drain a brand-new pool B for the SAME mint, inheriting pool
+        # A's age. Populated by `_observe_pool_creation` (independent of, and
+        # always earlier than, any drain event for the same pool) and
+        # consulted by `_handle_potential_rug`, which looks up the age of
+        # the SPECIFIC pool being drained, before arming a sell.
+        #
+        # In-memory/per-process by design (see module docstring for the
+        # residual-risk note) and TTL-swept (`_sweep_pool_first_seen_ttl`) to
+        # bound memory on a long-running process.
+        #
+        # TODO(rug): durable first-seen store or getSignaturesForAddress
+        # backfill -- full durability out of scope here. On restart this
+        # dict is empty, so every pool looks "unobserved" until re-seen live;
+        # that is the SAFE direction of failure (no sell), never the other
+        # way, but it does mean a restart temporarily disables protection for
+        # pools this process already knew about.
+        self._pool_first_seen: Dict[str, Tuple[str, float]] = {}
 
     async def start(self, swap_engine: SwapEngine):
         """Start the rug monitoring service."""
@@ -324,6 +344,7 @@ class RugService:
                     "SELECT column_name, character_maximum_length "
                     "FROM information_schema.columns "
                     "WHERE table_name = 'swap_transactions' "
+                    "AND table_schema = current_schema() "
                     "AND column_name IN ('from_token', 'to_token')"
                 )
             ).fetchall()
@@ -414,18 +435,26 @@ class RugService:
             return
 
         # 1b. Flash-loan hardening: only arm a sell if THIS service
-        # independently observed the pool (via `_observe_pool_creation`) at
-        # least RUG_MIN_POOL_AGE_SECONDS before this drain. A pool created
-        # and drained within the age window (including the single-tx
-        # variant, where the pool was never observed before its own drain
-        # tx) fails this check by construction. See module docstring for the
-        # residual-risk note — a patient attacker who waits out the window
-        # is not defeated by this alone.
-        first_seen = self._pool_first_seen.get(token_mint)
+        # independently observed the SPECIFIC pool being drained (via
+        # `_observe_pool_creation`) at least RUG_MIN_POOL_AGE_SECONDS before
+        # this drain. Finding 6: looked up by POOL ID, not mint -- a rugged
+        # mint can have multiple pools, and a mint-keyed lookup let an
+        # attacker's brand-new pool B inherit an old pool A's age just
+        # because both trade the same mint. A pool created and drained
+        # within the age window (including the single-tx variant, where the
+        # pool was never observed before its own drain tx) fails this check
+        # by construction, and an unresolvable pool id is treated the same
+        # as unobserved. See module docstring for the residual-risk note — a
+        # patient attacker who waits out the window is not defeated by this
+        # alone.
+        pool_id = await self._extract_pool_id_from_tx(signature)
+        first_seen_entry = self._pool_first_seen.get(pool_id) if pool_id else None
+        first_seen = first_seen_entry[1] if first_seen_entry else None
         pool_age = (time.monotonic() - first_seen) if first_seen is not None else None
-        if pool_age is None or pool_age < RUG_MIN_POOL_AGE_SECONDS:
+        if pool_id is None or pool_age is None or pool_age < RUG_MIN_POOL_AGE_SECONDS:
             logger.warning(
-                f"Rug detection: pool for mint {token_mint} (tx {signature}) age="
+                f"Rug detection: pool {pool_id or 'unresolved'} for mint {token_mint} "
+                f"(tx {signature}) age="
                 f"{pool_age if pool_age is not None else 'unobserved'}s, below the "
                 f"{RUG_MIN_POOL_AGE_SECONDS}s minimum -- skipping to avoid arming a "
                 f"sell off a pool this service never independently observed "
@@ -450,6 +479,86 @@ class RugService:
         if tasks:
             await asyncio.gather(*tasks)
 
+    def _extract_pool_id(self, tx_data: Dict[str, Any], account_keys: List[str]) -> Optional[str]:
+        """Resolve the Raydium AMM (pool) account id touched by this tx's
+        EXECUTED Raydium instruction(s) -- used as the `_pool_first_seen` key
+        instead of the traded mint (finding 6): a rugged mint can have
+        MULTIPLE pools, and keying the age gate by mint let an attacker
+        create pool A early (satisfying the gate) then drain a brand-new
+        pool B for the SAME mint, inheriting pool A's age. Keying by the
+        actual pool account closes that gap.
+
+        Raydium AMM v4's account layout differs by instruction, decoded via
+        the first byte of the instruction's raw (base58) data -- its
+        discriminant:
+          - Initialize2 (discriminant 1): the amm/pool account is accounts[4]
+          - Withdraw / removeLiquidity (discriminant 4): accounts[1]
+        Any other or undecodable instruction falls back to accounts[1],
+        which is also the amm account for most other Raydium AMM v4
+        instructions. Returns None if nothing resolvable -- callers must
+        treat that as "unknown pool" (conservative: no sell), never
+        fabricate an id.
+        """
+        raydium_ixs = _iter_program_instructions(tx_data, RAYDIUM_AMM)
+        for ix in raydium_ixs:
+            accounts = _instruction_accounts(ix, account_keys)
+            discriminant = None
+            data = ix.get("data")
+            if isinstance(data, str):
+                try:
+                    raw = base58.b58decode(data)
+                    if raw:
+                        discriminant = raw[0]
+                except Exception:
+                    discriminant = None
+            if discriminant == 1 and len(accounts) > 4:
+                return accounts[4]
+            if discriminant == 4 and len(accounts) > 1:
+                return accounts[1]
+            if len(accounts) > 1:
+                return accounts[1]
+        return None
+
+    def _sweep_pool_first_seen_ttl(self, now: Optional[float] = None) -> None:
+        """Drop `_pool_first_seen` entries older than
+        POOL_FIRST_SEEN_TTL_SECONDS, bounding memory on a long-running
+        process. Opportunistic -- called from the only writer,
+        `_observe_pool_creation`, so it runs roughly as often as new pools
+        are observed rather than on its own timer.
+        """
+        now = now if now is not None else time.monotonic()
+        stale = [
+            pool_id
+            for pool_id, (_mint, ts) in self._pool_first_seen.items()
+            if now - ts > POOL_FIRST_SEEN_TTL_SECONDS
+        ]
+        for pool_id in stale:
+            del self._pool_first_seen[pool_id]
+
+    async def _extract_pool_id_from_tx(self, signature: str) -> Optional[str]:
+        """Resolve the pool id for a SUSPECTED-DRAIN signature, for the
+        pool-age lookup in `_handle_potential_rug`.
+
+        Deliberately a second, small getTransaction fetch for the same
+        signature rather than threading a second return value through
+        `_extract_token_mint_from_tx` and every existing call site/test that
+        depends on its bare-mint contract. This only runs on a suspected-rug
+        signal (rare), so the extra RPC round trip is an acceptable trade.
+        """
+        try:
+            session = await get_http_session()
+            tx_data = await self._fetch_transaction(session, signature)
+            if not tx_data:
+                return None
+            verified = self._verify_raydium_execution(tx_data, signature)
+            if verified is None:
+                return None
+            _meta, account_keys, _touched = verified
+            return self._extract_pool_id(tx_data, account_keys)
+        except Exception as e:
+            logger.warning(f"Rug detection: pool-id extraction failed for tx {signature}: {e}")
+            return None
+
     async def _observe_pool_creation(self, signature: str) -> None:
         """Pool-age hardening: opportunistically stamp `_pool_first_seen` for
         a freshly-created Raydium pool, entirely decoupled from any drain
@@ -462,9 +571,12 @@ class RugService:
         but skips the magnitude/USD-floor checks entirely -- ANY verified
         Raydium instruction execution here is evidence the pool/mint exists,
         which is all this needs. Only ever SETS a timestamp if one isn't
-        already recorded (first-seen semantics — never overwritten later).
-        Best-effort: any failure is logged and swallowed, never raised, since
-        this is a background-learning path, not the money-path itself.
+        already recorded (first-seen semantics — never overwritten later),
+        and only when the pool id AND its mint are both unambiguously
+        resolvable -- an ambiguous observation (no id, or 0/multiple
+        non-stable mints touched) is skipped rather than guessed. Best-effort:
+        any failure is logged and swallowed, never raised, since this is a
+        background-learning path, not the money-path itself.
         """
         try:
             session = await get_http_session()
@@ -476,6 +588,10 @@ class RugService:
             if verified is None:
                 return
             meta, account_keys, touched_accounts = verified
+
+            pool_id = self._extract_pool_id(tx_data, account_keys)
+            if not pool_id:
+                return
 
             pre_balances = meta.get("preTokenBalances") or []
             post_balances = meta.get("postTokenBalances") or []
@@ -490,9 +606,15 @@ class RugService:
                 if mint and mint != WSOL_MINT and mint not in STABLE_MINTS:
                     mints.add(mint)
 
+            if len(mints) != 1:
+                # Ambiguous (0 or >1 non-stable/non-WSOL mints touched) --
+                # don't guess which mint this pool belongs to.
+                return
+            mint = next(iter(mints))
+
             now = time.monotonic()
-            for mint in mints:
-                self._pool_first_seen.setdefault(mint, now)
+            self._pool_first_seen.setdefault(pool_id, (mint, now))
+            self._sweep_pool_first_seen_ttl(now)
 
         except Exception as e:
             logger.warning(

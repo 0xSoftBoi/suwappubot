@@ -732,24 +732,68 @@ def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     SQLite ignores VARCHAR length so this was invisible in tests.
 
     Additive + idempotent: ALTER COLUMN ... TYPE VARCHAR(64) is safe to widen
-    repeatedly (no-op once already >=64), and never truncates/loses existing
-    data since we're only growing the column. SQLite is skipped — same
-    "ignores VARCHAR length" reasoning as `_widen_totp_secret`.
+    repeatedly, and never truncates/loses existing data since we're only
+    growing the column. SQLite is skipped — same "ignores VARCHAR length"
+    reasoning as `_widen_totp_secret`.
+
+    RUNS AT EVERY BOOT, so it must issue ZERO DDL once migrated (mirrors
+    `_widen_money_columns_to_double`): inspect widths first, build a pending
+    list, and early-return when nothing needs widening. The two ALTERs run in
+    a single transaction bounded by `SET LOCAL lock_timeout` so a contended
+    boot fails fast and retries next boot instead of hanging behind a live
+    writer and getting the container killed mid-DDL.
     """
     if is_sqlite:
         return
+
     try:
         cols = {c["name"]: c for c in inspector.get_columns("swap_transactions")}
-        for column in ("from_token", "to_token"):
-            if column not in cols:
-                continue
-            with db_engine.begin() as conn:
+    except Exception as e:
+        logger.error("Could not inspect swap_transactions columns: %s", e)
+        return
+
+    pending: list[str] = []
+    for column in ("from_token", "to_token"):
+        info = cols.get(column)
+        if info is None:
+            continue
+        col_type = info.get("type")
+        length = getattr(col_type, "length", None)
+        # Only widen VARCHAR columns whose length is known and still < 64.
+        # A None length (e.g. already TEXT) or length >= 64 is already fine.
+        if length is not None and length < 64:
+            pending.append(column)
+
+    if not pending:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            # Fail fast instead of queueing behind a live swap write and
+            # taking the panic-sell path down with us. Unapplied columns are
+            # simply retried next boot.
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            for column in pending:
                 conn.execute(
                     text(f"ALTER TABLE swap_transactions ALTER COLUMN {column} TYPE VARCHAR(64)")
                 )
-        logger.info("Widened swap_transactions.from_token/to_token to VARCHAR(64)")
+        logger.info("Widened swap_transactions column(s) to VARCHAR(64): %s", ", ".join(pending))
     except Exception as e:
-        logger.error("Could not widen swap_transactions.from_token/to_token to VARCHAR(64): %s", e)
+        msg = str(e).lower()
+        if "lock timeout" in msg or "55p03" in msg or "canceling statement due to lock" in msg:
+            # Contended boot — not a real failure. Retry on next boot.
+            logger.warning(
+                "Widening swap_transactions.%s to VARCHAR(64) timed out waiting for a "
+                "lock; will retry on next boot: %s",
+                ", ".join(pending),
+                e,
+            )
+        else:
+            logger.error(
+                "Could not widen swap_transactions.%s to VARCHAR(64): %s",
+                ", ".join(pending),
+                e,
+            )
 
 
 def _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:

@@ -10,13 +10,13 @@ export const swapTransactions = pgTable('swap_transactions', {
 
 	// Source details
 	fromChain: varchar('from_chain', { length: 50 }).notNull(),
-	fromToken: varchar('from_token', { length: 20 }).notNull(),
+	fromToken: varchar('from_token', { length: 64 }).notNull(),
 	fromAmount: varchar('from_amount', { length: 78 }).notNull(),
 	fromAmountUsd: real('from_amount_usd'),
 
 	// Destination details
 	toChain: varchar('to_chain', { length: 50 }).notNull(),
-	toToken: varchar('to_token', { length: 20 }).notNull(),
+	toToken: varchar('to_token', { length: 64 }).notNull(),
 	toAmount: varchar('to_amount', { length: 78 }),
 	toAmountUsd: real('to_amount_usd'),
 

@@ -481,14 +481,17 @@ class PointsService:
                 )
                 session.add(tx)
         except IntegrityError:
-            return self._replay_idempotent_redemption(user_id, idempotency_key, amount)
+            success, message, _redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, amount
+            )
+            return success, message
 
         logger.info(f"User {user_id} spent {amount} points on {reward_type}")
         return True, f"Successfully redeemed {reward_type}!"
 
     def _replay_idempotent_redemption(
         self, user_id: int, idempotency_key: Optional[str], expected_amount: Optional[int] = None
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, Optional[PointRedemption]]:
         """Look up the original PointRedemption for a (user_id, idempotency_key)
         that just conflicted on the durable UNIQUE index, and replay ITS
         outcome instead of re-charging points.
@@ -496,13 +499,23 @@ class PointsService:
         A conflict with no key (idempotency_key is None — the index is
         partial and never matches NULLs) is a genuine unexpected integrity
         error, not a replay; surface it as a failure rather than mask it.
+
+        Returns ``(success, message, matched_redemption_or_None)`` so callers
+        that need more than a bool/message (marketplace order id, subscription
+        expiry) can resolve the ORIGINAL outcome instead of returning a
+        fabricated/None value on replay.
+
+        ``expected_amount``, when given, is cross-checked against the matched
+        row's ``points_spent``. A mismatch means the conflicting key was
+        (implausibly) reused for a different-cost redemption — refuse rather
+        than replay the wrong outcome.
         """
         if not idempotency_key:
             logger.error(
                 f"spend_points IntegrityError for user {user_id} with no idempotency_key "
                 "(not a replay) — surfacing as failure"
             )
-            return False, "Redemption failed — your points were not spent."
+            return False, "Redemption failed — your points were not spent.", None
         try:
             with get_session() as session:
                 existing = (
@@ -516,7 +529,7 @@ class PointsService:
                 )
         except Exception as e:
             logger.error(f"Idempotent replay lookup failed for user {user_id}: {e}")
-            return False, "Redemption failed — your points were not spent."
+            return False, "Redemption failed — your points were not spent.", None
 
         if not existing:
             # Should be unreachable (the conflict means a row with this key
@@ -525,11 +538,23 @@ class PointsService:
                 f"spend_points IntegrityError for user {user_id} key={idempotency_key} "
                 "but no matching row found on replay lookup"
             )
-            return False, "Redemption failed — your points were not spent."
+            return False, "Redemption failed — your points were not spent.", None
+
+        if expected_amount is not None and existing.points_spent != expected_amount:
+            logger.error(
+                f"Idempotent replay mismatch for user {user_id} key={idempotency_key}: "
+                f"expected {expected_amount} points but matched redemption spent "
+                f"{existing.points_spent} — refusing to replay a mismatched outcome"
+            )
+            return (
+                False,
+                "Redemption failed — a conflicting redemption already used this request.",
+                None,
+            )
 
         if existing.status == "completed":
-            return True, f"Successfully redeemed {existing.reward_type}! (replayed)"
-        return False, "Redemption failed — your points were not spent."
+            return True, f"Successfully redeemed {existing.reward_type}! (replayed)", existing
+        return False, "Redemption failed — your points were not spent.", existing
 
     # ------------------------------------------------------------------
     # Redemption EFFECTS (money path) — applied at swap time.
@@ -774,8 +799,28 @@ class PointsService:
             # H6 durable replay: the retried INSERT conflicted on
             # UNIQUE(user_id, idempotency_key) — replay the original outcome
             # instead of surfacing a spurious failure or double-granting.
-            success, message = self._replay_idempotent_redemption(user_id, idempotency_key)
-            return success, message, None
+            success, message, redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, expected_amount=None
+            )
+            expiry_iso = None
+            if success and redemption is not None:
+                # Finding 5: resolve the REAL expiry instead of returning None.
+                # The subscription row is per-user (not per-redemption), so on
+                # replay we read its current expires_at — that reflects the
+                # grant the original (already-committed) redemption made. Best
+                # effort only: never fabricate a value if the lookup fails.
+                try:
+                    with get_session() as session:
+                        sub = (
+                            session.query(Subscription)
+                            .filter(Subscription.user_id == user_id)
+                            .first()
+                        )
+                        if sub is not None and sub.expires_at is not None:
+                            expiry_iso = sub.expires_at.date().isoformat()
+                except Exception as e:
+                    logger.error(f"Idempotent replay expiry lookup failed for user {user_id}: {e}")
+            return success, message, expiry_iso
         except Exception as e:
             logger.error(f"redeem_subscription_reward failed for user {user_id}: {e}")
             return False, "Redemption failed — your points were not spent.", None
@@ -883,6 +928,13 @@ class PointsService:
                     status="pending",
                     provider=provider.name,
                     payload={"reward_name": reward_name, "reward_value": reward_value},
+                    # Finding 5: stamp the SAME idempotency_key used on the
+                    # PointRedemption row so a replay can resolve THIS
+                    # specific order precisely (unique index enforces it),
+                    # instead of guessing "most recent order for this user
+                    # + reward" which breaks if the user redeems the same
+                    # reward again legitimately.
+                    idempotency_key=idempotency_key,
                 )
                 session.add(order)
                 # Materialize order.id so the provider (and provider_ref) can use it,
@@ -948,8 +1000,30 @@ class PointsService:
             # H6 durable replay: the retried INSERT/flush conflicted on
             # UNIQUE(user_id, idempotency_key) — replay the original outcome
             # instead of surfacing a spurious failure or double-fulfilling.
-            success, message = self._replay_idempotent_redemption(user_id, idempotency_key)
-            return success, message, None
+            success, message, redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, expected_amount=None
+            )
+            order_id = None
+            if redemption is not None:
+                # Finding 5: resolve the REAL order_id via the idempotency_key
+                # we now stamp on RedemptionOrder too (unique index), instead
+                # of always returning None on replay.
+                try:
+                    with get_session() as session:
+                        order = (
+                            session.query(RedemptionOrder)
+                            .filter(RedemptionOrder.idempotency_key == idempotency_key)
+                            .first()
+                        )
+                        if order is not None:
+                            order_id = order.id
+                            if success and order.status not in ("fulfilled", "refunded"):
+                                # Order row hasn't reached a terminal state yet
+                                # (rare race) — never fabricate certainty.
+                                message = f"{message} (order #{order_id} pending)"
+                except Exception as e:
+                    logger.error(f"Idempotent replay order lookup failed for user {user_id}: {e}")
+            return success, message, order_id
         except Exception as e:
             # Any unexpected error rolls the whole transaction back (no debit persisted).
             logger.error(f"redeem_marketplace_reward failed for user {user_id}: {e}")

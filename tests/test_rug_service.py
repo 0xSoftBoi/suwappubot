@@ -72,6 +72,10 @@ WSOL = WSOL_MINT
 USDC = next(iter(STABLE_MINTS))
 RUGGED_MINT = "RUGtokenMintAddress1111111111111111111111"
 OTHER_MINT = "OtherTokenMintAddress222222222222222222222"
+# Finding 6: `_pool_first_seen` is keyed by POOL id (not mint) — a stand-in
+# Raydium AMM (pool) account id used by the `_handle_potential_rug` tests
+# below that exercise the pool-age gate.
+RUGGED_POOL_ID = "RuggedPoolAccount33333333333333333333333"
 
 SIGNATURE = "5FakeSignature1111111111111111111111111111111111111111111111111"
 
@@ -651,10 +655,13 @@ def test_handle_potential_rug_fires_panic_sell_when_mint_found(monkeypatch):
     downstream fan-out logic, not the age gate itself (see
     test_pool_age_gating.py-equivalent tests below for that)."""
     service = RugService()
-    service._pool_first_seen[RUGGED_MINT] = _old_enough_timestamp()
+    service._pool_first_seen[RUGGED_POOL_ID] = (RUGGED_MINT, _old_enough_timestamp())
 
     async def fake_extract(signature):
         return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return RUGGED_POOL_ID
 
     calls = {"panic_sell": []}
 
@@ -666,6 +673,7 @@ def test_handle_potential_rug_fires_panic_sell_when_mint_found(monkeypatch):
         calls["panic_sell"].append((user_id, wallet_id, token_mint, signature))
 
     monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
     monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
     monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
 
@@ -1062,16 +1070,19 @@ def test_execute_panic_sell_uses_reduced_slippage():
 
 
 def test_handle_potential_rug_skips_when_pool_never_observed(monkeypatch):
-    """The core single-tx-forgery defense: a mint this service has NEVER
+    """The core single-tx-forgery defense: a pool this service has NEVER
     observed via `_observe_pool_creation` must never arm a sell, even with a
     fully-verified drain signal — this is exactly the "create pool, seed it,
     drain it in one tx" case, where the pool was, by construction, never
     observed before its own drain."""
     service = RugService()
-    assert RUGGED_MINT not in service._pool_first_seen
+    assert RUGGED_POOL_ID not in service._pool_first_seen
 
     async def fake_extract(signature):
         return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return RUGGED_POOL_ID
 
     calls = {"panic_sell": 0}
 
@@ -1082,6 +1093,42 @@ def test_handle_potential_rug_skips_when_pool_never_observed(monkeypatch):
         calls["panic_sell"] += 1
 
     monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
+    monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
+    monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
+
+    asyncio.run(service._handle_potential_rug(["Program log: removeLiquidity"], SIGNATURE))
+
+    assert calls["panic_sell"] == 0
+
+
+def test_handle_potential_rug_skips_when_pool_id_unresolvable(monkeypatch):
+    """Finding 6: an unresolvable pool id must be treated the same as
+    "unobserved" (conservative: no sell), even if a mint-keyed entry happens
+    to exist for the traded mint under a DIFFERENT pool."""
+    service = RugService()
+    # A stale/unrelated pool for the same mint must not be enough.
+    service._pool_first_seen["SomeOtherPool111111111111111111111111111"] = (
+        RUGGED_MINT,
+        _old_enough_timestamp(),
+    )
+
+    async def fake_extract(signature):
+        return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return None
+
+    calls = {"panic_sell": 0}
+
+    async def fake_get_users(token_mint):
+        return [(1, 10)]
+
+    async def fake_panic_sell(user_id, wallet_id, token_mint, signature):
+        calls["panic_sell"] += 1
+
+    monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
     monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
     monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
 
@@ -1094,10 +1141,13 @@ def test_handle_potential_rug_skips_when_pool_too_young(monkeypatch):
     """A pool observed only seconds ago (well under RUG_MIN_POOL_AGE_SECONDS)
     must not arm a sell yet, even though it HAS been observed."""
     service = RugService()
-    service._pool_first_seen[RUGGED_MINT] = time.monotonic() - 5  # 5s old
+    service._pool_first_seen[RUGGED_POOL_ID] = (RUGGED_MINT, time.monotonic() - 5)  # 5s old
 
     async def fake_extract(signature):
         return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return RUGGED_POOL_ID
 
     calls = {"panic_sell": 0}
 
@@ -1108,6 +1158,7 @@ def test_handle_potential_rug_skips_when_pool_too_young(monkeypatch):
         calls["panic_sell"] += 1
 
     monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
     monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
     monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
 
@@ -1121,10 +1172,13 @@ def test_handle_potential_rug_fires_when_pool_old_enough(monkeypatch):
     sell once a verified drain is detected -- the gate must not create false
     negatives on genuine, patiently-executed rugs."""
     service = RugService()
-    service._pool_first_seen[RUGGED_MINT] = _old_enough_timestamp()
+    service._pool_first_seen[RUGGED_POOL_ID] = (RUGGED_MINT, _old_enough_timestamp())
 
     async def fake_extract(signature):
         return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return RUGGED_POOL_ID
 
     calls = {"panic_sell": 0}
 
@@ -1135,6 +1189,7 @@ def test_handle_potential_rug_fires_when_pool_old_enough(monkeypatch):
         calls["panic_sell"] += 1
 
     monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
     monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
     monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
 
@@ -1144,11 +1199,17 @@ def test_handle_potential_rug_fires_when_pool_old_enough(monkeypatch):
 
 
 def test_observe_pool_creation_stamps_first_seen_once(monkeypatch):
-    """`_observe_pool_creation` records a first-seen timestamp for every
-    non-WSOL/non-stable mint touched by a verified Raydium instruction, and
-    NEVER overwrites an already-recorded first-seen time (first-seen
-    semantics, not last-seen)."""
+    """`_observe_pool_creation` records a first-seen timestamp keyed by POOL
+    id (finding 6), paired with the single unambiguous non-WSOL/non-stable
+    mint touched by a verified Raydium instruction, and NEVER overwrites an
+    already-recorded first-seen time (first-seen semantics, not
+    last-seen)."""
     account_keys = [PAYER, RAYDIUM_AMM, "PoolVaultCreate1111111111111111111"]
+    # Default `_instruction(...)` data ("deadbeef") doesn't decode to the
+    # Initialize2/Withdraw discriminants, so `_extract_pool_id` takes its
+    # accounts[1] fallback -- i.e. account_keys[2], the pool's own vault
+    # account here, used as a stand-in pool id.
+    pool_id = account_keys[2]
     tx = _tx_data(
         account_keys=account_keys,
         instructions=[_instruction(RAYDIUM_AMM, [account_keys[1], account_keys[2]])],
@@ -1158,16 +1219,17 @@ def test_observe_pool_creation_stamps_first_seen_once(monkeypatch):
     _install_fake_session(monkeypatch, _FakeResp(_rpc_response(tx_data=tx)))
 
     service = RugService()
-    assert RUGGED_MINT not in service._pool_first_seen
+    assert pool_id not in service._pool_first_seen
 
     asyncio.run(service._observe_pool_creation(SIGNATURE))
-    assert RUGGED_MINT in service._pool_first_seen
-    first_stamp = service._pool_first_seen[RUGGED_MINT]
+    assert pool_id in service._pool_first_seen
+    mint, first_stamp = service._pool_first_seen[pool_id]
+    assert mint == RUGGED_MINT
 
-    # A second observation of the SAME mint must NOT push the timestamp
+    # A second observation of the SAME pool must NOT push the timestamp
     # forward (first-seen, not last-seen).
     asyncio.run(service._observe_pool_creation(SIGNATURE))
-    assert service._pool_first_seen[RUGGED_MINT] == first_stamp
+    assert service._pool_first_seen[pool_id] == (RUGGED_MINT, first_stamp)
 
 
 def test_observe_pool_creation_never_raises_on_failure(monkeypatch):
@@ -1180,6 +1242,26 @@ def test_observe_pool_creation_never_raises_on_failure(monkeypatch):
     # Must not raise.
     asyncio.run(service._observe_pool_creation(SIGNATURE))
     assert service._pool_first_seen == {}
+
+
+def test_sweep_pool_first_seen_ttl_drops_stale_entries():
+    """Finding 6: `_pool_first_seen` is TTL-swept so a long-running process
+    doesn't grow the dict unbounded. Entries older than
+    POOL_FIRST_SEEN_TTL_SECONDS are dropped; fresher ones are kept."""
+    service = RugService()
+    now = time.monotonic()
+    stale_pool = "StalePool1111111111111111111111111111111"
+    fresh_pool = "FreshPool1111111111111111111111111111111"
+    service._pool_first_seen[stale_pool] = (
+        RUGGED_MINT,
+        now - rug_service_module.POOL_FIRST_SEEN_TTL_SECONDS - 1,
+    )
+    service._pool_first_seen[fresh_pool] = (OTHER_MINT, now - 5)
+
+    service._sweep_pool_first_seen_ttl(now)
+
+    assert stale_pool not in service._pool_first_seen
+    assert fresh_pool in service._pool_first_seen
 
 
 # ---------------------------------------------------------------------------

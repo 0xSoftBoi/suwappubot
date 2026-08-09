@@ -941,7 +941,10 @@ async def post_init(application) -> None:
             try:
                 await rug_service.start(swap_engine=SwapEngine())
                 logger.info("✓ Rug protection service started")
-            except RuntimeError as e:
+            except Exception as e:
+                # Broadened from RuntimeError: any failure here (schema gap,
+                # transient DB blip, etc.) must not brick the whole bot boot —
+                # log CRITICAL and continue without the (opt-in) service.
                 logger.critical(f"✗ Rug protection service refused to start: {e}")
         else:
             logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
@@ -1006,7 +1009,9 @@ async def run_headless() -> None:
     if settings.rug_auto_sell_enabled:
         try:
             await rug_service.start(swap_engine=SwapEngine())
-        except RuntimeError as e:
+        except Exception as e:
+            # Broadened from RuntimeError — see comment at the other
+            # rug_service.start() call site above.
             logger.critical(f"✗ Rug protection service refused to start: {e}")
     else:
         logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")

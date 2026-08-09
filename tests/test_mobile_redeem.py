@@ -161,7 +161,7 @@ class TestRedeemDispatch:
         r = client.post("/v1/mobile/points/rewards/4/redeem", headers=auth_headers())
 
         assert r.status_code == 400
-        assert "not live yet" in r.json()["detail"] or "coming soon" in r.json()["detail"]
+        assert "aren't live yet" in r.json()["detail"] or "coming soon" in r.json()["detail"]
 
     def test_unknown_reward_returns_404(self, sqlite_db):
         client = app_client()
