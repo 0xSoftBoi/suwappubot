@@ -131,6 +131,14 @@ branch + applied diff.)
 - **Review-fix loop continues:** #817 round-2 fixes verified, final APPROVE with 2 medium follow-ups; CodeQL high (clear-text exception logging in key-handling scope) fixed on the branch. #820 round-2 pre-enforce fixes pushed (Starknet/BTC screenable, degraded-list fail-closed) — final review in flight. #823 fixes pushed (String(64) migration, startup capability gate, pool-age arming, durable redemption idempotency) — re-review in flight. #760 round-2 fixes pushed (provider-scoped CONFIRMING, 2h wall-clock give-up, read-only manual refresh) — final review in flight. #824 BLOCKED on a would-be prod-deploy-killer (unguarded duplicate constraint in migration 0018) — fixer dispatched.
 - **#821/#822 RED** on quality gates — log-driven fixer dispatched.
 
+### Round 6 (same day)
+
+- **Merged:** #817 Polymarket CLOB V2 port (3 review rounds: bare-hex signature prod-killer → tick-bound giveaway orders → CodeQL false positive on HMAC request signing, documented and merged past the non-required gate), #820 compliance spine (3 rounds: OFAC loader dropping TRON → Starknet brick + degraded fail-open → APPROVE with pre-enforce follow-ups posted). #648 closed as ported. Total: **20 merged**.
+- **#824** PointsService concurrency: final APPROVE (follow-ups posted: season-accrual idempotency gap before any caller ships, level-bonus snapshot skip, midnight double first-swap bonus) — merging on green.
+- **#760** round-3 fix in flight (timeout-FAILED notification told users to retry while funds were mid-bridge).
+- **#823** round-2 fixes nearly done (migration boot-safety, pool-id keying, replay payload).
+- **#821/#822** root causes fixed (env-schema drift; locale stats drift) — watcher merging on green.
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
