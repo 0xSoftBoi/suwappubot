@@ -52,6 +52,8 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure for swapping token
 
 Deploys to Railway. See `docs/deployment/` — and `docs/deployment/monitoring.md` for how we find out something is broken (which layer catches what, and what each one is blind to).
 
+**Institutional knowledge — read before re-deriving anything**: `docs/README.md` (index of all docs, with staleness flags), `docs/architecture/OVERVIEW.md` (services, background tasks, request flows, data layer), `docs/ONBOARDING.md` (setup/env/test/CI facts), `docs/DECISIONS.md` (why things are the way they are — append new hard-won lessons there, not only here).
+
 ## Commands
 
 ### Python Bot + API
