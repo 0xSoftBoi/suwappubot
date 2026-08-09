@@ -21,6 +21,7 @@ import {
   telegramSuccessHaptic,
   telegramTapHaptic,
 } from '../../lib/telegramHaptics'
+import { swapExecutionStageLabel } from '../../lib/swapExecutionStage'
 import { useQuery } from '@tanstack/react-query'
 import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
 import { getSolanaPriorityFees } from '../../lib/helius'
@@ -122,9 +123,23 @@ export function SwapPanel() {
     refetch: refetchQuote,
   } = useSwapQuote(quoteRequest)
   const { mutate: executeSwap, isPending: executing } = useSwapExecute()
-  const { mutate: executeExternalSwap, isPending: externalExecuting } = useExternalSwap()
-  const { mutate: executeSolanaSwap, isPending: solanaExecuting } = useSolanaSwap()
+  const {
+    mutate: executeExternalSwap,
+    isPending: externalExecuting,
+    stage: externalExecutionStage,
+  } = useExternalSwap()
+  const {
+    mutate: executeSolanaSwap,
+    isPending: solanaExecuting,
+    stage: solanaExecutionStage,
+  } = useSolanaSwap()
   const executingAny = executing || externalExecuting || solanaExecuting
+  const externalExecutionLabel = externalExecutionStage
+    ? swapExecutionStageLabel(externalExecutionStage)
+    : null
+  const solanaExecutionLabel = solanaExecutionStage
+    ? swapExecutionStageLabel(solanaExecutionStage)
+    : null
 
   // Live Solana network priority fee (Helius), used to calibrate the Speed tiers.
   const isSolana = fromToken?.chain === 'solana'
@@ -524,15 +539,17 @@ export function SwapPanel() {
             ? quoteFetching
               ? 'Refreshing quote…'
               : 'Quote expired — refresh'
-            : externalExecuting || solanaExecuting
-              ? 'Confirm in your wallet…'
-              : executing
-                ? 'Executing...'
-                : quoteLoading
-                  ? 'Getting Quote...'
-                  : quote
-                    ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}${isExternalWallet ? ' (self-custody)' : ''}`
-                    : 'Enter Amount'
+            : solanaExecuting
+              ? solanaExecutionLabel || 'Preparing wallet request…'
+              : externalExecuting
+                ? externalExecutionLabel || 'Preparing wallet request…'
+                : executing
+                  ? 'Submitting swap…'
+                  : quoteLoading
+                    ? 'Getting Quote...'
+                    : quote
+                      ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}${isExternalWallet ? ' (self-custody)' : ''}`
+                      : 'Enter Amount'
           }
         </button>
       )}
