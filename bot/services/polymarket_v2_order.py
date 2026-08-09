@@ -144,6 +144,25 @@ TICK_ROUNDING: dict[str, tuple[int, int, int]] = {
 DEFAULT_TICK_SIZE = "0.01"
 
 
+def round_price_to_tick(price: float, tick_size: str = DEFAULT_TICK_SIZE) -> Decimal:
+    """Round ``price`` to the market's tick precision, ``ROUND_HALF_UP``.
+
+    Same rounding :func:`compute_amounts` applies internally — exposed so
+    callers (e.g. ``PolymarketClient.place_order``) can derive ``size`` from
+    the price the exchange will actually book, instead of the raw quoted
+    price. Deriving ``size = amount / raw_price`` and only rounding the price
+    afterwards inside ``compute_amounts`` can make
+    ``floor(size) * rounded_price`` exceed the requested notional — the price
+    used to size the order and the price used to charge for it must be the
+    same number.
+    """
+    if tick_size not in TICK_ROUNDING:
+        raise ValueError(f"unsupported tick size: {tick_size!r}")
+    price_dp, _size_dp, _amount_dp = TICK_ROUNDING[tick_size]
+    price_quantum = Decimal(1).scaleb(-price_dp)
+    return Decimal(str(price)).quantize(price_quantum, rounding=ROUND_HALF_UP)
+
+
 def compute_amounts(
     side: str, size: float, price: float, tick_size: str = DEFAULT_TICK_SIZE
 ) -> tuple[int, int]:
@@ -179,10 +198,17 @@ def compute_amounts(
     price_dp, size_dp, amount_dp = TICK_ROUNDING[tick_size]
 
     d_size = Decimal(str(size))
-    d_price = Decimal(str(price))
 
-    price_quantum = Decimal(1).scaleb(-price_dp)
-    raw_price = d_price.quantize(price_quantum, rounding=ROUND_HALF_UP)
+    raw_price = round_price_to_tick(price, tick_size)
+    if raw_price <= 0:
+        # A price this close to 0 rounds down to a zero-value leg at this
+        # tick size — e.g. SELL @ 0.004 with tick 0.01 rounds to 0.00, which
+        # would silently produce takerAmount=0 (give shares away for free).
+        # py_clob_client's own order builder rejects this the same way.
+        raise ValueError(
+            f"price {price} rounds to {raw_price} at tick size {tick_size!r}; "
+            "refusing to build a zero-price order"
+        )
 
     size_quantum = Decimal(1).scaleb(-size_dp)
     raw_size = d_size.quantize(size_quantum, rounding=ROUND_DOWN)
@@ -230,6 +256,21 @@ def build_order(
         # Outcome-token prices are probabilities; anything outside (0,1) is a bug
         # upstream and the exchange would reject it anyway.
         raise ValueError("price must be between 0 and 1 (exclusive)")
+    if tick_size not in TICK_ROUNDING:
+        raise ValueError(f"unsupported tick size: {tick_size!r}")
+
+    # py_clob_client-style price bounds: a price within one tick of 0 or 1
+    # rounds to a degenerate 0- or full-value leg (see compute_amounts), so
+    # reject it up front with a clear message rather than let it fall through
+    # to a confusing zero-amount order or an exchange rejection.
+    tick = Decimal(tick_size)
+    d_price = Decimal(str(price))
+    if d_price < tick or d_price > 1 - tick:
+        raise ValueError(
+            f"price {price} is outside the tradable range for tick size "
+            f"{tick_size!r} ({tick_size} <= price <= {1 - tick}); a price this "
+            "close to 0 or 1 would round to a degenerate order leg"
+        )
 
     maker_amount, taker_amount = compute_amounts(side, size, price, tick_size=tick_size)
     return {
@@ -282,9 +323,14 @@ def sign_order(order: dict, private_key: str, neg_risk: bool) -> SignedV2Order:
         signature = signed.signature.to_0x_hex()
     else:  # pragma: no cover - older hexbytes fallback
         signature = "0x" + signed.signature.hex()
-    assert (
-        signature.startswith("0x") and len(signature) == 132
-    ), f"malformed signature: expected 0x-prefixed 65-byte hex string, got {len(signature)} chars"
+    if not (signature.startswith("0x") and len(signature) == 132):
+        # A bare `assert` here is stripped when Python runs with `-O`, which
+        # would silently let a malformed signature (unparseable or worse,
+        # mis-parsed) reach the CLOB. Raise explicitly so this check always runs.
+        raise ValueError(
+            f"malformed signature: expected 0x-prefixed 65-byte hex string, got "
+            f"{len(signature)} chars"
+        )
     return SignedV2Order(order=order, signature=signature, neg_risk=neg_risk)
 
 

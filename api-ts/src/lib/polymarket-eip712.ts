@@ -99,9 +99,37 @@ function encodeUint8(value: number): Buffer {
 	return encodeUint256(String(value))
 }
 
+// Matches bot/services/polymarket_v2_order.py's builder-code validation
+// pattern (32-byte hex). Exported so callers can validate a user/env-supplied
+// bytes32 field (e.g. POLYMARKET_BUILDER_CODE) before it ever reaches
+// encodeBytes32, and fall back to ZERO_BYTES32 on a mismatch.
+export const BUILDER_CODE_RE = /^0x[0-9a-fA-F]{64}$/
+
+/**
+ * Resolve a caller-supplied bytes32 hex value against BUILDER_CODE_RE,
+ * falling back to ZERO_BYTES32 (mirrors the Python side's
+ * `_BUILDER_CODE_RE` fallback in polymarket_api.py). A malformed value
+ * (wrong length, non-hex, missing 0x) silently signing garbage into the
+ * order's `builder` field is worse than just treating it as "no builder".
+ */
+export function resolveBuilderCode(raw: string | undefined | null): string {
+	if (raw && BUILDER_CODE_RE.test(raw)) return raw
+	return ZERO_BYTES32
+}
+
 function encodeBytes32(value: string): Buffer {
-	const clean = value.toLowerCase().replace('0x', '').padStart(64, '0').slice(-64)
-	return Buffer.from(clean, 'hex')
+	const hasPrefix = value.toLowerCase().startsWith('0x')
+	const clean = (hasPrefix ? value.slice(2) : value).toLowerCase()
+	// Previously this silently truncated an over-length value via
+	// `.slice(-64)` — a mistakenly-longer input would sign a DIFFERENT
+	// bytes32 than the caller intended, with no error. Reject instead:
+	// only accept 1-64 valid hex chars, left-padded to 32 bytes.
+	if (clean.length === 0 || clean.length > 64 || !/^[0-9a-f]+$/.test(clean)) {
+		throw new Error(
+			`encodeBytes32: expected a 0x-prefixed hex string of at most 32 bytes, got ${JSON.stringify(value)}`,
+		)
+	}
+	return Buffer.from(clean.padStart(64, '0'), 'hex')
 }
 
 function hashStruct(primaryType: string, data: ClobOrderData, types: Record<string, { name: string; type: string }[]>): Buffer {

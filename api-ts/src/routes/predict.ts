@@ -3,7 +3,7 @@ import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
-import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
+import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
@@ -269,11 +269,14 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			// no taker/expiration/nonce/feeRateBps — instead timestamp (ms), metadata,
 			// and a bytes32 builder code. Builder defaults to none; set
 			// POLYMARKET_BUILDER_CODE (32-byte hex) once enrolled in the builder program
-			// to earn the on-chain maker/taker rebate.
+			// to earn the on-chain maker/taker rebate. A malformed env value (wrong
+			// length, not hex) falls back to ZERO_BYTES32 rather than signing garbage
+			// into the order's `builder` field — mirrors _BUILDER_CODE_RE in
+			// bot/services/polymarket_api.py.
 			const salt = BigInt('0x' + randomBytes(8).toString('hex')).toString()
 			const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
-			const builderCode = process.env.POLYMARKET_BUILDER_CODE || ZERO_BYTES32
+			const builderCode = resolveBuilderCode(process.env.POLYMARKET_BUILDER_CODE)
 
 			// CLOB amount math (6-decimal base units for both collateral and shares).
 			// pUSD collateral = 6dp; outcome (share) tokens = 6dp. `price` is the

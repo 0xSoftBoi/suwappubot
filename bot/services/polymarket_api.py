@@ -5,6 +5,7 @@ Endpoints:
 - CLOB API (orderbook + trading): https://clob.polymarket.com
 """
 
+import asyncio
 import base64
 import logging
 import re
@@ -386,6 +387,7 @@ class PolymarketClient:
             from bot.services.polymarket_v2_order import (
                 build_l2_headers,
                 build_order,
+                round_price_to_tick,
                 sign_order,
             )
 
@@ -419,7 +421,23 @@ class PolymarketClient:
                     )
                 builder_code = ZERO_BYTES32
 
-            size = amount / price if side.upper() == "BUY" else amount
+            # Derive size from the TICK-ROUNDED price, not the raw quote — the
+            # exchange charges makerAmount using the rounded price
+            # (compute_amounts), so sizing off the raw price can make
+            # floor(size) * rounded_price exceed the requested notional
+            # (overcharges the maker). Sizing off the same rounded price the
+            # exchange will book keeps floor(size) * rounded_price <= amount.
+            if side.upper() == "BUY":
+                rounded_price = round_price_to_tick(price, tick_size)
+                if rounded_price <= 0:
+                    return OrderResult(
+                        success=False,
+                        error=f"price {price} rounds to 0 at tick size {tick_size}; "
+                        "refusing to place a zero-price order",
+                    )
+                size = float(amount) / float(rounded_price)
+            else:
+                size = amount
 
             salt = None
             if order_id is not None:
@@ -501,6 +519,12 @@ class PolymarketClient:
         cached = self._tick_size_cache.get(token_id)
         if cached and (_time.monotonic() - cached[1]) < _TICK_SIZE_CACHE_TTL_SECONDS:
             return cached[0]
+
+        # Unbounded growth guard: a long-lived process quoting many distinct
+        # token_ids would otherwise grow this dict forever. Entries are cheap
+        # to re-fetch, so just clear rather than evicting individually.
+        if len(self._tick_size_cache) > 10_000:
+            self._tick_size_cache.clear()
 
         try:
             session = await self._get_session()
@@ -603,15 +627,32 @@ class PolymarketClient:
         """
         try:
             clob_market = await self.get_clob_market(condition_id)
+            if not isinstance(clob_market, dict):
+                # One short-backoff retry before falling through to Gamma —
+                # a single transient CLOB blip shouldn't force a fallback path
+                # (or fail closed) when a retry would have succeeded.
+                await asyncio.sleep(0.5)
+                clob_market = await self.get_clob_market(condition_id)
             if isinstance(clob_market, dict):
                 for key in ("neg_risk", "negRisk", "negRiskMarket", "neg_risk_market"):
                     if key in clob_market:
                         return bool(clob_market.get(key))
 
+            # Gamma's `/markets/{id}` path expects Gamma's own NUMERIC market
+            # id, not the on-chain condition_id — that lookup 404s here. Use
+            # the `condition_ids` query form instead, which Gamma matches
+            # against the same condition_id we already have.
             session = await self._get_session()
-            async with session.get(f"{GAMMA_BASE_URL}/markets/{condition_id}") as resp:
+            async with session.get(
+                f"{GAMMA_BASE_URL}/markets", params={"condition_ids": condition_id}
+            ) as resp:
                 if resp.status == 200:
-                    gamma_market = await resp.json(content_type=None)
+                    gamma_result = await resp.json(content_type=None)
+                    gamma_market = (
+                        gamma_result[0]
+                        if isinstance(gamma_result, list) and gamma_result
+                        else gamma_result
+                    )
                     if isinstance(gamma_market, dict):
                         for key in ("negRisk", "neg_risk", "negRiskMarket"):
                             if key in gamma_market:

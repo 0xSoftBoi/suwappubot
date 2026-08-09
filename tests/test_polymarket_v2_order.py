@@ -36,6 +36,7 @@ from bot.services.polymarket_v2_order import (
     build_typed_data,
     compute_amounts,
     domain_for,
+    round_price_to_tick,
     sign_order,
 )
 
@@ -123,6 +124,31 @@ class TestOrderValidation:
         sell = build_order(token_id="1", side="SELL", size=1, price=0.5, maker=MAKER)
         assert buy["side"] == SIDE_BUY == 0
         assert sell["side"] == SIDE_SELL == 1
+
+    def test_rejects_price_that_rounds_to_a_zero_value_leg(self):
+        """Review case: SELL 1000 @ 0.004 with tick 0.01 must RAISE, not silently
+        produce takerAmount=0 (giving 1000 shares away for free).
+        """
+        with pytest.raises(ValueError):
+            build_order(
+                token_id="1", side="SELL", size=1000, price=0.004, maker=MAKER, tick_size="0.01"
+            )
+
+    def test_rejects_price_within_one_tick_of_one(self):
+        """Review case: BUY @ 0.997 with tick 0.01 must RAISE — 0.997 is above
+        the tradable upper bound (1 - tick = 0.99).
+        """
+        with pytest.raises(ValueError):
+            build_order(
+                token_id="1", side="BUY", size=1, price=0.997, maker=MAKER, tick_size="0.01"
+            )
+
+    def test_compute_amounts_rejects_a_price_that_rounds_to_zero_directly(self):
+        """Same guard at the lower-level compute_amounts, for callers that
+        bypass build_order's tick bounds check entirely.
+        """
+        with pytest.raises(ValueError):
+            compute_amounts("SELL", 1000, 0.004, tick_size="0.01")
 
 
 class TestSigning:
@@ -241,21 +267,29 @@ class TestTickSizeAmounts:
         implied_price = maker / taker
         assert implied_price == pytest.approx(expected_price, abs=10 ** (-price_dp) / 2)
 
-    @pytest.mark.parametrize("size,price", CASES)
-    @pytest.mark.parametrize("tick", sorted(TICK_ROUNDING))
-    def test_buy_never_overcharges_the_maker(self, size, price, tick):
-        """The BUY maker leg (what the user pays) must never exceed floor(size) *
-        the tick-rounded price — rounding must never drift in the exchange's
-        favor at the user's expense.
+    # Review cases: place_order used to derive `size = amount / raw_price`
+    # (the UNROUNDED quote), then compute_amounts rounds the price to tick
+    # internally when computing makerAmount. That mismatch between the price
+    # used to SIZE the order and the price used to CHARGE for it let
+    # floor(size) * rounded_price exceed the requested notional — the maker
+    # paid more pUSD than they asked to spend.
+    AMOUNT_CASES = [(10, 0.535, "0.01"), (10, 0.025, "0.01"), (10, 0.155, "0.1")]
+
+    @pytest.mark.parametrize("amount,price,tick", AMOUNT_CASES)
+    def test_buy_never_overcharges_the_maker(self, amount, price, tick):
+        """The BUY maker leg (what the user pays) must never exceed the
+        REQUESTED notional. This exercises the fixed flow (mirrors
+        PolymarketClient.place_order): size is derived from the
+        TICK-ROUNDED price via round_price_to_tick, not the raw quote.
         """
-        price_dp, size_dp, _amount_dp = TICK_ROUNDING[tick]
-        maker, taker = compute_amounts("BUY", size, price, tick_size=tick)
+        rounded_price = round_price_to_tick(price, tick)
+        assert rounded_price > 0
+        size = float(amount) / float(rounded_price)
 
-        tick_price = round(price, price_dp)
-        floored_size = int(size * 10**size_dp) / 10**size_dp
-        upper_bound = round(floored_size * tick_price, 10) * _SCALE_FOR_TEST
+        maker, _taker = compute_amounts("BUY", size, price, tick_size=tick)
 
-        assert maker <= upper_bound + 1  # +1 base unit slack for decimal rounding
+        requested_notional_base = amount * _SCALE_FOR_TEST
+        assert maker <= requested_notional_base
 
     def test_default_tick_matches_the_untouched_legacy_math(self):
         """0.01 is the CLOB's default tick; behavior here must be unchanged from
