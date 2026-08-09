@@ -1,5 +1,7 @@
 import { useCopyTrades } from '../../hooks/useCopyTrading'
 import type { CopyTrade } from '../../types/api'
+import { useAuth } from '../../contexts/AuthContext'
+import { WalletConnect } from '../auth/WalletConnect'
 
 function truncateAddress(addr: string): string {
   if (addr.length <= 12) return addr
@@ -7,7 +9,7 @@ function truncateAddress(addr: string): string {
 }
 
 function formatPnl(value: number): string {
-  const prefix = value >= 0 ? '+' : ''
+  const prefix = value >= 0 ? '+' : '-'
   return `${prefix}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -24,8 +26,28 @@ function timeAgo(timestamp: string): string {
   return `${days}d ago`
 }
 
+function formatStatus(status: CopyTrade['status']): string {
+  if (status === 'auto_pending') return 'queued'
+  if (status === 'executing') return 'copying'
+  if (status === 'outcome_unknown') return 'outcome unknown'
+  return status || ''
+}
+
 export function CopyFeed() {
+  const { isAuthenticated } = useAuth()
   const { data: trades = [], isLoading } = useCopyTrades(50)
+
+  if (!isAuthenticated) {
+    return (
+      <div className="mx-auto flex max-w-sm flex-col gap-3 px-4 py-8 text-center">
+        <div>
+          <div className="text-sm font-semibold text-terminal-text">Sign in to see copy activity</div>
+          <p className="mt-1 text-xs text-terminal-text-muted">Your copy history and alerts are private to your account.</p>
+        </div>
+        <WalletConnect showGoogle />
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -49,7 +71,7 @@ export function CopyFeed() {
               ? 'bg-bull-dim text-bull'
               : 'bg-bear-dim text-bear'
           }`}>
-            {trade.status || trade.action}
+            {formatStatus(trade.status) || trade.action}
           </div>
 
           {/* Details */}

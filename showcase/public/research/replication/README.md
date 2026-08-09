@@ -1,13 +1,14 @@
 # Suwappu Research — replication bundle
 
-Code, data and full working papers for the three research papers published at
+Code, data and full working papers for the five research papers published at
 <https://suwappu.bot/research>. Everything here is the material the papers cite.
 Nothing in this bundle requires credentials: the chain reads use public RPC
 endpoints, and the simulation runs offline.
 
-First published 26 July 2026; all three working papers materially reviewed or revised
-6 August 2026; report edition published 6 August 2026. Author: Tsolmondorj Natsagdorj
-(0xSoftBoi), Suwappu Research.
+First published 26 July 2026; Papers 2 and 3 materially revised 8 August 2026; the
+ERC-8056 integration study (Paper 4) was published 7 August 2026; the latency calibration
+(Paper 5) was published 8 August 2026; report edition published 6 August 2026. Author:
+Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research.
 
 **Report edition:** [*Accounting for an Omnichain Dollar*](../reports/accounting-for-an-omnichain-dollar.pdf)
 packages the USDT0 findings, both corrections, the proof boundary and the replication
@@ -23,6 +24,8 @@ USDT issuer, legal, liquidity and prudential questions. The working paper remain
 | `papers/usdt0-collateral-reconciliation.md` | *Measuring Protocol Backing of an Omnichain Dollar: A Point-in-Time USDT0 Token-Unit Reconciliation, Twice Corrected* |
 | `papers/points-tullock-contests.md` | *Points-Program Economics After Empirical Rejection: Conditional Tullock Benchmarks for Participation, Dissipation, Fee Denomination, and Wallet Splitting* |
 | `papers/airdrop-concentration.md` | *Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model* |
+| `papers/erc8056-stock-token-interface-risk.md` | *When balanceOf() Stops Meaning What the User Thinks: ERC-8056 Integration Risk in Robinhood Stock Tokens* |
+| `papers/settlement-latency-value.md` | *What Is a Minute of Cross-Chain Execution Worth? Pricing Latency Without Confusing ETA for Finality* |
 
 The web posts on suwappu.bot are abridgements. Where an abridgement and a paper
 disagree, the paper governs.
@@ -174,10 +177,94 @@ python3 code/verify_equilibrium.py
 
 ---
 
+## Paper 4 — ERC-8056 Stock Token interface risk
+
+Paper 4 combines primary-source protocol semantics with a purposive public-code search. It
+does **not** claim that any named wallet or application lacks runtime support. On 7 August
+2026, eight canonical ERC-8056 queries returned zero matches across a nine-repository GitHub
+search scope; a `balanceOf` positive control returned indexed code. Suwappu's pre-change
+`main` snapshot returned zero canonical markers under the same identifier family.
+
+### Code
+
+| File | What it does |
+|---|---|
+| `code/verify_erc8056_audit.mjs` | Offline consistency checks for the released repository/query counts and Chainlink 10:1 split fixture arithmetic. |
+
+```bash
+node code/verify_erc8056_audit.mjs
+```
+
+### Data
+
+| File | Contents |
+|---|---|
+| `data/erc8056-public-code-audit.json` | Observation date, nine-repository sample, eight canonical queries, zero-match results, positive control, Suwappu pre-change check, primary-source URLs, interpretation boundary, and official split-example arithmetic. |
+
+### Known limits, stated in the paper
+
+- The nine repositories are a purposive integration sample, not a population-representative
+  sample from which an ecosystem support rate can be estimated.
+- GitHub code search reflects indexed public default-branch code at observation time. Private
+  services, generated code, dynamic selectors, third-party metadata, unindexed branches, and
+  differently named adapters can implement the semantics without matching the queries.
+- The released record preserves the observed search and can be checked offline. Repeating the
+  live search against a later GitHub index requires GitHub code-search access and tests a new
+  observation rather than reproducing the historical index state bit-for-bit.
+- ERC-8056 is Draft. The identifiers or integration guidance can change.
+- The 10:1 split fixture is an official Chainlink documentation example, not a measured user
+  incident, and the study does not establish that a live non-1x multiplier has caused an error.
+
+---
+
+## Paper 5 — Cross-chain execution latency calibration
+
+Paper 5 tests one narrow economic explanation for Suwappu's current cross-chain
+speed tiebreak: whether minute-scale financing carry can calibrate a policy that
+permits up to a 10bp winner-score concession for a sufficiently faster trusted-time
+route. It cannot at the pinned benchmark. At 3.65% SOFR on a simple ACT/360 basis,
+10bp equals 9.8630 days of carry. The paper then specifies the outcome data needed
+to estimate the non-carry value of speed rather than assuming it.
+
+### Code
+
+| File | What it does |
+|---|---|
+| `code/settlement_latency_value.py` | Standard-library calculation of the five latency/carry scenarios. Regenerates both the CSV and `/research/latency-carry.svg` from pinned inputs. |
+
+Run from this directory:
+
+```bash
+python3 code/settlement_latency_value.py
+```
+
+### Data
+
+| File | Contents |
+|---|---|
+| `data/settlement_latency_value.csv` | SOFR value date/rate, ACT/360 convention, 10bp policy ceiling, carry bps, cap/carry multiple, implied simple annual rate, and $1m scale illustration for 1, 5, 10, 30 and 60 minutes saved. |
+
+### Known limits, stated in the paper
+
+- The study is a scenario calibration, **not production TCA**. It does not measure
+  speed-tiebreak frequency, affected order values, provider-ETA accuracy, realized
+  savings, failure/retry outcomes, or time to a legally defined finality point.
+- The 10bp source rule is relative to winner score, not automatically input notional.
+  Dollar examples require a credible economic mark for the scoring unit.
+- SOFR is a public cash-carry benchmark, not Suwappu's disclosed funding cost or a
+  universal institutional hurdle rate. Non-carry terms such as market exposure,
+  failure/retry, operational liquidity and explicit SLA value remain unestimated.
+- Provider-reported ETA is treated as route-duration evidence. It is not promoted
+  into legal settlement finality without a separately defined endpoint.
+
+---
+
 ## Environment
 
 Python 3.12+ with `numpy`, `pandas`, `scipy`, `statsmodels`, `matplotlib`.
-Chain reads use the standard library only.
+Chain reads use the standard library only. Paper 4's offline audit consistency check uses
+Node.js 18+ and no third-party packages. Paper 5's reproduction script is
+standard-library-only and makes no network call.
 
 ## Licence and citation
 
@@ -193,10 +280,17 @@ Released for verification and reuse. Cite as:
 > Natsagdorj, T. (2026). *Airdrop Allocation Concentration: A Wallet-Level Field
 > Test of the Tullock Active-Set Model.* Suwappu Research.
 
+> Natsagdorj, T. (2026). *When balanceOf() Stops Meaning What the User Thinks:
+> ERC-8056 Integration Risk in Robinhood Stock Tokens.* Suwappu Research.
+
+> Natsagdorj, T. (2026). *What Is a Minute of Cross-Chain Execution Worth?
+> Pricing Latency Without Confusing ETA for Finality.* Suwappu Research.
+
 ## Disclosures
 
 Suwappu builds cross-chain execution infrastructure spanning several of the
 chains measured in Paper 1 and operates a points program of the class analysed
-in Paper 2. Full disclosures are in each paper's final section. This is
+in Paper 2. Paper 5 evaluates Suwappu's own current cross-chain speed-tiebreak
+policy. Full disclosures are in each paper's final section. This is
 research, not investment advice, a reserve attestation, legal opinion, credit rating,
 regulatory classification or prudential-capital opinion.

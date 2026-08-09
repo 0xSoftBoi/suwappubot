@@ -49,6 +49,7 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [ ] F2. [SUW-197] Terminal perps TP/SL (`PositionsTable.tsx:33,276`) — needs backend order-type support.
 - [ ] F3. [SUW-198] P2P native escrow (`P2P.tsx:213,384`) — executor unwired (EscrowNotConfiguredError; known).
 - [ ] F4. [SUW-199] Webapp in-app referral claiming (`Referrals.tsx:216`) — intentional bot-only for now.
+- [x] F5. [SUW-224] Jelly-native social discovery and creator claim — implementation is mounted in `api/main.py` beneath the already-live `/webapp` Python prefix and rendered at protected Webapp `/discover` through the Home Social Pulse entry point. Claim proof accepts only a canonical `https://jellyjelly.com/watch/{id}` URL, verifies a short-lived recorded public phrase, ties it to a wallet-backed session, and stores only source metadata (never video/HLS/MP4). Contract: `tests/test_social_routes.py`. **Verified live on 2026-08-08:** Railway deployed both the API and webapp, and `api.suwappu.bot/webapp/social/jellies` returned safe canonical source metadata.
 
 ## Rules
 - Re-verify every claim against current code before acting — this is a point-in-time audit.

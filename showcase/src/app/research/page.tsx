@@ -23,9 +23,15 @@ const decisionLenses = [
   },
   {
     seat: 'Execution',
-    question: 'What does the router actually optimize, and how should the decision change when cost, time, or venue evidence is weak?',
-    href: '/research/best-price-routing',
-    label: 'Routing policy',
+    question: 'What is a minute of cross-chain speed worth, and which measured cost should justify paying basis points for it?',
+    href: '/research/pricing-cross-chain-latency',
+    label: 'Latency economics',
+  },
+  {
+    seat: 'Tokenization / interface',
+    question: 'What happens when a stock split changes the share-equivalent position without changing the raw ERC-20 balance?',
+    href: '/research/erc8056-stock-split-interface-risk',
+    label: 'ERC-8056 integration',
   },
   {
     seat: 'Product / incentives',
@@ -45,7 +51,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
-    'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
+    'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };
 
 function fmtDate(iso: string) {
@@ -88,7 +94,7 @@ export default function ResearchPage() {
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
@@ -98,7 +104,7 @@ export default function ResearchPage() {
         <header className={styles.hero}>
           <div className={styles.heroTopline}>
             <p className="summer-kicker">Suwappu Research</p>
-            <p className={styles.series}>Treasury · payments · execution · model risk</p>
+            <p className={styles.series}>Treasury · payments · execution · tokenization · model risk</p>
           </div>
 
           <div className={styles.heroGrid}>
@@ -242,42 +248,45 @@ export default function ResearchPage() {
               <span>Methods · data · correction history</span>
             </div>
             <div className={styles.list}>
-              {papers.map((p, index) => (
-                <article key={p.slug} className={styles.row}>
-                  <div className={styles.ordinal} aria-hidden="true">
-                    {String(index + 1).padStart(2, '0')}
-                  </div>
-                  <div className={`${styles.rowBody} ${p.indexFigure ? styles.rowBodyWithFigure : ''}`}>
-                    <div className={styles.rowCopy}>
-                      <div className={styles.metaInline}>
-                        <span className="research-tag">{p.category}</span>
-                        <time className={styles.date}>{fmtDate(p.date)}</time>
-                        {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
-                      </div>
-                      <h3 className={styles.title}>
-                        <a href={`/research/${p.slug}`}>{p.title}</a>
-                      </h3>
-                      <p className={styles.dek}>{p.excerpt}</p>
-                      <div className={styles.rowLinks}>
-                        <a href={`/research/${p.slug}`}>Read study →</a>
-                        {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
-                        {p.report && <a href={p.report.path}>Report PDF →</a>}
-                      </div>
+              {papers.map((p, index) => {
+                const visual = p.heroArt ?? p.indexFigure;
+                return (
+                  <article key={p.slug} className={styles.row}>
+                    <div className={styles.ordinal} aria-hidden="true">
+                      {String(index + 1).padStart(2, '0')}
                     </div>
-                    {p.indexFigure && (
-                      <figure className={styles.rowFigure}>
-                        <Image
-                          src={p.indexFigure.src}
-                          width={720}
-                          height={480}
-                          alt={p.indexFigure.alt}
-                        />
-                        <figcaption>{p.indexFigure.caption}</figcaption>
-                      </figure>
-                    )}
-                  </div>
-                </article>
-              ))}
+                    <div className={`${styles.rowBody} ${visual ? styles.rowBodyWithFigure : ''}`}>
+                      <div className={styles.rowCopy}>
+                        <div className={styles.metaInline}>
+                          <span className="research-tag">{p.category}</span>
+                          <time className={styles.date}>{fmtDate(p.date)}</time>
+                          {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
+                        </div>
+                        <h3 className={styles.title}>
+                          <a href={`/research/${p.slug}`}>{p.title}</a>
+                        </h3>
+                        <p className={styles.dek}>{p.excerpt}</p>
+                        <div className={styles.rowLinks}>
+                          <a href={`/research/${p.slug}`}>Read study →</a>
+                          {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
+                          {p.report && <a href={p.report.path}>Report PDF →</a>}
+                        </div>
+                      </div>
+                      {visual && (
+                        <figure className={styles.rowFigure}>
+                          <Image
+                            src={visual.src}
+                            width={720}
+                            height={480}
+                            alt={visual.alt}
+                          />
+                          <figcaption>{visual.caption}</figcaption>
+                        </figure>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}

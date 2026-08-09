@@ -21,6 +21,7 @@ import {
   telegramSuccessHaptic,
   telegramTapHaptic,
 } from '../../lib/telegramHaptics'
+import { swapExecutionStageLabel } from '../../lib/swapExecutionStage'
 import { useQuery } from '@tanstack/react-query'
 import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
 import { getSolanaPriorityFees } from '../../lib/helius'
@@ -39,7 +40,14 @@ const PRO_FEE_RATE = 0.005
 const PRICING_URL = 'https://suwappu.bot/pricing'
 
 export function SwapPanel() {
-  const { isAuthenticated, isExternalWallet, externalChain } = useAuth()
+  const {
+    isAuthenticated,
+    needsTradingProof,
+    walletAddress,
+    connectedAddress,
+    isExternalWallet,
+    externalChain,
+  } = useAuth()
   const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
@@ -63,6 +71,16 @@ export function SwapPanel() {
   const quoteToken = selectedPair.quote
   const fromToken = side === 'buy' ? quoteToken : baseToken
   const toToken = side === 'buy' ? baseToken : quoteToken
+  const requiredExternalChain = fromToken?.chain === 'solana' ? 'solana' : 'evm'
+  const connectedEvmMatchesSession =
+    externalChain !== 'evm' ||
+    (!!connectedAddress &&
+      !!walletAddress &&
+      connectedAddress.toLowerCase() === walletAddress.toLowerCase())
+  const externalWalletNeedsReconnect =
+    isExternalWallet &&
+    (externalChain !== requiredExternalChain ||
+      (requiredExternalChain === 'evm' && !connectedEvmMatchesSession))
 
   // Write a token change back into the shared pair so the chart, order book and
   // header all follow. Token selectors stay free to pick any chain — overriding
@@ -105,9 +123,23 @@ export function SwapPanel() {
     refetch: refetchQuote,
   } = useSwapQuote(quoteRequest)
   const { mutate: executeSwap, isPending: executing } = useSwapExecute()
-  const { mutate: executeExternalSwap, isPending: externalExecuting } = useExternalSwap()
-  const { mutate: executeSolanaSwap, isPending: solanaExecuting } = useSolanaSwap()
+  const {
+    mutate: executeExternalSwap,
+    isPending: externalExecuting,
+    stage: externalExecutionStage,
+  } = useExternalSwap()
+  const {
+    mutate: executeSolanaSwap,
+    isPending: solanaExecuting,
+    stage: solanaExecutionStage,
+  } = useSolanaSwap()
   const executingAny = executing || externalExecuting || solanaExecuting
+  const externalExecutionLabel = externalExecutionStage
+    ? swapExecutionStageLabel(externalExecutionStage)
+    : null
+  const solanaExecutionLabel = solanaExecutionStage
+    ? swapExecutionStageLabel(solanaExecutionStage)
+    : null
 
   // Live Solana network priority fee (Helius), used to calibrate the Speed tiers.
   const isSolana = fromToken?.chain === 'solana'
@@ -193,6 +225,16 @@ export function SwapPanel() {
     if (isExternalWallet) {
       if (!fromToken || !toToken || !amount) return
       const tokenIsSolana = fromToken.chain === 'solana'
+
+      if (externalWalletNeedsReconnect) {
+        telegramErrorHaptic()
+        toast.error(
+          tokenIsSolana
+            ? 'Connect the Phantom account for this session before trading.'
+            : 'Connect the EVM account for this session before trading.',
+        )
+        return
+      }
 
       if (tokenIsSolana && externalChain !== 'solana') {
         telegramErrorHaptic()
@@ -339,7 +381,7 @@ export function SwapPanel() {
           onClick={() => changeSide('buy')}
           aria-pressed={side === 'buy'}
           disabled={executingAny}
-          className={`py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
+          className={`terminal-mobile-touch py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'buy'
               ? 'bg-bull/20 text-bull'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -351,7 +393,7 @@ export function SwapPanel() {
           onClick={() => changeSide('sell')}
           aria-pressed={side === 'sell'}
           disabled={executingAny}
-          className={`py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
+          className={`terminal-mobile-touch py-2 rounded text-sm font-semibold transition-[transform,background-color,color,border-color] duration-75 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none disabled:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'sell'
               ? 'bg-bear/20 text-bear'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -379,7 +421,7 @@ export function SwapPanel() {
           onClick={flipTokens}
           disabled={executingAny}
           aria-label="Flip swap direction"
-          className="w-8 h-8 rounded-full bg-terminal-bg-tertiary border border-terminal-border
+          className="terminal-mobile-touch-square w-8 h-8 rounded-full bg-terminal-bg-tertiary border border-terminal-border
                      flex items-center justify-center text-terminal-text-secondary
                      hover:text-sakura-400 hover:border-sakura-600
                      transition-[transform,color,border-color] duration-75 active:scale-[0.94]
@@ -434,7 +476,7 @@ export function SwapPanel() {
                 aria-checked={priorityTier === val}
                 title={hint}
                 onClick={() => changePriorityTier(val)}
-                className={`terminal-theme-control min-h-[32px] flex-1 px-2.5 py-1 text-[11px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${
+                className={`terminal-mobile-touch terminal-theme-control min-h-[32px] flex-1 px-2.5 py-1 text-[11px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${
                   priorityTier === val
                     ? 'terminal-theme-control-active text-terminal-text'
                     : 'text-terminal-text-secondary hover:text-terminal-text'
@@ -478,8 +520,8 @@ export function SwapPanel() {
 
       {/* Execute button (or connect/sign-in when not authenticated). Buy =
           up-fill, Sell = down-fill, dark ink text (AA-safe on both). */}
-      {!isAuthenticated ? (
-        <WalletConnect />
+      {!isAuthenticated || needsTradingProof || externalWalletNeedsReconnect ? (
+        <WalletConnect preferredChain={fromToken?.chain} showGoogle={!isAuthenticated} />
       ) : (
         <button
           onClick={isQuoteStale ? refreshExpiredQuote : handleSwap}
@@ -497,15 +539,17 @@ export function SwapPanel() {
             ? quoteFetching
               ? 'Refreshing quote…'
               : 'Quote expired — refresh'
-            : externalExecuting || solanaExecuting
-              ? 'Confirm in your wallet…'
-              : executing
-                ? 'Executing...'
-                : quoteLoading
-                  ? 'Getting Quote...'
-                  : quote
-                    ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}${isExternalWallet ? ' (self-custody)' : ''}`
-                    : 'Enter Amount'
+            : solanaExecuting
+              ? solanaExecutionLabel || 'Preparing wallet request…'
+              : externalExecuting
+                ? externalExecutionLabel || 'Preparing wallet request…'
+                : executing
+                  ? 'Submitting swap…'
+                  : quoteLoading
+                    ? 'Getting Quote...'
+                    : quote
+                      ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}${isExternalWallet ? ' (self-custody)' : ''}`
+                      : 'Enter Amount'
           }
         </button>
       )}

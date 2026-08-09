@@ -4382,6 +4382,38 @@ button:focus:not(:focus-visible) {
 }
 
 /* ================================================================
+   Docs surface tokens
+   The docs shell renders under BOTH the light Summer Breeze palette and
+   the .sw-dark institutional palette. Text colors already came from
+   --summer-* tokens (which flip with the theme), but the surfaces below
+   were hardcoded near-white literals, so under .sw-dark every card
+   rendered #FAFAFA text on a near-white background. These tokens flip
+   the surfaces with the theme so both modes stay legible.
+   ================================================================ */
+.docs-shell {
+  --doc-surface: rgba(255, 255, 255, 0.86);
+  --doc-surface-soft: rgba(255, 255, 255, 0.70);
+  --doc-surface-hover: rgba(229, 249, 253, 0.75);
+  --doc-tint: rgba(14, 165, 233, 0.10);
+  --doc-tint-soft: rgba(14, 165, 233, 0.06);
+  --doc-tint-ink: #0b789a;
+  --doc-body: #345069;
+  --doc-accent: var(--sw-accent);
+}
+
+.docs-shell.sw-dark,
+.sw-dark .docs-shell {
+  --doc-surface: rgba(255, 255, 255, 0.035);
+  --doc-surface-soft: rgba(255, 255, 255, 0.022);
+  --doc-surface-hover: rgba(255, 255, 255, 0.065);
+  --doc-tint: rgba(246, 169, 60, 0.12);
+  --doc-tint-soft: rgba(246, 169, 60, 0.07);
+  --doc-tint-ink: var(--sw-accent-bright);
+  --doc-body: #C9C9C9;
+  --doc-accent: var(--sw-accent-bright);
+}
+
+/* ================================================================
    Docs — Summer Breeze re-skin
    (.docs-shell is also .summer-page, so --summer-* tokens resolve;
     the fixed top .nav sits outside it, so it uses literal summer hex)
@@ -4392,17 +4424,17 @@ button:focus:not(:focus-visible) {
 
 .docs-shell .docs-quicklink {
   border-color: var(--summer-line);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--doc-surface);
   border-radius: 10px;
 }
 .docs-shell .docs-quicklink:hover {
   border-color: var(--suwappu-summer-accent);
-  box-shadow: 0 10px 22px rgba(33, 88, 110, 0.1);
+  box-shadow: var(--sw-shadow-md);
   transform: translateY(-2px);
 }
 .docs-shell .docs-quicklink__icon {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0b789a;
+  background: var(--doc-tint);
+  color: var(--doc-tint-ink);
   font-weight: 700;
 }
 .docs-shell .docs-quicklink strong { color: var(--summer-ink); }
@@ -4410,30 +4442,30 @@ button:focus:not(:focus-visible) {
 
 .docs-shell .docs-accordion__item {
   border-color: var(--summer-line);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--doc-surface-soft);
 }
 .docs-shell .docs-accordion__item:has(.docs-accordion__header--open) {
   border-color: var(--suwappu-summer-accent);
 }
-.docs-shell .docs-accordion__header { background: rgba(255, 255, 255, 0.86); }
-.docs-shell .docs-accordion__header:hover { background: rgba(229, 249, 253, 0.7); }
+.docs-shell .docs-accordion__header { background: var(--doc-surface); }
+.docs-shell .docs-accordion__header:hover { background: var(--doc-surface-hover); }
 .docs-shell .docs-accordion__heading { color: var(--summer-ink); }
 .docs-shell .docs-accordion__meta { color: var(--summer-muted); }
 .docs-shell .docs-accordion__chevron { color: var(--summer-muted); }
-.docs-shell .docs-accordion__page:hover { background: rgba(229, 249, 253, 0.8); }
+.docs-shell .docs-accordion__page:hover { background: var(--doc-surface-hover); }
 .docs-shell .docs-accordion__page-title { color: var(--summer-ink); }
 .docs-shell .docs-accordion__page-desc { color: var(--summer-muted); }
 
 .docs-shell .docs-nav__heading { color: var(--summer-ink); }
-.docs-shell .docs-nav__heading:hover { background: rgba(229, 249, 253, 0.7); }
+.docs-shell .docs-nav__heading:hover { background: var(--doc-surface-hover); }
 .docs-shell .docs-nav__heading--active {
   color: var(--suwappu-summer-accent);
-  background: rgba(14, 165, 233, 0.1);
+  background: var(--doc-tint);
 }
 .docs-shell .docs-nav__link { color: var(--summer-muted); }
 .docs-shell .docs-nav__link:hover {
   color: var(--suwappu-summer-accent);
-  background: rgba(14, 165, 233, 0.06);
+  background: var(--doc-tint-soft);
 }
 .docs-shell .docs-nav__back:hover { color: var(--sw-accent); }
 
@@ -4442,12 +4474,12 @@ button:focus:not(:focus-visible) {
 .docs-shell .doc-reader h2,
 .docs-shell .doc-reader h3 { color: var(--summer-ink); }
 .docs-shell .doc-reader p,
-.docs-shell .doc-reader li { color: #345069; }
+.docs-shell .doc-reader li { color: var(--doc-body); }
 .docs-shell .doc-reader a { color: var(--sw-accent); }
 .docs-shell .doc-reader code {
-  background: rgba(14, 165, 233, 0.1);
+  background: var(--doc-tint);
   border-color: var(--summer-line);
-  color: #0b789a;
+  color: var(--doc-tint-ink);
 }
 .docs-shell .doc-reader pre {
   background: #0d141b;
@@ -4460,12 +4492,12 @@ button:focus:not(:focus-visible) {
   color: #c7d2da;
 }
 .docs-shell .doc-reader pre .copy-btn:hover { background: rgba(255, 255, 255, 0.16); }
-.docs-shell .doc-reader th { background: rgba(14, 165, 233, 0.08); color: var(--summer-ink); }
+.docs-shell .doc-reader th { background: var(--doc-tint-soft); color: var(--summer-ink); }
 .docs-shell .doc-reader td,
 .docs-shell .doc-reader th { border-color: var(--summer-line); }
 .docs-shell .doc-reader blockquote {
-  border-left-color: var(--suwappu-summer-accent);
-  background: rgba(14, 165, 233, 0.06);
+  border-left-color: var(--doc-accent);
+  background: var(--doc-tint-soft);
 }
 /* Dark-code token palette (sits on #0d141b) */
 .docs-shell .doc-reader pre .hl-kw { color: #c792ea; }
@@ -4514,9 +4546,9 @@ button:focus:not(:focus-visible) {
 .docs-shell .doc-method--delete { background: #d64550; }
 .docs-shell .doc-reader h2 .doc-method__path,
 .docs-shell .doc-reader h3 .doc-method__path {
-  background: rgba(14, 165, 233, 0.1);
+  background: var(--doc-tint);
   border: 1px solid var(--summer-line);
-  color: #0b789a;
+  color: var(--doc-tint-ink);
   font-size: 0.78em;
   vertical-align: middle;
 }
@@ -4588,7 +4620,7 @@ button:focus:not(:focus-visible) {
 .doc-toc__item a:hover { color: var(--summer-ink); }
 .doc-toc__item.is-active a {
   color: var(--suwappu-summer-accent);
-  border-left-color: var(--suwappu-summer-accent);
+  border-left-color: var(--doc-accent);
 }
 
 /* Docs search (Cmd+K) */
@@ -4601,7 +4633,7 @@ button:focus:not(:focus-visible) {
   padding: 8px 10px;
   border: 1px solid var(--summer-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--doc-surface);
   color: var(--summer-muted);
   font-size: 0.8rem;
   cursor: pointer;
@@ -4613,7 +4645,7 @@ button:focus:not(:focus-visible) {
   padding: 1px 6px;
   border: 1px solid var(--summer-line);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--doc-surface);
   color: var(--summer-muted);
   font-family: var(--font-mono);
   font-size: 0.66rem;
@@ -4637,7 +4669,7 @@ button:focus:not(:focus-visible) {
   overflow: hidden;
   border: 1px solid var(--summer-line);
   border-radius: 14px;
-  background: #fffefb;
+  background: var(--doc-modal, #fffefb);
   box-shadow: 0 30px 70px rgba(13, 34, 48, 0.3);
 }
 .docs-search__inputrow {
@@ -4658,7 +4690,7 @@ button:focus:not(:focus-visible) {
 .docs-search__results { overflow-y: auto; padding: 8px; }
 .docs-search__empty { padding: 16px; color: var(--summer-muted); font-size: 0.9rem; }
 .docs-search__result { display: block; padding: 9px 12px; border-radius: 8px; text-decoration: none; }
-.docs-search__result.is-active { background: rgba(14, 165, 233, 0.1); }
+.docs-search__result.is-active { background: var(--doc-tint); }
 .docs-search__result-section {
   display: block;
   color: var(--suwappu-summer-accent);
@@ -4681,6 +4713,44 @@ button:focus:not(:focus-visible) {
 @media (max-width: 1180px) {
   .doc-toc { display: none; }
 }
+
+/* Selectors the Summer Breeze re-skin above never restated, so they kept
+   their light-mode literals and went unreadable once .sw-dark flipped the
+   text tokens underneath them. */
+.docs-shell .doc-reader table { background: var(--doc-surface-soft); }
+.docs-shell .doc-reader strong { color: var(--summer-ink); }
+.docs-shell .doc-reader h4 { color: var(--summer-ink); }
+.docs-shell .doc-reader blockquote p { color: var(--doc-body); }
+.docs-shell .docs-nav__back { color: var(--summer-muted); }
+.docs-shell .doc-breadcrumb,
+.docs-shell .doc-breadcrumb a { color: var(--summer-muted); }
+.docs-shell .doc-breadcrumb a:hover { color: var(--doc-accent); }
+.docs-shell .doc-breadcrumb__sep { color: var(--summer-line-strong, var(--summer-line)); }
+
+/* The reader's link hover was a hardcoded pink while the rest of the docs
+   accent is --sw-accent. One accent per surface. */
+.docs-shell .doc-reader a:hover { color: var(--doc-accent); }
+
+/* The info callout kept a near-white panel under .sw-dark while its body
+   text resolved to --summer-ink (#FAFAFA), so the copy and the secondary
+   button inside it both went grey-on-grey. Same bug class as the cards. */
+.sw-dark .mkt-callout--info {
+  border-color: var(--sw-leaf-deep, rgba(255, 255, 255, 0.14));
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(47, 143, 91, 0.14), transparent 62%),
+    rgba(255, 255, 255, 0.035);
+}
+.sw-dark .mkt-callout__body { color: #C9C9C9; }
+.sw-dark .mkt-callout__body code {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--sw-accent-bright);
+}
+
+/* Cmd+K palette surface, matched to the shell rather than always-light. */
+.docs-shell { --doc-modal: #fffefb; }
+.docs-shell.sw-dark,
+.sw-dark .docs-shell { --doc-modal: #131313; }
 
 /* Status page */
 .status-live { max-width: 760px; margin: 0 auto; }
@@ -5546,6 +5616,44 @@ button:focus:not(:focus-visible) {
 .research-post__artifacts a { color: var(--summer-muted); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
 .research-post__artifacts a:hover { color: var(--summer-ink); }
 .research-post__artifacts .research-post__report { color: var(--sw-accent); }
+.research-post__hero-art { margin: 22px 0 0; }
+.research-post__hero-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--summer-line);
+  background: rgba(255, 255, 255, 0.72);
+}
+.research-post__hero-art figcaption {
+  margin-top: 8px;
+  color: var(--summer-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.research-post__evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 22px 0 0;
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+}
+.research-post__evidence > div { padding: 12px 14px; border-top: 1px solid var(--summer-line); border-left: 1px solid var(--summer-line); }
+.research-post__evidence > div:nth-child(-n + 2) { border-top: 0; }
+.research-post__evidence > div:nth-child(odd) { border-left: 0; }
+.research-post__evidence dt {
+  margin: 0 0 4px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.research-post__evidence dd { margin: 0; color: #345069; font-size: 0.78rem; line-height: 1.45; }
+.research-post__evidence .research-post__evidence-status { color: var(--summer-ink); font-weight: 800; }
 .research-post__back { display: inline-block; margin-top: 2rem; color: var(--sw-accent); font-weight: 700; text-decoration: none; }
 
 /* Changelog (marketing) */
@@ -5603,6 +5711,9 @@ button:focus:not(:focus-visible) {
 @media (max-width: 720px) {
   .research-row, .changelog-entry { grid-template-columns: 1fr; gap: 10px; }
   .research-row__meta, .changelog-entry__rail { flex-direction: row; }
+  .research-post__evidence { grid-template-columns: 1fr; }
+  .research-post__evidence > div { border-left: 0; }
+  .research-post__evidence > div:nth-child(2) { border-top: 1px solid var(--summer-line); }
   .careers-principles, .careers-extra { grid-template-columns: 1fr; }
 }
 

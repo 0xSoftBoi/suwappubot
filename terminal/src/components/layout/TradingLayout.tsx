@@ -149,10 +149,10 @@ function MobileLayout() {
   }, [])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 flex-col">
       <MarketInfoBar />
       {/* Main content area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {mobileTab === 'chart' && (
           <div className="h-full terminal-panel">
             <ErrorBoundary label="Chart">
@@ -162,20 +162,20 @@ function MobileLayout() {
         )}
 
         {mobileTab === 'swap' && (
-          <div className="h-full terminal-panel overflow-y-auto">
+          <div className="terminal-mobile-scroll h-full min-h-0 overflow-y-auto terminal-panel">
             <SwapPanel />
           </div>
         )}
 
         {mobileTab === 'more' && (
-          <div className="h-full flex flex-col terminal-panel">
+          <div className="h-full min-h-0 flex flex-col terminal-panel">
             {/* Bottom tab bar — scrollable horizontally on mobile */}
             <div className="flex items-center border-b border-terminal-border px-1 shrink-0 overflow-x-auto" data-testid="bottom-tabs">
               {BOTTOM_TABS.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setBottomTab(tab.id)}
-                  className={`terminal-tab whitespace-nowrap text-xs ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
+                  className={`terminal-tab min-h-11 whitespace-nowrap text-xs ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
                 >
                   {tab.label}
                 </button>
@@ -183,7 +183,7 @@ function MobileLayout() {
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">
               <DeferredPanel>
                 {bottomTab === 'portfolio' && (
                   <ErrorBoundary label="Portfolio">
@@ -232,12 +232,14 @@ function MobileLayout() {
       </div>
 
       {/* Fixed bottom navigation bar */}
-      <nav className="flex items-center justify-around h-14 border-t border-terminal-border bg-terminal-panel shrink-0 px-2">
+      <nav className="terminal-mobile-nav flex min-h-14 shrink-0 items-center justify-around border-t border-terminal-border bg-terminal-panel px-1">
         {MOBILE_NAV_TABS.map(tab => (
           <button
             key={tab.id}
+            type="button"
             onClick={() => setMobileTab(tab.id)}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors
+            aria-current={mobileTab === tab.id ? 'page' : undefined}
+            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1 transition-colors
               ${mobileTab === tab.id
                 ? 'text-sakura-400'
                 : 'text-terminal-text-muted hover:text-terminal-text-secondary'

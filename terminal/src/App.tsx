@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { Header } from './components/layout/Header'
@@ -55,12 +55,44 @@ function isTerminalHost() {
 }
 
 function TradingWorkspace() {
+  // Wallet WebViews do not all implement interactive-widget the same way.
+  // visualViewport is the browser's authoritative visible rectangle when the
+  // software keyboard/browser chrome changes, so expose it to CSS once here.
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+
+    const root = document.documentElement
+    const syncViewport = () => {
+      const visualHeight = Math.max(1, Math.round(viewport.height))
+      const occludedBottom =
+        viewport.scale === 1
+          ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
+          : 0
+      root.style.setProperty('--terminal-visual-height', `${visualHeight}px`)
+      root.style.setProperty('--terminal-keyboard-inset', `${occludedBottom}px`)
+    }
+
+    syncViewport()
+    viewport.addEventListener('resize', syncViewport, { passive: true })
+    viewport.addEventListener('scroll', syncViewport, { passive: true })
+    window.addEventListener('resize', syncViewport, { passive: true })
+
+    return () => {
+      viewport.removeEventListener('resize', syncViewport)
+      viewport.removeEventListener('scroll', syncViewport)
+      window.removeEventListener('resize', syncViewport)
+      root.style.removeProperty('--terminal-visual-height')
+      root.style.removeProperty('--terminal-keyboard-inset')
+    }
+  }, [])
+
   // Institutional dark register is now the default theme mode (WS-A). No
   // explicit `mode` prop here — passing "summer-breeze" would override the
   // default and re-light the whole workspace.
   return (
     <TerminalThemeScope>
-      <div className="terminal-theme-page relative h-screen overflow-hidden p-1.5 text-terminal-text font-sans md:p-2">
+      <div className="terminal-app-viewport terminal-theme-page relative overflow-hidden text-terminal-text font-sans">
         <div className="relative z-10 mx-auto flex h-full max-w-[1800px] flex-col gap-1.5 md:gap-2">
           <Header />
           <CommandPalette />
@@ -123,6 +155,7 @@ export function App() {
       <HotkeysHelpOverlay />
       <Toaster
         position="bottom-right"
+        containerClassName="terminal-toast-container"
         toastOptions={{
           style: {
             background: 'rgb(var(--terminal-c-panel))',

@@ -1,0 +1,36 @@
+name: Native MPC
+
+on:
+  push:
+    branches:
+      - agent/native-mpc
+    paths:
+      - "mpc-signer/**"
+      - ".github/workflows/native-mpc.yml"
+  pull_request:
+    paths:
+      - "mpc-signer/**"
+      - ".github/workflows/native-mpc.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust-protocol-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mpc-signer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Format gate
+        run: cargo fmt --all -- --check
+      - name: Compile and test protocol vectors
+        run: cargo test --all-targets
+      - name: Clippy gate
+        run: cargo clippy --all-targets -- -D warnings

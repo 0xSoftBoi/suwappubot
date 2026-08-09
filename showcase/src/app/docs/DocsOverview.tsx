@@ -1,27 +1,44 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import type { ComponentType } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
+import {
+  BracketsCurly,
+  FileText,
+  Lightning,
+  PlugsConnected,
+  Terminal,
+  type IconProps,
+} from '@phosphor-icons/react';
 import stats from '@/data/stats.generated.json';
 import DocsAccordion from '../../components/docs/DocsAccordion';
 import DocsNav from '../../components/docs/DocsNav';
 import docsData from '../../data/docs.json';
 import styles from './DocsOverview.module.css';
 
-const quicklinks = [
+type Entry = {
+  icon: ComponentType<IconProps>;
+  href: string;
+  title: string;
+  desc: string;
+  external?: boolean;
+};
+
+const entries: Entry[] = [
   {
-    n: '01',
+    icon: Lightning,
     href: '/docs/quick-start/overview',
     title: 'Quick Start',
     desc: 'Register an agent and make your first cross-chain swap',
   },
   {
-    n: '02',
+    icon: PlugsConnected,
     href: '/docs/protocols/mcp',
     title: 'MCP Server',
     desc: 'Connect Claude, Cursor, or any MCP client',
   },
   {
-    n: '03',
+    icon: Terminal,
     href: '#api-reference',
     title: 'API Reference',
     desc: 'Quotes, swaps, perps, predictions, lending',
@@ -30,44 +47,73 @@ const quicklinks = [
 
 // Machine-readable resources: the discovery surface agents (not humans) use
 // to learn the API without a human reading these docs first.
-const resources = [
+const resources: Entry[] = [
   {
-    n: 'TXT',
+    icon: FileText,
     href: '/llms.txt',
     title: 'llms.txt',
     desc: 'Plain-text API summary for LLMs to ingest directly',
   },
   {
-    n: 'API',
+    icon: BracketsCurly,
     href: 'https://api.suwappu.bot/v1/agent/openapi',
     title: 'OpenAPI spec',
-    desc: 'Full schema: import into Postman, Insomnia, or an SDK generator',
+    desc: 'Full schema. Import into Postman, Insomnia, or an SDK generator',
+    external: true,
   },
   {
-    n: 'JSON',
+    icon: PlugsConnected,
     href: 'https://api.suwappu.bot/.well-known/agent.json',
     title: 'Agent Card',
     desc: 'A2A-spec capability manifest, no auth required to fetch',
+    external: true,
   },
 ];
+
+function EntryLink({ entry }: { entry: Entry }) {
+  const Icon = entry.icon;
+  return (
+    <a
+      href={entry.href}
+      className="docs-quicklink"
+      {...(entry.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+    >
+      <span className="docs-quicklink__icon" aria-hidden="true">
+        <Icon size={18} weight="regular" />
+      </span>
+      <div>
+        <strong>{entry.title}</strong>
+        <span>{entry.desc}</span>
+      </div>
+    </a>
+  );
+}
 
 export default function DocsOverview() {
   // Only show sections that actually have pages: never render an empty "0 pages" group.
   const sections = docsData.sections.filter((s) => s.pages.length > 0);
+  const reduce = useReducedMotion();
+
+  // Entry reveal only. It orders the reader top-down on first paint; nothing
+  // here loops or reacts to scroll.
+  const reveal = (delay: number) =>
+    reduce
+      ? { initial: false as const }
+      : {
+          initial: { opacity: 0, y: 16 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.45, delay, ease: [0.16, 1, 0.3, 1] as const },
+        };
 
   return (
-    <div className="summer-page docs-shell sw-dark">
+    <div className="summer-page docs-shell institutional-page">
       <div className="docs-page">
         <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} />
         </aside>
 
         <main className="docs-page__main">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.25, 0.4, 0.25, 1] }}
-          >
+          <motion.div {...reveal(0)}>
             <p className="section__label">Documentation</p>
             <h1 className="section__heading">Suwappu API</h1>
             <p className="section__body" style={{ marginBottom: '2.5rem' }}>
@@ -78,55 +124,21 @@ export default function DocsOverview() {
             </p>
 
             <div className="docs-quicklinks">
-              {quicklinks.map((q) => (
-                <a key={q.title} href={q.href} className="docs-quicklink">
-                  <span className="docs-quicklink__icon">{q.n}</span>
-                  <div>
-                    <strong>{q.title}</strong>
-                    <span>{q.desc}</span>
-                  </div>
-                </a>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* ── SECTION CARDS: mirrors the gitbook tree so the whole doc set is
-              scannable without opening the accordion below. ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1, ease: [0.25, 0.4, 0.25, 1] }}
-          >
-            <p className="summer-kicker" style={{ marginBottom: '0.75rem' }}>Browse by section</p>
-            <div className="agents-caps__grid" style={{ marginBottom: '2.5rem' }}>
-              {sections.map((s) => (
-                <a className="agents-cap" href={`/docs#${s.id}`} key={s.id} style={{ display: 'block' }}>
-                  <h3>{s.title}</h3>
-                  <p>
-                    {s.pages.length} {s.pages.length === 1 ? 'page' : 'pages'}: including{' '}
-                    {s.pages
-                      .slice(0, 2)
-                      .map((p) => p.title)
-                      .join(', ')}
-                  </p>
-                </a>
+              {entries.map((e) => (
+                <EntryLink key={e.title} entry={e} />
               ))}
             </div>
           </motion.div>
 
           {/* ── MCP CLIENT SETUP CALLOUT ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.12, ease: [0.25, 0.4, 0.25, 1] }}
-          >
+          <motion.div {...reveal(0.06)}>
             <section className="mkt-callout mkt-callout--info" aria-label="MCP client setup">
               <p className="mkt-callout__eyebrow">MCP</p>
               <p className="mkt-callout__body">
                 Using Claude Desktop, Claude Code, Cursor, or Windsurf? Point it at{' '}
                 <code>https://api.suwappu.bot/mcp</code> with an{' '}
-                <code>Authorization: Bearer</code> header and your client discovers every tool -
-                quotes, swaps, portfolio, perps, predictions, lending: automatically.
+                <code>Authorization: Bearer</code> header. Your client then discovers every tool
+                automatically: quotes, swaps, portfolio, perps, predictions, and lending.
               </p>
               <a className="summer-button summer-button--secondary" href="/docs/protocols/mcp">
                 MCP client setup
@@ -135,40 +147,22 @@ export default function DocsOverview() {
           </motion.div>
 
           {/* ── MACHINE-READABLE RESOURCES: the discovery surface for agents ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.14, ease: [0.25, 0.4, 0.25, 1] }}
-          >
-            <p className="summer-kicker" style={{ marginTop: '2.5rem', marginBottom: '0.75rem' }}>
-              Machine-readable resources
+          <motion.div {...reveal(0.12)}>
+            <h2 className={styles.sectionTitle}>Machine-readable resources</h2>
+            <p className={styles.sectionLede}>
+              Point an agent at any of these to learn the API without reading these docs first.
             </p>
             <div className="docs-quicklinks">
-              {resources.map((r) => {
-                const external = r.href.startsWith('http');
-                return (
-                  <a
-                    key={r.title}
-                    href={r.href}
-                    className="docs-quicklink"
-                    {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  >
-                    <span className="docs-quicklink__icon">{r.n}</span>
-                    <div>
-                      <strong>{r.title}</strong>
-                      <span>{r.desc}</span>
-                    </div>
-                  </a>
-                );
-              })}
+              {resources.map((r) => (
+                <EntryLink key={r.title} entry={r} />
+              ))}
             </div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.15, ease: [0.25, 0.4, 0.25, 1] }}
-          >
+          {/* ── FULL INDEX: the sidebar tree expanded, so the whole doc set is
+              scannable on mobile where the sidebar is hidden. ── */}
+          <motion.div {...reveal(0.18)}>
+            <h2 className={styles.sectionTitle}>Full index</h2>
             <DocsAccordion sections={sections} />
           </motion.div>
         </main>

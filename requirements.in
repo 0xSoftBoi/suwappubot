@@ -12,8 +12,8 @@
 # transitive past its parent's constraint (see the #459 breakage).
 
 # ---- Web framework / server ----
-fastapi==0.140.6
-uvicorn[standard]>=0.51.0,<1.0          # ASGI server — entrypoint
+fastapi==0.141.1
+uvicorn[standard]>=0.52.1,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
@@ -39,7 +39,7 @@ urllib3>=2.7.0
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
-openai==2.48.0
+openai==2.53.0
 
 # ---- Agent immune system (AEGIS scanner, observe mode — docs/plans/aegis-fork-extend.md) ----
 # Pinned to an immutable upstream commit; repoint to the 0xsoftboi/aegis fork once created.
@@ -94,7 +94,7 @@ qrcode>=7.4,<9.0
 Pillow>=12.3.0                          # imported as PIL
 
 # ---- Cache ----
-redis==8.0.1
+redis==8.1.0
 
 # ---- Serialization / misc ----
 orjson>=3.10

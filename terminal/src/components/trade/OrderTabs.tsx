@@ -23,7 +23,7 @@ export function OrderTabs({ active, onSelect }: Props) {
           key={tab.id}
           onClick={() => onSelect(tab.id)}
           className={joinClasses(
-            "terminal-theme-control min-h-[34px] flex-1 px-3 py-1 text-[13px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
+            "terminal-mobile-touch terminal-theme-control min-h-[34px] flex-1 px-3 py-1 text-[13px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98]",
             active === tab.id
               ? "terminal-theme-control-active text-terminal-text"
               : "text-terminal-text-secondary hover:text-terminal-text",

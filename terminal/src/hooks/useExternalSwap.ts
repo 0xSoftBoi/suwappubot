@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   sendTransaction,
@@ -7,6 +8,7 @@ import {
 } from '@wagmi/core'
 import { config } from '../lib/wagmi'
 import { api } from '../lib/api'
+import type { SwapExecutionStage } from '../lib/swapExecutionStage'
 import type { SwapBuildResult, SwapRecordResult } from '../types/api'
 
 // wagmi types chainId as the literal union of the configured chains. The backend
@@ -33,8 +35,9 @@ export interface ExternalSwapResult extends SwapRecordResult {
 // key never leaves the wallet — every signature happens in MetaMask/WalletConnect.
 export function useExternalSwap() {
   const queryClient = useQueryClient()
+  const [stage, setStage] = useState<SwapExecutionStage | null>(null)
 
-  return useMutation<ExternalSwapResult, unknown, ExternalSwapParams>({
+  const mutation = useMutation<ExternalSwapResult, unknown, ExternalSwapParams>({
     mutationFn: async (params) => {
       const account = getAccount(config)
       const address = account.address
@@ -42,6 +45,7 @@ export function useExternalSwap() {
         throw { detail: 'Connect your wallet first.', status: 0 }
       }
 
+      setStage('building')
       const build = await api.buildSwap({
         fromToken: params.fromToken,
         toToken: params.toToken,
@@ -57,17 +61,22 @@ export function useExternalSwap() {
 
       // Make sure the wallet is on the chain the tx targets before signing.
       if (account.chainId !== build.chainId) {
+        setStage('switching-network')
         await switchChain(config, { chainId: build.chainId as ChainId })
       }
 
       // ERC-20 approval (only present when the live allowance is short).
       if (build.approval) {
+        // wagmi combines the wallet prompt and broadcast as one await. Don't
+        // invent a separate submitted state until it returns a hash.
+        setStage('signing-and-submitting-approval')
         const approvalHash = await sendTransaction(config, {
           to: build.approval.to as `0x${string}`,
           data: build.approval.data as `0x${string}`,
           value: BigInt(build.approval.value || '0x0'),
           chainId: build.chainId as ChainId,
         })
+        setStage('confirming-approval')
         await waitForTransactionReceipt(config, {
           hash: approvalHash,
           chainId: build.chainId as ChainId,
@@ -75,6 +84,7 @@ export function useExternalSwap() {
       }
 
       // The swap itself.
+      setStage('signing-and-submitting-swap')
       const txHash = await sendTransaction(config, {
         to: build.tx.to as `0x${string}`,
         data: build.tx.data as `0x${string}`,
@@ -85,6 +95,7 @@ export function useExternalSwap() {
 
       // Log it so it shows in portfolio/history. A record failure must NOT lose
       // the user's tx hash — surface it either way.
+      setStage('recording-submission')
       try {
         const record = await api.recordSwap({ quoteId: build.quoteId, txHash })
         return { ...record, build }
@@ -102,5 +113,12 @@ export function useExternalSwap() {
       queryClient.invalidateQueries({ queryKey: ['portfolio'] })
       queryClient.invalidateQueries({ queryKey: ['swap-history'] })
     },
+    onSettled: () => {
+      setStage(null)
+    },
   })
+
+  // The pending guard makes the public contract explicit; onSettled also clears
+  // the backing state so a later mutation can never surface a prior stage.
+  return { ...mutation, stage: mutation.isPending ? stage : null }
 }

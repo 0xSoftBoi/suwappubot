@@ -141,6 +141,12 @@ class CopyFollow(Base):
     # Status
     is_active = Column(Boolean, default=True)
 
+    # Enhanced copy settings are already present in the shared Postgres schema
+    # (and in api-ts Drizzle).  Keep SQLAlchemy in sync so Terminal settings are
+    # actually enforced by copy_service instead of being silently discarded.
+    auto_sell_enabled = Column(Boolean, default=True)
+    chains_filter = Column(String(200), nullable=True)
+
     # Stats
     total_copied_trades = Column(Integer, default=0)
     total_copied_volume = Column(Float, default=0.0)
@@ -207,7 +213,7 @@ class CopyTrade(Base):
     # Status
     status = Column(
         String(20), default="pending"
-    )  # "pending", "notified", "copied", "skipped", "failed"
+    )  # pending/auto_pending/notified/executing/copied/outcome_unknown/skipped/failed
     failure_reason = Column(String(255), nullable=True)
 
     # PnL tracking

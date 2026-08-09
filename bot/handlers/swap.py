@@ -1917,9 +1917,13 @@ async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
 
             if copy_mode == "auto":
                 # Auto-copy is enabled, execute immediately
-                success, _, _ = await copy_service.execute_copy(follower_id, copy_trade_id)
-                if success:
+                success, result_message, _ = await copy_service.execute_copy(
+                    follower_id, copy_trade_id
+                )
+                if success is True:
                     msg += "\n✅ *Auto-copied successfully!*"
+                elif success is None:
+                    msg += f"\n⚠️ *Auto-copy outcome unknown.*\n{result_message}"
                 else:
                     msg += "\n❌ Auto-copy failed"
 
