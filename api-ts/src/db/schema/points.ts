@@ -125,6 +125,16 @@ export const pointTransactions = pgTable(
 		// Extra data
 		metadata: json('metadata'),
 
+		// Idempotency key for money-path bonuses that must be paid AT MOST ONCE per
+		// (user, occurrence) — e.g. 'level_up:{level}' for the one-time level-up
+		// bonus. NULL for ordinary transactions (multiple NULLs don't collide under
+		// a unique index in Postgres). Paired with pointTransactionsUserRefIdx: the
+		// bonus-paying code path does `INSERT ... ON CONFLICT (user_id, reference)
+		// DO NOTHING` FIRST and only credits the points if the insert actually
+		// landed a row, so two concurrent awards racing the same crossing can only
+		// ever pay the bonus once — the loser's insert is a no-op.
+		reference: varchar('reference', { length: 120 }),
+
 		// Timestamps
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -132,6 +142,10 @@ export const pointTransactions = pgTable(
 		userIdIdx: index('point_transactions_user_id_idx').on(table.userId),
 		createdAtIdx: index('point_transactions_created_at_idx').on(table.createdAt),
 		userActionIdx: index('point_transactions_user_action_idx').on(table.userId, table.action),
+		userReferenceIdx: uniqueIndex('point_transactions_user_reference_idx').on(
+			table.userId,
+			table.reference,
+		),
 	}),
 )
 
