@@ -1198,6 +1198,97 @@ def test_handle_potential_rug_fires_when_pool_old_enough(monkeypatch):
     assert calls["panic_sell"] == 1
 
 
+def test_extract_pool_id_prefers_withdraw_discriminant_across_instructions():
+    """`_extract_pool_id` must prefer the Withdraw/removeLiquidity
+    discriminant (4 -> accounts[1]) across ALL Raydium instructions in the
+    tx before any generic fallback: a drain tx can carry an unrelated
+    Raydium instruction FIRST, and a first-match-wins loop would let that
+    instruction's generic accounts[1] shadow the actual withdraw's pool
+    account."""
+    import base58 as _b58
+
+    service = RugService()
+    withdraw_data = _b58.b58encode(bytes([4]) + b"\x00" * 8).decode()
+    generic_pool = "GenericFirstIxAccount1111111111111111111"
+    account_keys = [PAYER, RAYDIUM_AMM, generic_pool, RUGGED_POOL_ID]
+    tx = _tx_data(
+        account_keys=account_keys,
+        instructions=[
+            # Unrelated Raydium ix first: undecodable data -> generic fallback shape.
+            _instruction(
+                RAYDIUM_AMM, [PAYER, generic_pool, "SomeVault111111111111111111111111111111"]
+            ),
+            # The actual withdraw: discriminant 4, pool account at accounts[1].
+            _instruction(RAYDIUM_AMM, [PAYER, RUGGED_POOL_ID], data=withdraw_data),
+        ],
+    )
+
+    assert service._extract_pool_id(tx, account_keys) == RUGGED_POOL_ID
+
+    # With no withdraw present, the Initialize2 layout (discriminant 1 ->
+    # accounts[4]) is still preferred over the generic fallback.
+    init_data = _b58.b58encode(bytes([1]) + b"\x00" * 8).decode()
+    tx_init = _tx_data(
+        account_keys=account_keys,
+        instructions=[
+            _instruction(
+                RAYDIUM_AMM, [PAYER, generic_pool, "SomeVault111111111111111111111111111111"]
+            ),
+            _instruction(
+                RAYDIUM_AMM,
+                [PAYER, "A1111", "A2222", "A3333", RUGGED_POOL_ID],
+                data=init_data,
+            ),
+        ],
+    )
+    assert service._extract_pool_id(tx_init, account_keys) == RUGGED_POOL_ID
+
+    # And with neither known discriminant, the first generic
+    # `len(accounts) > 1 -> accounts[1]` fallback still applies.
+    tx_generic = _tx_data(
+        account_keys=account_keys,
+        instructions=[
+            _instruction(
+                RAYDIUM_AMM, [PAYER, generic_pool, "SomeVault111111111111111111111111111111"]
+            ),
+        ],
+    )
+    assert service._extract_pool_id(tx_generic, account_keys) == generic_pool
+
+
+def test_handle_potential_rug_skips_on_first_seen_mint_mismatch(monkeypatch):
+    """The pool-age gate must also require the stored first-seen record's
+    MINT to match the drain signal's mint: an old-enough entry recorded for
+    a DIFFERENT mint under the same pool id must not vouch for this mint's
+    pool age -- mismatch is treated as unknown pool (no sell)."""
+    service = RugService()
+    # Old enough, but recorded for OTHER_MINT, not the drained RUGGED_MINT.
+    service._pool_first_seen[RUGGED_POOL_ID] = (OTHER_MINT, _old_enough_timestamp())
+
+    async def fake_extract(signature):
+        return RUGGED_MINT
+
+    async def fake_extract_pool_id(signature):
+        return RUGGED_POOL_ID
+
+    calls = {"panic_sell": 0}
+
+    async def fake_get_users(token_mint):
+        return [(1, 10)]
+
+    async def fake_panic_sell(user_id, wallet_id, token_mint, signature):
+        calls["panic_sell"] += 1
+
+    monkeypatch.setattr(service, "_extract_token_mint_from_tx", fake_extract)
+    monkeypatch.setattr(service, "_extract_pool_id_from_tx", fake_extract_pool_id)
+    monkeypatch.setattr(service, "_get_users_holding_token", fake_get_users)
+    monkeypatch.setattr(service, "_execute_panic_sell", fake_panic_sell)
+
+    asyncio.run(service._handle_potential_rug(["Program log: removeLiquidity"], SIGNATURE))
+
+    assert calls["panic_sell"] == 0
+
+
 def test_observe_pool_creation_stamps_first_seen_once(monkeypatch):
     """`_observe_pool_creation` records a first-seen timestamp keyed by POOL
     id (finding 6), paired with the single unambiguous non-WSOL/non-stable

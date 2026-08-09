@@ -449,6 +449,18 @@ class RugService:
         # alone.
         pool_id = await self._extract_pool_id_from_tx(signature)
         first_seen_entry = self._pool_first_seen.get(pool_id) if pool_id else None
+        if first_seen_entry is not None and first_seen_entry[0] != token_mint:
+            # The stored first-seen record is for a DIFFERENT mint than the
+            # one this drain signal claims -- either the pool-id resolution
+            # or the observation was wrong. Treat as unknown pool
+            # (conservative: no sell) rather than let a mismatched record
+            # vouch for this mint's pool age.
+            logger.warning(
+                f"Rug detection: pool {pool_id} first-seen mint "
+                f"{first_seen_entry[0]} != drain mint {token_mint} "
+                f"(tx {signature}) -- treating as unknown pool, no sell"
+            )
+            first_seen_entry = None
         first_seen = first_seen_entry[1] if first_seen_entry else None
         pool_age = (time.monotonic() - first_seen) if first_seen is not None else None
         if pool_id is None or pool_age is None or pool_age < RUG_MIN_POOL_AGE_SECONDS:
@@ -493,13 +505,19 @@ class RugService:
         discriminant:
           - Initialize2 (discriminant 1): the amm/pool account is accounts[4]
           - Withdraw / removeLiquidity (discriminant 4): accounts[1]
-        Any other or undecodable instruction falls back to accounts[1],
-        which is also the amm account for most other Raydium AMM v4
-        instructions. Returns None if nothing resolvable -- callers must
-        treat that as "unknown pool" (conservative: no sell), never
-        fabricate an id.
+        The withdraw discriminant is preferred across ALL Raydium
+        instructions in the tx before any fallback -- a drain tx can carry
+        an unrelated Raydium instruction first, and the earlier
+        first-match-wins loop let that instruction's generic accounts[1]
+        shadow the actual withdraw's pool account. Only if no instruction
+        decodes as a known discriminant does the first generic
+        `len(accounts) > 1 -> accounts[1]` fallback apply (accounts[1] is
+        also the amm account for most other Raydium AMM v4 instructions).
+        Returns None if nothing resolvable -- callers must treat that as
+        "unknown pool" (conservative: no sell), never fabricate an id.
         """
-        raydium_ixs = _iter_program_instructions(tx_data, RAYDIUM_AMM)
+        raydium_ixs = list(_iter_program_instructions(tx_data, RAYDIUM_AMM))
+        decoded: List[tuple] = []
         for ix in raydium_ixs:
             accounts = _instruction_accounts(ix, account_keys)
             discriminant = None
@@ -511,10 +529,18 @@ class RugService:
                         discriminant = raw[0]
                 except Exception:
                     discriminant = None
-            if discriminant == 1 and len(accounts) > 4:
-                return accounts[4]
+            decoded.append((discriminant, accounts))
+        # Pass 1: prefer the withdraw/removeLiquidity discriminant anywhere
+        # in the tx -- that is the instruction a drain actually executes.
+        for discriminant, accounts in decoded:
             if discriminant == 4 and len(accounts) > 1:
                 return accounts[1]
+        # Pass 2: pool-creation (Initialize2) layout.
+        for discriminant, accounts in decoded:
+            if discriminant == 1 and len(accounts) > 4:
+                return accounts[4]
+        # Pass 3: generic fallback for other/undecodable instructions.
+        for _discriminant, accounts in decoded:
             if len(accounts) > 1:
                 return accounts[1]
         return None
