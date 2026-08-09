@@ -825,6 +825,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
             side="BUY",
             amount=amount,
             price=price,
+            order_id=order_id,
         )
 
         # Update order in DB

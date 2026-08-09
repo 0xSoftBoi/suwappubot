@@ -27,10 +27,14 @@ Ground truth (verified 2026-07-26, first-party):
 Mirrors ``api-ts/src/lib/polymarket-eip712.ts`` — keep the two in step.
 """
 
+import base64
+import hashlib
+import hmac
 import logging
 import secrets
 import time
 from dataclasses import dataclass
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from eth_account import Account
@@ -126,22 +130,72 @@ def domain_for(neg_risk: bool) -> dict:
     }
 
 
-def compute_amounts(side: str, size: float, price: float) -> tuple[int, int]:
+# Mirrors py-clob-client's ``order_builder.builder.ROUNDING_CONFIG``
+# (order_builder/builder.py). Keyed by the market's CLOB tick size (fetched from
+# ``GET /tick-size?token_id=``): (price_decimals, size_decimals, amount_decimals).
+# amount_decimals is always price_decimals + size_decimals — the granularity the
+# maker/taker leg must land on for the exchange to accept the order at that tick.
+TICK_ROUNDING: dict[str, tuple[int, int, int]] = {
+    "0.1": (1, 2, 3),
+    "0.01": (2, 2, 4),
+    "0.001": (3, 2, 5),
+    "0.0001": (4, 2, 6),
+}
+DEFAULT_TICK_SIZE = "0.01"
+
+
+def compute_amounts(
+    side: str, size: float, price: float, tick_size: str = DEFAULT_TICK_SIZE
+) -> tuple[int, int]:
     """Return ``(makerAmount, takerAmount)`` in 6dp base units.
 
     ``size`` is the number of outcome shares; ``price`` is per-share in pUSD (0..1).
+    ``tick_size`` is the market's CLOB tick (``GET /tick-size?token_id=``) — it sets
+    how many decimal places the price and the resulting notional may carry. Getting
+    this wrong either has the exchange reject the order (price not on tick) or, on a
+    market with a wider tick than assumed, mis-states the notional.
 
     BUY  — maker gives pUSD, taker gives shares.
     SELL — maker gives shares, taker gives pUSD.
 
-    Rounded (not truncated) so float representation cannot silently drop a base
-    unit; the SAME integers are signed and POSTed.
+    Uses ``Decimal`` throughout (never binary ``float`` arithmetic) so there is no
+    float-epsilon noise to round away — mirrors py-clob-client's algorithm
+    (``get_order_amounts``) but does not need its float-noise cleanup dance because
+    Decimal built from ``str(size)``/``str(price)`` is exact.
+
+    Rounding is one-directional and never favors the user at the exchange's expense:
+      * the SHARE leg is always floored to ``size_decimals`` (2dp) — never receive/give
+        more shares than requested;
+      * the PRICE is rounded to the nearest tick (``ROUND_HALF_UP``) — this must match
+        an actual orderbook price, which is already tick-aligned in practice;
+      * the notional leg (price * floored size) is computed in exact Decimal and then
+        floored to ``amount_decimals`` — since ``amount_decimals`` always equals
+        ``price_decimals + size_decimals``, the product of two already-tick-aligned
+        Decimals is exact at that precision, so this floor is a no-op in the normal
+        case and only a safety net.
     """
-    shares_base = int(round(size * _SCALE))
-    usd_base = int(round(size * price * _SCALE))
+    if tick_size not in TICK_ROUNDING:
+        raise ValueError(f"unsupported tick size: {tick_size!r}")
+    price_dp, size_dp, amount_dp = TICK_ROUNDING[tick_size]
+
+    d_size = Decimal(str(size))
+    d_price = Decimal(str(price))
+
+    price_quantum = Decimal(1).scaleb(-price_dp)
+    raw_price = d_price.quantize(price_quantum, rounding=ROUND_HALF_UP)
+
+    size_quantum = Decimal(1).scaleb(-size_dp)
+    raw_size = d_size.quantize(size_quantum, rounding=ROUND_DOWN)
+
+    amount_quantum = Decimal(1).scaleb(-amount_dp)
+    raw_amount = (raw_size * raw_price).quantize(amount_quantum, rounding=ROUND_DOWN)
+
+    shares_base = int((raw_size * _SCALE).to_integral_value(rounding=ROUND_HALF_UP))
+    amount_base = int((raw_amount * _SCALE).to_integral_value(rounding=ROUND_HALF_UP))
+
     if side.upper() == "BUY":
-        return usd_base, shares_base
-    return shares_base, usd_base
+        return amount_base, shares_base
+    return shares_base, amount_base
 
 
 def build_order(
@@ -156,8 +210,18 @@ def build_order(
     builder_code: str = ZERO_BYTES32,
     salt: Optional[int] = None,
     timestamp_ms: Optional[int] = None,
+    tick_size: str = DEFAULT_TICK_SIZE,
 ) -> dict:
-    """Build the unsigned CLOB V2 order struct."""
+    """Build the unsigned CLOB V2 order struct.
+
+    ``salt`` should be a deterministic value derived from the caller's own order
+    identifier when one is available (e.g. the DB row id created before placing
+    the order), rather than left random. A random salt means a retried
+    place-order call (timeout, transient error) produces a DIFFERENT order hash
+    and signature each time, so the CLOB sees it as a brand-new order rather
+    than a safe-to-dedupe replay of the same intent. Defaults to a random value
+    when the caller has no stable identifier to derive from.
+    """
     if side.upper() not in ("BUY", "SELL"):
         raise ValueError("side must be BUY or SELL")
     if size <= 0:
@@ -167,7 +231,7 @@ def build_order(
         # upstream and the exchange would reject it anyway.
         raise ValueError("price must be between 0 and 1 (exclusive)")
 
-    maker_amount, taker_amount = compute_amounts(side, size, price)
+    maker_amount, taker_amount = compute_amounts(side, size, price, tick_size=tick_size)
     return {
         "salt": salt if salt is not None else secrets.randbits(64),
         "maker": maker,
@@ -211,7 +275,49 @@ def sign_order(order: dict, private_key: str, neg_risk: bool) -> SignedV2Order:
     typed = build_typed_data(order, neg_risk)
     pk = private_key if private_key.startswith("0x") else "0x" + private_key
     signed = Account.sign_message(encode_typed_data(full_message=typed), private_key=pk)
-    return SignedV2Order(order=order, signature=signed.signature.hex(), neg_risk=neg_risk)
+    # hexbytes>=1.0's .hex() dropped the "0x" prefix it used to emit; the CLOB
+    # expects a 0x-prefixed 65-byte (130 hex char) signature string, so a bare
+    # hex() here silently produces a signature the server can't parse.
+    if hasattr(signed.signature, "to_0x_hex"):
+        signature = signed.signature.to_0x_hex()
+    else:  # pragma: no cover - older hexbytes fallback
+        signature = "0x" + signed.signature.hex()
+    assert (
+        signature.startswith("0x") and len(signature) == 132
+    ), f"malformed signature: expected 0x-prefixed 65-byte hex string, got {len(signature)} chars"
+    return SignedV2Order(order=order, signature=signature, neg_risk=neg_risk)
+
+
+def build_hmac_signature(
+    secret: str, timestamp: str, method: str, path: str, body: Optional[str] = None
+) -> str:
+    """CLOB L2 HMAC signature, built LOCALLY rather than delegating to
+    py-clob-client's ``build_hmac_signature``.
+
+    That SDK function does ``str(body).replace("'", '"')`` on the message — a
+    hack to normalize a Python dict-repr's single quotes into JSON double quotes
+    for other-language parity. Our ``body`` is already the exact JSON string
+    that goes over the wire (``json.dumps(..., separators=(",", ":"))`` in
+    :meth:`PolymarketClient.place_order`); blindly running ``.replace`` on it
+    would corrupt the message — and therefore the signature — if any
+    already-JSON-encoded field value ever contained a literal apostrophe.
+    Signing the literal payload string, byte for byte, is what the CLOB
+    actually verifies.
+
+    Matches ``api-ts/src/services/PolymarketService.ts``'s
+    ``buildClobHmacSignature`` (identical message construction, no quote
+    rewrite) — both are pinned against the SAME fixture vectors, generated by
+    running Polymarket's own ``py_clob_client.signing.hmac.build_hmac_signature``
+    (see ``api-ts/src/__tests__/polymarketClobAuth.test.ts``).
+
+    Still base64url-decodes the secret and base64url-encodes the digest WITH
+    padding, exactly like the SDK.
+    """
+    message = str(timestamp) + str(method).upper() + str(path)
+    if body:
+        message += body
+    mac = hmac.new(base64.urlsafe_b64decode(secret), message.encode("utf-8"), hashlib.sha256)
+    return base64.urlsafe_b64encode(mac.digest()).decode("utf-8")
 
 
 def build_l2_headers(
@@ -223,15 +329,7 @@ def build_l2_headers(
     path: str,
     body: Optional[str] = None,
 ) -> dict:
-    """CLOB L2 auth headers.
-
-    Delegates the signature to py-clob-client's ``build_hmac_signature``, which
-    is correct (base64url-decodes the secret, base64url-encodes the digest with
-    padding) — only the SDK's *order signing* is stale, not its auth. Note L2
-    headers carry no POLY_NONCE; that is L1-only.
-    """
-    from py_clob_client.signing.hmac import build_hmac_signature
-
+    """CLOB L2 auth headers. Note L2 headers carry no POLY_NONCE; that is L1-only."""
     timestamp = str(int(time.time()))
     signature = build_hmac_signature(api_secret, timestamp, method.upper(), path, body)
     return {

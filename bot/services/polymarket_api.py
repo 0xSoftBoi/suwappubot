@@ -7,6 +7,7 @@ Endpoints:
 
 import base64
 import logging
+import re
 import secrets
 import time
 import json
@@ -37,6 +38,16 @@ CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 NEG_RISK_ADAPTER_ADDRESS = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
 # parentCollectionId is bytes32(0) for these single-condition markets.
 ZERO_BYTES32 = "0x" + "00" * 32
+
+# A malformed builder code (wrong length, not hex) makes the order struct's
+# `builder` field diverge from what the exchange expects for a real builder-
+# program enrollment; safer to fall back to "no builder" than sign garbage.
+_BUILDER_CODE_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+
+# CLOB tick sizes rarely change once a market is live; a short in-process cache
+# avoids a network round trip on every single order while still picking up a
+# rare change within a few minutes.
+_TICK_SIZE_CACHE_TTL_SECONDS = 300
 
 # Plain Gnosis CTF: redeemPositions(collateral, parentCollectionId, conditionId, indexSets)
 # plus payoutDenominator(conditionId) which is the on-chain resolution ground truth.
@@ -150,6 +161,8 @@ class PolymarketClient:
 
     def __init__(self):
         self._session: Optional[aiohttp.ClientSession] = None
+        # token_id -> (tick_size str, fetched_at monotonic seconds)
+        self._tick_size_cache: dict[str, tuple[str, float]] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -344,6 +357,7 @@ class PolymarketClient:
         side: str,
         amount: float,
         price: float,
+        order_id: Optional[int] = None,
     ) -> OrderResult:
         """Place a CLOB **V2** order.
 
@@ -359,6 +373,13 @@ class PolymarketClient:
 
         ``amount`` is pUSD notional for a BUY and share count for a SELL, matching
         the previous behaviour.
+
+        ``order_id`` is the caller's own DB row id for this order attempt, if one
+        was already created (see ``api/routes/terminal.py`` and
+        ``bot/handlers/predict.py``). When present it derives a deterministic
+        ``salt``, so a retried call (timeout, transient network error) re-signs
+        the SAME order hash instead of minting a fresh random one each attempt —
+        the CLOB can then dedupe a genuine retry instead of risking a double fill.
         """
         try:
             from bot.config.settings import settings
@@ -384,7 +405,30 @@ class PolymarketClient:
                     "refusing to sign against a possibly-wrong exchange.",
                 )
 
+            tick_size = await self.get_tick_size(token_id)
+
+            raw_builder_code = getattr(settings, "polymarket_builder_code", None)
+            if raw_builder_code and _BUILDER_CODE_RE.match(raw_builder_code):
+                builder_code = raw_builder_code
+            else:
+                if raw_builder_code:
+                    logger.warning(
+                        "polymarket_builder_code %r does not look like a 32-byte hex "
+                        "value; using ZERO_BYTES32 instead",
+                        raw_builder_code,
+                    )
+                builder_code = ZERO_BYTES32
+
             size = amount / price if side.upper() == "BUY" else amount
+
+            salt = None
+            if order_id is not None:
+                # Deterministic, non-secret — just needs to be stable per order
+                # attempt and fit in uint256 (in practice well within 64 bits).
+                salt = int.from_bytes(
+                    hashlib.sha256(f"polymarket-order-{order_id}".encode()).digest()[:8],
+                    "big",
+                )
 
             order = build_order(
                 token_id=token_id,
@@ -392,7 +436,9 @@ class PolymarketClient:
                 size=size,
                 price=price,
                 maker=wallet_address,
-                builder_code=getattr(settings, "polymarket_builder_code", None) or ZERO_BYTES32,
+                builder_code=builder_code,
+                salt=salt,
+                tick_size=tick_size,
             )
             signed = sign_order(order, private_key, neg_risk=neg_risk)
             body = signed.to_request_body(owner=creds.api_key)
@@ -435,6 +481,45 @@ class PolymarketClient:
         except Exception as e:
             logger.error(f"place_order error: {e}")
             return OrderResult(success=False, error=str(e))
+
+    async def get_tick_size(self, token_id: str) -> str:
+        """The market's minimum price increment, cached briefly per token.
+
+        Feeds :func:`bot.services.polymarket_v2_order.compute_amounts` — signing
+        with the wrong tick either gets the order rejected (price not on tick) or,
+        on a market with a coarser tick than the 0.01 default, mis-states the
+        notional. Falls back to the CLOB V2 default (``"0.01"``) on any lookup
+        failure or unrecognized value rather than raising, since order placement
+        should not be entirely blocked by this endpoint being unavailable —
+        ``compute_amounts`` still rejects the (fallback) tick if it were ever
+        invalid.
+        """
+        import time as _time
+
+        from bot.services.polymarket_v2_order import DEFAULT_TICK_SIZE, TICK_ROUNDING
+
+        cached = self._tick_size_cache.get(token_id)
+        if cached and (_time.monotonic() - cached[1]) < _TICK_SIZE_CACHE_TTL_SECONDS:
+            return cached[0]
+
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{CLOB_BASE_URL}/tick-size", params={"token_id": token_id}
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("tick-size lookup returned %s for %s", resp.status, token_id)
+                    return DEFAULT_TICK_SIZE
+                data = await resp.json(content_type=None)
+            tick = str((data or {}).get("minimum_tick_size", "")).strip()
+            if tick not in TICK_ROUNDING:
+                logger.warning("unrecognized tick size %r for %s; using default", tick, token_id)
+                return DEFAULT_TICK_SIZE
+            self._tick_size_cache[token_id] = (tick, _time.monotonic())
+            return tick
+        except Exception as e:
+            logger.warning("tick-size lookup failed for %s: %s", token_id, e)
+            return DEFAULT_TICK_SIZE
 
     async def get_token_neg_risk(self, token_id: str) -> Optional[bool]:
         """Whether a token's market is neg-risk. ``None`` when it cannot be determined.
@@ -497,14 +582,24 @@ class PolymarketClient:
 
     # ============ On-Chain Redemption (CTF / NegRiskAdapter) ============
 
-    async def is_neg_risk_market(self, condition_id: str) -> bool:
+    async def is_neg_risk_market(self, condition_id: str) -> Optional[bool]:
         """Whether ``condition_id`` is a neg-risk (multi-outcome) market.
 
-        Neg-risk markets redeem through the NegRiskAdapter with a different
-        ``redeemPositions`` signature, so the redeem path MUST branch on this.
-        Gamma/CLOB market objects expose a ``negRisk`` / ``neg_risk`` boolean;
-        we check both the CLOB and Gamma shapes and fail-closed to plain CTF
-        (the common case) if neither is present.
+        ``None`` when it cannot be determined — callers MUST treat that as
+        "unknown", not "false". Neg-risk markets redeem through the
+        NegRiskAdapter with a DIFFERENT ``redeemPositions`` signature than plain
+        CTF; guessing wrong doesn't silently misredeem funds (the wrong-shaped
+        call reverts on-chain), but it does waste the user's MATIC gas and end
+        in a confusing "reverted" error. Fail CLOSED — refuse to guess — rather
+        than defaulting to plain CTF, which used to be a live bug here: the raw
+        Gamma payload was fetched but never actually inspected before falling
+        through to ``return False``.
+
+        Checks the CLOB market shape first (``neg_risk`` / ``negRisk`` /
+        ``negRiskMarket`` / ``neg_risk_market``), then the raw Gamma market
+        payload (``negRisk`` — the parsed :class:`MarketInfo` drops this field,
+        so we fetch Gamma directly here instead of going through
+        :meth:`get_market`).
         """
         try:
             clob_market = await self.get_clob_market(condition_id)
@@ -512,12 +607,18 @@ class PolymarketClient:
                 for key in ("neg_risk", "negRisk", "negRiskMarket", "neg_risk_market"):
                     if key in clob_market:
                         return bool(clob_market.get(key))
-            gamma_market = await self.get_market(condition_id)
-            # get_market returns MarketInfo (no neg_risk field); fall back to the
-            # raw Gamma payload only when the CLOB object was silent.
+
+            session = await self._get_session()
+            async with session.get(f"{GAMMA_BASE_URL}/markets/{condition_id}") as resp:
+                if resp.status == 200:
+                    gamma_market = await resp.json(content_type=None)
+                    if isinstance(gamma_market, dict):
+                        for key in ("negRisk", "neg_risk", "negRiskMarket"):
+                            if key in gamma_market:
+                                return bool(gamma_market.get(key))
         except Exception as e:
             logger.warning(f"is_neg_risk_market check failed for {condition_id}: {e}")
-        return False
+        return None
 
     def _get_polygon_web3(self):
         """Polygon Web3 via the bot's health-tracked RPC manager."""
@@ -574,9 +675,18 @@ class PolymarketClient:
         if not condition_id:
             return RedeemResult(success=False, error="Missing condition id.")
 
-        # Resolve neg-risk if the caller didn't already determine it.
+        # Resolve neg-risk if the caller didn't already determine it. Fail
+        # closed: an unknown result must NOT default to plain CTF — that risks
+        # wasting the user's gas on a tx shaped for the wrong contract.
         if neg_risk is None:
             neg_risk = await self.is_neg_risk_market(condition_id)
+            if neg_risk is None:
+                return RedeemResult(
+                    success=False,
+                    error="Could not determine whether this market is neg-risk; "
+                    "refusing to redeem against a possibly-wrong contract.",
+                    error_category="neg_risk_unknown",
+                )
 
         # Heavy lifting (sync web3 + signing) runs off the event loop.
         import asyncio as _asyncio

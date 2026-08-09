@@ -137,6 +137,14 @@ export class PolymarketService extends Context.Tag('PolymarketService')<
 		getMarket: (id: string) => Effect.Effect<PredictionMarketDetail, Error>
 		getOrderbook: (tokenId: string) => Effect.Effect<Orderbook, Error>
 		getMidpoint: (tokenId: string) => Effect.Effect<{ mid: string }, Error>
+		// Whether tokenId's market is matched by the NegRiskCtfExchange rather than
+		// the standard CTFExchange — the two are DIFFERENT verifyingContract
+		// addresses under the same EIP-712 domain, so signing against the wrong one
+		// produces a valid-looking signature the CLOB still rejects. `null` means
+		// "could not determine" — callers MUST treat that as unknown, not `false`;
+		// see lib/polymarket-eip712.ts and bot/services/polymarket_api.py's
+		// get_token_neg_risk (same CLOB endpoint, mirrored fail-closed contract).
+		getNegRisk: (tokenId: string) => Effect.Effect<boolean | null, Error>
 		getTrades: (tokenId: string, limit?: number) => Effect.Effect<Trade[], Error>
 		getEvents: (query?: string, limit?: number) => Effect.Effect<PredictionEvent[], Error>
 		createApiCredentials: (walletAddress: string, nonce: string, signature: string) => Effect.Effect<ClobApiCredentials, Error>
@@ -362,6 +370,19 @@ async function getMidpointImpl(tokenId: string): Promise<{ mid: string }> {
 	if (!res.ok) throw new Error(`CLOB midpoint error ${res.status}`)
 	const data = (await res.json()) as { mid: string }
 	return { mid: data.mid || '0' }
+}
+
+async function getNegRiskImpl(tokenId: string): Promise<boolean | null> {
+	try {
+		const res = await fetch(`${CLOB_API}/neg-risk?token_id=${tokenId}`, {
+			signal: AbortSignal.timeout(10_000),
+		})
+		if (!res.ok) return null
+		const data = (await res.json()) as { neg_risk?: boolean }
+		return typeof data.neg_risk === 'boolean' ? data.neg_risk : null
+	} catch {
+		return null
+	}
 }
 
 async function getTradesImpl(tokenId: string, limit = 20): Promise<Trade[]> {
@@ -615,6 +636,8 @@ export const PolymarketServiceLive = Layer.succeed(PolymarketService, {
 		Effect.tryPromise({ try: () => getOrderbookImpl(tokenId), catch: (e) => e as Error }),
 	getMidpoint: (tokenId) =>
 		Effect.tryPromise({ try: () => getMidpointImpl(tokenId), catch: (e) => e as Error }),
+	getNegRisk: (tokenId) =>
+		Effect.tryPromise({ try: () => getNegRiskImpl(tokenId), catch: (e) => e as Error }),
 	getTrades: (tokenId, limit?) =>
 		Effect.tryPromise({ try: () => getTradesImpl(tokenId, limit), catch: (e) => e as Error }),
 	getEvents: (query?, limit?) =>
