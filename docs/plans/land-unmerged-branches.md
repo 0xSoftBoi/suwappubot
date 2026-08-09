@@ -139,6 +139,13 @@ branch + applied diff.)
 - **#823** round-2 fixes nearly done (migration boot-safety, pool-id keying, replay payload).
 - **#821/#822** root causes fixed (env-schema drift; locale stats drift) — watcher merging on green.
 
+### Round 7 (same day)
+
+- **Merged:** #824 PointsService concurrency (final APPROVE; follow-ups posted), #821 MPP gate (0abc0005, #642 closed), #822 chain coverage (4e647019, #753 closed). Total: **23 merged**.
+- **#760**: round-4 APPROVE; both follow-ups applied directly (bound-agnostic timeout copy + definite-receipt guard before the terminal verdict) — merging on green.
+- **#823**: round-3 APPROVE; two mechanical follow-ups being applied pre-merge (withdraw-discriminant pool-id preference + drizzle migration for the varchar widening) — then merge, closing #641 with the KMS-gap pointer.
+- **Phase 4 tail**: assessing #643 (likely superseded by #817+#820), #644/#646 (TP/SL audit), #639/#640 (optional terminal intel).
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
