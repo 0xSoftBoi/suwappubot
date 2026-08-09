@@ -18,6 +18,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 # Request-ID context variable — propagated into every service/log call within
 # the same async context without threading explicit parameters everywhere.
@@ -712,6 +713,11 @@ from api.routes.mobile import router as mobile_router
 
 app.include_router(mobile_router)
 
+# Jelly-native public discovery and wallet-backed creator claims (no third-party login).
+from api.routes.social import router as social_router
+
+app.include_router(social_router)
+
 try:
     from api.routes.internal import router as internal_router
 
@@ -867,6 +873,7 @@ class AuthMeResponse(BaseModel):
     address: Optional[str] = None
     userId: Optional[int] = None
     createdAt: Optional[datetime] = None
+    sessionSource: Optional[str] = None
     # "external" => non-custodial (connected wallet signs client-side);
     # "turnkey"/"local" => custodial (server signs). Lets the client pick the
     # right swap path on session resume, before any wallet re-connects.
@@ -906,8 +913,12 @@ def create_jwt_token(address: str, user_id: int, src: str) -> str:
     possession at all ('weak'). No default is provided — every call site must
     state its provenance explicitly.
     """
+    # EVM addresses are case-insensitive, Solana base58 public keys are not.
+    session_address = address.lower() if address.startswith("0x") else address
     payload = {
-        "address": address.lower(),
+        "address": session_address,
+        # api-ts flexAuth uses this camelCase field when normalizing a session.
+        "walletAddress": session_address,
         "user_id": user_id,
         # camelCase alias so api-ts (which reads `userId`) accepts Python-issued tokens.
         "userId": user_id,
@@ -933,15 +944,15 @@ async def get_current_user_from_token(
     request: Request,
     auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
 ) -> Optional[Dict]:
-    """Extract current user from JWT token in cookie or header."""
-    # Try cookie first
-    token = auth_token
+    """Extract current user from JWT token in header or cookie.
 
-    # Fallback to Authorization header
-    if not token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    Authorization deliberately wins when both are present. The browser can carry
+    an HttpOnly OAuth cookie for one account while localStorage still contains a
+    wallet bearer for another; every API surface must resolve that conflict the
+    same way or the UI can display one user while a money route acts as another.
+    """
+    auth_header = request.headers.get("Authorization")
+    token = auth_header[7:] if auth_header and auth_header.startswith("Bearer ") else auth_token
 
     if not token:
         return None
@@ -1168,21 +1179,43 @@ async def health_check():
 # ============ Turnkey Web Authentication ============
 
 
+def _wallet_auth_origin(request: Request) -> tuple[str, str]:
+    """Return the trusted authority + URI that wallets should display.
+
+    Browser wallet signatures must describe the site the user is actually on.
+    The old hard-coded ``app.suwappu.com`` domain made every Terminal prompt look
+    unrelated to the requesting origin. Only Suwappu HTTPS origins (plus local
+    HTTP development) may influence the signed message.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return "terminal.suwappu.bot", "https://terminal.suwappu.bot"
+
+    parsed = urlsplit(origin)
+    host = (parsed.hostname or "").lower()
+    is_suwappu = parsed.scheme == "https" and (
+        host == "suwappu.bot" or host.endswith(".suwappu.bot")
+    )
+    is_local = parsed.scheme == "http" and host in {"localhost", "127.0.0.1"}
+    if not (is_suwappu or is_local) or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Untrusted wallet sign-in origin")
+    return parsed.netloc, f"{parsed.scheme}://{parsed.netloc}"
+
+
 @app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
-async def auth_challenge(request: AuthChallengeRequest):
+async def auth_challenge(body: AuthChallengeRequest, request: Request):
     """
     Generate a challenge message for wallet-based authentication.
     The user signs this message with their wallet to prove ownership.
     """
     from bot.services.turnkey_client import generate_auth_challenge
 
-    address = request.address.strip()
+    address = body.address.strip()
     if not address.startswith("0x") or len(address) != 42:
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
-    # generate_auth_challenge returns a dict (challenge/nonce/expiresAt); unpacking
-    # it into two vars raised "too many values to unpack" -> 500 on every challenge.
-    result = generate_auth_challenge(address)
+    domain, uri = _wallet_auth_origin(request)
+    result = generate_auth_challenge(address, domain=domain, uri=uri)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1289,17 +1322,18 @@ def _is_valid_solana_address(address: str) -> bool:
 
 
 @app.post("/auth/solana/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
-async def auth_solana_challenge(request: AuthChallengeRequest):
+async def auth_solana_challenge(body: AuthChallengeRequest, request: Request):
     """
     Generate a Sign-In-With-Solana challenge for a Phantom/Solana wallet to sign.
     """
     from bot.services.turnkey_client import generate_solana_auth_challenge
 
-    address = request.address.strip()
+    address = body.address.strip()
     if not _is_valid_solana_address(address):
         raise HTTPException(status_code=400, detail="Invalid Solana address format")
 
-    result = generate_solana_auth_challenge(address)
+    domain, uri = _wallet_auth_origin(request)
+    result = generate_solana_auth_challenge(address, domain=domain, uri=uri)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1395,7 +1429,16 @@ async def auth_me(
     address = current_user.get("address")
     wallet_provider = None
     if address:
-        wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
+        wallet_query = db.query(Wallet).filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        if address.startswith("0x"):
+            wallet_query = wallet_query.filter(Wallet.address.ilike(address))
+        else:
+            # Solana base58 keys are case-sensitive.
+            wallet_query = wallet_query.filter(Wallet.address == address)
+        wallet = wallet_query.first()
         if wallet:
             wallet_provider = wallet.wallet_provider
 
@@ -1405,6 +1448,7 @@ async def auth_me(
         userId=user.id,
         createdAt=user.created_at,
         walletProvider=wallet_provider,
+        sessionSource=current_user.get("src"),
     )
 
 

@@ -38,18 +38,17 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        // Only split true "sink" libraries — ones that import nothing from other
-        // chunks — into separate cacheable bundles. The web3/query/anim stacks
-        // cross-import vendor deps (and vice-versa), so giving them their own
-        // chunks created a circular chunk (vendor <-> web3) that crashed startup
-        // with a TDZ ("Cannot access … before initialization"). Keeping them in
-        // the single `vendor` chunk eliminates the cycle. react + charts are
-        // leaves, so they stay split safely.
+        // Keep only proven sink libraries in manual chunks. Secondary workspaces
+        // are loaded with React.lazy; forcing every node_module into one `vendor`
+        // chunk would pull their dependencies back onto the initial path. Let
+        // Rollup place every other dependency according to the actual dynamic
+        // import graph. This also avoids the old hand-split web3/query circular
+        // chunks that caused a startup TDZ.
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('lightweight-charts')) return 'charts'
           if (/[\\/]react(-dom)?[\\/]|[\\/]scheduler[\\/]/.test(id)) return 'react'
-          return 'vendor'
+          return undefined
         },
       },
     },

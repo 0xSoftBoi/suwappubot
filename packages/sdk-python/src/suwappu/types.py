@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SuwappuConfig(BaseModel):
@@ -89,6 +89,7 @@ class PerpMarket(BaseModel):
     asset: str
     sz_decimals: int
     max_leverage: int
+    venue_max_leverage: int
     mark_price: float
     funding_rate: float
 
@@ -120,11 +121,18 @@ class PerpPosition(BaseModel):
 
 
 # Prediction types (Polymarket)
+class PredictionMarketToken(BaseModel):
+    token_id: str
+    outcome: str
+
+
 class PredictionMarket(BaseModel):
     id: str
+    condition_id: str = ""
     question: str
     outcomes: list[str]
     outcome_prices: list[float]
+    tokens: list[PredictionMarketToken] = Field(default_factory=list)
     volume: float
     liquidity: float
     end_date: str
@@ -139,6 +147,11 @@ class PredictionMarketDetail(PredictionMarket):
 
 
 # Lending types (Morpho)
+class LendingMarketWarning(BaseModel):
+    type: str
+    level: str
+
+
 class LendingMarket(BaseModel):
     id: str
     loan_token: str
@@ -146,10 +159,16 @@ class LendingMarket(BaseModel):
     lltv: float
     supply_apy: float
     borrow_apy: float
-    total_supply: float
-    total_borrow: float
+    # Backwards-compatible aliases for the explicit USD fields below.
+    total_supply: float | None
+    total_borrow: float | None
+    total_supply_usd: float | None
+    total_borrow_usd: float | None
+    available_liquidity_usd: float | None
     utilization: float
     chain_id: int
+    listed: bool
+    warnings: list[LendingMarketWarning]
 
 
 class LendingMarketDetail(LendingMarket):
@@ -256,13 +275,37 @@ class BillingCryptoResult(BaseModel):
 # --- Swap simulation & history ---
 
 
+class SwapSimulationExpectedOutput(BaseModel):
+    token: str = ""
+    amount: str = ""
+    amount_usd: str | None = None
+
+
+class SwapSimulationFees(BaseModel):
+    protocol: str | None = None
+    gas_estimate: str | None = None
+
+
+class SwapSimulationCheck(BaseModel):
+    name: str = ""
+    status: Literal["pass", "warn", "fail"] = "warn"
+    detail: str = ""
+    unverified: bool | None = None
+
+
 class SwapSimulation(BaseModel):
     """Result of POST /v1/agent/swap/simulate — a dry run, nothing broadcast."""
 
     success: bool = False
-    reason: str | None = None
-    gas_estimate: str | None = None
-    amount_out: str | None = None
+    would_execute: bool = False
+    quote_id: str = ""
+    chain_type: str = ""
+    expected_output: SwapSimulationExpectedOutput = SwapSimulationExpectedOutput()
+    min_output_after_slippage: str = ""
+    price_impact_pct: float | None = None
+    fees: SwapSimulationFees = SwapSimulationFees()
+    checks: list[SwapSimulationCheck] = []
+    warnings: list[str] = []
     model_config = {"extra": "allow"}
 
 

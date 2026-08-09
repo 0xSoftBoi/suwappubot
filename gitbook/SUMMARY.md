@@ -61,16 +61,24 @@
 ## Guides
 
 * [Overview](guides/README.md)
+* [Build a Business on Suwappu](guides/build-a-business.md)
+* [Strategy Lifecycle](guides/strategy-lifecycle.md)
+* [Build a Strategy Product with Flywheel](guides/flywheel.md)
+* [Build a Quote-Qualified Arbitrage Monitor](guides/arbitrage-monitor.md)
+* [Build with LangChain](guides/langchain.md)
+* [Build with CrewAI](guides/crewai.md)
 * [Cross-Chain Swaps](guides/cross-chain-swaps.md)
 * [Managed Wallets](guides/managed-wallets.md)
 * [Webhook Setup](guides/webhook-setup.md)
-* [Building a Trading Bot](guides/building-a-trading-bot.md)
+* [Building a Standalone Trading Bot](guides/building-a-trading-bot.md)
+* [Build a Standalone Recurring DCA Product](guides/dca-automation.md)
 * [Portfolio Rebalancer](guides/portfolio-rebalancer.md)
+* [Build a Lending Monitor](guides/lending-monitor.md)
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
-* [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
-* [Perpetual Futures Trading](guides/perps-trading.md)
-* [Prediction Markets](guides/prediction-markets.md)
+* [Build an MCP Portfolio Product](guides/mcp-portfolio-advisor.md)
+* [Build a Standalone Perps Risk Monitor](guides/perps-trading.md)
+* [Standalone Prediction Monitor](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
 
 ## Changelog

@@ -20,4 +20,8 @@ History before this file was introduced is tracked in git and merged PRs.
 
 ### Changed
 - CI: `black --check` is now a blocking gate (flake8 remains advisory by choice).
+- CI: dependency security now blocks on vulnerabilities in the locked Python graph,
+  every Bun workspace lock, and the webapp npm lock instead of auditing runner state
+  or swallowing audit failures.
+- Dependabot now covers the extension and MCP server package roots.
 - `scripts/verify.sh` gains an env-contract lane.

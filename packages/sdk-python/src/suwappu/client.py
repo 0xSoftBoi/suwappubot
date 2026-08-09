@@ -25,6 +25,7 @@ from suwappu.types import (
     PerpQuote,
     PredictionMarket,
     PredictionMarketDetail,
+    PredictionMarketToken,
     Quote,
     RegisterAgentResult,
     RotateKeysResult,
@@ -107,8 +108,14 @@ class SuwappuClient:
         *,
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
-        response = await self._client.request(method, path, params=params, json=json)
+        if headers:
+            response = await self._client.request(
+                method, path, params=params, json=json, headers=headers
+            )
+        else:
+            response = await self._client.request(method, path, params=params, json=json)
         if response.status_code >= 400:
             code: str | None = None
             message: str | None = None
@@ -193,12 +200,15 @@ class SuwappuClient:
                 f"Malformed quote response from /v1/agent/quote: missing {e}",
             ) from e
 
-    async def execute_managed_swap(self, quote_id: str) -> SwapResult:
+    async def execute_managed_swap(
+        self, quote_id: str, *, idempotency_key: str | None = None
+    ) -> SwapResult:
         """Execute a quote through the server-managed wallet pipeline."""
         data = await self._request(
             "POST",
             "/v1/agent/swap/execute",
             json={"quote_id": quote_id},
+            headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
         )
         try:
             tracking = data.get("tracking") or {}
@@ -407,8 +417,9 @@ class _PerpsNamespace:
                 asset=m.get("asset", ""),
                 sz_decimals=m.get("szDecimals", 0),
                 max_leverage=m.get("maxLeverage", 0),
-                mark_price=m.get("markPrice", 0),
-                funding_rate=m.get("fundingRate", 0),
+                venue_max_leverage=m.get("venueMaxLeverage", m.get("maxLeverage", 0)),
+                mark_price=m["markPrice"],
+                funding_rate=m["fundingRate"],
             )
             for m in data.get("markets", [])
         ]
@@ -427,7 +438,7 @@ class _PerpsNamespace:
             entry_price=data.get("entryPrice", 0),
             margin=data.get("margin", 0),
             liquidation_price=data.get("liquidationPrice", 0),
-            funding_rate=data.get("fundingRate", 0),
+            funding_rate=data["fundingRate"],
             fee=data.get("fee", 0),
         )
 
@@ -447,7 +458,7 @@ class _PerpsNamespace:
                 margin=p.get("margin", 0),
                 unrealized_pnl=p.get("unrealizedPnl", 0),
                 liquidation_price=p.get("liquidationPrice", 0),
-                funding_rate=p.get("fundingRate", 0),
+                funding_rate=p["fundingRate"],
             )
             for p in data.get("positions", [])
         ]
@@ -469,9 +480,17 @@ class _PredictNamespace:
         return [
             PredictionMarket(
                 id=m.get("id", ""),
+                condition_id=m.get("conditionId", ""),
                 question=m.get("question", ""),
                 outcomes=m.get("outcomes", []),
                 outcome_prices=m.get("outcomePrices", []),
+                tokens=[
+                    PredictionMarketToken(
+                        token_id=t.get("tokenId", ""),
+                        outcome=t.get("outcome", ""),
+                    )
+                    for t in m.get("tokens", [])
+                ],
                 volume=m.get("volume", 0),
                 liquidity=m.get("liquidity", 0),
                 end_date=m.get("endDate", ""),
@@ -482,13 +501,23 @@ class _PredictNamespace:
         ]
 
     async def market(self, id: str) -> PredictionMarketDetail:
-        data = await self._c._request("GET", f"/v1/agent/predict/market/{id}")
+        data = await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(id, safe='')}"
+        )
         return PredictionMarketDetail(
             id=data.get("id", ""),
+            condition_id=data.get("conditionId", ""),
             question=data.get("question", ""),
             description=data.get("description", ""),
             outcomes=data.get("outcomes", []),
             outcome_prices=data.get("outcomePrices", []),
+            tokens=[
+                PredictionMarketToken(
+                    token_id=t.get("tokenId", ""),
+                    outcome=t.get("outcome", ""),
+                )
+                for t in data.get("tokens", [])
+            ],
             volume=data.get("volume", 0),
             liquidity=data.get("liquidity", 0),
             end_date=data.get("endDate", ""),
@@ -510,17 +539,23 @@ class _PredictNamespace:
         return data.get("events", [])
 
     async def book(self, market_id: str) -> dict[str, Any]:
-        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/book")
+        return await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(market_id, safe='')}/book"
+        )
 
     async def price(self, market_id: str) -> dict[str, Any]:
-        return await self._c._request("GET", f"/v1/agent/predict/market/{market_id}/price")
+        return await self._c._request(
+            "GET", f"/v1/agent/predict/market/{quote(market_id, safe='')}/price"
+        )
 
     async def trades(self, market_id: str, limit: int | None = 20) -> dict[str, Any]:
         params: dict[str, str] = {}
         if limit:
             params["limit"] = str(limit)
         return await self._c._request(
-            "GET", f"/v1/agent/predict/market/{market_id}/trades", params=params or None
+            "GET",
+            f"/v1/agent/predict/market/{quote(market_id, safe='')}/trades",
+            params=params or None,
         )
 
     async def order(
@@ -530,8 +565,6 @@ class _PredictNamespace:
         price: str,
         size: str,
         side: str,
-        expiration: int | None = None,
-        fee_rate_bps: int | None = None,
     ) -> dict[str, Any]:
         data = await self._c._request(
             "POST",
@@ -541,14 +574,14 @@ class _PredictNamespace:
                 "price": price,
                 "size": size,
                 "side": side,
-                "expiration": expiration,
-                "feeRateBps": fee_rate_bps,
             },
         )
         return data.get("order", {})
 
     async def cancel_order(self, order_id: str) -> dict[str, Any]:
-        return await self._c._request("DELETE", f"/v1/agent/predict/order/{order_id}")
+        return await self._c._request(
+            "DELETE", f"/v1/agent/predict/order/{quote(order_id, safe='')}"
+        )
 
     async def positions(self) -> list[dict[str, Any]]:
         data = await self._c._request("GET", "/v1/agent/predict/positions")
@@ -567,40 +600,53 @@ class _LendNamespace:
         self._c = client
 
     async def markets(self, chain_id: int | None = None) -> list[LendingMarket]:
-        params = {"chainId": str(chain_id)} if chain_id else None
+        params = {"chainId": str(chain_id)} if chain_id is not None else None
         data = await self._c._request("GET", "/v1/agent/lend/markets", params=params)
         return [
             LendingMarket(
-                id=m.get("id", ""),
-                loan_token=m.get("loanToken", ""),
-                collateral_token=m.get("collateralToken", ""),
-                lltv=m.get("lltv", 0),
-                supply_apy=m.get("supplyApy", 0),
-                borrow_apy=m.get("borrowApy", 0),
-                total_supply=m.get("totalSupply", 0),
-                total_borrow=m.get("totalBorrow", 0),
-                utilization=m.get("utilization", 0),
-                chain_id=m.get("chainId", 8453),
+                id=m["id"],
+                loan_token=m["loanToken"],
+                collateral_token=m["collateralToken"],
+                lltv=m["lltv"],
+                supply_apy=m["supplyApy"],
+                borrow_apy=m["borrowApy"],
+                total_supply=m["totalSupply"],
+                total_borrow=m["totalBorrow"],
+                total_supply_usd=m["totalSupplyUsd"],
+                total_borrow_usd=m["totalBorrowUsd"],
+                available_liquidity_usd=m["availableLiquidityUsd"],
+                utilization=m["utilization"],
+                chain_id=m["chainId"],
+                listed=m["listed"],
+                warnings=m["warnings"],
             )
             for m in data.get("markets", [])
         ]
 
-    async def market(self, id: str) -> LendingMarketDetail:
-        data = await self._c._request("GET", f"/v1/agent/lend/market/{id}")
+    async def market(self, id: str, chain_id: int | None = None) -> LendingMarketDetail:
+        params = {"chainId": str(chain_id)} if chain_id is not None else None
+        data = await self._c._request(
+            "GET", f"/v1/agent/lend/market/{quote(id, safe='')}", params=params
+        )
         return LendingMarketDetail(
-            id=data.get("id", ""),
-            loan_token=data.get("loanToken", ""),
-            collateral_token=data.get("collateralToken", ""),
-            lltv=data.get("lltv", 0),
-            supply_apy=data.get("supplyApy", 0),
-            borrow_apy=data.get("borrowApy", 0),
-            total_supply=data.get("totalSupply", 0),
-            total_borrow=data.get("totalBorrow", 0),
-            utilization=data.get("utilization", 0),
-            chain_id=data.get("chainId", 8453),
-            oracle=data.get("oracle", ""),
-            irm=data.get("irm", ""),
-            created_at=data.get("createdAt", ""),
+            id=data["id"],
+            loan_token=data["loanToken"],
+            collateral_token=data["collateralToken"],
+            lltv=data["lltv"],
+            supply_apy=data["supplyApy"],
+            borrow_apy=data["borrowApy"],
+            total_supply=data["totalSupply"],
+            total_borrow=data["totalBorrow"],
+            total_supply_usd=data["totalSupplyUsd"],
+            total_borrow_usd=data["totalBorrowUsd"],
+            available_liquidity_usd=data["availableLiquidityUsd"],
+            utilization=data["utilization"],
+            chain_id=data["chainId"],
+            listed=data["listed"],
+            warnings=data["warnings"],
+            oracle=data["oracle"],
+            irm=data["irm"],
+            created_at=data["createdAt"],
         )
 
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { DEMO_QUOTE_PAIRS, getDemoQuotePair } from '@/lib/demoQuotePairs';
 
 /**
  * Server-side proxy for the hero's live quote widget.
@@ -22,18 +23,6 @@ const UPSTREAM = 'https://api.suwappu.bot/v1/agent/quote';
  */
 const lastGood = new Map<string, { body: Record<string, unknown>; at: number }>();
 
-/** Only these exact demo routes are quotable through the public proxy. */
-const ALLOWED = new Map<
-  string,
-  { from: string; to: string; chain: string; toChain?: string; amount: string }
->([
-  ['usdc-eth-base', { from: 'USDC', to: 'ETH', chain: 'base', amount: '100' }],
-  ['eth-usdc-base', { from: 'ETH', to: 'USDC', chain: 'base', amount: '0.1' }],
-  // Cross-chain: these are the multi-stage routes, swap then bridge then swap.
-  ['usdc-base-usdt-polygon', { from: 'USDC', to: 'USDT', chain: 'base', toChain: 'polygon', amount: '100' }],
-  ['usdc-base-eth-arbitrum', { from: 'USDC', to: 'ETH', chain: 'base', toChain: 'arbitrum', amount: '100' }],
-]);
-
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
@@ -45,8 +34,8 @@ export async function GET(req: Request) {
     );
   }
 
-  const pair = new URL(req.url).searchParams.get('pair') ?? 'usdc-eth-base';
-  const route = ALLOWED.get(pair);
+  const pair = new URL(req.url).searchParams.get('pair') ?? DEMO_QUOTE_PAIRS[0].id;
+  const route = getDemoQuotePair(pair);
   if (!route) {
     return NextResponse.json({ error: 'pair_not_allowed' }, { status: 400 });
   }

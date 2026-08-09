@@ -130,7 +130,7 @@ describe('error response shape', () => {
 
 		const res = await app.request('/throw')
 		expect(res.status).toBe(400)
-		const body = await res.json() as Record<string, unknown>
+		const body = (await res.json()) as any as Record<string, unknown>
 		expect(body.requestId).toBe('test-req-id-123')
 		expect(typeof body.timestamp).toBe('string')
 		expect(body.error).toBe('bad input')

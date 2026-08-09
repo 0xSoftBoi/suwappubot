@@ -81,8 +81,12 @@ export interface PerpMarket {
   name: string;
   asset: string;
   szDecimals: number;
+  /** Maximum leverage accepted by the current Suwappu quote route for this market. */
   maxLeverage: number;
+  /** Raw maximum leverage reported by Hyperliquid for the venue market. */
+  venueMaxLeverage: number;
   markPrice: number;
+  /** Current raw market funding rate reported by Hyperliquid. */
   fundingRate: number;
 }
 
@@ -114,11 +118,20 @@ export interface PerpPosition {
 
 // --- Predictions (Polymarket) ---
 
+export interface PredictionMarketToken {
+  tokenId: string;
+  outcome: string;
+}
+
 export interface PredictionMarket {
   id: string;
+  /** On-chain condition id used by the venue for settlement. */
+  conditionId: string;
   question: string;
   outcomes: string[];
   outcomePrices: number[];
+  /** Outcome-token ids returned by the API. Orders use tokenId, not market id. */
+  tokens: PredictionMarketToken[];
   volume: number;
   liquidity: number;
   endDate: string;
@@ -184,8 +197,6 @@ export interface PredictionOrderRequest {
   price: string;
   size: string;
   side: "BUY" | "SELL";
-  expiration?: number;
-  feeRateBps?: number;
 }
 
 /** CLOB responses are loosely typed; expose the raw object. */
@@ -195,6 +206,11 @@ export type PredictionOrder = Record<string, unknown>;
 
 // --- Lending (Morpho) ---
 
+export interface LendingMarketWarning {
+  type: string;
+  level: string;
+}
+
 export interface LendingMarket {
   id: string;
   loanToken: string;
@@ -202,10 +218,19 @@ export interface LendingMarket {
   lltv: number;
   supplyApy: number;
   borrowApy: number;
-  totalSupply: number;
-  totalBorrow: number;
+  /** @deprecated Use totalSupplyUsd; retained for backwards compatibility. */
+  totalSupply: number | null;
+  /** @deprecated Use totalBorrowUsd; retained for backwards compatibility. */
+  totalBorrow: number | null;
+  totalSupplyUsd: number | null;
+  totalBorrowUsd: number | null;
+  availableLiquidityUsd: number | null;
   utilization: number;
   chainId: number;
+  /** Morpho interface listing status; not a guarantee or endorsement. */
+  listed: boolean;
+  /** Active Morpho market warnings reported by the upstream API. */
+  warnings: LendingMarketWarning[];
 }
 
 export interface LendingMarketDetail extends LendingMarket {
@@ -410,14 +435,33 @@ export interface AgentTopupArgs {
 
 // --- Swap simulation & history ---
 
+export interface SwapSimulationCheck {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+  unverified?: boolean;
+}
+
+/** Camel-cased view of POST /v1/agent/swap/simulate. Nothing is broadcast. */
 export interface SwapSimulation {
-  /** Whether the simulated execution succeeded. */
   success: boolean;
-  /** Human-readable reason when the simulation reverted. */
-  reason?: string;
-  gasEstimate?: string;
-  amountOut?: string;
-  [key: string]: unknown;
+  /** True only when the server's safety-critical preflight checks allow execution. */
+  wouldExecute: boolean;
+  quoteId: string;
+  chainType: "evm" | "solana";
+  expectedOutput: {
+    token: string;
+    amount: string;
+    amountUsd: string | null;
+  };
+  minOutputAfterSlippage: string;
+  priceImpactPct: number | null;
+  fees: {
+    protocol: string | null;
+    gasEstimate: string | null;
+  };
+  checks: SwapSimulationCheck[];
+  warnings: string[];
 }
 
 export interface SwapHistoryItem {

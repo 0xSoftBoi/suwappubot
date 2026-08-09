@@ -1,145 +1,90 @@
-# MCP surface: current state vs the 2026-07-28 spec
+# MCP surface: 2026-07-28 audit and remediation
 
-Research date: 2026-08-04. Every "ours" claim below was verified against the
-live `https://api.suwappu.bot/mcp` endpoint or the checked-in source, not from
-memory. Spec claims are cited.
+Research refreshed: 2026-08-07. Protocol claims below use the official MCP specification and official SDK repositories. Repository claims refer to checked-in source unless explicitly labeled as a registry check.
 
 ## TL;DR
 
-We run **two divergent MCP servers** — a hosted one with 22 tools and a
-published npm one with 11 *different* tools — and both speak a protocol
-revision that is **two releases behind**. The npm package is what
-`server.json` tells agents to install, so the worse of the two is the one
-the ecosystem sees.
+The highest-risk MCP drift has been removed in source:
 
-## 1. Protocol version: we are two revisions behind
+- The hosted server has one 22-tool catalog, and source `@suwappu/mcp-server` is now a thin stdio bridge to that catalog rather than a second product.
+- Hosted source supports modern stateless MCP `2026-07-28` while retaining the initialize-based legacy path through `2025-06-18`.
+- Modern requests validate per-request protocol metadata plus `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` where required. Modern results carry `resultType`; discovery/list/resource results carry cache hints.
+- `server/discover` is implemented and public.
+- Three tools currently expose validated `outputSchema` + matching `structuredContent`; coverage is deliberately partial rather than guessed.
 
-`api-ts/src/routes/mcp.ts:77` negotiates:
+The largest remaining gaps are release/distribution, structured-output coverage, and an explicit remote-authorization decision. On 2026-08-07, npm still reports `@suwappu/mcp-server` **0.1.1** even though repository source is `0.6.0`; do not advertise an unpublished bridge version as installable.
 
-```ts
-const SUPPORTED_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18']
-```
+## 1. Protocol: dual-era instead of handshake-only
 
-Current spec is **2026-07-28**; `2025-11-25` came between. The 2026-07-28
-revision is the largest change since launch and is not a polish release —
-it re-bases the protocol core:
+MCP `2026-07-28` introduced a stateless core. Modern requests carry protocol version and client capabilities in `params._meta`; Streamable HTTP mirrors routing-relevant fields into headers. `server/discover` advertises versions/capabilities, all successful results carry `resultType`, and cacheable catalog/resource methods carry `ttlMs` plus `cacheScope`.
 
-| Change | Impact on us |
+Checked-in hosted source now implements that modern shape while preserving the existing legacy path:
+
+| Concern | Source status |
 |---|---|
-| **Stateless core** — `initialize`/`notifications/initialized` handshake removed; every request carries `_meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities` | Our whole entry path is handshake-shaped (`mcp.ts:1518` negotiates on `initialize`) |
-| **`server/discover` is MUST** | We do not implement it at all |
-| **`resultType` required on every result** (`"complete"` \| `"input_required"`) | Every one of our results omits it |
-| **Cacheable lists** — `ttlMs` + `cacheScope` required on `tools/list`, `resources/list`, … | Not emitted; we lose client-side caching and prompt-cache hits |
-| **`Mcp-Method` / `Mcp-Name` headers required** on Streamable HTTP POST | Not required or read by us |
-| **MRTR** replaces server-initiated `sampling`/`elicitation`/`roots` | We use none of these, so this is cheap to adopt |
-| **Sessions removed** (`Mcp-Session-Id` gone) | We are already effectively stateless — this one favours us |
-| **Roots, Sampling, Logging deprecated**; HTTP+SSE deprecated | We use Streamable HTTP already — good |
-| **Deterministic `tools/list` order** (SHOULD) | Worth confirming ours is stable |
+| `server/discover` | Implemented; public; advertises server capabilities and supported revisions |
+| Per-request protocol metadata | Required for modern requests |
+| `MCP-Protocol-Version` / `Mcp-Method` | Validated against the JSON-RPC body before auth/metering |
+| `Mcp-Name` | Required and validated for `tools/call`, `resources/read`, and `prompts/get`; Base64 sentinel form is decoded before comparison |
+| HTTP `Origin` | Requests with a disallowed `Origin` are rejected with 403; modern MCP headers are included in the CORS allowlist |
+| `resultType` | `complete` on current modern results |
+| Server identity | `_meta.io.modelcontextprotocol/serverInfo` on modern results |
+| Cache hints | Added to discovery, tool/prompt/resource lists, resource templates, and resource reads |
+| Legacy `initialize` | Retained; negotiates only legacy revisions and never pretends the modern revision has a session |
+| MRTR | No current Suwappu handler needs client input mid-call, so no `input_required` flow is necessary today |
+| Custom `Mcp-Param-*` headers | None of the current tool schemas declares `x-mcp-header`, so there is no custom mirrored parameter to validate today |
 
-Backward compatibility is real — clients must treat a missing `resultType` as
-`"complete"` — so we are not *broken* today. But we cannot advertise
-2026-07-28 support, and the stateless core means new clients increasingly
-will not send `initialize` at all.
+This is deliberately dual-era. A modern client can probe/use `2026-07-28`; an older client can continue through `initialize`. That is more useful than forcing every existing integration to migrate in lockstep.
 
-## 2. Two servers, two different products
+## 2. One catalog, two transports
 
-| | Hosted `api.suwappu.bot/mcp` | npm `@suwappu/mcp-server` |
+Earlier source contained two independently maintained MCP products: the hosted endpoint and an npm stdio server with a different tool set. Source `0.6.0` fixes the architectural problem: `packages/mcp-server` owns no Suwappu tool/resource/prompt definitions. It forwards discovery and calls to the hosted endpoint.
+
+| Surface | Source role | Catalog authority |
 |---|---|---|
-| Tools | **22** | **11** |
-| Transport | Streamable HTTP | stdio only |
-| SDK | n/a (hand-rolled) | `@modelcontextprotocol/sdk` **^1.12.1** (current: **1.30.0**) |
-| Source | `api-ts/src/routes/mcp.ts` | `packages/mcp-server/` (was deleted for months — see PR #735) |
+| `https://api.suwappu.bot/mcp` | Streamable HTTP server | **Canonical** |
+| `packages/mcp-server` | Local stdio compatibility bridge | Hosted server |
 
-Hosted (verified live): `get_quote, get_portfolio, get_prices, list_chains,
-list_tokens, execute_swap, simulate_swap, get_tempo_tokens,
-browse_mpp_directory, predict_markets, predict_market, perps_markets,
-perps_quote, perps_positions, lend_markets, lend_market, get_swap_status,
-get_swap_history, predict_book, predict_price, predict_trades,
-list_wallet_policies`
+The source bridge currently uses `@modelcontextprotocol/sdk` `^1.30.0`, the v1 compatibility line. Official TypeScript SDK v2 is the current modern line and makes `2026-07-28` an explicit opt-in/negotiated era. Migrating the local bridge to v2 is worthwhile when modern stdio semantics are needed, but it is no longer required to keep Suwappu's catalog current because the bridge does not duplicate that catalog.
 
-npm package: `get_token_price, get_portfolio, swap_tokens, get_swap_quote,
-set_price_alert, get_alerts, get_trade_history, search_tokens,
-get_token_safety, get_trending_tokens, list_chains`
+The distribution gap is more urgent: `npm view @suwappu/mcp-server version` returned `0.1.1` on 2026-08-07. Until source `0.6.0` is published, docs and registry metadata should prefer the hosted endpoint and must not imply `npx @suwappu/mcp-server` installs the new bridge.
 
-These are not the same product. The npm server has **no perps, no
-predictions, no lending, no simulate_swap** — i.e. none of the surface we
-have built in the last year. It also has tools the hosted one lacks
-(`set_price_alert`, `get_token_safety`, `get_trending_tokens`), so it is not
-a strict subset either. `packages/openclaw/server.json` points the registry
-at the npm package, so `npx @suwappu/mcp-server` is the front door and it is
-the weaker door.
+## 3. Tool quality: meaningful progress, incomplete coverage
 
-**Recommendation:** stop maintaining two tool catalogues. Make the npm
-package a thin stdio proxy to the hosted endpoint, so there is exactly one
-tool definition. Divergence is not a backlog item; it is a guarantee of
-future drift.
+Source is materially better than the original audit:
 
-## 3. Against Anthropic's tool-design guidance
+- All catalog tools carry behavioral annotations, with the important caveat that annotations are hints rather than authorization.
+- Input schemas backed by server validators are generated from those validators for key money-adjacent paths, reducing advertised/runtime drift.
+- `list_chains`, `get_prices`, and `get_tempo_tokens` expose `outputSchema`; their tool results attach `structuredContent` derived from the same JSON value shown in text.
+- Malformed/unknown tool calls are rejected before per-tool charging.
+- The capability boundary is explicit: MCP `execute_swap` prepares an unsigned self-custody transaction and never signs or broadcasts it; managed execution remains a separate REST permission.
 
-Measured against [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents):
+Structured-output coverage is still **3 of 22 tools**. That should grow from captured/validated real result shapes rather than guessed schemas. `get_portfolio`, `get_quote`, `simulate_swap`, and the market/lending reads are the highest-value next candidates because downstream apps are most likely to make decisions from those fields.
 
-**We already do well:**
-- **Tool annotations** — 28 `readOnlyHint`/`destructiveHint`/`idempotentHint`
-  occurrences in `mcp.ts`. Good; many servers skip these.
-- **Pagination** — 19 `limit`/`offset`/truncation references.
-- **Intent-shaped tools** — `simulate_swap`, `get_quote` → `execute_swap` is a
-  coherent workflow, not raw CRUD.
-- **Auth boundary is correct** — verified live: `tools/call` without a Bearer
-  returns 401 with an actionable message pointing at agent registration;
-  `tools/list` is deliberately open so registry validators can enumerate.
-  This is a sound deliberate choice, documented at `mcp.ts:60`.
+`response_format`/projection controls are also still absent on context-heavy reads. Add them only where measurements show context size is a real problem; correctness and stable structured data come first.
 
-**Gaps, ranked by value:**
+## 4. Remote authorization remains a product/security decision
 
-1. **No `outputSchema` / `structuredContent`** (0 occurrences). Agents must
-   parse prose. This is the single highest-leverage fix: typed results cut
-   hallucinated field names and let clients validate. Spec 2026-07-28 also
-   loosened these to full JSON Schema 2020-12.
-2. **No `response_format: concise | detailed`** (0 occurrences). Portfolio and
-   market tools return everything every time, burning agent context.
-3. **Naming is inconsistent across the two servers** — `get_quote` vs
-   `get_swap_quote`, `execute_swap` vs `swap_tokens`. Guidance favours a
-   consistent namespace. Collapsing to one server fixes this for free.
-4. **Error messages** are good at the auth boundary but should carry the same
-   "try X instead" steering on validation failures inside tools.
+Suwappu's hosted MCP uses the same agent Bearer credential model as the Agent REST API. The repository does not currently expose the MCP OAuth protected-resource discovery flow.
 
-## 4. Remote-server authorization
+That is not something to bolt on as a documentation-only compliance checkbox. For a financial-agent product, authorization scopes, consent, credential lifecycle, and how managed execution is separated from read/quote capabilities need a deliberate design and threat review. Until that decision is made, docs should state the Bearer-key model exactly and builders should keep local capability allowlists.
 
-`GET /.well-known/oauth-protected-resource` → **404** (verified live), and
-there is no `oauth-protected-resource` / `oauth-authorization-server` handler
-anywhere in `api-ts/src`. We authenticate MCP with the same static agent
-Bearer key as the REST API.
+## 5. Ranked remaining work
 
-That works and is not insecure, but it is off the path the spec now assumes
-for remote servers: OAuth 2.1 with protected-resource metadata discovery.
-2026-07-28 additionally **deprecates Dynamic Client Registration** in favour
-of Client ID Metadata Documents, and hardens `iss` validation (RFC 9207).
+1. **Publish the source bridge intentionally.** Release `@suwappu/mcp-server` from source `0.6.0` (with provenance/checks), then restore/verify any registry package entry against the actually published version.
+2. **Expand validated structured output.** Prioritize portfolio, quote, simulation, perps/prediction, and lending shapes; require captured fixtures/tests before advertising schemas.
+3. **Move the stdio bridge to the official TypeScript SDK v2 when modern stdio is needed.** Keep hosted forwarding as the catalog authority.
+4. **Add conformance/integration coverage for both protocol eras.** Especially modern header mismatch, unsupported version, cache hints, and legacy fallback behavior.
+5. **Decide on OAuth/scoped remote authorization.** Treat it as a product/security project, not a protocol-version bump.
+6. **Measure context pressure before adding response projections.** Optimize only the read tools where real agent traces show excessive tokens.
 
-For a server that moves user funds, the static-key model also means an agent
-key is a bearer credential with no scoping or user consent step. Worth a
-deliberate decision, not drift.
+## Primary sources
 
-## Ranked recommendations
-
-1. **Collapse the two servers into one catalogue.** Make
-   `@suwappu/mcp-server` a stdio proxy to the hosted endpoint. Removes an
-   11-vs-22 tool divergence permanently and fixes the naming inconsistency.
-   Cheapest, highest payoff.
-2. **Bump `@modelcontextprotocol/sdk` 1.12.1 → 1.30.0.** ~18 minor versions of
-   spec support and fixes.
-3. **Add `outputSchema` + `structuredContent`** to the hosted tools.
-4. **Adopt 2026-07-28**: implement `server/discover`, emit `resultType`, add
-   `ttlMs`/`cacheScope` on list results, accept `_meta` protocol version,
-   honour `Mcp-Method`/`Mcp-Name`. Keep the old handshake path for
-   compatibility.
-5. **Add `response_format`** to the context-heavy read tools.
-6. **Decide on OAuth 2.1** + protected-resource metadata — a product/security
-   decision, not a code task.
-
-## Sources
-
-- [The 2026-07-28 Specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
-- [Key Changes — MCP 2026-07-28 changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
-- [Writing effective tools for AI agents — Anthropic](https://www.anthropic.com/engineering/writing-tools-for-agents)
-- [The 2026 MCP Roadmap](https://blog.modelcontextprotocol.io/posts/2026-mcp-roadmap/)
-- [MCP specification version timeline](https://hidekazu-konishi.com/entry/mcp_specification_version_timeline.html)
+- [MCP 2026-07-28 release](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+- [MCP base protocol and per-request `_meta`](https://modelcontextprotocol.io/specification/2026-07-28/basic)
+- [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
+- [`server/discover`](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
+- [MCP caching rules](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching)
+- [MCP schema reference](https://modelcontextprotocol.io/specification/2026-07-28/schema)
+- [Official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- [Official Python SDK](https://github.com/modelcontextprotocol/python-sdk)

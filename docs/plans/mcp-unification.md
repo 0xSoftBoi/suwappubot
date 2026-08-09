@@ -1,175 +1,119 @@
-# Plan: one contract, every agent surface
+# MCP unification: status and remaining plan
 
-Companion to `docs/research/mcp-state-2026-08.md`. That document says *what* is
-wrong. This one says *how* to fix it, and argues for a specific design over the
-obvious alternatives.
+Companion to `docs/research/mcp-state-2026-08.md`. Refreshed 2026-08-07 after the catalog/bridge work and the hosted `2026-07-28` protocol implementation.
 
-## The actual root cause
+## What is now structurally true
 
-The 11-vs-22 tool divergence and the stale protocol version are symptoms. The
-disease is that **the same contract is written down four times**, by hand, in
-four places:
+Suwappu has one hosted MCP catalog. The stdio package is a transport bridge, not a second product.
 
-| # | Where | Status |
-|---|---|---|
-| 1 | `api-ts/src/routes/validators.ts` — 77 Zod schemas | **Runtime truth.** What the server actually enforces. |
-| 2 | `openapi-agent.json` | **Already generated from #1** via `z.toJSONSchema()` — `scripts/gen-openapi.ts` |
-| 3 | `api-ts/src/routes/mcp.ts` — 22 hand-written `inputSchema` blocks | **Drifted.** 0 uses of Zod. |
-| 4 | `packages/mcp-server/src/index.ts` — 11 hand-written tools | **Diverged.** A different product. |
+| Layer | Authority / status |
+|---|---|
+| Runtime validation | Zod validators in `api-ts/src/routes/validators.ts` where a route has one |
+| Hosted MCP catalog | `api-ts/src/routes/mcpTools.ts` |
+| Hosted handlers | `api-ts/src/routes/mcp.ts` |
+| OpenAPI | Generated/checked from the Agent API source contract |
+| Source stdio package | `packages/mcp-server`: forwards hosted tools/resources/prompts; owns no Suwappu catalog |
 
-We already solved this problem once, correctly, for OpenAPI. `gen-openapi.ts`
-exists precisely so "the documented request shapes can never drift from runtime
-validation." **The fix is to finish the job we started** — point the same
-pipeline at MCP — not to invent a new mechanism.
+Two invariants matter more than raw tool count:
 
-### The drift is real, not theoretical
+1. A constraint advertised to an MCP client must match what the handler actually enforces.
+2. A new hosted tool must become visible to the stdio bridge without copying its definition into a second file.
 
-Verified live against `api.suwappu.bot/mcp` on 2026-08-04:
+The second invariant is solved by architecture. The first is only partially solved and remains the main contract-quality project.
 
-| Field | Zod enforces | MCP advertises |
-|---|---|---|
-| `get_quote.slippage` | `number().min(0).max(0.5)` | `{type: "number"}` — **no bounds** |
-| `get_quote.wallet_address` | validated EVM address | `{type: "string"}` — anything |
+## Completed work
 
-An agent that reads our schema and sends `slippage: 5` gets a 400 it had no way
-to anticipate. We published a contract we do not honour. Also: **0 of 22 tools
-declare `outputSchema`**, so every result is unstructured prose.
+### One catalog across transports
 
-## Design decision: three options considered
+Source `@suwappu/mcp-server` `0.6.0` forwards `tools/list`, `tools/call`, resources, and prompts to the hosted endpoint. Its source dependency was moved to the `@modelcontextprotocol/sdk` v1 compatibility line at `^1.30.0`.
 
-**Option A — hand-fix the schemas.** Copy the constraints across, bump the
-protocol, resync the npm tools. Rejected: it fixes today's drift and guarantees
-tomorrow's. Four hand-maintained copies remain four.
+This eliminates the old 11-vs-22 hand-maintained catalog divergence. The remaining distribution issue is that npm still reports package `0.1.1`; source `0.6.0` must be published before registries/docs advertise it as installable.
 
-**Option B — generate MCP from the OpenAPI spec** (the `openapi-mcp-generator` /
-Kubb approach the ecosystem favours). Rejected *for us*: our OpenAPI file is
-itself a derived artifact with hand-authored prose. Generating a derivative of a
-derivative doubles the lag and means MCP inherits documentation drift instead of
-runtime truth. Good pattern when OpenAPI *is* your source; ours is not.
+### Dual-era hosted protocol
 
-**Option C — Zod as the single source, MCP and OpenAPI both derived.** Chosen.
-It reuses a pipeline already proven in this repo, and it points every surface at
-the thing that actually runs.
+Hosted source now supports stateless MCP `2026-07-28` plus the existing initialize-based legacy path through `2025-06-18`:
 
-## The design
+- `server/discover`
+- per-request protocol/capability metadata
+- matching Streamable HTTP protocol/method/name headers
+- `resultType: "complete"` and server identity on modern results
+- cache hints on cacheable catalog/resource results
+- explicit HTTP 403 for invalid `Origin`
+- legacy `initialize` retained without pretending the modern revision has a session
 
-### One registry, four surfaces
+### Contract checks are in CI
 
-Today a tool's contract is scattered. Instead, each tool declares itself once:
+`bun run check:mcp` verifies each MCP input schema that is mapped to a runtime Zod validator. The TypeScript quality workflow runs this alongside the OpenAPI drift check.
 
-```ts
-defineTool({
-  name: 'get_quote',
-  description: '…',
-  input: QuoteRequestSchema,      // the SAME Zod object the route validates with
-  output: QuoteResponseSchema,    // new — gives us outputSchema + structuredContent
-  annotations: { readOnlyHint: true },
-  handler: …,
-})
+Today the mapping covers `get_quote`, `simulate_swap`, and `perps_quote`. The script reports the rest as coverage debt rather than pretending hand-written schemas are derived.
+
+### Structured output started conservatively
+
+`list_chains`, `get_prices`, and `get_tempo_tokens` declare `outputSchema`, and their handlers attach `structuredContent` derived from the exact JSON value exposed in text. That is **3/22**, not completion.
+
+## Remaining work, in priority order
+
+### 1. Publish the forwarding bridge
+
+Release `@suwappu/mcp-server` from source `0.6.0` with tests/provenance, confirm the registry reports that exact version, then restore the stdio package entry in `packages/openclaw/server.json`.
+
+Before restoring the MCP Registry package entry:
+
+- `npm view @suwappu/mcp-server version` must return the intended release.
+- The npm package must carry `mcpName: "bot.suwappu/mcp"`.
+- A source/installed smoke test must show hosted `tools/list` parity.
+
+### 2. Drive input-schema coverage toward 22/22
+
+Do not hand-copy constraints. For each unmapped tool:
+
+1. Identify or create the Zod schema actually used by its handler.
+2. Make runtime validation consume that schema.
+3. Derive the MCP `inputSchema` from the same object.
+4. Add it to the independent `check-mcp-schemas.ts` mapping.
+
+Prioritize money-adjacent/request-sensitive tools first: quote/simulation is already mapped; next review transaction preparation, lending/perps inputs, prediction IDs/limits, and wallet policy inputs.
+
+### 3. Expand validated output schemas
+
+Highest-value next candidates are `get_portfolio`, `get_quote`, `simulate_swap`, lending, perps, and prediction-market detail. Require a captured/handler-derived fixture and a regression test before publishing an `outputSchema`; a wrong schema is worse than no schema because clients are entitled to validate `structuredContent` against it.
+
+### 4. Move the local bridge to official TypeScript SDK v2 when useful
+
+The hosted server already speaks the modern era. The stdio bridge still uses the v1 compatibility package locally. Official TypeScript SDK v2 is the `2026-07-28` line and supports explicit dual-era negotiation. Migrate the bridge when modern stdio behavior/conformance is valuable; do not reintroduce local Suwappu tool definitions during that migration.
+
+### 5. Make the authorization decision explicitly
+
+The hosted MCP surface uses Agent API Bearer keys. OAuth/scoped remote authorization is a product/security decision because it changes consent, scopes, credential lifecycle, and the boundary around managed execution. Design and threat-review it before implementation.
+
+### 6. Optimize context only after measuring it
+
+Projection controls such as `response_format: concise | detailed` may help `get_portfolio`, `predict_markets`, `perps_markets`, and `list_tokens`, but add them only when agent traces show a real context-cost problem. Stable structured fields and correct capability boundaries rank higher.
+
+## Verification gates
+
+For MCP contract changes:
+
+```bash
+cd api-ts
+bun run check
+bun run check:mcp
+bun run check:openapi
+bun run test
+
+cd ../showcase
+node scripts/regen-docs.mjs
+node scripts/gen-llms.mjs
+node scripts/check-doc-contract.mjs
 ```
 
-From that one declaration we emit:
+Money-adjacent changes additionally need adversarial review of authorization, metering order, idempotency/retry behavior, and the unsigned-preparation vs managed-execution boundary.
 
-1. **MCP `tools/list`** — `inputSchema`/`outputSchema` via `z.toJSONSchema()`
-2. **OpenAPI** — the existing generator, unchanged in spirit
-3. **Runtime validation** — the route already uses this schema
-4. **SDK methods** — TS and Python clients target the same shapes
-
-Constraints (`min`/`max`, address formats) reach agents automatically, because
-they are the constraints the server enforces. Drift stops being a thing that
-requires discipline and becomes a thing that is structurally impossible.
-
-### The npm server holds zero tool definitions
-
-The slick part. `@suwappu/mcp-server` should not *have* a tool catalogue. It
-becomes a thin stdio↔Streamable-HTTP bridge that fetches `tools/list` from the
-hosted endpoint at startup and forwards `tools/call` through.
-
-This is the established ecosystem pattern — [`mcp-remote`](https://www.npmjs.com/package/mcp-remote),
-[`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy), `fastmcp-remote` all exist
-because stdio-only clients need to reach HTTP servers. We are not inventing
-anything; we are stopping the practice of maintaining a second, worse server.
-
-Consequences worth stating plainly:
-- The 11-vs-22 divergence becomes **impossible**, not merely fixed.
-- New tools reach `npx @suwappu/mcp-server` users **without republishing**.
-- Our `tools/list` is deliberately unauthenticated, so the proxy can fetch the
-  catalogue before it has a key — this design already fits.
-- Cost: an offline/self-hosted user can no longer run the tools locally. They
-  could not anyway — every tool calls our API.
-
-## Phases
-
-Each phase ships and is verifiable on its own. Phase 0 first: stop the bleeding
-before refactoring.
-
-**Phase 0 — freeze the drift (small, do first).**
-Add `scripts/check-mcp-schemas.ts` mirroring `check-openapi.ts --check`: assert
-every MCP `inputSchema` equals `z.toJSONSchema()` of its validator. It will fail
-immediately on `get_quote` — that is the point. Wire into CI.
-*Done when:* CI fails on the known drift.
-
-**Phase 1 — derive `inputSchema` from Zod.**
-Introduce the tool registry; map all 22 tools to their validators. Some tools
-(`predict_*`, `perps_*`, `lend_*`) may have no validator yet — write the Zod
-schema and use it in the route too, so the mapping is honest.
-*Done when:* Phase 0's check passes with zero manual overrides, and live
-`get_quote.slippage` advertises `maximum: 0.5`.
-
-**Phase 2 — `outputSchema` + `structuredContent`.**
-The highest-value item for agent quality. Add Zod response schemas; return
-`structuredContent` alongside the existing text content (spec keeps text for
-back-compat).
-*Done when:* all 22 tools declare `outputSchema` and results validate against it.
-
-**Phase 3 — npm package becomes a proxy.**
-Rewrite `packages/mcp-server/src/index.ts` as the bridge. Bump
-`@modelcontextprotocol/sdk` `^1.12.1 → ^1.30.0`. Keep the CI smoke test added in
-PR #735 — it becomes the regression gate for the proxy.
-*Done when:* `npx @suwappu/mcp-server` lists the same 22 tools as hosted.
-
-**Phase 4 — adopt spec 2026-07-28.**
-Implement `server/discover` (MUST), emit `resultType`, add `ttlMs`/`cacheScope`
-on list results, read protocol version from `_meta`, honour `Mcp-Method`/
-`Mcp-Name`. Keep the `initialize` path for older clients — back-compat is
-explicit in the spec. Add `2025-11-25` and `2026-07-28` to
-`SUPPORTED_MCP_VERSIONS`.
-*Done when:* a 2026-07-28 client works without an `initialize` handshake, and an
-old client still works.
-
-**Phase 5 — `response_format: concise | detailed`.**
-On the context-heavy reads (`get_portfolio`, `predict_markets`, `perps_markets`,
-`list_tokens`). Default `concise`; `detailed` returns the identifiers needed for
-follow-up calls.
-
-**Phase 6 — OAuth 2.1 (decision, not a task).**
-`/.well-known/oauth-protected-resource` 404s; MCP auth is a static agent bearer
-key. For a server that moves funds that means an unscoped credential with no
-user-consent step. 2026-07-28 also deprecates Dynamic Client Registration in
-favour of Client ID Metadata Documents. **This needs a product call before any
-code** — it changes how every existing integration authenticates.
-
-## Ordering rationale
-
-Phases 0–2 are pure quality-of-contract and touch only the hosted server; they
-carry no client-visible breakage. Phase 3 removes an entire class of future work
-and should not wait. Phase 4 is the largest and benefits from 1–2 landing first,
-since a generated registry is far cheaper to re-emit under a new protocol than
-22 hand-written blocks. Phase 6 is gated on a decision, not effort.
-
-## What I would *not* do
-
-- **Do not** hand-sync the npm server's 11 tools up to 22. That is Phase 3's job
-  to delete, and doing both wastes the work.
-- **Do not** adopt 2026-07-28 by dropping older versions. The spec's whole
-  back-compat design (missing `resultType` reads as `"complete"`) exists so we
-  do not have to.
-- **Do not** generate MCP from OpenAPI (Option B) just because tooling exists.
-
-## Sources
+## Primary sources
 
 - [MCP 2026-07-28 changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
-- [Writing effective tools for AI agents — Anthropic](https://www.anthropic.com/engineering/writing-tools-for-agents)
-- [mcp-remote](https://www.npmjs.com/package/mcp-remote) · [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)
-- [MCP outputSchema / structuredContent](https://sunpeak.ai/blogs/mcp-app-output-schema-structuredcontent/)
-- [OpenAPI→MCP conversion architecture](https://www.truefoundry.com/blog/openapi-to-mcp-server-conversion)
+- [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
+- [`server/discover`](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
+- [Official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- [Official Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+- [Official MCP Registry](https://github.com/modelcontextprotocol/registry)

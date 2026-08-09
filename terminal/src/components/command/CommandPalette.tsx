@@ -209,12 +209,12 @@ export function CommandPalette() {
 
   return createPortal(
     <div
-      className="terminal-theme-scrim fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] backdrop-blur-sm"
-      onMouseDown={(e) => {
+      className="terminal-command-scrim terminal-theme-scrim fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] backdrop-blur-sm"
+      onPointerDown={(e) => {
         if (e.target === e.currentTarget) close()
       }}
     >
-      <div className="terminal-theme-overlay w-full max-w-xl overflow-hidden">
+      <div className="terminal-command-palette terminal-theme-overlay w-full max-w-xl overflow-hidden">
         {/* Search input */}
         <div className="hairline-b flex items-center gap-2 px-4 py-3">
           <span className="text-terminal-text-muted">⌕</span>
@@ -224,7 +224,7 @@ export function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKey}
             placeholder="Search tokens, or jump to anything…"
-            className="flex-1 bg-transparent text-sm text-terminal-text outline-none placeholder:text-terminal-text-muted"
+            className="terminal-command-input min-w-0 flex-1 bg-transparent text-sm text-terminal-text outline-none placeholder:text-terminal-text-muted"
           />
           <kbd className="rounded bg-terminal-bg-tertiary px-1.5 py-0.5 text-[10px] text-terminal-text-muted">
             ESC
@@ -272,7 +272,7 @@ export function CommandPalette() {
         )}
 
         {/* Results */}
-        <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1.5">
+        <div ref={listRef} className="terminal-command-results max-h-[52vh] overflow-y-auto py-1.5">
           {matchedNav.length > 0 && (
             <div className="px-2 pb-1">
               <div className="terminal-theme-caption px-2 py-1 text-[10px] uppercase">

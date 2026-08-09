@@ -42,6 +42,7 @@ ZEROX_CHAIN_IDS = {
     "polygon": 137,
     "bsc": 56,
     "avalanche": 43114,
+    "robinhood": 4663,
 }
 
 # 0x represents the native asset (ETH/BNB/etc.) with this sentinel address.

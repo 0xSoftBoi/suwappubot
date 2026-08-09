@@ -6,10 +6,10 @@ import productStats from '@/data/stats.generated.json';
 /**
  * AgentHandoff: the copy-and-paste-into-your-agent block.
  *
- * Replaces the two static (and incorrect) MCP config snippets that used to sit
- * in the agents and build sections. Those advertised a local `npx
- * @suwappu/mcp-server` stdio command that does not exist, and an `X-API-Key`
- * header the API does not accept.
+ * Replaces the two static MCP config snippets that used to sit in the agents
+ * and build sections. The hosted endpoint is the canonical/current MCP path;
+ * package registries may lag the repository bridge, and auth is Bearer rather
+ * than the old `X-API-Key` form.
  *
  * The primary action copies a complete setup brief so a user can paste it into
  * Claude Code, Codex, or any agent and have it wire itself up. The tabs are the
@@ -61,15 +61,23 @@ Do this for me end to end.
    (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole, CCTP and
    more); providers are chain-gated, so each swap races the subset that
    supports its route.
-   HyperLiquid perps: markets, quotes, positions. Prediction markets, lending
-   markets, live prices, portfolio reads, and swap history.
+   HyperLiquid perps research: markets, indicative quotes, and position reads
+   (the Agent API does not open/close perps). Prediction markets, lending
+   markets, live prices, portfolio reads, and managed-swap history.
 
 5. RULES THAT MATTER
    Never hardcode chains or token symbols. Call GET /chains and
    GET /tokens?chain=... for the authoritative lists.
-   Swap flow: POST /quote returns a quote_id valid about 60s, then POST
-   /swap/execute (managed wallet, server-signed) or POST /swap (returns an
-   unsigned tx for me to sign myself), then GET /swap/status/:swapId.
+   Swap flow: POST /quote returns a quote_id valid about 60s; preview it with
+   POST /swap/simulate before any live action. POST /swap/execute is the
+   managed-wallet server-signed path and creates a record for GET
+   /swap/status/:swapId. POST /swap only returns an unsigned self-custody tx;
+   after I sign/broadcast it, reconcile that transaction on-chain instead.
+   Give every intended managed execution a durable Idempotency-Key and reuse
+   it after an outcome-unknown timeout/network/5xx while reconciling first.
+   MCP execute_swap is also unsigned self-custody preparation despite its
+   historical name; it never signs or broadcasts and creates no managed swap.
+   A2A returns quote/price/discovery artifacts and never executes trades.
    Errors come back as a JSON envelope with an error code. On HTTP 429, back
    off and retry. HTTP 402 means pay-per-call (x402) is available without a
    subscription.
@@ -121,12 +129,14 @@ startup_timeout_sec = 30`,
 
 const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
 
-const quote = await client.quote({
-  from_token: "USDC", to_token: "ETH",
+const quote = await client.getQuote({
+  from: "USDC", to: "ETH",
   chain: "base", amount: "100",
 });
-const swap = await client.executeSwap({ quote_id: quote.quote_id });`,
-    note: 'Python: pip install suwappu. Same call shape, async.',
+console.log(quote.id, quote.toAmount);
+// Managed execution is an explicit opt-in:
+// await client.executeManagedSwap(quote);`,
+    note: 'SDK source contract: @suwappu/sdk 0.6.x. Check npm view before installing; REST/OpenAPI is canonical if the registry lags.',
   },
 ] as const;
 

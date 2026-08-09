@@ -248,8 +248,14 @@ class X402Service:
         """Get user's current subscription tier."""
         sub = await self.get_subscription(user_id)
 
-        # Check if subscription expired
-        if sub.expires_at and sub.expires_at < datetime.now(timezone.utc):
+        # Subscription.expires_at is a timestamp-without-time-zone column, so
+        # PostgreSQL returns it as a naive datetime even though we persist UTC.
+        # Normalize before comparing against an aware UTC clock; otherwise a
+        # real paid subscription with an expiry raises TypeError here.
+        expires_at = sub.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at is not None and expires_at < datetime.now(timezone.utc):
             return SubscriptionTier.FREE
 
         return sub.tier

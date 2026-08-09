@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { TokenInput } from '../swap/TokenInput'
 import { SlippageControl } from '../swap/SlippageControl'
+import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { useLimitOrders } from '../../hooks/useLimitOrders'
@@ -68,7 +69,7 @@ function formatDate(value?: string | null) {
 }
 
 export function LimitOrderPanel() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, needsTradingProof } = useAuth()
   const { side, setSide, limitPrice } = useTrading()
   const { orders, createOrder, cancelOrder } = useLimitOrders()
   const { data: popularTokens } = usePopularTokens('ethereum')
@@ -129,7 +130,13 @@ export function LimitOrderPanel() {
         ? parsedTarget > currentPrice
         : parsedTarget < currentPrice
     : false
-  const formReady = isAuthenticated && hasPair && parsedAmount > 0 && parsedTarget > 0 && !priceInvalid
+  const formReady =
+    isAuthenticated &&
+    !needsTradingProof &&
+    hasPair &&
+    parsedAmount > 0 &&
+    parsedTarget > 0 &&
+    !priceInvalid
   const activeOrders = orders.data?.filter(order => ['pending', 'triggered'].includes(order.status)) ?? []
 
   const adjustTarget = (pct: number) => {
@@ -314,23 +321,20 @@ export function LimitOrderPanel() {
         </div>
       </div>
 
-      <button
-        data-testid="create-limit-order"
-        onClick={submit}
-        disabled={!formReady || createOrder.isPending}
-        className={joinClasses(
-          'w-full rounded py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-          isAuthenticated
-            ? 'bg-terminal-accent text-terminal-on-accent hover:bg-terminal-accent-bright'
-            : 'bg-terminal-bg-tertiary text-terminal-text-muted',
-        )}
-      >
-        {!isAuthenticated
-          ? 'Create Turnkey wallet'
-          : createOrder.isPending
-            ? 'Creating...'
-            : `Create ${orderTypeLabel(orderType)}`}
-      </button>
+      {!isAuthenticated || needsTradingProof ? (
+        <WalletConnect preferredChain="ethereum" showGoogle={!isAuthenticated} />
+      ) : (
+        <button
+          data-testid="create-limit-order"
+          onClick={submit}
+          disabled={!formReady || createOrder.isPending}
+          className={joinClasses(
+            'w-full rounded bg-terminal-accent py-3 text-sm font-semibold text-terminal-on-accent transition-colors hover:bg-terminal-accent-bright disabled:cursor-not-allowed disabled:opacity-50',
+          )}
+        >
+          {createOrder.isPending ? 'Creating...' : `Create ${orderTypeLabel(orderType)}`}
+        </button>
+      )}
 
       <div className="border-t border-terminal-border pt-3">
         <div className="mb-2 flex items-center justify-between">

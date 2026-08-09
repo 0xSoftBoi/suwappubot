@@ -1,6 +1,184 @@
 import { describe, expect, it, mock } from 'bun:test'
-import { PROMPTS, RESOURCES, TOOLS_WITH_ANNOTATIONS, handleBrowseMppDirectory, readResource, withStructuredContent } from '../routes/mcp'
+import {
+	LATEST_LEGACY_MCP_VERSION,
+	LATEST_MCP_VERSION,
+	LEGACY_MCP_VERSIONS,
+	MODERN_MCP_VERSION,
+	PROMPTS,
+	RESOURCES,
+	SUPPORTED_MCP_VERSIONS,
+	TOOLS_WITH_ANNOTATIONS,
+	completeModernMcpResult,
+	decodeMcpHeaderValue,
+	handleBrowseMppDirectory,
+	mcpRoutes,
+	negotiateProtocolVersion,
+	readResource,
+	validateModernMcpRequest,
+	withStructuredContent,
+} from '../routes/mcp'
 import { GetPricesOutputSchema, GetTempoTokensOutputSchema, ListChainsOutputSchema } from '../routes/mcpTools'
+
+describe('mcp dual-era protocol support', () => {
+	it('keeps initialize negotiation on the legacy era while advertising the modern version', () => {
+		for (const version of LEGACY_MCP_VERSIONS) {
+			expect(negotiateProtocolVersion(version)).toBe(version)
+		}
+		expect(negotiateProtocolVersion(MODERN_MCP_VERSION)).toBe(LATEST_LEGACY_MCP_VERSION)
+		expect(negotiateProtocolVersion('2099-01-01')).toBe(LATEST_LEGACY_MCP_VERSION)
+		expect(LATEST_MCP_VERSION).toBe(MODERN_MCP_VERSION)
+		expect(SUPPORTED_MCP_VERSIONS).toContain(MODERN_MCP_VERSION)
+	})
+
+	it('accepts a self-contained modern discovery request', () => {
+		const validation = validateModernMcpRequest(
+			{
+				jsonrpc: '2.0',
+				id: 'discover-1',
+				method: 'server/discover',
+				params: {
+					_meta: {
+						'io.modelcontextprotocol/protocolVersion': MODERN_MCP_VERSION,
+						'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.0.0' },
+						'io.modelcontextprotocol/clientCapabilities': {},
+					},
+				},
+			},
+			{ protocolVersion: MODERN_MCP_VERSION, method: 'server/discover' },
+		)
+		expect(validation).toEqual({ modern: true, protocolVersion: MODERN_MCP_VERSION })
+	})
+
+	it('rejects mismatched modern transport headers before request processing', () => {
+		const validation = validateModernMcpRequest(
+			{
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: {
+					name: 'get_prices',
+					_meta: {
+						'io.modelcontextprotocol/protocolVersion': MODERN_MCP_VERSION,
+						'io.modelcontextprotocol/clientCapabilities': {},
+					},
+				},
+			},
+			{ protocolVersion: MODERN_MCP_VERSION, method: 'tools/call', name: 'get_portfolio' },
+		)
+		expect(validation.modern).toBe(true)
+		expect('error' in validation && validation.error).toMatchObject({ code: -32020, httpStatus: 400 })
+	})
+
+	it('decodes the Base64 sentinel form and rejects malformed or unsafe plain values', () => {
+		expect(decodeMcpHeaderValue('get_prices')).toBe('get_prices')
+		expect(decodeMcpHeaderValue('=?base64?IHBhZGRlZCA=?=')).toBe(' padded ')
+		expect(decodeMcpHeaderValue(' padded ')).toBeNull()
+		expect(decodeMcpHeaderValue('=?base64?not-valid!?=')).toBeNull()
+	})
+
+	it('returns the modern unsupported-version error with the supported versions', () => {
+		const validation = validateModernMcpRequest(
+			{
+				jsonrpc: '2.0',
+				id: 2,
+				method: 'server/discover',
+				params: {
+					_meta: {
+						'io.modelcontextprotocol/protocolVersion': '2099-01-01',
+						'io.modelcontextprotocol/clientCapabilities': {},
+					},
+				},
+			},
+			{ protocolVersion: '2099-01-01', method: 'server/discover' },
+		)
+		expect(validation.modern).toBe(true)
+		expect('error' in validation && validation.error).toMatchObject({
+			code: -32022,
+			httpStatus: 400,
+			data: { supported: [...SUPPORTED_MCP_VERSIONS], requested: '2099-01-01' },
+		})
+	})
+
+	it('rejects missing required modern client capabilities as invalid params', () => {
+		const validation = validateModernMcpRequest(
+			{
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'tools/list',
+				params: { _meta: { 'io.modelcontextprotocol/protocolVersion': MODERN_MCP_VERSION } },
+			},
+			{ protocolVersion: MODERN_MCP_VERSION, method: 'tools/list' },
+		)
+		expect(validation.modern).toBe(true)
+		expect('error' in validation && validation.error).toMatchObject({ code: -32602, httpStatus: 400 })
+	})
+
+	it('attaches modern completion identity and cache hints', () => {
+		expect(completeModernMcpResult({ tools: [] }, { ttlMs: 60_000, cacheScope: 'public' })).toEqual({
+			tools: [],
+			resultType: 'complete',
+			_meta: { 'io.modelcontextprotocol/serverInfo': { name: 'suwappu', version: '0.6.0' } },
+			ttlMs: 60_000,
+			cacheScope: 'public',
+		})
+	})
+
+	it('keeps the legacy initialize and list result shape unchanged', async () => {
+		const initialize = await mcpRoutes.request('/', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				id: 'legacy-init',
+				method: 'initialize',
+				params: { protocolVersion: '2025-06-18' },
+			}),
+		})
+		expect(initialize.status).toBe(200)
+		const initBody = (await initialize.json()) as { result: Record<string, unknown> }
+		expect(initBody.result.protocolVersion).toBe('2025-06-18')
+		expect(initBody.result.resultType).toBeUndefined()
+
+		const list = await mcpRoutes.request('/', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ jsonrpc: '2.0', id: 'legacy-list', method: 'tools/list', params: {} }),
+		})
+		const listBody = (await list.json()) as { result: Record<string, unknown> }
+		expect(listBody.result.resultType).toBeUndefined()
+		expect(Array.isArray(listBody.result.tools)).toBe(true)
+	})
+
+	it('serves modern discovery with identity and required cache hints', async () => {
+		const response = await mcpRoutes.request('/', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'MCP-Protocol-Version': MODERN_MCP_VERSION,
+				'Mcp-Method': 'server/discover',
+			},
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				id: 'discover-route',
+				method: 'server/discover',
+				params: {
+					_meta: {
+						'io.modelcontextprotocol/protocolVersion': MODERN_MCP_VERSION,
+						'io.modelcontextprotocol/clientCapabilities': {},
+					},
+				},
+			}),
+		})
+		expect(response.status).toBe(200)
+		const body = (await response.json()) as { result: Record<string, unknown> }
+		expect(body.result).toMatchObject({
+			resultType: 'complete',
+			supportedVersions: [...SUPPORTED_MCP_VERSIONS],
+			ttlMs: 3_600_000,
+			cacheScope: 'public',
+		})
+	})
+})
 
 describe('mcp tool annotations', () => {
 	it('attaches behavioural annotations to every tool', () => {

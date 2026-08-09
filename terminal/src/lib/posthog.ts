@@ -19,3 +19,18 @@ export function initPostHog() {
   script.textContent = POSTHOG_SNIPPET.replace("phc_mG2CgVbedj3MpkchVPdmWWPEdReKwcPDTmwXE6efXGYU", PROJECT_TOKEN)
   document.head.appendChild(script)
 }
+
+type PostHogClient = {
+  capture?: (event: string, properties?: Record<string, unknown>) => void
+}
+
+/** Low-volume product funnel events. Never pass wallet addresses or secrets. */
+export function captureTerminalEvent(event: string, properties?: Record<string, unknown>) {
+  if (typeof window === 'undefined') return
+  const posthog = (window as Window & { posthog?: PostHogClient }).posthog
+  try {
+    posthog?.capture?.(event, properties)
+  } catch {
+    // Analytics should never block a Terminal action.
+  }
+}

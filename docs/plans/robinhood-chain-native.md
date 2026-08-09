@@ -193,3 +193,40 @@ secondary summaries. Verified with curl/eth_call, not trusted blind.
 **No agent/x402/MCP-specific docs found on `docs.robinhood.com/chain`** — the
 multi-network x402 support shipped in round 1 is Suwappu's own build, not
 something Robinhood publishes.
+
+## Long-tail launch UX — 2026-08-06
+
+Robinhood Chain was registered at the chain/RPC level, but the paste-to-trade
+path still had three user-facing holes: Alchemy token discovery did not probe
+4663, native ETH did not resolve to a provider token on Robinhood, and a pasted
+token buy assumed the user already held Robinhood ETH. 0x's provider map also
+omitted 4663, unnecessarily removing a same-chain venue.
+
+The paste flow now treats Robinhood long-tail ERC-20 launches as a normal swap
+destination. A Robinhood token card offers **Fund from another chain**; the user
+chooses an established EVM source and source token, then the normal swap engine
+quotes the bridge + destination swap together through its existing Li.Fi path.
+There is no separate manual-bridge step. Same-chain Robinhood swaps can also race
+0x when that provider is configured.
+
+Money-path constraints are deliberate:
+
+- Robinhood pasted-token buys are **one wallet per quote**. Li.Fi constructs the
+  transaction request for a specific `fromAddress`/`toAddress`; the existing
+  multi-wallet executor reuses one reference quote, which is unsafe for calldata
+  whose sender/recipient was built for another wallet.
+- Re-quotes for this mode bind to the exact selected, active, user-owned wallet.
+  They also re-resolve the user's tier + points-adjusted platform fee and refresh
+  the stored fee values and USD exposure used by spending-limit/2FA confirmation.
+- The one-click funding chooser is EVM-only. EVM wallets can use the same address
+  on the source and Robinhood destination; an SVM sender needs an explicit EVM
+  recipient and therefore needs a separate UX before it can be enabled safely.
+- Canonical Robinhood Stock Token contracts remain fail-closed at both discovery
+  and the paste-buy execution boundary. Generic/community launch tokens are not
+  blocked by this rule. Stock Tokens need a dedicated jurisdiction/eligibility
+  product rather than being exposed through the generic long-tail Buy CTA.
+
+During the investigation a read-only Li.Fi quote for Base USDC → Robinhood
+VANTIS returned successfully through `relaydepository` with an estimated
+execution duration of roughly three seconds. No transaction was signed or sent;
+that result verifies route availability only, not a live end-to-end swap.

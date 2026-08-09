@@ -86,8 +86,6 @@ export interface PlaceOrderParams {
 	price: string
 	size: string
 	side: 'BUY' | 'SELL'
-	expiration?: number | undefined
-	feeRateBps?: number | undefined
 }
 
 // CLOB /order accepts a time-in-force qualifier alongside the signed order.

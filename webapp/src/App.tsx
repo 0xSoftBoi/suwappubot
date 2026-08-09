@@ -12,6 +12,7 @@ import { Welcome } from './pages/Welcome'
 import { Home } from './pages/Home'
 // All other pages: lazy-loaded for code splitting
 const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
+const Discover = lazy(() => import('./pages/Discover'))
 const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
 const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
 const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
@@ -148,6 +149,18 @@ function AppContent() {
   useDesktopHotkeys()
 
   useEffect(() => {
+    // The API intentionally trusts only Suwappu-owned browser origins for CORS
+    // and wallet-signature domain binding. Keep Railway's generated hostname as
+    // an infrastructure origin, never as a user-facing entry point.
+    if (window.location.hostname.endsWith('.up.railway.app')) {
+      const canonical = new URL(window.location.href)
+      canonical.protocol = 'https:'
+      canonical.host = 'app.suwappu.bot'
+      window.location.replace(canonical.toString())
+    }
+  }, [])
+
+  useEffect(() => {
     // Sync theme with Telegram or default to light
     if (colorScheme === 'dark') {
       document.documentElement.classList.add('dark')
@@ -180,6 +193,14 @@ function AppContent() {
                 <Welcome />
               </PageTransition>
             </PublicRoute>
+          }
+        />
+        <Route
+          path="/discover"
+          element={
+            <PageTransition>
+              <Discover />
+            </PageTransition>
           }
         />
 

@@ -194,6 +194,14 @@ class SwapQuote:
     time_trusted: bool = False
 
 
+@dataclass
+class _QuoteFlight:
+    """One provider race shared by callers asking for the exact same quote."""
+
+    task: asyncio.Task
+    waiters: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Quote ranking helpers (pure, synchronous, no network) — kept module-level
 # so they're trivially unit-testable without spinning up SwapEngine or a live
@@ -650,6 +658,10 @@ class SwapEngine:
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
+        # MONEY-PATH: exact-request singleflight only.  This is deliberately
+        # separate from quote_cache: it changes no TTL/freshness behavior and
+        # only coalesces callers while the *same* provider race is in progress.
+        self._quote_flights: dict[tuple, _QuoteFlight] = {}
 
         # Surface optional-provider config at startup so a silently-disabled
         # aggregator is loud, not invisible (OKX never races + never errors when
@@ -1188,6 +1200,84 @@ class SwapEngine:
         platform_fee_bps: Optional[int] = None,
         user_id: Optional[int] = None,
     ) -> SwapQuote:
+        """Get a quote, sharing an identical provider race already in flight.
+
+        The key contains every input that can affect quote contents or
+        execution-bound calldata.  Values are intentionally not normalized:
+        only byte-for-byte-equivalent requests share work, which keeps this a
+        latency optimization rather than a routing/fee semantic change.
+
+        A waiting caller is shielded from cancelling the shared task.  If the
+        last waiter leaves, however, the provider race is cancelled and fully
+        collected so a cancelled request cannot leave orphan network work.
+        """
+        key = (
+            from_chain,
+            to_chain,
+            from_token,
+            to_token,
+            amount,
+            from_address,
+            to_address,
+            slippage,
+            platform_fee_bps,
+            user_id,
+        )
+
+        # There is no await between lookup/create/increment, so this registry
+        # transition is atomic within the asyncio event loop.  Avoiding an
+        # asyncio.Lock also keeps the engine usable across independent test
+        # loops; each flight is removed before its waiters finish.
+        flights = getattr(self, "_quote_flights", None)
+        if flights is None:
+            flights = self._quote_flights = {}
+        flight = flights.get(key)
+        if flight is None or flight.task.done():
+            flight = _QuoteFlight(
+                task=asyncio.create_task(
+                    self._get_quote_impl(
+                        from_chain=from_chain,
+                        to_chain=to_chain,
+                        from_token=from_token,
+                        to_token=to_token,
+                        amount=amount,
+                        from_address=from_address,
+                        to_address=to_address,
+                        slippage=slippage,
+                        platform_fee_bps=platform_fee_bps,
+                        user_id=user_id,
+                    )
+                )
+            )
+            flights[key] = flight
+        flight.waiters += 1
+
+        cancel_flight = False
+        try:
+            return await asyncio.shield(flight.task)
+        finally:
+            flight.waiters -= 1
+            if flight.waiters == 0 and flights.get(key) is flight:
+                flights.pop(key, None)
+                cancel_flight = not flight.task.done()
+
+            if cancel_flight:
+                flight.task.cancel()
+                await asyncio.gather(flight.task, return_exceptions=True)
+
+    async def _get_quote_impl(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        from_address: str,
+        to_address: Optional[str] = None,
+        slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> SwapQuote:
         """
         Get the best swap quote by racing all eligible providers in parallel.
 
@@ -1230,7 +1320,10 @@ class SwapEngine:
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
         # tiers (different fee) never collide.
-        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}:fee{platform_fee_bps or 0}"
+        # Recipient is execution-bound input: aggregators may bake it into
+        # calldata. Two otherwise-identical quotes for different recipients
+        # must therefore never share a cached quote.
+        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}:to{to_address or 'none'}:fee{platform_fee_bps or 0}"
         cached = await quote_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -1671,6 +1764,17 @@ class SwapEngine:
             # before caching so every consumer sees the corrected figure.
             best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
         finally:
+            # A singleflight can cancel this race when its last waiter leaves.
+            # Collect the real provider tasks as well as the comparison-only
+            # tasks so cancellation never leaks provider requests.  On the
+            # normal path these tasks are already done/cancelled, making this
+            # cleanup behavior-only with no effect on route selection.
+            for t in wrapped_tasks:
+                if not t.done():
+                    t.cancel()
+            if wrapped_tasks:
+                await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+
             # Always cancel + collect counterfactual tasks, even when the try
             # block above raised (e.g. "no provider returned a valid quote")
             # or was itself cancelled by the caller — otherwise a failed or
@@ -1909,11 +2013,14 @@ class SwapEngine:
             raise SwapError("This route can't be signed by an external wallet yet.")
 
         web3 = self.wallet_service._get_web3(from_chain)
-        sender = Web3.to_checksum_address(from_address)
-        spender = Web3.to_checksum_address(to_target)
+        try:
+            sender = Web3.to_checksum_address(from_address)
+            swap_target = Web3.to_checksum_address(to_target)
+        except (TypeError, ValueError) as exc:
+            raise SwapError("Li.Fi returned an invalid transaction target.") from exc
 
         swap_tx = {
-            "to": spender,
+            "to": swap_target,
             "data": call_data,
             "value": hex(_parse_int(tx_request.get("value"), 0)),
             "gas": hex(_parse_int(tx_request.get("gasLimit"), 500_000)),
@@ -1926,8 +2033,21 @@ class SwapEngine:
         # approval_mode on a reset-required token (e.g. USDT) would need a zero-out
         # approval first; the default 'unlimited' mode approves max once and is safe.
         approval = None
+        spender = None
         from_token_address = get_token_address(from_token, from_chain)
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            # Li.Fi explicitly tells us which contract is allowed to pull the
+            # sell token. It is NOT guaranteed to equal transactionRequest.to;
+            # approving the swap tx target can waste gas or leave allowance on
+            # the wrong contract. Fail closed if an ERC-20 route omits it.
+            approval_target = (quote.raw_quote.get("estimate") or {}).get("approvalAddress")
+            if not approval_target:
+                raise SwapError("Li.Fi did not provide an ERC-20 approval target.")
+            try:
+                spender = Web3.to_checksum_address(approval_target)
+            except (TypeError, ValueError) as exc:
+                raise SwapError("Li.Fi returned an invalid ERC-20 approval target.") from exc
+
             token_addr = Web3.to_checksum_address(from_token_address)
             erc20_abi = [
                 {
@@ -1975,7 +2095,7 @@ class SwapEngine:
             "chainId": chain.chain_id,
             "tx": swap_tx,
             "approval": approval,
-            "spender": spender,
+            "spender": spender or swap_target,
         }
         return quote, payload
 

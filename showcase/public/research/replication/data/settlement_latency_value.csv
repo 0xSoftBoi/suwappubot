@@ -1,0 +1,6 @@
+sofr_value_date,sofr_rate_pct,day_count_basis,policy_cap_bps,minutes_saved,carry_bps,cap_to_carry_multiple,implied_simple_annual_rate_pct,carry_usd_per_1m_value,policy_cap_usd_per_1m_value
+2026-08-06,3.65,ACT/360 simple,10,1,0.000704090,14202.739726,51840.000,0.07,1000.00
+2026-08-06,3.65,ACT/360 simple,10,5,0.003520448,2840.547945,10368.000,0.35,1000.00
+2026-08-06,3.65,ACT/360 simple,10,10,0.007040895,1420.273973,5184.000,0.70,1000.00
+2026-08-06,3.65,ACT/360 simple,10,30,0.021122685,473.424658,1728.000,2.11,1000.00
+2026-08-06,3.65,ACT/360 simple,10,60,0.042245370,236.712329,864.000,4.22,1000.00

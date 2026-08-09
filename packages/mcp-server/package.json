@@ -1,5 +1,6 @@
 {
   "name": "@suwappu/mcp-server",
+  "mcpName": "bot.suwappu/mcp",
   "version": "0.6.0",
   "description": "Stdio bridge to Suwappu's hosted MCP tools, resources, and prompts",
   "type": "module",

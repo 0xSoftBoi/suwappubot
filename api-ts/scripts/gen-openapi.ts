@@ -255,7 +255,11 @@ const SCHEMA_MAP: Record<
 				},
 				side: { description: 'Position direction.' },
 				size: { description: 'Position size in base units (positive).', example: 1 },
-				leverage: { description: 'Leverage multiplier (1-20).', example: 5 },
+				leverage: {
+					description:
+						'Leverage multiplier (1 through the market maxLeverage returned by GET /perps/markets; current Suwappu ceiling is 20).',
+					example: 5,
+				},
 			},
 		},
 	},
@@ -271,7 +275,6 @@ const SCHEMA_MAP: Record<
 				price: { description: 'Decimal string between 0 and 1.', example: '0.62' },
 				size: { description: 'Positive decimal string (number of shares).', example: '10' },
 				side: { description: 'Order direction.' },
-				feeRateBps: { description: 'Optional fee rate in basis points (0-500).' },
 			},
 		},
 	},

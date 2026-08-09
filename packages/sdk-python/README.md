@@ -4,8 +4,9 @@ Async Python client for the [Suwappu](https://suwappu.bot) agent API: quotes,
 custody-aware swaps, portfolios, prices, perps, prediction markets, lending, and
 agent controls. Call `list_chains()` to discover the current chain set.
 
-> **Release status:** the Python SDK source is currently `0.3.0` and is **not
-> published to PyPI**. Do not assume `pip install suwappu` is available yet.
+> **Version check:** this repository describes Python SDK source `0.3.0`.
+> Check `python -m pip index versions suwappu` before relying on PyPI; if the
+> package/version is unavailable, install the source as shown below.
 
 ## Install
 
@@ -68,8 +69,8 @@ sim = await client.simulate_swap(
     quote_id=quote.quote_id,
     wallet_address="0xYourWallet",
 )
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
 prepared = await client.prepare_swap(
     quote_id=quote.quote_id,
@@ -113,15 +114,21 @@ sim = await client.simulate_swap(
     quote_id=quote.quote_id,
     wallet_address=wallet.address,
 )
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
-result = await client.execute_managed_swap(quote.quote_id)
+result = await client.execute_managed_swap(
+    quote.quote_id,
+    idempotency_key="rebalance-2026-08-06-001",
+)
 print(result.swap_id, result.status, result.tx_hash)
 ```
 
 `execute_managed_swap()` calls `POST /v1/agent/swap/execute`.
 `execute_swap()` remains a backwards-compatible alias for that managed path.
+For durable automation, give every intended trade a stable `idempotency_key`.
+After an unknown timeout/network/5xx outcome, reconcile before retrying and
+reuse the same key.
 
 ## Configuration
 
@@ -147,19 +154,43 @@ quote = await client.perps.quote("ETH-USD", "long", 1.0, 5.0)
 positions = await client.perps.positions("0xYourWallet")
 ```
 
+`markets[0].max_leverage` is the current Suwappu quote cap for that market;
+`venue_max_leverage` preserves Hyperliquid's raw venue maximum. `funding_rate`
+is the current raw market rate, not accrued position funding P&L. Perps remain
+read/quote-only on the Agent API.
+
 ### Predictions (Polymarket) — `client.predict`
 
 ```python
 markets = await client.predict.markets(query="crypto", limit=10)
-detail = await client.predict.market("0xMarketId")
+market_id = markets[0].id
+detail = await client.predict.market(market_id)
+book = await client.predict.book(market_id)
+prices = await client.predict.price(market_id)
+trades = await client.predict.trades(market_id, limit=20)
 ```
+
+`detail.condition_id` is the venue/on-chain condition identity; it is not the
+market `id` used by the read routes. `detail.tokens` exposes the outcome token
+IDs. Trading is a separate authority boundary: `client.predict.order(...)`
+takes one of those `token_id` values plus string `price`/`size` and a required
+`side` (`"BUY"` or `"SELL"`), and currently maps to the API's GTC limit-order
+route.
 
 ### Lending (Morpho) — `client.lend`
 
 ```python
 markets = await client.lend.markets(chain_id=8453)
-detail = await client.lend.market("0xMarketId")
+detail = await client.lend.market("0xMarketId", chain_id=8453)
 ```
+
+`supply_apy`, `borrow_apy`, and `utilization` are current percentages.
+`total_supply_usd`, `total_borrow_usd`, and `available_liquidity_usd` are
+explicit nullable USD values from Morpho; `total_supply` / `total_borrow` are
+backwards-compatible aliases. `listed` is Morpho's interface listing status,
+not a safety guarantee, and `warnings` carries active upstream warning
+types/levels. Market IDs are chain-scoped; detail defaults to Base (`8453`) if
+the chain is omitted. Lending is read-only on the Agent API today.
 
 ### Wallets & swap safety
 
@@ -169,8 +200,8 @@ await client.agent.list_wallets()
 
 # Dry-run before you commit. Surfaces reverts and gas while nothing is at stake.
 sim = await client.simulate_swap(quote_id=quote.quote_id, wallet_address="0x…")
-if not sim.success:
-    raise RuntimeError(sim.reason)
+if not sim.would_execute:
+    raise RuntimeError("; ".join(sim.warnings))
 
 history = await client.list_swaps(status="completed", limit=20)  # managed swap records
 ```
@@ -229,8 +260,7 @@ except SuwappuError as err:
 
 ## Publishing
 
-This package is not yet published to PyPI. When ready, publishing follows the
-standard `build` + `twine` flow from `packages/sdk-python/`:
+Publishing follows the standard `build` + `twine` flow from `packages/sdk-python/`:
 
 ```bash
 python3 -m build

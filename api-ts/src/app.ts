@@ -7,7 +7,7 @@ import type { AgentErrorCode } from './lib/agentError'
 import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware, otelRequestTracing } from './middleware'
+import { adminKeyAuth, createCorsMiddleware, createMcpOriginGuard, otelRequestTracing } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
@@ -25,6 +25,8 @@ import {
 	perpsRoutes,
 	rewardsRoutes,
 	predictRoutes,
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
 	publicSwapRoutes,
 	smartAccountRoutes,
 	stakingRoutes,
@@ -57,6 +59,7 @@ export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string | undefined
 	internalApiKey?: string | undefined
+	internalApiUrl?: string | undefined
 	// String 'true'/'false' (matches the *_ENABLED convention in EnvService).
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
@@ -143,7 +146,12 @@ export function createApp(config: AppConfig) {
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
 
-	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
+	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
+	// This exact-path gateway must be mounted before swapRoutes; requests carrying
+	// Telegram init-data fall through to the existing api-ts implementation.
+	app.route('/', createTerminalSwapProxyRoutes({ baseUrl: config.internalApiUrl }))
+
+	// Native api-ts swap routes are still ahead of the general /webapp routers below.
 	app.route('/webapp/swap', swapRoutes)
 
 	// P2P marketplace (native offer book + trades; external aggregation via bot)
@@ -161,6 +169,12 @@ export function createApp(config: AppConfig) {
 	// Webapp feature stubs - intentional placeholders for in-development features
 	app.route('/webapp', webappStubs)
 
+	// Terminal is built with https://api.suwappu.bot as its production API origin,
+	// while browser auth and a small set of read-only Terminal feeds still live in
+	// Python. Bridge only that explicit allowlist; money-changing Python routes stay
+	// unreachable from api-ts until they receive their own reviewed implementation.
+	app.route('/', createPythonProxyRoutes({ baseUrl: config.internalApiUrl }))
+
 	// Staking routes - SUWP token staking dashboard
 	app.route('/staking', stakingRoutes)
 
@@ -173,8 +187,8 @@ export function createApp(config: AppConfig) {
 	// Enterprise org management + API key control plane
 	app.route('/enterprise', enterpriseRoutes)
 
-	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
-	// Registration is public, other endpoints require Bearer token
+	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
+	// Protocol-specific routes mounted below define their own auth boundary as well.
 	app.route('/v1/agent', agentRoutes)
 
 	// Protocol-specific agent routes
@@ -188,6 +202,10 @@ export function createApp(config: AppConfig) {
 	// MCP endpoint for OpenClaw and other MCP-compatible agents
 	// Generous IP rate limit — public methods (initialize, tools/list, etc.) are
 	// unauthenticated, so this is the only throttle protecting them from abuse.
+	// Streamable HTTP additionally requires rejecting an invalid Origin (when
+	// present) to prevent DNS-rebinding attacks against MCP endpoints.
+	app.use('/mcp', createMcpOriginGuard(config.allowedOrigins))
+	app.use('/mcp/*', createMcpOriginGuard(config.allowedOrigins))
 	app.use('/mcp', ipRateLimit(60))
 	app.use('/mcp/*', ipRateLimit(60))
 	app.route('/mcp', mcpRoutes)
@@ -235,8 +253,8 @@ export function createApp(config: AppConfig) {
 https://api.suwappu.bot/v1/agent
 
 ## Auth
-Bearer token via \`Authorization: Bearer suwappu_sk_...\`
-Get key: POST /register (no auth needed)
+Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`.
+Get a key with POST /register (no auth needed). Lending REST reads listed below are public.
 
 ## Quick Start
 1. POST /register {"name":"my-agent"} → get api_key + 100 free starter credits
@@ -256,6 +274,8 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - POST /register — Register agent, get API key
 - GET /chains — List supported chains
 - GET /openapi — OpenAPI 3.1 spec
+- GET /lend/markets?chainId= — Current Morpho market snapshots
+- GET /lend/market/:id?chainId= — Chain-scoped Morpho market detail
 
 ### Authenticated
 - GET /me — Agent profile
@@ -291,8 +311,8 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - GET /predict/positions — Positions with PnL
 
 ### Lending (Morpho)
-- GET /lend/markets?chainId= — List lending markets
-- GET /lend/market/{id} — Market detail
+- GET /lend/markets?chainId= — Current APY, USD liquidity, listing status, and warnings
+- GET /lend/market/{id}?chainId= — Chain-scoped market detail (read-only)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
@@ -346,7 +366,7 @@ https://suwappu.bot/docs
 > Every REST endpoint on the Suwappu agent surface, one line each. See /llms.txt for the short version, GET /v1/agent/openapi for the full OpenAPI 3.1 spec, and https://suwappu.bot/docs for prose docs.
 
 ## Auth
-Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1/agent/register (public, no auth).
+Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1/agent/register (public, no auth). The lending REST reads explicitly marked public below do not require it.
 
 ## Agent Account (/v1/agent)
 - POST /v1/agent/register — Register agent, get API key (public, IP rate-limited 5/min)
@@ -393,7 +413,7 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1
 - POST /billing/crypto — Crypto-native subscription for human users (Telegram-authed)
 
 ## Perpetual Futures — HyperLiquid (/v1/agent/perps)
-- GET /v1/agent/perps/markets — List perp markets (mark price, funding, max leverage)
+- GET /v1/agent/perps/markets — List perp markets (live mark/funding, Suwappu quote max, venue max leverage)
 - POST /v1/agent/perps/quote — Quote a leveraged long/short position
 - GET /v1/agent/perps/positions?address= — Open positions for a wallet
 
@@ -410,11 +430,11 @@ Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1
 - GET /v1/agent/predict/orders — Open orders
 
 ## Lending — Morpho (/v1/agent/lend)
-- GET /v1/agent/lend/markets?chainId= — List lending markets (APY, LLTV, TVL)
-- GET /v1/agent/lend/market/:id — Market detail
+- GET /v1/agent/lend/markets?chainId= — Current APY/utilization, USD supply/borrow/liquidity, listing status, warnings (public, read-only)
+- GET /v1/agent/lend/market/:id?chainId= — Chain-scoped market detail (public, read-only)
 
 ## Protocols
-- MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0, 15 tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market
+- MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0; call tools/list for the current tool catalog
 - A2A: POST https://api.suwappu.bot/a2a — JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json (also /.well-known/agent-card.json)
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi

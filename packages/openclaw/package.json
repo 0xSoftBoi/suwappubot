@@ -1,6 +1,6 @@
 {
   "name": "@suwappu/openclaw",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -56,6 +56,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

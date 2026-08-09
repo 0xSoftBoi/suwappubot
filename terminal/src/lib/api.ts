@@ -49,6 +49,7 @@ import type {
   PredictOrderResult,
   PredictRedeemResult,
   TopTrader,
+  TraderFeedItem,
   TraderProfile,
   FollowedTrader,
   CopyTrade,
@@ -101,7 +102,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
-  } catch {
+  } catch (error) {
+    // TanStack supplies an AbortSignal to quote/route queries. Preserve an
+    // intentional cancellation instead of misreporting it as a network outage.
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error
+    }
     // fetch() rejects (TypeError "Load failed" / "Failed to fetch") on network/CORS
     // failures — surface a human message instead of the raw browser error.
     throw { detail: "Can't reach Suwappu right now. Check your connection and try again.", status: 0 }
@@ -178,6 +184,7 @@ export const api = {
       userId?: number
       address?: string
       walletProvider?: string
+      sessionSource?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
@@ -186,7 +193,15 @@ export const api = {
       userId: result.userId,
       walletAddress: result.address,
       walletProvider: result.walletProvider ?? null,
+      sessionSource: result.sessionSource ?? null,
     }
+  },
+
+  logout() {
+    return request<{ success: boolean }>('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
@@ -286,10 +301,11 @@ export const api = {
   // Bridge — cross-chain routes and in-flight tracking. Separate from swap
   // because the interesting state is what happens *between* the chains, which
   // a single quote/execute pair has nowhere to put.
-  getBridgeRoutes(req: BridgeRoutesRequest) {
+  getBridgeRoutes(req: BridgeRoutesRequest, signal?: AbortSignal) {
     return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 
@@ -315,10 +331,11 @@ export const api = {
   },
 
   // Swap
-  getSwapQuote(req: SwapQuoteRequest) {
+  getSwapQuote(req: SwapQuoteRequest, signal?: AbortSignal) {
     return request<SwapQuote>('/webapp/swap/quote', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 
@@ -633,43 +650,48 @@ export const api = {
     return request<DevWatchHit[]>(`/terminal/intel/devwatch/hits?limit=${limit}`)
   },
 
-  // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)
-  getTopTraders(timeframe?: string, limit?: number) {
+  // Copy Trading — Terminal-aware routes accept the same browser session used
+  // everywhere else in Terminal. Trader discovery/profile reads are public;
+  // follow/copy state stays authenticated server-side.
+  getTopTraders(timeframe?: string, limit?: number, query?: string) {
     const params = new URLSearchParams()
     if (timeframe) params.set('timeframe', timeframe)
     if (limit) params.set('limit', String(limit))
+    if (query) params.set('q', query)
     const qs = params.toString()
-    return request<TopTrader[]>(`/webapp/me/copy/top-traders${qs ? `?${qs}` : ''}`)
+    return request<TopTrader[]>(`/webapp/copy-trading/top-traders${qs ? `?${qs}` : ''}`)
+  },
+
+  getTraderFeed(limit = 50) {
+    return request<TraderFeedItem[]>(`/webapp/copy-trading/feed?limit=${limit}`)
   },
 
   getTraderProfile(traderId: string) {
-    return request<TraderProfile>(`/webapp/me/copy/trader/${traderId}`)
+    return request<TraderProfile>(`/webapp/copy-trading/traders/${traderId}`)
   },
 
   followTrader(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
+    return request<void>(`/webapp/copy-trading/follow/${traderId}`, {
       method: 'POST',
       body: JSON.stringify(settings),
     })
   },
 
   unfollowTrader(traderId: string) {
-    // Backend uses DELETE /webapp/me/copy/follow/:traderId
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
+    return request<void>(`/webapp/copy-trading/unfollow/${traderId}`, { method: 'POST' })
   },
 
   getFollowing() {
-    return request<FollowedTrader[]>('/webapp/me/copy/following')
+    return request<FollowedTrader[]>('/webapp/copy-trading/following')
   },
 
   getCopyTrades(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
-    return request<CopyTrade[]>(`/webapp/me/copy/trades${params}`)
+    return request<CopyTrade[]>(`/webapp/copy-trading/trades${params}`)
   },
 
   updateFollowSettings(traderId: string, settings: FollowSettings) {
-    // Backend uses PUT /webapp/me/copy/follow/:traderId
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
+    return request<void>(`/webapp/copy-trading/follow/${traderId}/settings`, {
       method: 'PUT',
       body: JSON.stringify(settings),
     })

@@ -2,6 +2,8 @@
 
 Set price-triggered swap orders that execute automatically when your target price is reached.
 
+This page documents the Telegram Mini App's **price-triggered limit-order** surface. If you are building scheduled fixed-dollar recurring purchases with an agent API key, use [Build a Standalone Recurring DCA Product](dca-automation.md) instead.
+
 > **Authentication note:** The `/webapp/me/limit-orders` endpoints are protected by Telegram Mini App authentication (`X-Telegram-Init-Data`). They are accessible only from inside the Suwappu Telegram Mini App, not via agent API keys. Agent/API-key access to limit orders is not yet available.
 
 ## How It Works
@@ -69,7 +71,7 @@ const res = await fetch('https://api.suwappu.bot/webapp/me/limit-orders', {
 
 **Take profit:** Set `triggerType: "gte"` to sell ETH when the price rises above $4,000.
 
-**Accumulate:** Create multiple limit orders at different price levels to dollar-cost average into a position.
+**Price-ladder accumulation:** Create multiple limit orders at different price levels. This is price-triggered accumulation, not a time-scheduled DCA worker.
 
 ## Telegram Bot
 

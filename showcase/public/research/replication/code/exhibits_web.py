@@ -14,6 +14,7 @@ Differences from exhibits.py (which targets print/PDF):
 
 Output: <showcase>/public/research/*.svg
 Usage:  python3 exhibits_web.py [output_dir]
+        EXHIBIT_ONLY=points-participation.svg python3 exhibits_web.py [output_dir]
 """
 import csv, json, os, re, sys
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, "data")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "figures", "web")
 os.makedirs(OUT, exist_ok=True)
+ONLY = {name.strip() for name in os.getenv("EXHIBIT_ONLY", "").split(",") if name.strip()}
 
 SKY, PERSIMMON = "#0284C7", "#E58D2B"
 INK, MUTED, LINE, FAINT = "#17324A", "#4F6F7F", "#B9DFE9", "#DCEDF3"
@@ -53,7 +55,7 @@ plt.rcParams.update({
 def frame(ax, title, subtitle=None, source=None):
     n = subtitle.count("\n") + 1 if subtitle else 0
     ax.set_title(title, loc="left", fontsize=11.5, color=INK,
-                 pad=8 + 12 * n, fontweight="600")
+                 pad=8 + 12 * n, fontweight="semibold")
     if subtitle:
         ax.annotate(subtitle, xy=(0, 1.0), xycoords="axes fraction",
                     xytext=(0, 6), textcoords="offset points",
@@ -65,6 +67,9 @@ def frame(ax, title, subtitle=None, source=None):
 
 
 def save(fig, name):
+    if ONLY and name not in ONLY:
+        plt.close(fig)
+        return
     path = os.path.join(OUT, name)
     fig.savefig(path, format="svg")
     plt.close(fig)
@@ -96,11 +101,11 @@ a.axhspan(0.4, 1.0, color=FAINT, alpha=0.45, zorder=0)
 a.plot(dates, ratio, lw=2.2, color=SKY, solid_capstyle="round")
 a.axhline(1.0, color=PERSIMMON, lw=1.6, ls=(0, (4, 3)))
 a.annotate("Full backing (1.00)", xy=(dates[2], 1.0), xytext=(0, 7),
-           textcoords="offset points", fontsize=8, color=PERSIMMON, fontweight="700")
+           textcoords="offset points", fontsize=8, color=PERSIMMON, fontweight="bold")
 a.annotate("Readings here pair supply with an\nescrow that did not yet hold its backing",
            xy=(dates[5], 0.60), fontsize=7.5, color=MUTED)
 a.annotate(f"latest: {ratio[-1]:.4f}", xy=(dates[-1], ratio[-1]), xytext=(-78, -26),
-           textcoords="offset points", fontsize=8, color=INK, fontweight="600",
+           textcoords="offset points", fontsize=8, color=INK, fontweight="semibold",
            arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.9))
 a.set_ylim(0.45, 1.24)
 frame(a, "The apparent surplus shrinks as the measured universe grows",
@@ -118,9 +123,9 @@ fig, ax = plt.subplots(figsize=(7.2, 3.6))
 ax.plot(dates, coll, lw=2.2, color=SKY, solid_capstyle="round")
 ax.plot(dates, liab, lw=2.2, color=PERSIMMON, solid_capstyle="round")
 ax.annotate("Collateral", xy=(dates[-1], coll[-1]), xytext=(8, 5),
-            textcoords="offset points", fontsize=8.5, color=SKY, fontweight="700")
+            textcoords="offset points", fontsize=8.5, color=SKY, fontweight="bold")
 ax.annotate("Liabilities", xy=(dates[-1], liab[-1]), xytext=(8, -12),
-            textcoords="offset points", fontsize=8.5, color=PERSIMMON, fontweight="700")
+            textcoords="offset points", fontsize=8.5, color=PERSIMMON, fontweight="bold")
 ax.axvline(datetime(2025, 8, 27, 18, tzinfo=timezone.utc), color=MUTED, lw=1, ls=(0, (3, 3)))
 ax.annotate("27 Aug 2025: +$1.26bn into the\nlockbox against flat liabilities",
             xy=(datetime(2025, 8, 27, 18, tzinfo=timezone.utc), 1.4),
@@ -176,7 +181,7 @@ a.bar(x, med, width=0.62, color=SKY)
 a.errorbar(x, med, yerr=err, fmt="none", ecolor=INK, elinewidth=1.2, capsize=4)
 for i, v in enumerate(act):
     a.annotate(f"{v[0]:.0f}", xy=(i, v[2]), xytext=(0, 5), textcoords="offset points",
-               ha="center", fontsize=9, color=INK, fontweight="700")
+               ha="center", fontsize=9, color=INK, fontweight="bold")
 a.set_xticks(x); a.set_xticklabels([str(v) for v in sig])
 a.set_ylim(0, 28); a.set_yticks([0, 10, 20])
 a.set_xlabel("cost dispersion σ", fontsize=8.5, color=MUTED)
@@ -189,24 +194,24 @@ b.errorbar(x, meds, yerr=errs, fmt="none", ecolor=INK, elinewidth=1.2, capsize=4
 for i, v in enumerate(sur):
     b.annotate(f"{v[0]*100:.0f}%", xy=(i, v[2] * 100), xytext=(0, 5),
                textcoords="offset points", ha="center", fontsize=9,
-               color=INK, fontweight="700")
+               color=INK, fontweight="bold")
 b.set_xticks(x); b.set_xticklabels([str(v) for v in sig])
 b.set_ylim(0, 58); b.set_yticks([0, 20, 40])
 b.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
 b.set_xlabel("cost dispersion σ", fontsize=8.5, color=MUTED)
-b.set_title("Pool captured as operator profit", loc="left", fontsize=9, color=INK)
+b.set_title("Modeled participant surplus", loc="left", fontsize=9, color=INK)
 b.grid(axis="x", visible=False)
-fig.suptitle("A points pool is captured by single-digit numbers of operators",
-             x=0.005, y=1.06, ha="left", fontsize=11.5, color=INK, fontweight="600")
-fig.text(0.005, -0.16, "Bars are medians of 500 draws per σ; whiskers span the 5th–95th percentile.\n"
-         "Suwappu Research · closed-form equilibrium, n=5,000 potential entrants, seed 20260726",
+fig.suptitle("Model benchmark: cost dispersion compresses the active set",
+             x=0.005, y=1.06, ha="left", fontsize=11.5, color=INK, fontweight="semibold")
+fig.text(0.005, -0.16, "Model output, not an empirical forecast · medians of 500 draws; whiskers span the 5th–95th percentile.\n"
+         "Suwappu Research · closed-form equilibrium, n=5,000 potential entrants · active-set description rejected in Paper 3",
          fontsize=7, color=MUTED, ha="left", alpha=0.85)
 save(fig, "points-participation.svg")
 
 # --- 5. denomination --------------------------------------------------------
 res = json.load(open(os.path.join(DATA, "tullock_results.json")))
 p5 = res["P5_revenue_capture"]
-labels = ["Volume-\ndenominated", "Mixed", "Fee-denominated\n(cheap chain)", "Fee-denominated\n(very cheap)"]
+labels = ["Volume-\ndenominated", "Mixed", "Fee-denominated\n(low external cost)", "Fee-denominated\n(very low external cost)"]
 rev = [r["protocol_revenue"] / 1e3 for r in p5]
 dead = [r["deadweight"] / 1e3 for r in p5]
 fig, ax = plt.subplots(figsize=(7.2, 3.4))
@@ -215,16 +220,16 @@ ax.bar(x, rev, 0.6, color=SKY)
 ax.bar(x, dead, 0.6, bottom=rev, color=LINE)
 for i, (r_, d_) in enumerate(zip(rev, dead)):
     ax.annotate(f"${r_:,.0f}k", xy=(i, r_ / 2), ha="center", va="center",
-                fontsize=8.5, color="white", fontweight="700")
+                fontsize=8.5, color="white", fontweight="bold")
 ax.annotate("kept by the protocol", xy=(0, rev[0]), xytext=(14, 26),
-            textcoords="offset points", fontsize=7.5, color=SKY, fontweight="700")
-ax.annotate("lost to gas, slippage, MEV", xy=(0, rev[0] + dead[0] * 0.6),
+            textcoords="offset points", fontsize=7.5, color=SKY, fontweight="bold")
+ax.annotate("modeled third-party friction", xy=(0, rev[0] + dead[0] * 0.6),
             xytext=(14, 6), textcoords="offset points", fontsize=7.5, color=MUTED)
 ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=8)
 ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.0f}k"))
-frame(ax, "Denomination decides who keeps the dissipated value",
-      "Equilibrium spend of $990k on a $1m pool (n=100), by points design",
-      "Suwappu Research · closed-form equilibrium; see the paper for the revenue-capture identity")
+frame(ax, "Model identity: denomination changes the destination of spend",
+      "Conditional scenario: $990k modeled dissipation on a $1m pool (n=100)",
+      "Suwappu Research · scenario output, not measured or forecast revenue; see Paper 2 for assumptions")
 save(fig, "points-denomination.svg")
 
 # --- 6. v3: the published artifact vs the corrected series ------------------
@@ -243,12 +248,12 @@ ax.axhline(1.0, color=LINE, lw=1)
 ax.plot(np.array(dates)[pre], ratio[pre], color=PERSIMMON, lw=1.4, ls=(0, (3, 2)))
 ax.annotate("what we published in v2\n(wrong backing account)",
             xy=(dates[4], ratio[4]), xytext=(-4, 34), textcoords="offset points",
-            fontsize=7.5, color=PERSIMMON, fontweight="700", ha="left", va="bottom")
+            fontsize=7.5, color=PERSIMMON, fontweight="bold", ha="left", va="bottom")
 # the corrected series: continuous, never below par
 ax.plot(dates, corr_ratio, color=SKY, lw=1.6)
 ax.annotate("corrected: lockbox + canonical Polygon predicate",
             xy=(mdates.date2num(datetime(2026, 2, 20, tzinfo=timezone.utc)), 1.145),
-            xycoords="data", fontsize=7.5, color=SKY, fontweight="700", ha="center")
+            xycoords="data", fontsize=7.5, color=SKY, fontweight="bold", ha="center")
 brk = datetime(2025, 8, 27, tzinfo=timezone.utc)
 ax.axvline(brk, color=MUTED, lw=0.8, ls=":")
 ax.annotate("27 Aug 2025: issuer migrates\nPolygon backing into the lockbox",
@@ -274,23 +279,24 @@ ax.plot(hy[:, 0], hy[:, 1], color=SKY, lw=1.7)
 ax.plot(ei[:, 0], ei[:, 1], color=PERSIMMON, lw=1.7)
 ax.plot(en[:, 0], en[:, 1], color=MUTED, lw=1.4, alpha=0.9)
 ax.annotate("ENA S1 (Gini 0.904)", xy=(0.38, 0.145), fontsize=7.5,
-            color=MUTED, fontweight="700")
+            color=MUTED, fontweight="bold")
 ax.annotate("HYPE genesis (Gini 0.947)", xy=(0.68, 0.10), fontsize=8,
-            color=SKY, fontweight="700")
+            color=SKY, fontweight="bold")
 ax.annotate("EIGEN S1 both phases, bonus-adjusted (Gini 0.943)", xy=(0.26, 0.062), fontsize=8,
-            color=PERSIMMON, fontweight="700")
-# the model's allocation at sigma=0.2, matched n: top ~20 wallets own everything —
-# a Lorenz curve hugging the floor until the last sliver of the population.
+            color=PERSIMMON, fontweight="bold")
+# Selected model benchmark at sigma=0.2: the positive-effort set is tiny relative
+# to the matched wallet population, so its Lorenz curve hugs the floor until the
+# last sliver. This is a benchmark shape, not an entity-level ownership claim.
 ax.plot([0, 0.9995, 1], [0, 0, 1], color=INK, lw=1.4, ls=(0, (3, 2)))
-ax.annotate("Tullock active-set model, σ=0.2\n(~20 wallets own the entire pool)",
-            xy=(0.985, 0.20), fontsize=7.5, color=INK, ha="right", fontweight="700")
+ax.annotate("Tullock model benchmark, σ=0.2\n(~20 modeled active wallets)",
+            xy=(0.985, 0.20), fontsize=7.5, color=INK, ha="right", fontweight="bold")
 ax.set_xlabel("share of recipient wallets (poorest first)")
 ax.set_ylabel("share of allocation")
 ax.set_xlim(0, 1)
 ax.set_ylim(0, 1)
-frame(ax, "Airdrop allocations are unequal like wealth, not like a contest",
-      "Lorenz curves of complete recipient-level allocations vs the model's equilibrium",
-      "Suwappu Research · HYPE genesis state (90,912 wallets) · EIGEN two-phase logs (239,035) · ENA four-channel logs (46,198)")
+frame(ax, "Observed wallet vectors reject the model's tiny active-set shape",
+      "Lorenz curves: HYPE genesis, EIGEN claims (bonus-adjusted), ENA claims, and a selected model benchmark",
+      "Suwappu Research · wallet-level measurement; EIGEN/ENA are claim-recipient vectors · wallets are not beneficial owners")
 save(fig, "airdrop-lorenz.svg")
 
 print("done")

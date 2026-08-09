@@ -441,6 +441,7 @@ TOKENS: dict[str, TokenConfig] = {
             "arbitrum": "0x0000000000000000000000000000000000000000",
             "optimism": "0x0000000000000000000000000000000000000000",
             "base": "0x0000000000000000000000000000000000000000",
+            "robinhood": NATIVE_TOKEN_ADDRESS,
             "solana": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
             "starknet": starknet_addresses.ETH,
         },
@@ -1036,6 +1037,10 @@ ROBINHOOD_EQUITIES: dict[str, tuple[str, int, str]] = {
     "ZS": ("0x7dc013eB55e436f30d7ED1AFE4E36d6e45e3c3f7", 18, "Zscaler"),
 }
 
+_ROBINHOOD_EQUITY_ADDRESSES = frozenset(
+    address.lower() for address, _decimals, _name in ROBINHOOD_EQUITIES.values()
+)
+
 
 def get_robinhood_equity(symbol: str) -> Optional[tuple[str, int, str]]:
     """Look up a tokenized equity on Robinhood Chain by ticker. None if unknown."""
@@ -1047,3 +1052,10 @@ def get_robinhood_equity(symbol: str) -> Optional[tuple[str, int, str]]:
 def is_robinhood_equity(symbol: str) -> bool:
     """True if the ticker is a Robinhood Chain tokenized equity."""
     return get_robinhood_equity(symbol) is not None
+
+
+def is_robinhood_equity_address(address: str) -> bool:
+    """True only for a canonical Robinhood Stock Token contract address."""
+    if not address:
+        return False
+    return address.lower() in _ROBINHOOD_EQUITY_ADDRESSES

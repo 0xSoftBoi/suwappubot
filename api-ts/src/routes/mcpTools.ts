@@ -67,10 +67,12 @@ const SIMULATE_SWAP_INPUT = mcpInputSchema(SimulateSwapSchema, {
 })
 
 const PERPS_QUOTE_INPUT = mcpInputSchema(PerpsQuoteSchema, {
-	market: 'Perp market symbol (e.g. "ETH-PERP", "BTC-PERP") from perps_markets',
+	market:
+		'Perp market name (e.g. "ETH-USD", "BTC-USD") returned by perps_markets',
 	side: 'Position direction',
 	size: 'Position size in the base asset',
-	leverage: 'Leverage multiplier (e.g. 10). Between 1 and 20.',
+	leverage:
+		'Leverage multiplier (e.g. 10). Use the market maxLeverage returned by perps_markets; current Suwappu ceiling is 20.',
 })
 
 const TOOLS = [
@@ -126,7 +128,7 @@ const TOOLS = [
 			properties: {
 				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
 				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
-				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
+				idempotency_key: { type: 'string', description: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.' },
 			},
 			required: ['quote_id', 'wallet_address'],
 		},
@@ -174,7 +176,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -202,21 +204,24 @@ const TOOLS = [
 	},
 	{
 		name: 'lend_markets',
-		description: 'List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.',
+		description:
+			'List Morpho lending markets on a chain with current APY/utilization, explicit USD supply/borrow/liquidity, listing status, and Morpho warnings. Read-only.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				chain_id: { type: 'number', description: 'EVM chain ID (default 8453 = Base)' },
+				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
 			},
 		},
 	},
 	{
 		name: 'lend_market',
-		description: 'Get details for a single Morpho lending market by its unique market ID.',
+		description:
+			'Get current read-only detail for a Morpho lending market by market ID and chain, including USD liquidity, listing status, warnings, oracle, and IRM.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				market_id: { type: 'string', description: 'Morpho market unique ID (from lend_markets results)' },
+				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
 			},
 			required: ['market_id'],
 		},
@@ -250,7 +255,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -261,7 +266,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 			},
 			required: ['market_id'],
 		},
@@ -272,7 +277,7 @@ const TOOLS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
 				limit: { type: 'number', description: 'Max trades to return (default 20)' },
 			},
 			required: ['market_id'],
