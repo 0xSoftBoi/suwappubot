@@ -116,6 +116,14 @@ branch + applied diff.)
 - **Money-path verdicts:** #817 Polymarket port **BLOCK** (critical: bare-hex signature → every order rejected; no tick rounding; TS neg-risk gap) — fixer dispatched to the branch. #820 compliance port **BLOCK** (critical: OFAC file loader still drops TRON lines; Solana unscreened; ENFORCE fail-open) — fixer dispatched. Both re-review after fixes.
 - **Stray branches for Phase 5 cleanup:** reland/tmp-bin-probe, reland/docs-dark-theme (deletion blocked in this env).
 
+### Round 4 (same day)
+
+- **Merged:** #816 TS7 (b71a03b), #819 research re-land (4052cb6). Total: 15.
+- **Ports opened:** #822 chain coverage (aurora/blast/ink were orphan keys in 4 aggregator maps), #823 rug auto-sell + redemption idempotency (from #641's landable half — main's rug service was a demo stub; redemption idempotency helpers were dead code).
+- **#641 remainder** (KMS-off-event-loop, TP/SL notify wiring) deferred to follow-up — real MONEY-PATH gap, tracked.
+- **Review gate results:** #817 fix round 1 verified but tick-fix introduced a new CRITICAL (sub-tick price → 0.00 giveaway order; size-from-raw-price overpay) — round-2 fixer dispatched. #823 BLOCK (rug sell no-ops on Postgres String(20) mint truncation; flash-loan-defeatable floor; inert idempotency lock) — fixer dispatched. #820 fixes pushed (1835 tests pass) — re-review in flight.
+- **Stragglers:** #813 conflicts resolved + pushed; #797 CI retriggered (app-authored pushes don't fire Actions — root cause); #818 fixed (bun.lock never synced with new dep). Closer agent polling to merge all three.
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
