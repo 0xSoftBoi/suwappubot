@@ -1,0 +1,82 @@
+import { useCallback } from 'react'
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
+import { useSnapshot } from '../../src/hooks/use-gecko'
+import { isAuthenticated } from '../../src/lib/auth'
+import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
+import { palette, spacing, styles as s } from '../../src/theme'
+
+function greeting(): string {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning.'
+  if (hour < 18) return 'Good afternoon.'
+  return 'Good evening.'
+}
+
+export default function TodayScreen() {
+  const signedIn = isAuthenticated()
+  const { data, isLoading, isError, isRefetching, refetch } = useSnapshot(signedIn)
+  const refresh = useCallback(() => void refetch(), [refetch])
+
+  if (!signedIn) return <SignedOutState />
+  if (isLoading && !data) return <LoadingState label="Reading your money…" />
+  if (isError && !data) return <ErrorState message="Gecko couldn’t load your money." onRetry={refresh} />
+
+  const change = data?.coverage === 'complete'
+    ? snapshotChange(data.history, data.totalValueUsd)
+    : null
+  const top = data?.byToken[0]
+
+  return (
+    <ScrollView
+      style={s.screen}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={local.content}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} tintColor={palette.accent} />}
+    >
+      <View style={local.intro}>
+        <Text style={s.title}>{greeting()}</Text>
+        <Text style={local.lede}>Here’s what matters in your money right now.</Text>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.muted}>Money I can price</Text>
+        <Text selectable style={local.total}>{formatUsd(data?.totalValueUsd ?? 0)}</Text>
+        {data ? <Text style={s.muted}>Updated {formatDate(data.lastUpdated)}</Text> : null}
+      </View>
+
+      <Text style={s.heading}>Quick read</Text>
+      <View style={local.stack}>
+        <View style={s.card}>
+          <Text style={s.muted}>Change</Text>
+          <Text selectable style={s.body}>
+            {change
+              ? `${change.delta >= 0 ? 'Up' : 'Down'} ${formatUsd(Math.abs(change.delta))} (${Math.abs(change.percent).toFixed(1)}%) since ${formatDate(change.since)}`
+              : data?.coverage === 'best_effort'
+                ? 'I’m withholding gain/loss until I can verify complete source coverage.'
+                : 'History is still building. I’ll compare changes when there’s enough real data.'}
+          </Text>
+        </View>
+        <View style={s.card}>
+          <Text style={s.muted}>Concentration</Text>
+          <Text selectable style={s.body}>
+            {top
+              ? `${top.symbol} is your largest holding at ${top.allocationPct.toFixed(1)}% of the money I can price.`
+              : 'No priced holdings are available yet.'}
+          </Text>
+        </View>
+      </View>
+      {isError && data ? <Text selectable style={local.stale}>Offline for now — showing your last saved snapshot.</Text> : null}
+      <LegalLinks />
+    </ScrollView>
+  )
+}
+
+const local = StyleSheet.create({
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  intro: { gap: spacing.xs },
+  lede: { color: palette.textSecondary, fontSize: 17, lineHeight: 24 },
+  total: { color: palette.text, fontSize: 38, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  stack: { gap: spacing.sm },
+  stale: { color: palette.textMuted, fontSize: 12, textAlign: 'center' },
+})
