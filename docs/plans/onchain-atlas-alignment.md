@@ -1,135 +1,294 @@
-# Onchain Atlas alignment — double down + how to plan what's next
+# Onchain Atlas alignment — hardened
+
+> **v2 (09 Aug 2026).** v1 of this doc took the Atlas fee leaderboard at face value. Adversarial
+> research broke that reading. This version keeps the conclusion but replaces the reasoning, and
+> the conclusion is now *stronger* — it survived a falsification pass that killed two of the four
+> original plays.
 
 Source: [onchainatlas.org](https://www.onchainatlas.org/) — 491 reviewed experiments (2011–2026),
-a live fee leaderboard (`/fees/`, 1,382 fee-reporting protocol families, DefiLlama-sourced,
-rolling 7d, hourly refresh), and a "Request for Startups" idea engine (`/studio/`).
-
-Two things matter to us:
-
-1. **`/fees/` is a demand map.** It ranks *user fees paid* — not TVL, not token price, not
-   narrative. It is the closest public proxy for "where are people actually willing to pay."
-2. **`/studio/` is a planning method**, not a list. Five funnels for deriving a product from a
-   documented failure. We should adopt the method, not copy the ideas.
-
-Atlas snapshot used here: 09 Aug 2026, 22:05 UTC.
+a live fee leaderboard (`/fees/`, 1,382 protocol families, DefiLlama-sourced, rolling 7d), and a
+"Request for Startups" idea engine (`/studio/`). Snapshot: 09 Aug 2026, 22:05 UTC.
 
 ---
 
-## 1. Where we already sit on the top-10 fee leaders
+## 0. What changed from v1, in one table
 
-| # | Protocol | 7d fees | Our coverage | Evidence |
-|---|----------|---------|--------------|----------|
-| 1 | Tether | $112.0M | **Deep** | USDT across the chain set (~57 files), TRON leg via `bot/services/sunswap_api.py` |
-| 2 | Circle | $44.5M | **Deepest** | USDC (~203 files), CCTP v1/v2 (`cctp_api.py`, `cctp_relayer.py`, `cctp_generic_relayer.py`, `cctp_hypercore.py`), Aave-on-Base savings (`bot/handlers/savings.py`) |
-| 3 | Pump.fun | $23.9M | **Real** | `bot/services/sniping/pump_fun_api.py`, `launch_detector.py`, `snipe_executor.py`, `raydium_monitor.py`, rug auto-sell (`token_security/rug_service.py`) |
-| 4 | Uniswap | $16.9M | **Deep** | `univ3_fork_api.py` + aggregator fan-out (0x, 1inch, Kyber, CoW, LiFi, OKX, Jupiter) |
-| 5 | Canton | $10.6M | **None** | Permissioned institutional rails — no retail swap surface. Correctly out of scope. |
-| 6 | Hyperliquid | $9.5M | **Deep** | `hyperliquid_client.py`, `hyperliquid_signing.py`, `hyperliquid_funding.py`, `hl_ws_alerts.py`, `hl_ecosystem_monitor.py`, `perps_service.py` |
-| 7 | Lido | $8.2M | **Token-only** | LDO/stETH exist in `bot/config/tokens.py`; `staking_service.py` is SUWP staking, not an LST product. **Gap.** |
-| 8 | Axiom | $6.9M | **None — and it's us** | A trading terminal earning $6.9M/wk in fees. Not an integration target: it is the proof our category monetizes, and the bar. |
-| 9 | Tron | $6.8M | **Deep** | ~48 files, SunSwap, TRON in the compliance screening spine |
-| 10 | Polymarket | $6.8M | **Deep** | `polymarket_api.py`, `polymarket_v2_order.py` (CLOB V2), `bot/handlers/predict.py`, `predict_monitor.py` |
-
-**Headline: we already route to 7 of the 10 highest fee-generating protocols in crypto.**
-That is the asset. The strategic error would be to read this table as "add Canton and Lido."
-Breadth is not the gap — of the three misses, one is out of scope (Canton), one is a competitor
-(Axiom), and only one is a genuine product gap (Lido/LSTs).
+| v1 claim | Verdict after research | Now |
+|---|---|---|
+| "We route to 7 of the top 10 fee leaders" | **Misleading.** 4 of the 10 aren't app fees at all | Rewritten — §1 |
+| D1 unified dollar balance | **Partly obsolete.** Circle Gateway shipped this as free infra (Aug 2025) | Rescoped — §3 |
+| D2 execution receipts | **Confirmed, and stronger than we thought.** Zero competitors do it | Promoted to #1 — §3 |
+| D3 exit-first launch loop | Holds | Kept — §3 |
+| D4 Lido / LSTs | **Killed.** Worse yield, worst-documented integrator economics of the three | Dropped — §3 |
 
 ---
 
-## 2. Double down — four depth plays on what we already have
+## 1. The fee leaderboard is not a demand map (and the correction matters)
 
-Ranked by (fee-pool size we already touch) × (work already in the repo).
+Atlas ranks DefiLlama "fees." DefiLlama defines fees as "total fees paid by users," but applies
+that single label across economically incompatible events. Breaking down the top 10:
 
-### D1. Own the stablecoin corridor (Tether + Circle = $156.5M/wk, 43% of the top 10)
-We have both issuers' rails and a working CCTP fleet. What's missing is that the corridor is a
-*capability*, not a *product*. Nobody opens the bot to "use CCTP."
+| # | Protocol | 7d fees | Signal quality | Why |
+|---|---|---|---|---|
+| 1 | Tether | $112.0M | **Artifact** | Reserve/T-bill yield on backing assets — no user pays this at point of use |
+| 2 | Circle | $44.5M | **Artifact** | Same; Circle's own filings are ~95–99% interest income |
+| 3 | Pump.fun | $23.9M | **Legitimate** | Discretionary launch/trade fees |
+| 4 | Uniswap | $16.9M | **Legitimate** | Discretionary swap fees |
+| 5 | Canton | $10.6M | **Artifact** | Permissioned settlement *chain* — gas, not an app fee |
+| 6 | Hyperliquid | $9.5M | **Legitimate** | Perp taker fees |
+| 7 | Lido | $8.2M | **Borderline** | Protocol cut of staking yield; disclosed, but not a per-use payment |
+| 8 | Axiom | $6.9M | **Legitimate — and the direct comparable** | Solana trading terminal, our category |
+| 9 | Tron | $6.8M | **Artifact** | Chain gas |
+| 10 | Polymarket | $6.8M | **Legitimate** | Prediction-market fees |
 
-- Make "send/hold/earn dollars across chains" a first-class surface, not a swap side effect.
-- One balance for USDC and one for USDT, chain-abstracted, with the bridge leg hidden.
-- Route the savings product (`handlers/savings.py`, currently Aave-on-Base USDC) off a single
-  dollar balance rather than a chain-specific one.
-- Owner: `bot-dev` + `webapp-dev`. Money-path review required.
+**~71% of the top-10 sum ($174M of $246M) is reserve yield or chain gas, not app demand.**
+Only ~$64–72M is "a user chose to pay for this product." Comparing a settlement chain to a
+memecoin launchpad in one column is a category error, and it's the #1, #2, #5 and #9 slots.
 
-### D2. Turn execution intelligence into a promise (Uniswap $16.9M + the whole routing surface)
-`execution_scorer.py` (realized-vs-quoted bps vs markout bps, cleanly separated) and
-`execution_benchmark.py` (k-anonymous cohort percentiles) already compute the hard part. Today
-they are analytics. Nobody else in the category can make an execution *claim* and back it with
-per-fill evidence.
+Confidence: high on Tether/Circle/Canton/Tron (traced to DefiLlama's own adapter definitions);
+medium on the Lido call.
 
-- Ship a per-swap execution receipt: quoted vs realized, in bps, with the cohort percentile.
-- Then the strong version: a stated tolerance, and automatic compensation from the fee account
-  when a fill misses it. This is Atlas's own "Untried Combination" thesis (bonded solvers +
-  measurable guarantees + automatic compensation) — and we are unusually close to it.
-- Owner: `bot-dev`, then `money-path-reviewer` (opus) before anything pays out.
+### What this changes
 
-### D3. Finish the launch/memecoin loop (Pump.fun $23.9M, ↑7.6% — the only top-5 riser)
-We have detection, sniping, dev-watch and rug auto-sell. The loop is strongest where it is
-already differentiated: not "buy faster" (Axiom wins that), but "get out safely."
-
-- Push rug auto-sell + `token_intel/dev_watch.py` to the front of the product, not the settings.
-- Position exit quality is the wedge against terminal competitors, not entry latency.
-
-### D4. Close the Lido gap properly ($8.2M/wk, and it feeds D1)
-Liquid staking is the one real product hole in the top 10. Do not add a "Lido integration" —
-add a yield surface where LSTs are one option alongside the existing Aave/Morpho savings path.
-
-- Reuses `handlers/savings.py`, `morpho_api.py`, `starknet_yield.py`.
-- Smallest scope that closes it: stETH/wstETH mint + redeem on the existing savings screen.
-
-**Explicitly not doing:** Canton (permissioned, no retail surface) and an "Axiom integration"
-(it is a competitor, not a venue).
+1. **The v1 headline "7 of 10" was inflated.** The honest version: of the 6 legitimate app-fee
+   entries, **we cover 5** (Pump.fun, Uniswap, Hyperliquid, Polymarket, and Uniswap's routing
+   surface); the 6th is Axiom, a competitor. That is a *better* fact than the v1 version, because
+   it's about products users chose rather than float we happen to touch.
+2. **Do not use gross fees as the planning input again.** Use take-rate × DAU, or retained app
+   revenue (Token Terminal separates fees from earnings; Artemis publishes app revenue). Gross
+   fees systematically rewards non-discretionary flow — exactly the flow a trading product
+   cannot capture.
+3. **Axiom should weigh far more than rank 8 suggests.** It is the only entry in the list that is
+   the same product as ours.
 
 ---
 
-## 3. How to plan new features — adopt Atlas's five funnels
+## 2. The competitive read — where the category actually is
 
-Atlas's `/studio/` framework: every idea starts from **a documented failure**, composes
-**proven primitives** (no breakthrough R&D), and targets a **narrow, measurable outcome**.
-That is a better intake filter than our current "what should we build next."
+Evidence from a parallel scan of Axiom, Photon, BullX, Trojan, Banana Gun, Maestro, GMGN, Bloom,
+Sigma, Vector, plus Jupiter Mobile and Phantom as the wallet-side threat.
 
-Applied to what is actually in this repo:
+**Axiom went from ~2% to ~72% of Solana bot volume in ~9 months** — fastest app to $200M revenue
+on Solana. Its moat, ranked by evidence strength, is **incentive design, not technology**: a
+Hyperliquid-style points program against a widely-assumed (unconfirmed) airdrop, plus a fee
+undercut (0.5–0.75% vs the category's 1%) with volume-scaled rebates. Speed is at parity —
+Photon and BullX are also ~400–450ms. **There is no technical moat in this category.**
+
+Two openings fall out of that:
+
+### Opening A — nobody publishes execution quality. Nobody.
+Searches for "price improvement," "execution receipt," "slippage refund," and "best execution"
+returned **zero** results tied to Axiom, Photon, BullX, Trojan, Banana Gun, Maestro, GMGN, Bloom,
+or Sigma. The entire category markets on *milliseconds* and *fee %* — never on realized-vs-quoted
+price. Closest analogues are one tier away and weaker: 1inch Fusion discloses resolver spread in
+the order preview (a marketing claim, not a per-trade receipt), and Uniswap has published
+*research* on measuring price improvement via order-flow auctions. Neither is a consumer receipt.
+
+### Opening B — "multi-chain" in this category means "Solana plus some EVM"
+Trojan reaches ETH via deBridge, not native execution. Maestro claims 14 chains with **no unified
+session** — each chain is a silo, on stacked subscription + per-trade fees. GMGN/Bloom/BullX are
+genuinely multi-chain but Solana-first in feature depth. Banana Gun has the strongest real unified
+cross-chain UX and is still EVM+Solana only. Sigma is EVM-only, no Solana.
+
+**No competitor bundles cross-chain swaps + perps + prediction markets + sniping + yield in one
+product.** Axiom bundles swap+snipe+perps but stays Solana-centric. Jupiter Mobile bundles
+swap+perps+prediction markets+lending but is Solana-only. Our 45-chain/19-provider position is
+unmatched in the scanned set.
+
+Also worth logging: **Coinbase acquired Vector.fun and wound it down (Nov 2025)** — a major
+CEX/wallet player bought into this category rather than building. That is both an exit-comp
+data point and a competitive warning.
+
+---
+
+## 3. Revised plays
+
+### P1 — Execution receipts, then bonded execution. **Highest conviction, and cheaper than we thought.**
+
+Three independent lines converge here: Atlas's "Untried Combination" funnel (bonded solvers +
+measurable guarantees + automatic compensation), the competitive gap in Opening A, and — the
+finding that changes the cost estimate — **the pipeline is already built, running in production,
+and exposed over HTTP, with no client calling it.**
+
+Repo recon:
+
+| Piece | Status |
+|---|---|
+| `execution_scorer.py` — marks at 5m/1h/24h horizons | **Live.** Started `api/main.py:378`, stopped `:506`, health-monitored `:1020`. 120s loop, 50 swaps/pass |
+| `execution_benchmark.py` — k-anonymous cohort percentiles (MIN_COHORT_USERS=5, enforced in the query layer) | **Live** |
+| `SwapExecutionMark` table — `realized_vs_quoted_bps`, `markout_bps`, UNIQUE(swap_id, horizon) | **Exists**, `bot/models/swap.py:197–245` |
+| `SwapRouteCandidate` — every rejected aggregator route, `quoted_to_amount_usd`, `was_selected` | **Exists**, `:119–195`. Counterfactual data nobody else has |
+| `GET /execution/benchmark` — auth-gated, returns percentile + cohort + `suppressed:true` below the floor | **Live**, `api/webapp.py:5123–5160` |
+| Any client calling it — webapp, mobile, bot handlers, api-ts | **ZERO.** grep returns nothing |
+
+So the honest status is: **we built the hard half, shipped it to production, and never drew the
+UI.** The differentiator the entire competitive scan says nobody has, we are already computing
+and throwing away.
+
+Two real gaps before P1a is done, both small but load-bearing:
+
+1. **There is no per-swap receipt.** The live route is *pair-level* (`from_token`, `to_token`,
+   `window_days`) — "how do you do on this pair vs peers," not "here is what happened on this
+   fill." The receipt is new surface on top of existing marks.
+2. **Quoted price is snapshotted at execution, not at quote-request.**
+   `swap_engine.py:3803–3806` computes `from_amount_usd`/`to_amount_usd` inside `execute_swap()`
+   just before signing — which does cover every entry point (Telegram, WhatsApp, agent API,
+   orders, copy trading all funnel through that one choke point, `:3798`). But it means a
+   re-quote between the user seeing a number and the tx going out is invisible to
+   `realized_vs_quoted_bps`. **We would be under-reporting our own slippage** — safe direction
+   for a marketing claim, wrong direction for a bonded guarantee. Fix before P1b.
+
+The `realized_vs_quoted` / `markout` split is the actual insight and it is already implemented:
+one is *our* fault (routing, slippage tolerance, bridge behaviour), the other is *the market's*
+(adverse selection). Market-maker desks decompose exactly this way internally — it is standard
+practice, correctly named ("markout" is the right term of art, multi-horizon is standard) — and
+**it is published to end users nowhere, in crypto or TradFi.**
+
+Staging:
+- **P1a (read-only):** per-swap execution receipt + wire the existing `/execution/benchmark`
+  endpoint into a client. No payout, no money-path risk. This is mostly UI on shipped backend.
+- **P1b (bonded):** stated tolerance up front, automatic compensation when a fill misses it.
+  Needs a spec before any builder touches it (see §3.1) and `money-path-reviewer` (opus) sign-off.
+- Cross-chain is where this bites hardest — slippage and bridge risk are worst there and user
+  trust is lowest, which is exactly where we have coverage nobody else does (Opening B).
+
+#### 3.1 P1b is novel, but the novelty is the *combination* — and it has teeth
+
+Prior-art sweep verdict: **not already done, but close enough that a competitor could ship a
+weaker version fast.** The three legs each have partial precedent; nobody has fused them.
+
+- **CoW Protocol EBBO** is the closest bonded price-quality mechanism in crypto: fills worse than
+  a baseline-router reference produce a violation certificate, solver has 72h to reimburse, else
+  deny-list → DAO Snapshot vote → bond slashed. But it is **governance-adjudicated, solver-
+  initiated, and benchmarked against a DAO-defined router set** — not automatic, not instant, not
+  against a tolerance the *user* chose. CoW Explorer does show per-order surplus vs limit price.
+- **0x's 2021 "Hidden DEX Costs"** report is the closest analogue to our leg (a): 673k trades,
+  worst-acceptable vs quoted vs realized price, found ~33% negative slippage. Aggregate research,
+  not a live receipt, no markout split, no percentile, no compensation.
+- **UniswapX/1inch Fusion** price improvement exists only in third-party academic work
+  (~4bps PI at $200k on UniswapX), not shown in-product.
+- **MEV Blocker / Flashbots Protect** refund ~90% of captured MEV automatically — that is
+  MEV revenue-sharing, not compensation for missing a stated bound.
+- **Across / UMA-style bonds** secure liveness and factual correctness, explicitly not fill price.
+- **LI.FI/Jumper-class bridge aggregators** reportedly compensate negative bridge slippage in
+  native token, vested over weeks. *(UNVERIFIED — their docs 403'd; only `SLIPPAGE_EXCEEDED` and
+  failure-refunds confirmed.)*
+- **TradFi**: SEC Rule 605/606 give *monthly/quarterly venue-level aggregates* (price improvement
+  per share, effective/quoted spread, realized spread at intervals); Robinhood and IBKR publish
+  these. MiFID II went the other way — **RTS 28 was formally deleted** and RTS 27 deprioritized as
+  "hardly read." Note what that means: the periodic aggregate report is a format regulators tried
+  and abandoned for being unreadable. **Per-fill, real-time, individual receipts have never been
+  done for retail — in crypto or TradFi.** That gap is the opportunity and the warning.
+
+Hazards to design against, before a line of code:
+- **Benchmark manipulation.** Whatever "quoted price" we snapshot becomes a target we can quietly
+  widen to always look good, and that sophisticated users can game by inducing bad quotes to
+  trigger payouts. EBBO is contentious even at DAO speed.
+- **Which number triggers the payout.** If compensation fires on missed bps without accounting for
+  markout, we pay out on fills that got a worse price *because* they avoided toxic flow. We
+  separate the two for display; the *trigger* must also pick one, explicitly. This is the money-
+  path detail that decides whether the mechanism is solvent.
+- **Standing liability.** Instant automatic payout is precisely what nobody has made economically
+  comfortable — CoW adjudicates slowly, LI.FI vests. Needs a funded pool, a bonded underwriter,
+  or tolerance that widens with volatility.
+- **Cohort integrity.** Percentiles need a hard-to-game cohort (pair × size bucket × chain ×
+  volatility regime). Nobody has solved this publicly for retail crypto swaps.
+
+Existing rebate primitives to build the payout on: `fee_service.py` runs tier fees
+(FREE 1.0% / PRO 0.5% / PREMIUM 0.3% / ENTERPRISE 0.1%, sent as `platformFeeBps`), and already
+has two crediting paths — referee first-5-swaps rebate (`:183–192`) and points-based fee discount
+floored at 0.1% (`:134–152`). **No execution-quality compensation exists.** The floor logic is a
+useful precedent: fees never go negative.
+
+### P2 — Exit-first launch loop (Pump.fun, $23.9M, the only top-5 riser at ↑7.6%)
+We have `sniping/pump_fun_api.py`, `launch_detector.py`, `snipe_executor.py`, `dev_watch.py` and
+rug auto-sell. Entry latency is a losing fight — Axiom/Photon/BullX are at parity and it isn't a
+moat for any of them. **Exit quality is the wedge.** Promote rug auto-sell and dev-watch from
+settings to the front of the product.
+
+### P3 — Stablecoin corridor, rescoped: consume, don't build
+**Circle Gateway shipped in Aug 2025** — a Circle-run CCTP v2 primitive giving a single spendable
+USDC balance across 7 chains in <500ms, free, as infrastructure. Maintaining our own relayer fleet
+to approximate this is now redundant engineering.
+
+- Gateway is **USDC-only**; Circle has not extended it to USDT. The USDT equivalent is **USDT0**
+  (Tether + LayerZero OFT, burn-and-mint, $50B+ cumulative transfers by late 2025).
+- So: **the unification UX is still ours to own; the bridging infra underneath it is not.**
+  Evaluate replacing custom CCTP relayer maintenance with Gateway (USDC) + USDT0 (USDT).
+- Caveat, and it is load-bearing: **no retail usage numbers for chain abstraction were found
+  anywhere** — every source was infra-vendor marketing. Particle Network, a leading vendor,
+  publicly asked "is chain abstraction still relevant?" Treat demand as unproven. This is why P3
+  is third, not first.
+
+### Killed: Lido / LSTs
+Base ETH staking yield has compressed to ~2.3–2.8% APY while stablecoin yield on Aave and Morpho
+— both already integrated — runs 5–8%+. Marginal ETH staking demand is now institutional (yield
+ETFs), not retail. And Lido has no documented integrator fee-share, versus Aave's explicit
+20%-of-protocol-fees referral program. Worse yield, worse economics, new risk surface
+(slashing, depeg), wrong audience. **Do not build. Deepen Aave/Morpho stablecoin yield instead.**
+
+### Still not doing
+Canton (permissioned, no retail surface). An "Axiom integration" (it is a competitor, not a venue).
+
+---
+
+## 4. The planning method — Atlas's five funnels, kept
+
+The `/studio/` framework survives the research pass intact, because it is a *method*, not a
+claim: start from a documented failure, compose proven primitives (no breakthrough R&D), target
+a narrow measurable outcome.
 
 | Funnel | The question | Our candidate | Already in repo |
 |---|---|---|---|
-| **Open problem** | What documented failure is still unsolved? | Bridge/route legs that strand funds mid-flight — user is left holding an intermediate asset with no recourse | `bot/services/bridge/`, CCTP relayers, `withdraw_reconciler.py` |
-| **What comes next** | What is the credible successor to a working primitive? | Portable execution reputation: our per-fill scoring becomes a user-visible, exportable record of venue reliability | `execution_scorer.py`, `execution_benchmark.py` |
-| **Moonshot** | What if one hard assumption holds? | Agent-executed trading under user-set constitutional limits — if intent parsing is reliable enough to be trusted with bounded funds | `nl_intent_service.py`, `nl_deterministic_parser.py`, `x402_service.py`, `api-ts` agent routes |
-| **Untried combination** | Which proven primitives have never been composed? | Bonded execution: stated tolerance + measured fill + automatic compensation (this is D2's strong form) | `execution_scorer.py` + `fee_service.py` + `points_service.py` |
-| **Live signal** | What recent protocol change creates a new opening? | Chain-abstraction refunds — auto-compensate when a routed transaction fails partway, using the reconciler we already run | `withdraw_reconciler.py`, `tx_poller.py`, CCTP relayer fleet |
+| Open problem | What documented failure is still unsolved? | Routed legs that strand funds mid-flight, with no recourse | `bot/services/bridge/`, CCTP relayers, `withdraw_reconciler.py` |
+| What comes next | What's the credible successor to a working primitive? | Portable, exportable execution reputation across venues | `execution_scorer.py`, `execution_benchmark.py` |
+| Moonshot | What if one hard assumption holds? | Agent-executed trading under user-set constitutional limits — *if* intent parsing earns that trust | `nl_intent_service.py`, `nl_deterministic_parser.py`, `x402_service.py` |
+| Untried combination | Which proven primitives were never composed? | Bonded execution (= P1b) | `execution_scorer.py` + `fee_service.py` + `points_service.py` |
+| Live signal | What recent protocol change opens something? | Chain-abstraction refunds when a routed tx fails partway | `withdraw_reconciler.py`, `tx_poller.py` |
 
-Note the convergence: three of five funnels land on the same asset — **we measure execution and
-nobody else does.** That is the signal to trust. D2 is the highest-conviction build on this page.
+### Intake rule
 
-### Intake rule to adopt
+Before anything enters the backlog, in ≤3 lines:
+1. **The documented failure** — with evidence (user report, failed tx, fee number). Not
+   "competitors have it."
+2. **The primitives** — which *existing* pieces compose into the fix. If it needs new research,
+   label it a moonshot; don't smuggle it in as a sprint item.
+3. **The measurable outcome** — the single number that moves.
 
-Before a feature enters the backlog, it must answer, in ≤3 lines:
-
-1. **The documented failure** — what breaks today, with evidence (a user report, a failed tx, a
-   fee number). Not "competitors have it."
-2. **The primitives** — which *existing* things compose into the fix. If it needs new research,
-   it is a moonshot and gets labelled as one, not smuggled in as a sprint item.
-3. **The measurable outcome** — the single number that moves. If it can't be stated, the feature
-   isn't specified yet.
-
-Anything that fails all three is a wish, not a plan.
+Fails all three → it's a wish, not a plan.
 
 ### Cadence
-
-- **Weekly:** re-pull `/fees/`. Track where our supported protocols sit and what entered the top
-  20. A protocol rising while we have zero coverage is a signal; a protocol falling while we have
-  deep coverage is a cost question.
-- **Monthly:** re-run the coverage matrix in §1 and re-rank the depth plays in §2.
-- Atlas's own caveat applies and should apply to us: these are editorial hypotheses. The fee
-  leaderboard is user payments — not protocol revenue, not profit, not a market forecast.
+- **Weekly:** re-pull `/fees/` — but read only the *app-fee* entries (§1). Track Axiom especially.
+- **Monthly:** re-run §1 and re-rank §3.
+- Atlas's caveat applies to us too: editorial hypotheses, not facts. And now our own caveat:
+  gross fees ≠ demand.
 
 ---
 
-## 4. Suggested sequence
+## 5. Sequence
 
-1. **D2 execution receipts** (read-only surface first — no payout, no money-path risk) — proves
-   the claim before we bond it.
-2. **D1 unified dollar balance** — biggest fee pool we already touch, largest UX delta.
-3. **D3 exit-first launch loop** — cheapest, and it defends the fastest-growing top-5 category.
-4. **D4 LST yield on the savings screen** — closes the only real top-10 gap.
-5. **D2 strong form (bonded compensation)** — only after 1–4 and a full `money-path-reviewer` pass.
+1. **P1a execution receipts** (read-only) — the one thing no competitor has, on a pipeline already
+   running in production with zero clients. Highest ratio of differentiation to work on this page.
+2. **P2 exit-first launch loop** — cheapest, defends the fastest-growing legitimate fee category.
+3. **Fix the quote-snapshot timing** (`swap_engine.py:3803`) — capture quote-request price, not
+   execution-time price. Small, and it gates P1b's honesty.
+4. **P3 corridor rescope** — evaluate Circle Gateway + USDT0 as rails; ship unified-balance UX on
+   top. MONEY-PATH review required.
+5. **P1b bonded compensation** — only after 1–4. Spec first (`suwappu-lead`): quote-snapshot
+   methodology, cohort definition, whether the trigger is slippage-bps or markout-adjusted, and
+   the payout funding source. Then `money-path-reviewer` + `security-auditor` (benchmark gaming)
+   *at spec stage*, before implementation.
+
+## Resolved / open
+
+Resolved this pass: the fee-signal critique (§1), the competitive gap (§2), P1's true cost
+(§3/P1 — backend live, no client), P1b's novelty (§3.1), and the Lido kill.
+
+Still open:
+- **No retail usage evidence for chain abstraction exists** — every source found was infra-vendor
+  marketing. P3 rests on an unproven demand assumption; that is why it is fourth.
+- Axiom's token/airdrop is **unconfirmed** by the company. If the points flywheel is the whole
+  moat, its share is more fragile than 72% suggests — and post-TGE is our opening.
+- Per-protocol revenue for Trojan, Banana Gun, Maestro, Bloom, Sigma unverified; pull DefiLlama
+  dashboards directly if precise numbers are needed for a deck.
+- LI.FI's negative-slippage rebate is unverified against primary docs (their site 403'd).
