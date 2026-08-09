@@ -21,7 +21,8 @@ export type ResearchPost = {
     | 'Payments control'
     | 'Execution governance'
     | 'Model risk'
-    | 'Model validation';
+    | 'Model validation'
+    | 'Tokenized assets';
   /**
    * 'research' = measurement/theory with released data and a stated method;
    * 'engineering' = how a shipped system works, verified against the code at
@@ -589,7 +590,132 @@ For mechanism design, per-wallet nonlinearities should be tested explicitly for 
 
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design; this paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis. No issuer named here reviewed the study. The primary evidence is public chain state or public APIs collected 31 July–1 August 2026, and all headline concentration statistics are wallet-level.*`;
 
+const ERC8056_BODY = `# A 10-for-1 stock split can leave your ERC-20 balance unchanged
+
+*Research note. Published 7 August 2026. Evidence state: RESEARCH. ERC-8056 is a Draft standards-track ERC, not a finalized standard. This study tests integration semantics and public code-search visibility; it does not claim a live user incident or that any named product lacks runtime support.*
+
+Here is a crypto failure mode that can produce a **10x wrong number without a failed RPC call, a reverted transaction, or a broken ERC-20 contract**.
+
+Robinhood Stock Tokens keep the raw ERC-20 balance static when certain corporate actions change the shares represented by each token. The extra meaning lives in an onchain multiplier exposed through **uiMultiplier()**. In Chainlink's official 10-for-1 example, the underlying share price moves from $200 to $20, the multiplier moves from 1x to 10x, and the Chainlink token feed stays at $200.
+
+The raw **balanceOf()** can stay exactly the same.
+
+That sounds like a corner case until you notice what it does to ordinary crypto assumptions. A wallet can decode the balance correctly and show the wrong share-equivalent quantity. A portfolio tracker can read a fresh price and be off by 10x. Another integration can take a correct Chainlink token price, apply the multiplier again, and be off by 10x in the other direction.
+
+**The contract did not break. The abstraction got a new layer.**
+
+![Before and after a documented 10-for-1 split example: raw ERC-20 balance remains one, while the ERC-8056 multiplier moves from one to ten and share-equivalent units move from one to ten.](/research/social/erc8056-v1-split.svg "A 10-for-1 split can leave the raw ERC-20 amount unchanged. Chainlink's adjusted token price remains continuous in the documented example while the share-equivalent amount changes.")
+
+## The same holding now has three different numbers
+
+Robinhood describes its Stock Tokens as tokenised debt securities issued by Robinhood Assets (Jersey) Limited. They provide economic exposure to underlying securities but do **not** grant legal or beneficial rights in those underlying securities. At the contract level they are 18-decimal ERC-20s.
+
+The corporate-action mechanism is where “standard ERC-20” stops being enough context for a UI. [Robinhood's Stock Token documentation](https://docs.robinhood.com/chain/stock-tokens/) says dividends and stock splits adjust the shares-per-token ratio through an onchain multiplier while the raw balance stays static until redemption. Its [developer guide](https://docs.robinhood.com/chain/building-with-stock-tokens/) says **balanceOf()** and **totalSupply()** stay fixed and defines share-equivalent amount as raw token amount multiplied by **uiMultiplier()**.
+
+[Draft ERC-8056](https://eips.ethereum.org/EIPS/eip-8056) standardizes that extra UI layer. Standard ERC-20 operations remain raw. The core extension exposes an 18-decimal **uiMultiplier()**; optional views include **balanceOfUI()** and **totalSupplyUI()**. The draft tells wallet integrators to detect support through ERC-165, display raw and UI amounts clearly, and keep transfers in raw units.
+
+So there are at least three quantities an integration must not collapse into one generic “amount” field:
+
+| Surface | Meaning | Multiplier treatment |
+|---|---|---|
+| ERC-20 balanceOf() | Raw token amount used by standard token operations | Apply once to derive share-equivalent UI amount |
+| Robinhood REST /prices | Raw underlying-equity bid/ask | Apply once when deriving value per raw token |
+| Chainlink Stock Token feed | Price of one token, already underlying price × multiplier | **Do not apply again** |
+
+[Robinhood's API documentation](https://docs.robinhood.com/chain/stock-token-apis/) makes the price split explicit: REST /prices is raw underlying-equity price, while the onchain Chainlink feed is multiplier adjusted. [Chainlink's Robinhood feed documentation](https://docs.chain.link/data-feeds/tokenized-equity-feeds/robinhood) gives the same formula and the 10-for-1 example.
+
+## One official example, three outcomes
+
+Take Chainlink's documented post-split state: one raw token, a $20 underlying share price, a 10x UI multiplier, and a $200 Chainlink token feed.
+
+| Integration path | Reported result | Why |
+|---|---:|---|
+| Correct token valuation | **$200** | 1 raw token × $200 adjusted token feed |
+| Miss the multiplier on raw REST price | **$20** | 1 raw token × $20 raw share price |
+| Apply multiplier again to Chainlink | **$2,000** | $200 adjusted token feed × 10x again |
+
+![Three valuation paths for the same documented split fixture: correct token value at $200, a $20 understatement when the multiplier is omitted from raw equity price, and a $2,000 overstatement when the multiplier is applied twice to the adjusted token feed.](/research/social/erc8056-v2-price.svg "Every input can be fresh and correctly decoded. The failure is losing track of whether a price or amount is raw or already adjusted.")
+
+This is not a claim that a real holder lost money or that a named wallet showed these numbers. It is the arithmetic implied by the documented interfaces. The failure is **semantic provenance**: the application no longer knows which transformation has already happened.
+
+## We searched public crypto code for the new semantic layer
+
+On 7 August 2026 we ran a purposive public-code audit across nine open-source codebases spanning wallets, portfolio/accounting, an explorer frontend, a DEX interface, and general EVM libraries:
+
+| Repository | Layer |
+|---|---|
+| MetaMask/metamask-extension | Wallet |
+| RabbyHub/Rabby | Wallet |
+| rainbow-me/rainbow | Wallet |
+| trustwallet/wallet-core | Wallet core |
+| rotki/rotki | Portfolio/accounting |
+| blockscout/frontend | Explorer frontend |
+| wevm/viem | EVM library |
+| ethers-io/ethers.js | EVM library |
+| Uniswap/interface | DEX interface |
+
+We searched the GitHub-indexed default-branch code for **uiMultiplier**, **balanceOfUI**, **UIMultiplierUpdated**, **ERC-8056**, and the four interface identifiers published by the draft. **All eight searches returned zero matches across the nine-repository scope.** A positive-control search for **balanceOf** returned indexed code in the same scope.
+
+![Public-code audit card listing nine repositories and zero matches for the eight canonical ERC-8056 search markers, plus the same zero-marker result for Suwappu main.](/research/social/erc8056-v3-audit.svg "This is an identifier-based public-code search, not runtime conformance testing. Zero canonical markers do not prove that a product lacks support.")
+
+The caveat is as important as the result. **Zero code-search matches is not zero runtime support.** A product can use a private backend, third-party metadata, dynamically constructed calls, generated code, unindexed branches, or different names. And a generic library does not need a first-class ERC-8056 module for an application to call the extension.
+
+So the finding is deliberately narrow: the canonical ERC-8056 integration vocabulary was not visible in this public-code sample at observation time. We do **not** call these wallets broken, rank their support, or estimate an ecosystem-wide adoption rate.
+
+## Suwappu failed the same search
+
+We ran the same marker set against Suwappu's own pre-study main snapshot, commit **8ca242149eb40c7f90b0c2ac02a4ca850e432e4c**, across the bot, TypeScript API, webapp, terminal, packages, contracts, showcase source, and docs. It returned zero matches too.
+
+That is not evidence of an exposed Suwappu Stock Token trading bug. Current source explicitly keeps canonical Robinhood Stock Token trading **fail-closed** until a dedicated jurisdiction and eligibility flow exists; the guard is visible in the pinned [discovery handler](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/paste_trade.py#L196-L207) and [swap callback](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/swap.py#L2030-L2041).
+
+The useful conclusion is engineering governance: **ERC-8056 handling belongs in the admission criteria before that gate can safely be removed.** Catching the mismatch while the route is closed is the cheap version of finding it.
+
+## What a correct integration has to remember
+
+1. **Detect the scaled-UI interface explicitly.** ERC-8056 is Draft; treat that status as a versioning risk rather than assuming every ERC-20 has these methods.
+2. **Give quantities semantic names.** Raw token amount, share-equivalent amount, raw underlying price, and adjusted token price should not share an ambiguous “amount” or “price” field.
+3. **Apply the multiplier exactly once.** Raw Robinhood REST share price needs it to become per-token value; the Chainlink token feed already has it.
+4. **Model the transition, not just the steady state.** Pending multiplier/effective time, oracle pause, feed staleness, and L2 sequencer state matter around corporate actions.
+5. **Test 10x and 0.1x, not only 1.0x.** A test suite that only sees the launch multiplier cannot distinguish ERC-20-only display logic from correct scaled-UI handling.
+6. **Keep transfers raw.** The multiplier changes presentation semantics; standard ERC-20 transfer operations remain raw.
+
+The invariant we would want before enabling the asset class is simple: for the same holding and observation time, every supported price/amount path must reconcile to the same economic value after its documented transformation. If the REST, Chainlink, and UI paths disagree, fail closed instead of guessing which surface has already been adjusted.
+
+## The broader point
+
+ERC-20 compatibility solved a huge part of composability by making token plumbing generic. Real-world assets bring external state back into the interface: corporate actions, issuer terms, market sessions, oracle pauses, and price provenance.
+
+ERC-8056's design is interesting precisely because it tries to preserve the raw ERC-20 world while adding one missing semantic layer for the UI. That makes the new failure mode subtle: **settlement compatibility can survive while display compatibility does not.**
+
+**[Open the working paper and machine-readable audit](/research/replication)**. The [working paper](/research/replication/papers/erc8056-stock-token-interface-risk.md) is canonical; the released JSON records the repository set, query set, positive control, Suwappu self-check, and split fixture used here.
+
+---
+
+*Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product. Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
+
 export const researchPosts: ResearchPost[] = [
+  {
+    slug: 'erc8056-stock-split-interface-risk',
+    title: 'A 10-for-1 stock split can leave your ERC-20 balance unchanged',
+    date: '2026-08-07',
+    category: 'Tokenized assets',
+    kind: 'research',
+    excerpt: 'Robinhood Stock Tokens expose a strange RWA edge: raw ERC-20 balance can stay fixed while share-equivalent units jump 10x. We audited nine open-source crypto codebases for canonical ERC-8056 markers and found none — an integration signal, not proof of broken wallets.',
+    readMins: 9,
+    status: 'published',
+    paperPath: '/research/replication/papers/erc8056-stock-token-interface-risk.md',
+    indexFigure: {
+      src: '/research/social/erc8056-v1-split.svg',
+      alt: 'Before and after a documented 10-for-1 split: raw ERC-20 balance stays at one while the UI multiplier rises from one to ten and share-equivalent units rise from one to ten.',
+      caption: 'A corporate action can change the user-facing share quantity without touching the raw ERC-20 balance. The integration risk is semantic, not transactional.',
+    },
+    keywords: [
+      'ERC-8056', 'EIP-8056', 'Robinhood Stock Tokens', 'Robinhood Chain',
+      'tokenized equities', 'tokenized real-world assets', 'wallet integration',
+      'stock split', 'uiMultiplier', 'Chainlink tokenized equity feeds',
+    ],
+    body: ERC8056_BODY,
+  },
   {
     slug: 'omnichain-dollar-collateral',
     title: 'USDT0 backing reconciliation: separating protocol coverage from issuer risk',
