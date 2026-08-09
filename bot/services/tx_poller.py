@@ -215,6 +215,14 @@ class TransactionPoller:
                     tx.completed_at = datetime.now(timezone.utc)
                 if dest_tx_hash:
                     tx.destination_tx_hash = dest_tx_hash
+                if (
+                    new_status == SwapStatus.FAILED.value
+                    and tx_dict.get("error_message") == self.BRIDGE_UNSETTLED_TIMEOUT_REASON
+                ):
+                    # Set by _handle_zerox_status_unresolved / the
+                    # bridge_pending wall-clock bound: a mined origin
+                    # receipt with no bridge settlement, NOT a revert.
+                    tx.error_message = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
                 session.commit()
 
             logger.info(f"Transaction {tx_dict['id']} status: {old_status} -> {new_status}")
@@ -345,6 +353,22 @@ class TransactionPoller:
     # time, bounded by the row's created_at.
     ZEROX_UNRESOLVED_FAIL_AFTER = timedelta(hours=2)
 
+    # A provider-reported "bridge_pending" is real progress (origin mined,
+    # bridge actively working), so it does NOT count against
+    # ZEROX_UNRESOLVED_FAIL_AFTER above. But it must still have its own,
+    # longer wall-clock ceiling -- otherwise a bridge that never settles
+    # would leave the row CONFIRMING forever with no path to a terminal
+    # state. Bridges can legitimately take longer than the 2h "unresolved
+    # status" bound, so this is a separate, wider allowance.
+    BRIDGE_PENDING_MAX_AGE = timedelta(hours=12)
+
+    # Distinct error_message reason persisted on the row (and used to select
+    # the notification copy) when a FAILED verdict comes from a wall-clock
+    # timeout while the origin leg is known to have mined successfully --
+    # i.e. the funds already left the wallet and are in the bridge, as
+    # opposed to a genuine origin-tx revert where the funds never moved.
+    BRIDGE_UNSETTLED_TIMEOUT_REASON = "bridge_unsettled_timeout"
+
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict
     ) -> tuple[Optional[str], Optional[str]]:
@@ -390,6 +414,28 @@ class TransactionPoller:
                 # timestamp (only relevant as a fallback when created_at is
                 # unavailable -- see _handle_zerox_status_unresolved).
                 await self._reset_zerox_first_unknown_at(tx_dict, route_data)
+
+                if provider_status == "bridge_pending":
+                    # The origin leg is confirmed and the bridge is actively
+                    # working, so this does NOT fall under
+                    # ZEROX_UNRESOLVED_FAIL_AFTER -- but it still needs its
+                    # own (wider) wall-clock ceiling so a bridge that never
+                    # settles doesn't strand the row in CONFIRMING forever.
+                    created_at = tx_dict.get("created_at")
+                    if created_at is not None:
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                        elapsed = datetime.now(timezone.utc) - created_at
+                        if elapsed >= self.BRIDGE_PENDING_MAX_AGE:
+                            logger.warning(
+                                f"0x Cross-Chain tx {tx_dict.get('id')} stuck in "
+                                f"bridge_pending for {elapsed} (bound "
+                                f"{self.BRIDGE_PENDING_MAX_AGE}); marking FAILED "
+                                "as bridge-unsettled timeout."
+                            )
+                            tx_dict["error_message"] = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
+                            return SwapStatus.FAILED.value, None
+
                 return SwapStatus.CONFIRMING.value, None
 
             # provider_status missing or not one of the recognized values
@@ -422,6 +468,12 @@ class TransactionPoller:
         unavailable).
         """
         chain = get_chain_by_name(tx_dict["from_chain"])
+        # CONFIRMING here (not COMPLETED) is exactly the "origin mined but
+        # this generic check has no destination visibility" case for
+        # is_cross_chain providers (see _check_evm_tx) -- i.e. a real mined
+        # (status 0x1) origin receipt. Track it so a later timeout FAILED
+        # can be told apart from a genuine origin-tx revert.
+        origin_receipt_mined = False
         if chain and chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
             receipt_status = await self._check_evm_tx(
@@ -429,6 +481,7 @@ class TransactionPoller:
             )
             if receipt_status == SwapStatus.FAILED.value:
                 return SwapStatus.FAILED.value, None
+            origin_receipt_mined = receipt_status == SwapStatus.CONFIRMING.value
 
         started_at = tx_dict.get("created_at")
         if started_at is not None:
@@ -448,6 +501,13 @@ class TransactionPoller:
                 f"0x Cross-Chain tx {tx_dict.get('id')} unresolved for {elapsed} "
                 f"(bound {self.ZEROX_UNRESOLVED_FAIL_AFTER}); marking FAILED."
             )
+            if origin_receipt_mined:
+                # The user's funds already left the wallet and mined on the
+                # origin chain -- this is NOT a revert. Flag it distinctly
+                # so the notification tells the user their funds are in
+                # transit with the bridge instead of implying the swap
+                # never happened.
+                tx_dict["error_message"] = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
             return SwapStatus.FAILED.value, None
         return SwapStatus.CONFIRMING.value, None
 
@@ -729,18 +789,37 @@ class TransactionPoller:
                     reply_markup=keyboard,
                 )
             elif new_status == SwapStatus.FAILED.value:
-                text = (
-                    f"❌ *Swap Failed*\n\n"
-                    f"Your swap of {tx_dict['from_token']} → {tx_dict['to_token']} failed.\n"
-                    f"Reason: {tx_dict.get('error_message') or 'Transaction reverted'}\n\n"
-                    f"Your funds should remain in your wallet."
-                )
-                keyboard = InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("🔄 Retry Swap", callback_data="swap_start")],
-                        [InlineKeyboardButton("📜 History", callback_data="history")],
-                    ]
-                )
+                if tx_dict.get("error_message") == self.BRIDGE_UNSETTLED_TIMEOUT_REASON:
+                    # The origin leg mined and the funds already left the
+                    # wallet -- this is NOT a revert, so no Retry button
+                    # (retrying would risk a double-send) and no "funds
+                    # remain in your wallet" claim.
+                    text = (
+                        f"⚠️ *Swap Not Confirmed*\n\n"
+                        f"Your swap of {tx_dict['from_token']} → {tx_dict['to_token']} "
+                        f"could not be confirmed.\n\n"
+                        f"The bridge has not confirmed settlement after 2 hours. "
+                        f"Your funds are in transit with the bridge — do NOT retry "
+                        f"this swap. Support has been flagged."
+                    )
+                    keyboard = InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("📜 History", callback_data="history")],
+                        ]
+                    )
+                else:
+                    text = (
+                        f"❌ *Swap Failed*\n\n"
+                        f"Your swap of {tx_dict['from_token']} → {tx_dict['to_token']} failed.\n"
+                        f"Reason: {tx_dict.get('error_message') or 'Transaction reverted'}\n\n"
+                        f"Your funds should remain in your wallet."
+                    )
+                    keyboard = InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("🔄 Retry Swap", callback_data="swap_start")],
+                            [InlineKeyboardButton("📜 History", callback_data="history")],
+                        ]
+                    )
                 await self._bot.send_message(
                     chat_id=telegram_id,
                     text=text,

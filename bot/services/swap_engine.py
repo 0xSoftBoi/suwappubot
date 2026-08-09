@@ -6864,27 +6864,21 @@ class SwapEngine:
             live_gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
             provider_gas_price = int(live_gas_price * 1.3)
 
-        # Fail closed (before signing ANYTHING, including the approval tx)
-        # if the wallet can't actually cover value + gas at the quote's own
-        # gas estimate. Checking this only after the approval already
-        # broadcast (the previous behavior) can leave the approval tx
-        # already spent with no swap to show for it -- an irreversible
-        # partial state for no benefit. This uses the quote's own gas
-        # estimate, not a fully-assembled tx (nonce is irrelevant to
-        # affordability), so it can run before any signing happens.
-        required_wei = _parse_int(tx_data.get("value"), 0) + (
-            _parse_int(tx_data.get("gas"), 500000) * provider_gas_price
-        )
-        native_balance = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
-        if native_balance < required_wei:
-            raise SwapError(
-                "Insufficient native balance to cover 0x Cross-Chain gas: have "
-                f"{native_balance}, need {required_wei}"
-            )
-
         # Cross-Chain uses the same 0x AllowanceHolder model as Swap API.
         # The approval spender comes from issues.allowance.spender and MUST NOT
         # be inferred from transaction.to (the execution target can differ).
+        # This allowance read is moved up (ahead of the affordability check
+        # below) so the check can account for the approve tx's own gas cost
+        # -- without this, a wallet that can afford the swap tx alone but
+        # not the approval tx that must precede it would pass the check and
+        # then fail mid-execution with the approval already broadcast.
+        needs_approval = False
+        spender = None
+        token_addr = None
+        token_contract = None
+        current_allowance = 0
+        amount_needed = int(quote.from_amount)
+        approval_gas_headroom_wei = 0
         if from_token_address != NATIVE_TOKEN_ADDRESS:
             routes = swap_result.raw_response.get("quotes") or []
             route_raw = routes[0] if routes else {}
@@ -6918,61 +6912,95 @@ class SwapEngine:
                     },
                 ]
                 token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
-                amount_needed = int(quote.from_amount)
                 current_allowance = await asyncio.to_thread(
                     lambda: token_contract.functions.allowance(sender, spender).call()
                 )
 
                 if current_allowance < amount_needed:
-                    nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
-                    nonce = await self._send_reset_approval_if_needed(
-                        web3=web3,
-                        token_contract=token_contract,
-                        token_addr=token_addr,
-                        spender=spender,
-                        current_allowance=current_allowance,
-                        sender=sender,
-                        chain_id=chain.chain_id,
-                        gas_price=gas_price,
-                        nonce=nonce,
-                        wallet=wallet,
-                    )
-                    approve_data = token_contract.functions.approve(
-                        spender, self._approval_amount(amount_needed)
-                    ).build_transaction(
-                        {
-                            "from": sender,
-                            "nonce": nonce,
-                            "chainId": chain.chain_id,
-                            "gasPrice": gas_price,
-                        }
-                    )
-                    approve_tx = {
-                        "to": token_addr,
-                        "data": approve_data["data"],
-                        "value": 0,
-                        "gas": approve_data.get("gas", 60000),
-                        "gasPrice": approve_data["gasPrice"],
-                        "nonce": nonce,
-                        "chainId": chain.chain_id,
-                    }
-                    signed_approve = await self.wallet_service.sign_evm_transaction(
-                        wallet, approve_tx
-                    )
-                    approve_hash = await asyncio.to_thread(
-                        lambda: web3.eth.send_raw_transaction(
-                            bytes.fromhex(signed_approve.replace("0x", ""))
-                        )
-                    )
-                    logger.info(
-                        "0x Cross-Chain approval tx (spender=%s): %s",
-                        spender,
-                        approve_hash.hex(),
-                    )
-                    await asyncio.to_thread(
-                        lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-                    )
+                    needs_approval = True
+                    # A standard ERC-20 approve() comfortably fits under
+                    # 120000 gas on every EVM chain we support; reserve that
+                    # at the same gas price as the swap tx. Reset-required
+                    # tokens (USDT-style, only in "exact" approval mode)
+                    # send a SECOND approve(0) tx first, so double the
+                    # reserve when that reset will actually fire.
+                    approval_gas_headroom_wei = 120000 * provider_gas_price
+                    if (
+                        str(getattr(settings, "approval_mode", "unlimited")).lower() == "exact"
+                        and current_allowance > 0
+                        and token_addr.lower() in RESET_REQUIRED_TOKENS
+                    ):
+                        approval_gas_headroom_wei *= 2
+
+        # Fail closed (before signing ANYTHING, including the approval tx)
+        # if the wallet can't actually cover value + gas at the quote's own
+        # gas estimate, PLUS the approval tx's own gas if one will be sent.
+        # Checking this only after the approval already broadcast (the
+        # previous behavior) can leave the approval tx already spent with
+        # no swap to show for it -- an irreversible partial state for no
+        # benefit. This uses the quote's own gas estimate, not a
+        # fully-assembled tx (nonce is irrelevant to affordability), so it
+        # can run before any signing happens.
+        required_wei = (
+            _parse_int(tx_data.get("value"), 0)
+            + (_parse_int(tx_data.get("gas"), 500000) * provider_gas_price)
+            + approval_gas_headroom_wei
+        )
+        native_balance = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
+        if native_balance < required_wei:
+            raise SwapError(
+                "Insufficient native balance to cover 0x Cross-Chain gas: have "
+                f"{native_balance}, need {required_wei}"
+            )
+
+        if needs_approval:
+            nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+            gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            nonce = await self._send_reset_approval_if_needed(
+                web3=web3,
+                token_contract=token_contract,
+                token_addr=token_addr,
+                spender=spender,
+                current_allowance=current_allowance,
+                sender=sender,
+                chain_id=chain.chain_id,
+                gas_price=gas_price,
+                nonce=nonce,
+                wallet=wallet,
+            )
+            approve_data = token_contract.functions.approve(
+                spender, self._approval_amount(amount_needed)
+            ).build_transaction(
+                {
+                    "from": sender,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                    "gasPrice": gas_price,
+                }
+            )
+            approve_tx = {
+                "to": token_addr,
+                "data": approve_data["data"],
+                "value": 0,
+                "gas": approve_data.get("gas", 60000),
+                "gasPrice": approve_data["gasPrice"],
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+            signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            approve_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
+            )
+            logger.info(
+                "0x Cross-Chain approval tx (spender=%s): %s",
+                spender,
+                approve_hash.hex(),
+            )
+            await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
         tx = {

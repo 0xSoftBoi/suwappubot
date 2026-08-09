@@ -981,3 +981,177 @@ def test_manual_refresh_fails_after_same_time_bound_as_automated_poller():
     status = asyncio.run(engine._resolve_0x_cross_chain_unknown(swap_tx, route_data))
 
     assert status == SwapStatus.FAILED.value
+
+
+# --- Round-3 fix #2: affordability check must reserve gas for the approve --
+# --- tx too, not just the swap tx (and double it if a reset-approval fires) -
+
+
+def _crosschain_web3_mock(*, current_allowance: int, native_balance: int, gas_price: int):
+    web3 = MagicMock()
+    web3.eth.gas_price = gas_price
+    web3.eth.get_balance.return_value = native_balance
+    web3.eth.get_transaction_count.side_effect = [10, 11, 12]
+
+    token_contract = MagicMock()
+    token_contract.functions.allowance.return_value.call.return_value = current_allowance
+    token_contract.functions.approve.return_value.build_transaction.return_value = {
+        "data": "0xapprove",
+        "gas": 60000,
+        "gasPrice": gas_price,
+    }
+    web3.eth.contract.return_value = token_contract
+
+    send_calls = []
+
+    def _send(raw):
+        send_calls.append(raw)
+        return SimpleNamespace(hex=lambda: f"0x{'11' * 32}")
+
+    web3.eth.send_raw_transaction.side_effect = _send
+    web3.eth.wait_for_transaction_receipt.return_value = {"status": 1}
+    return web3, send_calls
+
+
+def _crosschain_engine(web3, *, from_token_addr: str, gas_price: int, sender: str = WALLET):
+    engine = SwapEngine.__new__(SwapEngine)
+    engine._get_wallet_for_signing = AsyncMock(return_value=object())
+    engine.wallet_service = MagicMock()
+    engine.wallet_service._get_web3 = MagicMock(return_value=web3)
+    engine.wallet_service.sign_evm_transaction = AsyncMock(return_value=f"0x{'22' * 32}")
+    engine._persist_0x_crosschain_route_data = AsyncMock()
+
+    spender = "0x0000000000001ff3684f28c67538d4d072c22734"
+    engine.zerox = MagicMock()
+    engine.zerox.get_cross_chain_quote = AsyncMock(
+        return_value=SimpleNamespace(
+            origin_chain_id=8453 if from_token_addr == BASE_USDC else 1,
+            destination_chain_id=4663,
+            from_amount="1000000",
+            to_amount="1000000000000000000",
+            to_amount_min="900000000000000000",
+            min_out_synthetic=False,
+            estimated_gas="250000",
+            estimated_time=4,
+            quote_id="0xfresh",
+            tx_data={
+                "to": spender,
+                "data": "0x1234",
+                "gas": "250000",
+                # Nonzero so provider_gas_price is used as-is (no *1.3 live fallback).
+                "gasPrice": str(gas_price),
+                "value": "0",
+            },
+            raw_response={"issues": {"allowance": {"spender": spender}}},
+        )
+    )
+    return engine, sender, spender
+
+
+def _approved_quote(*, from_chain: str, from_token: str) -> "SwapQuote":
+    return SwapQuote(
+        provider="0x_crosschain",
+        from_chain=from_chain,
+        to_chain="robinhood",
+        from_token=from_token,
+        to_token=ROBINHOOD_LAUNCH,
+        from_amount="1000000",
+        from_amount_human=1.0,
+        to_amount="1000000000000000000",
+        to_amount_human=1.0,
+        to_amount_min="900000000000000000",
+        gas_cost_usd=0.0,
+        fee_cost_usd=0.0,
+        total_cost_usd=0.0,
+        estimated_time=4,
+        price_impact=0.0,
+        exchange_rate=1.0,
+        platform_fee_bps=80,
+        raw_quote={"slippage": 0.5, "quote_id": "0xold"},
+    )
+
+
+def test_affordability_check_rejects_balance_that_only_covers_swap_gas():
+    """An approval will be sent (allowance below the swap amount), but the
+    wallet can only cover the swap tx's own gas -- not the approve tx that
+    must precede it. Must fail closed BEFORE signing anything."""
+    gas_price = 1_000_000
+    swap_gas_wei = 250000 * gas_price
+    approve_headroom_wei = 120000 * gas_price
+    # Enough for the swap tx alone, but short of the approve headroom.
+    native_balance = swap_gas_wei + approve_headroom_wei - 1
+
+    web3, send_calls = _crosschain_web3_mock(
+        current_allowance=0, native_balance=native_balance, gas_price=gas_price
+    )
+    engine, sender, _spender = _crosschain_engine(
+        web3, from_token_addr=BASE_USDC, gas_price=gas_price
+    )
+    quote = _approved_quote(from_chain="base", from_token="USDC")
+
+    with pytest.raises(SwapError, match="Insufficient native balance"):
+        asyncio.run(engine._execute_0x_cross_chain_swap(quote, {"address": sender}))
+
+    engine.wallet_service.sign_evm_transaction.assert_not_awaited()
+    assert send_calls == []
+
+
+def test_affordability_check_passes_when_balance_covers_approve_headroom():
+    """Same setup, but with enough native balance to cover swap gas AND the
+    approve tx's gas headroom -- execution proceeds through approve + send."""
+    gas_price = 1_000_000
+    swap_gas_wei = 250000 * gas_price
+    approve_headroom_wei = 120000 * gas_price
+    native_balance = swap_gas_wei + approve_headroom_wei + 1
+
+    web3, send_calls = _crosschain_web3_mock(
+        current_allowance=0, native_balance=native_balance, gas_price=gas_price
+    )
+    engine, sender, _spender = _crosschain_engine(
+        web3, from_token_addr=BASE_USDC, gas_price=gas_price
+    )
+    quote = _approved_quote(from_chain="base", from_token="USDC")
+
+    tx_hash = asyncio.run(engine._execute_0x_cross_chain_swap(quote, {"address": sender}))
+
+    assert tx_hash
+    # Two broadcasts: the approval, then the swap itself.
+    assert len(send_calls) == 2
+
+
+def test_affordability_check_doubles_headroom_when_reset_approval_will_fire():
+    """USDT-style reset-required token in 'exact' approval mode with a
+    leftover non-zero allowance below the swap amount: a 0-approval reset
+    tx fires BEFORE the real approve, so the affordability check must
+    reserve gas for both, not just one."""
+    from bot.services.swap_engine import RESET_REQUIRED_TOKENS
+
+    usdt_ethereum = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+    assert usdt_ethereum.lower() in RESET_REQUIRED_TOKENS
+
+    gas_price = 1_000_000
+    swap_gas_wei = 250000 * gas_price
+    single_headroom_wei = 120000 * gas_price
+    # Covers swap gas + a single approve's headroom, but NOT the doubled
+    # reserve required when a reset-approval will also be sent.
+    native_balance = swap_gas_wei + single_headroom_wei + 1
+
+    with patch("bot.services.swap_engine.settings.approval_mode", "exact"):
+        web3, send_calls = _crosschain_web3_mock(
+            current_allowance=1,  # non-zero, but below the swap amount -> reset fires
+            native_balance=native_balance,
+            gas_price=gas_price,
+        )
+        engine, sender, _spender = _crosschain_engine(
+            web3, from_token_addr=usdt_ethereum, gas_price=gas_price
+        )
+        quote = _approved_quote(from_chain="ethereum", from_token="USDT")
+
+        with pytest.raises(SwapError, match="Insufficient native balance"):
+            asyncio.run(engine._execute_0x_cross_chain_swap(quote, {"address": sender}))
+        engine.wallet_service.sign_evm_transaction.assert_not_awaited()
+
+        # Now fund the doubled reserve -- execution proceeds (reset + approve + send).
+        web3.eth.get_balance.return_value = swap_gas_wei + (2 * single_headroom_wei) + 1
+        tx_hash = asyncio.run(engine._execute_0x_cross_chain_swap(quote, {"address": sender}))
+        assert tx_hash
