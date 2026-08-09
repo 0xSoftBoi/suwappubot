@@ -345,43 +345,117 @@ class PolymarketClient:
         amount: float,
         price: float,
     ) -> OrderResult:
-        """Place an order using the official py-clob-client SDK."""
+        """Place a CLOB **V2** order.
+
+        Order construction and EIP-712 signing are done by
+        :mod:`bot.services.polymarket_v2_order`, NOT by py-clob-client. The SDK's
+        newest release (0.34.6, Feb 2026) still hardcodes the exchange and USDC.e
+        collateral that Polymarket deprecated in the 2026-04-28 CLOB V2
+        migration, so `client.create_order()` signs against a dead contract and
+        the order is rejected.
+
+        The SDK is still used for what it gets right: deriving L2 API
+        credentials, and the HMAC in :func:`build_l2_headers`.
+
+        ``amount`` is pUSD notional for a BUY and share count for a SELL, matching
+        the previous behaviour.
+        """
         try:
-            from py_clob_client.clob_types import OrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY, SELL
-
-            client = self._get_clob_client(private_key)
-
-            size = amount / price if side == "BUY" else amount
-            order_side = BUY if side == "BUY" else SELL
-
-            order_args = OrderArgs(
-                price=price,
-                size=size,
-                side=order_side,
-                token_id=token_id,
+            from bot.config.settings import settings
+            from bot.services.polymarket_v2_order import (
+                build_l2_headers,
+                build_order,
+                sign_order,
             )
 
-            signed_order = client.create_order(order_args)
-            resp = client.post_order(signed_order, OrderType.GTC)
+            client = self._get_clob_client(private_key)
+            creds = client.creds
+            wallet_address = client.get_address()
 
-            if resp and resp.get("success"):
+            # Neg-risk markets are matched by a DIFFERENT exchange; the signature
+            # is bound to whichever contract we pick. Resolve it from the CLOB
+            # (the same source the SDK uses) and fail closed — silently assuming
+            # "not neg-risk" would reintroduce the wrong-contract bug.
+            neg_risk = await self.get_token_neg_risk(token_id)
+            if neg_risk is None:
+                return OrderResult(
+                    success=False,
+                    error="Could not determine whether this market is neg-risk; "
+                    "refusing to sign against a possibly-wrong exchange.",
+                )
+
+            size = amount / price if side.upper() == "BUY" else amount
+
+            order = build_order(
+                token_id=token_id,
+                side=side,
+                size=size,
+                price=price,
+                maker=wallet_address,
+                builder_code=getattr(settings, "polymarket_builder_code", None) or ZERO_BYTES32,
+            )
+            signed = sign_order(order, private_key, neg_risk=neg_risk)
+            body = signed.to_request_body(owner=creds.api_key)
+
+            # The signed body must be serialized ONCE and the SAME string both
+            # HMAC'd and sent — re-serializing risks key-order/whitespace drift
+            # that would invalidate the signature.
+            payload = json.dumps(body, separators=(",", ":"))
+            headers = build_l2_headers(
+                api_key=creds.api_key,
+                api_secret=creds.api_secret,
+                passphrase=creds.api_passphrase,
+                address=wallet_address,
+                method="POST",
+                path="/order",
+                body=payload,
+            )
+
+            session = await self._get_session()
+            async with session.post(
+                f"{CLOB_BASE_URL}/order", data=payload, headers=headers
+            ) as resp:
+                resp_body = await resp.json(content_type=None)
+
+            if resp.status == 200 and resp_body and resp_body.get("success"):
                 return OrderResult(
                     success=True,
-                    order_id=resp.get("orderID", resp.get("id", "")),
-                    status=resp.get("status", "placed"),
+                    order_id=str(resp_body.get("orderID") or resp_body.get("id") or ""),
+                    status=str(resp_body.get("status") or "placed"),
                 )
-            else:
-                error_msg = (
-                    resp.get("errorMsg", resp.get("error", "Unknown error"))
-                    if resp
-                    else "No response"
-                )
-                return OrderResult(success=False, error=str(error_msg))
+
+            error_msg = (
+                (resp_body or {}).get("errorMsg")
+                or (resp_body or {}).get("error")
+                or f"CLOB returned {resp.status}"
+            )
+            logger.warning("Polymarket order rejected (%s): %s", resp.status, error_msg)
+            return OrderResult(success=False, error=str(error_msg))
 
         except Exception as e:
             logger.error(f"place_order error: {e}")
             return OrderResult(success=False, error=str(e))
+
+    async def get_token_neg_risk(self, token_id: str) -> Optional[bool]:
+        """Whether a token's market is neg-risk. ``None`` when it cannot be determined.
+
+        Public, unauthenticated CLOB endpoint — the same one py-clob-client uses
+        to choose the exchange before signing.
+        """
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{CLOB_BASE_URL}/neg-risk", params={"token_id": token_id}
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("neg-risk lookup returned %s for %s", resp.status, token_id)
+                    return None
+                data = await resp.json(content_type=None)
+            value = (data or {}).get("neg_risk")
+            return bool(value) if isinstance(value, bool) else None
+        except Exception as e:
+            logger.warning("neg-risk lookup failed for %s: %s", token_id, e)
+            return None
 
     async def cancel_order(
         self, creds: CLOBCredentials, wallet_address: str, order_id: str
