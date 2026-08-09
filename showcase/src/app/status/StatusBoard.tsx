@@ -9,9 +9,8 @@ type StatusData = { checkedAt: string; allUp: boolean; services: Service[] };
 /**
  * Live health-check board. Polls the server-side /api/status route (avoids
  * browser CORS) every 30s. Only surfaces we can actually reach over HTTP -
- * the production and development API: get a live dot; see the static
- * "Surfaces" section on the page for MCP/A2A/bot/terminal, which share this
- * same backend rather than exposing their own health endpoints.
+ * the production and development API get a live dot. The static "Surfaces"
+ * section lists MCP/A2A/bot/terminal without inheriting API health for them.
  */
 export default function StatusBoard() {
   const [data, setData] = useState<StatusData | null>(null);
@@ -42,8 +41,8 @@ export default function StatusBoard() {
     : loading && !data
       ? { cls: 'is-unknown', text: 'Checking services…' }
       : data?.allUp
-        ? { cls: 'is-up', text: 'All systems operational' }
-        : { cls: 'is-down', text: 'Some systems are degraded' };
+        ? { cls: 'is-up', text: 'All monitored API origins operational' }
+        : { cls: 'is-down', text: 'A monitored API origin is degraded' };
 
   return (
     <div className="status-live">

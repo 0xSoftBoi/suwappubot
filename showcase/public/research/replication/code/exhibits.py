@@ -227,32 +227,33 @@ ax2.set_xticks(x); ax2.set_xticklabels([str(v) for v in sig])
 ax2.set_ylim(0, 58); ax2.set_yticks([0, 20, 40])
 ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
 ax2.set_xlabel("cost dispersion \u03c3", fontsize=8, color=INK2)
-ax2.set_title("Pool captured as operator profit", loc="left", fontsize=8.5, color=INK)
+ax2.set_title("Modeled participant surplus", loc="left", fontsize=8.5, color=INK)
 ax2.grid(axis="x", visible=False)
 
-fig.suptitle("Exhibit 1  A points pool is captured by single-digit numbers of operators",
+fig.suptitle("Exhibit 1  Model benchmark: cost dispersion compresses the active set",
              x=0.005, y=1.07, ha="left", fontsize=10, color=INK, fontweight="bold")
-fig.text(0.005, -0.13, "Bars show the median of 500 draws per \u03c3; whiskers span the 5th to 95th "
-         "percentile.\n" + SRC2, fontsize=6.8, color=MUTED, ha="left")
+fig.text(0.005, -0.13, "Model output, not an empirical forecast. Bars show the median of 500 draws per \u03c3; "
+         "whiskers span the 5th to 95th percentile.\n" + SRC2,
+         fontsize=6.8, color=MUTED, ha="left")
 fig.savefig(os.path.join(FIGS, "p2-exhibit-1-participation.png")); plt.close(fig)
 
 # Exhibit 6 — where dissipated value lands
 p5 = res["P5_revenue_capture"]
-labels = ["Volume-\ndenominated", "Mixed", "Fee-denominated\n(cheap chain)",
-          "Fee-denominated\n(very cheap)"]
+labels = ["Volume-\ndenominated", "Mixed", "Fee-denominated\n(low external cost)",
+          "Fee-denominated\n(very low external cost)"]
 rev = [r["protocol_revenue"] / 1e3 for r in p5]
 dead = [r["deadweight"] / 1e3 for r in p5]
 fig, ax = plt.subplots(figsize=(6.6, 3.3))
 x = np.arange(len(labels))
-ax.bar(x, rev, 0.58, color=BLUE, label="Captured as protocol revenue")
-ax.bar(x, dead, 0.58, bottom=rev, color=GRID, label="Lost to gas, slippage, MEV")
+ax.bar(x, rev, 0.58, color=BLUE, label="Modeled protocol revenue")
+ax.bar(x, dead, 0.58, bottom=rev, color=GRID, label="Modeled third-party friction")
 for i, (r, d) in enumerate(zip(rev, dead)):
     ax.annotate(f"${r:,.0f}k", xy=(i, r / 2), ha="center", va="center",
                 fontsize=7.5, color="white", fontweight="bold")
 ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=7.5)
 ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.0f}k"))
-frame(ax, "Exhibit 2  Denomination decides who keeps the dissipated value",
-      "Equilibrium spend of $990k on a $1m pool (n=100), by points design", SRC2)
+frame(ax, "Exhibit 2  Model identity: denomination changes the destination of spend",
+      "Conditional scenario: $990k modeled dissipation on a $1m pool (n=100)", SRC2)
 ax.legend(loc="upper left", fontsize=7.5)
 fig.savefig(os.path.join(FIGS, "p2-exhibit-2-denomination.png")); plt.close(fig)
 

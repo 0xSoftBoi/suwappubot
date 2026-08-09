@@ -72,6 +72,171 @@ function client() {
   return new Suwappu({ apiKey: "test-key", baseUrl });
 }
 
+describe("prediction contracts", () => {
+  it("returns outcome token ids and URL-encodes the market id", async () => {
+    const c = client();
+    nextBody = {
+      id: "market/one",
+      conditionId: "0xcondition",
+      question: "Will it happen?",
+      outcomes: ["Yes", "No"],
+      outcomePrices: [0.42, 0.58],
+      tokens: [
+        { tokenId: "yes-token", outcome: "Yes" },
+        { tokenId: "no-token", outcome: "No" },
+      ],
+      volume: 100,
+      liquidity: 50,
+      endDate: "2026-12-31",
+      active: true,
+      category: "test",
+      description: "",
+      createdAt: "2026-01-01",
+      resolvedOutcome: null,
+    };
+
+    const market = await c.predict.market("market/one");
+
+    expect(seen[0].path).toBe("/v1/agent/predict/market/market%2Fone");
+    expect(market.conditionId).toBe("0xcondition");
+    expect(market.tokens[0]?.tokenId).toBe("yes-token");
+  });
+
+  it("sends only fields supported by the current GTC order route", async () => {
+    const c = client();
+    nextBody = { order: { id: "order-1" } };
+
+    await c.predict.order({ tokenId: "yes-token", price: "0.42", size: "10", side: "BUY" });
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/predict/order",
+      body: { tokenId: "yes-token", price: "0.42", size: "10", side: "BUY" },
+    });
+  });
+});
+
+describe("perps contracts", () => {
+  it("preserves the effective and venue leverage caps plus live funding", async () => {
+    const c = client();
+    nextBody = {
+      markets: [
+        {
+          name: "ETH-USD",
+          asset: "ETH",
+          szDecimals: 4,
+          maxLeverage: 20,
+          venueMaxLeverage: 25,
+          markPrice: 3200,
+          fundingRate: 0.000125,
+        },
+      ],
+    };
+
+    const markets = await c.perps.markets();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/agent/perps/markets", body: null });
+    expect(markets[0]?.maxLeverage).toBe(20);
+    expect(markets[0]?.venueMaxLeverage).toBe(25);
+    expect(markets[0]?.fundingRate).toBe(0.000125);
+  });
+
+  it("posts only the documented perps quote fields", async () => {
+    const c = client();
+    nextBody = {
+      market: "ETH-USD",
+      side: "long",
+      size: 1,
+      leverage: 5,
+      entryPrice: 3199,
+      margin: 639.8,
+      liquidationPrice: 2623.18,
+      fundingRate: 0.000125,
+      fee: 0.6398,
+    };
+
+    await c.perps.quote({ market: "ETH-USD", side: "long", size: 1, leverage: 5 });
+
+    expect(seen[0]).toEqual({
+      method: "POST",
+      path: "/v1/agent/perps/quote",
+      body: { market: "ETH-USD", side: "long", size: 1, leverage: 5 },
+    });
+  });
+});
+
+describe("lending contracts", () => {
+  it("preserves explicit USD liquidity, listing status, and Morpho warnings", async () => {
+    const c = client();
+    nextBody = {
+      markets: [
+        {
+          id: "market-one",
+          loanToken: "USDC",
+          collateralToken: "WETH",
+          lltv: 0.86,
+          supplyApy: 4.2,
+          borrowApy: 5.8,
+          totalSupply: 12_500_000,
+          totalBorrow: 8_900_000,
+          totalSupplyUsd: 12_500_000,
+          totalBorrowUsd: 8_900_000,
+          availableLiquidityUsd: 3_600_000,
+          utilization: 71.2,
+          chainId: 8453,
+          listed: true,
+          warnings: [{ type: "oracle_price_derivation", level: "RED" }],
+        },
+      ],
+    };
+
+    const markets = await c.lend.markets(8453);
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/agent/lend/markets?chainId=8453",
+      body: null,
+    });
+    expect(markets[0]?.totalSupplyUsd).toBe(12_500_000);
+    expect(markets[0]?.availableLiquidityUsd).toBe(3_600_000);
+    expect(markets[0]?.warnings[0]?.level).toBe("RED");
+  });
+
+  it("URL-encodes market IDs and scopes detail reads by chain", async () => {
+    const c = client();
+    nextBody = {
+      id: "market/one",
+      loanToken: "USDC",
+      collateralToken: "WETH",
+      lltv: 0.86,
+      supplyApy: 4.2,
+      borrowApy: 5.8,
+      totalSupply: null,
+      totalBorrow: null,
+      totalSupplyUsd: null,
+      totalBorrowUsd: null,
+      availableLiquidityUsd: null,
+      utilization: 71.2,
+      chainId: 1,
+      listed: false,
+      warnings: [],
+      oracle: "0xoracle",
+      irm: "0xirm",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const market = await c.lend.market("market/one", 1);
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/agent/lend/market/market%2Fone?chainId=1",
+      body: null,
+    });
+    expect(market.listed).toBe(false);
+    expect(market.totalSupplyUsd).toBeNull();
+  });
+});
+
 describe("swap custody boundary", () => {
   it("executeManagedSwap uses the managed execution endpoint", async () => {
     const c = client();

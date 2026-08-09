@@ -148,6 +148,8 @@ See [Build a Business on Suwappu](build-a-business.md) for the builder-margin mo
 
 ## Reference implementation
 
-[`suwappu-flywheel`](https://github.com/0xSoftBoi/suwappu-flywheel) is the ecosystem's strategy-lab example. Its job is to make this replay -> paper -> live contract reusable so DCA, rebalancing, arbitrage research, and trading examples do not each reinvent accounting and promotion rules.
+[`suwappu-flywheel`](https://github.com/0xSoftBoi/suwappu-flywheel) is the ecosystem's strategy-lab example. Its job is to make this replay -> paper -> live contract reusable so DCA, rebalancing, arbitrage research, and trading examples do not each reinvent accounting and promotion rules. The [Flywheel product guide](flywheel.md) walks through its durable execution boundary, OSS tradeoffs, and concrete paid-product patterns.
+
+For time-based recurring purchases specifically, [Build a Standalone Recurring DCA Product](dca-automation.md) adds scheduler-intended slot identity, enforced local writer ownership, explicit missed-slot policy, and the rule that an unresolved prior economic action blocks the next installment.
 
 Treat any example strategy as educational infrastructure, not a promise of profit. Promote based on measured evidence and operational safety, not backtest cosmetics.

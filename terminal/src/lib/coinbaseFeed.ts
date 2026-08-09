@@ -50,6 +50,15 @@ const MAX_TRADES = 60
 const BACKOFF_BASE_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
 
+/**
+ * Bound how often a burst of incremental market-data messages can cross the
+ * feed -> React boundary. Coinbase already batches L2 changes at roughly 50ms,
+ * but trade messages can interleave with those book updates. Coalescing them
+ * here keeps the UI fresh while avoiding a full-book sort + subscriber render
+ * for every individual WebSocket message.
+ */
+export const COINBASE_UI_FLUSH_MS = 75
+
 interface L2Message {
   type: string
   product_id?: string
@@ -72,7 +81,8 @@ interface MatchMessage {
 /**
  * A live connection to one Coinbase product. Bid/ask levels are kept in
  * price->size maps so `l2update` deltas are O(1); the sorted arrays the UI
- * consumes are materialized on each emit.
+ * consumes are materialized at most once per state version. Incremental book
+ * and trade messages are flushed to subscribers on a short bounded cadence.
  */
 class ProductFeed {
   private ws: WebSocket | null = null
@@ -83,6 +93,10 @@ class ProductFeed {
   private listeners = new Set<Listener>()
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private flushTimer: ReturnType<typeof setTimeout> | null = null
+  private stateVersion = 0
+  private cachedSnapshotVersion = -1
+  private cachedSnapshot: CoinbaseFeedState | null = null
   private closed = false
 
   constructor(private readonly productId: string) {
@@ -106,6 +120,8 @@ class ProductFeed {
     this.closed = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    if (this.flushTimer) clearTimeout(this.flushTimer)
+    this.flushTimer = null
     this.listeners.clear()
     this.teardownSocket()
   }
@@ -128,6 +144,7 @@ class ProductFeed {
   private connect(): void {
     if (this.closed) return
     this.status = 'connecting'
+    this.markDirty()
 
     let ws: WebSocket
     try {
@@ -165,7 +182,8 @@ class ProductFeed {
     ws.onerror = () => {
       if (this.ws !== ws) return
       this.status = 'error'
-      this.emit()
+      this.markDirty()
+      this.emitNow()
     }
 
     ws.onclose = () => {
@@ -178,7 +196,8 @@ class ProductFeed {
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectTimer) return
     this.status = 'error'
-    this.emit()
+    this.markDirty()
+    this.emitNow()
     const delay = Math.min(
       BACKOFF_BASE_MS * 2 ** this.reconnectAttempts,
       BACKOFF_MAX_MS,
@@ -189,6 +208,7 @@ class ProductFeed {
       // Drop the stale book; the fresh `snapshot` rebuilds it from scratch.
       this.bids.clear()
       this.asks.clear()
+      this.markDirty()
       this.connect()
     }, delay)
   }
@@ -201,7 +221,10 @@ class ProductFeed {
         for (const [p, s] of msg.bids ?? []) this.setLevel('buy', +p, +s)
         for (const [p, s] of msg.asks ?? []) this.setLevel('sell', +p, +s)
         this.status = 'live'
-        this.emit()
+        this.markDirty()
+        // The initial/reconnect snapshot is the point at which the live book
+        // becomes usable, so publish it immediately rather than adding latency.
+        this.emitNow()
         break
       }
       case 'l2update': {
@@ -209,7 +232,8 @@ class ProductFeed {
           this.setLevel(side === 'buy' ? 'buy' : 'sell', +p, +s)
         }
         this.status = 'live'
-        this.emit()
+        this.markDirty()
+        this.scheduleEmit()
         break
       }
       case 'last_match':
@@ -230,7 +254,8 @@ class ProductFeed {
         if (this.trades[0]?.id === trade.id) break
         this.trades = [trade, ...this.trades].slice(0, MAX_TRADES)
         this.status = 'live'
-        this.emit()
+        this.markDirty()
+        this.scheduleEmit()
         break
       }
       default:
@@ -246,16 +271,41 @@ class ProductFeed {
   }
 
   private snapshot(): CoinbaseFeedState {
+    if (
+      this.cachedSnapshot &&
+      this.cachedSnapshotVersion === this.stateVersion
+    ) {
+      return this.cachedSnapshot
+    }
     const bids = [...this.bids.entries()]
       .map(([price, size]) => ({ price, size }))
       .sort((a, b) => b.price - a.price)
     const asks = [...this.asks.entries()]
       .map(([price, size]) => ({ price, size }))
       .sort((a, b) => a.price - b.price)
-    return { bids, asks, trades: this.trades, status: this.status }
+    const state = { bids, asks, trades: this.trades, status: this.status }
+    this.cachedSnapshot = state
+    this.cachedSnapshotVersion = this.stateVersion
+    return state
   }
 
-  private emit(): void {
+  private markDirty(): void {
+    this.stateVersion += 1
+  }
+
+  private scheduleEmit(): void {
+    if (this.listeners.size === 0 || this.flushTimer) return
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null
+      this.emitNow()
+    }, COINBASE_UI_FLUSH_MS)
+  }
+
+  private emitNow(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
     if (this.listeners.size === 0) return
     const state = this.snapshot()
     for (const fn of this.listeners) fn(state)

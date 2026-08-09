@@ -154,19 +154,43 @@ quote = await client.perps.quote("ETH-USD", "long", 1.0, 5.0)
 positions = await client.perps.positions("0xYourWallet")
 ```
 
+`markets[0].max_leverage` is the current Suwappu quote cap for that market;
+`venue_max_leverage` preserves Hyperliquid's raw venue maximum. `funding_rate`
+is the current raw market rate, not accrued position funding P&L. Perps remain
+read/quote-only on the Agent API.
+
 ### Predictions (Polymarket) — `client.predict`
 
 ```python
 markets = await client.predict.markets(query="crypto", limit=10)
-detail = await client.predict.market("0xMarketId")
+market_id = markets[0].id
+detail = await client.predict.market(market_id)
+book = await client.predict.book(market_id)
+prices = await client.predict.price(market_id)
+trades = await client.predict.trades(market_id, limit=20)
 ```
+
+`detail.condition_id` is the venue/on-chain condition identity; it is not the
+market `id` used by the read routes. `detail.tokens` exposes the outcome token
+IDs. Trading is a separate authority boundary: `client.predict.order(...)`
+takes one of those `token_id` values plus string `price`/`size` and a required
+`side` (`"BUY"` or `"SELL"`), and currently maps to the API's GTC limit-order
+route.
 
 ### Lending (Morpho) — `client.lend`
 
 ```python
 markets = await client.lend.markets(chain_id=8453)
-detail = await client.lend.market("0xMarketId")
+detail = await client.lend.market("0xMarketId", chain_id=8453)
 ```
+
+`supply_apy`, `borrow_apy`, and `utilization` are current percentages.
+`total_supply_usd`, `total_borrow_usd`, and `available_liquidity_usd` are
+explicit nullable USD values from Morpho; `total_supply` / `total_borrow` are
+backwards-compatible aliases. `listed` is Morpho's interface listing status,
+not a safety guarantee, and `warnings` carries active upstream warning
+types/levels. Market IDs are chain-scoped; detail defaults to Base (`8453`) if
+the chain is omitted. Lending is read-only on the Agent API today.
 
 ### Wallets & swap safety
 

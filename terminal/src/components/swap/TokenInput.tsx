@@ -38,11 +38,11 @@ export function TokenInput({
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setSelectorOpen(false)
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
   }, [])
 
   const { data: tokens, isFetching } = useTokenSelectorTokens(search, token?.chain, selectorOpen)
@@ -70,7 +70,7 @@ export function TokenInput({
           placeholder="0.0"
           readOnly={readOnly}
           aria-label={`${label} amount`}
-          className="tnum flex-1 bg-transparent text-xl font-mono text-terminal-text
+          className="terminal-amount-input tnum min-w-0 flex-1 bg-transparent text-xl font-mono text-terminal-text
                      placeholder-terminal-text-muted outline-none"
         />
 
@@ -80,7 +80,7 @@ export function TokenInput({
             aria-haspopup="listbox"
             aria-expanded={selectorOpen}
             aria-label={token ? `Change token, currently ${token.symbol}` : 'Select a token'}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full
+            className="terminal-mobile-touch flex items-center gap-1.5 px-3 py-1.5 rounded-full
                        bg-terminal-bg-tertiary border border-terminal-border
                        hover:border-terminal-border-active transition-colors"
           >
@@ -104,7 +104,7 @@ export function TokenInput({
           </button>
 
           {selectorOpen && (
-            <div className="terminal-theme-overlay absolute right-0 top-full mt-1 w-64 rounded z-50">
+            <div className="terminal-token-selector terminal-theme-overlay absolute right-0 top-full z-50 mt-1 w-64 rounded">
               <div className="p-2 border-b border-terminal-border">
                 <input
                   type="search"
@@ -123,7 +123,7 @@ export function TokenInput({
                     role="option"
                     aria-selected={t.address === token?.address && t.chain === token?.chain}
                     onClick={() => { onTokenSelect(t); setSelectorOpen(false) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm
+                    className="terminal-mobile-touch flex w-full items-center gap-2 px-3 py-2 text-sm
                                hover:bg-terminal-bg-tertiary transition-colors"
                   >
                     {t.logoUrl ? (

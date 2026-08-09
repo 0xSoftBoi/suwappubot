@@ -1,126 +1,150 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import captured from '@/data/captured-quote.json';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { DEMO_QUOTE_PAIRS, type DemoQuotePairId } from '@/lib/demoQuotePairs';
 
 /**
- * LiveQuote: a real quote from the real router, in the hero.
+ * A read-only execution ticket backed by the production quote endpoint.
  *
- * This replaces the scripted `<div>` terminal. Every number here comes from
- * POST /v1/agent/quote via the server proxy at /api/quote. The API returns
- * the winning route only, not the losing routers, so this deliberately does
- * NOT render a leaderboard of competing prices: that would be invented.
- *
- * `variant` only changes class names, so the three hero candidates can share
- * one implementation and one data path.
- *
- * Fallback: /api/quote 503s with no SUWAPPU_DEMO_KEY set (e.g. preview
- * deploys) and can 502 if the upstream is down. Rather than show a dead
- * error box to every visitor in that state, fall back to a real response
- * captured manually from the production API (src/data/captured-quote.json)
- * and label it "captured <date>" — never "live". If a pair somehow has no
- * captured entry, this shows an honest "quote service unreachable" state
- * instead of fabricating a number.
+ * The widget deliberately renders only what the quote response can prove. It
+ * never invents competing prices or substitutes sample pricing when live
+ * access is unavailable. Simulation and authorization are separate lifecycle
+ * steps described by the page below this ticket.
  */
-
 type Quote = {
   stale?: boolean;
   ageSeconds?: number;
-  captured?: boolean;
   from: { symbol: string; amount: string };
   to: { symbol: string; amount: string };
   chain: string;
-  rate: string;
-  priceImpact: string;
-  gasUsd: string;
-  route: string;
-  dex: string;
+  toChain?: string;
+  crossChain?: boolean;
+  bridgeFeeUsd?: string | null;
+  etaSeconds?: number | null;
+  rate?: string;
+  priceImpact?: string | null;
+  gasUsd?: string | null;
+  route?: string | null;
+  dex?: string | null;
   expiresIn: number;
+  fetchedAt?: number;
 };
 
-const CAPTURED_QUOTES = captured.quotes as Record<string, Omit<Quote, 'captured'>>;
-const CAPTURED_AT = captured.capturedAt;
-
-const PAIRS = [
-  { id: 'usdc-eth-base', label: '100 USDC to ETH' },
-  { id: 'eth-usdc-base', label: '0.1 ETH to USDC' },
-  { id: 'usdc-sol-solana', label: '100 USDC to SOL' },
-] as const;
-
 export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'warm' }) {
-  const [pair, setPair] = useState<string>(PAIRS[0].id);
+  const t = useTranslations('home.quote');
+  const [pair, setPair] = useState<DemoQuotePairId>(DEMO_QUOTE_PAIRS[0].id);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('loading');
   const [left, setLeft] = useState(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
-  const load = useCallback(async (p: string) => {
+  const pairLabels: Record<DemoQuotePairId, string> = {
+    'usdc-eth-base': t('pairs.baseEth'),
+    'usdc-base-usdt-polygon': t('pairs.basePolygon'),
+    'usdc-base-eth-arbitrum': t('pairs.baseArbitrum'),
+  };
+
+  const load = useCallback(async (p: DemoQuotePairId) => {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setState('loading');
+    setQuote(null);
+
     try {
-      const r = await fetch(`/api/quote?pair=${encodeURIComponent(p)}`);
-      if (!r.ok) throw new Error(String(r.status));
-      const d: Quote = await r.json();
-      setQuote(d);
-      setLeft(d.expiresIn ?? 60);
+      const response = await fetch(`/api/quote?pair=${encodeURIComponent(p)}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const nextQuote: Quote = await response.json();
+      if (controller.signal.aborted || activeRequest.current !== controller) return;
+
+      const fetchedAt = nextQuote.fetchedAt ?? Date.now();
+      const ageSeconds = Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000));
+      const remaining = Math.max(0, (nextQuote.expiresIn ?? 60) - ageSeconds);
+      setQuote(nextQuote);
+      setLeft(nextQuote.stale ? 0 : remaining);
       setState('idle');
     } catch {
-      // Live proxy is down. Fall back to a real captured response rather
-      // than a dead error box, labelled honestly as not live.
-      const fallback = CAPTURED_QUOTES[p];
-      if (fallback) {
-        setQuote({ ...fallback, captured: true });
-        setLeft(0);
-        setState('idle');
-      } else {
-        setState('error');
-      }
+      if (controller.signal.aborted) return;
+      setQuote(null);
+      setLeft(0);
+      setState('error');
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }, []);
 
-  useEffect(() => { load(pair); }, [pair, load]);
-
-  // The countdown is the honest "live" signal: a quote really does expire.
   useEffect(() => {
-    if (state !== 'idle' || left <= 0) return;
-    const t = setTimeout(() => setLeft((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [left, state]);
+    void load(pair);
+    return () => activeRequest.current?.abort();
+  }, [pair, load]);
 
-  const c = `lq lq--${variant}`;
+  useEffect(() => {
+    if (state !== 'idle' || !quote || quote.stale || left <= 0) return;
+    const timer = setTimeout(() => setLeft((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [left, quote, state]);
+
+  const expired = Boolean(state === 'idle' && quote && !quote.stale && left <= 0);
+  const statusKind =
+    state === 'loading'
+      ? 'loading'
+      : state === 'error'
+        ? 'unavailable'
+        : quote?.stale
+          ? 'stale'
+          : expired
+            ? 'expired'
+            : 'live';
+  const statusLabel =
+    statusKind === 'loading'
+      ? t('stateChecking')
+      : statusKind === 'unavailable'
+        ? t('stateUnavailable')
+        : statusKind === 'stale'
+          ? t('stateStale')
+          : statusKind === 'expired'
+            ? t('stateExpired')
+            : t('stateLive');
+  const routeLabel =
+    quote?.crossChain && quote.toChain ? `${quote.chain} → ${quote.toChain}` : quote?.chain;
 
   return (
-    <div className={c}>
+    <div className={`lq lq--${variant}`} aria-busy={state === 'loading'}>
       <div className="lq__bar">
-        <span
-          className={`lq__title lq__title--${quote?.stale ? 'stale' : quote?.captured ? 'captured' : 'live'}`}
-        >
-          {quote?.stale ? 'Last quote' : quote?.captured ? 'Captured quote' : 'Live quote'}
+        <span className={`lq__title lq__title--${statusKind}`} aria-live="polite">
+          {statusLabel}
         </span>
         <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
       </div>
 
-      <div className="lq__pairs" role="tablist" aria-label="Demo pair">
-        {PAIRS.map((p) => (
+      <div className="lq__pairs" role="group" aria-label={t('presetLabel')}>
+        {DEMO_QUOTE_PAIRS.map((preset) => (
           <button
-            key={p.id}
-            role="tab"
-            aria-selected={pair === p.id}
-            className={`lq__pair${pair === p.id ? ' lq__pair--on' : ''}`}
-            onClick={() => setPair(p.id)}
+            key={preset.id}
+            type="button"
+            aria-pressed={pair === preset.id}
+            className={`lq__pair${pair === preset.id ? ' lq__pair--on' : ''}`}
+            onClick={() => setPair(preset.id)}
           >
-            {p.label}
+            {pairLabels[preset.id]}
           </button>
         ))}
       </div>
 
       {state === 'error' && (
         <div className="lq__body lq__body--error">
-          <p>Quote service unreachable.</p>
-          <button className="lq__retry" onClick={() => load(pair)}>Try again</button>
+          <p role="status">{t('unavailable')}</p>
+          <button type="button" className="lq__retry" onClick={() => void load(pair)}>
+            {t('retry')}
+          </button>
         </div>
       )}
 
       {state === 'loading' && (
-        <div className="lq__body">
+        <div className="lq__body" aria-hidden="true">
           <div className="lq__skel lq__skel--xl" />
           <div className="lq__skel" />
           <div className="lq__skel lq__skel--sm" />
@@ -128,44 +152,40 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       )}
 
       {state === 'idle' && quote && (
-        <div className="lq__body">
+        <div className={`lq__body${expired ? ' lq__body--expired' : ''}`}>
           <div className="lq__out">
             <span className="lq__num">{quote.to.amount}</span>
             <span className="lq__sym">{quote.to.symbol}</span>
           </div>
           <p className="lq__sub">
-            for {quote.from.amount} {quote.from.symbol} on {quote.chain}
+            {t('forRoute', {
+              amount: quote.from.amount,
+              symbol: quote.from.symbol,
+              route: routeLabel ?? t('unknown'),
+            })}
           </p>
           {quote.stale && (
-            // Never present a cached quote as live.
             <p className="lq__stale">
-              last quote, {quote.ageSeconds}s ago. Live quoting is paused.
-            </p>
-          )}
-          {quote.captured && (
-            // Never present a checked-in fixture as live either.
-            <p className="lq__stale">
-              captured {CAPTURED_AT} from api.suwappu.bot, not live right now.
+              {t('staleMessage', { seconds: quote.ageSeconds ?? 0 })}
             </p>
           )}
 
           <dl className="lq__grid">
-            <div><dt>Best route</dt><dd>{quote.dex}</dd></div>
-            <div><dt>Network fee</dt><dd>{quote.gasUsd}</dd></div>
-            <div><dt>Price impact</dt><dd>{quote.priceImpact}</dd></div>
+            <div><dt>{t('selectedRoute')}</dt><dd>{quote.route || quote.dex || '—'}</dd></div>
+            <div><dt>{t('networkFee')}</dt><dd>{quote.gasUsd || '—'}</dd></div>
+            <div><dt>{t('priceImpact')}</dt><dd>{quote.priceImpact || '—'}</dd></div>
             <div>
-              <dt>Quote expires</dt>
-              <dd className={!quote.captured && left <= 10 ? 'lq__warn' : undefined}>
-                {quote.captured ? '-' : left > 0 ? `${left}s` : 'expired'}
+              <dt>{t('quoteExpires')}</dt>
+              <dd className={!quote.stale && left <= 10 ? 'lq__warn' : undefined}>
+                {quote.stale ? '—' : expired ? t('expired') : t('seconds', { seconds: left })}
               </dd>
             </div>
           </dl>
 
-          {quote.captured && (
-            <button className="lq__retry" onClick={() => load(pair)}>Check live</button>
-          )}
-          {!quote.captured && left <= 0 && (
-            <button className="lq__retry" onClick={() => load(pair)}>Get a fresh quote</button>
+          {(expired || quote.stale) && (
+            <button type="button" className="lq__retry" onClick={() => void load(pair)}>
+              {t('freshQuote')}
+            </button>
           )}
         </div>
       )}

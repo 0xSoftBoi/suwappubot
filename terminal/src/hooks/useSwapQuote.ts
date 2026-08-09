@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { api } from '../lib/api'
+import { waitForIntent } from '../lib/intentDelay'
 import type { SwapQuoteRequest } from '../types/api'
-
-const QUOTE_DEBOUNCE_MS = 500
 
 export function useSwapQuote(
   request: Partial<SwapQuoteRequest> | null,
@@ -34,9 +33,9 @@ export function useSwapQuote(
 
   return useQuery({
     queryKey,
-    queryFn: async () => {
-      await new Promise(resolve => setTimeout(resolve, QUOTE_DEBOUNCE_MS))
-      return api.getSwapQuote(request as SwapQuoteRequest)
+    queryFn: async ({ signal }) => {
+      await waitForIntent(signal)
+      return api.getSwapQuote(request as SwapQuoteRequest, signal)
     },
     enabled: enabled && isValidRequest,
     staleTime: 10_000,

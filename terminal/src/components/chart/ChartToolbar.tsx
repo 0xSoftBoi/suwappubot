@@ -25,7 +25,7 @@ export function ChartToolbar({
   onChartTypeChange,
 }: Props) {
   return (
-    <div className="terminal-theme-inset flex items-center justify-between gap-2 px-2 py-1.5">
+    <div className="terminal-chart-toolbar terminal-theme-inset flex items-center justify-between gap-2 overflow-x-auto px-2 py-1.5">
       <div className="flex flex-wrap items-center gap-1">
         {INTERVALS.map((i) => (
           <button

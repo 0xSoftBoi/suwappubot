@@ -5,8 +5,14 @@ const CHAINS = [
   { id: 'ethereum', label: 'ETH' },
   { id: 'arbitrum', label: 'ARB' },
   { id: 'base', label: 'BASE' },
+  { id: 'optimism', label: 'OP' },
+  { id: 'polygon', label: 'POL' },
+  { id: 'bsc', label: 'BSC' },
+  { id: 'avalanche', label: 'AVAX' },
   { id: 'solana', label: 'SOL' },
 ]
+
+const DEFAULT_CHAINS = CHAINS.map(chain => chain.id)
 
 interface CopySettingsModalProps {
   isOpen: boolean
@@ -14,28 +20,36 @@ interface CopySettingsModalProps {
   onSave: (settings: FollowSettings) => void
   initialSettings?: FollowSettings
   traderName?: string
+  autoCopyAvailable?: boolean
 }
 
-export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, traderName }: CopySettingsModalProps) {
+export function CopySettingsModal({
+  isOpen,
+  onClose,
+  onSave,
+  initialSettings,
+  traderName,
+  autoCopyAvailable = true,
+}: CopySettingsModalProps) {
   const [copyMode, setCopyMode] = useState<CopyMode>(initialSettings?.copyMode || 'notify')
   const [fixedAmount, setFixedAmount] = useState(initialSettings?.fixedAmount?.toString() || '100')
   const [percentageAmount, setPercentageAmount] = useState(initialSettings?.percentageAmount?.toString() || '10')
   const [maxPerTrade, setMaxPerTrade] = useState(initialSettings?.maxPerTrade?.toString() || '500')
   const [dailyLimit, setDailyLimit] = useState(initialSettings?.dailyLimit?.toString() || '2000')
-  const [chainFilter, setChainFilter] = useState<string[]>(initialSettings?.chainFilter || ['ethereum', 'arbitrum', 'base', 'solana'])
+  const [chainFilter, setChainFilter] = useState<string[]>(initialSettings?.chainFilter || DEFAULT_CHAINS)
   const [maxSlippage, setMaxSlippage] = useState(initialSettings?.maxSlippage?.toString() || '1')
 
   useEffect(() => {
-    if (initialSettings) {
-      setCopyMode(initialSettings.copyMode || 'notify')
-      setFixedAmount(initialSettings.fixedAmount?.toString() || '100')
-      setPercentageAmount(initialSettings.percentageAmount?.toString() || '10')
-      setMaxPerTrade(initialSettings.maxPerTrade?.toString() || '500')
-      setDailyLimit(initialSettings.dailyLimit?.toString() || '2000')
-      setChainFilter(initialSettings.chainFilter || ['ethereum', 'arbitrum', 'base', 'solana'])
-      setMaxSlippage(initialSettings.maxSlippage?.toString() || '1')
-    }
-  }, [initialSettings])
+    if (!isOpen) return
+    const requestedMode = initialSettings?.copyMode || 'notify'
+    setCopyMode(autoCopyAvailable ? requestedMode : 'notify')
+    setFixedAmount(initialSettings?.fixedAmount?.toString() || '100')
+    setPercentageAmount(initialSettings?.percentageAmount?.toString() || '10')
+    setMaxPerTrade(initialSettings?.maxPerTrade?.toString() || '500')
+    setDailyLimit(initialSettings?.dailyLimit?.toString() || '2000')
+    setChainFilter(initialSettings?.chainFilter || DEFAULT_CHAINS)
+    setMaxSlippage(initialSettings?.maxSlippage?.toString() || '1')
+  }, [autoCopyAvailable, initialSettings, isOpen])
 
   if (!isOpen) return null
 
@@ -46,6 +60,7 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
   }
 
   const handleSave = () => {
+    if (copyMode !== 'notify' && chainFilter.length === 0) return
     onSave({
       copyMode,
       fixedAmount: parseFloat(fixedAmount) || undefined,
@@ -61,14 +76,24 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="copy-settings-title"
         className="bg-terminal-panel border border-terminal-border rounded-xl w-full max-w-md max-h-[85vh] overflow-auto p-5 space-y-4"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-terminal-text">
+          <h3 id="copy-settings-title" className="text-sm font-semibold text-terminal-text">
             {traderName ? `Copy Settings — ${traderName}` : 'Copy Settings'}
           </h3>
-          <button onClick={onClose} className="text-terminal-text-muted hover:text-terminal-text text-lg leading-none">&times;</button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close copy settings"
+            className="text-terminal-text-muted hover:text-terminal-text text-lg leading-none"
+          >
+            &times;
+          </button>
         </div>
 
         {/* Copy Mode */}
@@ -76,16 +101,18 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
           <label className="text-xs text-terminal-text-secondary mb-2 block">Copy Mode</label>
           <div className="space-y-1.5">
             {([
-              { value: 'notify' as CopyMode, label: 'Notify Only', desc: 'Get alerts when this trader makes a move' },
-              { value: 'fixed' as CopyMode, label: 'Fixed Amount', desc: 'Copy every trade with a fixed USD amount' },
-              { value: 'percentage' as CopyMode, label: 'Percentage', desc: 'Copy as a percentage of the trader\'s size' },
+              { value: 'notify' as CopyMode, label: 'Follow + alerts', desc: 'See this trader\'s moves and review each trade yourself' },
+              { value: 'fixed' as CopyMode, label: 'Auto-copy fixed · Pro', desc: 'Copy every eligible trade with a fixed USD amount' },
+              { value: 'percentage' as CopyMode, label: 'Auto-copy percentage · Pro', desc: 'Copy a percentage of the trader\'s size' },
             ]).map(mode => (
               <label
                 key={mode.value}
                 className={`flex items-start gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
                   copyMode === mode.value
                     ? 'border-sakura-600 bg-sakura-900/10'
-                    : 'border-terminal-border hover:border-terminal-border-active'
+                    : mode.value !== 'notify' && !autoCopyAvailable
+                      ? 'border-terminal-border opacity-45 cursor-not-allowed'
+                      : 'border-terminal-border hover:border-terminal-border-active'
                 }`}
               >
                 <input
@@ -93,6 +120,7 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
                   name="copyMode"
                   value={mode.value}
                   checked={copyMode === mode.value}
+                  disabled={mode.value !== 'notify' && !autoCopyAvailable}
                   onChange={() => setCopyMode(mode.value)}
                   className="mt-0.5 accent-sakura-500"
                 />
@@ -104,6 +132,12 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
             ))}
           </div>
         </div>
+
+        {!autoCopyAvailable && (
+          <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2 text-[10px] leading-relaxed text-terminal-text-muted">
+            Automatic copy requires a Pro account with a Suwappu signing wallet. External wallets can still follow signals and sign trades themselves.
+          </div>
+        )}
 
         {/* Amount input (conditional) */}
         {copyMode === 'fixed' && (
@@ -134,6 +168,9 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
         {/* Max per trade */}
         {copyMode !== 'notify' && (
           <>
+            <div className="rounded-lg border border-terminal-warn/30 bg-terminal-warn/5 px-3 py-2 text-[10px] leading-relaxed text-terminal-text-muted">
+              Auto-copy requires active Pro and a Suwappu signing wallet, and can lose money. Your max-per-trade, daily limit, chain filter, and slippage cap are enforced before each copy attempt.
+            </div>
             <div>
               <label className="text-xs text-terminal-text-secondary mb-1 block">Max Per Trade (USD)</label>
               <input
@@ -193,6 +230,9 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
               </label>
             ))}
           </div>
+          {copyMode !== 'notify' && chainFilter.length === 0 && (
+            <p className="mt-1.5 text-[10px] text-bear">Select at least one chain for automatic copy.</p>
+          )}
         </div>
 
         {/* Buttons */}
@@ -205,7 +245,8 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 py-2.5 rounded text-sm font-semibold bg-sakura-600 hover:bg-sakura-700 text-terminal-on-accent transition-colors"
+            disabled={copyMode !== 'notify' && chainFilter.length === 0}
+            className="flex-1 py-2.5 rounded text-sm font-semibold bg-sakura-600 hover:bg-sakura-700 text-terminal-on-accent transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             Save
           </button>

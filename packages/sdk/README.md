@@ -188,20 +188,32 @@ const { code, expiresAt } = await client.agent.linkCode(); // 409 if already lin
 ### Perps (Hyperliquid)
 
 ```ts
-await client.perps.markets();
-await client.perps.quote({ market: "ETH", side: "long", size: 0.5, leverage: 10 });
+const perpMarkets = await client.perps.markets();
+const eth = perpMarkets.find((market) => market.name === "ETH-USD");
+// maxLeverage is the Suwappu quote cap; venueMaxLeverage is the raw venue max.
+console.log(eth?.maxLeverage, eth?.venueMaxLeverage, eth?.markPrice, eth?.fundingRate);
+await client.perps.quote({ market: "ETH-USD", side: "long", size: 0.5, leverage: 10 });
 await client.perps.positions(address);
 ```
+
+Perps `fundingRate` is the current raw Hyperliquid market rate, not accrued
+position funding P&L. The Agent API does not expose perps execution.
 
 ### Prediction markets (Polymarket)
 
 ```ts
 const markets = await client.predict.list({ query: "election", limit: 20 });
-await client.predict.market(id);
+const market = await client.predict.market(id);
 await client.predict.book(id);
 await client.predict.price(id);
 await client.predict.trades(id, 20);
-await client.predict.order({ tokenId, price: "0.55", size: "10", side: "BUY" });
+
+// Trading is a separate authority boundary. Use an outcome token id, not
+// market.id or market.conditionId. The current order route submits GTC limits.
+const tokenId = market.tokens.find((token) => token.outcome === "Yes")?.tokenId;
+if (tokenId) {
+  await client.predict.order({ tokenId, price: "0.55", size: "10", side: "BUY" });
+}
 await client.predict.positions();
 await client.predict.orders(status?);
 ```
@@ -209,9 +221,17 @@ await client.predict.orders(status?);
 ### Lending (Morpho)
 
 ```ts
-await client.lend.markets(chainId?);
-await client.lend.market(id);
+const markets = await client.lend.markets(8453);
+const detail = await client.lend.market(markets[0].id, 8453);
 ```
+
+`supplyApy`, `borrowApy`, and `utilization` are current percentages.
+`totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicit
+nullable USD values from Morpho; the older `totalSupply` / `totalBorrow` names
+remain as deprecated aliases. `listed` is Morpho's interface listing status,
+not a safety guarantee, and `warnings` contains active upstream market warning
+types/levels. Market IDs are chain-scoped; detail defaults to Base (`8453`) if
+the chain is omitted. Lending is read-only on the Agent API today.
 
 ## CLI
 

@@ -1,96 +1,54 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test'
-import { Either } from 'effect'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { Effect, Layer } from 'effect'
+import jwt from 'jsonwebtoken'
+import { EnvService } from '../config/EnvService'
+import { RedisService, SwapService, WalletService } from '../services'
 
-// ROUTE-LEVEL test for POST /public/swap/execute (MONEY-PATH, unauthenticated).
-//
-// Validates that:
-// 1. Valid quotes can be executed by the wallet owner (happy path)
-// 2. Expired/missing quotes are rejected with 400
-// 3. Quote receiver validation prevents cross-wallet signing (security H5)
+// ROUTE-LEVEL test for POST /public/swap/execute (MONEY-PATH).
+// Auth and the route Effect both run for real; signing/broadcast can never be
+// reached because every case below fails closed before credentials are used.
 
-const TEST_AUTH_USER = {
-	userId: 123,
-	walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-} as any
+const REAL_RUNTIME = { ...(await import('../runtime')) }
 
+const JWT_SECRET = 'public-swap-route-test-secret'
+const TEST_WALLET_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
 const TEST_WALLET = {
 	id: 1,
 	userId: 123,
-	address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+	address: TEST_WALLET_ADDRESS,
 	walletProvider: 'turnkey',
 	turnkeySubOrgId: 'sub-org-123',
-	active: true,
+	isActive: true,
 } as any
 
-const REAL_MODULES = {
-	'../middleware/flexAuth': { ...(await import('../middleware/flexAuth')) },
-	'../middleware/ipRateLimit': { ...(await import('../middleware/ipRateLimit')) },
-	'../services': { ...(await import('../services')) },
-	'../runtime': { ...(await import('../runtime')) },
-}
+let activeWallets: any[] = [TEST_WALLET]
+let cachedQuote: any | null = null
 
-afterAll(() => {
-	mock.module('../middleware/flexAuth', () => REAL_MODULES['../middleware/flexAuth'])
-	mock.module('../middleware/ipRateLimit', () => REAL_MODULES['../middleware/ipRateLimit'])
-	mock.module('../services', () => REAL_MODULES['../services'])
-	mock.module('../runtime', () => REAL_MODULES['../runtime'])
-})
+const envLayer = Layer.succeed(EnvService, { JWT_SECRET } as any)
+const walletLayer = Layer.succeed(
+	WalletService,
+	{
+		getActiveWallets: () => Effect.succeed(activeWallets),
+	} as any,
+)
+const redisLayer = Layer.succeed(
+	RedisService,
+	{
+		get: () => Effect.succeed(cachedQuote),
+		set: () => Effect.void,
+		del: () => Effect.void,
+		isConnected: () => true,
+	} as any,
+)
+const swapLayer = Layer.succeed(SwapService, {} as any)
+const testLayer = Layer.mergeAll(envLayer, walletLayer, redisLayer, swapLayer)
 
-// Mock flexAuth to set the authUser (simulates unauthenticated→wallet-owned flow)
-mock.module('../middleware/flexAuth', () => ({
-	flexAuth: () => async (c: any, next: any) => {
-		c.set('authUser', TEST_AUTH_USER)
-		return next()
-	},
-}))
+const runTestEffect = (effect: any) => Effect.runPromise(effect.pipe(Effect.provide(testLayer)))
 
-// Mock ipRateLimit to no-op
-mock.module('../middleware/ipRateLimit', () => ({
-	ipRateLimit: () => async (c: any, next: any) => next(),
-}))
-
-// Mock services
-mock.module('../services', () => ({
-	...REAL_MODULES['../services'],
-	WalletService: {
-		getActiveWallets: async () => [TEST_WALLET],
-	},
-	SwapService: {
-		executeSwap: async (quote: any) => ({
-			swap_id: 999,
-			tx_hash: '0xabc123',
-			status: 'pending',
-		}),
-	},
-	RedisService: {
-		get: async (key: string) => {
-			if (key.includes('quote-valid')) {
-				return {
-					quoteId: 'quote-valid',
-					fromToken: { address: '0x1', decimals: 18 },
-					toToken: { address: '0x2', decimals: 6 },
-					amount: '1000000000000000000',
-					receiver: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-					signature: '0xsig123',
-				}
-			}
-			return null
-		},
-		set: async () => true,
-		isConnected: () => false,
-	},
-}))
-
-// Mock runtime to bypass Effect evaluation
 mock.module('../runtime', () => ({
-	runEffectEither: async (effect: any) => {
-		try {
-			// Execute the effect synchronously for testing
-			return Either.right({ swap_id: 999, tx_hash: '0xabc', status: 'pending' })
-		} catch (err) {
-			return Either.left(err)
-		}
-	},
+	runEffect: runTestEffect,
+	runEffectEither: (effect: any) => runTestEffect(Effect.either(effect)),
+	shutdownRuntime: async () => {},
 }))
 
 let publicSwapRoutes: any
@@ -99,42 +57,60 @@ beforeAll(async () => {
 	;({ publicSwapRoutes } = await import('../routes/publicSwap'))
 })
 
-const AUTH_HEADERS = {}
+beforeEach(() => {
+	activeWallets = [TEST_WALLET]
+	cachedQuote = null
+})
 
-describe('POST /public/swap/execute — unauthenticated MONEY-PATH', () => {
-	it('rejects missing quoteId with 400', async () => {
+afterAll(() => {
+	mock.module('../runtime', () => REAL_RUNTIME)
+})
+
+const authToken = jwt.sign(
+	{ userId: 123, walletAddress: TEST_WALLET_ADDRESS, src: 'telegram' },
+	JWT_SECRET,
+)
+const AUTH_HEADERS = {
+	Authorization: `Bearer ${authToken}`,
+	'Content-Type': 'application/json',
+}
+
+describe('POST /public/swap/execute — authenticated MONEY-PATH guards', () => {
+	it('rejects a missing quoteId before execution', async () => {
 		const res = await publicSwapRoutes.request('/execute', {
 			method: 'POST',
 			headers: AUTH_HEADERS,
 			body: JSON.stringify({}),
 		})
+
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.error).toContain('required')
+		expect(body.message).toContain('quoteId is required')
 	})
 
-	it('rejects expired quote with 400', async () => {
+	it('rejects an expired or missing cached quote', async () => {
 		const res = await publicSwapRoutes.request('/execute', {
 			method: 'POST',
 			headers: AUTH_HEADERS,
 			body: JSON.stringify({ quoteId: 'quote-expired-xyz' }),
 		})
+
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.message).toContain('expired')
+		expect(body.message).toContain('expired or not found')
 	})
 
-	it('rejects non-turnkey wallet with 400', async () => {
+	it('rejects a non-Turnkey wallet selected from server state', async () => {
+		activeWallets = [{ ...TEST_WALLET, walletProvider: 'external', turnkeySubOrgId: null }]
+
 		const res = await publicSwapRoutes.request('/execute', {
 			method: 'POST',
 			headers: AUTH_HEADERS,
-			body: JSON.stringify({
-				quoteId: 'quote-valid',
-				wallet: { walletProvider: 'external' },
-			}),
+			body: JSON.stringify({ quoteId: 'quote-valid' }),
 		})
+
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
-		expect(body.message).toContain('signing')
+		expect(body.message).toContain('server-side signing')
 	})
 })

@@ -8,6 +8,7 @@ import { usePerpsAccount, useExecutePerps } from '../../hooks/useTerminalPerps'
 import { ConnectHyperliquid } from './ConnectHyperliquid'
 import { usePersistentState } from '../../lib/persist'
 import type { MarginMode } from '../../types/perps'
+import { WalletConnect } from '../auth/WalletConnect'
 
 interface Props {
   markets?: HLMarket[]
@@ -20,7 +21,7 @@ interface Props {
 // /terminal/perps/execute, which routes to the same perps_service the Telegram
 // bot trades through. Gated behind a one-time HyperLiquid connect.
 export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, needsTradingProof } = useAuth()
   const [side, setSide] = useState<'long' | 'short'>('long')
   const [orderType, setOrderType] = useState<PerpsOrderType>('market')
   const [size, setSize] = useState('')
@@ -93,7 +94,13 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
     equity && equity > 0 ? Math.min((projectedMaint / equity) * 100, 100) : null
 
   const canSubmit =
-    isAuthenticated && connected && market && sizeNum > 0 && limitValid && !execute.isPending
+    isAuthenticated &&
+    !needsTradingProof &&
+    connected &&
+    market &&
+    sizeNum > 0 &&
+    limitValid &&
+    !execute.isPending
 
   async function submit() {
     if (!market || !(sizeNum > 0)) return
@@ -425,10 +432,8 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
       )}
 
       {/* Execute — gated behind sign-in + HyperLiquid connect */}
-      {!isAuthenticated ? (
-        <p className="py-2 text-center text-xs text-terminal-text-muted">
-          Sign in to trade perpetuals.
-        </p>
+      {!isAuthenticated || needsTradingProof ? (
+        <WalletConnect preferredChain="ethereum" showGoogle={!isAuthenticated} />
       ) : !connected ? (
         <ConnectHyperliquid />
       ) : (

@@ -5,6 +5,7 @@ import logging
 import secrets
 import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -1303,6 +1304,17 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return ConversationHandler.END
 
+    # Acknowledge the expensive preflight before touching RPCs. CallbackQuery.answer()
+    # clears Telegram's button spinner, so without this edit the quote card appears
+    # frozen while balance/gas validation runs. This is status-only: every guard and
+    # execution step below remains authoritative and unchanged.
+    try:
+        await query.edit_message_text("⏳ Validating balances & gas…")
+    except TelegramError as exc:
+        # Presentation must never become a new execution dependency. A transient
+        # Telegram edit failure should not bypass or block the authoritative checks.
+        logger.debug("Swap preflight status edit failed (continuing): %s", exc)
+
     # Pre-validate balance for all selected wallets
     selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
 
@@ -1905,9 +1917,13 @@ async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
 
             if copy_mode == "auto":
                 # Auto-copy is enabled, execute immediately
-                success, _, _ = await copy_service.execute_copy(follower_id, copy_trade_id)
-                if success:
+                success, result_message, _ = await copy_service.execute_copy(
+                    follower_id, copy_trade_id
+                )
+                if success is True:
                     msg += "\n✅ *Auto-copied successfully!*"
+                elif success is None:
+                    msg += f"\n⚠️ *Auto-copy outcome unknown.*\n{result_message}"
                 else:
                     msg += "\n❌ Auto-copy failed"
 

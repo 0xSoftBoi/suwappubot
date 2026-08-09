@@ -22,7 +22,7 @@ Authenticated calls use:
 Authorization: Bearer $SUWAPPU_API_KEY
 ```
 
-The current hosted server negotiates MCP `2025-06-18` (and retains older supported protocol versions for compatibility).
+Source `0.6.0` of the hosted server supports modern stateless MCP `2026-07-28` and retains the older initialize-based path through `2025-06-18` for compatibility. The source stdio bridge still uses the official TypeScript SDK v1 compatibility line locally; it forwards to the hosted endpoint, so the hosted catalog remains canonical.
 
 ## When you need stdio
 
@@ -72,11 +72,12 @@ Accordingly, `get_swap_status` and `get_swap_history` describe managed swap reco
 
 The MCP lifecycle/discovery methods are public:
 
+- `server/discover` (modern hosted HTTP)
 - `initialize`
 - `tools/list`
-- `resources/list` / `resources/read`
+- `resources/list` / `resources/templates/list` / `resources/read`
 - `prompts/list` / `prompts/get`
-- `notifications/initialized`
+- `notifications/initialized` (legacy)
 
 Four `tools/call` targets are also public and zero-setup:
 

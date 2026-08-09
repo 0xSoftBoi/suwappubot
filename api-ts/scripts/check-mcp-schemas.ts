@@ -80,7 +80,7 @@ function main() {
 		console.error('✗ MCP tool schemas have drifted from the Zod validators:\n')
 		console.error(failures.join('\n\n'))
 		console.error(
-			'\nFix by deriving the tool\'s inputSchema with mcpInputSchema() in src/routes/mcp.ts,\n' +
+			'\nFix by deriving the tool\'s inputSchema with mcpInputSchema() in src/routes/mcpTools.ts,\n' +
 				'rather than hand-writing it. See docs/plans/mcp-unification.md.',
 		)
 		process.exit(1)

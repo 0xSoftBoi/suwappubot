@@ -262,16 +262,19 @@ describe("listChains / listTokens", () => {
 
 describe("perps namespace", () => {
   test("markets unwraps", async () => {
-    stubFetch({ markets: [{ name: "ETH-PERP", asset: "ETH", szDecimals: 4, maxLeverage: 50, markPrice: 3200, fundingRate: 0.0001 }] });
+    stubFetch({ markets: [{ name: "ETH-USD", asset: "ETH", szDecimals: 4, maxLeverage: 20, venueMaxLeverage: 25, markPrice: 3200, fundingRate: 0.0001 }] });
     const markets = await client.perps.markets();
-    expect(markets[0].name).toBe("ETH-PERP");
+    expect(markets[0].name).toBe("ETH-USD");
+    expect(markets[0].maxLeverage).toBe(20);
+    expect(markets[0].venueMaxLeverage).toBe(25);
+    expect(markets[0].fundingRate).toBe(0.0001);
   });
 
   test("quote posts side/size/leverage", async () => {
-    const calls = stubFetch({ market: "ETH-PERP", side: "long", size: 1, leverage: 10, entryPrice: 3200, margin: 320, liquidationPrice: 2900, fundingRate: 0.0001, fee: 1 });
-    const q = await client.perps.quote("ETH-PERP", "long", 1, 10);
+    const calls = stubFetch({ market: "ETH-USD", side: "long", size: 1, leverage: 10, entryPrice: 3200, margin: 320, liquidationPrice: 2900, fundingRate: 0.0001, fee: 1 });
+    const q = await client.perps.quote("ETH-USD", "long", 1, 10);
     expect(q.side).toBe("long");
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ market: "ETH-PERP", side: "long", size: 1, leverage: 10 });
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ market: "ETH-USD", side: "long", size: 1, leverage: 10 });
   });
 
   test("positions forwards address", async () => {
@@ -290,10 +293,27 @@ describe("predict namespace", () => {
   });
 
   test("market fetches by id", async () => {
-    const calls = stubFetch({ id: "m1", question: "?", outcomes: [], outcomePrices: [], volume: 0, liquidity: 0, endDate: "", active: true, category: "", description: "", createdAt: "", resolvedOutcome: null });
-    const m = await client.predict.market("m1");
+    const calls = stubFetch({
+      id: "m1",
+      conditionId: "0xcondition",
+      question: "?",
+      outcomes: ["Yes"],
+      outcomePrices: [0.5],
+      tokens: [{ tokenId: "yes-token", outcome: "Yes" }],
+      volume: 0,
+      liquidity: 0,
+      endDate: "",
+      active: true,
+      category: "",
+      description: "",
+      createdAt: "",
+      resolvedOutcome: null,
+    });
+    const m = await client.predict.market("m/1");
     expect(m.id).toBe("m1");
-    expect(calls[0].url).toContain("/predict/market/m1");
+    expect(m.conditionId).toBe("0xcondition");
+    expect(m.tokens[0]?.tokenId).toBe("yes-token");
+    expect(calls[0].url).toContain("/predict/market/m%2F1");
   });
 });
 
@@ -304,11 +324,31 @@ describe("lend namespace", () => {
     expect(calls[0].url).toContain("chainId=8453");
   });
 
-  test("market fetches by id", async () => {
-    const calls = stubFetch({ id: "lm1", loanToken: "USDC", collateralToken: "WETH", lltv: 0.86, supplyApy: 0.05, borrowApy: 0.07, totalSupply: 1, totalBorrow: 1, utilization: 0.5, chainId: 8453, oracle: "0x", irm: "0x", createdAt: "" });
-    const m = await client.lend.market("lm1");
-    expect(m.id).toBe("lm1");
-    expect(calls[0].url).toContain("/lend/market/lm1");
+  test("market fetch is chain-scoped and carries risk/liquidity fields", async () => {
+    const calls = stubFetch({
+      id: "lm/1",
+      loanToken: "USDC",
+      collateralToken: "WETH",
+      lltv: 0.86,
+      supplyApy: 5,
+      borrowApy: 7,
+      totalSupply: 1_000_000,
+      totalBorrow: 800_000,
+      totalSupplyUsd: 1_000_000,
+      totalBorrowUsd: 800_000,
+      availableLiquidityUsd: 200_000,
+      utilization: 80,
+      chainId: 8453,
+      listed: true,
+      warnings: [{ type: "oracle_price_derivation", level: "RED" }],
+      oracle: "0x",
+      irm: "0x",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const m = await client.lend.market("lm/1", 8453);
+    expect(m.availableLiquidityUsd).toBe(200_000);
+    expect(m.warnings[0]?.level).toBe("RED");
+    expect(calls[0].url).toContain("/lend/market/lm%2F1?chainId=8453");
   });
 });
 

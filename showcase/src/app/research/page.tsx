@@ -8,11 +8,50 @@ import styles from './research.module.css';
 const SITE = 'https://suwappu.bot';
 const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 
+const decisionLenses = [
+  {
+    seat: 'Reserve / settlement',
+    question: 'What does an onchain backing ratio prove—and what issuer, legal, liquidity, and finality risk remains outside it?',
+    href: '/research/omnichain-dollar-collateral',
+    label: 'USDT0 backing',
+  },
+  {
+    seat: 'Treasury / payments',
+    question: 'Can the account that pays a network fee be governed separately from the account that authorizes the payment?',
+    href: '/research/tempo-fee-payer-0x76',
+    label: 'Tempo fee payer',
+  },
+  {
+    seat: 'Execution',
+    question: 'What is a minute of cross-chain speed worth, and which measured cost should justify paying basis points for it?',
+    href: '/research/pricing-cross-chain-latency',
+    label: 'Latency economics',
+  },
+  {
+    seat: 'Tokenization / interface',
+    question: 'What happens when a stock split changes the share-equivalent position without changing the raw ERC-20 balance?',
+    href: '/research/erc8056-stock-split-interface-risk',
+    label: 'ERC-8056 integration',
+  },
+  {
+    seat: 'Product / incentives',
+    question: 'Where does a reward budget land, and which rule changes reward real activity versus additional identities?',
+    href: '/research/points-programs-tullock-contests',
+    label: 'Incentive economics',
+  },
+  {
+    seat: 'Model risk',
+    question: 'What happens when a solver is verified but its most important prediction fails outcome analysis?',
+    href: '/research/airdrop-concentration',
+    label: 'Model validation',
+  },
+] as const;
+
 export const metadata: Metadata = {
   alternates: { canonical: '/research' },
   title: 'Research — Suwappu',
   description:
-    'Institutional research from Suwappu on stablecoin backing, issuer and settlement risk, market structure, and financial execution. Methods, limitations, corrections, and source data are public.',
+    'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };
 
 function fmtDate(iso: string) {
@@ -42,6 +81,7 @@ export default function ResearchPage() {
       headline: paper.title,
       url: `${SITE}/research/${paper.slug}`,
       datePublished: paper.date,
+      dateModified: paper.updated ?? paper.date,
       author: { '@type': 'Person', name: AUTHOR_NAME },
       ...(paper.report && {
         associatedMedia: {
@@ -54,7 +94,7 @@ export default function ResearchPage() {
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
@@ -64,16 +104,16 @@ export default function ResearchPage() {
         <header className={styles.hero}>
           <div className={styles.heroTopline}>
             <p className="summer-kicker">Suwappu Research</p>
-            <p className={styles.series}>Payments · treasury · market structure</p>
+            <p className={styles.series}>Treasury · payments · execution · tokenization · model risk</p>
           </div>
 
           <div className={styles.heroGrid}>
             <h1>Research for financial infrastructure.</h1>
             <div className={styles.heroIntro}>
               <p>
-                Empirical measurement and control-oriented analysis of stablecoin backing,
-                settlement rails, and market structure. Observed state is kept separate from
-                issuer, legal, liquidity, and prudential conclusions.
+                Written from the decision seat: what a treasurer, payments operator, execution
+                desk, or risk function can actually act on. Each study separates measured state,
+                inference, and the control or assurance gap that remains.
               </p>
               <p className={styles.byline}>{AUTHOR_NAME} · Suwappu Research</p>
             </div>
@@ -98,6 +138,23 @@ export default function ResearchPage() {
             </div>
           </dl>
         </header>
+
+        <section className={styles.decisionMap} aria-labelledby="decision-map">
+          <div className={styles.sectionLabel}>
+            <span id="decision-map">Read by decision</span>
+            <span>Five institutional lenses · one evidence standard</span>
+          </div>
+          <div className={styles.decisionList}>
+            {decisionLenses.map((lens, index) => (
+              <a key={lens.href} className={styles.decisionRow} href={lens.href}>
+                <span className={styles.decisionOrdinal}>{String(index + 1).padStart(2, '0')}</span>
+                <span className={styles.decisionSeat}>{lens.seat}</span>
+                <span className={styles.decisionQuestion}>{lens.question}</span>
+                <span className={styles.decisionLink}>{lens.label} →</span>
+              </a>
+            ))}
+          </div>
+        </section>
 
         {featured?.report && (
           <section className={styles.section} aria-labelledby="flagship-report">
@@ -191,28 +248,45 @@ export default function ResearchPage() {
               <span>Methods · data · correction history</span>
             </div>
             <div className={styles.list}>
-              {papers.map((p, index) => (
-                <article key={p.slug} className={styles.row}>
-                  <div className={styles.ordinal} aria-hidden="true">
-                    {String(index + 1).padStart(2, '0')}
-                  </div>
-                  <div className={styles.rowBody}>
-                    <div className={styles.metaInline}>
-                      <span className="research-tag">{p.category}</span>
-                      <time className={styles.date}>{fmtDate(p.date)}</time>
+              {papers.map((p, index) => {
+                const visual = p.heroArt ?? p.indexFigure;
+                return (
+                  <article key={p.slug} className={styles.row}>
+                    <div className={styles.ordinal} aria-hidden="true">
+                      {String(index + 1).padStart(2, '0')}
                     </div>
-                    <h3 className={styles.title}>
-                      <a href={`/research/${p.slug}`}>{p.title}</a>
-                    </h3>
-                    <p className={styles.dek}>{p.excerpt}</p>
-                    <div className={styles.rowLinks}>
-                      <a href={`/research/${p.slug}`}>Read study →</a>
-                      {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
-                      {p.report && <a href={p.report.path}>Report PDF →</a>}
+                    <div className={`${styles.rowBody} ${visual ? styles.rowBodyWithFigure : ''}`}>
+                      <div className={styles.rowCopy}>
+                        <div className={styles.metaInline}>
+                          <span className="research-tag">{p.category}</span>
+                          <time className={styles.date}>{fmtDate(p.date)}</time>
+                          {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
+                        </div>
+                        <h3 className={styles.title}>
+                          <a href={`/research/${p.slug}`}>{p.title}</a>
+                        </h3>
+                        <p className={styles.dek}>{p.excerpt}</p>
+                        <div className={styles.rowLinks}>
+                          <a href={`/research/${p.slug}`}>Read study →</a>
+                          {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
+                          {p.report && <a href={p.report.path}>Report PDF →</a>}
+                        </div>
+                      </div>
+                      {visual && (
+                        <figure className={styles.rowFigure}>
+                          <Image
+                            src={visual.src}
+                            width={720}
+                            height={480}
+                            alt={visual.alt}
+                          />
+                          <figcaption>{visual.caption}</figcaption>
+                        </figure>
+                      )}
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}
@@ -258,6 +332,13 @@ export default function ResearchPage() {
                 <p>A chain-state result is not promoted into a legal, credit, liquidity, regulatory, or prudential conclusion without separate evidence.</p>
               </div>
             </li>
+            <li>
+              <span>05</span>
+              <div className={styles.meta}>
+                <h3>State the decision use</h3>
+                <p>A verified calculation can still be unfit for a particular decision. Each study states what the evidence can support, what it cannot, and what would change that status.</p>
+              </div>
+            </li>
           </ol>
         </section>
 
@@ -273,12 +354,24 @@ export default function ResearchPage() {
                   <div className={styles.metaInline}>
                     <span className="research-tag research-tag--muted">{p.category}</span>
                     <time className={styles.date}>{fmtDate(p.date)}</time>
+                    {p.updated && <span className={styles.revision}>Revised {fmtDate(p.updated)}</span>}
                   </div>
-                  <div className={styles.rowBody}>
-                    <h3 className={styles.title}>
-                      <a href={`/research/${p.slug}`}>{p.title}</a>
-                    </h3>
-                    <p className={styles.dek}>{p.excerpt}</p>
+                  <div className={`${styles.rowBody} ${p.indexFigure ? styles.rowBodyWithFigure : ''}`}>
+                    <div className={styles.rowCopy}>
+                      <h3 className={styles.title}>
+                        <a href={`/research/${p.slug}`}>{p.title}</a>
+                      </h3>
+                      <p className={styles.dek}>{p.excerpt}</p>
+                      <div className={`research-links ${styles.rowLinks}`}>
+                        <a href={`/research/${p.slug}`}>Read control note <span aria-hidden="true">→</span></a>
+                      </div>
+                    </div>
+                    {p.indexFigure && (
+                      <figure className={styles.rowFigure}>
+                        <Image src={p.indexFigure.src} alt={p.indexFigure.alt} width={960} height={600} />
+                        <figcaption>{p.indexFigure.caption}</figcaption>
+                      </figure>
+                    )}
                   </div>
                 </article>
               ))}

@@ -245,6 +245,7 @@ export interface PerpMarket {
 	asset: string
 	szDecimals: number
 	maxLeverage: number
+	venueMaxLeverage: number
 	markPrice: number
 	fundingRate: number
 }
@@ -276,11 +277,18 @@ export interface PerpPosition {
 }
 
 // Prediction types (Polymarket)
+export interface PredictionMarketToken {
+	tokenId: string
+	outcome: string
+}
+
 export interface PredictionMarket {
 	id: string
+	conditionId: string
 	question: string
 	outcomes: string[]
 	outcomePrices: number[]
+	tokens: PredictionMarketToken[]
 	volume: number
 	liquidity: number
 	endDate: string
@@ -295,6 +303,11 @@ export interface PredictionMarketDetail extends PredictionMarket {
 }
 
 // Lending types (Morpho)
+export interface LendingMarketWarning {
+	type: string
+	level: string
+}
+
 export interface LendingMarket {
 	id: string
 	loanToken: string
@@ -302,10 +315,15 @@ export interface LendingMarket {
 	lltv: number
 	supplyApy: number
 	borrowApy: number
-	totalSupply: number
-	totalBorrow: number
+	totalSupply: number | null
+	totalBorrow: number | null
+	totalSupplyUsd: number | null
+	totalBorrowUsd: number | null
+	availableLiquidityUsd: number | null
 	utilization: number
 	chainId: number
+	listed: boolean
+	warnings: LendingMarketWarning[]
 }
 
 export interface LendingMarketDetail extends LendingMarket {
@@ -753,22 +771,29 @@ export function createClient(config?: SuwappuConfig) {
 				return res.markets
 			},
 			async market(id: string): Promise<PredictionMarketDetail> {
-				return request<PredictionMarketDetail>(`/v1/agent/predict/market/${id}`, config)
+				return request<PredictionMarketDetail>(
+					`/v1/agent/predict/market/${encodeURIComponent(id)}`,
+					config,
+				)
 			},
 		},
 
 		// Lending (Morpho)
 		lend: {
 			async markets(chainId?: number): Promise<LendingMarket[]> {
-				const qs = chainId ? `?chainId=${chainId}` : ''
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
 				const res = await request<{ markets: LendingMarket[] }>(
 					`/v1/agent/lend/markets${qs}`,
 					config,
 				)
 				return res.markets
 			},
-			async market(id: string): Promise<LendingMarketDetail> {
-				return request<LendingMarketDetail>(`/v1/agent/lend/market/${id}`, config)
+			async market(id: string, chainId?: number): Promise<LendingMarketDetail> {
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
+				return request<LendingMarketDetail>(
+					`/v1/agent/lend/market/${encodeURIComponent(id)}${qs}`,
+					config,
+				)
 			},
 		},
 	}
