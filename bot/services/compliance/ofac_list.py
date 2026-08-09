@@ -15,11 +15,12 @@ For production, extend it from a maintained feed:
 
 # TODO(compliance): the file/env lists loaded here are static — there is no
 # scheduled refresh job pulling the live OFAC SDN feed, so a list on disk
-# silently goes stale. There is also no screening on bulk_pay/p2p transfers
-# or CCTP bridge legs (only SwapEngine.execute_swap and the withdrawal path
-# in hot_wallet.py call into AddressComplianceService today) — those surfaces
-# can move funds unscreened. Both are tracked as known gaps, not implemented
-# here.
+# silently goes stale. There is also no screening on bulk_pay transfers or
+# CCTP bridge legs (SwapEngine.execute_swap, the withdrawal path in
+# hot_wallet.py, and P2P escrow release/refund — which settles via
+# hot_wallet.py's send_token — all call into AddressComplianceService today)
+# — those two remaining surfaces can move funds unscreened. Both are tracked
+# as known gaps, not implemented here.
 
 Address-shape helpers live here (rather than duplicated per-caller) so the
 list loader and ``AddressComplianceService`` always agree on what counts as
@@ -33,7 +34,7 @@ their 21-byte hex form so every equivalent representation keys the same way.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional, Set
+from typing import Iterable, List, Optional, Set
 
 import base58
 
@@ -183,73 +184,142 @@ def _normalize(addr: str) -> Optional[str]:
     EVM hex is case-insensitive so it is lowercased. TRON (base58check or
     hex) is decoded to its canonical 21-byte hex form so every equivalent
     representation (``T…`` / ``41…`` / ``0x41…``) keys identically — see
-    ``_tron_canonical``. Solana is out of scope for the *file loader* (it has
-    no distinguishing prefix and this module has no context on which lines
-    are meant to be Solana vs. an unrelated 32-44 char token), so Solana
-    entries belong in ``COMPLIANCE_BLOCKLIST`` / recipient screening in
-    ``compliance_service`` instead. Must stay in step with
-    ``compliance_service._normalize_address``.
+    ``_tron_canonical``. Solana base58 has no case-folding convention (unlike
+    EVM hex it is not case-insensitive), so a validated 32-byte-pubkey
+    address is stored verbatim, exact-match only — same rule
+    ``compliance_service._normalize_address`` uses for Solana. Must stay in
+    step with that function.
     """
     v = (addr or "").strip()
     if _is_evm_address(v):
         return v.lower()
     if _is_tron_address(v):
         return _tron_canonical(v)
+    if _is_solana_address(v):
+        return v
     return None
 
 
-def load_ofac_addresses(extra_path: str | None = None) -> Set[str]:
-    """Build the full sanctioned-address set: seed + optional file.
+class OfacList:
+    """Owns (re)loading the sanctioned-address set and tracks whether the
+    last reload *degraded* — i.e. an operator-configured ``extra_path`` was
+    set but failed to load or parse.
 
-    Args:
-        extra_path: Path to a newline-delimited file of addresses (``#`` and
-            blank lines ignored). Missing/unreadable file is logged and
-            skipped — screening must degrade gracefully, never crash the
-            swap/withdraw path or block boot.
-
-    Returns:
-        Canonicalized set of sanctioned addresses (EVM lowercased, TRON
-        keyed on 21-byte hex).
+    ``degraded`` exists so ``compliance_service`` can fail closed on it in
+    ENFORCE mode: if the operator's supplemental sanctions file was
+    configured but didn't actually load, the resulting address set silently
+    understates what should be blocked, and ENFORCE must not present that as
+    a clean screen. A degraded load still falls back to the seed set so
+    MONITOR/DISABLED keep working — only ENFORCE treats "list didn't load"
+    as its own block reason (see ``compliance_service.screen``).
     """
-    addresses = seed_ofac_addresses()
 
-    if extra_path:
-        try:
-            with open(extra_path, "r", encoding="utf-8") as fh:
-                loaded = _parse_address_lines(fh)
-            addresses.update(loaded)
-            logger.info(
-                "Loaded %d sanctioned address(es) from %s (total %d)",
-                len(loaded),
-                extra_path,
-                len(addresses),
-            )
-        except FileNotFoundError:
-            logger.warning("OFAC list path not found, using seed only: %s", extra_path)
-        except Exception as exc:
-            # Broad on purpose: a malformed/unreadable/permission-denied list
-            # file must never brick boot or disable screening entirely — fall
-            # back to the seed list and keep going.
-            logger.warning("Could not read OFAC list %s: %s (using seed only)", extra_path, exc)
+    def __init__(self) -> None:
+        self.addresses: Set[str] = seed_ofac_addresses()
+        self.degraded: bool = False
 
-    return addresses
+    def reload(self, extra_path: Optional[str] = None) -> Set[str]:
+        """Build the full sanctioned-address set: seed + optional file.
+
+        Args:
+            extra_path: Path to a newline-delimited file of addresses (``#``
+                and blank lines ignored). A missing/unreadable/unparseable
+                file never crashes the swap/withdraw path or blocks boot —
+                it falls back to the seed list — but it does mark
+                ``self.degraded = True`` so ENFORCE can fail closed on it.
+
+        Returns:
+            Canonicalized set of sanctioned addresses (EVM lowercased, TRON
+            keyed on 21-byte hex, Solana verbatim).
+        """
+        addresses = seed_ofac_addresses()
+        degraded = False
+
+        if extra_path:
+            try:
+                with open(extra_path, "r", encoding="utf-8") as fh:
+                    loaded = _parse_address_lines(fh)
+                addresses.update(loaded)
+                logger.info(
+                    "Loaded %d sanctioned address(es) from %s (total %d)",
+                    len(loaded),
+                    extra_path,
+                    len(addresses),
+                )
+            except FileNotFoundError:
+                logger.error(
+                    "OFAC list path configured but not found — degraded, using seed only: %s",
+                    extra_path,
+                )
+                degraded = True
+            except Exception as exc:
+                # Broad on purpose: a malformed/unreadable/permission-denied
+                # list file must never brick boot — fall back to the seed
+                # list and keep going. It IS a degraded load though, so
+                # ENFORCE (via compliance_service) can fail closed on it.
+                logger.error(
+                    "Could not read/parse OFAC list %s: %s — degraded, using seed only",
+                    extra_path,
+                    exc,
+                )
+                degraded = True
+
+        self.addresses = addresses
+        self.degraded = degraded
+        return addresses
+
+
+# Module-level default instance — mirrors the ``compliance_service`` singleton
+# pattern. ``compliance_service.AddressComplianceService`` reads
+# ``ofac_list.degraded`` after each ``reload()`` to know whether it can trust
+# the loaded list.
+ofac_list = OfacList()
+
+
+def load_ofac_addresses(extra_path: str | None = None) -> Set[str]:
+    """Backward-compatible functional wrapper around the ``ofac_list``
+    singleton. Returns just the address set; callers that need degraded
+    status should read ``ofac_list.degraded`` after calling this (or use
+    ``ofac_list.reload()`` directly).
+    """
+    return ofac_list.reload(extra_path)
 
 
 def _parse_address_lines(lines: Iterable[str]) -> Set[str]:
     """Parse address-per-line text, skipping comments/blanks.
 
-    Accepts EVM (``0x…``) and TRON (base58check ``T…`` or hex
-    ``41…``/``0x41…``) addresses; anything else (including malformed
-    entries) is dropped.
+    Accepts EVM (``0x…``), TRON (base58check ``T…`` or hex
+    ``41…``/``0x41…``), and Solana (base58 32-byte pubkey) addresses;
+    anything else (including malformed entries) is dropped. Dropped entries
+    are counted and logged as a single summary line (with up to the first 5
+    offending tokens as examples) rather than one log line per bad row, so a
+    badly-formatted file doesn't spam the logs.
     """
     out: Set[str] = set()
+    dropped = 0
+    examples: List[str] = []
     for raw in lines:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         # Tolerate "address, label" or "address  # label" rows.
-        token = line.split(",")[0].split()[0]
+        parts = line.split(",")[0].split()
+        if not parts:
+            continue
+        token = parts[0]
         norm = _normalize(token)
         if norm:
             out.add(norm)
+        else:
+            dropped += 1
+            if len(examples) < 5:
+                examples.append(token)
+    if dropped:
+        logger.warning(
+            "OFAC list file loader: dropped %d unparseable/invalid entr%s (examples: %s%s)",
+            dropped,
+            "y" if dropped == 1 else "ies",
+            ", ".join(examples),
+            ", ..." if dropped > len(examples) else "",
+        )
     return out

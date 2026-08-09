@@ -834,7 +834,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 ),
             )
 
-        except ComplianceBlockedError as e:
+        except ComplianceBlockedError:
             # Sanctions screening happens before any node call — safe to
             # fully undo, same as WithdrawalsPausedError above. Distinct
             # message so the user sees a clear compliance block instead of a

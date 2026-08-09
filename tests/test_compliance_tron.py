@@ -128,7 +128,16 @@ class TestCsvParsing:
         assert parsed == {TRON_A_HEX}
 
     def test_drops_unparseable_entries(self):
-        assert cs._parse_csv_addresses("not-an-address, , 0xdeadbeef") == set()
+        # Note: "0xdeadbeef"-style short hex strings are now a valid
+        # Starknet address shape (finding 1: 0x + 1-64 hex, len != 42), so
+        # this uses genuinely unrecognizable garbage instead.
+        assert cs._parse_csv_addresses("not-an-address, , 0xZZZNOTHEX") == set()
+
+    def test_starknet_shaped_entry_is_no_longer_dropped(self):
+        """Finding 1: a short 0x-hex string is now a recognized (Starknet)
+        family, so it's kept rather than silently dropped."""
+        parsed = cs._parse_csv_addresses("0xdeadbeef")
+        assert parsed == {"0xdeadbeef"}
 
 
 class TestScreeningEnforcesTron:
@@ -242,20 +251,37 @@ class TestSolanaScreening:
         assert result.allowed is True
 
     def test_unscreenable_recipient_rejected_in_enforce(self, monkeypatch):
-        """A recipient family the screener can't parse at all (e.g. Starknet)
-        must fail CLOSED in ENFORCE mode."""
+        """A recipient family the screener can't recognize at all (not
+        EVM/TRON/Solana/Starknet/BTC-bech32) must fail CLOSED in ENFORCE
+        mode."""
         svc = self._enforce_svc(monkeypatch)
         result = svc.screen(
-            recipient="0x" + "1" * 63, chain="starknet"
-        )  # not EVM/TRON/Solana shape
+            recipient="cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", chain="cosmos"
+        )  # not EVM/TRON/Solana/Starknet/BTC shape
         assert result.allowed is False
 
     def test_unscreenable_recipient_allowed_in_monitor(self, monkeypatch):
         """Same unscreenable recipient in MONITOR mode: logged, not blocked."""
         svc = self._monitor_svc(monkeypatch)
-        result = svc.screen(recipient="0x" + "1" * 63, chain="starknet")
+        result = svc.screen(
+            recipient="cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", chain="cosmos"
+        )
         assert result.allowed is True
         assert result.blocked, "MONITOR should still record the would-block verdict"
+
+    def test_starknet_recipient_now_recognized_in_enforce(self, monkeypatch):
+        """Finding 1: Starknet (0x + non-EVM-length hex) is now a recognized,
+        screenable family — a clean Starknet recipient is allowed rather
+        than fail-closing."""
+        svc = self._enforce_svc(monkeypatch)
+        result = svc.screen(recipient="0x" + "1" * 63, chain="starknet")
+        assert result.allowed is True
+
+    def test_btc_bech32_recipient_now_recognized_in_enforce(self, monkeypatch):
+        """Finding 1: BTC bech32 recipients are also recognized/screenable."""
+        svc = self._enforce_svc(monkeypatch)
+        result = svc.screen(recipient="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", chain="bitcoin")
+        assert result.allowed is True
 
 
 class TestScreenerErrorFailsClosedInEnforce:
