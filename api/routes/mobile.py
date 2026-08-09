@@ -6,7 +6,9 @@ copy trading, and sniping.  Delegates to existing service singletons.
 """
 
 import logging
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Optional, List
 
 from fastapi import APIRouter, Request, HTTPException, Query
@@ -55,6 +57,234 @@ class CreateWalletRequest(BaseModel):
 
 class SetDefaultWalletRequest(BaseModel):
     address: str
+
+
+class AskBody(BaseModel):
+    text: str
+
+
+def _decimal(value) -> Decimal:
+    """Best-effort numeric coercion for read-only analytics."""
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _snapshot_payload(
+    balances_by_chain: dict[str, dict[str, Decimal]],
+    prices: dict[str, float | None],
+    history: list[dict],
+) -> dict:
+    """Build deterministic, display-ready analytics from balances + prices.
+
+    This is intentionally pure: model output is never allowed to calculate an
+    authoritative balance, allocation, or change percentage for Gecko.
+    """
+    token_values: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    chain_values: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+
+    for chain, tokens in balances_by_chain.items():
+        for symbol, amount in tokens.items():
+            price = _decimal(prices.get(symbol))
+            value = _decimal(amount) * price
+            if value <= 0:
+                continue
+            token_values[symbol] += value
+            chain_values[chain] += value
+
+    total = sum(token_values.values(), Decimal("0"))
+    holdings = [
+        {
+            "symbol": symbol,
+            "valueUsd": float(value),
+            "allocationPct": float((value / total * Decimal("100")) if total else 0),
+        }
+        for symbol, value in sorted(token_values.items(), key=lambda item: item[1], reverse=True)
+    ]
+    chains = [
+        {"name": name, "valueUsd": float(value)}
+        for name, value in sorted(chain_values.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+    clean_history = []
+    for point in history:
+        date = point.get("date")
+        value = point.get("value_usd", point.get("valueUsd"))
+        if date is None or value is None:
+            continue
+        clean_history.append({"date": str(date), "valueUsd": float(_decimal(value))})
+
+    return {
+        "totalValueUsd": float(total),
+        "byToken": holdings,
+        "byChain": chains,
+        "history": clean_history,
+        "lastUpdated": datetime.now(timezone.utc).isoformat(),
+        # WalletService currently degrades individual RPC failures to zero on
+        # several providers, so V0 cannot prove that a cross-network read is
+        # complete. Never use this snapshot for performance/change claims.
+        "coverage": "best_effort",
+    }
+
+
+def _unique_wallets(wallets: list) -> list:
+    """Deduplicate persisted wallet rows without conflating case-sensitive addresses."""
+    seen: set[tuple[str, str]] = set()
+    result = []
+    for wallet in wallets:
+        chain_type = str(wallet.chain_type or "").lower()
+        address = str(wallet.address or "").strip()
+        normalized_address = address.lower() if chain_type in {"evm", "starknet"} else address
+        key = (chain_type, normalized_address)
+        if not address or key in seen:
+            continue
+        seen.add(key)
+        result.append(wallet)
+    return result
+
+
+async def _build_snapshot(user_id: int) -> dict:
+    """Read the user's real wallets and price them through existing services."""
+    from bot.services.pnl import pnl_service
+    from bot.services.price_service import price_service
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    balances: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: Decimal("0")))
+
+    for wallet in wallets:
+        if not wallet.address:
+            continue
+        try:
+            wallet_balances = await wallet_service.get_balances_by_address(
+                wallet.address, wallet.chain_type
+            )
+        except Exception as exc:
+            # One unavailable RPC must not blank the rest of a user's money.
+            logger.warning("mobile snapshot balance read failed for wallet %s: %s", wallet.id, exc)
+            continue
+        for chain, tokens in wallet_balances.items():
+            for symbol, amount in tokens.items():
+                balances[chain][symbol] += _decimal(amount)
+
+    symbols = sorted({symbol for tokens in balances.values() for symbol in tokens})
+    prices = await price_service.get_prices(symbols) if symbols else {}
+    history = pnl_service.get_portfolio_history(user_id, days=30)
+    return _snapshot_payload(balances, prices, history)
+
+
+def _answer_from_snapshot(text: str, snapshot: dict, recent: list[dict]) -> dict:
+    """Answer Gecko's first analytics intents without inventing financial data."""
+    lowered = " ".join(text.lower().split())
+    holdings = snapshot.get("byToken") or []
+    total = float(snapshot.get("totalValueUsd") or 0)
+    suggestions = [
+        "What changed this week?",
+        "How concentrated am I?",
+        "What have I done lately?",
+    ]
+
+    if any(word in lowered for word in ("swap", "buy", "sell", "trade", "send", "withdraw")):
+        return {
+            "type": "action_preview",
+            "answer": (
+                "I can prepare money actions here, but this Gecko preview will not move funds. "
+                "Execution stays behind Suwappu's existing confirmation and policy checks."
+            ),
+            "data": {"requiresConfirmation": True},
+            "suggestions": suggestions,
+        }
+
+    concentration_words = ("concentrat", "divers", "largest", "biggest", "allocation")
+    if any(word in lowered for word in concentration_words):
+        if not holdings:
+            answer = "I don't have enough priced holdings to measure concentration yet."
+        else:
+            top = holdings[0]
+            answer = (
+                f"Your largest holding is {top['symbol']} at {top['allocationPct']:.1f}% "
+                "of the money I can currently price."
+            )
+        return {
+            "type": "concentration",
+            "answer": answer,
+            "data": holdings[:5],
+            "suggestions": suggestions,
+        }
+
+    if any(word in lowered for word in ("changed", "change", "week", "today")):
+        if snapshot.get("coverage") != "complete":
+            return {
+                "type": "change",
+                "answer": (
+                    "I’m not calling a gain or loss yet because this preview can’t verify "
+                    "complete source coverage. I’d rather withhold the number than invent one."
+                ),
+                "data": None,
+                "suggestions": suggestions,
+            }
+        history = snapshot.get("history") or []
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=7)
+        recent_history = []
+        for point in history:
+            try:
+                point_date = datetime.fromisoformat(str(point.get("date"))).date()
+            except (TypeError, ValueError):
+                continue
+            if point_date >= cutoff:
+                recent_history.append(point)
+
+        if not recent_history:
+            answer = (
+                "I don't have a saved snapshot from the last week to calculate a real change yet."
+            )
+            data = None
+        else:
+            start = float(recent_history[0].get("valueUsd") or 0)
+            delta = total - start
+            pct = (delta / start * 100) if start > 0 else None
+            direction = "up" if delta >= 0 else "down"
+            pct_text = f" ({abs(pct):.1f}%)" if pct is not None else ""
+            answer = (
+                f"The money I can price is {direction} ${abs(delta):,.2f}{pct_text} "
+                "versus your earliest saved snapshot from the last week."
+            )
+            data = {"fromUsd": start, "toUsd": total, "deltaUsd": delta, "deltaPct": pct}
+        return {"type": "change", "answer": answer, "data": data, "suggestions": suggestions}
+
+    if any(word in lowered for word in ("activity", "done", "recent", "lately")):
+        if not recent:
+            answer = "I don't see any recent money moves on this account."
+        else:
+            latest = recent[0]
+            answer = (
+                f"Your latest conversion was {latest['fromToken']} to {latest['toToken']} "
+                f"({latest['status']})."
+            )
+        return {"type": "activity", "answer": answer, "data": recent, "suggestions": suggestions}
+
+    if any(word in lowered for word in ("balance", "money", "portfolio", "worth", "have")):
+        top_text = ""
+        if holdings:
+            top_text = (
+                f" Your largest holding is {holdings[0]['symbol']} at "
+                f"{holdings[0]['allocationPct']:.1f}%."
+            )
+        return {
+            "type": "snapshot",
+            "answer": f"I can currently price ${total:,.2f} across your connected money.{top_text}",
+            "data": snapshot,
+            "suggestions": suggestions,
+        }
+
+    return {
+        "type": "help",
+        "answer": "Ask me about your balance, concentration, what changed, or recent activity.",
+        "data": None,
+        "suggestions": suggestions,
+    }
 
 
 # -- alerts --
@@ -129,6 +359,58 @@ class UpdateSnipeConfigBody(BaseModel):
 # ═══════════════════════════════════════════════════════════════════
 #  WALLETS
 # ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("/snapshot")
+async def get_snapshot(request: Request):
+    """Real, JWT-scoped money snapshot for Gecko Today + Money.
+
+    No agent key is accepted and no client-provided wallet address is trusted;
+    wallet ownership is resolved exclusively from the authenticated user id.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+    return await _build_snapshot(int(payload["user_id"]))
+
+
+@router.post("/ask")
+async def ask_gecko(request: Request, body: AskBody):
+    """Read-only Gecko V0 assistant over authoritative account analytics.
+
+    Money-moving language deliberately returns a preview boundary. This route
+    never quotes, signs, broadcasts, or invokes a trading execution service.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Ask Gecko a question")
+    if len(text) > 1000:
+        raise HTTPException(status_code=400, detail="Question is too long")
+
+    snapshot = await _build_snapshot(int(payload["user_id"]))
+
+    from bot.models.swap import SwapTransaction
+
+    with get_session() as session:
+        rows = (
+            session.query(SwapTransaction)
+            .filter(SwapTransaction.user_id == int(payload["user_id"]))
+            .order_by(SwapTransaction.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        recent = [
+            {
+                "fromToken": row.from_token,
+                "toToken": row.to_token,
+                "status": row.status.value if hasattr(row.status, "value") else str(row.status),
+                "createdAt": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+
+    return _answer_from_snapshot(text, snapshot, recent)
 
 
 @router.post("/wallets")
