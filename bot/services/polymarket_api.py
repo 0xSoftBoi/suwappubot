@@ -497,8 +497,10 @@ class PolymarketClient:
             return OrderResult(success=False, error=str(error_msg))
 
         except Exception as e:
-            logger.error(f"place_order error: {e}")
-            return OrderResult(success=False, error=str(e))
+            # This scope handles the signing key and CLOB API secret; exception
+            # text from those layers must never reach logs or the caller.
+            logger.error("place_order failed with %s", type(e).__name__)
+            return OrderResult(success=False, error=f"Order placement failed ({type(e).__name__})")
 
     async def get_tick_size(self, token_id: str) -> str:
         """The market's minimum price increment, cached briefly per token.
