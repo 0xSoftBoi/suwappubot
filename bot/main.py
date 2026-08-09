@@ -7,6 +7,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     MessageHandler,
     filters,
     PicklePersistence,
@@ -23,6 +24,7 @@ from bot.handlers.start import (
     noop_callback,
     tos_accept_callback,
     tos_decline_callback,
+    tos_review_callback,
 )
 from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
@@ -120,6 +122,7 @@ from bot.handlers.settings import (
 )
 from bot.handlers.admin import (
     status_handler,
+    status_refresh_callback,
     clear_cache_handler,
     broadcast_handler,
     hl_builder_handler,
@@ -320,6 +323,7 @@ from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
 from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.aegis_scan import aegis_scan_update
+from bot.handlers.inline_query import inline_query_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -451,6 +455,9 @@ def add_handlers(application: Application) -> None:
 
     # Admin commands
     application.add_handler(status_handler)  # /status
+    application.add_handler(
+        CallbackQueryHandler(status_refresh_callback, pattern="^admin_status$")
+    )  # "Refresh" button on /status output
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
@@ -590,6 +597,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
+    application.add_handler(CallbackQueryHandler(tos_review_callback, pattern="^tos_review$"))
 
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
@@ -597,6 +605,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(history_callback)
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
+    application.add_handler(share_pnl_handler)  # "^pnl_share_\d+$" Share PnL button
 
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -758,6 +767,11 @@ def add_handlers(application: Application) -> None:
     # BullX Neo migration wizard — /import
     application.add_handler(import_conversation_handler)
 
+    # Inline mode — "@<botname> BTC" in any chat renders a price card with a
+    # referral deep link. Requires enabling inline mode for the bot via
+    # BotFather (/setinline) in addition to this registration.
+    application.add_handler(InlineQueryHandler(inline_query_handler))
+
     # Natural-language trade intent (Anthropic-backed) — registered in the
     # SAME default group (0), immediately BEFORE the freeform-text catch-all,
     # and ONLY when settings.NL_TRADING_ENABLED is True. This placement is
@@ -915,9 +929,13 @@ async def post_init(application) -> None:
         await launch_detector.start()
         logger.info("✓ Token launch detector started")
 
-        # Start rug protection service
-        await rug_service.start(swap_engine=SwapEngine())
-        logger.info("✓ Rug protection service started")
+        # Start rug protection service (money-path auto-sell — gated off by
+        # default, see RUG_AUTO_SELL_ENABLED in bot/config/settings.py)
+        if settings.rug_auto_sell_enabled:
+            await rug_service.start(swap_engine=SwapEngine())
+            logger.info("✓ Rug protection service started")
+        else:
+            logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
 
         # Start support ticket fan-out (admin DM + support group + Linear sync)
         await support_notifier.start(bot=application.bot)
@@ -969,7 +987,10 @@ async def run_headless() -> None:
     await order_service.start(bot=None, swap_engine=SwapEngine())
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
-    await rug_service.start(swap_engine=SwapEngine())
+    if settings.rug_auto_sell_enabled:
+        await rug_service.start(swap_engine=SwapEngine())
+    else:
+        logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
     await battle_monitor.start(bot=None)
 
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")

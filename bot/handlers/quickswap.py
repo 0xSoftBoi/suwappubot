@@ -17,6 +17,7 @@ from bot.utils.formatters import format_amount, format_usd
 from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
+from bot.services.error_guidance import classify_swap_failure
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,17 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
 
     except Exception as e:
-        await loading_msg.edit_text(f"❌ Error getting quote: {str(e)}")
+        logger.error(f"quickswap quote failed: {e}", exc_info=True)
+        guidance = classify_swap_failure(
+            e, {"from_chain": from_chain, "to_chain": to_chain, "from_token": from_token}
+        )
+        await loading_msg.edit_text(
+            guidance.to_message(),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔄 Try again", callback_data="quickswap_menu")]]
+            ),
+        )
 
 
 @enforce_tos

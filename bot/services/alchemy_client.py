@@ -163,7 +163,7 @@ class AlchemyClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
+            self._http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
         return self._http_session
 
     async def close(self):

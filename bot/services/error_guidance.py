@@ -461,3 +461,61 @@ def classify_swap_failure(
     )
 
     return guidance
+
+
+# --- Generic (non-swap) handler helper --------------------------------------
+#
+# Some handlers fail on things that were never a swap (a gas-price fetch, a 2FA
+# check, a quote lookup) but still must never echo a raw exception into chat.
+# This is a smaller, chain/swap-agnostic sibling of ``classify_swap_failure``
+# for those call sites — see swap.py's ``_render_swap_failure`` for the
+# full-card pattern this mirrors at one-line scale.
+
+_GENERIC_RATE_LIMIT_NEEDLES = ("rate limit", "too many requests", "429")
+_GENERIC_NETWORK_NEEDLES = (
+    "timeout",
+    "timed out",
+    "connection",
+    "rpc",
+    "network",
+    "unreachable",
+)
+
+
+def user_facing_error(exc_or_message: Any, *, prefix: str = "❌ ") -> str:
+    """Render one calm, human-readable line for a non-swap handler failure.
+
+    For handlers that hit a plain service/API error (fetching gas prices, a
+    quote lookup, a 2FA check, ...) rather than an on-chain swap — too small to
+    warrant the full :class:`ErrorGuidance` card. Still never echoes a raw
+    exception:
+
+    - ``ValueError`` is this codebase's convention for a service raising a
+      deliberate, already user-safe validation message (see
+      ``bot/services/twofa.py``) — shown as-is.
+    - Anything else is classified into a short, generic cause (network/
+      timeout, rate limit) or a calm fallback carrying a reference id.
+
+    The raw detail is always logged server-side first, so callers don't need
+    a separate log line purely to capture the exception text (they should
+    still log with ``exc_info=True`` when the traceback itself is useful).
+    """
+    message = _extract_message(exc_or_message)
+    reference_id = secrets.token_hex(4)
+    logger.info("user_facing_error ref=%s detail=%r", reference_id, message[:300])
+
+    if isinstance(exc_or_message, ValueError) and message.strip():
+        return f"{prefix}{message.strip()}"
+
+    lowered = message.lower()
+    if any(needle in lowered for needle in _GENERIC_RATE_LIMIT_NEEDLES):
+        return (
+            f"{prefix}We're being rate-limited right now — please wait a few seconds and try again."
+        )
+    if any(needle in lowered for needle in _GENERIC_NETWORK_NEEDLES):
+        return f"{prefix}The network is slow or unreachable right now. Please try again shortly."
+
+    return (
+        f"{prefix}Something unexpected happened. Please try again in a moment. "
+        f"_Reference: `{reference_id}`_"
+    )

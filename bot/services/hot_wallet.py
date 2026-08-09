@@ -833,7 +833,7 @@ class HotWalletService:
         token_balances = {}
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 # SOL balance
                 payload = {
                     "jsonrpc": "2.0",

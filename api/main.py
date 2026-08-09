@@ -91,6 +91,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Tracks optional/non-critical services that failed to start (or, for
+# periodic tasks, most recently failed) so /health can surface them without
+# flipping the process unhealthy — these are deliberately non-fatal to
+# startup, but a failure should never be invisible. name -> short error
+# summary. Cleared on a subsequent success so a self-healing periodic task
+# (e.g. auth-challenge cleanup) doesn't stay flagged forever.
+DEGRADED_SERVICES: dict[str, str] = {}
+
+
+def _mark_degraded(name: str, error: BaseException) -> None:
+    DEGRADED_SERVICES[name] = str(error)[:300]
+
+
+def _clear_degraded(name: str) -> None:
+    DEGRADED_SERVICES.pop(name, None)
+
+
 # --- Lifespan Manager ---
 
 
@@ -352,8 +369,10 @@ async def lifespan(app: FastAPI):
                 from bot.services.p2p_escrow_executor import wire_p2p_escrow
 
                 wire_p2p_escrow()
+                _clear_degraded("p2p_escrow")
             except Exception as e:  # noqa: BLE001 — never block startup on P2P
                 logger.warning("P2P escrow wiring skipped: %s", e)
+                _mark_degraded("p2p_escrow", e)
         # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
         await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -384,8 +403,10 @@ async def lifespan(app: FastAPI):
 
                 await discord_alert_service.start(discord_bot)
                 logger.info("✓ Discord alert service started")
+                _clear_degraded("discord_alerts")
             except Exception as e:
                 logger.warning(f"⚠️ Discord alerts failed to start: {e}")
+                _mark_degraded("discord_alerts", e)
 
         logger.info("✓ All background services running")
     else:
@@ -401,8 +422,10 @@ async def lifespan(app: FastAPI):
                 removed = cleanup_expired_challenges()
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
+                _clear_degraded("auth_challenge_cleanup")
             except Exception as e:
                 logger.warning(f"Auth challenge cleanup error: {e}")
+                _mark_degraded("auth_challenge_cleanup", e)
 
     auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
 
@@ -411,22 +434,28 @@ async def lifespan(app: FastAPI):
         await event_bus.connect()
         if event_bus.connected:
             logger.info("✓ Event bus connected (Redis pub/sub)")
+            _clear_degraded("event_bus")
         else:
             logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
     except Exception as e:
         logger.warning(f"⚠️ Event bus failed to connect: {e}")
+        _mark_degraded("event_bus", e)
 
     try:
         await api_client.init()
         logger.info("✓ Internal API client initialized")
+        _clear_degraded("internal_api_client")
     except Exception as e:
         logger.warning(f"⚠️ Internal API client failed to init: {e}")
+        _mark_degraded("internal_api_client", e)
 
     # Start the per-user WhatsApp message queue (ordered processing).
     try:
         await _wa_queue.start()
+        _clear_degraded("whatsapp_queue")
     except Exception as e:
         logger.warning(f"⚠️ WhatsApp message queue failed to start: {e}")
+        _mark_degraded("whatsapp_queue", e)
 
     yield
 
@@ -1166,6 +1195,12 @@ async def health_ready():
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
             },
+            # Optional non-critical services that failed to start (or, for
+            # periodic tasks, most recently failed) — never affects
+            # ready/status_code, purely visibility. Empty when all healthy.
+            "degraded": [
+                {"service": name, "error": err} for name, err in DEGRADED_SERVICES.items()
+            ],
         },
     )
 

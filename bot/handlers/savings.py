@@ -27,7 +27,7 @@ from bot.models.savings import SavingsEvent
 from bot.services.savings_service import savings_service, SavingsError
 from bot.services.starknet_yield import VENUES as _BTC_VENUES
 from bot.services.wallet import WalletService
-from bot.utils.formatters import format_tx_link
+from bot.utils.formatters import format_tx_link, escape_markdown
 from bot.utils.validators import validate_amount
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
@@ -480,7 +480,8 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
         session.expunge(wallet)
 
     await query.edit_message_text(
-        f"⏳ Submitting {action}... this can take a moment.", parse_mode="Markdown"
+        f"⏳ Submitting {escape_markdown(action)}... this can take a moment.",
+        parse_mode="Markdown",
     )
 
     try:

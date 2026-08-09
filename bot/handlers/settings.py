@@ -227,6 +227,15 @@ async def toggle_panic_sell_callback(update: Update, context: ContextTypes.DEFAU
 
         if user_settings:
             user_settings.panic_sell_enabled = not user_settings.panic_sell_enabled
+            # Keep User.panic_sell_enabled in sync — the WhatsApp settings flow
+            # (bot/services/whatsapp_flows/settings_flow.py) already mirrors its
+            # toggle onto both columns for "fields that other services read";
+            # this was the missing half on the Telegram side (see rug_service.py
+            # H3: rug_service now reads UserSettings.panic_sell_enabled directly,
+            # but keeping both columns consistent avoids the same trap for any
+            # other/future consumer of the User column).
+            if db_user:
+                db_user.panic_sell_enabled = user_settings.panic_sell_enabled
             status = "enabled" if user_settings.panic_sell_enabled else "disabled"
             await query.answer(f"Panic Sell {status}!")
 

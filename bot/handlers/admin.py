@@ -3,7 +3,7 @@
 import asyncio
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
@@ -25,16 +25,8 @@ def is_admin(user_id: int) -> bool:
     return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - show system health status."""
-    user = update.effective_user
-
-    if not is_admin(user.id):
-        await update.message.reply_text("❌ This command is for admins only.")
-        return
-
-    loading_msg = await update.message.reply_text("🔍 Checking system status...")
-
+async def _build_status_report() -> tuple[str, InlineKeyboardMarkup]:
+    """Build the system status text + keyboard, shared by the command and refresh callback."""
     # Check RPC endpoints
     rpc_status = await _check_rpc_endpoints()
 
@@ -83,13 +75,41 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lines.append(f"  📊 Quote: {cache_stats['quote']['active_entries']} entries")
     lines.append(f"  ⛽ Gas: {cache_stats['gas']['active_entries']} entries")
 
-    keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="admin_status")]]
-
-    await loading_msg.edit_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔄 Refresh", callback_data="admin_status")]]
     )
+
+    return "\n".join(lines), keyboard
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /status command - show system health status."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    loading_msg = await update.message.reply_text("🔍 Checking system status...")
+
+    text, keyboard = await _build_status_report()
+
+    await loading_msg.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def status_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the '🔄 Refresh' button on the /status output (callback_data=admin_status)."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    if not is_admin(user.id):
+        await query.edit_message_text("❌ This command is for admins only.")
+        return
+
+    text, keyboard = await _build_status_report()
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 async def _check_rpc_endpoints() -> dict:
@@ -112,7 +132,7 @@ async def _check_rpc_endpoints() -> dict:
 
             start = time.time()
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 async with session.post(rpc_url, json=payload, timeout=5) as resp:
                     latency = (time.time() - start) * 1000
 
@@ -134,7 +154,7 @@ async def _check_external_apis() -> dict:
 
     # Check Li.Fi
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
             async with session.get("https://li.quest/v1/chains", timeout=5) as resp:
                 results["Li.Fi"] = {"ok": resp.status == 200}
     except Exception as e:
@@ -142,7 +162,7 @@ async def _check_external_apis() -> dict:
 
     # Check Jupiter
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
             async with session.get(
                 "https://lite-api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000",
                 timeout=5,
@@ -153,7 +173,7 @@ async def _check_external_apis() -> dict:
 
     # Check CoinGecko
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
             async with session.get("https://api.coingecko.com/api/v3/ping", timeout=5) as resp:
                 results["CoinGecko"] = {"ok": resp.status == 200}
     except Exception as e:

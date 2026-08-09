@@ -190,7 +190,16 @@ class PointsService:
         is_first_today = False
 
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Audit fix (same class as the award_points blocker): this method
+            # reads-then-writes UserPoints.total_swaps/total_volume_usd/
+            # last_swap_date. Lock it too so two concurrent swaps for the same
+            # user (e.g. Telegram + mobile racing) can't lose one's stat update.
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 account = UserPoints(user_id=user_id)
@@ -922,7 +931,15 @@ class PointsService:
         achieved = []
 
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Audit fix: this method reads-then-writes total_points_earned/
+            # current_points/xp when a milestone is achieved — same balance
+            # fields the spend paths lock. Lock it too.
+            account = (
+                session.query(UserPoints)
+                .filter(UserPoints.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not account:
                 return achieved

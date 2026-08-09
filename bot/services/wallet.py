@@ -155,8 +155,18 @@ class WalletService:
         return self._http_connector
 
     def _http_session(self) -> aiohttp.ClientSession:
-        """Per-call session bound to the shared connector (does not own it)."""
-        return aiohttp.ClientSession(connector=self._get_connector(), connector_owner=False)
+        """Per-call session bound to the shared connector (does not own it).
+
+        Default total timeout of 15s guards RPC/API calls that don't pass
+        their own per-request timeout; call sites needing a different bound
+        (e.g. _evm_rpc_call's configurable `timeout` param) still override it
+        via the request-level `timeout=` kwarg on session.get/post.
+        """
+        return aiohttp.ClientSession(
+            connector=self._get_connector(),
+            connector_owner=False,
+            timeout=aiohttp.ClientTimeout(total=15),
+        )
 
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""

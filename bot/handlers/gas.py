@@ -9,6 +9,7 @@ from bot.services.gas_tracker import gas_tracker, GasPrice
 from bot.services.price_service import PriceService
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.utils.formatters import format_usd
+from bot.services.error_guidance import user_facing_error
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,9 @@ async def gas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
     except Exception as e:
+        logger.error(f"Error fetching gas prices: {e}", exc_info=True)
         await loading_msg.edit_text(
-            f"❌ Error fetching gas prices: {str(e)}",
+            user_facing_error(e),
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("🔄 Retry", callback_data="gas_refresh")]]
             ),

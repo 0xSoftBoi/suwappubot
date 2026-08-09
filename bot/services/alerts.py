@@ -216,7 +216,7 @@ class AlertService:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Price alert service task cancelled during stop()")
         logger.info("Price alert service stopped")
 
     async def _alert_loop(self):

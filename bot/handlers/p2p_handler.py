@@ -50,6 +50,7 @@ from bot.services.p2p_service import (
 )
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
+from bot.utils.formatters import escape_markdown
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -1148,8 +1149,9 @@ async def create_region_handler(update: Update, context: ContextTypes.DEFAULT_TY
             region=region,
         )
     except P2PError as e:
+        logger.error(f"P2P create_offer rejected for user {data.get('user_id')}: {e}")
         await update.message.reply_text(
-            f"*Could not create offer*\n\n{str(e)}", parse_mode="Markdown"
+            f"*Could not create offer*\n\n{escape_markdown(str(e))}", parse_mode="Markdown"
         )
         context.user_data.pop("p2p", None)
         return ConversationHandler.END

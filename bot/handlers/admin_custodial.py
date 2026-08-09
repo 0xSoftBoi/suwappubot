@@ -85,7 +85,8 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             InlineKeyboardButton("➕ Create EVM Wallet", callback_data="admin_create_evm"),
             InlineKeyboardButton("➕ Create SOL Wallet", callback_data="admin_create_sol"),
         ],
-        [InlineKeyboardButton("📥 Import Wallet", callback_data="admin_import_wallet")],
+        # NOTE: "Import Wallet" button removed — no admin_import_wallet handler/conversation
+        # was ever implemented in this module (dead button, eternal spinner on tap).
         [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
     ]
 

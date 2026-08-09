@@ -6,8 +6,10 @@ copy trading, and sniping.  Delegates to existing service singletons.
 """
 
 import logging
-from datetime import datetime
-from typing import Optional, List
+import threading
+import time
+from datetime import datetime, timezone
+from typing import Optional, List, Tuple, Dict
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
@@ -17,6 +19,134 @@ from database.db import get_session, DATABASE_AVAILABLE
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/mobile", tags=["mobile"])
+
+
+# ── reward-redemption idempotency (H6 defense-in-depth) ────────────────────
+#
+# The MONEY-PATH double-spend fix is the `.with_for_update()` row lock added
+# in points_service (spend_points / redeem_subscription_reward /
+# redeem_marketplace_reward) — that's what actually makes it impossible for
+# two concurrent redeems to both read the same current_points and both pass
+# the balance check, regardless of process/worker topology.
+#
+# This in-process cache is a SEPARATE, secondary concern: it makes an exact
+# retry (same client `Idempotency-Key`, or an unkeyed burst of duplicate taps
+# within a couple seconds) replay the FIRST call's result instead of
+# re-invoking the service — so a client that retries after a dropped response
+# doesn't see a confusing "not enough points" for a redemption that actually
+# already succeeded. It mirrors the spirit of swap_engine's idempotency_key
+# lookup (return the existing record instead of re-executing) without adding
+# a new DB column/migration — this route only owns points_service.py,
+# mobile.py, and tempo.py for this change.
+#
+# NOT durable across process restarts or multiple worker processes — that's
+# fine, the DB-level lock is the actual safety net.
+#
+# NEW-6 (documented, NOT fixed here — out of scope): this cache is per-process
+# (a plain in-memory dict). On a multi-worker/multi-replica deploy (Railway can
+# run several `uvicorn`/gunicorn workers or replicas), a client retry can land
+# on a DIFFERENT process than the one that handled the original request, miss
+# this cache entirely, and re-invoke points_service — re-charging the user for
+# a redemption whose first response was merely dropped/timed-out in transit.
+# The `.with_for_update()` DB lock still prevents a *lost update*, but it does
+# NOT prevent this *duplicate, independently-successful* spend, since each
+# process-local attempt reads a balance that's genuinely sufficient at the
+# time it runs. The durable fix is a UNIQUE index on
+# `point_redemptions(user_id, idempotency_key)` (mirroring swap_transactions'
+# idempotency_key uniqueness) so a retry's INSERT conflicts and can be turned
+# into a lookup-and-replay at the DB layer instead of the process layer — that
+# requires a new column + migration, which is out of scope for this file set
+# (points_service.py / mobile.py / test files only, no `database/db.py`).
+_REDEEM_IDEM_TTL_SECONDS = 300
+_redeem_idem_registry_lock = threading.Lock()
+_redeem_idem_locks: Dict[tuple, threading.Lock] = {}
+_redeem_idem_results: Dict[tuple, Tuple[float, int, dict]] = {}
+
+
+def _redeem_idempotency_cache_key(request: Request, user_id: int, reward_id: int) -> tuple:
+    """Resolve the (user_id, key) idempotency cache key for a redeem request.
+
+    Prefers the client-supplied `Idempotency-Key` header. Falls back to a key
+    derived from (reward_id, a 2-second time bucket) so an unkeyed burst of
+    near-simultaneous duplicate requests for the SAME reward collapses onto
+    one key, without blocking legitimate repeat purchases spaced further
+    apart (callers that want a real dedupe guarantee should send the header).
+
+    NEW-5 fix: the header-derived key previously omitted `reward_id`, i.e. the
+    cache key was just (user_id, "hdr:"+header). A client that reused ONE
+    Idempotency-Key across two DIFFERENT reward redemptions within the TTL
+    window would get reward A's cached success replayed as a FALSE SUCCESS for
+    reward B — a redemption that never actually ran. Scope the header key to
+    reward_id too, matching the "auto:" fallback key's shape.
+    """
+    header_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
+    if header_key and header_key.strip():
+        key = f"hdr:{reward_id}:{header_key.strip()[:128]}"
+    else:
+        bucket = int(time.time() // 2)
+        key = f"auto:{reward_id}:{bucket}"
+    return (user_id, key)
+
+
+def _redeem_idem_get_lock(cache_key: tuple) -> threading.Lock:
+    with _redeem_idem_registry_lock:
+        lock = _redeem_idem_locks.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _redeem_idem_locks[cache_key] = lock
+        return lock
+
+
+def _redeem_idem_prune(cache_key: tuple) -> None:
+    """Remove both the cached result and its lock for a key.
+
+    NEW-7 fix: safe to call even though the caller may still hold a *local*
+    reference to this lock object (via `with lock:`) — we're only removing it
+    from the registry dict, not mutating/acquiring anything, so a future
+    request for this key (post-TTL) just gets a fresh Lock object instead of
+    finding this one forever."""
+    with _redeem_idem_registry_lock:
+        _redeem_idem_results.pop(cache_key, None)
+        _redeem_idem_locks.pop(cache_key, None)
+
+
+def _redeem_idem_lookup(cache_key: tuple) -> Optional[Tuple[int, dict]]:
+    entry = _redeem_idem_results.get(cache_key)
+    if not entry:
+        return None
+    ts, status_code, body = entry
+    if time.time() - ts > _REDEEM_IDEM_TTL_SECONDS:
+        # NEW-7 fix: prune the lock alongside its expired result. Previously
+        # only `_redeem_idem_results` was popped here, so `_redeem_idem_locks`
+        # grew unbounded for any key whose result expired via this lazy-lookup
+        # path (the bulk cleanup in `_redeem_idem_store` below only walks
+        # `_redeem_idem_results`, so it can never find — and can never prune —
+        # a lock whose result already vanished here).
+        _redeem_idem_prune(cache_key)
+        return None
+    return status_code, body
+
+
+def _redeem_idem_store(cache_key: tuple, status_code: int, body: dict) -> None:
+    now = time.time()
+    _redeem_idem_results[cache_key] = (now, status_code, body)
+    # Bound unbounded growth for a long-lived worker process. Sweeps both the
+    # results cache AND any orphaned locks (NEW-7: a lock with no matching
+    # result at all — e.g. already popped via the lazy-lookup path above —
+    # is dead weight forever otherwise).
+    if len(_redeem_idem_results) > 1000 or len(_redeem_idem_locks) > 1000:
+        with _redeem_idem_registry_lock:
+            expired = [
+                k
+                for k, (ts, _, _) in _redeem_idem_results.items()
+                if now - ts > _REDEEM_IDEM_TTL_SECONDS
+            ]
+            for k in expired:
+                _redeem_idem_results.pop(k, None)
+                _redeem_idem_locks.pop(k, None)
+            orphaned = [k for k in _redeem_idem_locks if k not in _redeem_idem_results]
+            for k in orphaned:
+                _redeem_idem_locks.pop(k, None)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -593,10 +723,22 @@ async def list_dca_executions(request: Request, dca_id: int):
 
 @router.get("/points")
 async def get_points(request: Request):
+    """NEW-9 fix: this handler referenced `up.points`, `up.spendable_points`,
+    `up.level_emoji`, `up.fee_discount`, `up.next_level`, `up.last_checkin_at`
+    — NONE of these exist on UserPoints (bot/models/points.py has
+    current_points, total_points_earned, xp, level, daily_streak,
+    longest_streak, last_checkin). `up.xp_to_next_level` is also a METHOD, not
+    a property, so it previously serialized as a bound method, not an int.
+    Every one of these was an AttributeError -> 500 (or a bad payload) on the
+    only endpoint that renders the balance /checkin and /redeem mutate. Map
+    every field to the real column/helper below (same bug class as the
+    `r.cost` fix in GET /points/rewards)."""
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.models.points import UserPoints
+    from bot.models.points import UserPoints, LEVELS
+
+    LEVEL_ORDER = ["bronze", "silver", "gold", "platinum", "diamond"]
 
     with get_session() as session:
         up = (
@@ -608,31 +750,52 @@ async def get_points(request: Request):
         )
 
         if not up:
+            bronze = LEVELS["bronze"]
             return {
                 "points": 0,
                 "spendablePoints": 0,
                 "xp": 0,
-                "level": "Bronze",
-                "levelEmoji": "",
-                "feeDiscount": 0.8,
+                "level": "bronze",
+                "levelEmoji": bronze["emoji"],
+                # ROADMAP value only — NOT the charged fee rate. See
+                # UserPoints.get_fee_discount()'s docstring: the fee actually
+                # charged comes from the user's subscription tier
+                # (fee_service.TIER_FEE_RATES), independent of XP level.
+                "feeDiscount": bronze["fee"],
+                "nextLevel": "silver",
+                "xpToNextLevel": LEVELS["silver"]["xp"],
                 "dailyStreak": 0,
                 "longestStreak": 0,
+                "lastCheckinAt": None,
                 "canCheckin": True,
             }
 
+        level_info = up.get_level_info()
+        try:
+            level_idx = LEVEL_ORDER.index(up.level)
+        except ValueError:
+            level_idx = 0
+        next_level = LEVEL_ORDER[level_idx + 1] if level_idx < len(LEVEL_ORDER) - 1 else None
+
+        today = datetime.now(timezone.utc).date()
+        can_checkin = not (up.last_checkin and up.last_checkin.date() == today)
+
         return {
-            "points": up.points,
-            "spendablePoints": up.spendable_points,
+            # "points" = lifetime total earned; "spendablePoints" = the
+            # actual redeemable balance (current_points).
+            "points": up.total_points_earned,
+            "spendablePoints": up.current_points,
             "xp": up.xp,
             "level": up.level,
-            "levelEmoji": up.level_emoji,
-            "feeDiscount": up.fee_discount,
-            "nextLevel": up.next_level,
-            "xpToNextLevel": up.xp_to_next_level,
+            "levelEmoji": level_info["emoji"],
+            # ROADMAP value only — see the no-account branch above.
+            "feeDiscount": level_info["fee"],
+            "nextLevel": next_level,
+            "xpToNextLevel": up.xp_to_next_level(),
             "dailyStreak": up.daily_streak,
             "longestStreak": up.longest_streak,
-            "lastCheckinAt": up.last_checkin_at.isoformat() if up.last_checkin_at else None,
-            "canCheckin": up.can_checkin if hasattr(up, "can_checkin") else True,
+            "lastCheckinAt": up.last_checkin.isoformat() if up.last_checkin else None,
+            "canCheckin": can_checkin,
         }
 
 
@@ -709,7 +872,9 @@ async def get_rewards(request: Request):
                 "id": r.id,
                 "name": r.name,
                 "description": r.description,
-                "cost": r.cost,
+                # M1 fix: the Reward model has `points_cost`, not `cost` — the
+                # old attribute name doesn't exist and 500'd every call.
+                "cost": r.points_cost,
                 "rewardType": r.reward_type,
                 "rewardValue": r.reward_value,
                 "isAvailable": r.is_available if hasattr(r, "is_available") else True,
@@ -720,14 +885,39 @@ async def get_rewards(request: Request):
 
 @router.post("/points/rewards/{reward_id}/redeem")
 async def redeem_reward(request: Request, reward_id: int):
-    """Redeem a points reward. MONEY PATH — routes to the correct atomic
-    redemption method based on the reward's type/category. Never fabricates
-    success; real errors propagate as HTTP errors."""
+    """Redeem a reward for points.
+
+    MONEY-PATH: dispatches to the SAME atomic, all-or-nothing points_service
+    methods used by the Telegram /xp flow (bot/handlers/points.py::redeem_callback) —
+    there is no generic `points_service.redeem_reward`, so this mirrors that
+    handler's routing by reward shape instead of inventing new semantics:
+      - async marketplace categories (gift_card/travel/merch/donation/experience)
+        -> redeem_marketplace_reward (debit + fulfillment order, auto-refunds on
+        provider failure)
+      - cash-equivalent types (partner_transfer/miles/cashout/stablecoin) -> reject,
+        not live yet
+      - "subscription" -> redeem_subscription_reward (debit + tier grant/extend)
+      - everything else (fee_discount/gas_rebate/raffle/etc, "own_product") ->
+        spend_points (generic debit; effect applied at swap time)
+    All paths spend ONLY current_points (spendable currency) — never XP or
+    season/convertible points, per the two-balance rule.
+
+    IDEMPOTENCY (H6): pass a client `Idempotency-Key` header to guarantee a
+    retry replays the first call's result instead of re-spending points. When
+    no header is sent, a short-lived derived key still collapses an unkeyed
+    burst of near-simultaneous duplicate taps for the SAME reward. See
+    `_redeem_idempotency_cache_key` above — the actual double-spend
+    prevention is the `.with_for_update()` row lock in points_service; this is
+    defense-in-depth for client retry UX.
+    """
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.services.points_service import points_service
     from bot.models.points import Reward
+    from bot.services.points_service import points_service
+    from bot.services.reward_providers import ASYNC_CATEGORIES
+
+    user_id = payload["user_id"]
 
     with get_session() as session:
         reward = (
@@ -735,57 +925,67 @@ async def redeem_reward(request: Request, reward_id: int):
         )
         if not reward:
             raise HTTPException(status_code=404, detail="Reward not found")
+        if not reward.is_active:
+            raise HTTPException(status_code=400, detail="That reward isn't available.")
         reward_type = reward.reward_type
+        reward_value = reward.reward_value
+        reward_cost = reward.points_cost
+        reward_duration_days = reward.duration_days
         reward_category = getattr(reward, "reward_category", None) or "own_product"
-        points_cost = reward.points_cost
-        base_reward_type = reward.reward_type
-        base_reward_value = reward.reward_value
-        base_reward_duration_days = reward.duration_days
 
-    # Cash-equivalent redemptions (airline miles, stablecoin cash-out) remain NOT
-    # enabled: they cross the cash-equivalent line and require a partner integration +
-    # compliance sign-off. Reject rather than silently deduct points for something we
-    # cannot fulfill (mirrors bot/handlers/points.py:429).
     if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
         raise HTTPException(
             status_code=400,
             detail="That reward isn't available — partner redemptions aren't live yet.",
         )
 
-    try:
-        if reward_type == "subscription":
-            success, message, expires_at = points_service.redeem_subscription_reward(
-                payload["user_id"], reward_id
-            )
-            if not success:
-                raise HTTPException(status_code=400, detail=message)
-            return {"success": True, "message": message, "expiresAt": expires_at}
+    cache_key = _redeem_idempotency_cache_key(request, user_id, reward_id)
+    lock = _redeem_idem_get_lock(cache_key)
 
-        if reward_category != "own_product":
-            success, message, order_id = points_service.redeem_marketplace_reward(
-                payload["user_id"], reward_id
-            )
-            if not success:
-                raise HTTPException(status_code=400, detail=message)
-            return {"success": True, "message": message, "orderId": order_id}
+    with lock:
+        cached = _redeem_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=body.get("detail"))
+            return body
 
-        success, message = points_service.spend_points(
-            payload["user_id"],
-            points_cost,
-            base_reward_type,
-            base_reward_value,
-            duration_days=base_reward_duration_days,
-        )
-        if not success:
-            raise HTTPException(status_code=400, detail=message)
-        return {"success": True, "message": message}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"redeem_reward failed for user {payload['user_id']}, reward {reward_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail="Redemption failed — your points were not spent."
-        )
+        try:
+            if reward_category in ASYNC_CATEGORIES:
+                success, message, order_id = points_service.redeem_marketplace_reward(
+                    user_id=user_id, reward_id=reward_id
+                )
+                result = {"success": success, "message": message, "orderId": order_id}
+            elif reward_type == "subscription":
+                success, message, expires_at = points_service.redeem_subscription_reward(
+                    user_id=user_id, reward_id=reward_id
+                )
+                result = {"success": success, "message": message, "expiresAt": expires_at}
+            else:
+                success, message = points_service.spend_points(
+                    user_id,
+                    reward_cost,
+                    reward_type,
+                    reward_value,
+                    duration_days=reward_duration_days,
+                )
+                result = {"success": success, "message": message}
+        except HTTPException as he:
+            _redeem_idem_store(cache_key, he.status_code, {"detail": he.detail})
+            raise
+        except Exception as e:
+            logger.error(f"Reward redemption crashed for user {user_id}, reward {reward_id}: {e}")
+            body = {"detail": "Redemption failed — your points were not spent."}
+            _redeem_idem_store(cache_key, 400, body)
+            raise HTTPException(status_code=400, detail=body["detail"])
+
+        if not result.get("success"):
+            body = {"detail": result.get("message") or "Redemption failed."}
+            _redeem_idem_store(cache_key, 400, body)
+            raise HTTPException(status_code=400, detail=body["detail"])
+
+        _redeem_idem_store(cache_key, 200, result)
+        return result
 
 
 @router.get("/points/leaderboard")
@@ -816,7 +1016,10 @@ async def get_leaderboard(request: Request, limit: int = Query(default=50, le=10
                 "displayName": u.first_name or u.username,
                 "xp": up.xp,
                 "level": up.level,
-                "levelEmoji": up.level_emoji,
+                # Bonus fix (same bug class as NEW-9): `level_emoji` isn't a
+                # UserPoints attribute either — it would have 500'd this route
+                # too. Derive it from the model's own level-info helper.
+                "levelEmoji": up.get_level_info()["emoji"],
             }
             for i, (up, u) in enumerate(rows)
         ]
