@@ -51,7 +51,18 @@ def seed_ofac_addresses() -> Set[str]:
 
 
 def _normalize(addr: str) -> str:
-    return addr.strip().lower()
+    """Canonical key for a sanctioned address.
+
+    EVM hex is case-insensitive so it is lowercased. TRON base58check (``T…``,
+    34 chars) is CASE-SENSITIVE — lowercasing one produces a key that can never
+    match a real address, silently disabling the screen for exactly the rail
+    (USDT-TRC20) that OFAC listings most often name. Must stay in step with
+    ``compliance_service._normalize_address``.
+    """
+    v = addr.strip()
+    if len(v) == 34 and v.startswith("T"):
+        return v
+    return v.lower()
 
 
 def load_ofac_addresses(extra_path: str | None = None) -> Set[str]:
