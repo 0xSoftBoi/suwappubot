@@ -101,7 +101,8 @@ class FeeSweeper:
             for f in failed:
                 try:
                     logger.warning(f"Sweep failed for {f['chain']}/{f['token']}: {f['message']}")
-                except Exception:
+                except Exception as e:
+                    logger.error("Failed to log sweep failure for target=%s: %s", f, e)
                     continue
 
         # Trigger vault deposit for protocol's 60% share if AAVE_ENABLED and threshold met
@@ -123,7 +124,9 @@ class FeeSweeper:
                         "Vault deposit %.2f USDC → Aave v3 Base tx=%s", protocol_portion, tx
                     )
         except Exception as vault_err:
-            logger.warning("Vault deposit trigger skipped (non-fatal): %s", vault_err)
+            # Non-fatal to the sweep loop, but the protocol's 60% share is
+            # failing to reach the vault — that must be loud, not a warning.
+            logger.error("Vault deposit failed for protocol share: %s", vault_err)
 
         self._last_sweep = datetime.now(timezone.utc)
 

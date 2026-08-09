@@ -16,6 +16,7 @@ from bot.utils.validators import validate_private_key
 from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from bot.utils.telegram_safe import safe_md
+from bot.services.error_guidance import user_facing_error
 from bot.i18n import get_text, get_user_lang
 from database.db import get_session
 import logging
@@ -320,8 +321,8 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
                     w.is_default = True
                     session.flush()
     except Exception as e:
-        logger.error(f"Wallet creation failed: {e}")
-        await query.edit_message_text(f"❌ Wallet creation failed: {e}")
+        logger.error(f"Wallet creation failed: {e}", exc_info=True)
+        await query.edit_message_text(user_facing_error(e, prefix="❌ Wallet creation failed: "))
         return
 
     # Show wallet created WITHOUT the private key in chat
@@ -507,8 +508,20 @@ async def wallet_import_key(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             address = wallet_service.import_solana_wallet(private_key)
     except Exception as e:
+        # Never interpolate the raw private_key into logs or chat. All our own
+        # rejections are a curated ValueError ("Invalid {CHAIN} private key");
+        # log only the exception TYPE for anything unexpected from the
+        # underlying key-derivation libraries (Account.from_key / Keypair /
+        # TronPrivateKey), matching the tempo_keychain grant/revoke precedent.
+        logger.error(
+            "Wallet import failed (chain_type=%s): %s",
+            chain_type,
+            type(e).__name__,
+            exc_info=True,
+        )
         await update.message.reply_text(
-            f"❌ Error importing wallet: {str(e)}\n\nPlease try again or /cancel.",
+            user_facing_error(e, prefix="❌ Error importing wallet: ")
+            + "\n\nPlease try again or /cancel.",
         )
         return WALLET_KEY
 

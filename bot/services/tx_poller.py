@@ -58,7 +58,7 @@ class TransactionPoller:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Transaction poller task cancelled during stop()")
         for watcher in list(self._ws_watchers.values()):
             watcher.cancel()
         self._ws_watchers.clear()

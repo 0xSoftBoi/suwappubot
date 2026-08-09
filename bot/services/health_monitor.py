@@ -84,7 +84,7 @@ class HealthMonitor:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Health monitor task cancelled during stop()")
         logger.info("Health monitor stopped")
 
     async def _monitor_loop(self):

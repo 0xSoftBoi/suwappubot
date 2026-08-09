@@ -74,7 +74,7 @@ from web3 import Web3
 from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name
 from bot.models.cctp import CctpGenericDeposit
-from bot.services.cctp_api import cctp_api, CCTPError
+from bot.services.cctp_api import cctp_api
 from bot.services.rpc_manager import rpc_manager
 from database.db import get_session
 
