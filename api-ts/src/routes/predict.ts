@@ -3,7 +3,7 @@ import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
-import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
+import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
@@ -269,11 +269,14 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			// no taker/expiration/nonce/feeRateBps — instead timestamp (ms), metadata,
 			// and a bytes32 builder code. Builder defaults to none; set
 			// POLYMARKET_BUILDER_CODE (32-byte hex) once enrolled in the builder program
-			// to earn the on-chain maker/taker rebate.
+			// to earn the on-chain maker/taker rebate. A malformed env value (wrong
+			// length, not hex) falls back to ZERO_BYTES32 rather than signing garbage
+			// into the order's `builder` field — mirrors _BUILDER_CODE_RE in
+			// bot/services/polymarket_api.py.
 			const salt = BigInt('0x' + randomBytes(8).toString('hex')).toString()
 			const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
-			const builderCode = process.env.POLYMARKET_BUILDER_CODE || ZERO_BYTES32
+			const builderCode = resolveBuilderCode(process.env.POLYMARKET_BUILDER_CODE)
 
 			// CLOB amount math (6-decimal base units for both collateral and shares).
 			// pUSD collateral = 6dp; outcome (share) tokens = 6dp. `price` is the
@@ -285,6 +288,21 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			// Both legs scaled by 1e6. Math.round (not floor) avoids dropping a base
 			// unit from float rounding; the signed amounts and the POSTed amounts are
 			// the same strings (placeOrder serializes this exact struct).
+			// Neg-risk markets are matched by a DIFFERENT exchange (see
+			// lib/polymarket-eip712.ts); the signature is bound to whichever
+			// contract we pick. Resolve it from the CLOB and fail closed —
+			// silently assuming "not neg-risk" would sign against the wrong
+			// contract and get the order rejected.
+			const negRisk = yield* pm.getNegRisk(orderParams.tokenId)
+			if (negRisk === null) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Could not determine whether this market is neg-risk; refusing to sign against a possibly-wrong exchange.',
+					}),
+				)
+			}
+
 			const size = parseFloat(orderParams.size)
 			const price = parseFloat(orderParams.price)
 			const sharesBase = String(Math.round(size * 1e6))
@@ -303,7 +321,7 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 				builder: builderCode,
 			}
 
-			const typedData = buildOrderTypedData(orderData)
+			const typedData = buildOrderTypedData(orderData, negRisk)
 			const orderHash = hashEip712Order(typedData)
 
 			// Sign via Turnkey (pre-hashed, use NO_OP)

@@ -29,6 +29,7 @@ TOKEN_TO_COINGECKO = {
     "FDUSD": "first-digital-usd",
     "USDe": "ethena-usde",
     # Major tokens
+    "BTC": "bitcoin",
     "ETH": "ethereum",
     "WETH": "weth",
     "WBTC": "wrapped-bitcoin",

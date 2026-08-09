@@ -5,9 +5,15 @@ All Phase 2 features: wallets, alerts, orders, DCA, points, referrals,
 copy trading, and sniping.  Delegates to existing service singletons.
 """
 
+import hashlib
 import logging
-from datetime import datetime
-from typing import Optional, List
+import threading
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Optional, List, Tuple, Dict
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
@@ -17,6 +23,157 @@ from database.db import get_session, DATABASE_AVAILABLE
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/mobile", tags=["mobile"])
+
+
+# ── reward-redemption idempotency (H6 defense-in-depth) ────────────────────
+#
+# The MONEY-PATH double-spend fix is the `.with_for_update()` row lock added
+# in points_service (spend_points / redeem_subscription_reward /
+# redeem_marketplace_reward) — that's what actually makes it impossible for
+# two concurrent redeems to both read the same current_points and both pass
+# the balance check, regardless of process/worker topology.
+#
+# This in-process cache is a SEPARATE, secondary concern: it makes an exact
+# retry (same client `Idempotency-Key`, or an unkeyed burst of duplicate taps
+# within a couple seconds) replay the FIRST call's result instead of
+# re-invoking the service — so a client that retries after a dropped response
+# doesn't see a confusing "not enough points" for a redemption that actually
+# already succeeded. It mirrors the spirit of swap_engine's idempotency_key
+# lookup (return the existing record instead of re-executing) without adding
+# a new DB column/migration — this route only owns points_service.py,
+# mobile.py, and tempo.py for this change.
+#
+# NOT durable across process restarts or multiple worker processes — that's
+# fine, the DB-level lock is the actual safety net.
+#
+# NEW-6, FIXED: this in-process cache is per-process (a plain in-memory dict).
+# On a multi-worker/multi-replica deploy (Railway can run several
+# `uvicorn`/gunicorn workers or replicas), a client retry can land on a
+# DIFFERENT process than the one that handled the original request, miss this
+# cache entirely, and re-invoke points_service — re-charging the user for a
+# redemption whose first response was merely dropped/timed-out in transit.
+# The `.with_for_update()` DB lock still prevents a *lost update*, but it does
+# NOT prevent this *duplicate, independently-successful* spend, since each
+# process-local attempt reads a balance that's genuinely sufficient at the
+# time it runs. The durable fix: a UNIQUE(user_id, idempotency_key) partial
+# index on `point_redemptions` (see database/db.py
+# `_add_point_redemption_idempotency_key`), plus a `points_service` /
+# `PointRedemption.idempotency_key` column so a retry's INSERT conflicts and
+# is turned into a lookup-and-replay at the DB layer — durable across process
+# restarts and multi-replica deploys, unlike this in-process cache alone.
+_REDEEM_IDEM_TTL_SECONDS = 300
+_redeem_idem_registry_lock = threading.Lock()
+
+
+@dataclass
+class _IdemEntry:
+    """One idempotency cache slot: the lock guarding a (user_id, key) request
+    plus its cached result, once known.
+
+    This replaces what used to be TWO parallel dicts (`_redeem_idem_locks` +
+    `_redeem_idem_results`) keyed by the same tuple, which needed three
+    separate functions to keep in sync — and a NEW-7 comment on this module
+    previously documented a real bug caused by exactly that drift (a lock
+    surviving forever after its matching result was pruned via the lazy
+    lookup path, because the bulk sweep only ever walked the results dict).
+    With one dict, lookup/store/prune are each a single dict operation and
+    the two halves can never disagree with each other again.
+
+    `timestamp`/`status_code`/`body` are None while the request this entry
+    guards is still in flight (lock claimed, result not yet known).
+    """
+
+    lock: threading.Lock
+    timestamp: Optional[float] = None
+    status_code: Optional[int] = None
+    body: Optional[dict] = None
+
+
+_redeem_idem_entries: Dict[tuple, _IdemEntry] = {}
+
+
+def _redeem_idempotency_cache_key(request: Request, user_id: int, reward_id: int) -> tuple:
+    """Resolve the (user_id, key) idempotency cache key for a redeem request.
+
+    Prefers the client-supplied `Idempotency-Key` header. Falls back to a key
+    derived from (reward_id, a 2-second time bucket) so an unkeyed burst of
+    near-simultaneous duplicate requests for the SAME reward collapses onto
+    one key, without blocking legitimate repeat purchases spaced further
+    apart (callers that want a real dedupe guarantee should send the header).
+
+    NEW-5 fix: the header-derived key previously omitted `reward_id`, i.e. the
+    cache key was just (user_id, "hdr:"+header). A client that reused ONE
+    Idempotency-Key across two DIFFERENT reward redemptions within the TTL
+    window would get reward A's cached success replayed as a FALSE SUCCESS for
+    reward B — a redemption that never actually ran. Scope the header key to
+    reward_id too, matching the "auto:" fallback key's shape.
+    """
+    header_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
+    if header_key and header_key.strip():
+        key = f"hdr:{reward_id}:{header_key.strip()[:128]}"
+    else:
+        bucket = int(time.time() // 2)
+        key = f"auto:{reward_id}:{bucket}"
+    return (user_id, key)
+
+
+def _redeem_idem_get_lock(cache_key: tuple) -> threading.Lock:
+    """Get (or create) the lock guarding a cache key, claiming an in-flight
+    entry for it if none exists yet."""
+    with _redeem_idem_registry_lock:
+        entry = _redeem_idem_entries.get(cache_key)
+        if entry is None:
+            entry = _IdemEntry(lock=threading.Lock())
+            _redeem_idem_entries[cache_key] = entry
+        return entry.lock
+
+
+def _redeem_idem_prune(cache_key: tuple) -> None:
+    """Remove a key's entry (lock + cached result together) in one operation.
+
+    Safe to call even though the caller may still hold a *local* reference to
+    this entry's lock object (via `with lock:`) — we're only removing it from
+    the registry dict, not mutating/acquiring anything, so a future request
+    for this key (post-TTL) just gets a fresh `_IdemEntry` instead of finding
+    a stale one."""
+    with _redeem_idem_registry_lock:
+        _redeem_idem_entries.pop(cache_key, None)
+
+
+def _redeem_idem_lookup(cache_key: tuple) -> Optional[Tuple[int, dict]]:
+    entry = _redeem_idem_entries.get(cache_key)
+    if not entry or entry.timestamp is None:
+        return None
+    if time.time() - entry.timestamp > _REDEEM_IDEM_TTL_SECONDS:
+        _redeem_idem_prune(cache_key)
+        return None
+    return entry.status_code, entry.body
+
+
+def _redeem_idem_store(cache_key: tuple, status_code: int, body: dict) -> None:
+    now = time.time()
+    entry = _redeem_idem_entries.get(cache_key)
+    if entry is None:
+        entry = _IdemEntry(lock=threading.Lock())
+        _redeem_idem_entries[cache_key] = entry
+    entry.timestamp = now
+    entry.status_code = status_code
+    entry.body = body
+    # Bound unbounded growth for a long-lived worker process. Only entries
+    # with a KNOWN (non-expired) result are eligible for removal — an
+    # in-flight entry (timestamp still None, lock actively held by a
+    # concurrent request) is left alone regardless of how large the dict
+    # gets, since we have no way to know its age and removing it could hand
+    # a fresh Lock object to a genuinely-concurrent duplicate request.
+    if len(_redeem_idem_entries) > 1000:
+        with _redeem_idem_registry_lock:
+            expired = [
+                k
+                for k, e in _redeem_idem_entries.items()
+                if e.timestamp is not None and now - e.timestamp > _REDEEM_IDEM_TTL_SECONDS
+            ]
+            for k in expired:
+                _redeem_idem_entries.pop(k, None)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -55,6 +212,234 @@ class CreateWalletRequest(BaseModel):
 
 class SetDefaultWalletRequest(BaseModel):
     address: str
+
+
+class AskBody(BaseModel):
+    text: str
+
+
+def _decimal(value) -> Decimal:
+    """Best-effort numeric coercion for read-only analytics."""
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _snapshot_payload(
+    balances_by_chain: dict[str, dict[str, Decimal]],
+    prices: dict[str, float | None],
+    history: list[dict],
+) -> dict:
+    """Build deterministic, display-ready analytics from balances + prices.
+
+    This is intentionally pure: model output is never allowed to calculate an
+    authoritative balance, allocation, or change percentage for Gecko.
+    """
+    token_values: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    chain_values: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+
+    for chain, tokens in balances_by_chain.items():
+        for symbol, amount in tokens.items():
+            price = _decimal(prices.get(symbol))
+            value = _decimal(amount) * price
+            if value <= 0:
+                continue
+            token_values[symbol] += value
+            chain_values[chain] += value
+
+    total = sum(token_values.values(), Decimal("0"))
+    holdings = [
+        {
+            "symbol": symbol,
+            "valueUsd": float(value),
+            "allocationPct": float((value / total * Decimal("100")) if total else 0),
+        }
+        for symbol, value in sorted(token_values.items(), key=lambda item: item[1], reverse=True)
+    ]
+    chains = [
+        {"name": name, "valueUsd": float(value)}
+        for name, value in sorted(chain_values.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+    clean_history = []
+    for point in history:
+        date = point.get("date")
+        value = point.get("value_usd", point.get("valueUsd"))
+        if date is None or value is None:
+            continue
+        clean_history.append({"date": str(date), "valueUsd": float(_decimal(value))})
+
+    return {
+        "totalValueUsd": float(total),
+        "byToken": holdings,
+        "byChain": chains,
+        "history": clean_history,
+        "lastUpdated": datetime.now(timezone.utc).isoformat(),
+        # WalletService currently degrades individual RPC failures to zero on
+        # several providers, so V0 cannot prove that a cross-network read is
+        # complete. Never use this snapshot for performance/change claims.
+        "coverage": "best_effort",
+    }
+
+
+def _unique_wallets(wallets: list) -> list:
+    """Deduplicate persisted wallet rows without conflating case-sensitive addresses."""
+    seen: set[tuple[str, str]] = set()
+    result = []
+    for wallet in wallets:
+        chain_type = str(wallet.chain_type or "").lower()
+        address = str(wallet.address or "").strip()
+        normalized_address = address.lower() if chain_type in {"evm", "starknet"} else address
+        key = (chain_type, normalized_address)
+        if not address or key in seen:
+            continue
+        seen.add(key)
+        result.append(wallet)
+    return result
+
+
+async def _build_snapshot(user_id: int) -> dict:
+    """Read the user's real wallets and price them through existing services."""
+    from bot.services.pnl import pnl_service
+    from bot.services.price_service import price_service
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    balances: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: Decimal("0")))
+
+    for wallet in wallets:
+        if not wallet.address:
+            continue
+        try:
+            wallet_balances = await wallet_service.get_balances_by_address(
+                wallet.address, wallet.chain_type
+            )
+        except Exception as exc:
+            # One unavailable RPC must not blank the rest of a user's money.
+            logger.warning("mobile snapshot balance read failed for wallet %s: %s", wallet.id, exc)
+            continue
+        for chain, tokens in wallet_balances.items():
+            for symbol, amount in tokens.items():
+                balances[chain][symbol] += _decimal(amount)
+
+    symbols = sorted({symbol for tokens in balances.values() for symbol in tokens})
+    prices = await price_service.get_prices(symbols) if symbols else {}
+    history = pnl_service.get_portfolio_history(user_id, days=30)
+    return _snapshot_payload(balances, prices, history)
+
+
+def _answer_from_snapshot(text: str, snapshot: dict, recent: list[dict]) -> dict:
+    """Answer Gecko's first analytics intents without inventing financial data."""
+    lowered = " ".join(text.lower().split())
+    holdings = snapshot.get("byToken") or []
+    total = float(snapshot.get("totalValueUsd") or 0)
+    suggestions = [
+        "What changed this week?",
+        "How concentrated am I?",
+        "What have I done lately?",
+    ]
+
+    if any(word in lowered for word in ("swap", "buy", "sell", "trade", "send", "withdraw")):
+        return {
+            "type": "action_preview",
+            "answer": (
+                "I can prepare money actions here, but this Gecko preview will not move funds. "
+                "Execution stays behind Suwappu's existing confirmation and policy checks."
+            ),
+            "data": {"requiresConfirmation": True},
+            "suggestions": suggestions,
+        }
+
+    concentration_words = ("concentrat", "divers", "largest", "biggest", "allocation")
+    if any(word in lowered for word in concentration_words):
+        if not holdings:
+            answer = "I don't have enough priced holdings to measure concentration yet."
+        else:
+            top = holdings[0]
+            answer = (
+                f"Your largest holding is {top['symbol']} at {top['allocationPct']:.1f}% "
+                "of the money I can currently price."
+            )
+        return {
+            "type": "concentration",
+            "answer": answer,
+            "data": holdings[:5],
+            "suggestions": suggestions,
+        }
+
+    if any(word in lowered for word in ("changed", "change", "week", "today")):
+        if snapshot.get("coverage") != "complete":
+            return {
+                "type": "change",
+                "answer": (
+                    "I’m not calling a gain or loss yet because this preview can’t verify "
+                    "complete source coverage. I’d rather withhold the number than invent one."
+                ),
+                "data": None,
+                "suggestions": suggestions,
+            }
+        history = snapshot.get("history") or []
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=7)
+        recent_history = []
+        for point in history:
+            try:
+                point_date = datetime.fromisoformat(str(point.get("date"))).date()
+            except (TypeError, ValueError):
+                continue
+            if point_date >= cutoff:
+                recent_history.append(point)
+
+        if not recent_history:
+            answer = (
+                "I don't have a saved snapshot from the last week to calculate a real change yet."
+            )
+            data = None
+        else:
+            start = float(recent_history[0].get("valueUsd") or 0)
+            delta = total - start
+            pct = (delta / start * 100) if start > 0 else None
+            direction = "up" if delta >= 0 else "down"
+            pct_text = f" ({abs(pct):.1f}%)" if pct is not None else ""
+            answer = (
+                f"The money I can price is {direction} ${abs(delta):,.2f}{pct_text} "
+                "versus your earliest saved snapshot from the last week."
+            )
+            data = {"fromUsd": start, "toUsd": total, "deltaUsd": delta, "deltaPct": pct}
+        return {"type": "change", "answer": answer, "data": data, "suggestions": suggestions}
+
+    if any(word in lowered for word in ("activity", "done", "recent", "lately")):
+        if not recent:
+            answer = "I don't see any recent money moves on this account."
+        else:
+            latest = recent[0]
+            answer = (
+                f"Your latest conversion was {latest['fromToken']} to {latest['toToken']} "
+                f"({latest['status']})."
+            )
+        return {"type": "activity", "answer": answer, "data": recent, "suggestions": suggestions}
+
+    if any(word in lowered for word in ("balance", "money", "portfolio", "worth", "have")):
+        top_text = ""
+        if holdings:
+            top_text = (
+                f" Your largest holding is {holdings[0]['symbol']} at "
+                f"{holdings[0]['allocationPct']:.1f}%."
+            )
+        return {
+            "type": "snapshot",
+            "answer": f"I can currently price ${total:,.2f} across your connected money.{top_text}",
+            "data": snapshot,
+            "suggestions": suggestions,
+        }
+
+    return {
+        "type": "help",
+        "answer": "Ask me about your balance, concentration, what changed, or recent activity.",
+        "data": None,
+        "suggestions": suggestions,
+    }
 
 
 # -- alerts --
@@ -129,6 +514,58 @@ class UpdateSnipeConfigBody(BaseModel):
 # ═══════════════════════════════════════════════════════════════════
 #  WALLETS
 # ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("/snapshot")
+async def get_snapshot(request: Request):
+    """Real, JWT-scoped money snapshot for Gecko Today + Money.
+
+    No agent key is accepted and no client-provided wallet address is trusted;
+    wallet ownership is resolved exclusively from the authenticated user id.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+    return await _build_snapshot(int(payload["user_id"]))
+
+
+@router.post("/ask")
+async def ask_gecko(request: Request, body: AskBody):
+    """Read-only Gecko V0 assistant over authoritative account analytics.
+
+    Money-moving language deliberately returns a preview boundary. This route
+    never quotes, signs, broadcasts, or invokes a trading execution service.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Ask Gecko a question")
+    if len(text) > 1000:
+        raise HTTPException(status_code=400, detail="Question is too long")
+
+    snapshot = await _build_snapshot(int(payload["user_id"]))
+
+    from bot.models.swap import SwapTransaction
+
+    with get_session() as session:
+        rows = (
+            session.query(SwapTransaction)
+            .filter(SwapTransaction.user_id == int(payload["user_id"]))
+            .order_by(SwapTransaction.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        recent = [
+            {
+                "fromToken": row.from_token,
+                "toToken": row.to_token,
+                "status": row.status.value if hasattr(row.status, "value") else str(row.status),
+                "createdAt": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+
+    return _answer_from_snapshot(text, snapshot, recent)
 
 
 @router.post("/wallets")
@@ -593,10 +1030,22 @@ async def list_dca_executions(request: Request, dca_id: int):
 
 @router.get("/points")
 async def get_points(request: Request):
+    """NEW-9 fix: this handler referenced `up.points`, `up.spendable_points`,
+    `up.level_emoji`, `up.fee_discount`, `up.next_level`, `up.last_checkin_at`
+    — NONE of these exist on UserPoints (bot/models/points.py has
+    current_points, total_points_earned, xp, level, daily_streak,
+    longest_streak, last_checkin). `up.xp_to_next_level` is also a METHOD, not
+    a property, so it previously serialized as a bound method, not an int.
+    Every one of these was an AttributeError -> 500 (or a bad payload) on the
+    only endpoint that renders the balance /checkin and /redeem mutate. Map
+    every field to the real column/helper below (same bug class as the
+    `r.cost` fix in GET /points/rewards)."""
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.models.points import UserPoints
+    from bot.models.points import UserPoints, LEVELS
+
+    LEVEL_ORDER = ["bronze", "silver", "gold", "platinum", "diamond"]
 
     with get_session() as session:
         up = (
@@ -608,31 +1057,52 @@ async def get_points(request: Request):
         )
 
         if not up:
+            bronze = LEVELS["bronze"]
             return {
                 "points": 0,
                 "spendablePoints": 0,
                 "xp": 0,
-                "level": "Bronze",
-                "levelEmoji": "",
-                "feeDiscount": 0.8,
+                "level": "bronze",
+                "levelEmoji": bronze["emoji"],
+                # ROADMAP value only — NOT the charged fee rate. See
+                # UserPoints.get_fee_discount()'s docstring: the fee actually
+                # charged comes from the user's subscription tier
+                # (fee_service.TIER_FEE_RATES), independent of XP level.
+                "feeDiscount": bronze["fee"],
+                "nextLevel": "silver",
+                "xpToNextLevel": LEVELS["silver"]["xp"],
                 "dailyStreak": 0,
                 "longestStreak": 0,
+                "lastCheckinAt": None,
                 "canCheckin": True,
             }
 
+        level_info = up.get_level_info()
+        try:
+            level_idx = LEVEL_ORDER.index(up.level)
+        except ValueError:
+            level_idx = 0
+        next_level = LEVEL_ORDER[level_idx + 1] if level_idx < len(LEVEL_ORDER) - 1 else None
+
+        today = datetime.now(timezone.utc).date()
+        can_checkin = not (up.last_checkin and up.last_checkin.date() == today)
+
         return {
-            "points": up.points,
-            "spendablePoints": up.spendable_points,
+            # "points" = lifetime total earned; "spendablePoints" = the
+            # actual redeemable balance (current_points).
+            "points": up.total_points_earned,
+            "spendablePoints": up.current_points,
             "xp": up.xp,
             "level": up.level,
-            "levelEmoji": up.level_emoji,
-            "feeDiscount": up.fee_discount,
-            "nextLevel": up.next_level,
-            "xpToNextLevel": up.xp_to_next_level,
+            "levelEmoji": level_info["emoji"],
+            # ROADMAP value only — see the no-account branch above.
+            "feeDiscount": level_info["fee"],
+            "nextLevel": next_level,
+            "xpToNextLevel": up.xp_to_next_level(),
             "dailyStreak": up.daily_streak,
             "longestStreak": up.longest_streak,
-            "lastCheckinAt": up.last_checkin_at.isoformat() if up.last_checkin_at else None,
-            "canCheckin": up.can_checkin if hasattr(up, "can_checkin") else True,
+            "lastCheckinAt": up.last_checkin.isoformat() if up.last_checkin else None,
+            "canCheckin": can_checkin,
         }
 
 
@@ -709,7 +1179,9 @@ async def get_rewards(request: Request):
                 "id": r.id,
                 "name": r.name,
                 "description": r.description,
-                "cost": r.cost,
+                # M1 fix: the Reward model has `points_cost`, not `cost` — the
+                # old attribute name doesn't exist and 500'd every call.
+                "cost": r.points_cost,
                 "rewardType": r.reward_type,
                 "rewardValue": r.reward_value,
                 "isAvailable": r.is_available if hasattr(r, "is_available") else True,
@@ -719,15 +1191,50 @@ async def get_rewards(request: Request):
 
 
 @router.post("/points/rewards/{reward_id}/redeem")
-async def redeem_reward(request: Request, reward_id: int):
-    """Redeem a points reward. MONEY PATH — routes to the correct atomic
-    redemption method based on the reward's type/category. Never fabricates
-    success; real errors propagate as HTTP errors."""
+def redeem_reward(request: Request, reward_id: int):
+    """Redeem a reward for points.
+
+    H6 fix: this is a `def`, not `async def`. There is no `await` anywhere in
+    this body — every DB call goes through the synchronous `get_session()` /
+    `points_service` (blocking SQLAlchemy calls) — so FastAPI was running this
+    as a coroutine directly ON the event loop. That made the
+    `threading.Lock()` acquired below (`with lock:`) a REAL blocking call on
+    the loop thread: a slow/blocked redemption for one user stalled the
+    ENTIRE bot's event loop (all other users' requests) for its duration, not
+    just that user's own request. Declaring this `def` makes FastAPI run it
+    in its threadpool, where a real OS lock is the correct primitive.
+
+    MONEY-PATH: dispatches to the SAME atomic, all-or-nothing points_service
+    methods used by the Telegram /xp flow (bot/handlers/points.py::redeem_callback) —
+    there is no generic `points_service.redeem_reward`, so this mirrors that
+    handler's routing by reward shape instead of inventing new semantics:
+      - async marketplace categories (gift_card/travel/merch/donation/experience)
+        -> redeem_marketplace_reward (debit + fulfillment order, auto-refunds on
+        provider failure)
+      - cash-equivalent types (partner_transfer/miles/cashout/stablecoin) -> reject,
+        not live yet
+      - "subscription" -> redeem_subscription_reward (debit + tier grant/extend)
+      - everything else (fee_discount/gas_rebate/raffle/etc, "own_product") ->
+        spend_points (generic debit; effect applied at swap time)
+    All paths spend ONLY current_points (spendable currency) — never XP or
+    season/convertible points, per the two-balance rule.
+
+    IDEMPOTENCY (H6): pass a client `Idempotency-Key` header to guarantee a
+    retry replays the first call's result instead of re-spending points. When
+    no header is sent, a short-lived derived key still collapses an unkeyed
+    burst of near-simultaneous duplicate taps for the SAME reward. See
+    `_redeem_idempotency_cache_key` above — the actual double-spend
+    prevention is the `.with_for_update()` row lock in points_service; this is
+    defense-in-depth for client retry UX.
+    """
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.services.points_service import points_service
     from bot.models.points import Reward
+    from bot.services.points_service import points_service
+    from bot.services.reward_providers import ASYNC_CATEGORIES
+
+    user_id = payload["user_id"]
 
     with get_session() as session:
         reward = (
@@ -735,57 +1242,87 @@ async def redeem_reward(request: Request, reward_id: int):
         )
         if not reward:
             raise HTTPException(status_code=404, detail="Reward not found")
+        if not reward.is_active:
+            raise HTTPException(status_code=400, detail="That reward isn't available.")
         reward_type = reward.reward_type
+        reward_value = reward.reward_value
+        reward_cost = reward.points_cost
+        reward_duration_days = reward.duration_days
         reward_category = getattr(reward, "reward_category", None) or "own_product"
-        points_cost = reward.points_cost
-        base_reward_type = reward.reward_type
-        base_reward_value = reward.reward_value
-        base_reward_duration_days = reward.duration_days
 
-    # Cash-equivalent redemptions (airline miles, stablecoin cash-out) remain NOT
-    # enabled: they cross the cash-equivalent line and require a partner integration +
-    # compliance sign-off. Reject rather than silently deduct points for something we
-    # cannot fulfill (mirrors bot/handlers/points.py:429).
     if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
         raise HTTPException(
             status_code=400,
             detail="That reward isn't available — partner redemptions aren't live yet.",
         )
 
-    try:
-        if reward_type == "subscription":
-            success, message, expires_at = points_service.redeem_subscription_reward(
-                payload["user_id"], reward_id
-            )
-            if not success:
-                raise HTTPException(status_code=400, detail=message)
-            return {"success": True, "message": message, "expiresAt": expires_at}
+    cache_key = _redeem_idempotency_cache_key(request, user_id, reward_id)
+    # Durable (DB-level) idempotency key derived from the SAME cache_key that
+    # guards the in-process cache, so a retry that misses the in-process
+    # cache (different worker/process, or after a restart) still resolves to
+    # the same key at the point_redemptions unique-index layer. Hashed +
+    # truncated to fit the VARCHAR(160) column regardless of header length.
+    idempotency_key = f"redeem:{hashlib.sha256(str(cache_key).encode()).hexdigest()}"
+    lock = _redeem_idem_get_lock(cache_key)
 
-        if reward_category != "own_product":
-            success, message, order_id = points_service.redeem_marketplace_reward(
-                payload["user_id"], reward_id
-            )
-            if not success:
-                raise HTTPException(status_code=400, detail=message)
-            return {"success": True, "message": message, "orderId": order_id}
+    with lock:
+        cached = _redeem_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=body.get("detail"))
+            return body
 
-        success, message = points_service.spend_points(
-            payload["user_id"],
-            points_cost,
-            base_reward_type,
-            base_reward_value,
-            duration_days=base_reward_duration_days,
-        )
-        if not success:
-            raise HTTPException(status_code=400, detail=message)
-        return {"success": True, "message": message}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"redeem_reward failed for user {payload['user_id']}, reward {reward_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail="Redemption failed — your points were not spent."
-        )
+        try:
+            if reward_category in ASYNC_CATEGORIES:
+                success, message, order_id = points_service.redeem_marketplace_reward(
+                    user_id=user_id, reward_id=reward_id, idempotency_key=idempotency_key
+                )
+                result = {"success": success, "message": message, "orderId": order_id}
+            elif reward_type == "subscription":
+                success, message, expires_at = points_service.redeem_subscription_reward(
+                    user_id=user_id, reward_id=reward_id, idempotency_key=idempotency_key
+                )
+                result = {"success": success, "message": message, "expiresAt": expires_at}
+            else:
+                success, message = points_service.spend_points(
+                    user_id=user_id,
+                    amount=reward_cost,
+                    reward_type=reward_type,
+                    reward_value=reward_value,
+                    duration_days=reward_duration_days,
+                    idempotency_key=idempotency_key,
+                )
+                result = {"success": success, "message": message}
+        except HTTPException as he:
+            # Business rejection (e.g. reward validation) — deterministic,
+            # safe to cache and replay on retry.
+            _redeem_idem_store(cache_key, he.status_code, {"detail": he.detail})
+            raise
+        except Exception as e:
+            # Finding 7: an UNEXPECTED exception (network blip, DB hiccup,
+            # transient error) is NOT a deterministic outcome — the actual
+            # spend/no-spend state is unknown here (points_service already
+            # rolls its own transaction back on failure, but we can't prove
+            # that happened for every possible exception source). Caching a
+            # generic failure here would make a legitimate retry replay a
+            # stale "failed" response forever, even once the transient
+            # condition clears and the retry would actually have succeeded.
+            # Let it through uncached so retries actually retry.
+            logger.error(f"Reward redemption crashed for user {user_id}, reward {reward_id}: {e}")
+            raise HTTPException(
+                status_code=400, detail="Redemption failed — your points were not spent."
+            )
+
+        if not result.get("success"):
+            # Business rejection (insufficient points, reward unavailable,
+            # etc.) — deterministic, safe to cache and replay on retry.
+            body = {"detail": result.get("message") or "Redemption failed."}
+            _redeem_idem_store(cache_key, 400, body)
+            raise HTTPException(status_code=400, detail=body["detail"])
+
+        _redeem_idem_store(cache_key, 200, result)
+        return result
 
 
 @router.get("/points/leaderboard")
@@ -816,7 +1353,10 @@ async def get_leaderboard(request: Request, limit: int = Query(default=50, le=10
                 "displayName": u.first_name or u.username,
                 "xp": up.xp,
                 "level": up.level,
-                "levelEmoji": up.level_emoji,
+                # Bonus fix (same bug class as NEW-9): `level_emoji` isn't a
+                # UserPoints attribute either — it would have 500'd this route
+                # too. Derive it from the model's own level-info helper.
+                "levelEmoji": up.get_level_info()["emoji"],
             }
             for i, (up, u) in enumerate(rows)
         ]

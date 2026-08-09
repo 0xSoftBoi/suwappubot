@@ -18,7 +18,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.services.copy_service import copy_service, MAX_FOLLOWS
+from bot.services.copy_service import copy_service, MAX_FOLLOWS, format_wallet_pnl_pct
 from bot.models.subscription import SubscriptionTier
 from bot.utils.tos_utils import enforce_tos
 from bot.utils.gating import require_tier
@@ -134,6 +134,7 @@ async def view_trader_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     social = stats["social"]
 
     pnl_emoji = "📈" if s["total_pnl"] >= 0 else "📉"
+    wallet_pnl_pct_display = format_wallet_pnl_pct(s.get("pnl_pct"))
 
     msg = (
         f"{profile['avatar']} *{profile['display_name']}*\n"
@@ -142,7 +143,7 @@ async def view_trader_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"├ Trades: {s['total_trades']}\n"
         f"├ Win Rate: {s['win_rate']:.1f}%\n"
         f"├ Volume: ${s['total_volume']:,.2f}\n"
-        f"├ PnL: {pnl_emoji} ${s['total_pnl']:,.2f}\n"
+        f"├ PnL: {pnl_emoji} ${s['total_pnl']:,.2f} ({wallet_pnl_pct_display} / 30d)\n"
         f"├ Best: +${s['best_trade']:,.2f}\n"
         f"└ Worst: ${s['worst_trade']:,.2f}\n\n"
         f"👥 *Social*\n"
@@ -157,7 +158,8 @@ async def view_trader_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         for t in stats["recent_trades"][:3]:
             trade_pnl = t.get("pnl", 0) or 0
             t_emoji = "✅" if trade_pnl >= 0 else "❌"
-            msg += f"├ {t_emoji} {t['from']}→{t['to']} ${t['amount']:,.0f}\n"
+            token_age = t.get("token_age") or "—"
+            msg += f"├ {t_emoji} {t['from']}→{t['to']} ${t['amount']:,.0f} • 🕐 {token_age}\n"
 
     # Check if already following
     following = copy_service.get_following(user_id)
@@ -679,6 +681,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = stats["stats"]
     social = stats["social"]
     pnl_emoji = "📈" if s["total_pnl"] >= 0 else "📉"
+    wallet_pnl_pct_display = format_wallet_pnl_pct(s.get("pnl_pct"))
 
     msg = (
         f"📊 *Your Trading Stats*\n\n"
@@ -687,7 +690,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"├ Winning Trades: {s['winning_trades']}\n"
         f"├ Win Rate: {s['win_rate']:.1f}%\n"
         f"├ Total Volume: ${s['total_volume']:,.2f}\n"
-        f"├ Total PnL: {pnl_emoji} ${s['total_pnl']:,.2f}\n"
+        f"├ Total PnL: {pnl_emoji} ${s['total_pnl']:,.2f} ({wallet_pnl_pct_display} / 30d)\n"
         f"├ Avg Trade Size: ${s['avg_trade_size']:,.2f}\n"
         f"├ Best Trade: +${s['best_trade']:,.2f}\n"
         f"└ Worst Trade: ${s['worst_trade']:,.2f}\n\n"
@@ -703,7 +706,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for t in stats["recent_trades"][:5]:
             trade_pnl = t.get("pnl", 0) or 0
             t_emoji = "✅" if trade_pnl >= 0 else "❌"
-            msg += f"├ {t_emoji} {t['from']}→{t['to']} ${t['amount']:,.0f}\n"
+            token_age = t.get("token_age") or "—"
+            msg += f"├ {t_emoji} {t['from']}→{t['to']} ${t['amount']:,.0f} • 🕐 {token_age}\n"
 
     await update.message.reply_text(
         msg,
@@ -747,12 +751,13 @@ async def mystats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = stats["stats"]
     social = stats["social"]
     pnl_emoji = "📈" if s["total_pnl"] >= 0 else "📉"
+    wallet_pnl_pct_display = format_wallet_pnl_pct(s.get("pnl_pct"))
 
     msg = (
         f"📊 *Your Trading Stats*\n\n"
         f"├ Trades: {s['total_trades']} ({s['win_rate']:.0f}% win)\n"
         f"├ Volume: ${s['total_volume']:,.0f}\n"
-        f"├ PnL: {pnl_emoji} ${s['total_pnl']:,.0f}\n"
+        f"├ PnL: {pnl_emoji} ${s['total_pnl']:,.0f} ({wallet_pnl_pct_display} / 30d)\n"
         f"└ Followers: {social['follower_count']}\n"
     )
 

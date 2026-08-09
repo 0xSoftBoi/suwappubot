@@ -70,7 +70,7 @@
     }
   },
   "hero": {
-    "kicker": "Désormais en bêta ouverte · 42 chaînes",
+    "kicker": "Désormais en bêta ouverte · 45 chaînes",
     "h1": "La couche d’exécution entre l’intention et les marchés.",
     "lead": "Suwappu transforme une intention de trading en une route vérifiable et une exécution contrôlée sur les marchés pris en charge. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
     "cta_bot": "Commencer gratuitement",
@@ -214,7 +214,7 @@
   "cta": {
     "kicker": "Commencez maintenant",
     "heading": "Votre prochain swap n'est qu'à une ligne.",
-    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent, swaps au meilleur prix, perps et trades sans frais de gas sur 42 chaînes.",
+    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent, swaps au meilleur prix, perps et trades sans frais de gas sur 45 chaînes.",
     "open_bot": "Ouvrir le Bot Telegram",
     "whatsapp": "Discuter sur WhatsApp",
     "docs": "Lire la documentation"

@@ -2,8 +2,9 @@
 
 Covers the allow/block-list address gate used by SwapEngine.execute_swap:
 mode switching (disabled/monitor/enforce), policy switching (blocklist /
-allowlist), OFAC seed enforcement, non-EVM pass-through, and the OFAC list
-file loader.
+allowlist), OFAC seed enforcement, address-family handling (EVM/TRON/Solana
+screened, everything else fails closed in ENFORCE), and the OFAC list file
+loader. TRON- and Solana-specific cases live in test_compliance_tron.py.
 """
 
 import os
@@ -141,12 +142,103 @@ def test_allowlist_only_ignores_blocklist_for_clean_unapproved(svc):
 # --- address handling -------------------------------------------------------
 
 
-def test_non_evm_addresses_skipped(svc):
+def test_solana_addresses_are_now_screened(svc):
+    """Solana base58 recipients are screenable (see test_compliance_tron.py
+    TestSolanaScreening) — unlike a truly unsupported family (Starknet), an
+    unlisted-but-not-preapproved Solana recipient is blocked under
+    allowlist_only, same as any other screened family."""
     svc.configure(mode="enforce", policy="allowlist_only", allowlist=CLEAN)
-    # Solana address isn't 0x-style → not screened → no violation from it.
     result = svc.screen(recipient=SOLANA_ADDR, chain="solana")
+    assert result.allowed is False
+    assert result.blocked[0].source == "not_allowlisted"
+
+
+def test_truly_unscreenable_recipient_fails_closed_in_enforce(svc):
+    """A recipient family nothing recognizes at all (not EVM/TRON/Solana/
+    Starknet/BTC-bech32) fails CLOSED in ENFORCE mode rather than silently
+    passing through unscreened."""
+    svc.configure(mode="enforce")
+    # Cosmos-style bech32 (no "bc1" prefix) — no known family matches this.
+    result = svc.screen(recipient="cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", chain="cosmos")
+    assert result.allowed is False
+    assert result.blocked[0].source == "unscreenable"
+
+
+def test_starknet_recipient_is_now_screenable(svc):
+    """Finding 1: Starknet (0x + non-EVM-length hex) is a recognized family —
+    a clean Starknet recipient passes screening rather than fail-closing."""
+    svc.configure(mode="enforce")
+    result = svc.screen(recipient="0x" + "1" * 63, chain="starknet")
     assert result.allowed is True
-    assert result.verdicts == []
+    assert result.blocked == []
+
+
+def test_starknet_recipient_blocked_when_on_blocklist(svc):
+    """A blocklisted Starknet address is screened like any other family."""
+    starknet_addr = "0x" + "2" * 41  # 41 hex chars => total len 43, not EVM (EVM is 0x + 40 = 42)
+    svc.configure(mode="enforce", blocklist=starknet_addr)
+    result = svc.screen(recipient=starknet_addr, chain="starknet")
+    assert result.allowed is False
+    assert result.blocked[0].source == "blocklist"
+
+
+def test_btc_bech32_recipient_is_screenable(svc):
+    """BTC bech32 (bc1...) recipients are recognized and normalized lowercase
+    verbatim."""
+    svc.configure(mode="enforce")
+    btc_addr = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
+    result = svc.screen(recipient=btc_addr, chain="bitcoin")
+    assert result.allowed is True
+
+
+def test_null_recipient_fails_closed_in_enforce(svc):
+    """Finding 4: an explicitly-passed empty/None recipient must fail closed
+    in ENFORCE, not silently sail through as allowed."""
+    svc.configure(mode="enforce")
+    assert svc.screen(recipient=None).allowed is False
+    assert svc.screen(recipient="").allowed is False
+
+
+def test_null_recipient_allowed_in_monitor(svc):
+    svc.configure(mode="monitor")
+    result = svc.screen(recipient=None)
+    assert result.allowed is True
+    assert result.blocked, "MONITOR should still record the would-block verdict"
+
+
+def test_omitted_recipient_kwarg_still_noops_like_before(svc):
+    """Callers that never pass a recipient at all (e.g. address_gate.py's
+    token-only screening) must NOT be affected by the null-recipient
+    fail-closed fix — omitting the kwarg is different from passing None."""
+    svc.configure(mode="enforce")
+    result = svc.screen(tokens=[CLEAN])
+    assert result.allowed is True
+    assert result.blocked == []
+
+
+def test_degraded_ofac_list_blocks_in_enforce(svc, tmp_path, monkeypatch):
+    """Finding 2: if the configured OFAC extra_path failed to load/parse,
+    the list provider is degraded, and ENFORCE must fail closed."""
+    bad_path = str(tmp_path / "does-not-exist.txt")
+    svc.configure(mode="enforce", ofac_list_path=bad_path)
+    assert svc._list_degraded is True
+    result = svc.screen(recipient=CLEAN)
+    assert result.allowed is False
+    assert result.blocked[0].source == "degraded_list"
+
+
+def test_degraded_ofac_list_allowed_in_monitor(svc, tmp_path):
+    bad_path = str(tmp_path / "does-not-exist.txt")
+    svc.configure(mode="monitor", ofac_list_path=bad_path)
+    assert svc._list_degraded is True
+    result = svc.screen(recipient=CLEAN)
+    assert result.allowed is True
+    assert any(v.source == "degraded_list" for v in result.blocked)
+
+
+def test_healthy_ofac_list_not_degraded(svc):
+    svc.configure(mode="enforce")
+    assert svc._list_degraded is False
 
 
 def test_case_insensitive_matching(svc):

@@ -1,0 +1,20 @@
+{
+  "cli": { "version": ">= 16.0.1", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_API_URL": "https://devapi.suwappu.bot" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_API_URL": "https://devapi.suwappu.bot" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "ios": { "image": "sdk-57" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://api.suwappu.bot" }
+    }
+  },
+  "submit": { "production": {} }
+}

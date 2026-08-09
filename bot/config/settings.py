@@ -273,6 +273,24 @@ class Settings(BaseSettings):
             "sponsored swaps as fee payer (pays gas in pathUSD)."
         ),
     )
+    mpp_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the MPP (Machine Payments Protocol) surface — the /mpp "
+            "command and the browse_mpp_directory MCP tool. Default OFF: as of "
+            "2026-07-26 api.mpp.dev and directory.mpp.dev do not resolve "
+            "(NXDOMAIN), so every MPP call fails. Only turn this on once the "
+            "hosts in mpp_api_base / mpp_directory_url are confirmed live."
+        ),
+    )
+    mpp_api_base: str = Field(
+        default="https://api.mpp.dev/v1",
+        description="MPP API base URL. Override if the protocol ships on a different host.",
+    )
+    mpp_directory_url: str = Field(
+        default="https://directory.mpp.dev/v1",
+        description="MPP service-directory base URL.",
+    )
     goat_rpc_url: Optional[str] = Field(
         default="https://rpc.goat.network",
         description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
@@ -478,6 +496,12 @@ class Settings(BaseSettings):
     flare_rpc_url: str = Field(
         default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC"
     )
+    aurora_rpc_url: str = Field(default="https://mainnet.aurora.dev", description="Aurora RPC")
+    blast_rpc_url: str = Field(
+        default="https://rpc.blast.io,https://blast-rpc.publicnode.com",
+        description="Blast RPC",
+    )
+    ink_rpc_url: str = Field(default="https://rpc-gel.inkonchain.com", description="Ink RPC")
 
     # Solana RPC
     solana_rpc_url: str = Field(
@@ -661,6 +685,57 @@ class Settings(BaseSettings):
     morpho_vault_default: str = Field(
         default="0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
+    )
+
+    # Rug Protection auto-sell (bot/services/token_security/rug_service.py).
+    # MONEY-PATH: when True, the bot subscribes to Raydium AMM logs and fires
+    # unattended panic-sell swaps (25% slippage, full balance) for opted-in
+    # users when a liquidity removal is detected AND verified (an executed
+    # Raydium instruction that drained >50% of its own pool vault — see
+    # RUG_WITHDRAWAL_MIN_FRACTION). Default OFF: this moves user funds off a
+    # public log/mempool signal with no human in the loop, so it stays behind
+    # an explicit, deliberate opt-in even after that hardening.
+    rug_auto_sell_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the Rug Protection auto-sell service. When True, "
+            "opted-in users' full balance of a token is auto-sold at 25% slippage "
+            "the moment a verified Raydium liquidity-removal is detected. Default "
+            "off — a deliberate, explicit opt-in required to arm this money-path."
+        ),
+    )
+
+    # B1 hardening: RUG_WITHDRAWAL_MIN_FRACTION (relative-only) let a
+    # permissionless Raydium pool seeded with a few dollars trigger the exact
+    # same panic-sell as a real multi-figure rug. This is an absolute USD
+    # floor on the paired WSOL/stablecoin vault's PRE-withdrawal balance —
+    # see rug_service.RUG_MIN_DRAINED_NOTIONAL_USD for the full rationale.
+    rug_min_drained_notional_usd: float = Field(
+        default=35_000.0,
+        description=(
+            "Absolute USD floor on the paired WSOL/stablecoin vault's pre-withdrawal "
+            "balance before a Raydium liquidity removal is treated as a real rug. "
+            "Closes the gap where RUG_WITHDRAWAL_MIN_FRACTION alone (purely relative) "
+            "let an attacker spin up a fresh, cheaply-seeded pool and 100%-withdraw it "
+            "to trigger the same panic-sell as a real multi-figure rug."
+        ),
+    )
+
+    # H3 hardening: flash-loan / single-tx forgery defense. A drain event only
+    # arms a panic sell if rug_service independently observed the pool (via a
+    # separate Raydium pool-creation log match, decoupled from the drain
+    # itself) at least this many seconds before the drain. See
+    # rug_service.RUG_MIN_POOL_AGE_SECONDS / module docstring for the full
+    # rationale and residual-risk note.
+    rug_min_pool_age_seconds: int = Field(
+        default=3600,
+        description=(
+            "Minimum seconds a Raydium pool must have been independently observed by "
+            "rug_service before a drain event on it is allowed to arm a panic sell. "
+            "Defeats the single-transaction 'create pool, seed it, drain it' forgery, "
+            "where the pool never existed in the service's own observation prior to "
+            "the drain."
+        ),
     )
 
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
@@ -1073,18 +1148,16 @@ class Settings(BaseSettings):
             "approve() for Turnkey wallets or on any permit error."
         ),
     )
-    tempo_fee_sponsorship_enabled: bool = Field(
-        default=False,
-        description=(
-            "When true, the bot sponsors gas (paid in TIP-20 stablecoins) for a new "
-            "user's first few Tempo transactions. Requires tempo_sponsor_address to be "
-            "set. Default off so the bot never spends funds unexpectedly."
-        ),
-    )
-    tempo_sponsor_address: Optional[str] = Field(
-        default=None,
-        description="EVM address that pays sponsored Tempo gas (Tempo T2 feePayer).",
-    )
+    # NOTE: there is deliberately NO `tempo_fee_sponsorship_enabled` /
+    # `tempo_sponsor_address` here. Those two fields existed but had ZERO
+    # consumers, while the real gate is `tempo_fee_sponsor_enabled` (above) and
+    # the fee payer is resolved from a HotWallet DB row named by
+    # `tempo_fee_sponsor_wallet_name` (see bot/services/tempo_keychain.py), NOT
+    # from an env address. Keeping near-identical dead twins on a gasless money
+    # path meant setting the wrong one looked like activation but changed
+    # nothing. Removed 2026-07-26 — `extra="ignore"` makes any stale env var inert.
+    # To actually enable sponsorship: create + fund the HotWallet row, then set
+    # TEMPO_FEE_SPONSOR_ENABLED=true.
     tempo_sponsor_max_txs: int = Field(
         default=3, description="Max sponsored Tempo transactions per user."
     )

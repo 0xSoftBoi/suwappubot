@@ -204,6 +204,25 @@ describe('mcp tool annotations', () => {
 	})
 })
 
+describe('mpp gating', () => {
+	// The MPP hosts (api.mpp.dev / directory.mpp.dev) did not resolve as of
+	// 2026-07-26, so browse_mpp_directory could only ever return an error.
+	// It must stay hidden from tools/list unless MPP_ENABLED=true, otherwise we
+	// advertise a capability that always fails.
+	it('does not advertise browse_mpp_directory when MPP_ENABLED is unset', () => {
+		expect(process.env.MPP_ENABLED).not.toBe('true')
+		const names = TOOLS_WITH_ANNOTATIONS.map((t) => t.name)
+		expect(names).not.toContain('browse_mpp_directory')
+	})
+
+	it('still advertises the non-MPP tools', () => {
+		const names = TOOLS_WITH_ANNOTATIONS.map((t) => t.name)
+		for (const expected of ['get_quote', 'execute_swap', 'get_portfolio', 'predict_markets']) {
+			expect(names).toContain(expected)
+		}
+	})
+})
+
 describe('mcp resources', () => {
 	it('reads every advertised resource as valid JSON', () => {
 		for (const r of RESOURCES) {

@@ -32,6 +32,7 @@ from bot.models.custodial import (
     TransactionStatus,
 )
 from database.db import get_session
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,70 @@ def _assert_withdrawals_enabled() -> None:
         raise WithdrawalsPausedError(
             "Withdrawals are temporarily paused. Please try again shortly."
         )
+
+
+class ComplianceBlockedError(RuntimeError):
+    """Raised when a withdrawal recipient fails sanctions screening."""
+
+
+def _assert_recipient_compliant(
+    to_address: str, chain_name: str, token_address: Optional[str] = None
+) -> None:
+    """Sanctions-screen a withdrawal recipient before any funds move.
+
+    Placed beside the withdrawal kill-switch, inside send_native_token/send_token,
+    so EVERY withdraw surface (terminal API route, Telegram handler, future ones)
+    is covered without duplicating the check per call site.
+
+    Previously ``compliance_service.screen`` had exactly ONE call site —
+    ``SwapEngine.execute_swap`` — so withdrawals, the most obvious
+    funds-leave-the-platform path, were screened by nothing on every chain.
+
+    Only ``to_address`` (the actual recipient) is screened — ``token_address``
+    is accepted for the caller's context/logging but deliberately NOT passed
+    to ``compliance_service.screen``. A token *contract* address is not where
+    funds end up, so screening it as if it were a recipient produced no
+    compliance value and only risked false blocks on legitimate token
+    contracts.
+
+    Behaviour follows ``COMPLIANCE_MODE``:
+      * ``DISABLED`` — skips entirely (today's default).
+      * ``MONITOR``  — logs violations but allows the withdrawal, AND fails
+        OPEN on screener *errors* (an outage in the screener must not become
+        an outage in the product when we're not even enforcing yet).
+      * ``ENFORCE``  — raises on a real blocklist hit, AND fails CLOSED on
+        screener errors: if the screener itself is unavailable/throws while
+        enforcement is on, we cannot prove the recipient is clean, so the
+        withdrawal is blocked rather than silently let through.
+    """
+    from bot.services.compliance import compliance_service
+
+    if not compliance_service.enabled:
+        return
+    try:
+        result = compliance_service.screen(
+            recipient=to_address,
+            chain=chain_name,
+        )
+    except Exception as e:  # noqa: BLE001 — screener failure itself, not a verdict
+        mode = getattr(compliance_service, "mode", None)
+        if mode is not None and getattr(mode, "value", None) == "enforce":
+            logger.error(
+                "Compliance screening errored for %s on %s while ENFORCE is active — "
+                "failing CLOSED: %s",
+                to_address,
+                chain_name,
+                e,
+            )
+            raise ComplianceBlockedError(
+                "Compliance screening is temporarily unavailable; withdrawal blocked "
+                "until it recovers."
+            ) from e
+        logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
+        return
+
+    if not result.allowed:
+        raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
 
 
 class PostBroadcastAmbiguous(RuntimeError):
@@ -833,19 +898,23 @@ class HotWalletService:
         token_balances = {}
 
         try:
-            async with aiohttp.ClientSession() as session:
-                # SOL balance
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [wallet.address],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    result = await resp.json()
-                    if "result" in result:
-                        lamports = result["result"]["value"]
-                        native_balance = Decimal(str(lamports)) / Decimal(10**9)
+            session = await get_http_session()
+            # SOL balance
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [wallet.address],
+            }
+            async with session.post(
+                rpc_manager.get_rpc_url("solana"),
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                result = await resp.json()
+                if "result" in result:
+                    lamports = result["result"]["value"]
+                    native_balance = Decimal(str(lamports)) / Decimal(10**9)
         except Exception as e:
             logger.error(f"Error fetching Solana balance: {e}")
 
@@ -868,6 +937,7 @@ class HotWalletService:
         always leaves a resolvable hash behind for the withdraw reconciler.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name)
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1128,6 +1198,7 @@ class HotWalletService:
         pre-broadcast hash onto the caller's claimed idempotency placeholder.
         """
         _assert_withdrawals_enabled()
+        _assert_recipient_compliant(to_address, chain_name, token_address)
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id

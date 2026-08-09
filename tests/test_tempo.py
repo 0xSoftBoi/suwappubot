@@ -77,7 +77,13 @@ class TestTempoSettings:
         # Permit (gasless approval) on by default; sponsorship off by default so
         # the bot never spends funds unexpectedly.
         assert settings.tempo_use_permit is True
-        assert settings.tempo_fee_sponsorship_enabled is False
+        # tempo_fee_sponsor_enabled is the REAL gate read by
+        # tempo_fee_sponsor.is_enabled(). The old `tempo_fee_sponsorship_enabled`
+        # twin had no consumers and was removed — assert it stays gone so the
+        # footgun cannot be reintroduced.
+        assert settings.tempo_fee_sponsor_enabled is False
+        assert not hasattr(settings, "tempo_fee_sponsorship_enabled")
+        assert not hasattr(settings, "tempo_sponsor_address")
         assert settings.tempo_swap_slippage_pct == 0.1
         assert settings.tempo_sponsor_max_txs == 3
         assert settings.tempo_sponsor_daily_budget_usd == 100.0

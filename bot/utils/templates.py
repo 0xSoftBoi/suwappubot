@@ -65,7 +65,7 @@ TOS_KEYBOARD = InlineKeyboardMarkup(
 )
 
 
-WELCOME_MESSAGE = """
+WELCOME_MESSAGE = r"""
 🌸 *suwappu* — fast cross-chain swaps with a native C\+\+ core\!
 
 🔄 *Welcome to Suwappu Bot*
@@ -102,6 +102,7 @@ HELP_MESSAGE = r"""
 ━━ 💱 *TRADE* ━━
 • /s \- Swap any token \(7\+ chains\)
 • /check \<address\> \- Token safety check 🛡️
+• /trending \- What's hot right now 🔥
 • /perps \- Perpetual futures \(HyperLiquid\)
 • /predict \- Prediction markets \(Polymarket\)
 • /o \- Limit orders   • /dca \- Auto\-buy

@@ -33,39 +33,35 @@ from bot.services.spending_limits import spending_limit_service
 from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
-from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
+from bot.config.chains import ChainType, apply_min_gas_price, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
-from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
-from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
-from bot.services.layerzero_api import LayerZeroAPI, LayerZeroQuote, LayerZeroError
-from bot.services.ccip_api import ChainlinkCCIPAPI, CCIPQuote, CCIPError
-from bot.services.cctp_api import CircleCCTPAPI, CCTPQuote, CCTPError
+from bot.services.lifi_api import LiFiAPI
+from bot.services.jupiter_api import JupiterAPI
+from bot.services.layerzero_api import LayerZeroAPI
+from bot.services.ccip_api import ChainlinkCCIPAPI
+from bot.services.cctp_api import CircleCCTPAPI
 from bot.services.bridge.usdt0_api import usdt0_api
-from bot.services.across_api import AcrossAPI, AcrossQuote, AcrossError
-from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
-from bot.services.cow_api import CoWProtocolAPI, cow_api, CoWError
-from bot.services.socket_api import SocketAPI, socket_api, SocketError
-from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
-from bot.services.sunswap_api import SunSwapAPI, SunSwapQuote, SunSwapError
-from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
+from bot.services.across_api import AcrossAPI
+from bot.services.wormhole_api import WormholeAPI
+from bot.services.cow_api import cow_api
+from bot.services.socket_api import socket_api, SocketError
+from bot.services.jito_api import jito_api, TipPriority
+from bot.services.sunswap_api import SunSwapAPI
+from bot.services.tempo_dex_api import tempo_dex_api
 from bot.services.tempo_fee_sponsor import tempo_fee_sponsor
-from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
+from bot.services.okx_dex_api import OKXDEXAPI, OKX_CHAIN_IDS
 from bot.services.oneinch_api import (
     OneInchAPI,
-    OneInchQuote,
-    OneInchError,
     ONEINCH_CHAIN_IDS,
     ONEINCH_NATIVE_TOKEN,
 )
-from bot.services.zerox_api import ZeroXAPI, ZeroXQuote, ZEROX_CHAIN_IDS, ZEROX_NATIVE_TOKEN
+from bot.services.zerox_api import ZeroXAPI, ZEROX_CHAIN_IDS, ZEROX_NATIVE_TOKEN
 from bot.services.kyberswap_api import (
     KyberSwapAPI,
-    KyberSwapQuote,
     KYBERSWAP_CHAIN_SLUGS,
     KYBERSWAP_NATIVE_TOKEN,
 )
 from bot.utils.http_client import get_session as get_http_session
-from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
 from bot.services.x402_service import x402_service
 from bot.services.wallet import WalletService
@@ -694,8 +690,8 @@ class SwapEngine:
                 zerox_state,
                 kyber_state,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to log aggregator readiness state: {e}")
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -956,11 +952,11 @@ class SwapEngine:
         try:
             url = rpc_manager.get_rpc_url("solana")
             payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    data = await resp.json()
+            session = await get_http_session()
+            async with session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
             return int(data["result"]["value"]["decimals"])
         except Exception as e:
             logger.debug(f"solana mint decimals read failed for {mint}: {e}")
@@ -1354,8 +1350,13 @@ class SwapEngine:
                     from bot.services.x402_service import x402_service
 
                     tier = await x402_service.get_tier(user_id)
-                except Exception:
-                    tier = None  # tier lookup failure → flat default, never block the quote
+                except Exception as e:
+                    # tier lookup failure → flat default, never block the quote
+                    logger.warning(
+                        f"x402 tier lookup failed for user_id={user_id}; "
+                        f"falling back to flat default fee: {e}"
+                    )
+                    tier = None
             platform_fee_bps = fee_service.get_fee_bps(tier)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different

@@ -537,7 +537,7 @@ class OrderService:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Order service task cancelled during stop()")
         logger.info("Order service stopped")
 
     async def _order_loop(self):

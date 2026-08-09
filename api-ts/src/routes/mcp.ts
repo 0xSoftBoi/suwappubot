@@ -14,7 +14,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
-import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
+import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
@@ -95,10 +95,26 @@ function negotiateProtocolVersion(requested: unknown): string {
 	return LATEST_LEGACY_MCP_VERSION
 }
 
+// MPP (Machine Payments Protocol, i.e. api.mpp.dev / directory.mpp.dev — the
+// browse_mpp_directory tool's upstream, NOT the unrelated Suwappu Micropayments
+// 402 flow in middleware/mppAuth.ts which coincidentally reuses the same
+// MPP_ENABLED env var name) is gated OFF by default. As of 2026-07-26 those
+// hosts do not resolve (NXDOMAIN), so browse_mpp_directory always fails.
+// Advertising a tool that can only error is worse than not advertising it, so
+// it is hidden from tools/list and rejected in tools/call unless
+// MPP_ENABLED=true.
+const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
+const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
+
+const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
+
+const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
+	? ALL_TOOLS_WITH_ANNOTATIONS
+	: ALL_TOOLS_WITH_ANNOTATIONS.filter((t) => t.name !== 'browse_mpp_directory')
 
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.
-const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+const TOOL_NAMES = new Set<string>([...ADVERTISED_TOOLS.map((t) => t.name), 'predict_market_detail'])
 
 
 /**
@@ -463,7 +479,7 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
 
 	try {
-		const url = new URL('https://directory.mpp.dev/v1/services')
+		const url = new URL(`${MPP_DIRECTORY_URL}/services`)
 		if (category) url.searchParams.set('category', category)
 		url.searchParams.set('limit', String(limit))
 
