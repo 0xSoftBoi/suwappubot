@@ -124,6 +124,13 @@ branch + applied diff.)
 - **Review gate results:** #817 fix round 1 verified but tick-fix introduced a new CRITICAL (sub-tick price → 0.00 giveaway order; size-from-raw-price overpay) — round-2 fixer dispatched. #823 BLOCK (rug sell no-ops on Postgres String(20) mint truncation; flash-loan-defeatable floor; inert idempotency lock) — fixer dispatched. #820 fixes pushed (1835 tests pass) — re-review in flight.
 - **Stragglers:** #813 conflicts resolved + pushed; #797 CI retriggered (app-authored pushes don't fire Actions — root cause); #818 fixed (bun.lock never synced with new dep). Closer agent polling to merge all three.
 
+### Round 5 (same day)
+
+- **Merged:** #813 (custody-boundary SDK work), #818 (docs dark-theme re-land), #797 (Gecko mobile v0, un-drafted after utcnow fix + workflow-file CI quirk: Actions refuses app-authored heads on workflow-modifying PRs). Total: **18 merged**. Phase 3 fully dispositioned.
+- **Opened:** #824 PointsService concurrency fixes [MONEY-PATH].
+- **Review-fix loop continues:** #817 round-2 fixes verified, final APPROVE with 2 medium follow-ups; CodeQL high (clear-text exception logging in key-handling scope) fixed on the branch. #820 round-2 pre-enforce fixes pushed (Starknet/BTC screenable, degraded-list fail-closed) — final review in flight. #823 fixes pushed (String(64) migration, startup capability gate, pool-age arming, durable redemption idempotency) — re-review in flight. #760 round-2 fixes pushed (provider-scoped CONFIRMING, 2h wall-clock give-up, read-only manual refresh) — final review in flight. #824 BLOCKED on a would-be prod-deploy-killer (unguarded duplicate constraint in migration 0018) — fixer dispatched.
+- **#821/#822 RED** on quality gates — log-driven fixer dispatched.
+
 **Verification per CLAUDE.md:** every merge goes through CI green; after
 any deploy-affecting merge run `python3 scripts/status.py` and the
 import-error log scan (CI green ≠ bot boots). MONEY-PATH diffs never
