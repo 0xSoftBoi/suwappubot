@@ -230,3 +230,44 @@ During the investigation a read-only Li.Fi quote for Base USDC → Robinhood
 VANTIS returned successfully through `relaydepository` with an estimated
 execution duration of roughly three seconds. No transaction was signed or sent;
 that result verifies route availability only, not a live end-to-end swap.
+
+### Launch-day routing hardening — 0x Cross-Chain
+
+The Li.Fi proof above was for an already-indexed token, so it did not by itself
+prove the launch-day case that motivated this work. A second pass checked the
+current venue infrastructure against first-party sources:
+
+- 0x explicitly states that **Pons v2 tokens are immediately tradable through
+  0x Swap API**, including launched and graduated tokens, and 0x's current
+  Cross-Chain support table lists Robinhood Chain (4663) as both an origin and
+  destination through Relay and Across.
+- Uniswap's 2026-08-05 Pools announcement says every Pools token starts in a
+  standard Uniswap v4 pool and is available across its API/integrator surface
+  when live. Uniswap's Trading API separately lists chain 4663 and says newly
+  created tokens are detected for swapping within minutes when liquidity exists.
+
+To avoid making Li.Fi indexing the only bridge+swap path, Robinhood funding now
+races a second provider when `ZEROX_API_KEY` is configured: **0x Cross-Chain**.
+The integration is intentionally scoped to `EVM source -> Robinhood destination`
+so unrelated bridge routing is unchanged. It asks 0x for one price-sorted route,
+which may contain an origin swap + Relay/Across bridge + destination swap, while
+keeping the same no-manual-bridge UI.
+
+The 0x path keeps the same money-path invariants as the Li.Fi path:
+
+- origin and destination are both bound to the selected wallet; execution
+  re-quotes with that signer instead of trusting recipient calldata from the
+  earlier display quote;
+- the user's exact tier/points-adjusted platform fee bps is passed as 0x
+  `feeBps`/`feeRecipient` when fee collection is enabled;
+- a fresh execution quote whose minimum output is below the user-approved
+  minimum is rejected **before** token approval or swap signing;
+- ERC-20 approval uses 0x's returned `issues.allowance.spender`, never the
+  transaction target; and
+- transaction polling only marks the swap complete at 0x `bridge_filled`, then
+  records the destination-chain transaction hash. Source-chain inclusion alone
+  is not treated as completion.
+
+The new 0x behavior is covered by mocked money-path regressions because this
+workspace does not contain a 0x API key. No live 0x cross-chain transaction was
+signed or sent during this verification.
