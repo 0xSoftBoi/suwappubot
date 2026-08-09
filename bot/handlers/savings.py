@@ -602,7 +602,7 @@ def _voyager_tx(tx_hash: str) -> str:
 
 async def save_btc_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Bitcoin venue list: wallet BTC balances + per-venue positions."""
-    from bot.services.starknet_yield import VENUES, StarknetYieldError, starknet_yield_service
+    from bot.services.starknet_yield import VENUES, starknet_yield_service
 
     query = update.callback_query
     await query.answer()
