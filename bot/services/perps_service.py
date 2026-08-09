@@ -465,6 +465,17 @@ class PerpsService:
         if not result:
             raise Exception("Failed to close position on HyperLiquid")
 
+        # Cancel any resting TP/SL for a FULL close. HL's normalTpsl grouping
+        # cancels bracket siblings when a leg fills, but this close is its own
+        # separate reduce-only order, so the brackets would otherwise survive
+        # the position and sit on the book as naked reduce-only triggers.
+        # Best-effort: a failed cancel must never make a completed close look
+        # like a failure (position sync will reconcile it).
+        if percent >= 100:
+            for order_type in ("take_profit", "stop_loss"):
+                resting = self._live_trigger_orders(user_id, position_id, order_type)
+                await self._cancel_trigger_orders(user_id, market, resting)
+
         close_price = result.fill_price or await self._client.get_mark_price(market) or 0
 
         # Calculate PnL
