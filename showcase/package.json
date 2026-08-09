@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
+    "@phosphor-icons/react": "^2.1.10",
     "dompurify": "^3.4.11",
     "framer-motion": "^12.42.2",
     "next": "^15.5.21",
