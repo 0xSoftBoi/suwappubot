@@ -748,8 +748,13 @@ def add_handlers(application: Application) -> None:
     application.add_handler(skip_copy_callback_handler)
 
     # Tempo MPP (Machine Payments Protocol) — /mpp
-    for mpp_handler in get_mpp_handlers():
-        application.add_handler(mpp_handler)
+    # Gated OFF by default: the MPP hosts (api.mpp.dev / directory.mpp.dev) do
+    # not resolve, so registering this would ship a command that always fails.
+    if settings.mpp_enabled:
+        for mpp_handler in get_mpp_handlers():
+            application.add_handler(mpp_handler)
+    else:
+        logger.info("MPP surface disabled (mpp_enabled=false) — /mpp not registered")
 
     # Tempo session keys (access keys) — /tempo
     for tempo_handler in get_tempo_handlers():

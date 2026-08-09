@@ -273,6 +273,24 @@ class Settings(BaseSettings):
             "sponsored swaps as fee payer (pays gas in pathUSD)."
         ),
     )
+    mpp_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the MPP (Machine Payments Protocol) surface — the /mpp "
+            "command and the browse_mpp_directory MCP tool. Default OFF: as of "
+            "2026-07-26 api.mpp.dev and directory.mpp.dev do not resolve "
+            "(NXDOMAIN), so every MPP call fails. Only turn this on once the "
+            "hosts in mpp_api_base / mpp_directory_url are confirmed live."
+        ),
+    )
+    mpp_api_base: str = Field(
+        default="https://api.mpp.dev/v1",
+        description="MPP API base URL. Override if the protocol ships on a different host.",
+    )
+    mpp_directory_url: str = Field(
+        default="https://directory.mpp.dev/v1",
+        description="MPP service-directory base URL.",
+    )
     goat_rpc_url: Optional[str] = Field(
         default="https://rpc.goat.network",
         description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
@@ -1073,18 +1091,16 @@ class Settings(BaseSettings):
             "approve() for Turnkey wallets or on any permit error."
         ),
     )
-    tempo_fee_sponsorship_enabled: bool = Field(
-        default=False,
-        description=(
-            "When true, the bot sponsors gas (paid in TIP-20 stablecoins) for a new "
-            "user's first few Tempo transactions. Requires tempo_sponsor_address to be "
-            "set. Default off so the bot never spends funds unexpectedly."
-        ),
-    )
-    tempo_sponsor_address: Optional[str] = Field(
-        default=None,
-        description="EVM address that pays sponsored Tempo gas (Tempo T2 feePayer).",
-    )
+    # NOTE: there is deliberately NO `tempo_fee_sponsorship_enabled` /
+    # `tempo_sponsor_address` here. Those two fields existed but had ZERO
+    # consumers, while the real gate is `tempo_fee_sponsor_enabled` (above) and
+    # the fee payer is resolved from a HotWallet DB row named by
+    # `tempo_fee_sponsor_wallet_name` (see bot/services/tempo_keychain.py), NOT
+    # from an env address. Keeping near-identical dead twins on a gasless money
+    # path meant setting the wrong one looked like activation but changed
+    # nothing. Removed 2026-07-26 — `extra="ignore"` makes any stale env var inert.
+    # To actually enable sponsorship: create + fund the HotWallet row, then set
+    # TEMPO_FEE_SPONSOR_ENABLED=true.
     tempo_sponsor_max_txs: int = Field(
         default=3, description="Max sponsored Tempo transactions per user."
     )
