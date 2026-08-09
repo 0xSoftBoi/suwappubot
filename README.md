@@ -14,8 +14,8 @@
 [![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-[![Chains](https://img.shields.io/badge/Chains-14-green)]()
-[![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
+[![Chains](https://img.shields.io/badge/Chains-45-green)](showcase/src/data/stats.generated.json)
+[![Providers](https://img.shields.io/badge/Swap_Providers-19-orange)](showcase/src/data/stats.generated.json)
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
@@ -24,7 +24,7 @@
 
 <p align="center">
   <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
-  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+  Swap tokens across 45 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
 </p>
 
 <p align="center">
@@ -82,12 +82,12 @@
 
 ## Overview
 
-**14 chains. 15+ swap providers. 3 agent protocols. 5 frontends.**
+**45 chains. 19 swap providers. 3 agent protocols. 5 frontends.**
 
 | | |
 |---|---|
-| **Chains** | 12 EVM (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll) + Solana + TRON |
-| **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero, Chainlink CCIP, OKX DEX, 1inch, KyberSwap, 0x, SunSwap + more |
+| **Chains** | 45 mainnet chains — EVM + Solana + TRON + Starknet (canonical list: `bot/config/chains.py`; 18 served on the agent API) |
+| **Swap Providers** | 19 routing providers — 0x, 1inch, Across, AVNU, CCIP, CCTP, CoW, GoatSwap, JuiceSwap, Jupiter, KyberSwap, LayerZero, Li.Fi, OKX, Socket, SunSwap, Tempo DEX, usdt0, Wormhole (chain-gated per route; source of truth: `showcase/src/data/stats.generated.json`) |
 | **Agent Protocols** | REST API (50+ endpoints) · MCP (22 tools) · A2A (JSON-RPC) |
 | **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Browser Extension |
 | **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
@@ -112,8 +112,8 @@ flowchart LR
         API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
-    subgraph Providers["15+ Swap Providers"]
-        EVM["12 EVM Chains"]
+    subgraph Providers["19 Swap Providers"]
+        EVM["EVM Chains"]
         SOL["Solana"]
         TRON["TRON"]
     end
@@ -130,7 +130,7 @@ flowchart LR
 ## Features
 
 ### Trading
-- **Cross-chain swaps** — 15+ providers raced in parallel per route, best-price selection, slippage protection
+- **Cross-chain swaps** — 19 providers, chain-gated per route and raced in parallel, best-price selection, slippage protection
 - **MEV protection** — CoW Protocol batch auctions (EVM) + Jito bundles (Solana)
 - **Limit orders** — Buy/sell triggers, stop-loss, trailing stop with expiry
 - **DCA orders** — Dollar-cost averaging on daily/weekly/monthly intervals
@@ -258,6 +258,8 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 ---
 
 ## Supported Chains
+
+The table below highlights the original launch chains. The canonical list of all **45 mainnet chains** lives in `bot/config/chains.py`, drift-checked into `showcase/src/data/stats.generated.json` (18 of them are served on the agent API).
 
 | Chain | ID | Native | Type | Swap Providers |
 |-------|-----|--------|------|---------------|
