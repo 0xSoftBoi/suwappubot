@@ -44,7 +44,7 @@ const buckets = [
 
 export default function SecurityPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell sw-dark">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">

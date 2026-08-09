@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function RiskDisclosurePage() {
   return (
-    <main id="main-content" className="summer-page docs-shell sw-dark">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <Navigation />
       <div className="summer-shell mkt-page">
         <nav className="doc-breadcrumb">
