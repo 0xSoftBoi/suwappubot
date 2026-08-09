@@ -1782,6 +1782,7 @@ async def terminal_predict_order(request: Request, body: PredictOrderBody):
             side=body.side,
             amount=body.amount,
             price=body.price,
+            order_id=order_id,
         )
     except Exception as e:
         logger.error("terminal predict place_order failed: %s", e)
