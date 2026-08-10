@@ -37,7 +37,7 @@ fork the convention.
   change.
 - **Effect-TS discipline** (api-ts): don't mix raw Promises into Effect pipelines — wrap
   with `Effect.tryPromise()`. Services follow `Context.Tag` + `Layer` + `ManagedRuntime`.
-- **Shared types** (`packages/shared/`) affect api-ts, webapp, and mobile at once —
+- **Shared types** (`packages/sdk/src/types.ts` (`@suwappu/sdk`)) affect api-ts, webapp, and mobile at once —
   check all three consumers.
 - New env vars must be added to the settings schema (`bot/config/settings.py` or
   `api-ts/src/config/EnvService.ts`), then regenerate the contract:

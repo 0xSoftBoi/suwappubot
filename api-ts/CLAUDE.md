@@ -12,10 +12,10 @@ Scope: Hono routes (`src/routes/`), Effect-TS services, Drizzle ORM
 - **CI checks OpenAPI and MCP schema drift** — if you change a route or MCP
   tool, regenerate the specs or CI fails.
 - **Drizzle schema changes** must mirror the Python runtime migration in
-  `database/db.py:_ensure_schema()` (shared DB, ADR 0003). Use `/migrations`.
-- **Shared types** live in `packages/shared/` — changes ripple to webapp,
+  `database/db.py:_ensure_schema()` (shared DB, ADR 0003). Follow `docs/development/migrations.md`.
+- **Shared types** live in `packages/sdk/src/types.ts` (`@suwappu/sdk`) — changes ripple to webapp,
   mobile, and SDKs; check all three consumers.
-- New endpoints: use the `/new-route` skill. Agent-facing changes should keep
+- New endpoints: copy an existing route file as the template. Agent-facing changes should keep
   the agent card (`/.well-known/agent-card.json`) and registry listings
   consistent — `bash scripts/verify.sh agent`.
 - This service is what `api.suwappu.bot` serves in prod.

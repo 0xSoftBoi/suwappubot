@@ -24,10 +24,11 @@ kept authoritative for those details — this file is the tool-agnostic summary.
 
 ## Repo skills (reuse before building)
 
-Scaffolding and workflows exist as skills — use them instead of hand-rolling:
-`/new-handler` (Telegram command), `/new-route` (api-ts endpoint), `/new-page` (webapp),
-`/new-test`, `/migrations` (dual-ORM schema change), `/ship` (branch→PR→CI→merge→boot
-verify), `/deploy`, `/status`, `/audit`, `/bugclass`, `/worktree-check`.
+Workflows exist as skills (`.claude/commands/`) — use them instead of hand-rolling:
+`/ship` (branch→PR→CI→merge→boot verify), `/deploy`, `/status`, `/audit`,
+`/audit-fleet`, `/bugclass`, `/worktree-check`. For scaffolding (new handler,
+route, page) copy an existing sibling as the template; dual-ORM schema changes
+follow `docs/development/migrations.md`.
 
 ## Where things live
 

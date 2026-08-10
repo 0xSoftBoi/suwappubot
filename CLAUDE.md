@@ -98,13 +98,13 @@ cd mobile && bun install && bun run ios
 - `USE_WEBHOOK=false` (default): Bot polls Telegram. **Single instance only** — multiple replicas = duplicate messages.
 - `USE_WEBHOOK=true`: Telegram pushes updates. Safe for multiple replicas.
 
-**No Alembic**: Runtime migrations in `database/db.py` via `_ensure_schema()`. All migrations are additive + idempotent. See `docs/development/migrations.md` or use `/migrations` skill.
+**No Alembic**: Runtime migrations in `database/db.py` via `_ensure_schema()`. All migrations are additive + idempotent. See `docs/development/migrations.md`.
 
 **Wallet Encryption**: Default `kms_aesgcm_v2` (envelope encryption with KMS). Legacy `legacy_fernet_v1` auto-migrates to v2.
 
 **Settings**: Python in `bot/config/settings.py` (pydantic-settings), TypeScript in `api-ts/src/config/EnvService.ts` (Effect Layer).
 
-**Shared Types**: `packages/shared/` contains TypeScript types used by api-ts, webapp, and mobile. Changes affect all three.
+**Shared Types**: `packages/sdk/src/types.ts` (`@suwappu/sdk`) holds the TypeScript types shared by api-ts, webapp, and mobile. Changes affect all three.
 
 **Background Services**: Started in `api/main.py` lifespan — `fee_sweeper`, `alert_service`, `order_service`, `tx_poller`, `health_monitor`, `launch_detector`. These are async tasks, not separate processes.
 
@@ -122,7 +122,7 @@ cd mobile && bun install && bun run ios
 | `bot/config/` | Settings, token configs, chain configs |
 | `bot/utils/` | Encryption, rate limiting, formatters, caching |
 | `database/` | DB init, runtime schema migrations (`_ensure_schema()`) |
-| `packages/shared/` | Shared TypeScript types across api-ts, webapp, mobile |
+| `packages/sdk/` | Client SDK + shared TypeScript types (`packages/sdk/src/types.ts`) across api-ts, webapp, mobile |
 | `webapp/` | React + Vite Telegram Mini App |
 | `mobile/` | Expo iOS app |
 | `infra/` | AWS CDK infrastructure definitions |
@@ -189,7 +189,7 @@ bash scripts/verify.sh agent  # Run only agent card/registry checks
 2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
 3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
 4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. (Escape hatch: `/model opus` for a genuinely hard-architecture session.)
-5. **Reuse before building:** use the repo skills (`/migrations`, `/new-handler`, `/new-route`, `/new-test`, `/ship`) and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
+5. **Reuse before building:** use the repo skills (`/ship`, `/deploy`, `/status`, `/audit`, `/bugclass`; see `.claude/commands/`) and `docs/development/migrations.md` for schema changes and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
 6. **Pre-merge formatting:** CI runs `black --check --line-length=100 bot/ api/ tests/`. Run black on changed Python before pushing or CI fails on style.
 
 ## Conductor protocol (how the main loop works)
@@ -235,12 +235,6 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - `/audit-fleet` — Parallel audit: one `security-auditor` per attack surface, findings streamed to `.audit/findings/*.jsonl`, then deduped/ranked/filed
 - `/bugclass` — Treat one confirmed bug as a class: reproduce → fix → sweep both stacks → one commit per instance
 - `/worktree-check` — Audit all worktrees for uncommitted/unpushed/stashed work at risk **before** any reset or cleanup
-- `/worktree` — Manage git worktrees for parallel development
-- `/migrations` — Database migration tutorial
-- `/new-handler` — Add a new Telegram bot command handler
-- `/new-route` — Add a new TypeScript API endpoint
-- `/new-page` — Add a new webapp page/feature
-- `/new-test` — Write tests for a feature
 
 ## Security Audits
 

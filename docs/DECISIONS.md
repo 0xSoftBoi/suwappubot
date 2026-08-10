@@ -48,7 +48,7 @@ ADRs 0001–0005.
   between the Python and TS stacks, so both schemas must stay in sync.
 - **Consequence**: A destructive or non-idempotent migration breaks every boot,
   not just one deploy. Dual-ORM changes must touch both stacks (`db-migrate`
-  agent / `/migrations` skill).
+  agent, `docs/development/migrations.md`).
 
 ## Security & Wallets
 
@@ -59,6 +59,16 @@ ADRs 0001–0005.
   adversarial review before merge.
 
 ## Engineering practice
+
+### Shared TS types live in `packages/sdk`, not `packages/shared` (2026-08)
+- **What**: the old `packages/shared` directory was removed; the shared-type home for api-ts,
+  webapp, and mobile is `packages/sdk/src/types.ts` (`@suwappu/sdk`). Several
+  docs (incl. CLAUDE.md) cited the dead path for months, and skills
+  `/migrations`, `/new-handler`, `/new-route`, `/new-page`, `/new-test` were
+  deleted while docs kept recommending them.
+- **Consequence**: this is exactly the drift class `scripts/check_docs_drift.py`
+  (the `docs` lane of `verify.sh`) now catches — when renaming or deleting a
+  path or skill, sweep the canonical docs in the same PR.
 
 ### `tsc` hangs in this repo — use `bun`
 - **What**: Full-project `tsc` times out. Use `bun run check` (incremental) and

@@ -16,7 +16,7 @@ Run **two stacks over one PostgreSQL database**:
 - **Python monolith** (`api/` + `bot/`): Telegram/WhatsApp UX, swap execution,
   wallets, and all background services — the money-moving core.
 - **api-ts** (`api-ts/`, Hono + Effect-TS + Drizzle): agent surface (A2A, MCP,
-  `/v1/agent/*`), webapp/mobile API, with `packages/shared/` types consumed by
+  `/v1/agent/*`), webapp/mobile API, with `packages/sdk/src/types.ts` (`@suwappu/sdk`) types consumed by
   webapp, mobile, and SDKs.
 
 Rather than a rewrite or internal RPC between them, both read/write the shared
@@ -32,4 +32,4 @@ DB directly (schema discipline per ADR 0003).
   (`/bugclass` skill).
 - Effect-TS idioms apply in api-ts only: wrap Promises with
   `Effect.tryPromise()`, never mix raw Promises into pipelines.
-- `packages/shared/` changes ripple to api-ts, webapp, and mobile at once.
+- `packages/sdk/src/types.ts` (`@suwappu/sdk`) changes ripple to api-ts, webapp, and mobile at once.

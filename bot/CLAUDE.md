@@ -10,12 +10,12 @@ runtime migrations (`database/db.py`).
   and check the import chain from `bot/main.py`.
 - **Format with `black --line-length=100`** before pushing; CI fails on style.
 - **New commands** register in `bot/main.py:add_handlers()` — a handler file
-  alone is a dead button. Use the `/new-handler` skill.
+  alone is a dead button. Copy an existing handler as the template.
 - **Background services** start in `api/main.py`'s lifespan; a service module
   that isn't started there never runs. See `docs/architecture/OVERVIEW.md`.
 - **Schema changes** go in `database/db.py:_ensure_schema()` — additive +
   idempotent only — AND the Drizzle schema in `api-ts/src/db/schema/`
-  (ADR 0003). Use `/migrations`.
+  (ADR 0003). Follow `docs/development/migrations.md`.
 - **MONEY-PATH**: `swap_engine`, `wallet`, `hot_wallet`, encryption/KMS, fee
   math, withdrawals, seasons/points. Tag diffs `MONEY-PATH`; link an ADR.
 - Settings live in `bot/config/settings.py` (pydantic-settings); only

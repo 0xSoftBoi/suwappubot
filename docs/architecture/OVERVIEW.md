@@ -17,7 +17,7 @@ the auth boundary (no email/password, by design), the `capabilities.yaml` and
 | Python monolith | `api/main.py` (FastAPI + lifespan) | Telegram bot (polling or webhook), WhatsApp webhook, auth, legacy API, all background services |
 | api-ts | `api-ts/src/index.ts` (Bun + Hono) | Agent API (`/v1/agent/*`), webapp routes (`/webapp/*`), A2A JSON-RPC, MCP endpoint, swap routes |
 | webapp | `webapp/` (React + Vite) | Telegram Mini App; calls api-ts |
-| mobile | `mobile/` (Expo iOS) | iOS client; uses api-ts + `packages/shared` types |
+| mobile | `mobile/` (Expo iOS) | iOS client; uses api-ts + `@suwappu/sdk` (`packages/sdk/src/types.ts`) types |
 | showcase | `showcase/` (Next.js) | Public homepage/marketing |
 | terminal | `terminal/` (Docker) | Standalone swap UI, proxied via api-ts |
 
@@ -68,8 +68,8 @@ stacks:
   payments, perps, seasons, dcaOrders, …); `bun run db:push` applies changes.
 
 Any schema change must land on **both** sides — CI has a Postgres contract job
-that checks Python-migration ↔ Drizzle idempotency. Use the `/migrations`
-skill or `db-migrate` agent.
+that checks Python-migration ↔ Drizzle idempotency. Follow
+`docs/development/migrations.md` (or use the `db-migrate` agent).
 
 ## Chains & swap providers
 
