@@ -25,6 +25,7 @@ taxonomy, auth/config contracts) → [`CONVENTIONS.md`](../CONVENTIONS.md)
 - [deployment/monitoring.md](deployment/monitoring.md) — the five observability layers and what each is blind to
 - [deployment/self-healing-loop.md](deployment/self-healing-loop.md) — bounded auto-recovery for failed deploys
 - [deployment/bridge-rails-runbook.md](deployment/bridge-rails-runbook.md) — enabling/verifying cross-chain rails (CCTP, LayerZero, USDT0)
+- [development/migrations.md](development/migrations.md) — dual-ORM schema changes: the rules, the steps, the multi-phase rename dance
 - [SECRET_ROTATION_RUNBOOK.md](SECRET_ROTATION_RUNBOOK.md) — secret rotation + git-history purge procedure
 - [KMS_AWS_MIGRATION.md](KMS_AWS_MIGRATION.md) — local KEK → AWS KMS migration for key wrapping
 
