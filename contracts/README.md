@@ -139,3 +139,42 @@ SUWP_CONTRACT_ADDRESS=0x...       # After deployment
 STAKING_CONTRACT_ADDRESS=0x...    # After deployment
 PROTOCOL_WALLET_PRIVATE_KEY=...   # Signs distribution txs (use KMS in prod)
 ```
+
+## Core Primitives (`primitives/`)
+
+Immutable, oracle-free, governance-free "deploy-once-run-forever" building blocks
+in the spirit of Uniswap v1 / Ajna. No owner, no pause, no upgrade path.
+
+### `SuwappuTimeCurve.sol` — Time-Locked Continuous Bonding Curve
+The contract is itself the curve token (mint on buy, burn on sell) against one
+ERC-20 reserve. Price is a pure function of time and supply:
+`p(s,t) = e^(rate·t) · (basePrice + slope·s)`. Continuous two-way liquidity, no
+auctions, no feeds. Optional immutable `sinkRate` burns a fraction of every sell
+without refund, permanently shrinking supply and building a reserve surplus.
+Decay/flat schedules are provably solvent; growth schedules are protected by a
+hard `refund ≤ reserve` guard and should pair with a non-zero sink.
+
+### `SuwappuAmortizingVault.sol` — Self-Repaying Collateralized Position
+Deposit ERC-4626 shares as collateral, borrow the vault's *underlying* asset
+from a pooled lender side. Debt and collateral share the same denomination, so
+LTV needs **no oracle** (`convertToAssets`). Permissionless `amortize()` redeems
+exactly the yield the collateral earned and applies it to the position's debt;
+at zero debt the collateral unlocks. Liquidation only if undercollateralized
+before self-repayment finishes, always after amortizing first.
+
+### `SuwappuMutualCredit.sol` — Mutual Credit Clearing Network
+Bilateral credit lines (propose → accept, terms fixed at opening) in any ERC-20
+unit of account. `pay()` moves value as credit within the limit each party
+extended; `netCycle()` lets anyone submit a debt cycle A→B→…→A and net every leg
+by the cycle minimum; `settle()` clears residuals with real tokens. Creditors can
+`demandSettlement()`, and after the line's grace period `markDefault()` freezes
+the line and records the default on-chain for reputation layers to build on.
+
+### Tests
+`test/PrimitivesTest.t.sol` — 24 tests: solvency after decay/growth, sink
+accounting, fuzzed round-trip non-profitability, LTV/liquidation paths,
+self-repayment to unlock, lender interest, cycle netting, defaults.
+
+```bash
+forge test --match-path "test/PrimitivesTest.t.sol"
+```
