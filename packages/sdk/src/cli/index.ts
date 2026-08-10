@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 import { Command } from "commander";
+import { registerAi } from "./commands/ai.js";
 import { registerAuth } from "./commands/auth.js";
 import { registerBilling } from "./commands/billing.js";
 import { registerChains } from "./commands/chains.js";
@@ -40,6 +41,7 @@ registerPortfolio(program);
 registerQuote(program);
 registerSwap(program);
 registerSwapStatus(program);
+registerAi(program);
 
 program.parseAsync(process.argv).catch((err) => {
   const opts = program.opts<{ output?: string }>();

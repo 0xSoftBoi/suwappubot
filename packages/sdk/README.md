@@ -283,6 +283,36 @@ suwappu billing                                   # credits, tier, metering stat
 suwappu chains -o json
 ```
 
+### AI assistant
+
+`suwappu ai` asks an LLM with Suwappu CLI context baked into its system
+prompt (what the CLI does, and which commands exist). Pick one of three
+backends and configure it once:
+
+```bash
+# 1. Router (OpenAI-compatible, e.g. OpenRouter) — driven by an API key you provide
+suwappu ai setup --backend router --api-key sk-or-v1-... \
+  [--base-url https://openrouter.ai/api/v1] [--model anthropic/claude-sonnet-5]
+
+# 2. Claude — driven by your local Claude Code CLI / Claude subscription login
+suwappu ai setup --backend claude
+
+# 3. ChatGPT — driven by your local Codex CLI / ChatGPT subscription login
+suwappu ai setup --backend chatgpt
+
+suwappu ai "what's the cheapest route from USDC on base to ETH on arbitrum?"
+suwappu ai journal    # local usage digest: totals, per-backend counts, failure rate, last 5 runs
+suwappu ai lessons    # print ~/.suwappu/harness/lessons.md, or --init to seed one
+```
+
+The router backend's key is saved to `~/.config/suwappu/config.json` (0600
+perms, same file `suwappu auth` uses) and is never echoed back — `ai setup`
+only prints a masked form (`sk-...last4`). The `claude`/`chatgpt` backends
+store no secret at all; they shell out to a CLI already on your `PATH` that
+handles its own subscription auth. Every `ai` run — success or failure —
+appends one line to `~/.suwappu/harness/journal.jsonl` (backend, timing,
+ok/fail, first 120 chars of the prompt only).
+
 ### Structured errors
 
 With `-o json`, a failed command prints one JSON object on stdout and exits
