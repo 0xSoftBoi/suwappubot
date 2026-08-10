@@ -1,1 +1,0 @@
-{"ts": "2026-08-10T20:16:08Z", "session": "984aceab-841", "turns": 2, "tool_calls": 2, "tool_errors": 2, "denials": 2, "top_errors": ["Error: permission denied running npx"], "prompt": "fix the swap fee rounding bug"}
