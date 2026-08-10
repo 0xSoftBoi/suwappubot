@@ -213,6 +213,14 @@ class TransactionPoller:
                 tx.status = new_status
                 if new_status == SwapStatus.COMPLETED.value:
                     tx.completed_at = datetime.now(timezone.utc)
+                    # Only write realized amounts when the provider actually
+                    # reported one. Absent stays NULL, which downstream reads
+                    # as "not observed" — writing 0 here would look like the
+                    # user received nothing and would poison fill-vs-quote.
+                    realized = tx_dict.get("_realized_to_amount")
+                    if realized is not None:
+                        tx.realized_to_amount = str(realized)[:78]
+                        tx.realized_to_amount_usd = tx_dict.get("_realized_to_amount_usd")
                 if dest_tx_hash:
                     tx.destination_tx_hash = dest_tx_hash
                 if (
@@ -334,6 +342,19 @@ class TransactionPoller:
             )
 
             if status.status == "DONE":
+                # Realized output — the amount that actually settled on the
+                # destination chain, as reported once Li.Fi sees the receive
+                # leg. Stashed on tx_dict rather than widened into the return
+                # tuple because that (status, dest_hash) contract is shared by
+                # every provider path; only Li.Fi reports a settled amount.
+                # _apply_status_update persists it under the same lock that
+                # writes the terminal status.
+                realized_amount = getattr(status, "receiving_amount", None)
+                if realized_amount is not None:
+                    tx_dict["_realized_to_amount"] = realized_amount
+                    tx_dict["_realized_to_amount_usd"] = getattr(
+                        status, "receiving_amount_usd", None
+                    )
                 return SwapStatus.COMPLETED.value, status.receiving_tx_hash or None
 
             if status.status == "FAILED":

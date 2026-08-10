@@ -26,13 +26,18 @@ botched their fill when what they are looking at is mostly the spread and the
 fee they already agreed to. This module therefore surfaces it as
 ``quoted_cost_bps`` and says what it is.
 
-Measuring true quote-vs-fill accuracy requires recording the realized output
-amount from the on-chain receipt, per chain. That does not exist yet. Until it
-does, this receipt must not claim to grade our own execution, and no payout may
-be triggered off this number.
+Fill accuracy IS now measurable — but only where a provider reports a settled
+amount. ``swap_transactions.realized_to_amount`` is populated from the Li.Fi
+status receive leg; every other path still leaves it NULL. So
+``fill_vs_quote_bps`` appears on some receipts and not others, and its absence
+means "not observed", never "no shortfall". Coverage has to widen before any
+payout can key off it.
 
 WHAT IS HONEST HERE:
 
+  * ``fill_vs_quote_bps`` — the real one. Realized output vs quoted output, in
+    smallest token units so no price move can contaminate it. Present only
+    where a settled amount was observed.
   * ``quoted_cost_bps`` — the cost of crossing this trade, as quoted. Real,
     just not a measure of fill accuracy.
   * ``markout_bps`` — genuinely post-trade. The scorer compares live observed
@@ -82,6 +87,29 @@ _COUNTERFACTUAL_CAVEAT = (
 )
 
 
+def _fill_vs_quote_bps(quoted: Optional[str], realized: Optional[str]) -> Optional[float]:
+    """True fill accuracy in bps, or None when it was not observed.
+
+    Compares SMALLEST-UNIT TOKEN AMOUNTS, not USD. Both figures are the same
+    token, so the ratio is immune to any price move between quote and
+    settlement — a USD comparison would silently fold market drift into a
+    number we present as our own execution quality.
+
+    Returns None on absent or unparseable input. A swap where nothing settled
+    must read as "not observed", never as a 100% shortfall.
+    """
+    if not quoted or not realized:
+        return None
+    try:
+        q = int(quoted)
+        r = int(realized)
+    except (TypeError, ValueError):
+        return None
+    if q <= 0:
+        return None
+    return ((r - q) / q) * 10_000
+
+
 class ExecutionReceipt:
     """Builds the per-fill receipt from already-recorded marks."""
 
@@ -115,6 +143,8 @@ class ExecutionReceipt:
                 "to_chain": swap.to_chain,
                 "from_amount_usd": swap.from_amount_usd,
                 "to_amount_usd": swap.to_amount_usd,
+                "quoted_to_amount": swap.to_amount,
+                "realized_to_amount": swap.realized_to_amount,
                 "tx_hash": swap.tx_hash,
                 "completed_at": (swap.completed_at.isoformat() if swap.completed_at else None),
             }
@@ -160,10 +190,15 @@ class ExecutionReceipt:
             None,
         )
 
+        fill_bps = _fill_vs_quote_bps(shape["quoted_to_amount"], shape["realized_to_amount"])
+
         receipt: dict[str, Any] = {
             **shape,
             "scored": bool(ordered_marks),
             "quoted_cost_bps": cost_bps,
+            # The real thing, when the provider reported a settled amount.
+            # None means not observed — never render it as 0.
+            "fill_vs_quote_bps": fill_bps,
             "marks": ordered_marks,
             "counterfactual": self._counterfactual(routes),
             "caveats": [_COST_BASIS_CAVEAT],
@@ -184,7 +219,7 @@ class ExecutionReceipt:
             logger.warning(f"[execution_receipt] benchmark failed for swap {swap_id}: {e}")
             receipt["benchmark"] = None
 
-        receipt["verdict"] = self._verdict(cost_bps, ordered_marks)
+        receipt["verdict"] = self._verdict(cost_bps, ordered_marks, fill_bps)
         return receipt
 
     def _counterfactual(self, routes: list[dict]) -> Optional[dict[str, Any]]:
@@ -213,14 +248,35 @@ class ExecutionReceipt:
             "modeled": True,
         }
 
-    def _verdict(self, cost_bps: Optional[float], marks: list[dict]) -> dict[str, Any]:
+    def _verdict(
+        self,
+        cost_bps: Optional[float],
+        marks: list[dict],
+        fill_bps: Optional[float] = None,
+    ) -> dict[str, Any]:
         """Plain-English read, keeping trade cost and market drift apart.
 
         The ``cost`` line deliberately does not assign blame. Until realized
         fill amounts are recorded there is no way to tell a wide spread from a
         bad route, and guessing would put words in the data's mouth.
         """
-        parts: dict[str, Any] = {"cost": None, "market": None}
+        parts: dict[str, Any] = {"cost": None, "market": None, "fill": None}
+
+        # The only line on this receipt that grades US, and it only appears
+        # when a settled amount was actually observed. Silence beats a
+        # confident number derived from the quote's own estimate.
+        if fill_bps is not None:
+            if fill_bps <= -NOISE_FLOOR_BPS:
+                parts["fill"] = (
+                    f"You received about {abs(fill_bps):.0f} bps less than the quote "
+                    f"promised. That shortfall is ours."
+                )
+            elif fill_bps >= NOISE_FLOOR_BPS:
+                parts["fill"] = (
+                    f"You received about {fill_bps:.0f} bps more than the quote promised."
+                )
+            else:
+                parts["fill"] = "The amount received matched the quote."
 
         if cost_bps is None:
             parts["cost"] = "Not scored yet — marks land a few minutes after a swap completes."

@@ -62,6 +62,19 @@ class SwapTransaction(Base):
     to_amount = Column(String(78), nullable=True)  # Estimated/actual amount out
     to_amount_usd = Column(Float, nullable=True)
 
+    # REALIZED output — what actually landed, not what the quote projected.
+    #
+    # Every other amount on this row (including to_amount_usd) is written once
+    # at execution time from the quote's estimate, so nothing here could
+    # answer "did we deliver what we promised". These two columns are the only
+    # post-fill observation, and they are what makes fill-vs-quote measurable.
+    #
+    # Nullable and expected to stay NULL on most rows for now: only the Li.Fi
+    # path reports a settled receive amount today. A NULL means "not observed",
+    # never "zero received" — do not coalesce it in any comparison.
+    realized_to_amount = Column(String(78), nullable=True)
+    realized_to_amount_usd = Column(Float, nullable=True)
+
     # Transaction details
     status = Column(String(30), default=SwapStatus.PENDING.value)
     tx_hash = Column(String(255), nullable=True)  # Source chain tx hash

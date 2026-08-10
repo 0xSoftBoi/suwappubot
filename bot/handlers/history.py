@@ -469,6 +469,17 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
     if verdict.get("cost"):
         lines.append(f"_{verdict['cost']}_")
 
+    # Only rendered when a settled amount was actually observed — absence must
+    # not read as "no shortfall".
+    if receipt.get("fill_vs_quote_bps") is not None:
+        lines += [
+            "",
+            "*Did we deliver the quote*",
+            f"Quote vs fill: `{_fmt_bps(receipt['fill_vs_quote_bps'])}`",
+        ]
+        if verdict.get("fill"):
+            lines.append(f"_{verdict['fill']}_")
+
     if verdict.get("market"):
         lines += ["", "*What the market did*", f"_{verdict['market']}_"]
 

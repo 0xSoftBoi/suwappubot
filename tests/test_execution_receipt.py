@@ -60,7 +60,13 @@ def receipt(session_factory, monkeypatch):
     return mod.execution_receipt
 
 
-def _swap(session_factory, user_id=1, status="completed"):
+def _swap(
+    session_factory,
+    user_id=1,
+    status="completed",
+    to_amount=None,
+    realized_to_amount=None,
+):
     from bot.models.swap import SwapTransaction
 
     s = session_factory()
@@ -71,6 +77,8 @@ def _swap(session_factory, user_id=1, status="completed"):
         from_chain="base",
         to_chain="base",
         from_amount="1000000",
+        to_amount=to_amount,
+        realized_to_amount=realized_to_amount,
         status=status,
         completed_at=datetime.utcnow(),
     )
@@ -228,3 +236,48 @@ def test_benchmark_failure_does_not_sink_the_receipt(receipt, session_factory, m
     swap_id = _swap(session_factory, user_id=1)
     r = receipt.build(user_id=1, swap_id=swap_id)
     assert r is not None and r["benchmark"] is None
+
+
+# ---------------------------------------------------------------------------
+# Fill accuracy — the only line that grades us, so it must stay silent unless
+# a settled amount was genuinely observed.
+# ---------------------------------------------------------------------------
+
+
+def test_fill_accuracy_absent_when_nothing_settled(receipt, session_factory):
+    """No realized amount must read as 'not observed', not as a shortfall."""
+    swap_id = _swap(session_factory, user_id=1, to_amount="1000000")
+    r = receipt.build(user_id=1, swap_id=swap_id)
+    assert r["fill_vs_quote_bps"] is None
+    assert r["verdict"]["fill"] is None
+
+
+def test_fill_accuracy_measures_shortfall(receipt, session_factory):
+    swap_id = _swap(session_factory, user_id=1, to_amount="1000000", realized_to_amount="990000")
+    r = receipt.build(user_id=1, swap_id=swap_id)
+    assert r["fill_vs_quote_bps"] == pytest.approx(-100.0)
+    assert "shortfall is ours" in r["verdict"]["fill"]
+
+
+def test_fill_accuracy_is_price_independent(receipt, session_factory):
+    """Token units, not USD — a price move must not show up as our shortfall.
+
+    Same fill, wildly different USD marks; the bps figure must not budge.
+    """
+    a = _swap(session_factory, user_id=1, to_amount="1000000", realized_to_amount="995000")
+    b = _swap(session_factory, user_id=1, to_amount="1000000", realized_to_amount="995000")
+    ra = receipt.build(user_id=1, swap_id=a)
+    rb = receipt.build(user_id=1, swap_id=b)
+    assert ra["fill_vs_quote_bps"] == rb["fill_vs_quote_bps"] == pytest.approx(-50.0)
+
+
+def test_unparseable_amounts_do_not_fabricate_a_number(receipt, session_factory):
+    swap_id = _swap(
+        session_factory, user_id=1, to_amount="not-a-number", realized_to_amount="990000"
+    )
+    assert receipt.build(user_id=1, swap_id=swap_id)["fill_vs_quote_bps"] is None
+
+
+def test_zero_quote_does_not_divide_by_zero(receipt, session_factory):
+    swap_id = _swap(session_factory, user_id=1, to_amount="0", realized_to_amount="990000")
+    assert receipt.build(user_id=1, swap_id=swap_id)["fill_vs_quote_bps"] is None
