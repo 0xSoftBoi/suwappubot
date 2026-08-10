@@ -345,11 +345,66 @@ def test_unverified_providers_gated_off_by_default(monkeypatch):
     assert llm_providers.is_provider_available("deepseek")
     assert not llm_providers.is_provider_available("gemini")
     assert not llm_providers.is_provider_available("qwen")
+    assert not llm_providers.is_provider_available("openrouter")
 
     monkeypatch.setattr(
         llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", True, raising=False
     )
     assert llm_providers.is_provider_available("gemini")
+    assert llm_providers.is_provider_available("openrouter")
+
+
+def test_openrouter_registry_entry():
+    """OpenRouter is registered like every other provider: OpenAI-compatible
+    call style, its own base_url, and its own settings-backed key attr."""
+    from bot.config import llm_providers
+
+    cfg = llm_providers.PROVIDERS["openrouter"]
+    assert cfg.call_style == llm_providers.OPENAI_COMPATIBLE
+    assert cfg.base_url == "https://openrouter.ai/api/v1"
+    assert cfg.env_key_attr == "OPENROUTER_API_KEY"
+    assert cfg.forced_tool_choice_verified is False
+
+
+def test_openrouter_key_gating(monkeypatch):
+    """No OPENROUTER_API_KEY -> unavailable regardless of the unverified-provider
+    opt-in; the opt-in only waives the forced-tool-call check, not the key."""
+    from bot.config import llm_providers
+
+    monkeypatch.setattr(llm_providers.settings, "OPENROUTER_API_KEY", "", raising=False)
+    monkeypatch.setattr(
+        llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", True, raising=False
+    )
+    assert not llm_providers.is_provider_available("openrouter")
+
+    monkeypatch.setattr(llm_providers.settings, "OPENROUTER_API_KEY", "sk-or-test", raising=False)
+    assert llm_providers.is_provider_available("openrouter")
+
+
+def test_resolve_model_openrouter_requires_opt_in(monkeypatch):
+    """An OpenRouter-routed catalog entry must not resolve unless
+    LLM_ALLOW_UNVERIFIED_PROVIDERS is set, even with a preference and a key.
+
+    Exercises the REAL is_provider_available (not the `_enable_keys` fake,
+    which bypasses the forced-tool-call gate entirely) so the opt-in check
+    itself is under test, not just key presence.
+    """
+    from bot.config import llm_providers
+
+    monkeypatch.setattr(llm_providers.settings, "OPENROUTER_API_KEY", "sk-or-test", raising=False)
+    monkeypatch.setattr(llm_providers.settings, "DEEPSEEK_API_KEY", "k", raising=False)
+
+    monkeypatch.setattr(
+        llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", False, raising=False
+    )
+    spec = resolve_model(SubscriptionTier.FREE, "deepseek-flash-or")
+    assert spec.friendly_name != "deepseek-flash-or"
+
+    monkeypatch.setattr(
+        llm_providers.settings, "LLM_ALLOW_UNVERIFIED_PROVIDERS", True, raising=False
+    )
+    spec = resolve_model(SubscriptionTier.FREE, "deepseek-flash-or")
+    assert spec.friendly_name == "deepseek-flash-or"
 
 
 def test_catalog_tier_gating_consistency():
