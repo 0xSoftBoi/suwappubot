@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @title SuwappuTimeCurve — Time-Locked Continuous Bonding Curve
@@ -21,16 +22,21 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  *         immutable and fixed at deployment. Anyone can buy or sell at any moment;
  *         liquidity is always available from the curve itself.
  *
- *         "Sinking": an optional immutable fraction (`sinkRate`) of every sold
- *         amount is burned without refund, permanently removing tokens from
- *         circulation and leaving a growing reserve surplus.
+ *         "Sinking": an optional immutable `sinkRate` withholds a fixed fraction
+ *         of every sell's gross proceeds, leaving that value in the reserve as a
+ *         permanent surplus. It is a flat haircut on value (not on the integration
+ *         bounds), so splitting a sale into many small sells cannot dodge it.
  *
- * @dev Solvency: with rate <= 0 (decay or flat schedules) the reserve provably
- *      covers all sells, since every unit of supply was bought at a multiplier
- *      >= the current one. With rate > 0 (growth schedules) the contract enforces
- *      `refund <= reserve balance` as a hard guard; the sink fraction builds the
- *      buffer that services growth. Deployers choosing growth schedules should
- *      pair them with a non-zero sinkRate.
+ * @dev Solvency: the time multiplier is restricted to decay/flat schedules
+ *      (`rate <= 0`), which makes the reserve provably sufficient for every sell —
+ *      each unit of supply was bought at a multiplier >= the current one, and the
+ *      sink only ever withholds value, never adds. Time-based *growth* (rate > 0)
+ *      is rejected at deployment because a self-contained reserve cannot honor
+ *      quotes that appreciate faster than inflows without becoming a first-come
+ *      bank run; express an upward price path via a positive `slope` (supply-based
+ *      appreciation, which stays solvent) instead. `sell` additionally reverts
+ *      (InsufficientReserve) rather than truncating if a payout ever exceeds the
+ *      balance — a guard that should be unreachable given the above.
  *
  *      All curve math is done in WAD (1e18) units. Reserve token amounts are
  *      normalized via `reserveScale` so tokens with fewer than 18 decimals work.
@@ -50,11 +56,11 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
     uint256 public immutable basePrice;
     /// @notice Linear supply slope, WAD (price increase per whole token of supply).
     uint256 public immutable slope;
-    /// @notice Per-second exponential rate of the time multiplier, signed WAD.
+    /// @notice Per-second exponential rate of the time multiplier, signed WAD (<= 0).
     int256 public immutable rate;
-    /// @notice Fraction of every sell burned without refund, WAD (0 = disabled).
+    /// @notice Fraction of every sell's gross proceeds withheld into reserve, WAD.
     uint256 public immutable sinkRate;
-    /// @notice Cumulative tokens permanently removed by the sink.
+    /// @notice Cumulative reserve units permanently retained by the sink.
     uint256 public totalSunk;
 
     event CurveBuy(address indexed buyer, uint256 tokensOut, uint256 reserveIn);
@@ -75,6 +81,11 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
         uint256 sinkRate_
     ) ERC20(name_, symbol_) {
         if (reserve_ == address(0) || basePrice_ == 0 || sinkRate_ >= WAD) revert BadParams();
+        // Only decay/flat time schedules keep the reserve provably solvent.
+        if (rate_ > 0) revert BadParams();
+        // Bound magnitudes so rate*dt (multiplier) and slope*s^2 (integral) stay
+        // safely within int256/uint256 for any realistic timestamp and supply.
+        if (rate_ < -1e24 || slope_ > 1e24) revert BadParams();
         uint8 dec = IERC20Metadata(reserve_).decimals();
         if (dec > 18) revert BadParams();
         reserve = IERC20(reserve_);
@@ -96,6 +107,9 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
     {
         if (tokenAmount == 0) revert ZeroAmount();
         reserveIn = quoteBuy(tokenAmount);
+        // Never mint for zero reserve: blocks the free-mint at a vanishing
+        // multiplier and dust rounding to a zero price.
+        if (reserveIn == 0) revert ZeroAmount();
         if (reserveIn > maxReserveIn) revert SlippageExceeded();
         reserve.safeTransferFrom(msg.sender, address(this), reserveIn);
         _mint(msg.sender, tokenAmount);
@@ -103,20 +117,24 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
     }
 
     /// @notice Sell `tokenAmount` curve tokens for at least `minReserveOut` reserve units.
-    /// @dev The sink fraction of `tokenAmount` is burned without refund.
+    /// @dev All sold tokens are burned; the sink withholds `sinkRate` of the gross
+    ///      proceeds into the reserve as permanent surplus.
     function sell(uint256 tokenAmount, uint256 minReserveOut)
         external
         nonReentrant
         returns (uint256 reserveOut)
     {
         if (tokenAmount == 0) revert ZeroAmount();
-        uint256 sunk = (tokenAmount * sinkRate) / WAD;
-        reserveOut = quoteSell(tokenAmount);
-        if (reserveOut < minReserveOut) revert SlippageExceeded();
-        totalSunk += sunk;
+        (uint256 grossOut, uint256 netOut) = _sellQuote(tokenAmount);
+        if (netOut < minReserveOut) revert SlippageExceeded();
+        // Solvency guard: with rate <= 0 this is unreachable, but never pay out
+        // more than the reserve holds.
+        if (netOut > reserve.balanceOf(address(this))) revert InsufficientReserve();
+        reserveOut = netOut;
+        totalSunk += grossOut - netOut;
         _burn(msg.sender, tokenAmount);
-        reserve.safeTransfer(msg.sender, reserveOut);
-        emit CurveSell(msg.sender, tokenAmount, reserveOut, sunk);
+        reserve.safeTransfer(msg.sender, netOut);
+        emit CurveSell(msg.sender, tokenAmount, netOut, grossOut - netOut);
     }
 
     // ----------------------------------------------------------------- quotes
@@ -129,25 +147,30 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
     }
 
     /// @notice Reserve units returned for selling `tokenAmount` right now (rounds down),
-    ///         net of the sink fraction and capped by the reserve balance.
-    function quoteSell(uint256 tokenAmount) public view returns (uint256) {
+    ///         net of the sink haircut. Reverts if it would exceed the reserve.
+    function quoteSell(uint256 tokenAmount) public view returns (uint256 netOut) {
+        (, netOut) = _sellQuote(tokenAmount);
+    }
+
+    /// @dev Gross proceeds = m(t) * integral over the top slice [s - tokenAmount, s];
+    ///      net = gross * (1 - sinkRate). The sink is a flat fraction of value, so it
+    ///      is invariant to how a sale is split. Reverts if net exceeds the reserve.
+    function _sellQuote(uint256 tokenAmount) internal view returns (uint256 grossOut, uint256 netOut) {
         uint256 s = totalSupply();
-        if (tokenAmount > s) revert ZeroAmount();
-        uint256 refunded = tokenAmount - (tokenAmount * sinkRate) / WAD;
-        // Refund the *lowest* `refunded` slice of the curve [s - tokenAmount, s - sunk],
-        // i.e. the seller forfeits the top (most expensive) sink slice.
-        uint256 refundWad = _mulWad(multiplier(), _integral(s - tokenAmount, s - tokenAmount + refunded));
-        uint256 out = refundWad / reserveScale;
-        uint256 bal = reserve.balanceOf(address(this));
-        return out > bal ? bal : out;
+        if (tokenAmount == 0 || tokenAmount > s) revert ZeroAmount();
+        uint256 grossWad = _mulWad(multiplier(), _integral(s - tokenAmount, s));
+        grossOut = grossWad / reserveScale;
+        netOut = grossOut - (grossOut * sinkRate) / WAD;
+        if (netOut > reserve.balanceOf(address(this))) revert InsufficientReserve();
     }
 
     /// @notice Current time multiplier m(t), WAD.
     function multiplier() public view returns (uint256) {
         int256 x = rate * int256(block.timestamp - deployTime);
-        // Clamp to wadExp's domain; beyond it the multiplier saturates.
-        if (x > 130e18) x = 130e18;
-        if (x < -41e18) return 0; // e^-41 < 1 wei in WAD — price floor of zero
+        // rate <= 0, so x <= 0. Clamp to wadExp's domain floor instead of
+        // returning a hard zero — a zero multiplier would let buyers mint for
+        // free. e^-41 is ~1 wei in WAD, an effective (nonzero) price floor.
+        if (x < -41e18) x = -41e18;
         return uint256(_wadExp(x));
     }
 
@@ -166,9 +189,11 @@ contract SuwappuTimeCurve is ERC20, ReentrancyGuard {
     /// @dev Integral of (basePrice + slope*s) ds over [s1, s2], WAD in, WAD out.
     function _integral(uint256 s1, uint256 s2) internal view returns (uint256) {
         uint256 linear = _mulWad(basePrice, s2 - s1);
-        // slope * (s2^2 - s1^2) / 2 with intermediate mulWad to avoid overflow
-        uint256 quad = _mulWad(slope, (_mulWad(s2, s2) - _mulWad(s1, s1))) / 2;
-        return linear + quad;
+        if (slope == 0) return linear;
+        // slope * (s2^2 - s1^2) / 2, using mulDiv so the squared terms never
+        // overflow uint256 (which would impose a spurious supply ceiling).
+        uint256 sq = Math.mulDiv(s2, s2, WAD) - Math.mulDiv(s1, s1, WAD);
+        return linear + _mulWad(slope, sq) / 2;
     }
 
     function _mulWad(uint256 a, uint256 b) internal pure returns (uint256) {

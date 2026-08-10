@@ -20,6 +20,22 @@ contract MockYieldVault is ERC4626 {
     constructor(IERC20 asset_) ERC4626(asset_) ERC20("Yield mUSD", "ymUSD") {}
 }
 
+// A strategy-style 4626 that caps how much can be withdrawn at once.
+contract IlliquidYieldVault is ERC4626 {
+    uint256 public cap = type(uint256).max;
+
+    constructor(IERC20 asset_) ERC4626(asset_) ERC20("Illiquid", "iVLT") {}
+
+    function setCap(uint256 c) external {
+        cap = c;
+    }
+
+    function maxWithdraw(address o) public view override returns (uint256) {
+        uint256 m = super.maxWithdraw(o);
+        return m > cap ? cap : m;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SuwappuTimeCurve
 // ---------------------------------------------------------------------------
@@ -85,7 +101,8 @@ contract TimeCurveTest is Test {
         uint256 paid = curve.buy(100e18, type(uint256).max);
         vm.prank(alice);
         uint256 refund = curve.sell(100e18, 0);
-        assertEq(curve.totalSunk(), 1e18); // 1% of 100
+        assertGt(curve.totalSunk(), 0); // reserve units withheld by the 1% value sink
+        assertEq(curve.totalSupply(), 0); // all sold tokens burned
         assertLt(refund, paid);
     }
 
@@ -100,18 +117,46 @@ contract TimeCurveTest is Test {
         curve.sell(100e18, type(uint256).max);
     }
 
-    function testGrowthCurveCappedByReserve() public {
-        SuwappuTimeCurve growth = new SuwappuTimeCurve(
+    function testGrowthRateRejected() public {
+        // Time-based growth (rate > 0) is structurally insolvent; forbidden at deploy.
+        vm.expectRevert(SuwappuTimeCurve.BadParams.selector);
+        new SuwappuTimeCurve(
             "G", "G", address(usd), 0.01e18, 0.001e18, int256(1e18) / int256(365 days), 0.05e18
         );
+    }
+
+    function testSinkSplitInvariant() public {
+        // A 10% value sink cannot be dodged by splitting the sale.
+        SuwappuTimeCurve c = new SuwappuTimeCurve("S", "S", address(usd), 0.01e18, 0.001e18, 0, 0.10e18);
+        usd.mint(alice, 10_000_000e18);
         vm.startPrank(alice);
-        usd.approve(address(growth), type(uint256).max);
-        growth.buy(1000e18, type(uint256).max);
-        vm.warp(block.timestamp + 3650 days);
-        // quote never exceeds the actual reserve — hard solvency guard
-        assertLe(growth.quoteSell(1000e18), growth.reserveBalance());
-        growth.sell(1000e18, 0);
+        usd.approve(address(c), type(uint256).max);
+        c.buy(1000e18, type(uint256).max);
+        uint256 oneShot = c.quoteSell(500e18);
         vm.stopPrank();
+
+        SuwappuTimeCurve c2 = new SuwappuTimeCurve("S", "S", address(usd), 0.01e18, 0.001e18, 0, 0.10e18);
+        vm.startPrank(alice);
+        usd.approve(address(c2), type(uint256).max);
+        c2.buy(1000e18, type(uint256).max);
+        uint256 chunked;
+        for (uint256 i = 0; i < 50; i++) {
+            chunked += c2.sell(10e18, 0);
+        }
+        vm.stopPrank();
+        // Chunked proceeds must not meaningfully exceed the one-shot quote.
+        assertLe(chunked, oneShot + 1e12);
+    }
+
+    function testNoFreeMintAtVanishingMultiplier() public {
+        // Aggressive decay; after long enough the price floors but never zeroes.
+        SuwappuTimeCurve c = new SuwappuTimeCurve(
+            "D", "D", address(usd), 0.01e18, 0, -int256(1e12), 0
+        );
+        vm.warp(block.timestamp + 2000 days);
+        vm.prank(alice);
+        vm.expectRevert(); // reserveIn rounds to 0 → buy reverts, no free mint
+        c.buy(1e18, type(uint256).max);
     }
 
     function testFuzzRoundTripNeverProfitable(uint96 amount) public {
@@ -235,7 +280,7 @@ contract AmortizingVaultTest is Test {
         vm.startPrank(keeper);
         usd.approve(address(vault), type(uint256).max);
         vm.expectRevert(SuwappuAmortizingVault.NotLiquidatable.selector);
-        vault.liquidate(id);
+        vault.liquidate(id, type(uint256).max);
         vm.stopPrank();
 
         // crash the share price: pull most of the vault's assets
@@ -243,9 +288,97 @@ contract AmortizingVaultTest is Test {
         usd.transfer(address(0xdead), 45_000e18);
 
         vm.prank(keeper);
-        vault.liquidate(id);
+        vault.liquidate(id, type(uint256).max);
         assertEq(vault.debtOf(id), 0);
         assertGt(yv.balanceOf(keeper), 0);
+    }
+
+    function testDonationDoesNotStealFirstDepositor() public {
+        // Fresh vault to isolate the first-depositor path.
+        SuwappuAmortizingVault v = new SuwappuAmortizingVault(address(yv), RATE, 0.5e18, 0.9e18, 0.05e18);
+        address attacker = makeAddr("attacker");
+        address victim = makeAddr("victim");
+        usd.mint(attacker, 100_000e18);
+        usd.mint(victim, 100_000e18);
+
+        vm.startPrank(attacker);
+        usd.approve(address(v), type(uint256).max);
+        v.supply(1);
+        usd.transfer(address(v), 50_000e18); // donation
+        vm.stopPrank();
+
+        vm.startPrank(victim);
+        usd.approve(address(v), type(uint256).max);
+        uint256 vShares = v.supply(50_000e18);
+        vm.stopPrank();
+
+        assertGt(vShares, 0); // victim gets real shares
+        vm.prank(victim);
+        uint256 out = v.withdraw(vShares);
+        assertApproxEqRel(out, 50_000e18, 0.001e18); // victim recovers ~their deposit
+    }
+
+    function testBadDebtWrittenOff() public {
+        vm.prank(borrower);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        // wipe out almost all collateral value
+        vm.prank(address(yv));
+        usd.transfer(address(0xdead), 99_500e18);
+        uint256 poolBefore = vault.poolAssets();
+        usd.mint(keeper, 100_000e18);
+        // Rational liquidator repays only ~the collateral's worth (partial),
+        // exhausting collateral while debt remains → shortfall is written off.
+        vm.startPrank(keeper);
+        usd.approve(address(vault), type(uint256).max);
+        vault.liquidate(id, 480e18);
+        vm.stopPrank();
+        assertEq(vault.debtOf(id), 0); // remaining debt written off
+        (, uint256 sharesLeft,,) = vault.positions(id);
+        assertEq(sharesLeft, 0);
+        // pool shrank: the shortfall was socialized, not left as a phantom asset
+        assertLt(vault.poolAssets(), poolBefore);
+    }
+
+    function testLiquidationSurvivesIlliquidCollateralVault() public {
+        IlliquidYieldVault iyv = new IlliquidYieldVault(usd);
+        SuwappuAmortizingVault v = new SuwappuAmortizingVault(address(iyv), RATE, 0.5e18, 0.9e18, 0.05e18);
+        vm.startPrank(lender);
+        usd.approve(address(v), type(uint256).max);
+        v.supply(500_000e18);
+        vm.stopPrank();
+
+        vm.startPrank(borrower);
+        usd.approve(address(iyv), type(uint256).max);
+        iyv.deposit(100_000e18, borrower);
+        iyv.approve(address(v), type(uint256).max);
+        uint256 id = v.openPosition(100_000e18, 50_000e18);
+        vm.stopPrank();
+
+        // yield accrues but the vault becomes illiquid (maxWithdraw capped to 0)
+        usd.mint(address(iyv), 1_000e18);
+        iyv.setCap(0);
+        // and the position goes underwater
+        vm.prank(address(iyv));
+        usd.transfer(address(0xdead), 60_000e18);
+
+        usd.mint(keeper, 100_000e18);
+        vm.startPrank(keeper);
+        usd.approve(address(v), type(uint256).max);
+        // must NOT revert inside amortize despite the withdrawal cap
+        v.liquidate(id, type(uint256).max);
+        vm.stopPrank();
+        assertEq(v.debtOf(id), 0);
+    }
+
+    function testInterestIsPokeIndependent() public {
+        vm.prank(borrower);
+        uint256 id = vault.openPosition(100_000e18, 40_000e18);
+        // poke amortize repeatedly; with no yield it is a no-op and must not compound
+        for (uint256 i = 0; i < 20; i++) {
+            vm.warp(block.timestamp + 18 days);
+            vault.amortize(id);
+        }
+        assertApproxEqRel(vault.debtOf(id), 40_800e18, 0.01e18); // still ~+2%/yr simple
     }
 }
 
@@ -370,6 +503,67 @@ contract MutualCreditTest is Test {
         vm.warp(block.timestamp + 365 days);
         // ~10% APR simple interest
         assertApproxEqRel(mc.owedBy(alice, bob, address(usd)), 110e18, 0.01e18);
+    }
+
+    function testNetCycleRejectsRepeatedLeg() public {
+        _open(alice, bob, 1000e18, 1000e18);
+        _open(bob, carol, 1000e18, 1000e18);
+        _open(carol, alice, 1000e18, 1000e18);
+        vm.prank(alice);
+        mc.pay(bob, address(usd), 300e18);
+        vm.prank(bob);
+        mc.pay(carol, address(usd), 300e18);
+        vm.prank(carol);
+        mc.pay(alice, address(usd), 300e18);
+        // repeated cycle [A,B,C,A,B,C] must be rejected (duplicate addresses)
+        address[] memory bad = new address[](6);
+        bad[0] = alice; bad[1] = bob; bad[2] = carol;
+        bad[3] = alice; bad[4] = bob; bad[5] = carol;
+        vm.expectRevert(SuwappuMutualCredit.BadCycle.selector);
+        mc.netCycle(address(usd), bad);
+    }
+
+    function testPayRejectsIntOverflowAmount() public {
+        // Line where both parties extend zero credit — must stay unbreakable.
+        vm.prank(alice);
+        mc.proposeLine(bob, address(usd), 0, 0, 7 days);
+        vm.prank(bob);
+        mc.acceptLine(alice, address(usd), 0);
+        vm.prank(bob);
+        vm.expectRevert(SuwappuMutualCredit.BadParams.selector);
+        mc.pay(alice, address(usd), type(uint256).max - 1_000_000e18 + 1);
+    }
+
+    function testProposalCancelFreesKey() public {
+        vm.prank(alice);
+        mc.proposeLine(bob, address(usd), 1000e18, 0, 7 days);
+        vm.prank(alice);
+        mc.cancelProposal(bob, address(usd));
+        // key is free again
+        _open(alice, bob, 500e18, 500e18);
+        vm.prank(alice);
+        mc.pay(bob, address(usd), 100e18);
+        assertEq(mc.owedBy(alice, bob, address(usd)), 100e18);
+    }
+
+    function testDefaultIsCurable() public {
+        _open(alice, bob, 1000e18, 500e18);
+        vm.prank(alice);
+        mc.pay(bob, address(usd), 300e18);
+        vm.prank(bob);
+        mc.demandSettlement(alice, address(usd));
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.prank(bob);
+        mc.markDefault(alice, address(usd));
+        // owed still readable while defaulted
+        assertEq(mc.owedBy(alice, bob, address(usd)), 300e18);
+        // debtor can still settle to cure
+        usd.mint(alice, 300e18);
+        vm.startPrank(alice);
+        usd.approve(address(mc), type(uint256).max);
+        mc.settle(bob, address(usd), 300e18);
+        vm.stopPrank();
+        assertEq(mc.owedBy(alice, bob, address(usd)), 0);
     }
 
     function testCloseRequiresZeroBalance() public {

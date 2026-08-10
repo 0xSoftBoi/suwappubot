@@ -170,10 +170,33 @@ by the cycle minimum; `settle()` clears residuals with real tokens. Creditors ca
 `demandSettlement()`, and after the line's grace period `markDefault()` freezes
 the line and records the default on-chain for reputation layers to build on.
 
+### Security hardening
+An adversarial money-path review (with executable PoCs) shaped these designs:
+- **TimeCurve** forbids time-based growth (`rate > 0`) at deploy — a self-contained
+  reserve cannot honor appreciating quotes without becoming a bank run; use a
+  positive `slope` for an upward path. The sink is a flat haircut on sell *value*
+  (split-invariant), `buy` reverts rather than minting for zero reserve, the
+  multiplier floors above zero, and `_integral` uses `mulDiv` (no supply ceiling).
+- **AmortizingVault** uses *simple* interest via a time-only index (accrual is
+  independent of how often it is poked), tracks lendable cash internally plus a
+  virtual-share offset (donation / first-depositor-proof), caps `amortize()` at the
+  4626's `maxWithdraw` (liquidation can't be bricked by an illiquid collateral
+  vault), supports partial liquidation, `addCollateral`, and writes off bad debt
+  against the pool instead of leaving phantom assets. LTV still trusts the 4626
+  share price — this is *not* oracle-free, it inherits that vault's price surface.
+- **MutualCredit** rejects duplicate nodes in `netCycle` and re-checks each leg
+  (no repeated-cycle debt fabrication), bounds `pay` amounts below `int256` max
+  (no sign-flip limit bypass), lets proposals be cancelled/rejected (no permanent
+  key-squatting DoS), and keeps defaulted lines settleable and readable so a debtor
+  can cure and reputation layers can read the outstanding amount.
+
 ### Tests
-`test/PrimitivesTest.t.sol` — 24 tests: solvency after decay/growth, sink
-accounting, fuzzed round-trip non-profitability, LTV/liquidation paths,
-self-repayment to unlock, lender interest, cycle netting, defaults.
+`test/PrimitivesTest.t.sol` — 34 tests: solvency after decay, split-invariant sink,
+no-free-mint at vanishing multiplier, fuzzed round-trip non-profitability,
+LTV/liquidation paths, illiquid-collateral liquidation, donation resistance,
+bad-debt writeoff, poke-independent interest, self-repayment to unlock, lender
+interest, cycle netting + repeated-leg rejection, int-overflow guard,
+proposal cancel, curable defaults.
 
 ```bash
 forge test --match-path "test/PrimitivesTest.t.sol"

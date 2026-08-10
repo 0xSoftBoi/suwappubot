@@ -31,8 +31,11 @@ contract SuwappuMutualCredit is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant WAD = 1e18;
-    /// @dev Fee rates are capped at ~1000% APR-equivalent per second to keep accrual sane.
-    uint256 private constant MAX_FEE_RATE = 317e9; // ~1000%/yr per-second WAD rate
+    /// @dev Per-second fee-rate ceiling ~= 50%/yr *nominal*. Interest is folded into
+    ///      the balance on each `_accrue`, so frequent pokes (via any state-changing
+    ///      call on the line) compound it; the low ceiling bounds that drift. Debtors
+    ///      can settle at any time, capping their exposure regardless.
+    uint256 private constant MAX_FEE_RATE = 16e9; // ~0.5e18/yr per-second WAD rate
 
     enum Status {
         None,
@@ -132,6 +135,27 @@ contract SuwappuMutualCredit is ReentrancyGuard {
         emit LineOpened(key, l.a, l.b, token);
     }
 
+    /// @notice Proposer withdraws an unaccepted proposal, freeing the (pair, token)
+    ///         key so a fresh line can be proposed. Prevents a griefer permanently
+    ///         trapping a key in `Proposed`.
+    function cancelProposal(address counterparty, address token) external {
+        bytes32 key = lineKey(msg.sender, counterparty, token);
+        Line storage l = lines[key];
+        if (l.status != Status.Proposed || l.proposer != msg.sender) revert BadStatus();
+        l.status = Status.Closed;
+        emit LineClosed(key);
+    }
+
+    /// @notice Counterparty rejects a proposal aimed at them, freeing the key.
+    function rejectProposal(address proposer, address token) external {
+        bytes32 key = lineKey(msg.sender, proposer, token);
+        Line storage l = lines[key];
+        if (l.status != Status.Proposed || l.proposer != proposer || proposer == msg.sender) revert BadStatus();
+        if (msg.sender != l.a && msg.sender != l.b) revert NotParty();
+        l.status = Status.Closed;
+        emit LineClosed(key);
+    }
+
     // ---------------------------------------------------------------- credit
 
     /// @notice Pay `to` with mutual credit: increases msg.sender's debt on the
@@ -140,6 +164,7 @@ contract SuwappuMutualCredit is ReentrancyGuard {
         bytes32 key = lineKey(msg.sender, to, token);
         Line storage l = lines[key];
         if (l.status != Status.Active) revert BadStatus();
+        if (amount > uint256(type(int256).max)) revert BadParams();
         _accrue(l);
         // balance convention: > 0 means b owes a. Payer's debt grows.
         if (msg.sender == l.a) {
@@ -160,7 +185,9 @@ contract SuwappuMutualCredit is ReentrancyGuard {
     /// @notice Amount `debtor` currently owes `creditor` on their line (with accrual).
     function owedBy(address debtor, address creditor, address token) public view returns (uint256) {
         Line storage l = lines[lineKey(debtor, creditor, token)];
-        if (l.status != Status.Active) return 0;
+        // Defaulted lines keep reporting their outstanding balance so reputation
+        // layers (and a debtor who wants to cure) can still read the amount owed.
+        if (l.status != Status.Active && l.status != Status.Defaulted) return 0;
         int256 bal = _accruedBalance(l);
         if (debtor == l.b && bal > 0) return uint256(bal);
         if (debtor == l.a && bal < 0) return uint256(-bal);
@@ -175,19 +202,36 @@ contract SuwappuMutualCredit is ReentrancyGuard {
     function netCycle(address token, address[] calldata cycle) external {
         uint256 n = cycle.length;
         if (n < 3) revert BadCycle();
+        // Reject duplicate nodes: a repeated address would let the apply loop
+        // hit the same line more than once, netting it past its true balance
+        // and blowing through the agreed credit limits.
+        for (uint256 i = 0; i < n; i++) {
+            if (cycle[i] == address(0)) revert BadCycle();
+            for (uint256 j = i + 1; j < n; j++) {
+                if (cycle[i] == cycle[j]) revert BadCycle();
+            }
+        }
         uint256 minOwed = type(uint256).max;
         for (uint256 i = 0; i < n; i++) {
             uint256 owed = owedBy(cycle[i], cycle[(i + 1) % n], token);
             if (owed == 0) revert BadCycle();
             if (owed < minOwed) minOwed = owed;
         }
+        int256 signedMin = int256(minOwed);
         for (uint256 i = 0; i < n; i++) {
             address debtor = cycle[i];
             address creditor = cycle[(i + 1) % n];
             Line storage l = lines[lineKey(debtor, creditor, token)];
+            if (l.status != Status.Active) revert BadCycle();
             _accrue(l);
-            if (debtor == l.b) l.balance -= int256(minOwed);
-            else l.balance += int256(minOwed);
+            // Re-derive the leg's live obligation post-accrual and require it
+            // still covers the netting amount, so no leg is ever driven past 0.
+            uint256 legOwed = (debtor == l.b && l.balance > 0)
+                ? uint256(l.balance)
+                : (debtor == l.a && l.balance < 0) ? uint256(-l.balance) : 0;
+            if (legOwed < minOwed) revert BadCycle();
+            if (debtor == l.b) l.balance -= signedMin;
+            else l.balance += signedMin;
             _clearDemandIfCovered(l);
         }
         emit CycleNetted(token, cycle, minOwed);
@@ -199,7 +243,8 @@ contract SuwappuMutualCredit is ReentrancyGuard {
     function settle(address creditor, address token, uint256 amount) external nonReentrant {
         bytes32 key = lineKey(msg.sender, creditor, token);
         Line storage l = lines[key];
-        if (l.status != Status.Active) revert BadStatus();
+        // A defaulted line is still settleable so the debtor can cure the debt.
+        if (l.status != Status.Active && l.status != Status.Defaulted) revert BadStatus();
         _accrue(l);
         uint256 owed = owedBy(msg.sender, creditor, token);
         if (owed == 0) revert NothingOwed();
