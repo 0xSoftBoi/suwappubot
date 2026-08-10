@@ -40,6 +40,15 @@ verify), `/deploy`, `/status`, `/audit`, `/bugclass`, `/worktree-check`.
 | Env var | `bot/config/settings.py` or `api-ts/src/config/EnvService.ts`, then regenerate `.env.schema` |
 | Optional provider | Declare in `capabilities.yaml`; the manifest, not the code, is the truth source |
 
+## Knowledge base
+
+Read before re-deriving: `docs/README.md` (index of all docs, staleness-flagged),
+`docs/architecture/OVERVIEW.md` (services, ~23 background tasks, request flows),
+`docs/ONBOARDING.md` (setup/env/test facts), `docs/DECISIONS.md` (lessons log),
+`docs/adr/` (append-only decision records — link one on MONEY-PATH/cross-stack PRs).
+Component-scoped rules: `bot/CLAUDE.md`, `api-ts/CLAUDE.md`, `webapp/CLAUDE.md`
+(read the one for the directory you're editing).
+
 ## Verification ladder (cheapest first)
 
 1. Parse gate: `python3 -c "import ast; ast.parse(open('file.py').read())"`

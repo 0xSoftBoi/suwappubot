@@ -72,6 +72,7 @@ The most-used of the ~27 scripts:
   `MONEY-PATH` in the PR and expect an adversarial review.
 - No `Co-Authored-By` lines in commits; never `git rebase` in this repo.
 
-> Note: `CLAUDE.md` references `.claude/rules/` for per-component rules; that
-> directory does not currently exist in the repo. Treat this file and
-> `CLAUDE.md` as authoritative until it's added.
+Full rule set: root [`CONVENTIONS.md`](../CONVENTIONS.md) (day-to-day rules)
+and [`ARCHITECTURE.md`](../ARCHITECTURE.md) (boundaries and standing
+decisions). Per-component rules: `bot/CLAUDE.md`, `api-ts/CLAUDE.md`,
+`webapp/CLAUDE.md`.

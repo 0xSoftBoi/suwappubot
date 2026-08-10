@@ -4,6 +4,12 @@ Ground-truth map of what runs in production and how the pieces talk. Extracted
 from code (Aug 2026); when this drifts from source, source wins — update this
 file in the same PR as the change.
 
+Companion to root [`ARCHITECTURE.md`](../../ARCHITECTURE.md), which holds the
+*normative* side: decision taxonomy (Core/Capability/Convention/Implementation),
+the auth boundary (no email/password, by design), the `capabilities.yaml` and
+`.env.schema` contracts, and superseded defaults. This file is the
+*descriptive* runtime inventory.
+
 ## Services
 
 | Service | Entry point | Role |

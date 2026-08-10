@@ -6,6 +6,11 @@ historical intent, not current behavior. Update this index when adding a doc.
 
 ## Start here (institutional knowledge)
 
+Repo-root policy trio (precedence order): [`AGENTS.md`](../AGENTS.md) (agent
+policy) → [`ARCHITECTURE.md`](../ARCHITECTURE.md) (boundaries, decision
+taxonomy, auth/config contracts) → [`CONVENTIONS.md`](../CONVENTIONS.md)
+(day-to-day rules). Then:
+
 | Doc | What it is |
 |-----|-----------|
 | [ONBOARDING.md](ONBOARDING.md) | New-contributor setup: env vars, run/test commands per component, CI gates |

@@ -15,6 +15,9 @@ Short, append-only records of decisions that shape the system. Nygard format:
 - Keep records pithy and assertive; link supporting analysis, don't inline it.
 - Lessons that aren't decisions (incident learnings, gotchas) go to
   `docs/DECISIONS.md`; ADRs are for choices with alternatives.
+- Classify each decision per the taxonomy in root `ARCHITECTURE.md`
+  (Core / Capability / Convention / Implementation) — Core decisions always
+  warrant an ADR; Implementation details rarely do.
 
 ## Index
 

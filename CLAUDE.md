@@ -38,7 +38,7 @@ When asked to "merge all PRs": check CI on **every** open PR, merge the green on
 ## Build Tools
 - **Always use `bun`** instead of `tsc`, `npm`, or `npx`. The `tsc` command times out in this project.
 - **Use `gh`** (GitHub CLI) for all GitHub operations.
-- Component-specific rules are in `.claude/rules/` (api-ts, webapp, bot, showcase).
+- Component-specific rules are in per-directory files: `bot/CLAUDE.md`, `api-ts/CLAUDE.md`, `webapp/CLAUDE.md`. Repo-wide policy: `AGENTS.md` → `ARCHITECTURE.md` → `CONVENTIONS.md`.
 
 ## Project Overview
 

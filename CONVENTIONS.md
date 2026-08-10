@@ -13,7 +13,8 @@ fork the convention.
   tests/`). CI blocks on it. flake8 runs advisory-only, by choice.
 - api-ts lints with Biome (`api-ts/biome.json`).
 - GitHub operations use `gh` locally; sessions without `gh` use the GitHub MCP tools.
-- Component-specific rules live in `.claude/rules/` (api-ts, webapp, bot, showcase).
+- Component-specific rules live in per-directory instruction files: `bot/CLAUDE.md`,
+  `api-ts/CLAUDE.md`, `webapp/CLAUDE.md`.
 
 ## Git
 
