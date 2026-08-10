@@ -1,77 +1,83 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.27;
 
-import "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+/*//////////////////////////////////////////////////////////////////////////
+                SuwappuAmortizingVault — Self-Repaying Collateralized Position
 
-/**
- * @title SuwappuAmortizingVault — Self-Repaying Collateralized Position
- * @notice An immutable lending vault where deposited yield-bearing collateral
- *         automatically pays down the position's own debt.
- *
- *         - Collateral: shares of one immutable ERC-4626 vault (any yield source
- *           wrapped as 4626 — permissionlessly chosen at deployment).
- *         - Debt: the 4626's *underlying* asset, supplied by lenders into this
- *           contract. Because debt and collateral are denominated in the same
- *           asset, LTV is computed from `convertToAssets`. There is no external
- *           price feed — but note the 4626 share price *is* the price input, so
- *           this inherits that vault's share-price-manipulation surface.
- *         - `amortize()` is permissionless: any keeper can crystallize the yield
- *           the collateral has earned (asset value above the recorded cost basis),
- *           redeem exactly that much, and apply it to the position's debt.
- *         - Once debt hits zero the position unlocks and collateral is freely
- *           withdrawable. Liquidation only occurs if the position becomes
- *           undercollateralized before self-repayment finishes.
- *
- *         No owner, no upgrade path, no governance. All rates and ratios are
- *         immutable, fixed forever at deployment.
- *
- * @dev Interest is *simple* (linear in time) via an index that is a pure function
- *      of elapsed time, so accrual is independent of how often anyone pokes the
- *      contract. Lendable cash is tracked internally (`totalCash`) rather than
- *      read from `balanceOf`, so donations cannot inflate share price. Bad debt
- *      is written off against lenders when collateral is exhausted below debt.
- */
-contract SuwappuAmortizingVault is ReentrancyGuard {
-    using SafeERC20 for IERC20;
+    An immutable, dependency-free lending vault where deposited yield-bearing
+    collateral automatically pays down the position's own debt.
 
+    - Collateral: shares of one immutable ERC-4626 vault (any yield source wrapped
+      as 4626 — permissionlessly chosen at deployment).
+    - Debt: the 4626's underlying asset, supplied by lenders into this contract.
+      Debt and collateral share a denomination, so LTV comes from convertToAssets
+      with no separate price feed (it does inherit the 4626's share-price surface).
+    - amortize() is permissionless: any keeper crystallizes the yield the
+      collateral earned (value above cost basis) and applies it to the debt.
+    - At zero debt the position unlocks. Liquidation only if undercollateralized
+      before self-repayment finishes; bad debt is written off against lenders.
+
+    No owner, no upgrade path, no governance, no imports. Interest is *simple*
+    (linear in time) via a time-only index, so accrual is independent of poke
+    frequency. Lendable cash is tracked internally so donations cannot inflate
+    share price; a virtual offset hardens the first-depositor case.
+//////////////////////////////////////////////////////////////////////////*/
+
+interface IVaultToken {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
+interface IVault4626 {
+    function asset() external view returns (address);
+    function convertToAssets(uint256 shares) external view returns (uint256);
+    function convertToShares(uint256 assets) external view returns (uint256);
+    function maxWithdraw(address owner) external view returns (uint256);
+    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256);
+}
+
+contract SuwappuAmortizingVault {
+    /*////////////////////////////////////////////////////////////
+                          REENTRANCY GUARD (inlined)
+    ////////////////////////////////////////////////////////////*/
+    uint256 private _lock = 1;
+
+    modifier nonReentrant() {
+        require(_lock == 1, "REENTRANT");
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
+
+    /*////////////////////////////////////////////////////////////
+                                  STATE
+    ////////////////////////////////////////////////////////////*/
     uint256 private constant WAD = 1e18;
-    /// @dev Virtual shares/assets offset hardening the empty-pool first-depositor case.
-    uint256 private constant VIRTUAL = 1e6;
+    uint256 private constant VIRTUAL = 1e6; // virtual shares/assets offset
 
-    /// @notice The yield-bearing collateral vault.
-    IERC4626 public immutable collateralVault;
-    /// @notice The debt asset — the collateral vault's underlying.
-    IERC20 public immutable asset;
-    /// @notice Per-second simple borrow interest rate, WAD.
-    uint256 public immutable borrowRate;
-    /// @notice Maximum debt/collateral-value at borrow time, WAD (e.g. 0.5e18).
-    uint256 public immutable maxLtv;
-    /// @notice Debt/collateral-value above which liquidation opens, WAD (e.g. 0.9e18).
-    uint256 public immutable liqLtv;
-    /// @notice Liquidator bonus on seized collateral, WAD (e.g. 0.05e18).
-    uint256 public immutable liqBonus;
-    /// @notice t=0 of the interest schedule.
+    IVault4626 public immutable collateralVault;
+    IVaultToken public immutable asset;
+    uint256 public immutable borrowRate; // per-second simple rate, WAD
+    uint256 public immutable maxLtv; // WAD
+    uint256 public immutable liqLtv; // WAD
+    uint256 public immutable liqBonus; // WAD
     uint256 public immutable startTime;
 
     struct Position {
         address owner;
-        uint256 shares;          // 4626 shares held as collateral
-        uint256 baselineAssets;  // collateral cost basis (yield = value above this)
-        uint256 debtScaled;      // debt / index, fixed until principal changes
+        uint256 shares;
+        uint256 baselineAssets; // collateral cost basis (yield = value above this)
+        uint256 debtScaled; // debt / index
     }
 
     uint256 public nextPositionId;
     mapping(uint256 => Position) public positions;
 
-    // Lender-side pooled accounting.
     uint256 public totalLendShares;
     mapping(address => uint256) public lendShares;
-    uint256 public totalDebtScaled; // aggregate debt / index
-    uint256 public totalCash;       // internally tracked idle lendable assets
+    uint256 public totalDebtScaled;
+    uint256 public totalCash; // internally tracked idle lendable assets
 
     event Supplied(address indexed lender, uint256 assets, uint256 shares);
     event Withdrawn(address indexed lender, uint256 assets, uint256 shares);
@@ -90,6 +96,7 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
     error LtvExceeded();
     error InsufficientCash();
     error NotLiquidatable();
+    error TransferFailed();
 
     constructor(
         address collateralVault_,
@@ -100,11 +107,9 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
     ) {
         if (collateralVault_ == address(0)) revert BadParams();
         if (maxLtv_ == 0 || maxLtv_ >= liqLtv_ || liqLtv_ >= WAD) revert BadParams();
-        // Bound borrowRate so index = WAD + rate*dt cannot overflow for any
-        // realistic timestamp, and cap the liquidation bonus at a sane level.
         if (borrowRate_ > 1e12 || liqBonus_ > 0.5e18) revert BadParams();
-        collateralVault = IERC4626(collateralVault_);
-        asset = IERC20(collateralVault.asset());
+        collateralVault = IVault4626(collateralVault_);
+        asset = IVaultToken(IVault4626(collateralVault_).asset());
         borrowRate = borrowRate_;
         maxLtv = maxLtv_;
         liqLtv = liqLtv_;
@@ -112,49 +117,49 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         startTime = block.timestamp;
     }
 
-    // ---------------------------------------------------------------- lenders
+    /*////////////////////////////////////////////////////////////
+                                 LENDERS
+    ////////////////////////////////////////////////////////////*/
 
     function supply(uint256 assets_) external nonReentrant returns (uint256 shares) {
         if (assets_ == 0) revert ZeroAmount();
         uint256 pool = poolAssets();
-        shares = Math.mulDiv(assets_, totalLendShares + VIRTUAL, pool + VIRTUAL);
+        shares = _mulDiv(assets_, totalLendShares + VIRTUAL, pool + VIRTUAL);
         if (shares == 0) revert ZeroShares();
         totalLendShares += shares;
         lendShares[msg.sender] += shares;
         totalCash += assets_;
-        asset.safeTransferFrom(msg.sender, address(this), assets_);
+        _safeTransferFromAsset(msg.sender, address(this), assets_);
         emit Supplied(msg.sender, assets_, shares);
     }
 
     function withdraw(uint256 shares) external nonReentrant returns (uint256 assets_) {
         if (shares == 0 || shares > lendShares[msg.sender]) revert ZeroAmount();
-        assets_ = Math.mulDiv(shares, poolAssets() + VIRTUAL, totalLendShares + VIRTUAL);
+        assets_ = _mulDiv(shares, poolAssets() + VIRTUAL, totalLendShares + VIRTUAL);
         if (assets_ > totalCash) revert InsufficientCash();
         lendShares[msg.sender] -= shares;
         totalLendShares -= shares;
         totalCash -= assets_;
-        asset.safeTransfer(msg.sender, assets_);
+        _safeTransferAsset(msg.sender, assets_);
         emit Withdrawn(msg.sender, assets_, shares);
     }
 
-    /// @notice Idle lendable assets on hand (internally tracked, donation-proof).
     function cash() public view returns (uint256) {
         return totalCash;
     }
 
-    /// @notice Total lender claim: idle cash + outstanding debt owed back.
     function poolAssets() public view returns (uint256) {
         return totalCash + totalDebtAssets();
     }
 
-    /// @notice Aggregate outstanding debt including accrued interest.
     function totalDebtAssets() public view returns (uint256) {
-        return Math.mulDiv(totalDebtScaled, _index(), WAD);
+        return _mulDiv(totalDebtScaled, _index(), WAD);
     }
 
-    // -------------------------------------------------------------- positions
+    /*////////////////////////////////////////////////////////////
+                                POSITIONS
+    ////////////////////////////////////////////////////////////*/
 
-    /// @notice Deposit 4626 shares as collateral and borrow the underlying asset.
     function openPosition(uint256 shares, uint256 borrowAssets)
         external
         nonReentrant
@@ -165,39 +170,32 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         if (borrowAssets * WAD > value * maxLtv) revert LtvExceeded();
         if (borrowAssets > totalCash) revert InsufficientCash();
 
-        uint256 scaled = _toScaled(borrowAssets, false);
+        uint256 scaled = _mulDiv(borrowAssets, WAD, _index());
         id = nextPositionId++;
-        positions[id] = Position({
-            owner: msg.sender,
-            shares: shares,
-            baselineAssets: value,
-            debtScaled: scaled
-        });
+        positions[id] =
+            Position({owner: msg.sender, shares: shares, baselineAssets: value, debtScaled: scaled});
         totalDebtScaled += scaled;
         totalCash -= borrowAssets;
 
-        IERC20(address(collateralVault)).safeTransferFrom(msg.sender, address(this), shares);
-        if (borrowAssets > 0) asset.safeTransfer(msg.sender, borrowAssets);
+        _safeTransferFromShares(msg.sender, address(this), shares);
+        if (borrowAssets > 0) _safeTransferAsset(msg.sender, borrowAssets);
         emit PositionOpened(id, msg.sender, shares, borrowAssets);
     }
 
-    /// @notice Add collateral to an existing position (improve its health).
     function addCollateral(uint256 id, uint256 shares) external nonReentrant {
         if (shares == 0) revert ZeroAmount();
         Position storage p = positions[id];
         if (p.owner == address(0)) revert NotOwner();
         p.shares += shares;
         p.baselineAssets += collateralVault.convertToAssets(shares);
-        IERC20(address(collateralVault)).safeTransferFrom(msg.sender, address(this), shares);
+        _safeTransferFromShares(msg.sender, address(this), shares);
         emit CollateralAdded(id, shares);
     }
 
-    /// @notice Permissionless: apply the collateral's earned yield to its own debt.
     function amortize(uint256 id) public nonReentrant returns (uint256 applied) {
         applied = _amortize(id);
     }
 
-    /// @notice Manually repay debt with external assets.
     function repay(uint256 id, uint256 assets_) external nonReentrant {
         if (assets_ == 0) revert ZeroAmount();
         Position storage p = positions[id];
@@ -206,12 +204,10 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         if (assets_ > d) assets_ = d;
         _reduceDebt(p, assets_);
         totalCash += assets_;
-        asset.safeTransferFrom(msg.sender, address(this), assets_);
+        _safeTransferFromAsset(msg.sender, address(this), assets_);
         emit Repaid(id, assets_);
     }
 
-    /// @notice Withdraw collateral shares. Free once debt is zero; otherwise the
-    ///         remaining collateral must keep the position within maxLtv.
     function withdrawCollateral(uint256 id, uint256 shares) external nonReentrant {
         Position storage p = positions[id];
         if (p.owner != msg.sender) revert NotOwner();
@@ -221,18 +217,15 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         uint256 remaining = p.shares - shares;
         uint256 remainingValue = collateralVault.convertToAssets(remaining);
         if (d > 0 && d * WAD > remainingValue * maxLtv) revert LtvExceeded();
-        // Reduce cost basis proportionally to principal removed (no ratchet).
-        p.baselineAssets = p.shares == 0 ? 0 : Math.mulDiv(p.baselineAssets, remaining, p.shares);
+        p.baselineAssets = p.shares == 0 ? 0 : _mulDiv(p.baselineAssets, remaining, p.shares);
         p.shares = remaining;
-        IERC20(address(collateralVault)).safeTransfer(msg.sender, shares);
+        _safeTransferShares(msg.sender, shares);
         emit CollateralWithdrawn(id, shares);
     }
 
-    /// @notice Liquidate an undercollateralized position: repay up to `repayAssets`
-    ///         of its debt, seize collateral worth repay * (1 + liqBonus). Yield is
-    ///         amortized first, so positions are never liquidated on stale yield.
-    ///         If collateral is exhausted with debt remaining, the shortfall is
-    ///         written off against the lender pool.
+    /// @notice Liquidate an undercollateralized position: repay up to `repayAssets`,
+    ///         seize collateral worth repay*(1+liqBonus). Yield is amortized first.
+    ///         Shortfall (collateral gone, debt remaining) is written off against lenders.
     function liquidate(uint256 id, uint256 repayAssets) external nonReentrant {
         _amortize(id);
         Position storage p = positions[id];
@@ -249,10 +242,9 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         _reduceDebt(p, repayAmt);
         totalCash += repayAmt;
         uint256 remaining = p.shares - seizeShares;
-        p.baselineAssets = p.shares == 0 ? 0 : Math.mulDiv(p.baselineAssets, remaining, p.shares);
+        p.baselineAssets = p.shares == 0 ? 0 : _mulDiv(p.baselineAssets, remaining, p.shares);
         p.shares = remaining;
 
-        // Bad-debt writeoff: collateral gone but debt remains → socialize the loss.
         if (p.shares == 0 && p.debtScaled > 0) {
             uint256 writeoff = debtOf(id);
             uint256 scaled = p.debtScaled;
@@ -261,26 +253,28 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
             emit BadDebtWrittenOff(id, writeoff);
         }
 
-        asset.safeTransferFrom(msg.sender, address(this), repayAmt);
-        IERC20(address(collateralVault)).safeTransfer(msg.sender, seizeShares);
+        _safeTransferFromAsset(msg.sender, address(this), repayAmt);
+        _safeTransferShares(msg.sender, seizeShares);
         emit Liquidated(id, msg.sender, repayAmt, seizeShares);
     }
 
-    // ------------------------------------------------------------------ views
+    /*////////////////////////////////////////////////////////////
+                                  VIEWS
+    ////////////////////////////////////////////////////////////*/
 
-    /// @notice Current debt of a position including accrued interest.
     function debtOf(uint256 id) public view returns (uint256) {
-        return Math.mulDiv(positions[id].debtScaled, _index(), WAD);
+        return _mulDiv(positions[id].debtScaled, _index(), WAD);
     }
 
-    /// @notice Yield earned by the collateral above its cost basis.
     function pendingYield(uint256 id) public view returns (uint256) {
         Position storage p = positions[id];
         uint256 cur = collateralVault.convertToAssets(p.shares);
         return cur > p.baselineAssets ? cur - p.baselineAssets : 0;
     }
 
-    // -------------------------------------------------------------- internals
+    /*////////////////////////////////////////////////////////////
+                                INTERNALS
+    ////////////////////////////////////////////////////////////*/
 
     function _amortize(uint256 id) internal returns (uint256 applied) {
         Position storage p = positions[id];
@@ -290,8 +284,6 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         if (cur <= p.baselineAssets) return 0;
         uint256 surplus = cur - p.baselineAssets;
         applied = surplus > d ? d : surplus;
-        // Never ask the 4626 for more than it can currently service, or the whole
-        // call (including any liquidation that ran amortize first) would revert.
         uint256 maxOut = collateralVault.maxWithdraw(address(this));
         if (applied > maxOut) applied = maxOut;
         if (applied == 0) return 0;
@@ -299,26 +291,93 @@ contract SuwappuAmortizingVault is ReentrancyGuard {
         p.shares -= burned;
         _reduceDebt(p, applied);
         totalCash += applied;
-        // Basis unchanged: we harvested pure yield (value above basis).
         emit Amortized(id, applied, debtOf(id));
     }
 
     function _reduceDebt(Position storage p, uint256 assets_) internal {
-        // Round the scaled reduction up so a full-debt repayment always zeroes out.
-        uint256 scaled = _toScaled(assets_, true);
+        uint256 scaled = _mulDivUp(assets_, WAD, _index());
         if (scaled > p.debtScaled) scaled = p.debtScaled;
         p.debtScaled -= scaled;
         totalDebtScaled -= scaled > totalDebtScaled ? totalDebtScaled : scaled;
     }
 
-    /// @dev assets → scaled debt units at the current index; `roundUp` for reductions.
-    function _toScaled(uint256 assets_, bool roundUp) internal view returns (uint256) {
-        uint256 idx = _index();
-        return roundUp ? Math.mulDiv(assets_, WAD, idx, Math.Rounding.Ceil) : Math.mulDiv(assets_, WAD, idx);
-    }
-
     /// @dev Linear (simple-interest) index, a pure function of elapsed time.
     function _index() internal view returns (uint256) {
         return WAD + borrowRate * (block.timestamp - startTime);
+    }
+
+    /*////////////////////////////////////////////////////////////
+                        SAFE ERC-20 (inlined, no lib)
+    ////////////////////////////////////////////////////////////*/
+    function _safeTransferAsset(address to, uint256 amount) private {
+        _safeCall(address(asset), abi.encodeWithSelector(IVaultToken.transfer.selector, to, amount));
+    }
+
+    function _safeTransferFromAsset(address from, address to, uint256 amount) private {
+        _safeCall(address(asset), abi.encodeWithSelector(IVaultToken.transferFrom.selector, from, to, amount));
+    }
+
+    function _safeTransferShares(address to, uint256 amount) private {
+        _safeCall(address(collateralVault), abi.encodeWithSelector(IVaultToken.transfer.selector, to, amount));
+    }
+
+    function _safeTransferFromShares(address from, address to, uint256 amount) private {
+        _safeCall(
+            address(collateralVault),
+            abi.encodeWithSelector(IVaultToken.transferFrom.selector, from, to, amount)
+        );
+    }
+
+    function _safeCall(address token, bytes memory payload) private {
+        (bool ok, bytes memory data) = token.call(payload);
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
+    }
+
+    /*////////////////////////////////////////////////////////////
+                                   MATH
+    ////////////////////////////////////////////////////////////*/
+
+    function _mulDivUp(uint256 x, uint256 y, uint256 d) internal pure returns (uint256 z) {
+        z = _mulDiv(x, y, d);
+        if (mulmod(x, y, d) != 0) z += 1;
+    }
+
+    /// @dev 512-bit multiply-then-divide (Remco Bloemen, MIT).
+    function _mulDiv(uint256 x, uint256 y, uint256 denominator) internal pure returns (uint256 result) {
+        unchecked {
+            uint256 prod0;
+            uint256 prod1;
+            assembly {
+                let mm := mulmod(x, y, not(0))
+                prod0 := mul(x, y)
+                prod1 := sub(sub(mm, prod0), lt(mm, prod0))
+            }
+            if (prod1 == 0) {
+                require(denominator > 0, "DIV_ZERO");
+                return prod0 / denominator;
+            }
+            require(denominator > prod1, "MULDIV_OVERFLOW");
+            uint256 remainder;
+            assembly {
+                remainder := mulmod(x, y, denominator)
+                prod1 := sub(prod1, gt(remainder, prod0))
+                prod0 := sub(prod0, remainder)
+            }
+            uint256 twos = denominator & (~denominator + 1);
+            assembly {
+                denominator := div(denominator, twos)
+                prod0 := div(prod0, twos)
+                twos := add(div(sub(0, twos), twos), 1)
+            }
+            prod0 |= prod1 * twos;
+            uint256 inverse = (3 * denominator) ^ 2;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            inverse *= 2 - denominator * inverse;
+            result = prod0 * inverse;
+        }
     }
 }

@@ -145,6 +145,13 @@ PROTOCOL_WALLET_PRIVATE_KEY=...   # Signs distribution txs (use KMS in prod)
 Immutable, oracle-free, governance-free "deploy-once-run-forever" building blocks
 in the spirit of Uniswap v1 / Ajna. No owner, no pause, no upgrade path.
 
+**Zero dependencies.** Each primitive is a single self-contained `.sol` file with
+**no imports** — the ERC-20 (for the curve token), reentrancy guard, safe-transfer
+(handles non-standard tokens), 512-bit `mulDiv`, and `wadExp` are all inlined. Each
+compiles standalone with `solc` alone (no OpenZeppelin, no remappings, no libs), so
+there is no transitive supply-chain surface and the deployed bytecode is fully
+auditable from one file.
+
 ### `SuwappuTimeCurve.sol` — Time-Locked Continuous Bonding Curve
 The contract is itself the curve token (mint on buy, burn on sell) against one
 ERC-20 reserve. Price is a pure function of time and supply:

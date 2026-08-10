@@ -159,6 +159,28 @@ contract TimeCurveTest is Test {
         c.buy(1e18, type(uint256).max);
     }
 
+    function testCurveTokenIsAWorkingERC20() public {
+        vm.prank(alice);
+        curve.buy(100e18, type(uint256).max);
+        // transfer
+        vm.prank(alice);
+        curve.transfer(bob, 40e18);
+        assertEq(curve.balanceOf(alice), 60e18);
+        assertEq(curve.balanceOf(bob), 40e18);
+        // approve + transferFrom
+        vm.prank(bob);
+        curve.approve(alice, 25e18);
+        vm.prank(alice);
+        curve.transferFrom(bob, alice, 25e18);
+        assertEq(curve.balanceOf(alice), 85e18);
+        assertEq(curve.allowance(bob, alice), 0);
+        assertEq(curve.decimals(), 18);
+        // insufficient balance reverts
+        vm.prank(bob);
+        vm.expectRevert(bytes("BALANCE"));
+        curve.transfer(alice, 100e18);
+    }
+
     function testFuzzRoundTripNeverProfitable(uint96 amount) public {
         uint256 amt = bound(uint256(amount), 1e15, 100_000e18);
         usd.mint(alice, curve.quoteBuy(amt));

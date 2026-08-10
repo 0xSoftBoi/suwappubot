@@ -1,34 +1,46 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.27;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+/*//////////////////////////////////////////////////////////////////////////
+                SuwappuMutualCredit — Mutual Credit Clearing Network
 
-/**
- * @title SuwappuMutualCredit — Mutual Credit Clearing Network
- * @notice An immutable graph of bilateral credit lines with multilateral netting
- *         and no central counterparty, collateral, or price oracle.
- *
- *         - Any two addresses open a mutual credit line in any ERC-20 unit of
- *           account, with credit limits, fee rate, and settlement grace period
- *           fixed at opening (propose → accept handshake).
- *         - `pay()` moves value as credit along a line: the payer's debt to the
- *           payee grows (or the payee's debt to the payer shrinks), bounded only
- *           by the limit the payee chose to extend.
- *         - `netCycle()` is permissionless multilateral netting: anyone may
- *           submit a cycle A→B→C→…→A of outstanding obligations and reduce every
- *           leg by the cycle's minimum, so only residual balances ever need
- *           settlement.
- *         - Settlement is by real token transfer (`settle`). A creditor may
- *           `demandSettlement`; once the line's grace period lapses unpaid, the
- *           line can be marked defaulted — the only enforcement is the on-chain
- *           default record, on which reputation/insurance layers can build.
- *
- *         No owner, no upgrade path, no governance, no external price feeds.
- */
-contract SuwappuMutualCredit is ReentrancyGuard {
-    using SafeERC20 for IERC20;
+    An immutable, dependency-free graph of bilateral credit lines with
+    multilateral netting and no central counterparty, collateral, or oracle.
+
+    - Any two addresses open a mutual credit line in any ERC-20 unit of account,
+      with credit limits, fee rate, and settlement grace period fixed at opening
+      (propose → accept handshake).
+    - pay() moves value as credit along a line, bounded by the limit the payee
+      chose to extend.
+    - netCycle() is permissionless multilateral netting: anyone submits a cycle
+      A→B→…→A of obligations and reduces every leg by the cycle minimum, so only
+      residual balances ever need settlement.
+    - Settlement is by real token transfer (settle). A creditor may
+      demandSettlement; once the grace period lapses unpaid the line can be
+      marked defaulted — the enforcement is the on-chain default record, which
+      reputation/insurance layers can build on. Defaults stay settleable so a
+      debtor can cure.
+
+    No owner, no upgrade path, no governance, no price feeds, no imports.
+//////////////////////////////////////////////////////////////////////////*/
+
+/// @dev Minimal external-token interface (named to avoid clashing with any ERC20 lib).
+interface ICreditToken {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}
+
+contract SuwappuMutualCredit {
+    /*////////////////////////////////////////////////////////////
+                          REENTRANCY GUARD (inlined)
+    ////////////////////////////////////////////////////////////*/
+    uint256 private _lock = 1;
+
+    modifier nonReentrant() {
+        require(_lock == 1, "REENTRANT");
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
 
     uint256 private constant WAD = 1e18;
     /// @dev Per-second fee-rate ceiling ~= 50%/yr *nominal*. Interest is folded into
@@ -81,6 +93,7 @@ contract SuwappuMutualCredit is ReentrancyGuard {
     error NothingOwed();
     error GraceNotElapsed();
     error BadCycle();
+    error TransferFailed();
 
     // ---------------------------------------------------------------- opening
 
@@ -252,7 +265,7 @@ contract SuwappuMutualCredit is ReentrancyGuard {
         if (msg.sender == l.b) l.balance -= int256(amount);
         else l.balance += int256(amount);
         _clearDemandIfCovered(l);
-        IERC20(token).safeTransferFrom(msg.sender, creditor, amount);
+        _safeTransferFrom(token, msg.sender, creditor, amount);
         emit Settled(key, msg.sender, amount);
     }
 
@@ -324,5 +337,12 @@ contract SuwappuMutualCredit is ReentrancyGuard {
             l.demandTs = 0;
             l.demandBy = address(0);
         }
+    }
+
+    /// @dev Safe transferFrom for arbitrary ERC-20s (handles no-return-value tokens).
+    function _safeTransferFrom(address token, address from, address to, uint256 amount) private {
+        (bool ok, bytes memory data) =
+            token.call(abi.encodeWithSelector(ICreditToken.transferFrom.selector, from, to, amount));
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
     }
 }
