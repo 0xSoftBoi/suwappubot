@@ -6,6 +6,11 @@ learn something the hard way, add it here — one short entry beats re-learning 
 
 Format: **What** / **Why** / **Consequence if ignored**.
 
+Formal architecture choices (decisions with alternatives) live as ADRs in
+[`docs/adr/`](adr/README.md); this file is for lessons, gotchas, and incident
+learnings. The five foundational decisions below are also recorded as
+ADRs 0001–0005.
+
 ## Deployment & Operations
 
 ### Deploy target is Railway, not AWS

@@ -10,6 +10,7 @@ historical intent, not current behavior. Update this index when adding a doc.
 |-----|-----------|
 | [ONBOARDING.md](ONBOARDING.md) | New-contributor setup: env vars, run/test commands per component, CI gates |
 | [architecture/OVERVIEW.md](architecture/OVERVIEW.md) | Ground-truth system map: services, background tasks, request flows, data layer, chains/providers, key handling |
+| [adr/](adr/README.md) | Architecture Decision Records — append-only, merge-as-acceptance; required link on MONEY-PATH/cross-stack PRs |
 | [DECISIONS.md](DECISIONS.md) | Decision & lessons log — why things are the way they are; add to it when you learn something the hard way |
 | [DATAROOM.md](DATAROOM.md) | Source-of-truth product brief (chains, TVL, fee split, integrations — every claim cited) |
 
