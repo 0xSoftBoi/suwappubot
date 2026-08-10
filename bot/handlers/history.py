@@ -394,10 +394,14 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
     completed swap since phase 2 and nothing ever showed a user their own
     numbers. This is that surface.
 
-    The routing/market split from ExecutionReceipt is preserved verbatim here:
-    what we owe the user (realized vs quoted) is rendered apart from what the
-    market did afterwards (markout). Merging them into one score would let a
-    routing regression hide behind a volatile day.
+    The cost/market split from ExecutionReceipt is preserved verbatim here:
+    what the trade cost to cross (quoted spread + impact + fees) is rendered
+    apart from what the market did afterwards (markout). Merging them into one
+    "execution score" would let a routing regression hide behind a volatile day.
+
+    Note the cost line makes no claim about fill accuracy — the realized output
+    amount is not recorded yet, so that is not measurable. See the
+    ExecutionReceipt module docstring before relabelling anything here.
     """
     query = update.callback_query
     await query.answer()
@@ -459,11 +463,11 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
 
     lines += [
         "",
-        "*What we owe you*",
-        f"Quote vs fill: `{_fmt_bps(receipt['realized_vs_quoted_bps'])}`",
+        "*What this trade cost*",
+        f"Quoted cost: `{_fmt_bps(receipt['quoted_cost_bps'])}`",
     ]
-    if verdict.get("routing"):
-        lines.append(f"_{verdict['routing']}_")
+    if verdict.get("cost"):
+        lines.append(f"_{verdict['cost']}_")
 
     if verdict.get("market"):
         lines += ["", "*What the market did*", f"_{verdict['market']}_"]

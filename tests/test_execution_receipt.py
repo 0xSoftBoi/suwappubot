@@ -6,9 +6,11 @@ in the query — and "not yours" has to be indistinguishable from "does not
 exist", or the endpoint becomes an enumeration oracle for other people's
 trades.
 
-The second group guards the routing/market split. Collapsing realized-vs-quoted
-and markout into one number would let a routing regression hide behind a
-volatile day, so the verdict must keep them in separate fields.
+The second group guards the cost/market split and, more importantly, guards
+against the receipt re-acquiring a claim it cannot support. The underlying
+column is named ``realized_vs_quoted_bps`` but contains no realized fill data
+(see the ExecutionReceipt module docstring) — so the verdict must describe cost,
+never blame routing, until realized output amounts are actually recorded.
 """
 
 from contextlib import contextmanager
@@ -128,23 +130,31 @@ def test_unscored_swap_reports_pending_not_zero(receipt, session_factory):
     swap_id = _swap(session_factory, user_id=1)
     r = receipt.build(user_id=1, swap_id=swap_id)
     assert r["scored"] is False
-    assert r["realized_vs_quoted_bps"] is None
-    assert "Not scored yet" in r["verdict"]["routing"]
+    assert r["quoted_cost_bps"] is None
+    assert "Not scored yet" in r["verdict"]["cost"]
 
 
-def test_realized_bps_comes_from_earliest_horizon_carrying_it(receipt, session_factory):
+def test_cost_bps_comes_from_earliest_horizon_carrying_it(receipt, session_factory):
     swap_id = _swap(session_factory, user_id=1)
     _mark(session_factory, swap_id, "1h", realized=-30.0)
     _mark(session_factory, swap_id, "5m", realized=-12.0)
     r = receipt.build(user_id=1, swap_id=swap_id)
-    assert r["realized_vs_quoted_bps"] == -12.0
+    assert r["quoted_cost_bps"] == -12.0
 
 
-def test_shortfall_is_attributed_to_us(receipt, session_factory):
+def test_cost_is_described_not_blamed_on_routing(receipt, session_factory):
+    """The regression guard for the mislabelled column.
+
+    A -100bps figure here is mostly our own platform fee plus the spread. If
+    this ever renders as "that gap is ours", the receipt is accusing us of a
+    fill failure it has no data to support.
+    """
     swap_id = _swap(session_factory, user_id=1)
-    _mark(session_factory, swap_id, "5m", realized=-40.0)
+    _mark(session_factory, swap_id, "5m", realized=-100.0)
     verdict = receipt.build(user_id=1, swap_id=swap_id)["verdict"]
-    assert "ours" in verdict["routing"]
+    assert "cost about 100 bps to cross" in verdict["cost"]
+    assert "ours" not in verdict["cost"]
+    assert "routing" not in verdict["cost"]
 
 
 def test_adverse_price_move_is_attributed_to_the_market(receipt, session_factory):
@@ -152,15 +162,15 @@ def test_adverse_price_move_is_attributed_to_the_market(receipt, session_factory
     _mark(session_factory, swap_id, "5m", realized=0.0, markout=-60.0)
     verdict = receipt.build(user_id=1, swap_id=swap_id)["verdict"]
     assert "the market, not the route" in verdict["market"]
-    # Crucially, the market's move must NOT contaminate the routing verdict.
-    assert "ours" not in verdict["routing"]
+    # Crucially, the market's move must NOT contaminate the cost verdict.
+    assert "market" not in verdict["cost"]
 
 
 def test_noise_is_not_reported_as_a_finding(receipt, session_factory):
     swap_id = _swap(session_factory, user_id=1)
     _mark(session_factory, swap_id, "5m", realized=-1.0)
     verdict = receipt.build(user_id=1, swap_id=swap_id)["verdict"]
-    assert "matched the quote" in verdict["routing"]
+    assert "close to flat" in verdict["cost"]
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +178,11 @@ def test_noise_is_not_reported_as_a_finding(receipt, session_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_quote_timing_caveat_is_always_present(receipt, session_factory):
-    """We under-report our own slippage; every receipt must say so."""
+def test_cost_basis_caveat_is_always_present(receipt, session_factory):
+    """Every receipt must disclaim that fill accuracy is not measured."""
     swap_id = _swap(session_factory, user_id=1)
     r = receipt.build(user_id=1, swap_id=swap_id)
-    assert any("re-quote" in c for c in r["caveats"])
+    assert any("not a measure of whether the fill matched" in c for c in r["caveats"])
 
 
 def test_counterfactual_absent_without_rejected_routes(receipt, session_factory):

@@ -17,7 +17,7 @@ a live fee leaderboard (`/fees/`, 1,382 protocol families, DefiLlama-sourced, ro
 |---|---|---|
 | "We route to 7 of the top 10 fee leaders" | **Misleading.** 4 of the 10 aren't app fees at all | Rewritten — §1 |
 | D1 unified dollar balance | **Partly obsolete.** Circle Gateway shipped this as free infra (Aug 2025) | Rescoped — §3 |
-| D2 execution receipts | **Confirmed, and stronger than we thought.** Zero competitors do it | Promoted to #1 — §3 |
+| D2 execution receipts | **Confirmed** (zero competitors do it) — but the metric behind it was mislabelled | Shipped, corrected — §3, §3.0 |
 | D3 exit-first launch loop | Holds | Kept — §3 |
 | D4 Lido / LSTs | **Killed.** Worse yield, worst-documented integrator economics of the three | Dropped — §3 |
 
@@ -130,27 +130,56 @@ Two real gaps before P1a is done, both small but load-bearing:
 1. **There is no per-swap receipt.** The live route is *pair-level* (`from_token`, `to_token`,
    `window_days`) — "how do you do on this pair vs peers," not "here is what happened on this
    fill." The receipt is new surface on top of existing marks.
-2. **Quoted price is snapshotted at execution, not at quote-request.**
-   `swap_engine.py:3803–3806` computes `from_amount_usd`/`to_amount_usd` inside `execute_swap()`
-   just before signing — which does cover every entry point (Telegram, WhatsApp, agent API,
-   orders, copy trading all funnel through that one choke point, `:3798`). But it means a
-   re-quote between the user seeing a number and the tx going out is invisible to
-   `realized_vs_quoted_bps`. **We would be under-reporting our own slippage** — safe direction
-   for a marketing claim, wrong direction for a bonded guarantee. Fix before P1b.
+2. **The headline metric is mislabelled and measures something else entirely.** Found while
+   building P1a; it is serious enough to have its own section — see **§3.0** below. Short version:
+   `realized_vs_quoted_bps` contains no realized fill data, so quote-vs-fill accuracy is currently
+   unmeasurable and P1b is blocked on data collection, not on spec.
 
-The `realized_vs_quoted` / `markout` split is the actual insight and it is already implemented:
-one is *our* fault (routing, slippage tolerance, bridge behaviour), the other is *the market's*
-(adverse selection). Market-maker desks decompose exactly this way internally — it is standard
-practice, correctly named ("markout" is the right term of art, multi-horizon is standard) — and
-**it is published to end users nowhere, in crypto or TradFi.**
+The cost / markout split is what the receipt actually ships: what the trade cost to cross,
+kept apart from what the market did afterwards. `markout` is the genuinely measured half, and
+market-maker desks decompose exactly this way internally — standard practice, correctly named
+(multi-horizon markout is the term of art) — and **it is published to end users nowhere, in
+crypto or TradFi.** The intended third component, fill-vs-quote accuracy, needs §3.0 built first.
 
 Staging:
-- **P1a (read-only):** per-swap execution receipt + wire the existing `/execution/benchmark`
-  endpoint into a client. No payout, no money-path risk. This is mostly UI on shipped backend.
+- **P1a (read-only):** per-swap execution receipt. **Shipped** — `execution_receipt.py`,
+  `GET /webapp/execution/receipt/{swap_id}`, Receipt buttons on `/hx`. No payout, no money-path
+  risk.
 - **P1b (bonded):** stated tolerance up front, automatic compensation when a fill misses it.
   Needs a spec before any builder touches it (see §3.1) and `money-path-reviewer` (opus) sign-off.
 - Cross-chain is where this bites hardest — slippage and bridge risk are worst there and user
   trust is lowest, which is exactly where we have coverage nobody else does (Opening B).
+
+#### 3.0 CORRECTION (found while building P1a): the metric does not measure what it is named
+
+`swap_execution_marks.realized_vs_quoted_bps` **contains no realized fill data.** The scorer
+computes it as `_bps(swap.to_amount_usd, swap.from_amount_usd)`, and both sides are written once
+in `execute_swap()` (`swap_engine.py:3803–3806`) from the *quote's expected* amounts. Nothing in
+the codebase ever updates `to_amount_usd` with the amount actually received — grep confirms it.
+
+So the figure is the **quoted round-trip cost** of a trade: DEX spread + price impact + our own
+platform fee + priced-in bridge fees. It is a real number. It is not a measure of execution
+quality, and it cannot answer "did we deliver the quote."
+
+This supersedes the quote-timing gap noted earlier in this section — that was the smaller half of
+the problem. Consequences:
+
+1. **P1a shipped describing cost, not fill accuracy.** The receipt renders `quoted_cost_bps` and
+   explicitly disclaims fill-accuracy measurement. The near-miss was real: FREE-tier fee alone is
+   100 bps, so a naive rendering would have told nearly every user "you received ~100 bps less
+   than quoted — that gap is ours," accusing ourselves of a fill failure on evidence of our own
+   disclosed fee. A regression test pins the wording.
+2. **`markout_bps` is unaffected and remains genuine.** It compares live observed prices across
+   horizons, so post-fill drift is real measurement. The honest half of the pipeline.
+3. **The cohort percentile ranks quoted cost**, not execution skill. Still a usable signal — worse
+   routing and larger size do cost more — but the benchmark's own docstrings overclaim.
+4. **P1b is blocked on data that does not exist**, not on spec. Bonded compensation needs realized
+   fill amounts parsed from on-chain receipts, per chain. That is a real project (per-chain log
+   parsing across 45 chains), not a refinement. Nothing may pay out off the current number.
+
+**The competitive gap in §2 is unchanged and arguably widens** — nobody publishes execution
+quality partly because measuring it properly is harder than it looks. We now know exactly what it
+costs us to get there.
 
 #### 3.1 P1b is novel, but the novelty is the *combination* — and it has teeth
 
@@ -270,8 +299,9 @@ Fails all three → it's a wish, not a plan.
 1. **P1a execution receipts** (read-only) — the one thing no competitor has, on a pipeline already
    running in production with zero clients. Highest ratio of differentiation to work on this page.
 2. **P2 exit-first launch loop** — cheapest, defends the fastest-growing legitimate fee category.
-3. **Fix the quote-snapshot timing** (`swap_engine.py:3803`) — capture quote-request price, not
-   execution-time price. Small, and it gates P1b's honesty.
+3. **Record realized output amounts** — parse the actual received amount from on-chain
+   receipts and persist it, so quote-vs-fill becomes measurable at all (§3.0). This is the real
+   prerequisite for every execution-quality claim, and it is per-chain work, not a small fix.
 4. **P3 corridor rescope** — evaluate Circle Gateway + USDT0 as rails; ship unified-balance UX on
    top. MONEY-PATH review required.
 5. **P1b bonded compensation** — only after 1–4. Spec first (`suwappu-lead`): quote-snapshot

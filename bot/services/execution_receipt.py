@@ -1,36 +1,52 @@
 """Per-swap execution receipt (execution intelligence phase 4).
 
 WHY THIS EXISTS. Phases 2 and 3 built the measurement — ``execution_scorer``
-records realized-vs-quoted and markout at fixed horizons, ``execution_benchmark``
-turns pooled marks into k-anonymous cohort percentiles. Both have been running
-in production against every completed swap. Neither was ever shown to the person
-whose trade it was.
+writes marks for every completed swap, ``execution_benchmark`` turns pooled
+marks into k-anonymous cohort percentiles. Both have been running in
+production. Neither was ever shown to the person whose trade it was.
 
-This module answers one question for one fill: *what actually happened to my
-swap, and was that us or the market?* It composes the existing services rather
-than recomputing anything.
+READ THIS BEFORE CHANGING ANY LABEL IN HERE.
 
-THE SPLIT IS THE POINT, AND IT MUST SURVIVE INTO THE UI.
+The column ``swap_execution_marks.realized_vs_quoted_bps`` does NOT contain
+what its name says. The scorer computes it as::
 
-  * ``realized_vs_quoted_bps`` is OURS. Routing choice, slippage tolerance,
-    bridge behaviour. A bad number here is a bug we own.
-  * ``markout_bps`` is THE MARKET'S. The price moved after the fill; nobody
-    routed that. A bad number here is a warning to give the user, not a defect.
+    _bps(swap.to_amount_usd, swap.from_amount_usd)
 
-Collapsing the two into one "execution score" would be the easy thing and the
-wrong thing: it would let a routing regression hide behind a volatile week, and
-it would blame us for adverse selection we did not cause.
+and BOTH sides are written once, in ``execute_swap()``, from the *quote's*
+expected amounts (``swap_engine.py:3803-3806``). Nothing anywhere updates
+``to_amount_usd`` with the amount actually received — grep it. So the figure
+carries no realized fill data at all. What it actually measures is the
+**quoted round-trip cost** of the trade: DEX spread + price impact + our own
+platform fee + priced-in bridge fees, as quoted.
 
-HONESTY CONSTRAINTS (do not quietly relax these):
+That distinction is not pedantic. Our FREE-tier fee alone is 100 bps, so this
+number is large and negative on almost every swap. Rendering it as "you
+received less than the quote promised — that gap is ours" would tell users we
+botched their fill when what they are looking at is mostly the spread and the
+fee they already agreed to. This module therefore surfaces it as
+``quoted_cost_bps`` and says what it is.
 
-  1. The quoted baseline is snapshotted inside ``execute_swap()``, immediately
-     before signing — NOT at the moment the user was shown a number. Any
-     re-quote drift between those two points is invisible here, which means
-     this receipt UNDER-reports our own slippage. Safe for reporting, not safe
-     as the trigger for a payout. ``caveats`` says so on every receipt.
-  2. Counterfactual route comparisons are modeled, never observed. No one can
+Measuring true quote-vs-fill accuracy requires recording the realized output
+amount from the on-chain receipt, per chain. That does not exist yet. Until it
+does, this receipt must not claim to grade our own execution, and no payout may
+be triggered off this number.
+
+WHAT IS HONEST HERE:
+
+  * ``quoted_cost_bps`` — the cost of crossing this trade, as quoted. Real,
+    just not a measure of fill accuracy.
+  * ``markout_bps`` — genuinely post-trade. The scorer compares live observed
+    prices at later horizons against the earliest mark, so this really does
+    measure how the fill aged. Attributable to the market, not to routing.
+
+Keeping those two apart is the point. One is what the trade cost you; the
+other is what the market did afterwards.
+
+OTHER HONESTY CONSTRAINTS (do not quietly relax these):
+
+  1. Counterfactual route comparisons are modeled, never observed. No one can
      know what a route that did not execute would have realized.
-  3. Cohort suppression is delegated to ``execution_benchmark``, whose query
+  2. Cohort suppression is delegated to ``execution_benchmark``, whose query
      layer enforces the k-anonymity floor. This module never queries cohort
      rows itself, so it cannot bypass that floor by forgetting to check.
 
@@ -55,9 +71,10 @@ HORIZON_ORDER = ["5m", "1h", "24h"]
 # Used only for the plain-English verdict; raw numbers are always returned.
 NOISE_FLOOR_BPS = 5.0
 
-_QUOTE_TIMING_CAVEAT = (
-    "The quoted baseline is captured just before broadcast, not when you were "
-    "first shown a price, so any re-quote in between is not counted here."
+_COST_BASIS_CAVEAT = (
+    "This is the cost of the trade as quoted — spread, price impact and fees. "
+    "It is not a measure of whether the fill matched the quote: the amount "
+    "actually received is not yet recorded, so that cannot be measured today."
 )
 _COUNTERFACTUAL_CAVEAT = (
     "Alternative routes are modeled from their quotes — nobody can know what "
@@ -108,7 +125,8 @@ class ExecutionReceipt:
             by_horizon = {
                 m.horizon: {
                     "horizon": m.horizon,
-                    "realized_vs_quoted_bps": m.realized_vs_quoted_bps,
+                    # Renamed on the way out: the column name overclaims.
+                    "quoted_cost_bps": m.realized_vs_quoted_bps,
                     "markout_bps": m.markout_bps,
                     "to_token_price_usd": m.to_token_price_usd,
                     "fill_price_usd": m.fill_price_usd,
@@ -134,25 +152,21 @@ class ExecutionReceipt:
 
         ordered_marks = [by_horizon[h] for h in HORIZON_ORDER if h in by_horizon]
 
-        # realized-vs-quoted is knowable the instant the swap completes, so the
-        # earliest horizon carrying it is the authoritative value. Later
-        # horizons re-record it only for self-containment.
-        realized_bps = next(
-            (
-                m["realized_vs_quoted_bps"]
-                for m in ordered_marks
-                if m["realized_vs_quoted_bps"] is not None
-            ),
+        # The cost figure is fixed at completion, so the earliest horizon
+        # carrying it is authoritative; later horizons re-record it only for
+        # self-containment. (Column name is historical — see module docstring.)
+        cost_bps = next(
+            (m["quoted_cost_bps"] for m in ordered_marks if m["quoted_cost_bps"] is not None),
             None,
         )
 
         receipt: dict[str, Any] = {
             **shape,
             "scored": bool(ordered_marks),
-            "realized_vs_quoted_bps": realized_bps,
+            "quoted_cost_bps": cost_bps,
             "marks": ordered_marks,
             "counterfactual": self._counterfactual(routes),
-            "caveats": [_QUOTE_TIMING_CAVEAT],
+            "caveats": [_COST_BASIS_CAVEAT],
         }
         if receipt["counterfactual"]:
             receipt["caveats"].append(_COUNTERFACTUAL_CAVEAT)
@@ -170,7 +184,7 @@ class ExecutionReceipt:
             logger.warning(f"[execution_receipt] benchmark failed for swap {swap_id}: {e}")
             receipt["benchmark"] = None
 
-        receipt["verdict"] = self._verdict(realized_bps, ordered_marks)
+        receipt["verdict"] = self._verdict(cost_bps, ordered_marks)
         return receipt
 
     def _counterfactual(self, routes: list[dict]) -> Optional[dict[str, Any]]:
@@ -199,28 +213,31 @@ class ExecutionReceipt:
             "modeled": True,
         }
 
-    def _verdict(self, realized_bps: Optional[float], marks: list[dict]) -> dict[str, Any]:
-        """Plain-English read, keeping our fault and the market's apart."""
-        parts: dict[str, Any] = {"routing": None, "market": None}
+    def _verdict(self, cost_bps: Optional[float], marks: list[dict]) -> dict[str, Any]:
+        """Plain-English read, keeping trade cost and market drift apart.
 
-        if realized_bps is None:
-            parts["routing"] = (
-                "Not scored yet — execution marks land a few minutes after a swap completes."
+        The ``cost`` line deliberately does not assign blame. Until realized
+        fill amounts are recorded there is no way to tell a wide spread from a
+        bad route, and guessing would put words in the data's mouth.
+        """
+        parts: dict[str, Any] = {"cost": None, "market": None}
+
+        if cost_bps is None:
+            parts["cost"] = "Not scored yet — marks land a few minutes after a swap completes."
+        elif cost_bps <= -NOISE_FLOOR_BPS:
+            parts["cost"] = (
+                f"This trade cost about {abs(cost_bps):.0f} bps to cross, as quoted — "
+                f"spread, price impact and fees combined."
             )
-        elif realized_bps >= NOISE_FLOOR_BPS:
-            parts["routing"] = (
-                f"You received about {realized_bps:.0f} bps MORE than the quote promised."
-            )
-        elif realized_bps <= -NOISE_FLOOR_BPS:
-            parts["routing"] = (
-                f"You received about {abs(realized_bps):.0f} bps less than the quote "
-                f"promised. That gap is ours — routing, slippage tolerance, or bridge behaviour."
+        elif cost_bps >= NOISE_FLOOR_BPS:
+            parts["cost"] = (
+                f"The quote had you coming out about {cost_bps:.0f} bps ahead on " f"USD value."
             )
         else:
-            parts["routing"] = "The fill matched the quote, within measurement noise."
+            parts["cost"] = "The quote was close to flat on USD value."
 
-        # Markout reads from the longest horizon that has one — the short
-        # horizons are too noisy to call adverse selection on.
+        # Markout reads from the longest horizon that has one — short horizons
+        # are too noisy to call drift on. This one IS post-trade observation.
         aged = [m for m in marks if m["markout_bps"] is not None]
         if aged:
             last = aged[-1]
