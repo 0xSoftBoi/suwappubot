@@ -112,8 +112,21 @@ def main():
     month_file = os.path.join(
         JOURNAL_DIR, datetime.now(timezone.utc).strftime("%Y-%m") + ".jsonl"
     )
-    with open(month_file, "a") as fh:
-        fh.write(line + "\n")
+    # Upsert, don't append: Stop fires on every turn-end, and one line per
+    # stop turns long sessions into commit churn (evolve evidence: 6 identical
+    # "harness(journal)" commits on 2026-08-10). Keep exactly one record per
+    # session id — the latest totals supersede earlier partials.
+    existing = []
+    if os.path.exists(month_file):
+        with open(month_file, errors="replace") as fh:
+            for raw in fh:
+                try:
+                    if json.loads(raw).get("session") != record["session"]:
+                        existing.append(raw.rstrip("\n"))
+                except json.JSONDecodeError:
+                    continue
+    with open(month_file, "w") as fh:
+        fh.write("\n".join(existing + [line]) + "\n")
 
 
 if __name__ == "__main__":
