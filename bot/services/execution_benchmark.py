@@ -62,22 +62,16 @@ def _median(values: list[float]) -> Optional[float]:
 class ExecutionBenchmark:
     """Cohort execution statistics with a hard k-anonymity floor."""
 
-    def cohort_stats(
-        self,
-        from_token: str,
-        to_token: str,
-        window_days: int = DEFAULT_WINDOW_DAYS,
-    ) -> dict[str, Any]:
-        """Aggregate realized-vs-quoted for one trade shape.
+    def _cohort_rows(self, from_token: str, to_token: str, window_days: int) -> list[tuple]:
+        """Every (user_id, bps) pair for one trade shape in the window.
 
-        Returns ``{"suppressed": True, ...}`` when the cohort is too small,
-        never partial statistics.
+        Single source for both the cohort aggregate and the percentile
+        population — those previously issued byte-identical SQL, scanning the
+        marks/swaps join twice per call for exactly the same rows.
         """
-        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
         cutoff = datetime.utcnow() - timedelta(days=window_days)
-
         with get_session() as session:
-            rows = session.execute(
+            return session.execute(
                 text("""
                     SELECT s.user_id, m.realized_vs_quoted_bps
                     FROM swap_execution_marks m
@@ -91,6 +85,24 @@ class ExecutionBenchmark:
                 {"from_token": from_token, "to_token": to_token, "cutoff": cutoff},
             ).fetchall()
 
+    def cohort_stats(
+        self,
+        from_token: str,
+        to_token: str,
+        window_days: int = DEFAULT_WINDOW_DAYS,
+    ) -> dict[str, Any]:
+        """Aggregate quoted round-trip cost for one trade shape.
+
+        NOTE the column ``realized_vs_quoted_bps`` queried below is misnamed —
+        it holds quoted cost (spread + impact + fees), not fill accuracy. See
+        ``execution_scorer``'s module docstring. So these percentiles rank how
+        expensive a user's trades were to cross, NOT how well we executed them.
+
+        Returns ``{"suppressed": True, ...}`` when the cohort is too small,
+        never partial statistics.
+        """
+        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
+        rows = self._cohort_rows(from_token, to_token, window_days)
         distinct_users = {r[0] for r in rows if r[0] is not None}
 
         # THE FLOOR. Below this a "cohort statistic" identifies individuals.
@@ -136,6 +148,11 @@ class ExecutionBenchmark:
         window_days = stats["window_days"]
         cutoff = datetime.utcnow() - timedelta(days=window_days)
 
+        rows = self._cohort_rows(from_token, to_token, window_days)
+        # The population is the same fetch the aggregate came from; only this
+        # user's own subset needs its own query.
+        population = [(r[1],) for r in rows]
+
         with get_session() as session:
             mine = session.execute(
                 text("""
@@ -155,20 +172,6 @@ class ExecutionBenchmark:
                     "to_token": to_token,
                     "cutoff": cutoff,
                 },
-            ).fetchall()
-
-            population = session.execute(
-                text("""
-                    SELECT m.realized_vs_quoted_bps
-                    FROM swap_execution_marks m
-                    JOIN swap_transactions s ON s.id = m.swap_id
-                    WHERE m.horizon = '5m'
-                      AND m.realized_vs_quoted_bps IS NOT NULL
-                      AND s.from_token = :from_token
-                      AND s.to_token = :to_token
-                      AND m.scored_at >= :cutoff
-                    """),
-                {"from_token": from_token, "to_token": to_token, "cutoff": cutoff},
             ).fetchall()
 
         my_values = [float(r[0]) for r in mine]

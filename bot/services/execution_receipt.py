@@ -65,6 +65,7 @@ from typing import Any, Optional
 
 from bot.models.swap import SwapTransaction, SwapExecutionMark, SwapRouteCandidate
 from bot.services.execution_benchmark import execution_benchmark
+from bot.services.execution_scorer import _bps
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -105,9 +106,22 @@ def _fill_vs_quote_bps(quoted: Optional[str], realized: Optional[str]) -> Option
         r = int(realized)
     except (TypeError, ValueError):
         return None
-    if q <= 0:
-        return None
-    return ((r - q) / q) * 10_000
+    # Same bps formula (and same expected<=0 guard) the scorer applies to its
+    # own marks — shared so the two can never drift apart.
+    return _bps(r, q)
+
+
+def _bucket(value: float) -> str:
+    """Which side of the noise floor a bps figure falls on.
+
+    Shared by every verdict line so the floor semantics are defined once; three
+    inline copies of the same comparison was how the thresholds drifted.
+    """
+    if value <= -NOISE_FLOOR_BPS:
+        return "neg"
+    if value >= NOISE_FLOOR_BPS:
+        return "pos"
+    return "flat"
 
 
 class ExecutionReceipt:
@@ -194,7 +208,6 @@ class ExecutionReceipt:
 
         receipt: dict[str, Any] = {
             **shape,
-            "scored": bool(ordered_marks),
             "quoted_cost_bps": cost_bps,
             # The real thing, when the provider reported a settled amount.
             # None means not observed — never render it as 0.
@@ -207,6 +220,16 @@ class ExecutionReceipt:
             receipt["caveats"].append(_COUNTERFACTUAL_CAVEAT)
 
         # Cohort percentile — suppression is enforced inside the benchmark.
+        #
+        # Skipped entirely when the swap has no marks: user_percentile runs
+        # cohort queries over swap_execution_marks, and an unscored swap has
+        # nothing to rank, so paying for them would be pure waste on the
+        # button press.
+        if not ordered_marks:
+            receipt["benchmark"] = None
+            receipt["verdict"] = self._verdict(cost_bps, ordered_marks, fill_bps)
+            return receipt
+
         try:
             receipt["benchmark"] = execution_benchmark.user_percentile(
                 user_id=user_id,
@@ -277,31 +300,28 @@ class ExecutionReceipt:
         # when a settled amount was actually observed. Silence beats a
         # confident number derived from the quote's own estimate.
         if fill_bps is not None:
-            if fill_bps <= -NOISE_FLOOR_BPS:
-                parts["fill"] = (
+            parts["fill"] = {
+                "neg": (
                     f"You received about {abs(fill_bps):.0f} bps less than the quote "
                     f"promised. That shortfall is ours."
-                )
-            elif fill_bps >= NOISE_FLOOR_BPS:
-                parts["fill"] = (
-                    f"You received about {fill_bps:.0f} bps more than the quote promised."
-                )
-            else:
-                parts["fill"] = "The amount received matched the quote."
+                ),
+                "pos": f"You received about {fill_bps:.0f} bps more than the quote promised.",
+                "flat": "The amount received matched the quote.",
+            }[_bucket(fill_bps)]
 
         if cost_bps is None:
             parts["cost"] = "Not scored yet — marks land a few minutes after a swap completes."
-        elif cost_bps <= -NOISE_FLOOR_BPS:
-            parts["cost"] = (
-                f"This trade cost about {abs(cost_bps):.0f} bps to cross, as quoted — "
-                f"spread, price impact and fees combined."
-            )
-        elif cost_bps >= NOISE_FLOOR_BPS:
-            parts["cost"] = (
-                f"The quote had you coming out about {cost_bps:.0f} bps ahead on " f"USD value."
-            )
         else:
-            parts["cost"] = "The quote was close to flat on USD value."
+            parts["cost"] = {
+                "neg": (
+                    f"This trade cost about {abs(cost_bps):.0f} bps to cross, as quoted — "
+                    f"spread, price impact and fees combined."
+                ),
+                "pos": (
+                    f"The quote had you coming out about {cost_bps:.0f} bps ahead on USD value."
+                ),
+                "flat": "The quote was close to flat on USD value.",
+            }[_bucket(cost_bps)]
 
         # Markout reads from the longest horizon that has one — short horizons
         # are too noisy to call drift on. This one IS post-trade observation.
@@ -309,18 +329,17 @@ class ExecutionReceipt:
         if aged:
             last = aged[-1]
             mb = last["markout_bps"]
-            if mb >= NOISE_FLOOR_BPS:
-                parts["market"] = (
+            parts["market"] = {
+                "pos": (
                     f"Over the following {last['horizon']} the price moved in your favour "
                     f"by about {mb:.0f} bps. Good timing — not something we routed."
-                )
-            elif mb <= -NOISE_FLOOR_BPS:
-                parts["market"] = (
+                ),
+                "neg": (
                     f"Over the following {last['horizon']} the price moved against you by "
                     f"about {abs(mb):.0f} bps. That is the market, not the route."
-                )
-            else:
-                parts["market"] = f"The price barely moved over the following {last['horizon']}."
+                ),
+                "flat": f"The price barely moved over the following {last['horizon']}.",
+            }[_bucket(mb)]
         return parts
 
 

@@ -5,17 +5,25 @@ happens — only against what the market did afterwards. This service walks
 completed swaps and records the destination-token price at fixed horizons,
 splitting execution quality into two independent measures:
 
-  * ``realized_vs_quoted_bps`` — did we deliver what the quote promised?
-    Attributable to us (routing choice, slippage tolerance, bridge behaviour)
-    and knowable the instant the swap completes.
+  * ``realized_vs_quoted_bps`` — MISNAMED. It does not compare a realized fill
+    to a quote and never has: it is ``_bps(to_amount_usd, from_amount_usd)``,
+    and BOTH of those are written once in ``execute_swap()`` from the quote's
+    expected amounts. No realized fill data enters it. What it measures is the
+    quoted round-trip COST of the trade — spread, price impact, platform fee,
+    priced-in bridge fees. Real, but it cannot answer "did we deliver the
+    quote", so never render it as though it grades our execution.
+    (True fill accuracy lives in ``swap_transactions.realized_to_amount``; see
+    ``execution_receipt.py``, which surfaces this column as ``quoted_cost_bps``.
+    The column keeps its name only because renaming it means a migration plus
+    a coordinated change here and in ``execution_benchmark``.)
 
   * ``markout_bps`` — did the price move against the taker after the fill?
     Attributable to the market (adverse selection, toxic flow, timing) and
     only knowable once the horizon elapses.
 
-Keeping them apart matters: a bad ``realized_vs_quoted`` is our problem to
-fix, while a persistently bad ``markout`` on a venue is a warning to give
-users rather than a routing bug.
+Keeping them apart matters: cost is what the trade charged the user, while a
+persistently bad ``markout`` on a venue is a warning to give users rather than
+a routing bug. Neither is a verdict on our own fill accuracy.
 
 Idempotency: UNIQUE(swap_id, horizon) on the marks table. Each pass inserts
 with an ON CONFLICT DO NOTHING guard, so restarts and overlapping passes are
@@ -227,8 +235,10 @@ class ExecutionScorer:
                 to_usd = swap["to_amount_usd"]
                 from_usd = swap["from_amount_usd"]
 
-                # Quote accuracy — value out vs value in. Attributable to us.
-                realized_vs_quoted = _bps(to_usd, from_usd) if (to_usd and from_usd) else None
+                # Quoted round-trip cost — value out vs value in, both from the
+                # quote. NOT fill accuracy; see the module docstring before
+                # relabelling this or the column it lands in.
+                quoted_cost = _bps(to_usd, from_usd) if (to_usd and from_usd) else None
 
                 # Markout baseline.
                 #
@@ -249,7 +259,7 @@ class ExecutionScorer:
                     horizon=label,
                     to_token_price_usd=price,
                     fill_price_usd=baseline,
-                    realized_vs_quoted_bps=realized_vs_quoted,
+                    realized_vs_quoted_bps=quoted_cost,
                     markout_bps=markout,
                 )
                 # Keep the in-memory view current so a baseline written this

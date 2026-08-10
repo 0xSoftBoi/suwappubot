@@ -287,6 +287,13 @@ class TransactionPoller:
         except Exception as e:
             logger.warning(f"ws watcher error for tx {tx_dict.get('id')}: {e}")
 
+    # Side-channel keys a provider check may set on tx_dict for
+    # _apply_status_update to persist, beyond the (status, dest_tx_hash) return
+    # contract every provider shares. Declared here so the next provider author
+    # extends this list rather than inventing a third convention:
+    #   error_message           — distinct FAILED reason (bridge timeout vs revert)
+    #   _realized_to_amount     — settled output amount, when the provider reports one
+    #   _realized_to_amount_usd — its USD value at settlement
     async def _check_tx_status_dict(self, tx_dict: dict) -> tuple[Optional[str], Optional[str]]:
         """Check transaction status; return (new_status, dest_tx_hash)."""
         tx_hash = tx_dict.get("tx_hash")

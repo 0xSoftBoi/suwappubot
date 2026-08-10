@@ -137,7 +137,7 @@ def test_unscored_swap_reports_pending_not_zero(receipt, session_factory):
     """A swap with no marks must not read as 'you lost 0 bps'."""
     swap_id = _swap(session_factory, user_id=1)
     r = receipt.build(user_id=1, swap_id=swap_id)
-    assert r["scored"] is False
+    assert r["marks"] == []
     assert r["quoted_cost_bps"] is None
     assert "Not scored yet" in r["verdict"]["cost"]
 

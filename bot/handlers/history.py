@@ -379,6 +379,51 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(card_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
+def _benchmark_lines(bench: Optional[dict]) -> list[str]:
+    """Cohort comparison block, or nothing when there is no cohort."""
+    if not bench:
+        return []
+    if bench.get("suppressed"):
+        # Say why, rather than implying the user has no peers.
+        return ["", "_Too few traders on this pair to compare without identifying them._"]
+    if not bench.get("has_user_data"):
+        return []
+
+    lines = [
+        "",
+        "*Versus everyone trading this pair*",
+        f"You rank in the top {100 - bench['percentile']:.0f}% "
+        f"({bench['cohort']['cohort_users']} traders)",
+    ]
+    if bench.get("remedy"):
+        lines.append(f"_{bench['remedy']}_")
+    return lines
+
+
+def _counterfactual_lines(cf: Optional[dict]) -> list[str]:
+    """Routing comparison block.
+
+    Reported both ways. Showing only the cases where an alternative quoted
+    better would be honest-looking and still selective; showing only the wins
+    would be marketing.
+    """
+    if not cf:
+        return []
+    if cf["delta_usd"] > 0:
+        detail = (
+            f"{cf['best_alternative_provider']} quoted ${cf['delta_usd']:.2f} better "
+            f"than {cf['selected_provider']}"
+        )
+    else:
+        detail = f"{cf['selected_provider']} had the best quote"
+    return [
+        "",
+        f"_Routing: {cf['selected_provider']} ranked #{cf['selected_rank']} of "
+        f"{cf['priced_candidates']} quoted routes — {detail}. Modeled from quotes, "
+        f"not observed fills._",
+    ]
+
+
 def _fmt_bps(value: Optional[float]) -> str:
     """Signed bps, so a gain never reads like a loss."""
     if value is None:
@@ -450,7 +495,7 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
         f"`{receipt['from_token']} → {receipt['to_token']}`",
     ]
 
-    if not receipt["scored"]:
+    if not receipt["marks"]:
         lines += [
             "",
             "_Not scored yet._ Marks land a few minutes after a swap completes —",
@@ -488,38 +533,9 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
         drift = "  ".join(f"{m['horizon']}: `{_fmt_bps(m['markout_bps'])}`" for m in marks)
         lines += ["", f"Price drift after fill — {drift}"]
 
-    bench = receipt.get("benchmark")
-    if bench and not bench.get("suppressed") and bench.get("has_user_data"):
-        lines += [
-            "",
-            "*Versus everyone trading this pair*",
-            f"You rank in the top {100 - bench['percentile']:.0f}% "
-            f"({bench['cohort']['cohort_users']} traders)",
-        ]
-        if bench.get("remedy"):
-            lines.append(f"_{bench['remedy']}_")
-    elif bench and bench.get("suppressed"):
-        # Say why, rather than implying the user has no peers.
-        lines += ["", "_Too few traders on this pair to compare without identifying them._"]
+    lines += _benchmark_lines(receipt.get("benchmark"))
 
-    cf = receipt.get("counterfactual")
-    if cf:
-        # Reported both ways. Showing only the cases where an alternative
-        # quoted better would be honest-looking and still selective; showing
-        # only the wins would be marketing.
-        if cf["delta_usd"] > 0:
-            detail = (
-                f"{cf['best_alternative_provider']} quoted ${cf['delta_usd']:.2f} better "
-                f"than {cf['selected_provider']}"
-            )
-        else:
-            detail = f"{cf['selected_provider']} had the best quote"
-        lines += [
-            "",
-            f"_Routing: {cf['selected_provider']} ranked #{cf['selected_rank']} of "
-            f"{cf['priced_candidates']} quoted routes — {detail}. Modeled from quotes, "
-            f"not observed fills._",
-        ]
+    lines += _counterfactual_lines(receipt.get("counterfactual"))
 
     lines += ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
 
