@@ -80,6 +80,7 @@ from bot.handlers.history import (
     history_menu_callback,
     history_page_handler,
     share_pnl_handler,
+    execution_receipt_handler,
 )
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.positions import (
@@ -606,6 +607,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
     application.add_handler(share_pnl_handler)  # "^pnl_share_\d+$" Share PnL button
+    application.add_handler(
+        execution_receipt_handler
+    )  # "^exec_receipt_\d+$" per-fill execution receipt
 
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))

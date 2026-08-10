@@ -127,6 +127,19 @@ async def history_command(
                 ]
             )
 
+        # Execution receipts for the completed swaps on this page. The scorer
+        # has been marking these in production since phase 2 with nothing
+        # reading them back — this is the surface that closes that loop.
+        for i in range(0, len(recent_completed), 2):
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"🧾 Receipt {s.to_token}", callback_data=f"exec_receipt_{s.id}"
+                    )
+                    for s in recent_completed[i : i + 2]
+                ]
+            )
+
         keyboard.append(
             [
                 InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
@@ -366,11 +379,141 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(card_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
+def _fmt_bps(value: Optional[float]) -> str:
+    """Signed bps, so a gain never reads like a loss."""
+    if value is None:
+        return "—"
+    return f"{value:+.0f} bps"
+
+
+@enforce_tos
+async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the per-fill execution receipt for one swap.
+
+    EXECUTION INTELLIGENCE (phase 4). The scorer has been marking every
+    completed swap since phase 2 and nothing ever showed a user their own
+    numbers. This is that surface.
+
+    The routing/market split from ExecutionReceipt is preserved verbatim here:
+    what we owe the user (realized vs quoted) is rendered apart from what the
+    market did afterwards (markout). Merging them into one score would let a
+    routing regression hide behind a volatile day.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_id = int(query.data.rsplit("_", 1)[1])
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == update.effective_user.id).first()
+        user_id = db_user.id if db_user else None
+
+    if user_id is None:
+        await query.edit_message_text("❌ Please use /start first to set up your account.")
+        return
+
+    from bot.services.execution_receipt import execution_receipt
+
+    try:
+        receipt = execution_receipt.build(user_id=user_id, swap_id=swap_id)
+    except Exception:
+        logger.warning("execution_receipt_callback: build failed", exc_info=True)
+        receipt = None
+        error = True
+    else:
+        error = False
+
+    back = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("« Back to history", callback_data="history")]]
+    )
+
+    if error:
+        await query.edit_message_text(
+            "⚠️ Couldn't load that receipt right now. Try again in a moment.",
+            reply_markup=back,
+        )
+        return
+
+    # None covers both "not yours" and "does not exist" — same message, so the
+    # keyboard cannot be used to probe for other people's swap ids.
+    if receipt is None:
+        await query.edit_message_text("❌ Swap not found.", reply_markup=back)
+        return
+
+    lines = [
+        "🧾 *Execution Receipt*",
+        "",
+        f"`{receipt['from_token']} → {receipt['to_token']}`",
+    ]
+
+    if not receipt["scored"]:
+        lines += [
+            "",
+            "_Not scored yet._ Marks land a few minutes after a swap completes —",
+            "check back shortly.",
+        ]
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown", reply_markup=back)
+        return
+
+    verdict = receipt["verdict"]
+
+    lines += [
+        "",
+        "*What we owe you*",
+        f"Quote vs fill: `{_fmt_bps(receipt['realized_vs_quoted_bps'])}`",
+    ]
+    if verdict.get("routing"):
+        lines.append(f"_{verdict['routing']}_")
+
+    if verdict.get("market"):
+        lines += ["", "*What the market did*", f"_{verdict['market']}_"]
+
+    marks = [m for m in receipt["marks"] if m["markout_bps"] is not None]
+    if marks:
+        drift = "  ".join(f"{m['horizon']}: `{_fmt_bps(m['markout_bps'])}`" for m in marks)
+        lines += ["", f"Price drift after fill — {drift}"]
+
+    bench = receipt.get("benchmark")
+    if bench and not bench.get("suppressed") and bench.get("has_user_data"):
+        lines += [
+            "",
+            "*Versus everyone trading this pair*",
+            f"You rank in the top {100 - bench['percentile']:.0f}% "
+            f"({bench['cohort']['cohort_users']} traders)",
+        ]
+        if bench.get("remedy"):
+            lines.append(f"_{bench['remedy']}_")
+    elif bench and bench.get("suppressed"):
+        # Say why, rather than implying the user has no peers.
+        lines += ["", "_Too few traders on this pair to compare without identifying them._"]
+
+    cf = receipt.get("counterfactual")
+    if cf and cf["delta_usd"] > 0:
+        lines += [
+            "",
+            f"_{cf['routes_considered']} routes were quoted. {cf['best_alternative_provider']} "
+            f"quoted ${cf['delta_usd']:.2f} better than {cf['selected_provider']} — modeled from "
+            f"quotes, not an observed fill._",
+        ]
+
+    lines += ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=back,
+        disable_web_page_preview=True,
+    )
+
+
 # Individual callbacks
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
 history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
 share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern=r"^pnl_share_\d+$")
+execution_receipt_handler = CallbackQueryHandler(
+    execution_receipt_callback, pattern=r"^exec_receipt_\d+$"
+)
 
 # Create handlers
 history_handler = CommandHandler("hx", history_command)
