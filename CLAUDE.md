@@ -225,6 +225,14 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 - **One task ≈ one session.** `/clear` between unrelated tasks instead of letting context balloon.
 - **Isolate verbose output** — test runs, log tails, big greps, doc fetches go to a subagent so their output stays in *its* context, and only a tight summary returns to the conductor.
 
+## Self-Improving Harness
+
+This harness evolves itself from session evidence — see `docs/harness/self-improving.md`.
+- Every session's Stop hook appends a friction record to `.claude/harness/journal/`.
+- `/reflect` at end of task: capture corrections into `.claude/harness/lessons.md` (capped at 25, merge-or-evict).
+- `/evolve` (one-shot, `/loop`, or weekly Routine): digest journal → one surgical patch to a harness artifact → `scripts/harness/harness_lint.py` must PASS → commit as `harness(evolve): ...`.
+- No evidence → no change. A lesson re-edited 3+ times gets promoted to a hook/skill/permission instead of more prose.
+
 ## Custom Skills
 
 - `/ship` — Branch → commit → PR → wait for CI green → merge → verify the bot boots
