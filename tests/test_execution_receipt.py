@@ -281,3 +281,37 @@ def test_unparseable_amounts_do_not_fabricate_a_number(receipt, session_factory)
 def test_zero_quote_does_not_divide_by_zero(receipt, session_factory):
     swap_id = _swap(session_factory, user_id=1, to_amount="0", realized_to_amount="990000")
     assert receipt.build(user_id=1, swap_id=swap_id)["fill_vs_quote_bps"] is None
+
+
+def test_counterfactual_reports_rank_when_we_picked_the_best(receipt, session_factory):
+    """Symmetry guard: a win must be reported, not just a loss.
+
+    Surfacing only the swaps where an alternative quoted better looks candid
+    but is still selective reporting — and reporting only the wins would be
+    marketing. Both cases render.
+    """
+    from bot.models.swap import SwapRouteCandidate
+
+    swap_id = _swap(session_factory, user_id=1)
+    s = session_factory()
+    for provider, usd, sel in (("lifi", 105.0, True), ("socket", 100.0, False)):
+        s.add(
+            SwapRouteCandidate(
+                quote_id="q2",
+                swap_id=swap_id,
+                from_chain="base",
+                to_chain="base",
+                from_token="USDC",
+                to_token="ETH",
+                provider=provider,
+                quoted_to_amount_usd=usd,
+                was_selected=sel,
+            )
+        )
+    s.commit()
+    s.close()
+
+    cf = receipt.build(user_id=1, swap_id=swap_id)["counterfactual"]
+    assert cf["selected_rank"] == 1
+    assert cf["priced_candidates"] == 2
+    assert cf["delta_usd"] < 0  # no alternative beat us

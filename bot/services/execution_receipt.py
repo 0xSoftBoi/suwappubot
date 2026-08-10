@@ -237,10 +237,21 @@ class ExecutionReceipt:
 
         best = max(rejected, key=lambda r: r["quoted_to_amount_usd"])
         delta_usd = best["quoted_to_amount_usd"] - selected["quoted_to_amount_usd"]
+        # Rank among all priced candidates, 1 = best quoted output. Reported
+        # whether or not we came first: surfacing only the cases where we lost
+        # to an alternative would be its own distortion, just a flattering one.
+        priced = [r for r in routes if r["quoted_to_amount_usd"] is not None]
+        rank = (
+            sorted(priced, key=lambda r: r["quoted_to_amount_usd"], reverse=True).index(selected)
+            + 1
+        )
+
         return {
             "routes_considered": len(routes),
+            "priced_candidates": len(priced),
             "selected_provider": selected["provider"],
             "selected_quoted_usd": selected["quoted_to_amount_usd"],
+            "selected_rank": rank,
             "best_alternative_provider": best["provider"],
             "best_alternative_quoted_usd": best["quoted_to_amount_usd"],
             # Positive means an alternative quoted better than what we took.

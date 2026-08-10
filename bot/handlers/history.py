@@ -503,12 +503,22 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
         lines += ["", "_Too few traders on this pair to compare without identifying them._"]
 
     cf = receipt.get("counterfactual")
-    if cf and cf["delta_usd"] > 0:
+    if cf:
+        # Reported both ways. Showing only the cases where an alternative
+        # quoted better would be honest-looking and still selective; showing
+        # only the wins would be marketing.
+        if cf["delta_usd"] > 0:
+            detail = (
+                f"{cf['best_alternative_provider']} quoted ${cf['delta_usd']:.2f} better "
+                f"than {cf['selected_provider']}"
+            )
+        else:
+            detail = f"{cf['selected_provider']} had the best quote"
         lines += [
             "",
-            f"_{cf['routes_considered']} routes were quoted. {cf['best_alternative_provider']} "
-            f"quoted ${cf['delta_usd']:.2f} better than {cf['selected_provider']} — modeled from "
-            f"quotes, not an observed fill._",
+            f"_Routing: {cf['selected_provider']} ranked #{cf['selected_rank']} of "
+            f"{cf['priced_candidates']} quoted routes — {detail}. Modeled from quotes, "
+            f"not observed fills._",
         ]
 
     lines += ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
