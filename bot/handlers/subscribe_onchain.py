@@ -153,7 +153,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     tier = _TIERS[args[0].lower()]
-    payload = membership_service.build_subscription_authorization(bound, tier, periods)
+    payload = await membership_service.quote_subscription(bound, tier, periods)
     if not payload:
         await update.message.reply_text("❌ Couldn't build a quote right now — try again shortly.")
         return

@@ -38,6 +38,9 @@ _STALE_PAID_TTL = 3600  # a previously-OBSERVED paid tier survives an outage thi
 _CACHE_MAX = 5_000  # sweep threshold; entries beyond TTL are dropped
 _CALL_TIMEOUT = 1.5  # seconds — hard budget for the whole lookup
 _BROADCAST_TIMEOUT = 20.0  # seconds — a subscription broadcast is rare and slower
+# A quote is an explicit user command, not the swap hot path, so it can wait
+# longer than _CALL_TIMEOUT — but it must never return a guessed nonce.
+_QUOTE_TIMEOUT = 5.0
 _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 
 # Wallet providers whose rows prove the user CONTROLS the address — the bot holds
@@ -62,19 +65,24 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
 _INFLIGHT = threading.BoundedSemaphore(8)
 
 
-def _subscription_nonce(subscriber: str, tier_index: int, periods: int) -> bytes:
-    """keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V1", subscriber, tier, periods)).
+def _subscription_nonce(subscriber: str, tier_index: int, periods: int, seq: int) -> bytes:
+    """keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V2", subscriber, tier, periods, seq)).
 
     Byte-identical to SuwappuMembership.subscriptionNonce — a mismatch makes every
     authorization revert with IntentMismatch, so it is pinned by a test.
+
+    `seq` is the payer's on-chain `subscriptionSeq`, read immediately before
+    signing. Without it the nonce was a pure function of (payer, tier, periods),
+    so the FIRST purchase of a plan burned that EIP-3009 nonce forever and every
+    renewal of the same plan reverted inside USDG with no recovery path.
     """
     from eth_abi import encode
     from eth_utils import keccak
 
     return keccak(
         encode(
-            ["string", "address", "uint8", "uint256"],
-            ["SUWAPPU_SUBSCRIPTION_V1", subscriber, tier_index, periods],
+            ["string", "address", "uint8", "uint256", "uint256"],
+            ["SUWAPPU_SUBSCRIPTION_V2", subscriber, tier_index, periods, seq],
         )
     )
 
@@ -144,6 +152,16 @@ _SUBSCRIBE_ABI = [
             },
         ],
         "outputs": [],
+    }
+]
+
+_SEQ_ABI = [
+    {
+        "name": "subscriptionSeq",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "subscriber", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     }
 ]
 
@@ -404,15 +422,64 @@ class MembershipService:
 
     @property
     def treasury_address(self) -> Optional[str]:
-        """Where subscription USDG settles. The authorization signs over `to`, so
-        this must match the deployed contract's treasury or the payment reverts."""
+        """Where subscription USDG ends up. Display only.
+
+        The authorization no longer signs over the treasury: `to` is the
+        membership contract, which sweeps to `treasury()` read from ITS OWN
+        storage at settlement time. So a treasury rotation between quote and
+        settlement routes correctly instead of paying the old address, and this
+        config value being stale can no longer strand a payment.
+        """
         return getattr(settings, "suwappu_membership_treasury", None)
+
+    def _subscription_seq_sync(self, subscriber: str) -> int:
+        """Blocking eth_call for the payer's next subscription nonce counter."""
+        from bot.services.rpc_manager import rpc_manager
+
+        w3 = rpc_manager.get_web3(CHAIN)
+        c = w3.eth.contract(address=w3.to_checksum_address(self.contract_address), abi=_SEQ_ABI)
+        return int(c.functions.subscriptionSeq(w3.to_checksum_address(subscriber)).call())
+
+    async def quote_subscription(
+        self,
+        subscriber: str,
+        tier: SubscriptionTier,
+        periods: int,
+        valid_seconds: int = 3600,
+    ) -> Optional[dict]:
+        """Read the payer's on-chain seq, then build the signable payload.
+
+        Async because the seq read is a real eth_call: signing against a stale
+        seq produces a nonce the contract rejects with IntentMismatch, and
+        guessing it (e.g. defaulting to 0) breaks every renewal. Runs on the
+        bounded membership executor so a hung RPC cannot block the event loop.
+        """
+        if not self.enabled:
+            return None
+        loop = asyncio.get_running_loop()
+        if not _INFLIGHT.acquire(blocking=False):
+            logger.debug("Membership: seq lookup skipped — executor saturated")
+            return None
+        try:
+            seq = await asyncio.wait_for(
+                loop.run_in_executor(_EXECUTOR, self._subscription_seq_sync, subscriber),
+                timeout=_QUOTE_TIMEOUT,
+            )
+        except Exception as e:
+            logger.debug("Membership: seq lookup failed: %s", e)
+            return None
+        finally:
+            _INFLIGHT.release()
+        return self.build_subscription_authorization(
+            subscriber, tier, periods, seq, valid_seconds=valid_seconds
+        )
 
     def build_subscription_authorization(
         self,
         subscriber: str,
         tier: SubscriptionTier,
         periods: int,
+        seq: int,
         valid_seconds: int = 3600,
         now: Optional[int] = None,
     ) -> Optional[dict]:
@@ -424,10 +491,13 @@ class MembershipService:
         an ERC-4337 paymaster) submits it, so the subscriber needs no gas and no
         `approve`.
 
-        The nonce is NOT random: it commits to (subscriber, tier, periods),
+        The nonce is NOT random: it commits to (subscriber, tier, periods, seq),
         mirroring `SuwappuMembership.subscriptionNonce`. EIP-3009 has no field for
         what a payment is *for*, so without that binding a relayer holding a 99.99
-        USDG authorization could redirect it to ten months of a cheaper tier.
+        USDG authorization could redirect it to ten months of a cheaper tier. The
+        `seq` component keeps the nonce single-use without making the PURCHASE
+        single-use — pass the payer's current on-chain `subscriptionSeq`, which
+        `quote_subscription` reads for you.
 
         Returns None when membership is unconfigured or the tier is unpaid.
         """
@@ -449,7 +519,7 @@ class MembershipService:
             price_base = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))
             value = price_base * periods
             tier_index = next(i for i, t in TIER_BY_INDEX.items() if t == tier)
-            nonce = _subscription_nonce(subscriber, tier_index, periods)
+            nonce = _subscription_nonce(subscriber, tier_index, periods, seq)
             issued = int(time.time()) if now is None else int(now)
             valid_before = issued + valid_seconds
             nonce_hex = "0x" + nonce.hex()
@@ -461,6 +531,7 @@ class MembershipService:
                 "tier": tier.value,
                 "tier_index": tier_index,
                 "periods": periods,
+                "seq": seq,
                 "value": value,
                 "price_per_period": price_base,
                 "nonce": nonce_hex,
@@ -474,7 +545,7 @@ class MembershipService:
                             {"name": "chainId", "type": "uint256"},
                             {"name": "verifyingContract", "type": "address"},
                         ],
-                        "TransferWithAuthorization": [
+                        "ReceiveWithAuthorization": [
                             {"name": "from", "type": "address"},
                             {"name": "to", "type": "address"},
                             {"name": "value", "type": "uint256"},
@@ -483,7 +554,7 @@ class MembershipService:
                             {"name": "nonce", "type": "bytes32"},
                         ],
                     },
-                    "primaryType": "TransferWithAuthorization",
+                    "primaryType": "ReceiveWithAuthorization",
                     "domain": {
                         "name": domain["name"],
                         "version": domain["version"],
@@ -492,7 +563,12 @@ class MembershipService:
                     },
                     "message": {
                         "from": subscriber,
-                        "to": self.treasury_address or "",
+                        # NOT the treasury: USDG's receiveWithAuthorization
+                        # requires to == msg.sender, so naming the membership
+                        # contract here is what makes it the only address able to
+                        # settle this authorization. Payment and credit become
+                        # atomic; nobody can burn the nonce and strand the payer.
+                        "to": self.contract_address,
                         "value": value,
                         "validAfter": 0,
                         "validBefore": valid_before,

@@ -467,7 +467,13 @@ def test_conversion_never_confiscates_beyond_the_price_ratio():
 
 
 def _sign_authorization(w3, acct, usdg, to, value, nonce, valid_after=0, valid_before=None):
-    """Sign an EIP-3009 TransferWithAuthorization exactly as a wallet would."""
+    """Sign an EIP-3009 ReceiveWithAuthorization exactly as a wallet would.
+
+    Receive-, not Transfer-: USDG requires `to == msg.sender` for the receive
+    variant, so `to` here is the MEMBERSHIP CONTRACT, and only it can settle the
+    authorization. Signing the transfer variant instead would let any observer
+    burn the nonce and move the payer's USDG without crediting a subscription.
+    """
     from eth_account.messages import encode_typed_data
 
     if valid_before is None:
@@ -480,7 +486,7 @@ def _sign_authorization(w3, acct, usdg, to, value, nonce, valid_after=0, valid_b
                 {"name": "chainId", "type": "uint256"},
                 {"name": "verifyingContract", "type": "address"},
             ],
-            "TransferWithAuthorization": [
+            "ReceiveWithAuthorization": [
                 {"name": "from", "type": "address"},
                 {"name": "to", "type": "address"},
                 {"name": "value", "type": "uint256"},
@@ -489,7 +495,7 @@ def _sign_authorization(w3, acct, usdg, to, value, nonce, valid_after=0, valid_b
                 {"name": "nonce", "type": "bytes32"},
             ],
         },
-        "primaryType": "TransferWithAuthorization",
+        "primaryType": "ReceiveWithAuthorization",
         # Mirrors x402Networks.ts for chain 4663 — USDG's real domain.
         "domain": {
             "name": "Global Dollar",
@@ -525,8 +531,8 @@ def test_subscribe_with_authorization_needs_no_approve_and_credits_the_signer(en
 
     periods = 2
     value = PRO_PRICE * periods
-    nonce = m.functions.subscriptionNonce(payer.address, PRO, periods).call()
-    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, value, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, periods).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, value, nonce)
 
     assert usdg.functions.allowance(payer.address, m.address).call() == 0
     m.functions.subscribeWithAuthorization(
@@ -555,8 +561,8 @@ def test_authorization_intent_is_bound_into_the_nonce(env):
     usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
 
     value = ENTERPRISE_PRICE  # 1 period of ENTERPRISE
-    nonce = m.functions.subscriptionNonce(payer.address, ENTERPRISE, 1).call()
-    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, value, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, ENTERPRISE, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, value, nonce)
     auth = (payer.address, value, va, vb, nonce, v, r, s)
 
     # same money, relayer tries to redirect it to 10 periods of PRO
@@ -574,13 +580,100 @@ def test_authorization_cannot_be_replayed(env):
 
     payer = Account.create()
     usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
-    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
-    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, PRO_PRICE, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, PRO_PRICE, nonce)
     auth = (payer.address, PRO_PRICE, va, vb, nonce, v, r, s)
 
     m.functions.subscribeWithAuthorization(PRO, 1, 2**200, auth).transact({"from": relayer})
-    with pytest.raises(Exception):  # EIP-3009 nonce is single-use
+    # single-use: the seq the nonce committed to has been consumed, so the
+    # recomputed nonce no longer matches and the call reverts IntentMismatch
+    # before it ever reaches USDG.
+    with pytest.raises(Exception):
         m.functions.subscribeWithAuthorization(PRO, 1, 2**200, auth).transact({"from": relayer})
+    assert m.functions.subscriptionSeq(payer.address).call() == 1
+
+
+def test_the_same_plan_can_be_renewed(env):
+    """The regression that mattered: a nonce derived only from (payer, tier,
+    periods) made the FIRST purchase of a plan burn that EIP-3009 nonce forever,
+    so every renewal of the identical plan reverted with no recovery path. The
+    seq counter keeps the nonce single-use without making the purchase so."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
+
+    seen = set()
+    for i in range(3):
+        assert m.functions.subscriptionSeq(payer.address).call() == i
+        nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+        assert nonce not in seen, "renewal reused a nonce"
+        seen.add(nonce)
+        va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, PRO_PRICE, nonce)
+        m.functions.subscribeWithAuthorization(
+            PRO, 1, 2**200, (payer.address, PRO_PRICE, va, vb, nonce, v, r, s)
+        ).transact({"from": relayer})
+
+    tier, expiry, _ = expiry_of(m, payer.address)
+    assert tier == PRO
+    # three months of term actually accrued, not one
+    assert expiry - w3.eth.get_block("latest").timestamp > 2 * 30 * 86400
+    assert usdg.functions.balanceOf(treasury).call() == PRO_PRICE * 3
+
+
+def test_authorization_is_settleable_only_by_the_membership_contract(env):
+    """B2: with transferWithAuthorization any observer could have front-run the
+    settlement — burning the single-use nonce and moving the payer's USDG to the
+    treasury while no subscription was ever credited. receiveWithAuthorization
+    pins `to` to msg.sender, so the raw token call is closed to everyone else."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, PRO_PRICE, nonce)
+
+    # the attacker holds the full signature and calls USDG directly
+    with pytest.raises(Exception):
+        usdg.functions.receiveWithAuthorization(
+            payer.address, m.address, PRO_PRICE, va, vb, nonce, v, r, s
+        ).transact({"from": relayer})
+    # nothing moved, nothing burned
+    assert usdg.functions.authorizationState(payer.address, nonce).call() is False
+    assert usdg.functions.balanceOf(treasury).call() == 0
+
+    # and the legitimate path still settles
+    m.functions.subscribeWithAuthorization(
+        PRO, 1, 2**200, (payer.address, PRO_PRICE, va, vb, nonce, v, r, s)
+    ).transact({"from": relayer})
+    assert usdg.functions.balanceOf(treasury).call() == PRO_PRICE
+    assert m.functions.tokenOf(payer.address).call() != 0
+
+
+def test_treasury_rotation_between_signing_and_settlement_routes_correctly(env):
+    """H1: the treasury is no longer signed over — it is read from the
+    contract's own storage at settlement. Rotating it after the payer signs
+    pays the NEW treasury instead of stranding the payment at the old one."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    new_treasury = Account.create().address
+    usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, PRO_PRICE, nonce)
+
+    m.functions.setTreasury(new_treasury).transact({"from": owner})
+    m.functions.subscribeWithAuthorization(
+        PRO, 1, 2**200, (payer.address, PRO_PRICE, va, vb, nonce, v, r, s)
+    ).transact({"from": relayer})
+
+    assert usdg.functions.balanceOf(new_treasury).call() == PRO_PRICE
+    assert usdg.functions.balanceOf(treasury).call() == 0
+    # the contract never keeps a balance
+    assert usdg.functions.balanceOf(m.address).call() == 0
 
 
 def test_authorization_respects_the_price_bound(env):
@@ -590,8 +683,8 @@ def test_authorization_respects_the_price_bound(env):
     payer = Account.create()
     usdg.functions.mint(payer.address, 10_000_000_000).transact({"from": owner})
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
-    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
-    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, ENTERPRISE_PRICE, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, m.address, ENTERPRISE_PRICE, nonce)
     auth = (payer.address, ENTERPRISE_PRICE, va, vb, nonce, v, r, s)
     with pytest.raises(Exception):
         m.functions.subscribeWithAuthorization(PRO, 1, PRO_PRICE, auth).transact({"from": relayer})
@@ -605,9 +698,15 @@ def test_python_nonce_matches_the_contract_exactly(env):
     from bot.services.membership_service import _subscription_nonce
 
     for tier_index, periods in ((1, 1), (2, 7), (3, 24)):
-        onchain = m.functions.subscriptionNonce(alice, tier_index, periods).call()
-        offchain = _subscription_nonce(alice, tier_index, periods)
-        assert onchain == offchain, (tier_index, periods)
+        for seq in (0, 1, 7, 2**64):
+            onchain = m.functions.subscriptionNonce(alice, tier_index, periods, seq).call()
+            offchain = _subscription_nonce(alice, tier_index, periods, seq)
+            assert onchain == offchain, (tier_index, periods, seq)
+        # and the convenience view agrees with seq read from storage
+        live = m.functions.subscriptionSeq(alice).call()
+        assert m.functions.nextSubscriptionNonce(alice, tier_index, periods).call() == (
+            _subscription_nonce(alice, tier_index, periods, live)
+        )
 
 
 def test_python_built_authorization_settles_on_chain(env, monkeypatch):
@@ -626,7 +725,9 @@ def test_python_built_authorization_settles_on_chain(env, monkeypatch):
     payer = Account.create()
     usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
 
-    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PRO, 2)
+    payload = svc.build_subscription_authorization(
+        payer.address, SubscriptionTier.PRO, 2, m.functions.subscriptionSeq(payer.address).call()
+    )
     assert payload is not None
     assert payload["value"] == PRO_PRICE * 2, "price drifted from TIER_LIMITS"
 
@@ -674,7 +775,12 @@ def test_bot_built_calldata_settles_against_the_real_contract(env, monkeypatch):
     payer = Account.create()
     usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
 
-    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PREMIUM, 3)
+    payload = svc.build_subscription_authorization(
+        payer.address,
+        SubscriptionTier.PREMIUM,
+        3,
+        m.functions.subscriptionSeq(payer.address).call(),
+    )
     assert payload is not None
 
     # sign exactly what the bot handed over (domain fixed to this test chain)
@@ -733,7 +839,9 @@ def test_calldata_carries_the_quoted_price_as_the_bound(env, monkeypatch):
 
     payer = Account.create()
     usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
-    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PRO, 1)
+    payload = svc.build_subscription_authorization(
+        payer.address, SubscriptionTier.PRO, 1, m.functions.subscriptionSeq(payer.address).call()
+    )
     assert payload["price_per_period"] == PRO_PRICE
 
     typed = dict(payload["typed_data"])

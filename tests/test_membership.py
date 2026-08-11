@@ -641,7 +641,7 @@ def test_authorization_is_none_when_unconfigured():
 
     assert (
         membership_service.build_subscription_authorization(
-            "0x" + "11" * 20, SubscriptionTier.PRO, 1
+            "0x" + "11" * 20, SubscriptionTier.PRO, 1, 0
         )
         is None
     )  # contract unset
@@ -662,7 +662,9 @@ def test_subscribe_command_is_registered_and_discoverable():
 def test_build_subscription_authorization_now_has_a_caller():
     """It had zero call sites — the gasless path existed only in tests."""
     src = open(os.path.join(REPO, "bot", "handlers", "subscribe_onchain.py")).read()
-    assert "membership_service.build_subscription_authorization(" in src
+    # via quote_subscription, which reads the payer's on-chain seq first: a
+    # payload built without the live seq carries a nonce the contract rejects.
+    assert "membership_service.quote_subscription(" in src
     assert "membership_service.verify_subscription_signature(" in src
     assert "membership_service.submit_subscription(" in src
 

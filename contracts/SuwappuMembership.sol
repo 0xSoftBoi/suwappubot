@@ -46,7 +46,16 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///      reuses the payment primitive the agent stack has already verified
 ///      instead of inventing a second one.
 interface IERC3009 {
-    function transferWithAuthorization(
+    /// @dev `receiveWithAuthorization`, NOT `transferWithAuthorization`. USDG
+    ///      requires `to == msg.sender` here (verified against the live token at
+    ///      0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168: calling it with a
+    ///      third-party `to` reverts `CallerMustBePayee()` / 0x5454b17d), which
+    ///      makes THIS contract the only address able to settle a subscription
+    ///      authorization. With `transferWithAuthorization` any observer could
+    ///      have front-run the settlement, burning the single-use nonce and
+    ///      moving the payer's USDG to the treasury while the subscription was
+    ///      never credited — the payer would pay and get nothing.
+    function receiveWithAuthorization(
         address from,
         address to,
         uint256 value,
@@ -127,6 +136,17 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
 
     mapping(uint256 => Membership) private _memberships;
     mapping(address => uint256) public tokenOf; // 0 == no membership yet
+
+    /// @notice Per-payer counter mixed into the subscription nonce, so the same
+    ///         (tier, periods) purchase can be made again — renewals, top-ups,
+    ///         a second month of the same plan. Incremented on every settled
+    ///         `subscribeWithAuthorization`.
+    /// @dev    Without this the nonce was a pure function of (payer, tier,
+    ///         periods): the first purchase burned that EIP-3009 nonce forever,
+    ///         and every later renewal of the same plan reverted inside USDG
+    ///         with no way to recover. Signers must read this (or call
+    ///         `nextSubscriptionNonce`) immediately before signing.
+    mapping(address => uint256) public subscriptionSeq;
 
     string private _baseTokenURI;
 
@@ -281,14 +301,32 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     ///         the nonce closes that: change tier or periods and the recomputed
     ///         nonce no longer matches the signed one, so the transfer reverts.
     ///
-    ///         Clients must derive their nonce from this function. It is `pure`,
-    ///         so a wallet can compute it off-chain before signing.
-    function subscriptionNonce(address subscriber, Tier tier, uint256 periods)
+    ///         `seq` is `subscriptionSeq[subscriber]` at signing time. It makes
+    ///         the nonce single-use WITHOUT making the purchase single-use: buy
+    ///         one month of PRO, seq advances, and the identical purchase next
+    ///         month derives a fresh nonce. Clients must read the current seq
+    ///         (or call `nextSubscriptionNonce`) immediately before signing.
+    ///
+    ///         Consequence worth knowing: two authorizations signed at the same
+    ///         seq are alternatives, not a queue — whichever settles first
+    ///         advances seq and permanently invalidates the other. Sign one at a
+    ///         time.
+    function subscriptionNonce(address subscriber, Tier tier, uint256 periods, uint256 seq)
         public
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V1", subscriber, tier, periods));
+        return keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V2", subscriber, tier, periods, seq));
+    }
+
+    /// @notice The nonce `subscriber` must sign right now for this purchase.
+    ///         Convenience wrapper so a client needs one `eth_call`, not two.
+    function nextSubscriptionNonce(address subscriber, Tier tier, uint256 periods)
+        external
+        view
+        returns (bytes32)
+    {
+        return subscriptionNonce(subscriber, tier, periods, subscriptionSeq[subscriber]);
     }
 
     /// @notice An EIP-3009 authorization, bundled so the call stays within the
@@ -325,13 +363,24 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         uint256 price = uint256(pricePerPeriod[uint256(tier)]);
         if (price > maxPricePerPeriod) revert PriceMoved();
         if (auth.value != price * periods) revert WrongPayment();
-        if (auth.nonce != subscriptionNonce(auth.from, tier, periods)) revert IntentMismatch();
+        uint256 seq = subscriptionSeq[auth.from];
+        if (auth.nonce != subscriptionNonce(auth.from, tier, periods, seq)) revert IntentMismatch();
 
-        // Payment first (CEI). `to` is committed inside the signed authorization,
-        // so the payer authorised this treasury specifically.
-        _usdg3009.transferWithAuthorization(
+        // Effect before interaction: burn this seq so the authorization cannot be
+        // re-presented, and so the payer's NEXT purchase derives a fresh nonce.
+        unchecked {
+            subscriptionSeq[auth.from] = seq + 1;
+        }
+
+        // `to` is address(this), which USDG enforces equals msg.sender — only
+        // this contract can settle the authorization, so payment and credit are
+        // atomic and no third party can strand the payer's funds. The USDG is
+        // swept straight through to the treasury, which is read from storage
+        // HERE rather than signed over, so a treasury rotation between signing
+        // and settlement routes correctly instead of paying the old address.
+        _usdg3009.receiveWithAuthorization(
             auth.from,
-            treasury,
+            address(this),
             auth.value,
             auth.validAfter,
             auth.validBefore,
@@ -340,6 +389,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
             auth.r,
             auth.s
         );
+        usdg.safeTransfer(treasury, auth.value);
 
         uint256 tokenId = tokenOf[auth.from];
         if (tokenId == 0) tokenId = _mintTo(auth.from);

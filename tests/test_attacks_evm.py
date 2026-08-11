@@ -216,7 +216,7 @@ def _sign_auth(w3, acct, usdg, to, value, nonce, valid_before=None):
                 {"name": "chainId", "type": "uint256"},
                 {"name": "verifyingContract", "type": "address"},
             ],
-            "TransferWithAuthorization": [
+            "ReceiveWithAuthorization": [
                 {"name": "from", "type": "address"},
                 {"name": "to", "type": "address"},
                 {"name": "value", "type": "uint256"},
@@ -225,7 +225,7 @@ def _sign_auth(w3, acct, usdg, to, value, nonce, valid_before=None):
                 {"name": "nonce", "type": "bytes32"},
             ],
         },
-        "primaryType": "TransferWithAuthorization",
+        "primaryType": "ReceiveWithAuthorization",
         "domain": {
             "name": "Global Dollar",
             "version": "1",
@@ -255,7 +255,7 @@ def test_authorization_paying_an_attacker_address_is_rejected(mem_env):
 
     payer, attacker = Account.create(), Account.create()
     usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
-    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
     auth = _sign_auth(w3, payer, usdg, attacker.address, PRO_PRICE, nonce)
 
     rcpt = w3.eth.wait_for_transaction_receipt(
@@ -273,18 +273,29 @@ def test_authorization_paying_an_attacker_address_is_rejected(mem_env):
     assert m.functions.tokenOf(payer.address).call() == 0
 
 
-def test_treasury_change_between_signing_and_broadcast_reverts_safely(mem_env):
-    """Owner rotating the treasury must invalidate in-flight authorizations
-    rather than sending the payer's USDG somewhere they did not agree to."""
+def test_treasury_rotation_cannot_be_forced_or_strand_a_payer(mem_env):
+    """Two separate properties, both about the treasury the payer never signs.
+
+    The payer authorises `to = the membership contract`, and the contract reads
+    `treasury` from its own storage at settlement. So (a) a non-owner cannot
+    point that anywhere, and (b) an owner rotation mid-flight routes the payment
+    to the new treasury and still credits the term — the earlier design, which
+    signed the treasury into the authorization, silently bricked every in-flight
+    authorization whenever the treasury moved."""
     w3, usdg, m, owner, treasury, relayer = mem_env
     from eth_account import Account
 
     payer = Account.create()
     new_treasury = w3.eth.accounts[4]
     usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
-    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
-    auth = _sign_auth(w3, payer, usdg, treasury, PRO_PRICE, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, PRO, 1).call()
+    auth = _sign_auth(w3, payer, usdg, m.address, PRO_PRICE, nonce)
 
+    # (a) a relayer cannot redirect the funds
+    with pytest.raises(Exception):
+        m.functions.setTreasury(relayer).transact({"from": relayer})
+
+    # (b) an owner rotation does not strand the payer
     m.functions.setTreasury(new_treasury).transact({"from": owner})
     rcpt = w3.eth.wait_for_transaction_receipt(
         w3.eth.send_transaction(
@@ -296,9 +307,11 @@ def test_treasury_change_between_signing_and_broadcast_reverts_safely(mem_env):
             }
         )
     )
-    assert rcpt.status == 0, "stale-treasury authorization must not settle"
-    assert usdg.functions.balanceOf(new_treasury).call() == 0
+    assert rcpt.status == 1, "treasury rotation stranded an in-flight authorization"
+    assert usdg.functions.balanceOf(new_treasury).call() == PRO_PRICE
     assert usdg.functions.balanceOf(treasury).call() == 0
+    assert usdg.functions.balanceOf(m.address).call() == 0, "contract retained funds"
+    assert m.functions.tokenOf(payer.address).call() != 0, "payer paid and got nothing"
 
 
 def test_one_authorization_cannot_buy_two_tiers(mem_env):
@@ -310,8 +323,8 @@ def test_one_authorization_cannot_buy_two_tiers(mem_env):
 
     payer = Account.create()
     usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
-    nonce = m.functions.subscriptionNonce(payer.address, ENTERPRISE, 1).call()
-    auth = _sign_auth(w3, payer, usdg, treasury, ENTERPRISE_PRICE, nonce)
+    nonce = m.functions.nextSubscriptionNonce(payer.address, ENTERPRISE, 1).call()
+    auth = _sign_auth(w3, payer, usdg, m.address, ENTERPRISE_PRICE, nonce)
 
     def send(tier, periods):
         return w3.eth.wait_for_transaction_receipt(
@@ -331,6 +344,14 @@ def test_one_authorization_cannot_buy_two_tiers(mem_env):
     assert send(ENTERPRISE, 1) == 1, "the honest call should settle"
     assert send(ENTERPRISE, 1) == 0, "EIP-3009 nonce was replayable"
     assert usdg.functions.balanceOf(treasury).call() == ENTERPRISE_PRICE
+    # replay is dead, but the plan itself is repurchasable: a FRESH nonce at the
+    # advanced seq settles. (The first cut of this made the two indistinguishable
+    # and silently made renewal impossible forever.)
+    nonce2 = m.functions.nextSubscriptionNonce(payer.address, ENTERPRISE, 1).call()
+    assert nonce2 != nonce
+    auth = _sign_auth(w3, payer, usdg, m.address, ENTERPRISE_PRICE, nonce2)
+    assert send(ENTERPRISE, 1) == 1, "renewal of the same plan must be possible"
+    assert usdg.functions.balanceOf(treasury).call() == ENTERPRISE_PRICE * 2
 
 
 # ── attack 5: driving the repacked storage to its limits ─────────────────────
