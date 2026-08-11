@@ -40,7 +40,7 @@ interface IPositionOracle {
 
 contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     uint256 public constant MAX_SUPPLY = 10_000;
-    uint256 public constant TICKER_COUNT = 96;
+    uint256 public constant TICKER_COUNT = 35;
     uint256 public constant MAX_PER_WALLET = 50;
 
     /// @notice Swap-fee discount in bps granted by holding any Position.
@@ -58,10 +58,10 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     }
 
     /// @notice Immutable per-ticker supply caps, sealed at construction.
-    uint16[96] public tickerCap;
-    uint16[96] public tickerMinted;
+    uint16[35] public tickerCap;
+    uint16[35] public tickerMinted;
 
-    address[96] public tickerToken; // ERC-20 address per ticker index
+    address[35] public tickerToken; // ERC-20 address per ticker index
     bool public registrySealed;
 
     IPositionOracle public oracle;
@@ -97,13 +97,13 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     error BadCaps();
 
     constructor(
-        uint16[96] memory caps,
-        address[96] memory tokens,
+        uint16[35] memory caps,
+        address[35] memory tokens,
         string memory renderBaseURI,
         address initialOwner
     ) ERC721("Suwappu Positions", "POS") Ownable(initialOwner) {
         uint256 sum;
-        for (uint256 i = 0; i < 96; i++) {
+        for (uint256 i = 0; i < TICKER_COUNT; i++) {
             sum += caps[i];
             tickerCap[i] = caps[i];
             tickerToken[i] = tokens[i];

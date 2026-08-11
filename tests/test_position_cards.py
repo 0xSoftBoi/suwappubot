@@ -42,18 +42,38 @@ def registry():
 # ── 1. the collection tracks the canonical registry ───────────────────────────
 
 
-def test_caps_cover_registry_and_sum_to_supply():
+def feeds():
+    return json.load(open(os.path.join(POS, "feeds.json")))["feeds"]
+
+
+def test_caps_cover_priced_tickers_and_sum_to_supply():
     cfg = render.load_config()
     caps = cfg["ticker_caps"]
-    assert sorted(caps) == sorted(registry())
+    assert sorted(caps) == sorted(feeds()), "caps must cover exactly the priced tickers"
     assert sum(caps.values()) == cfg["collection"]["supply"] == 10_000
     assert min(caps.values()) > 0, "a ticker with cap 0 could never be minted"
 
 
-def test_sectors_cover_registry_exactly():
+def test_every_collection_ticker_has_a_verified_feed():
+    """A position on an unpriced ticker could never show a return."""
+    reg, fd = registry(), feeds()
+    assert len(fd) == 35
+    for t, f in fd.items():
+        assert t in reg, f"{t} has a feed but is not in ROBINHOOD_EQUITIES"
+        assert f["token"].lower() == reg[t][0].lower(), f"{t} feed points at the wrong ERC-20"
+        assert f["aggregator"].startswith("0x") and len(f["aggregator"]) == 42
+        assert f["feed_decimals"] == 8
+        assert f["heartbeat_s"] > 0
+        # description() was read on-chain and must name the ticker
+        norm = f["description"].upper().replace("ROBINHOOD", "").replace("RH", "")
+        norm = norm.replace("/", "").replace("-", "").replace(" ", "")
+        assert norm.startswith(t.upper()), f"{t} feed describes itself as {f['description']}"
+
+
+def test_sectors_cover_priced_tickers_exactly():
     cfg = render.load_config()
     mapped = [t for v in cfg["sectors"].values() for t in v]
-    assert sorted(mapped) == sorted(registry())
+    assert sorted(mapped) == sorted(feeds())
     assert len(mapped) == len(set(mapped))
     assert set(cfg["sectors"]) == set(cfg["sector_colors"])
 
@@ -65,24 +85,32 @@ def test_renderer_reads_the_live_registry():
 # ── 2. the ordering the whole system depends on ───────────────────────────────
 
 
-def test_deploy_args_match_registry_order():
-    tickers, caps, tokens, total = deploy_args.build()
-    reg = registry()
-    assert tickers == sorted(reg)
+def test_deploy_args_match_priced_order():
+    tickers, caps, tokens, total, aggs = deploy_args.build()
+    reg, fd = registry(), feeds()
+    assert tickers == sorted(fd)
     assert total == 10_000
-    assert len(caps) == len(tokens) == 96
+    assert len(caps) == len(tokens) == len(aggs) == 35
     for i, t in enumerate(tickers):
         assert tokens[i] == reg[t][0], f"{t} mapped to the wrong ERC-20"
+        assert aggs[i] == fd[t]["aggregator"], f"{t} mapped to the wrong Chainlink feed"
 
 
-def test_service_ticker_index_matches_deploy_args():
-    """The index the bot resolves MUST equal the contract's array index."""
-    from bot.services.position_cards_service import position_cards_service
+def test_service_ticker_index_matches_deploy_args_exactly():
+    """The index the bot resolves MUST equal the contract's array index.
 
-    tickers, _caps, _tokens, _total = deploy_args.build()
-    for symbol in ("AAOI", "AAPL", "NVDA", "SPY", "ZS"):
-        assert position_cards_service.ticker_index(symbol) == tickers.index(symbol)
+    This is the highest-consequence invariant in the collection: if the two
+    orderings diverge, every card silently points at the wrong company.
+    """
+    from bot.services.position_cards_service import PRICED_TICKERS, position_cards_service
+
+    tickers, _caps, _tokens, _total, _aggs = deploy_args.build()
+    assert PRICED_TICKERS == tickers, "service ticker order has drifted from deploy args"
+    for i, symbol in enumerate(tickers):
+        assert position_cards_service.ticker_index(symbol) == i
     assert position_cards_service.ticker_index("NOTATICKER") is None
+    # an unpriced equity must NOT resolve — it is not in the collection
+    assert position_cards_service.ticker_index("AAOI") is None
 
 
 @pytest.mark.skipif(
@@ -90,11 +118,21 @@ def test_service_ticker_index_matches_deploy_args():
     reason="deploy_args.json not built",
 )
 def test_committed_deploy_args_are_fresh():
-    tickers, caps, tokens, _total = deploy_args.build()
+    tickers, caps, tokens, _total, aggs = deploy_args.build()
     on_disk = json.load(open(os.path.join(POS, "deploy_args.json")))
     assert on_disk["ticker_order"] == tickers, "run build_deploy_args.py — args are stale"
     assert on_disk["caps"] == caps
     assert on_disk["tokens"] == tokens
+    assert on_disk["aggregators"] == aggs
+
+
+def test_contract_ticker_count_matches_collection():
+    """SuwappuPositions hardcodes array sizes; they must match the priced set."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    n = len(feeds())
+    assert f"TICKER_COUNT = {n};" in sol
+    assert f"uint16[{n}] public tickerCap;" in sol
+    assert f"address[{n}] public tickerToken;" in sol
 
 
 # ── 3. the card renders real state, never invented state ──────────────────────

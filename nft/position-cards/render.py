@@ -355,18 +355,24 @@ if __name__ == "__main__":
     os.makedirs(args.out, exist_ok=True)
 
     if args.gallery:
+        # Current prices are the REAL values read from the Chainlink feeds on
+        # chain 4663 (see feeds.json / verify_feeds.py). Entries are illustrative
+        # basis points in time, since nothing has been minted yet.
+        feeds = json.load(open(os.path.join(HERE, "feeds.json")))["feeds"]
         samples = [
-            (1, "NVDA", 92.40, 168.22, 1),
-            (2, "SPCX", 210.00, 604.10, 318),
-            (3, "AAPL", 232.10, 221.40, 1804),
-            (4, "IONQ", 41.20, 39.90, 5522),
-            (5, "GME", 28.50, 24.10, 9310),
-            (6, "TSLA", 0, 0, 7781),
+            ("NVDA", 0.42, 1),
+            ("SPCX", 0.28, 318),
+            ("AAPL", 1.06, 1804),
+            ("IONQ", 1.19, 5522),
+            ("GME", 1.55, 9310),
+            ("TSLA", None, 7781),
         ]
-        for tid, tk, e, pr, rk in samples:
-            svg = render_card(cfg, registry, tid, tk, e or None, pr or None, rk)
+        for i, (tk, ratio, rank) in enumerate(samples, start=1):
+            price = feeds[tk]["verified_price_usd"]
+            entry = round(price * ratio, 2) if ratio else None
+            svg = render_card(cfg, registry, i, tk, entry, price if ratio else None, rank)
             open(os.path.join(args.out, f"{tk}.svg"), "w").write(svg)
-        print(f"gallery -> {args.out}")
+        print(f"gallery -> {args.out} (current prices are live feed values)")
     else:
         svg = render_card(cfg, registry, 1, args.ticker, args.entry, args.price, args.rank)
         path = os.path.join(args.out, f"{args.ticker}.svg")

@@ -43,6 +43,48 @@ _MAX_TOKEN_IDS = 200  # cap the eth_call payload for whales / spam wallets
 
 GRADES = ["Underwater", "Flat", "In Profit", "Runner", "Multiple", "Moonshot"]
 
+# Canonical ticker order for the collection — the PRICED subset of
+# ROBINHOOD_EQUITIES (those with a live Chainlink feed on chain 4663), sorted by
+# symbol. This is the same order the contract's ticker arrays were built from;
+# see nft/position-cards/deploy_args.json. Do not reorder.
+PRICED_TICKERS = [
+    "AAPL",
+    "AMD",
+    "AMZN",
+    "ASML",
+    "BABA",
+    "CLSK",
+    "COIN",
+    "CRCL",
+    "CRWV",
+    "DELL",
+    "EWY",
+    "GME",
+    "GOOGL",
+    "INTC",
+    "IONQ",
+    "META",
+    "MSFT",
+    "MSTR",
+    "MU",
+    "NBIS",
+    "NVDA",
+    "ORCL",
+    "PLTR",
+    "QQQ",
+    "RGTI",
+    "RKLB",
+    "SGOV",
+    "SLV",
+    "SNDK",
+    "SPCX",
+    "SPY",
+    "TSLA",
+    "TSM",
+    "USAR",
+    "USO",
+]
+
 _ABI = [
     {
         "name": "discountBpsFor",
@@ -114,16 +156,21 @@ class PositionCardsService:
         return self.contract_address is not None
 
     def ticker_index(self, symbol: str) -> Optional[int]:
-        """Index of `symbol` in the sorted ROBINHOOD_EQUITIES registry.
+        """Index of `symbol` in the collection's canonical ticker order.
 
-        Must match the ordering the contract's ticker arrays were built from
-        (see nft/position-cards/build_deploy_args.py).
+        MUST match the on-chain array order in SuwappuPositions, which is built
+        from nft/position-cards/deploy_args.json. Note this is the PRICED subset
+        (35 tickers with a Chainlink feed), NOT all ~96 tokenized equities in
+        ROBINHOOD_EQUITIES — deriving it from the full registry would shift every
+        index and point each card at the wrong company.
+
+        The list is inlined rather than read from nft/ because that directory is
+        not part of the deployed bot image. tests/test_position_cards.py asserts
+        it matches deploy_args.json exactly.
         """
         try:
-            from bot.config.tokens import ROBINHOOD_EQUITIES
-
-            return sorted(ROBINHOOD_EQUITIES).index(symbol.upper())
-        except Exception:
+            return PRICED_TICKERS.index(symbol.upper())
+        except ValueError:
             return None
 
     # ── holdings (indexer, non-authoritative) ─────────────────────────────────
