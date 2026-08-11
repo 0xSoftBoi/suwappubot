@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
 import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
-import { useEarn, useSend, useWallets } from '../src/hooks/use-gecko'
+import { useEarn, useResolveEns, useSend, useWallets } from '../src/hooks/use-gecko'
 import { ApiError } from '../src/lib/api'
 import { getAuthRevision, isAuthenticated } from '../src/lib/auth'
 import { formatUsd } from '../src/lib/format'
@@ -19,6 +19,8 @@ const MIN_SEND_AMOUNT = 0.01
 const MAX_SEND_AMOUNT = 1_000_000
 const PENDING_REFETCH_DELAY_MS = 5_000
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+const ENS_NAME_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$/i
+const ENS_DEBOUNCE_MS = 500
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.detail
@@ -42,6 +44,7 @@ export default function SendScreen() {
 
   const [step, setStep] = useState<Step>('input')
   const [toInput, setToInput] = useState('')
+  const [debouncedEnsName, setDebouncedEnsName] = useState('')
   const [rawAmount, setRawAmount] = useState('')
   const [useMax, setUseMax] = useState(false)
   const [result, setResult] = useState<SendActionSuccess | null>(null)
@@ -59,6 +62,27 @@ export default function SendScreen() {
     }
   }, [])
 
+  const toTrimmed = toInput.trim()
+  const loweredTo = toTrimmed.toLowerCase()
+  const isHexInput = EVM_ADDRESS_RE.test(toTrimmed)
+  const isEnsInput = ENS_NAME_RE.test(toTrimmed)
+
+  // Debounce ~500ms after typing stops before firing the resolve lookup.
+  useEffect(() => {
+    if (!isEnsInput) {
+      setDebouncedEnsName('')
+      return
+    }
+    const timer = setTimeout(() => setDebouncedEnsName(loweredTo), ENS_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [isEnsInput, loweredTo])
+
+  const ensReady = isEnsInput && debouncedEnsName === loweredTo
+  const ens = useResolveEns(debouncedEnsName, ensReady)
+  const ensResolving = isEnsInput && (!ensReady || ens.isFetching)
+  const ensResolvedAddress = ensReady && ens.data ? ens.data.address : null
+  const ensFailed = ensReady && ens.isError
+
   if (!signedIn) return <SignedOutState />
   if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />
   if (wallets.isError && !wallets.data) {
@@ -70,9 +94,12 @@ export default function SendScreen() {
     .filter((i) => i.token === 'USDC')
     .reduce((sum, i) => sum + i.balanceUsd, 0)
 
-  const toTrimmed = toInput.trim()
-  const toValid = EVM_ADDRESS_RE.test(toTrimmed)
-  const isOwnAddress = toValid && ownAddresses.has(toTrimmed.toLowerCase())
+  // The resolved 0x recipient: direct for a plain hex address, otherwise
+  // whatever a successful ENS lookup returned. This — never the raw input —
+  // is what gets sent to POST /v1/mobile/send.
+  const resolvedTo = isHexInput ? toTrimmed : ensResolvedAddress
+  const toValid = Boolean(resolvedTo)
+  const isOwnAddress = Boolean(resolvedTo) && ownAddresses.has((resolvedTo as string).toLowerCase())
 
   const amountToSend = useMax ? 'max' : rawAmount.trim()
   const numericAmount = Number(rawAmount.trim())
@@ -81,7 +108,7 @@ export default function SendScreen() {
       && Number.isFinite(numericAmount)
       && numericAmount >= MIN_SEND_AMOUNT
       && numericAmount <= MAX_SEND_AMOUNT)
-  const canReview = toValid && !isOwnAddress && amountToSend.length > 0 && amountInBounds
+  const canReview = toValid && !isOwnAddress && !ensResolving && amountToSend.length > 0 && amountInBounds
 
   const paste = useCallback(async () => {
     const text = await Clipboard.getStringAsync()
@@ -100,8 +127,8 @@ export default function SendScreen() {
   }, [clearPendingTimer, send])
 
   const submit = useCallback(() => {
-    if (!canReview) return
-    send.mutate({ to: toTrimmed, amount: amountToSend }, {
+    if (!canReview || !resolvedTo) return
+    send.mutate({ to: resolvedTo, amount: amountToSend }, {
       onSuccess: (response) => {
         const authRevision = getAuthRevision()
         if (response.ok) {
@@ -118,7 +145,7 @@ export default function SendScreen() {
         }
       },
     })
-  }, [canReview, send, toTrimmed, amountToSend, qc, clearPendingTimer])
+  }, [canReview, resolvedTo, send, amountToSend, qc, clearPendingTimer])
 
   return (
     <ScrollView style={s.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={local.content}>
@@ -130,7 +157,7 @@ export default function SendScreen() {
               <TextInput
                 value={toInput}
                 onChangeText={setToInput}
-                placeholder="0x…"
+                placeholder="0x… or name.eth"
                 placeholderTextColor={palette.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -140,8 +167,17 @@ export default function SendScreen() {
                 <Text style={local.pasteChipText}>Paste</Text>
               </Pressable>
             </View>
-            {toTrimmed.length > 0 && !toValid ? (
-              <Text selectable style={local.error}>That doesn’t look like a valid address.</Text>
+            {isEnsInput && ensResolving ? (
+              <Text style={s.muted}>Resolving {loweredTo}…</Text>
+            ) : null}
+            {isEnsInput && ensFailed ? (
+              <Text selectable style={local.error}>{errorMessage(ens.error)}</Text>
+            ) : null}
+            {isEnsInput && ensResolvedAddress ? (
+              <Text selectable style={s.muted}>{loweredTo} → {truncate(ensResolvedAddress)}</Text>
+            ) : null}
+            {toTrimmed.length > 0 && !isHexInput && !isEnsInput ? (
+              <Text selectable style={local.error}>That doesn’t look like a valid address or ENS name.</Text>
             ) : null}
             {isOwnAddress ? (
               <Text selectable style={local.error}>That’s one of your own wallets — pick a different address.</Text>
@@ -186,7 +222,9 @@ export default function SendScreen() {
         <View style={[s.card, local.panel]}>
           <Text style={s.heading}>Confirm send</Text>
           <Text selectable style={local.copy}>
-            Send {useMax ? 'the max available amount' : `${amountToSend} USDC`} to {truncate(toTrimmed)}. This moves real funds and can’t be undone from here.
+            Send {useMax ? 'the max available amount' : `${amountToSend} USDC`} to{' '}
+            {isEnsInput && resolvedTo ? `${loweredTo} → ${truncate(resolvedTo)}` : truncate(resolvedTo ?? toTrimmed)}.
+            {' '}This moves real funds and can’t be undone from here.
           </Text>
           {send.isError ? <Text selectable style={local.error}>{errorMessage(send.error)}</Text> : null}
           <View style={local.panelActions}>

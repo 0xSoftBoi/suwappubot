@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
-import { useEarn, useEarnDeposit, useEarnWithdraw } from '../../src/hooks/use-gecko'
+import { useCreateGoal, useDeleteGoal, useEarn, useEarnDeposit, useEarnWithdraw, useGoals } from '../../src/hooks/use-gecko'
 import { ApiError } from '../../src/lib/api'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
-import type { EarnActionSuccess } from '../../src/types/api'
+import type { EarnActionSuccess, Goal } from '../../src/types/api'
 
 type Mode = 'deposit' | 'withdraw'
 type Step = 'input' | 'confirm' | 'pending' | 'success'
@@ -15,6 +15,10 @@ type Step = 'input' | 'confirm' | 'pending' | 'success'
 // input rejects out-of-bounds amounts before a round trip, not just after.
 const MIN_EARN_AMOUNT = 0.01
 const MAX_EARN_AMOUNT = 1_000_000
+
+// Mirrors the assumed POST /v1/mobile/goals validation — mirror client-side.
+const MAX_GOAL_NAME_LENGTH = 64
+const MAX_GOALS = 10
 
 /** How long to wait before re-checking an unconfirmed (202) tx. Just a nicer
  * first paint than an immediate refetch that likely still shows the old
@@ -37,6 +41,11 @@ export default function EarnScreen() {
   const { data, isLoading, isError, isRefetching, refetch } = useEarn(signedIn)
   const deposit = useEarnDeposit()
   const withdraw = useEarnWithdraw()
+  // Goals is a separate read that must never block or error out Earn — if
+  // /goals is loading, degraded, or unavailable, the section is just omitted.
+  const goals = useGoals(signedIn)
+  const createGoal = useCreateGoal()
+  const deleteGoal = useDeleteGoal()
 
   const [mode, setMode] = useState<Mode | null>(null)
   const [step, setStep] = useState<Step>('input')
@@ -45,6 +54,11 @@ export default function EarnScreen() {
   const [result, setResult] = useState<EarnActionSuccess | null>(null)
   const [pendingTxHash, setPendingTxHash] = useState<string | null>(null)
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [showNewGoal, setShowNewGoal] = useState(false)
+  const [goalName, setGoalName] = useState('')
+  const [goalTarget, setGoalTarget] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
 
   useEffect(() => () => {
     if (pendingTimer.current) clearTimeout(pendingTimer.current)
@@ -122,6 +136,34 @@ export default function EarnScreen() {
   const apy = data?.apy ?? 0
   const hasPosition = positions.length > 0
 
+  const goalList = goals.data?.goals ?? []
+  const goalNameTrimmed = goalName.trim()
+  const goalTargetNum = Number(goalTarget.trim())
+  const goalTargetValid = goalTarget.trim().length > 0 && Number.isFinite(goalTargetNum) && goalTargetNum > 0
+  const goalNameValid = goalNameTrimmed.length > 0 && goalNameTrimmed.length <= MAX_GOAL_NAME_LENGTH
+  const canCreateGoal = goalNameValid && goalTargetValid && goalList.length < MAX_GOALS
+
+  const submitGoal = () => {
+    if (!canCreateGoal) return
+    createGoal.mutate({ name: goalNameTrimmed, targetUsd: goalTargetNum }, {
+      onSuccess: () => {
+        setShowNewGoal(false)
+        setGoalName('')
+        setGoalTarget('')
+        void goals.refetch()
+      },
+    })
+  }
+
+  const confirmDelete = (goalId: number) => {
+    deleteGoal.mutate(goalId, {
+      onSuccess: () => {
+        setConfirmDeleteId(null)
+        void goals.refetch()
+      },
+    })
+  }
+
   return (
     <ScrollView
       style={s.screen}
@@ -163,6 +205,90 @@ export default function EarnScreen() {
           </View>
         )}
       </View>
+
+      {goals.data ? (
+        <View style={local.section}>
+          <Text style={s.heading}>Goals</Text>
+          {goalList.length === 0 && !showNewGoal ? (
+            <View style={s.card}>
+              <Text selectable style={local.copy}>Set a target and watch your savings close in on it.</Text>
+            </View>
+          ) : null}
+          {goalList.map((goal: Goal) => {
+            const progress = goal.targetUsd > 0 ? Math.min(positionUsd / goal.targetUsd, 1) : 0
+            return (
+              <View key={goal.id} style={local.holding}>
+                <View style={local.row}>
+                  <Text style={s.body} numberOfLines={1}>{goal.name}</Text>
+                  {confirmDeleteId === goal.id ? (
+                    <View style={local.goalConfirmRow}>
+                      <Pressable onPress={() => confirmDelete(goal.id)} disabled={deleteGoal.isPending} hitSlop={8}>
+                        <Text style={local.goalConfirmText}>{deleteGoal.isPending ? 'Removing…' : 'Remove'}</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={8}>
+                        <Text style={s.muted}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => setConfirmDeleteId(goal.id)}
+                      onLongPress={() => setConfirmDeleteId(goal.id)}
+                      hitSlop={8}
+                    >
+                      <Text style={local.goalDelete}>✕</Text>
+                    </Pressable>
+                  )}
+                </View>
+                <Text style={s.muted}>{formatUsd(positionUsd)} of {formatUsd(goal.targetUsd)}</Text>
+                <View style={local.track}>
+                  <View style={[local.fill, local.fillSavings, { width: `${progress * 100}%` }]} />
+                </View>
+              </View>
+            )
+          })}
+          {goalList.length > 0 ? (
+            <Text style={local.goalCaption}>All goals draw on the same savings balance — this is a single pot, not separate buckets (v0).</Text>
+          ) : null}
+
+          {showNewGoal ? (
+            <View style={local.panel}>
+              <TextInput
+                value={goalName}
+                onChangeText={setGoalName}
+                placeholder="Goal name"
+                placeholderTextColor={palette.textMuted}
+                maxLength={MAX_GOAL_NAME_LENGTH}
+                style={local.goalInput}
+              />
+              <TextInput
+                value={goalTarget}
+                onChangeText={setGoalTarget}
+                placeholder="Target amount (USD)"
+                placeholderTextColor={palette.textMuted}
+                keyboardType="decimal-pad"
+                style={local.goalInput}
+              />
+              {createGoal.isError ? <Text selectable style={local.error}>{errorMessage(createGoal.error)}</Text> : null}
+              <View style={local.panelActions}>
+                <Pressable onPress={() => { setShowNewGoal(false); setGoalName(''); setGoalTarget(''); createGoal.reset() }} style={local.cancelButton}>
+                  <Text style={local.cancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={submitGoal}
+                  disabled={!canCreateGoal || createGoal.isPending}
+                  style={[local.confirmButton, (!canCreateGoal || createGoal.isPending) && local.actionDisabled]}
+                >
+                  <Text style={local.confirmText}>{createGoal.isPending ? 'Saving…' : 'Save goal'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable onPress={() => setShowNewGoal(true)} disabled={goalList.length >= MAX_GOALS} style={[local.actionButtonSecondary, goalList.length >= MAX_GOALS && local.actionDisabled]}>
+              <Text style={local.actionTextSecondary}>New goal</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
 
       <View style={local.section}>
         <Text style={s.heading}>Idle USDC</Text>
@@ -307,4 +433,13 @@ const local = StyleSheet.create({
   success: { color: palette.success, fontSize: 15, fontWeight: '700' },
   pending: { color: palette.textSecondary, fontSize: 15, fontWeight: '700' },
   error: { color: palette.danger, fontSize: 13 },
+  holding: { gap: spacing.sm, paddingVertical: spacing.xs },
+  track: { height: 6, borderRadius: radius.full, backgroundColor: palette.surfaceElevated, overflow: 'hidden' },
+  fill: { height: 6, borderRadius: radius.full, backgroundColor: palette.accent },
+  fillSavings: { backgroundColor: palette.success },
+  goalDelete: { color: palette.textMuted, fontSize: 16, fontWeight: '700', paddingHorizontal: spacing.xs },
+  goalConfirmRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  goalConfirmText: { color: palette.danger, fontSize: 13, fontWeight: '700' },
+  goalCaption: { color: palette.textMuted, fontSize: 12, lineHeight: 17 },
+  goalInput: { minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
 })
