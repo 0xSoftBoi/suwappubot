@@ -30,7 +30,7 @@ import { SuwappuFills } from "../SuwappuFills.sol";
  *     --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast -vvvv
  */
 contract DeployFills is Script {
-    bytes32 constant PROVENANCE = 0x8cbf6dfd5de3905d35cde54ca0c4e427465081593609e30e4d9457ad007e2eec;
+    bytes32 constant PROVENANCE = 0x91c0ec0e3e7bd108175c9443d32b0dd16f78b89d5af23c9e7a02f42d6008c124;
     bytes32 constant TRAITS = 0xb3479dd822b01a4b5d365f06d06480902473ac10f40f09a4253a74f4d9e70887;
 
     function run() external {

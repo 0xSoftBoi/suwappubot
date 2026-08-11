@@ -395,7 +395,7 @@ def render(token_id, combo, cfg, registry, desk_map):
         f'font-size="14" letter-spacing="1.4" fill="#6b7488">SWAP FEE / TICKER XP</text>'
         f'<text x="{IX1 - 22}" y="{by + 60}" text-anchor="end" font-family="monospace" '
         f'font-size="24" font-weight="bold" fill="#e8ecf4">'
-        f'−{desk["discount_bps"]} bps · +{desk["xp_boost_bps"] / 100:.0f}% XP</text>'
+        f'−{desk["discount_bps"]} bps · +{desk["xp_boost_bps"] / 100:g}% XP</text>'
     )
 
     # ── stub: perforation + trait-hash barcode ────────────────────────────────
@@ -499,7 +499,7 @@ def metadata(cfg, registry, desk_map, token_id, combo):
             f"({combo['Ticker']}) on Robinhood Chain, settled in {combo['Settlement']} "
             f"during {combo['Session'].lower()}. Held in a wallet linked to Suwappu, this "
             f"ticket runs a {combo['Desk']} desk: −{desk['discount_bps']} bps on swap fees "
-            f"and +{desk['xp_boost_bps'] / 100:.0f}% XP on {combo['Ticker']} swaps.\n\n"
+            f"and +{desk['xp_boost_bps'] / 100:g}% XP on {combo['Ticker']} swaps.\n\n"
             f"{col['compliance']}"
         ),
         "image": IMAGE_URI.format(i=token_id),

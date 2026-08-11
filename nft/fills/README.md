@@ -72,7 +72,7 @@ sync fee path reads an in-memory cache only — pricing a swap never waits on an
 `output/` (10k SVGs + metadata, ~300MB) and `traits.bin` are gitignored — both regenerate
 byte-for-byte from the seed.
 
-**Provenance:** `8cbf6dfd5de3905d35cde54ca0c4e427465081593609e30e4d9457ad007e2eec`
+**Provenance:** `91c0ec0e3e7bd108175c9443d32b0dd16f78b89d5af23c9e7a02f42d6008c124`
 **Traits commitment:** `0xb3479dd822b01a4b5d365f06d06480902473ac10f40f09a4253a74f4d9e70887`
 
 ## Regenerate & ship
