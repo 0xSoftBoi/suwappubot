@@ -103,16 +103,61 @@ x-response-time: 2ms
 ```
 
 The whole payments row is built on "no signup, no API key handshake" — and
-the endpoint answers 401, which is precisely an API-key demand. Under
-investigation (see §5) whether the 402 path exists on another route, needs a
-flag, or is unshipped. **Either way the page as published is wrong**, and
-this is a live marketing claim about how our billing works.
+the endpoint answers 401, which is precisely an API-key demand.
+
+### Confirmed in the code — it is wrong on three counts
+
+`/v1/agent/quote` carries two different payment middlewares
+(`api-ts/src/routes/agent.ts:506` and `:600`), and **both are gated off by
+default**:
+
+| Flag | Default | Source |
+|---|---|---|
+| `MPP_ENABLED` | `'false'` | `api-ts/src/config/EnvService.ts:69` |
+| `AGENT_METERING_ENABLED` | `'false'` | `api-ts/src/config/EnvService.ts:74` |
+
+With MPP disabled, `mppPaymentAuth()` returns **401** rather than a challenge
+(`api-ts/src/middleware/mppAuth.ts:53-59`). That is exactly the live response
+we measured.
+
+1. **Status code** — page claims 402 is the default response; production
+   returns 401 because both billing paths are disabled.
+2. **Header name** — page claims `X-Payment`. **No such header exists in the
+   codebase.** The real ones are `X-Payment-Required`
+   (`middleware/x402Payment.ts:179`) and `x-402`
+   (`middleware/mppAuth.ts:94`), and both carry **base64-encoded** JSON, not
+   the plaintext object the page prints.
+3. **Reachability** — the 402 path needs `AGENT_METERING_ENABLED='true'`
+   *and* an agent with insufficient prepaid credits
+   (`middleware/x402Payment.ts:241, 361-364`). An unauthenticated caller
+   fails at 401 and never reaches it. There is no header or query param a
+   caller can send to get the documented flow.
+
+The one accurate detail is the price: `MPP_SWAP_PRICE_USD` defaults to
+`'0.001'`, matching the page's `"amount": "0.001"`.
+
+**Attempted to confirm the production flag values through the Railway MCP;
+reading service variables was blocked by the permission classifier.** Not
+needed for the verdict — the live 401 from production is direct proof that
+neither flag is on.
+
+### What to do about it
+
+Two honest options, and this is a product call, not a copy tweak:
+
+- **If x402 is shipped and we want it**, turn on the flag and fix the example
+  to the real header names and base64 shape.
+- **If it isn't ready**, the payments row should describe bearer auth (what
+  actually happens) and label x402 as coming soon.
+
+What we cannot do is leave a published page describing a billing flow that
+returns a different status code with a header that does not exist. Flagging
+this as **MONEY-PATH-adjacent**: it is a public claim about how we charge.
 
 ---
 
 ## 5. Open
 
-- Where the x402 402 flow actually lives, what triggers it, and whether it's
-  enabled in production config. Scout in progress.
 - Whether to stand up a real uptime monitor so a percentage becomes citable.
 - Sampling method for a publishable latency figure.
+- Product decision on the x402 row above.
