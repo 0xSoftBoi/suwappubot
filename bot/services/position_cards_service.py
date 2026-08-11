@@ -1,25 +1,24 @@
-"""Suwappu Fills — NFT ticket perks on Robinhood Chain (chain 4663).
+"""Suwappu Positions — NFT position cards on Robinhood Chain (chain 4663).
 
-A Fill is an order ticket for one of the ~96 tokenized equities on Robinhood
-Chain. Holding one in a linked EVM wallet grants two perks:
-
-  * a swap-fee discount, in basis points, from the ticket's DESK tier, and
-  * an XP boost on swaps of the ticket's own TICKER.
+A Position is a card bound to one of the ~96 tokenized equities on Robinhood
+Chain. The holder's entry price is stamped on-chain at mint; the card renders
+live P&L against it. Holding one grants a swap-fee discount.
 
 Trust model
 -----------
 Token ids come from an indexer (Blockscout), which is convenient but NOT
-authoritative. The *value* of the perk is always resolved by an ``eth_call``
-against the collection contract, which checks ownership itself and ignores ids
-the address does not actually own. A stale or hostile indexer response can
-therefore only ever produce a SMALLER discount, never a larger one.
+authoritative. The discount's VALUE is always resolved by an ``eth_call``
+against ``discountBpsFor``, which re-checks ownership on-chain and ignores ids
+the address does not own. A stale or hostile indexer can therefore only ever
+produce a SMALLER discount, never a larger one. The discount is flat per
+holder, not per card, so stacking cards cannot compound the giveaway.
 
 Guardrails (money path)
 -----------------------
-This module is consulted while pricing a swap. Every public entry point is
-fail-safe: any RPC, indexer, config or parse error returns "no perk" rather
-than raising, so a swap can never be blocked — or mispriced upward — by a
-Fills lookup. Results are cached briefly to keep the swap path fast.
+Consulted while pricing a swap. Every entry point is fail-safe: any RPC,
+indexer, config or parse error returns "no perk" rather than raising, so a swap
+can never be blocked — or mispriced upward — by a Positions lookup. The sync
+fee path reads an in-memory cache only and never does I/O.
 """
 
 import logging
@@ -33,27 +32,27 @@ logger = logging.getLogger(__name__)
 CHAIN = "robinhood"
 CHAIN_ID = 4663
 
-# Ceiling on the discount this module can ever return, as a hard backstop
-# independent of whatever the deployed contract reports. The House desk is
-# 50 bps; anything above that means a wrong contract or a bad read, and we
-# clamp rather than hand out an unbounded fee cut.
-MAX_FILL_DISCOUNT_BPS = 50
-# Same idea for the XP boost (House = 3500 bps = +35%).
-MAX_FILL_XP_BOOST_BPS = 3500
+# Hard backstop on the discount this module can return, independent of whatever
+# the deployed contract reports. Mirrors MAX_HOLD_DISCOUNT_BPS in
+# SuwappuPositions.sol. A larger value means a wrong contract or a bad read, and
+# we clamp rather than hand out an unbounded fee cut.
+MAX_CARD_DISCOUNT_BPS = 100
 
 _CACHE_TTL = 300  # seconds
 _MAX_TOKEN_IDS = 200  # cap the eth_call payload for whales / spam wallets
 
+GRADES = ["Underwater", "Flat", "In Profit", "Runner", "Multiple", "Moonshot"]
+
 _ABI = [
     {
-        "name": "bestDiscountBps",
+        "name": "discountBpsFor",
         "type": "function",
         "stateMutability": "view",
         "inputs": [
             {"name": "owner", "type": "address"},
             {"name": "tokenIds", "type": "uint256[]"},
         ],
-        "outputs": [{"name": "best", "type": "uint16"}],
+        "outputs": [{"name": "", "type": "uint16"}],
     },
     {
         "name": "holdsTicker",
@@ -67,17 +66,34 @@ _ABI = [
         "outputs": [{"name": "", "type": "bool"}],
     },
     {
-        "name": "traitsSealed",
+        "name": "returnBps",
         "type": "function",
         "stateMutability": "view",
-        "inputs": [],
-        "outputs": [{"name": "", "type": "bool"}],
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [
+            {"name": "bps", "type": "int256"},
+            {"name": "priced", "type": "bool"},
+        ],
+    },
+    {
+        "name": "grade",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "uint8"}],
+    },
+    {
+        "name": "remaining",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tickerIndex", "type": "uint8"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     },
 ]
 
 
-class FillsService:
-    """Read-only perk resolver for the Suwappu Fills collection."""
+class PositionCardsService:
+    """Read-only resolver for Suwappu Positions perks and live card state."""
 
     def __init__(self) -> None:
         self._holdings: dict[str, tuple[float, list[int]]] = {}
@@ -88,7 +104,7 @@ class FillsService:
 
     @property
     def contract_address(self) -> Optional[str]:
-        addr = getattr(settings, "suwappu_fills_contract", None)
+        addr = getattr(settings, "suwappu_position_cards_contract", None)
         if not addr or not isinstance(addr, str) or not addr.startswith("0x"):
             return None
         return addr
@@ -100,15 +116,14 @@ class FillsService:
     def ticker_index(self, symbol: str) -> Optional[int]:
         """Index of `symbol` in the sorted ROBINHOOD_EQUITIES registry.
 
-        Must match the ordering used by nft/fills/pack_traits.py, which is the
-        ordering sealed into the contract.
+        Must match the ordering the contract's ticker arrays were built from
+        (see nft/position-cards/build_deploy_args.py).
         """
         try:
             from bot.config.tokens import ROBINHOOD_EQUITIES
 
-            tickers = sorted(ROBINHOOD_EQUITIES)
-            return tickers.index(symbol.upper())
-        except (ValueError, Exception):
+            return sorted(ROBINHOOD_EQUITIES).index(symbol.upper())
+        except Exception:
             return None
 
     # ── holdings (indexer, non-authoritative) ─────────────────────────────────
@@ -131,12 +146,11 @@ class FillsService:
 
             base = CHAINS[CHAIN].explorer_url.rstrip("/")
             url = f"{base}/api/v2/addresses/{address}/nft"
-            params = {"type": "ERC-721"}
             timeout = aiohttp.ClientTimeout(total=6)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params) as resp:
+                async with session.get(url, params={"type": "ERC-721"}) as resp:
                     if resp.status != 200:
-                        logger.debug("Fills: indexer HTTP %s for %s", resp.status, address)
+                        logger.debug("Positions: indexer HTTP %s for %s", resp.status, address)
                         return []
                     data = await resp.json()
             for item in (data or {}).get("items", []) or []:
@@ -150,7 +164,7 @@ class FillsService:
                 if len(ids) >= _MAX_TOKEN_IDS:
                     break
         except Exception as e:  # pragma: no cover - defensive
-            logger.debug("Fills: holdings lookup failed for %s: %s", address, e)
+            logger.debug("Positions: holdings lookup failed for %s: %s", address, e)
             return []
 
         self._holdings[key] = (time.time(), ids)
@@ -165,11 +179,7 @@ class FillsService:
         return w3.eth.contract(address=w3.to_checksum_address(self.contract_address), abi=_ABI)
 
     async def get_discount_bps(self, address: Optional[str]) -> int:
-        """Best swap-fee discount in bps across the address's tickets.
-
-        Returns 0 on any failure, when Fills is unconfigured, or when the
-        address holds nothing. Clamped to MAX_FILL_DISCOUNT_BPS.
-        """
+        """Swap-fee discount in bps for an address. 0 on any failure."""
         if not address or not self.enabled:
             return 0
         key = address.lower()
@@ -182,22 +192,47 @@ class FillsService:
                 self._discount[key] = (time.time(), 0)
                 return 0
             contract = self._contract()
-            raw = contract.functions.bestDiscountBps(
+            raw = contract.functions.discountBpsFor(
                 contract.w3.to_checksum_address(address), ids
             ).call()
-            bps = max(0, min(int(raw), MAX_FILL_DISCOUNT_BPS))
+            bps = max(0, min(int(raw), MAX_CARD_DISCOUNT_BPS))
         except Exception as e:  # pragma: no cover - defensive
-            logger.debug("Fills: discount lookup failed for %s: %s", address, e)
+            logger.debug("Positions: discount lookup failed for %s: %s", address, e)
             return 0
         self._discount[key] = (time.time(), bps)
         return bps
 
-    async def get_ticker_xp_boost_bps(self, address: Optional[str], symbol: str) -> int:
-        """XP boost in bps for swapping `symbol`, if a ticket for it is held.
+    async def get_positions(self, address: Optional[str]) -> list[dict]:
+        """Live state for each card an address holds. Empty on any failure."""
+        if not address or not self.enabled:
+            return []
+        try:
+            ids = await self._token_ids(address)
+            if not ids:
+                return []
+            contract = self._contract()
+            out = []
+            for tid in ids[:50]:
+                try:
+                    bps, priced = contract.functions.returnBps(tid).call()
+                    grade_idx = contract.functions.grade(tid).call()
+                except Exception:
+                    continue
+                out.append(
+                    {
+                        "token_id": tid,
+                        "return_bps": int(bps) if priced else None,
+                        "priced": bool(priced),
+                        "grade": GRADES[grade_idx] if 0 <= grade_idx < len(GRADES) else "Flat",
+                    }
+                )
+            return out
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Positions: state lookup failed for %s: %s", address, e)
+            return []
 
-        The boost comes from the best desk the address holds; the ticket only
-        has to reference the same ticker being swapped.
-        """
+    async def get_ticker_xp_boost_bps(self, address: Optional[str], symbol: str) -> int:
+        """XP boost in bps for swapping a ticker the address holds a position on."""
         if not address or not self.enabled or not symbol:
             return 0
         idx = self.ticker_index(symbol)
@@ -211,37 +246,52 @@ class FillsService:
             owner = contract.w3.to_checksum_address(address)
             if not contract.functions.holdsTicker(owner, ids, idx).call():
                 return 0
-            # Desk -> XP boost, mirroring nft/fills/config.json.
-            bps_by_discount = {5: 250, 10: 500, 20: 1000, 35: 2000, 50: 3500}
-            discount = await self.get_discount_bps(address)
-            return min(bps_by_discount.get(discount, 0), MAX_FILL_XP_BOOST_BPS)
+            return 2500  # +25% XP on a ticker you hold a position on
         except Exception as e:  # pragma: no cover - defensive
-            logger.debug("Fills: ticker boost lookup failed for %s: %s", address, e)
+            logger.debug("Positions: ticker boost lookup failed for %s: %s", address, e)
             return 0
+
+    async def remaining_for_ticker(self, symbol: str) -> Optional[int]:
+        """Unminted supply left on a ticker — drives the mint-urgency UI."""
+        idx = self.ticker_index(symbol)
+        if idx is None or not self.enabled:
+            return None
+        try:
+            return int(self._contract().functions.remaining(idx).call())
+        except Exception:
+            return None
 
     # ── sync cache surface (used by the fee path) ─────────────────────────────
 
-    async def warm_for_user(self, user_id: Optional[int]) -> int:
-        """Resolve the user's EVM address, refresh its perk, cache it by user_id.
-
-        Call this from an ASYNC swap path shortly before pricing. The fee path
-        itself is sync and must never do I/O, so it reads only the cache this
-        populates (see ``get_cached_discount_bps_for_user``). Returns the bps
-        it cached, or 0.
-        """
-        if user_id is None or not self.enabled:
-            return 0
+    def evm_address_for_user(self, user_id: Optional[int]) -> Optional[str]:
+        """First EVM wallet address for a user, or None. Never raises."""
+        if user_id is None:
+            return None
         try:
             from bot.services.wallet import wallet_service
 
             wallets = wallet_service.get_user_wallets(user_id, chain_type="evm")
-            address = next((w.address for w in wallets if w.address), None)
+            return next((w.address for w in wallets if w.address), None)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Positions: wallet lookup failed for user %s: %s", user_id, e)
+            return None
+
+    async def warm_for_user(self, user_id: Optional[int]) -> int:
+        """Resolve the user's EVM address, refresh its perk, cache it by user_id.
+
+        Call from an ASYNC swap path shortly before pricing. The fee path is
+        sync and must never do I/O, so it reads only the cache this populates.
+        """
+        if user_id is None or not self.enabled:
+            return 0
+        try:
+            address = self.evm_address_for_user(user_id)
             if not address:
                 self._user_discount[user_id] = (time.time(), 0)
                 return 0
             bps = await self.get_discount_bps(address)
         except Exception as e:  # pragma: no cover - defensive
-            logger.debug("Fills: warm failed for user %s: %s", user_id, e)
+            logger.debug("Positions: warm failed for user %s: %s", user_id, e)
             return 0
         self._user_discount[user_id] = (time.time(), bps)
         return bps
@@ -250,21 +300,19 @@ class FillsService:
         """Cached discount for a user. NEVER does I/O — cold cache means 0 bps.
 
         A cold read costs the user a discount on that one quote rather than
-        adding a network round-trip to the swap price path. It can never
-        overstate the discount.
+        adding a network round-trip to pricing. It can never overstate.
         """
         if user_id is None or not self.enabled:
             return 0
         hit = self._user_discount.get(user_id)
         if not hit or time.time() - hit[0] >= _CACHE_TTL:
             return 0
-        return max(0, min(hit[1], MAX_FILL_DISCOUNT_BPS))
+        return max(0, min(hit[1], MAX_CARD_DISCOUNT_BPS))
 
     def invalidate(self, address: str) -> None:
-        """Drop cached holdings/discount for an address (e.g. after a transfer)."""
         key = (address or "").lower()
         self._holdings.pop(key, None)
         self._discount.pop(key, None)
 
 
-fills_service = FillsService()
+position_cards_service = PositionCardsService()

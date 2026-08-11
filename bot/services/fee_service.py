@@ -42,7 +42,7 @@ DEFAULT_FEE_RATE = 0.01  # fallback if tier lookup fails
 # Floor for the EFFECTIVE fee after a points-based fee_discount is applied.
 # Stacking rule:
 #   effective_fee = max(MIN_EFFECTIVE_FEE_RATE,
-#                       tier_fee − points_discount − fills_nft_discount).
+#                       tier_fee − points_discount − positions_nft_discount).
 # We floor at the ENTERPRISE rate (0.1%) rather than 0% so a points discount can
 # match — but never beat — our best paid tier, and the fee can NEVER go negative
 # or to zero (which would also zero the referral fee-share and treasury split).
@@ -153,14 +153,14 @@ class FeeService:
             logger.warning(f"fee discount lookup failed for user {user_id}: {e}")
             return 0.0
 
-    def _fills_discount_decimal(self, user_id: "Optional[int]") -> float:
-        """Suwappu Fills NFT fee discount for a user, as a plain DECIMAL.
+    def _positions_discount_decimal(self, user_id: "Optional[int]") -> float:
+        """Suwappu Position Cards NFT fee discount for a user, as a plain DECIMAL.
 
-        ``fills_service`` stores the discount in BASIS POINTS (House desk = 50
-        bps), so we divide by 10,000 to match the decimal fee rate. This is a
+        ``position_cards_service`` stores the discount in BASIS POINTS, so we divide
+        by 10,000 to match the decimal fee rate. This is a
         pure in-memory cache read — no RPC, no DB — because it runs on the swap
         pricing path; the cache is warmed from the async swap path via
-        ``fills_service.warm_for_user``. A cold cache yields 0.0 (no discount).
+        ``position_cards_service.warm_for_user``. A cold cache yields 0.0 (no discount).
 
         GUARDRAIL: like the points lookup, this must NEVER break fee calculation,
         so all errors are swallowed and return 0.0. It can only ever REDUCE the
@@ -170,12 +170,12 @@ class FeeService:
         if user_id is None:
             return 0.0
         try:
-            from bot.services.fills_service import fills_service
+            from bot.services.position_cards_service import position_cards_service
 
-            bps = fills_service.get_cached_discount_bps_for_user(user_id)
+            bps = position_cards_service.get_cached_discount_bps_for_user(user_id)
             return max(0.0, float(bps) / 10_000.0)
         except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Fills discount lookup failed for user {user_id}: {e}")
+            logger.warning(f"Position-card discount lookup failed for user {user_id}: {e}")
             return 0.0
 
     def get_fee_decimal(
@@ -189,13 +189,14 @@ class FeeService:
 
             effective_fee = max(
                 MIN_EFFECTIVE_FEE_RATE,
-                tier_fee − points_discount − fills_discount,
+                tier_fee − points_discount − positions_discount,
             )
 
         - ``tier_fee`` comes from TIER_FEE_RATES (subscription tier).
-        - ``fills_discount`` is the best Suwappu Fills NFT ticket held by this
-          user (Robinhood Chain, chain 4663) — Retail 5 bps … House 50 bps.
-          Cache-only read, so it never adds latency to pricing.
+        - ``positions_discount`` is the flat discount granted by holding a
+          Suwappu Positions card (Robinhood Chain, chain 4663). Flat per holder,
+          not per card, so stacking cards cannot compound it. Cache-only read,
+          so it never adds latency to pricing.
         - ``points_discount`` is the best ACTIVE points-redeemed fee_discount for
           this user (read-only, time-bound) — only applied when ``user_id`` is
           given. A points fee_discount STACKS ON TOP of the tier discount.
@@ -211,8 +212,8 @@ class FeeService:
         else:
             base = DEFAULT_FEE_RATE
         discount = self._active_fee_discount_decimal(user_id)
-        fills = self._fills_discount_decimal(user_id)
-        effective = max(MIN_EFFECTIVE_FEE_RATE, base - discount - fills)
+        positions = self._positions_discount_decimal(user_id)
+        effective = max(MIN_EFFECTIVE_FEE_RATE, base - discount - positions)
 
         # Referral v2 — referee first-5-swaps rebate: 10% off the effective rate.
         # READ-ONLY: this never decrements referee_swap_rebate_remaining.

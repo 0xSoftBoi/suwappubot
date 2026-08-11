@@ -1276,13 +1276,14 @@ class Settings(BaseSettings):
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
     )
-    suwappu_fills_contract: Optional[str] = Field(
+    suwappu_position_cards_contract: Optional[str] = Field(
         default=None,
         description=(
-            "SuwappuFills ERC-721 address on Robinhood Chain (chain 4663). When set, "
-            "holding a Fill ticket grants a swap-fee discount (Retail 5 bps … House "
-            "50 bps) that stacks in fee_service.get_fee_decimal, plus an XP boost on "
-            "swaps of the ticket's own ticker. Unset disables the perk entirely."
+            "SuwappuPositions ERC-721 address on Robinhood Chain (chain 4663). When set, "
+            "holding a Position takes a flat discount off the swap fee (see "
+            "nft/position-cards/config.json economics.hold_discount_bps) via "
+            "fee_service.get_fee_decimal, plus an XP boost on the position's own ticker. "
+            "Unset disables the perk entirely."
         ),
     )
     fee_collector_solana: Optional[str] = Field(
