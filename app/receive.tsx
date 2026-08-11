@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { EmptyAction, ErrorState, InfoNote, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useWallets } from '../src/hooks/use-gecko'
@@ -16,6 +16,15 @@ import type { Wallet } from '../src/types/api'
 const RECEIVE_DETAIL =
   'This address only accepts USDC (a digital dollar) sent on the Base network. Sending a different token, or sending from a different network, usually can’t be recovered.'
 
+/** Splits an address into readable 4-character groups (`0x12 3456 7890 …`)
+ * so it can be read aloud or checked character-by-character without a
+ * scanner — this is the fallback for devices where a QR isn't available. */
+function chunkAddress(address: string): string {
+  const body = address.slice(2)
+  const groups = body.match(/.{1,4}/g) ?? []
+  return `0x${groups.join(' ')}`
+}
+
 function pickReceiveWallet(wallets: Wallet[]): Wallet | null {
   const evm = wallets.filter((w) => w.chainType.toLowerCase() === 'evm')
   return evm.find((w) => w.isDefault) ?? evm[0] ?? wallets[0] ?? null
@@ -30,6 +39,14 @@ export default function ReceiveScreen() {
     await Clipboard.setStringAsync(address)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }, [])
+
+  const share = useCallback(async (address: string) => {
+    try {
+      await Share.share({ message: address })
+    } catch {
+      // User cancelled or the share sheet failed — nothing to recover from here.
+    }
   }, [])
 
   useEffect(() => { analytics.screen('Receive') }, [])
@@ -73,16 +90,29 @@ export default function ReceiveScreen() {
       </View>
 
       <View style={[s.card, local.addressCard]}>
-        <Text selectable style={local.address}>{wallet.address}</Text>
-        <Pressable onPress={() => void copy(wallet.address)} accessibilityRole="button" accessibilityLabel="Copy address" style={local.copyButton}>
-          <Text style={local.copyButtonText}>{copied ? 'Copied' : 'Copy address'}</Text>
-        </Pressable>
-        {/* No QR here — this app has no vetted, zero-native-dependency QR
-            generator on hand (react-native-svg would require a native
-            rebuild, and a hand-rolled encoder risks producing a code that
-            looks right but doesn't scan). Copy + long-press-to-select cover
-            the same job until a real QR lib is added deliberately. */}
-        <Text style={local.qrNote}>A scannable code is coming soon — copy the address for now.</Text>
+        {/* No QR here — react-native-svg isn't installed in this app, and
+            adding it would require a native rebuild (a hand-rolled QR
+            encoder without a real renderer risks producing a code that
+            looks right but doesn't scan, which is worse than no QR for a
+            money app). Until that dependency is added deliberately, a
+            large, chunked, selectable address plus Copy and Share cover
+            the same job — anyone sharing this in person can also just
+            read it aloud in groups of 4. */}
+        <Text
+          selectable
+          accessibilityLabel={`Your receive address, ${wallet.address}`}
+          style={local.address}
+        >
+          {chunkAddress(wallet.address)}
+        </Text>
+        <View style={local.actionRow}>
+          <Pressable onPress={() => void copy(wallet.address)} accessibilityRole="button" accessibilityLabel="Copy address" style={[local.copyButton, local.actionButton]}>
+            <Text style={local.copyButtonText}>{copied ? 'Copied' : 'Copy'}</Text>
+          </Pressable>
+          <Pressable onPress={() => void share(wallet.address)} accessibilityRole="button" accessibilityLabel="Share address" style={[local.shareButton, local.actionButton]}>
+            <Text style={local.shareButtonText}>Share</Text>
+          </Pressable>
+        </View>
       </View>
     </ScrollView>
   )
@@ -92,8 +122,11 @@ const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
   copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22, paddingTop: spacing.sm },
   addressCard: { alignItems: 'center', gap: spacing.md },
-  address: { color: palette.text, fontSize: 16, fontVariant: ['tabular-nums'], textAlign: 'center', letterSpacing: 0.3 },
-  copyButton: { alignSelf: 'stretch', alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
+  address: { color: palette.text, fontSize: 22, fontWeight: '600', fontVariant: ['tabular-nums'], textAlign: 'center', letterSpacing: 0.5, lineHeight: 32 },
+  actionRow: { flexDirection: 'row', alignSelf: 'stretch', gap: spacing.sm },
+  actionButton: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, paddingVertical: spacing.md },
+  copyButton: { backgroundColor: palette.accent },
   copyButtonText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
-  qrNote: { color: palette.textMuted, fontSize: 12, textAlign: 'center' },
+  shareButton: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+  shareButtonText: { color: palette.text, fontSize: 16, fontWeight: '700' },
 })
