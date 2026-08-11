@@ -4,15 +4,17 @@ This doc audits Gekko's mobile app (`mobile/`) as currently built, defines to-be
 
 ## 1. Headline
 
-Three structural blockers, not UX polish issues. The per-screen flows themselves (once a user is in) are tight — 2-5 taps for most actions. The problem is nobody can reach them, nobody can fund them, and nobody can measure any of it.
+Three structural blockers, not UX polish issues. The per-screen flows themselves (once a user is in) are tight — 2-5 taps for most actions. The problem is nobody can reach them, nobody can fund them (net-new users only — see correction below), and nobody can measure any of it.
 
 | # | Blocker | Evidence | Impact |
 |---|---|---|---|
-| 1 | **No entrance.** There is no sign-in, signup, or Telegram/WhatsApp auth flow. `SignedOutState` is a terminal dead end. | `mobile/src/components/screen-state.tsx:27-39` — literally renders "Sign-in is not part of this preview." | 100% of net-new and even reconnecting Suwappu users stop at step 0. The `11-onboarding.md` "single tap from within Telegram" default does not exist in code. |
-| 2 | **No funding path.** There is no on-ramp, no card, no bot-wallet pull. Receive is address-copy only. | `mobile/app/receive.tsx:45-65` — QR is a code comment ("coming soon"), no MoonPay/Transak widget, no bot-wallet sweep. | A funded user must leave the app, go to an exchange or the Suwappu bot, send USDC-on-Base manually, then return and hope it lands. This directly blocks the `11-onboarding.md` "First Deposit" step and the `12-activation.md` "Fund Account" auto-sweep default — neither can be built on top of an address-copy screen. |
+| 1 | **No entrance.** There is no sign-in, signup, or Telegram/WhatsApp auth flow. `SignedOutState` is a terminal dead end. | `mobile/src/components/screen-state.tsx:27-39` — literally renders "Sign-in is not part of this preview." | 100% of net-new and even reconnecting Suwappu users stop at step 0. The `11-onboarding.md` "single tap from within Telegram" default does not exist in code. Because auth is the only gap for the Suwappu beachhead (see correction below), this blocker alone is now their entire funnel problem. |
+| 2 | **No funding path (net-new users only).** There is no on-ramp, no card, no working QR. Receive is address-copy only. | `mobile/app/receive.tsx:45-65` — QR is a code comment ("coming soon"), no MoonPay/Transak widget. | This blocks funding for a user arriving with $0 and no existing Suwappu wallet — the `11-onboarding.md` "First Deposit" step for that population. It does **not** block existing Suwappu bot users: their balance is already sitting in the row the app reads (see correction below), so there is no funding step to build for them. |
 | 3 | **No measurement.** Zero analytics events anywhere in the app. | Grep for `analytics\|track\|posthog\|amplitude\|segment\|mixpanel\|telemetry\|logEvent` across `mobile/` returns only a dead comment at `mobile/src/lib/perf.ts:48` — no live call sites. | Every target number in `11-onboarding.md` and `12-activation.md` (80% signup completion, 60% first-deposit rate, 40% first-spend) is currently unmeasurable. Gekko cannot know if it's improving or regressing anything below. |
 
-Everything in sections 3-6 exists to fix these three things in priority order: auth → funding → measurement. Fixing per-screen tap counts without fixing the entrance is optimizing a room nobody can walk into.
+Everything in sections 3-6 exists to fix these in priority order: auth → funding (net-new only) → measurement. Fixing per-screen tap counts without fixing the entrance is optimizing a room nobody can walk into.
+
+> **Correction (from code, not docs — 2026-08-11):** an earlier version of this doc assumed funding an existing Suwappu user requires "pulling funds from your Suwappu bot wallet," i.e. a transfer. That premise is wrong. Verified: the Gekko mobile app and the Telegram bot resolve to the **same** `users.id` and the **same** `Wallet` rows. `api/routes/mobile.py:187-203` (`_jwt_user`) extracts `user_id` from the JWT and both `api/routes/mobile.py:2209,2221` and `bot/handlers/start.py:130` call the identical `wallet_service.get_user_wallets(user_id)`; `bot/models/user.py:115` shows `Wallet.user_id` is a plain FK to `users.id` — one wallet table, two front doors. For an existing Suwappu bot user there is no transfer, no bridge, and no funding step: signing into Gekko *is* funding, because the bot wallet balance the user already has *is* the app's balance. This is a genuine structural advantage over cold-start neobanks (who must build and fund a brand-new account from zero) and is worth protecting in future architecture decisions — e.g. never introducing a second wallet-per-surface model that would silently reintroduce the transfer step this doc previously (incorrectly) assumed.
 
 ## 2. User Stories
 
@@ -22,8 +24,7 @@ Personas per `08-icp-positioning.md`. Priority: P0 = blocks launch, P1 = blocks 
 
 - **P0** — As a Suwappu trader, I want to open Gekko with the same Telegram identity I already use, so that I don't create a new account or memorize a seed phrase.
   - AC: tapping a Gekko deeplink from the bot lands signed-in with zero additional credential entry; session persists across app restarts.
-- **P0** — As a Suwappu trader with idle stablecoin already in my bot wallet, I want to pull it into Gekko in one action, so that I'm funded without leaving the app or paying a bridge/on-ramp fee.
-  - AC: "Fund from Suwappu wallet" is the default (not buried) option; shows available balance before confirming; completes or fails with a clear status, never a silent pending.
+  - This is now the *only* thing standing between a Suwappu trader and a funded balance — see correction in §1: bot and app share the same `Wallet` row, so a valid session already implies a funded account. There is no separate funding P0 for this persona.
 - **P1** — As a Suwappu trader, I want to see my idle balance would earn X% APY the moment I land on Today, so that depositing into Earn is an obvious next action, not something I have to discover.
   - AC: empty Today state shows a live APY figure and a single CTA, not just static copy.
 - **P1** — As a Suwappu trader, I want to send USDC to another wallet or ENS name in as few steps as the trading bot itself, so that Gekko doesn't feel like a downgrade from what I already use.
@@ -35,7 +36,7 @@ Personas per `08-icp-positioning.md`. Priority: P0 = blocks launch, P1 = blocks 
 - **P0** — As a crypto-curious consumer, I want a guided signup that doesn't require me to understand seed phrases, so that I don't abandon before I even see the product.
   - AC: embedded-wallet flow (OAuth-style per `11-onboarding.md`); no raw seed phrase shown or required at signup.
 - **P1** — As a crypto-curious consumer, I want a card-based on-ramp to fund my first deposit, so that I don't need to already own crypto to start.
-  - AC: on-ramp widget reachable from the same funding menu as the bot-wallet pull, clearly labeled with fees before confirming.
+  - AC: on-ramp widget reachable from the same net-new funding menu (4b) as receive/QR, clearly labeled with fees before confirming.
 - **P1** — As a crypto-curious consumer, I want plain-language explanations of what "yield" and "non-custodial" mean at the point of decision, so that I trust the product enough to fund it.
 - **P2** — As a crypto-curious consumer, I want a small first-deposit incentive, so that funding doesn't feel like all-downside-no-upside on day one.
 
@@ -70,11 +71,13 @@ Tap counts and screen counts are the audited ground truth, not estimates.
 
 There is no step 2. Auth is not implemented for any persona, including the Suwappu trader whom `11-onboarding.md` explicitly designs a one-tap flow for.
 
-### Funding (Receive)
+### Funding (Receive) — net-new users only
+
+This flow applies to a user with **no existing Suwappu wallet**. For an existing Suwappu bot user this flow does not exist at all: their bot wallet balance is already the app's balance the moment they authenticate (§1 correction) — there is nothing to receive into.
 
 1. Navigate to Receive tab. *Friction: none, if signed in.*
 2. Screen renders address + "Copy address" button; QR is a placeholder note, not an image. 2 taps total to copy an address. *Friction: no QR means a mobile-to-mobile transfer requires manually retyping or messaging a 42-char address — meaningfully worse than a scan.*
-3. **Dead end**: user must now leave the app entirely (exchange, another wallet, or the Suwappu bot) to actually acquire and send USDC on Base, then return and hope the transfer lands. *Friction: no on-ramp, no bot-wallet pull, no confirmation once funds arrive — the app is passive here.* (`receive.tsx:45-65`)
+3. **Dead end**: user must now leave the app entirely (exchange or another wallet) to actually acquire and send USDC on Base, then return and hope the transfer lands. *Friction: no card on-ramp, no confirmation once funds arrive — the app is passive here.* (`receive.tsx:45-65`)
 
 ### Earn deposit
 
@@ -114,32 +117,33 @@ Target tap counts assume auth and funding are built — these are redesigns, not
 
 ### (a) First-run: Telegram deeplink → wallet ready → funded
 
-Target: **≤3 taps** for an existing Suwappu trader from tapping the bot link to a funded balance.
+Target: **2 taps** for an existing Suwappu trader from tapping the bot link to a funded, usable balance. (Revised down from an earlier 3-tap target that assumed a transfer step — see §1 correction: there is no transfer, so there is nothing to confirm or pre-fill an amount for.)
 
-1. User taps "Open in Gekko" from the Suwappu Telegram bot (deeplink carries a signed session token — reuses the bot's existing Telegram auth rather than inventing a new credential).
-2. App opens already signed in, wallet visible, balance shown. **0 taps so far.**
-3. Home shows a single card: "You have $X idle in your Suwappu wallet — move it into Gekko?" Tap 1: confirm.
-4. Tap 2: confirm the transfer amount (pre-filled to full idle balance, editable).
-Funded. 2 taps used, 1 in reserve for a persona that wants to review the account first.
+1. User taps "Open in Gekko" from the Suwappu Telegram bot (deeplink carries a signed session token — reuses the bot's existing Telegram auth rather than inventing a new credential). JWTs are minted by `create_jwt_token(address, user_id, src)` (`api/main.py:935-958`), HS256, 7-day expiry, with `user_id`/`userId`/`address`/`src` claims — `src="telegram"` records that this session proved possession via the bot, not a new credential.
+2. App opens already signed in, wallet visible, **balance already shown as funded** — because `_jwt_user` (`api/routes/mobile.py:187-203`) resolves the JWT's `user_id` to the same `users.id` row the bot uses, and both surfaces call `wallet_service.get_user_wallets(user_id)` (`api/routes/mobile.py:2209,2221`; `bot/handlers/start.py:130`) against the same `Wallet` rows (`bot/models/user.py:115`, FK to `users.id`). **0 taps so far.**
+3. Tap 1: land on Today, see the real balance and APY.
+4. Tap 2: "Start earning" (see 4c). Funded and earning.
+Total: 2 taps, both spent on the actual product action, none spent moving money that was never separate to begin with.
 
-Justification: `11-onboarding.md`'s own default is "reuse existing Suwappu wallet/session... zero new-wallet friction," and its First Deposit section names the identical "one-tap sweep idle balance" pattern. This flow is not new invention — it's building what the doc already specifies against the current code, which has neither piece. The KYC-driven 40-60% drop-off commonly cited in fintech funnels (moderate confidence, blog-aggregated) is largely irrelevant here because this path defers KYC entirely, consistent with the "permissionless line" in `11-onboarding.md` — non-custodial actions never touch KYC.
+Justification: `11-onboarding.md`'s own default is "reuse existing Suwappu wallet/session... zero new-wallet friction" — the code now shows that default is *structurally guaranteed*, not just a UX goal to hit. The KYC-driven 40-60% drop-off commonly cited in fintech funnels (moderate confidence, blog-aggregated) is largely irrelevant here because this path defers KYC entirely, consistent with the "permissionless line" in `11-onboarding.md` — non-custodial actions never touch KYC.
 
-Net-new (non-Suwappu) users get a separate, longer path: embedded-wallet OAuth signup (no seed phrase) → funding menu (4b) with card on-ramp as primary. Seed-phrase walls are documented at 60-90% drop-off (moderate-high confidence, multiple converging sources) — the embedded-wallet approach exists specifically to avoid that step, matching the `11-onboarding.md` "Banana Pro reached 1.3M via embedded wallet" precedent.
+Net-new (non-Suwappu) users get a separate, longer path: embedded-wallet OAuth signup (no seed phrase) → funding menu (4b), which is the correct scope for that menu — see below. Seed-phrase walls are documented at 60-90% drop-off (moderate-high confidence, multiple converging sources) — the embedded-wallet approach exists specifically to avoid that step, matching the `11-onboarding.md` "Banana Pro reached 1.3M via embedded wallet" precedent.
 
-### (b) Funding menu
+### (b) Funding menu — scoped to net-new ($0) users only
 
-Replace the current address-only Receive screen with a menu, ordered by expected conversion for the primary ICP:
+Rescope from an earlier draft: this menu is **not** for existing Suwappu bot users — they have no funding step at all (§1 correction). It exists purely for a user who arrives at Gekko with $0 and no prior Suwappu wallet (crypto-curious consumer, and any Suwappu trader's referral who isn't yet a bot user). Replace the current address-only Receive screen with a menu, ordered by expected conversion for that net-new population:
 
 | Option | Default? | Why this order |
 |---|---|---|
-| Pull from Suwappu bot wallet | **Yes, default** | Highest-leverage path per the brief: most users already hold funds in a bot wallet, pre-warmed and crypto-literate. No public data compares these methods head-to-head — this ordering is a hypothesis to A/B (see §7), not a proven result. |
-| Receive address + QR | Secondary | Needed for external wallets/exchanges regardless of persona; QR closes the current mobile-to-mobile gap. |
-| Card on-ramp (MoonPay/Transak) | Tertiary, later phase | Primary path for the crypto-curious-consumer persona, who has no existing bot wallet to pull from — but ships after the bot-wallet pull since it requires a KYC'd vendor integration `11-onboarding.md` gates behind actual need. |
+| Receive address + working QR | **Yes, default (ships now)** | The only option deliverable without a new vendor integration; QR closes the current mobile-to-mobile gap (`receive.tsx:45-65`) and covers a net-new user who already holds crypto elsewhere (exchange, another wallet). |
+| Card on-ramp (MoonPay/Transak) | Secondary, later phase | Primary path for a truly $0 crypto-curious-consumer with no crypto anywhere yet — but ships after receive/QR since it requires a KYC'd vendor integration `11-onboarding.md` gates behind actual need. |
+
+The funding-method A/B (§7) is still the top experiment for this doc, but its population is net-new users choosing between receive/QR and card on-ramp — **not** the Suwappu beachhead, which never sees this menu.
 
 ### (c) One-tap "Start earning" from empty Today
 
 Current: static copy naming a 0% vs X% gap, then a $0 input the user must fill blind.
-To-be: same copy, but the CTA reads "Start earning $[suggested amount]" where the amount defaults to the user's actual available balance (or a sensible fraction of it), tap once to confirm, one more to sign. Target: **2 taps** vs current 5. Justification: this collapses steps 2-4 of the as-is Earn deposit flow (open Earn → tap deposit → type amount) into a single pre-filled suggestion surfaced directly on Today, following the same "reduce typed input, pre-fill from known state" logic as 4a's pre-filled sweep amount.
+To-be: same copy, but the CTA reads "Start earning $[suggested amount]" where the amount defaults to the user's actual available balance (or a sensible fraction of it), tap once to confirm, one more to sign. Target: **2 taps** vs current 5. Justification: this collapses steps 2-4 of the as-is Earn deposit flow (open Earn → tap deposit → type amount) into a single pre-filled suggestion surfaced directly on Today — the same "reduce typed input, pre-fill from known state" logic, and for a Suwappu-beachhead user this is now taps 3-4 of the whole first-run flow per 4a (already-funded balance, no separate sweep step).
 
 ### (d) Send
 
@@ -147,18 +151,20 @@ Target: **3 taps** for a saved/recent recipient (down from 5), unchanged at ~4-5
 
 ### (e) First-run checklist
 
-A persistent, dismissible 3-item checklist on Today for the first session: Connect ✓ → Fund ✓/○ → Start earning ✓/○. Justification: gamified/progressive onboarding elements are cited (Shine 80% conversion, Extraco 2%→14%) as producing large lifts, but these are vendor-sourced case studies, not independently verified — treat the checklist as a cheap, low-risk addition to test, not a guaranteed win. It doubles as the visible instrumentation surface for funnel stage 3 (§5).
+A persistent, dismissible 3-item checklist on Today for the first session: Connect ✓ → Fund ✓/○ → Start earning ✓/○. For a Suwappu-beachhead user, Fund shows pre-checked the instant Connect completes (§1 correction — no separate funding action exists for them); for a net-new user Fund stays ○ until they complete 4b. Justification: gamified/progressive onboarding elements are cited (Shine 80% conversion, Extraco 2%→14%) as producing large lifts, but these are vendor-sourced case studies, not independently verified — treat the checklist as a cheap, low-risk addition to test, not a guaranteed win. It doubles as the visible instrumentation surface for funnel stage 3 (§5).
 
 ## 5. Funnel Definition
 
 No stage below has a measured baseline — the app currently emits zero events (§1). Targets are pulled from `11-onboarding.md`/`12-activation.md` and reconciled here; "current" is honestly blank.
 
+**Suwappu beachhead: auth is now the make-or-break stage.** Per the §1 correction, "Wallet ready" and "Funded" are effectively pre-satisfied for this population the instant auth succeeds — same `users.id`, same `Wallet` rows, no separate provisioning or deposit event to wait on. Whatever fraction of Suwappu-referred opens complete auth *is* whatever fraction end up funded; those two numbers should converge to nearly identical in the data once instrumented. The net-new funnel below is materially different — for that population Wallet ready and Funded remain real, separate stages, since there's no pre-existing account to fall back on.
+
 | Stage | Definition | Target | Source | Current |
 |---|---|---|---|---|
 | Install | App opened for the first time | — (top of funnel, not a conversion target) | — | not measured |
 | Auth | Signed in (Telegram deeplink or embedded wallet) | 80%+ of Suwappu-referred opens (near-zero friction path); 40-50%+ net-new | `11-onboarding.md` Account Creation | not measured — feature doesn't exist |
-| Wallet ready | Non-custodial wallet provisioned and usable | Instant, <1 min from auth | `11-onboarding.md` Account Approval | not measured |
-| Funded | First deposit lands (any method) | 60%+ of approved Suwappu-origin accounts; median <24h | `11-onboarding.md` First Deposit | not measured — no funding path exists |
+| Wallet ready (net-new) / pre-satisfied at auth (Suwappu) | Non-custodial wallet provisioned and usable | Instant, <1 min from auth (net-new); ~0 additional time for Suwappu — same row, no provisioning step | `11-onboarding.md` Account Approval | not measured |
+| Funded (net-new) / pre-satisfied at auth (Suwappu) | First deposit lands (any method) — for Suwappu users this is not a distinct event, since the balance was already theirs pre-auth | 60%+ of approved Suwappu-origin accounts should now track ~auth-completion rate, not a separate 60% target; net-new keeps the 60%+/<24h target from `11-onboarding.md` since receive/QR + on-ramp are real steps for them | `11-onboarding.md` First Deposit | not measured — Suwappu path needs no funding path; net-new funding path (4b) still to build |
 | First earn deposit | First Aave/yield deposit | 50%+ idle-to-yield conversion among funded users | `08-icp-positioning.md` Consumer target | not measured |
 | First send | First outbound transfer | tracked, no hard target set yet — flag for a future doc pass | — | not measured |
 | D7 return | Opens app again within 7 days of funding | reconcile against Adjust 2026 fintech D7 baseline of 17.6% (industry-wide, not crypto-native or Suwappu-referred — expect this cohort to outperform given pre-existing trust) | `16-retention.md` (verify against that doc's own targets) | not measured |
@@ -199,7 +205,7 @@ Every `*_failed` event must capture `error_code` as a bucketed enum (`429`, `503
 
 ## 7. Open Questions / What to Test First
 
-**Top experiment: funding-method attribution A/B (§4b).** The brief's core hypothesis — pull-from-bot-wallet outperforms card on-ramp and address-copy for this specific pre-warmed user base — is asserted, not measured; no public data compares these methods at all. Once `funding_method_selected` and `funding_completed` are live (§6), run all three funding options in the menu simultaneously (not sequentially — order effects would confound a sequential test) and measure `funding_completed` rate and `duration_ms` per `method`. This directly determines whether the bot-wallet-pull default in 4b is correct or whether it needs reordering.
+**Top experiment: funding-method attribution A/B (§4b), net-new users only.** Rescoped from an earlier version of this doc that ran this A/B against the Suwappu beachhead — that population has no funding step to A/B (§1 correction), so the experiment's real subject is a net-new, $0 user choosing between receive/QR and (later) card on-ramp. Which method converts better for that population is asserted, not measured; no public data compares them. Once `funding_method_selected` and `funding_completed` are live (§6), run the available funding options in the menu simultaneously (not sequentially — order effects would confound a sequential test) and measure `funding_completed` rate and `duration_ms` per `method`. This determines the correct default/ordering in 4b for net-new users — it says nothing about the Suwappu beachhead's funnel, whose make-or-break stage is auth, not funding (§5).
 
 Other open questions, unordered:
 - What's the actual net-new (non-Suwappu-referred) embedded-wallet signup completion rate once built? `11-onboarding.md` targets 40-50% but flags it as unverified.
