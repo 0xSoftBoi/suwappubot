@@ -42,6 +42,7 @@ export interface AnalyticsEventMap {
 
   send_submitted: { recipient_type: 'ens' | 'hex' }
   send_result: { status: ResultStatus; http_status?: number; amount_bucket: UsdBucket; recipient_type: 'ens' | 'hex' }
+  recent_recipient_tapped: Record<string, never>
 
   goal_created: Record<string, never>
   goal_deleted: Record<string, never>

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
 import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
-import { useEarn, useResolveEns, useSend, useWallets } from '../src/hooks/use-gecko'
+import { useEarn, useResolveEns, useSend, useStatement, useWallets } from '../src/hooks/use-gecko'
 import { ApiError } from '../src/lib/api'
 import { analytics } from '../src/lib/analytics'
 import { getAuthRevision, isAuthenticated } from '../src/lib/auth'
@@ -39,6 +39,36 @@ function truncate(value: string, head = 8, tail = 6): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`
 }
 
+function currentMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+interface RecentRecipient {
+  address: string
+  lastSentAt: string
+}
+
+/** Distinct addresses this wallet has sent to before, newest first. Built
+ * from this month's statement (the only client-side record of past sends,
+ * via `POST /v1/mobile/send` → the `mobile_transfers` table) — there's no
+ * dedicated "recent recipients" endpoint, and no ENS name is persisted
+ * server-side for past sends, so recents can only show the address. */
+function extractRecents(transactions: { type: string; date: string; counterparty?: string }[], ownAddresses: Set<string>): RecentRecipient[] {
+  const seen = new Map<string, string>()
+  for (const tx of transactions) {
+    if (tx.type !== 'send' || !tx.counterparty) continue
+    const address = tx.counterparty
+    if (!EVM_ADDRESS_RE.test(address)) continue
+    if (ownAddresses.has(address.toLowerCase())) continue
+    if (!seen.has(address.toLowerCase())) seen.set(address.toLowerCase(), address)
+  }
+  // transactions arrive newest-first from the API, so first-seen per address is most recent.
+  return Array.from(seen.values())
+    .slice(0, 5)
+    .map((address) => ({ address, lastSentAt: transactions.find((t) => t.counterparty === address)?.date ?? '' }))
+}
+
 export default function SendScreen() {
   const signedIn = isAuthenticated()
   const router = useRouter()
@@ -47,8 +77,11 @@ export default function SendScreen() {
   // Idle-USDC hint only — never blocks Send if /earn is unavailable.
   const earn = useEarn(signedIn)
   const send = useSend()
+  // Recents hint only — never blocks Send if the statement is unavailable.
+  const statement = useStatement(currentMonth(), signedIn)
 
   const [step, setStep] = useState<Step>('input')
+  const [manualEntry, setManualEntry] = useState(false)
   const [toInput, setToInput] = useState('')
   const [debouncedEnsName, setDebouncedEnsName] = useState('')
   const [rawAmount, setRawAmount] = useState('')
@@ -103,6 +136,8 @@ export default function SendScreen() {
   }
 
   const ownAddresses = new Set((wallets.data ?? []).map((w) => w.address.toLowerCase()))
+  const recents = extractRecents(statement.data?.transactions ?? [], ownAddresses)
+  const showRecents = recents.length > 0 && !manualEntry && toTrimmed.length === 0
   const idleUsdc = (earn.data?.idle ?? [])
     .filter((i) => i.token === 'USDC')
     .reduce((sum, i) => sum + i.balanceUsd, 0)
@@ -128,9 +163,16 @@ export default function SendScreen() {
     if (text) setToInput(text.trim())
   }, [])
 
+  const selectRecent = useCallback((address: string) => {
+    analytics.track('recent_recipient_tapped')
+    setToInput(address)
+    setManualEntry(true)
+  }, [])
+
   const reset = useCallback(() => {
     clearPendingTimer()
     setStep('input')
+    setManualEntry(false)
     setToInput('')
     setRawAmount('')
     setUseMax(false)
@@ -164,41 +206,78 @@ export default function SendScreen() {
     <ScrollView style={s.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={local.content}>
       {step === 'input' ? (
         <>
-          <View style={s.card}>
-            <Text style={s.muted}>Who are you sending to?</Text>
-            <View style={local.addressRow}>
-              <TextInput
-                value={toInput}
-                onChangeText={setToInput}
-                placeholder="0xAbC1…6789 or a name like alex.eth"
-                placeholderTextColor={palette.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                accessibilityLabel="Recipient address or name"
-                style={local.addressInput}
-              />
-              <Pressable onPress={() => void paste()} accessibilityRole="button" accessibilityLabel="Paste from clipboard" style={local.pasteChip}>
-                <Text style={local.pasteChipText}>Paste</Text>
+          {showRecents ? (
+            <View style={s.card}>
+              <Text style={s.muted}>Send to someone you’ve sent before</Text>
+              {recents.map((r) => (
+                <Pressable
+                  key={r.address}
+                  onPress={() => selectRecent(r.address)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Send to recent recipient ${truncate(r.address)}`}
+                  style={local.recentRow}
+                >
+                  <View style={local.recentAvatar}>
+                    <Text style={local.recentAvatarText}>{r.address.slice(2, 4).toUpperCase()}</Text>
+                  </View>
+                  <Text selectable style={s.body}>{truncate(r.address)}</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                onPress={() => setManualEntry(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Send to someone new"
+                style={local.newRecipientButton}
+              >
+                <Text style={local.newRecipientText}>Send to someone new</Text>
               </Pressable>
             </View>
-            {isEnsInput && ensResolving ? (
-              <Text style={s.muted}>Looking up {loweredTo}…</Text>
-            ) : null}
-            {isEnsInput && ensFailed ? (
-              <Text selectable style={local.error}>{friendlyMessage(ens.error)}</Text>
-            ) : null}
-            {isEnsInput && ensResolvedAddress ? (
-              <Text selectable style={s.muted}>{loweredTo} → {truncate(ensResolvedAddress)}</Text>
-            ) : null}
-            {toTrimmed.length > 0 && !isHexInput && !isEnsInput ? (
-              <Text selectable style={local.error}>
-                That doesn’t look right. Use a wallet address starting with 0x (like 0xAbC1…6789) or a name ending in .eth.
-              </Text>
-            ) : null}
-            {isOwnAddress ? (
-              <Text selectable style={local.error}>That’s one of your own wallets — pick a different address to send to.</Text>
-            ) : null}
-          </View>
+          ) : (
+            <View style={s.card}>
+              <Text style={s.muted}>Who are you sending to?</Text>
+              <View style={local.addressRow}>
+                <TextInput
+                  value={toInput}
+                  onChangeText={setToInput}
+                  placeholder="0xAbC1…6789 or a name like alex.eth"
+                  placeholderTextColor={palette.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel="Recipient address or name"
+                  style={local.addressInput}
+                />
+                <Pressable onPress={() => void paste()} accessibilityRole="button" accessibilityLabel="Paste from clipboard" style={local.pasteChip}>
+                  <Text style={local.pasteChipText}>Paste</Text>
+                </Pressable>
+              </View>
+              {recents.length > 0 ? (
+                <Pressable
+                  onPress={() => { setManualEntry(false); setToInput('') }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose from recent recipients instead"
+                >
+                  <Text style={local.backToRecents}>← Choose from recent instead</Text>
+                </Pressable>
+              ) : null}
+              {isEnsInput && ensResolving ? (
+                <Text style={s.muted}>Looking up {loweredTo}…</Text>
+              ) : null}
+              {isEnsInput && ensFailed ? (
+                <Text selectable style={local.error}>{friendlyMessage(ens.error)}</Text>
+              ) : null}
+              {isEnsInput && ensResolvedAddress ? (
+                <Text selectable style={s.muted}>{loweredTo} → {truncate(ensResolvedAddress)}</Text>
+              ) : null}
+              {toTrimmed.length > 0 && !isHexInput && !isEnsInput ? (
+                <Text selectable style={local.error}>
+                  That doesn’t look right. Use a wallet address starting with 0x (like 0xAbC1…6789) or a name ending in .eth.
+                </Text>
+              ) : null}
+              {isOwnAddress ? (
+                <Text selectable style={local.error}>That’s one of your own wallets — pick a different address to send to.</Text>
+              ) : null}
+            </View>
+          )}
 
           <View style={s.card}>
             <Text style={s.muted}>Amount</Text>
@@ -306,6 +385,12 @@ export default function SendScreen() {
 
 const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44, paddingVertical: spacing.xs },
+  recentAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: palette.surfaceElevated, alignItems: 'center', justifyContent: 'center' },
+  recentAvatarText: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
+  newRecipientButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, marginTop: spacing.xs },
+  newRecipientText: { color: palette.textSecondary, fontSize: 15, fontWeight: '600' },
+  backToRecents: { color: palette.accent, fontSize: 13, fontWeight: '600', paddingVertical: spacing.xs },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
   addressInput: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
   pasteChip: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
