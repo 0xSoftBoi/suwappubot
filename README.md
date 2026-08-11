@@ -1,36 +1,57 @@
-# Gecko (Suwappu Mobile)
+# Gekko
 
-Gecko is the working codename for Suwappu's native iOS/Android experience. The V0 surface is intentionally simple: **Today · Ask · Money · Activity**. It exposes account analytics and a read-only assistant without exposing or embedding money-movement primitives in the native client.
+Gekko is a mobile neobank: dollars that earn interest, send and receive money, and savings goals — built as an Expo/React Native app talking to the Suwappu backend over HTTP.
 
-The app uses Expo SDK 57, Expo Router, React Native 0.86, TanStack Query, and the shared Suwappu design tokens. User-scoped requests use an existing session JWT stored in `expo-secure-store`. There is deliberately no synthetic dev user or native authentication shortcut; without a stored session the UI renders an honest disconnected state.
+The app is deliberately plain-language: no crypto jargon, no token symbols, no network names in primary UI. Under the hood it settles in USDC on Base, but that never surfaces to the user.
+
+## Stack
+
+- Expo SDK 57, Expo Router, React Native 0.86, React 19
+- TanStack Query for server state
+- `expo-secure-store` for the session JWT (no synthetic dev user, no native auth shortcut)
+- `@suwappu/design-tokens` — vendored locally at `packages/design-tokens` (see below)
 
 ## Setup
 
 ```bash
-cd mobile
 bun install
 bun run ios          # or: bun run android
-bun run check        # TypeScript
 ```
 
-Point at a development API with `EXPO_PUBLIC_API_URL=https://devapi.suwappu.bot bun run ios`. Never put privileged credentials in an `EXPO_PUBLIC_*` variable.
+`@suwappu/design-tokens` is a local workspace package (`file:./packages/design-tokens`), resolved via the `workspaces` field in `package.json`. No external repo checkout is required.
 
-Native `ios/` and `android/` directories are generated. Run `bun run prebuild` rather than committing them.
+## Pointing at an API
 
-For App Store builds, `eas.json` pins the Expo SDK 57 iOS image line so EAS uses Xcode 26. Apple has required App Store Connect uploads to use Xcode 26+ and the iOS 26 SDK since April 28, 2026; see <https://developer.apple.com/news/upcoming-requirements/>. The app declares no tracking, aggregates dependency privacy manifests, suppresses an unused Face ID permission, and links Privacy, Terms, and Support from the native UI.
+The app talks to the Suwappu backend via `EXPO_PUBLIC_API_URL`, read in `src/lib/config.ts`. It defaults to the production host if unset:
 
-## V0 API contract
+```bash
+EXPO_PUBLIC_API_URL=https://devapi.suwappu.bot bun run ios   # point at dev
+bun run ios                                                    # defaults to https://api.suwappu.bot
+```
 
-- `GET /v1/mobile/snapshot` — priced holdings and history with an explicit coverage flag. V0 reports `best_effort` and never turns that into a gain/loss claim.
-- `POST /v1/mobile/ask` with `{ "text": "…" }` — explanations only; this client provides no execution primitive.
-- `GET /webapp/swaps` — JWT-scoped activity history, displayed without infrastructure details.
+It can also be set via `expo.extra.apiUrl` in `app.json`. Never put privileged credentials in an `EXPO_PUBLIC_*` variable — these are inlined into the client bundle at build time.
 
-Networking is centralized in `src/lib/endpoints.ts`; SecureStore JWT handling is in `src/lib/auth.ts`; server-state hooks are in `src/hooks/use-gecko.ts`.
+## Card funding (optional)
 
-## Production sign-in milestone
+Setting `EXPO_PUBLIC_ONRAMP_APP_ID` (a Coinbase Developer Platform Onramp app id, read in `src/lib/onramp.ts`) enables the "Add money with a card" entry point, which hands off to Coinbase's hosted onramp via the OS browser. Without it, `isOnrampConfigured()` returns false and every call site hides the entry point — there is no fallback or placeholder URL.
 
-Fresh installs intentionally stop at the disconnected state until native sign-in is wired. Do not revive the repository's incomplete passkey flow or put an agent key in the bundle.
+## API contract
 
-If Telegram OIDC is used for primary-account sign-in, App Review guideline 4.8 also requires an equivalent privacy-preserving login option unless an enumerated exception applies. Plan the account model and Sign in with Apple path together rather than shipping Telegram-only auth. Any flow that creates accounts also needs in-app account deletion before App Store submission.
+- `GET /v1/mobile/snapshot` — priced holdings and history with an explicit coverage flag
+- `POST /v1/mobile/ask` — plain-language explanations only, no execution primitive
+- `GET /webapp/swaps` — JWT-scoped activity history
 
-Fresh installs are therefore **not App Review-ready yet**. Native authentication, reviewer-accessible test credentials/demo mode, account deletion where applicable, App Store privacy labels, and regulated-financial-services/legal-entity review remain release gates. The read-only Gecko V0 does not expose a native crypto execution path.
+Networking is centralized in `src/lib/endpoints.ts`; SecureStore JWT handling is in `src/lib/auth.ts`; server-state hooks are in `src/hooks/use-gecko.ts`. The contract itself is owned by the `0xSoftBoi/suwappubot` repo (`api/routes/mobile.py`) — see `CLAUDE.md` for coordination notes.
+
+## Checks
+
+```bash
+bun run check         # TypeScript (tsc --noEmit)
+bun test src           # unit tests
+```
+
+Native `ios/` and `android/` directories are generated by `bun run prebuild` — do not commit them.
+
+## Release status
+
+Fresh installs intentionally stop at a disconnected state until native sign-in is wired; this build is **not App Review-ready**. See `CLAUDE.md` for App Store Guideline 3.1.5 framing and outstanding release gates (account deletion, privacy labels, Sign in with Apple alongside any Telegram OIDC path).
