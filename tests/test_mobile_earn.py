@@ -636,3 +636,61 @@ async def test_concurrent_deposit_calls_for_same_wallet_serialize(monkeypatch):
     # Fully sequential: the second call's start/end never interleaves with
     # the first's — it only begins once the first has entirely finished.
     assert calls == ["start", "end", "start", "end"]
+
+
+# ── cross-replica DB wallet lock on the earn path ──────────────────────
+# /send and /earn reserve nonces on the SAME wallet, so both must take the
+# cross-process lock — the in-process lock only serializes a single replica.
+
+
+def test_deposit_returns_503_when_db_wallet_lock_is_held(client, monkeypatch):
+    """Another replica holding the wallet lock must block the deposit rather
+    than let a second nonce reservation race it."""
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    deposit_mock = MagicMock(return_value=["0xsupply"])
+    monkeypatch.setattr(savings_service, "deposit", deposit_mock)
+    monkeypatch.setattr(mobile_mod, "_db_wallet_lock_try_acquire", MagicMock(return_value=None))
+
+    resp = client.post("/v1/mobile/earn/deposit", json={"amount": "10"}, headers=auth_headers())
+
+    assert resp.status_code == 503
+    # The on-chain call must never have been reached.
+    deposit_mock.assert_not_called()
+
+
+def test_deposit_releases_db_wallet_lock_after_success(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    monkeypatch.setattr(savings_service, "deposit", MagicMock(return_value=["0xsupply"]))
+    monkeypatch.setattr(
+        mobile_mod, "_db_wallet_lock_try_acquire", MagicMock(return_value="holder-abc")
+    )
+    release = MagicMock(return_value=None)
+    monkeypatch.setattr(mobile_mod, "_db_wallet_lock_release", release)
+
+    resp = client.post("/v1/mobile/earn/deposit", json={"amount": "10"}, headers=auth_headers())
+
+    assert resp.status_code == 200
+    release.assert_called_once()
+    assert release.call_args[0][1] == "holder-abc"
+
+
+def test_deposit_releases_db_wallet_lock_when_service_fails(client, monkeypatch):
+    """A failed deposit must not leave the wallet wedged until the TTL."""
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    monkeypatch.setattr(
+        savings_service, "deposit", MagicMock(side_effect=SavingsError("on-chain revert"))
+    )
+    monkeypatch.setattr(
+        mobile_mod, "_db_wallet_lock_try_acquire", MagicMock(return_value="holder-xyz")
+    )
+    release = MagicMock(return_value=None)
+    monkeypatch.setattr(mobile_mod, "_db_wallet_lock_release", release)
+
+    resp = client.post("/v1/mobile/earn/deposit", json={"amount": "10"}, headers=auth_headers())
+
+    assert resp.status_code == 400
+    release.assert_called_once()
+    assert release.call_args[0][1] == "holder-xyz"

@@ -2520,6 +2520,17 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
         )
         is_max = amount is None
 
+        # Cross-process guard, symmetric with /send: deposit/withdraw and send
+        # reserve nonces on the SAME wallet, so the in-process lock above is
+        # only sufficient while python-api runs a single replica. Taking the DB
+        # lock here too means a scale-up (webhook mode allows replicas) cannot
+        # let an earn action and a send collide on a nonce.
+        db_lock_holder = await asyncio.to_thread(_db_wallet_lock_try_acquire, wallet.address)
+        if db_lock_holder is None:
+            raise HTTPException(
+                status_code=503,
+                detail="This wallet has a transaction in progress. Try again shortly.",
+            )
         try:
             if action == "deposit":
                 # "max" already resolved to the live idle balance above;
@@ -2558,6 +2569,8 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
             raise HTTPException(
                 status_code=500, detail="Something went wrong. Your funds were not moved."
             )
+        finally:
+            await asyncio.to_thread(_db_wallet_lock_release, wallet.address, db_lock_holder)
 
         await _log_earn_event(user_id, wallet.id, action, reported_amount, tx_hash)
         result = {"ok": True, "txHash": tx_hash, "amount": str(reported_amount)}
