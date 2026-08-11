@@ -31,6 +31,7 @@ Security properties:
 import logging
 import secrets
 import time
+from typing import Optional
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
@@ -41,12 +42,22 @@ _NONCE_TTL = 600  # seconds
 _CHALLENGE_KEY = "bindwallet_challenge"  # (nonce, issued_at) in user_data
 
 
-def _challenge_text(telegram_id: int, nonce: str) -> str:
+def _challenge_text(telegram_id: int, nonce: str, address: str = "") -> str:
+    """The challenge names the account AND the address being claimed.
+
+    Without the address, an attacker could run /bindwallet on their own account
+    and phish a victim into signing that challenge ("verify your wallet for the
+    airdrop"); the recovered signer would be the victim's address and the
+    attacker would bind it. Naming the address makes the text self-evidently
+    about linking THAT wallet to THAT account, so a victim signing it is
+    consenting to exactly what happens.
+    """
     return (
         "Suwappu membership binding\n"
         f"telegram:{telegram_id}\n"
+        f"address:{address.lower()}\n"
         f"nonce:{nonce}\n"
-        "This signature only proves wallet ownership to Suwappu. "
+        "Signing links this wallet to that Suwappu account. "
         "It authorizes no transaction and costs nothing."
     )
 
@@ -88,7 +99,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not args:
         nonce = secrets.token_hex(16)
         context.user_data[_CHALLENGE_KEY] = (nonce, time.time())
-        challenge = _challenge_text(user.id, nonce)
+        challenge = _challenge_text(user.id, nonce, "<YOUR_ADDRESS>")
         current_line = f"Currently bound: `{current}`\n\n" if current else ""
         await update.message.reply_text(
             "🔗 *Bind your Robinhood Wallet*\n\n"
@@ -128,7 +139,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from eth_account import Account
         from eth_account.messages import encode_defunct
 
-        message = encode_defunct(text=_challenge_text(user.id, nonce))
+        message = encode_defunct(text=_challenge_text(user.id, nonce, address))
         recovered = Account.recover_message(message, signature=signature)
     except Exception as e:
         logger.debug("bindwallet: recovery failed for user %s: %s", user_id, e)
@@ -208,4 +219,59 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def unbindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Release your own membership address.
+
+    Without this a binding is permanent, so a wallet bound in error — or bound by
+    someone who phished a signature — could never be claimed by its real owner:
+    the exclusivity check would reject them forever.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if chat is not None and getattr(chat, "type", "private") != "private":
+        await update.message.reply_text("🔒 Please use /unbindwallet in a direct message with me.")
+        return
+
+    from bot.models.user import User
+    from database.db import get_session, run_in_db
+
+    def _unbind() -> Optional[str]:
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                return None
+            previous = db_user.membership_address
+            db_user.membership_address = None
+            return previous or ""
+
+    previous = await run_in_db(_unbind)
+    if previous is None:
+        await update.message.reply_text("❌ Please start the bot first with /start")
+        return
+    try:
+        from bot.models.user import User as _U
+        from bot.services.membership_service import membership_service
+        from database.db import get_session as _gs
+
+        def _uid():
+            with _gs() as s:
+                u = s.query(_U).filter(_U.telegram_id == user.id).first()
+                return u.id if u else None
+
+        uid = await run_in_db(_uid)
+        if uid:
+            membership_service.invalidate(uid)
+    except Exception:  # pragma: no cover - cache drop is best-effort
+        pass
+
+    if not previous:
+        await update.message.reply_text("No membership wallet was linked.")
+        return
+    await update.message.reply_text(
+        f"✅ Unlinked `{previous}`.\n\nIt can now be linked to another account.",
+        parse_mode="Markdown",
+    )
+
+
 bindwallet_handler = CommandHandler("bindwallet", bindwallet_command)
+unbindwallet_handler = CommandHandler("unbindwallet", unbindwallet_command)

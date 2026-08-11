@@ -177,7 +177,7 @@ from bot.handlers.referral import (
     rewards_callback_handler as ref_rewards_callback_handler,
 )
 from bot.handlers.position_cards import position_cards_handler
-from bot.handlers.bindwallet import bindwallet_handler
+from bot.handlers.bindwallet import bindwallet_handler, unbindwallet_handler
 from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
@@ -447,6 +447,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(xp_handler)  # /xp
     application.add_handler(position_cards_handler)  # /cards
     application.add_handler(bindwallet_handler)  # /bindwallet
+    application.add_handler(unbindwallet_handler)  # /unbindwallet
     application.add_handler(checkin_handler)  # /checkin
     application.add_handler(leaderboard_handler)  # /lb
     application.add_handler(rewards_handler)  # /rewards (XP rewards)

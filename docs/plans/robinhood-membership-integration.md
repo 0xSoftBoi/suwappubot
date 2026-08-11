@@ -25,7 +25,7 @@ events.
 
 - `mintFree()` — one per wallet, tier FREE, no expiry. This is the "everyone gets
   Suwappu free" mint, and the target of the gas-sponsorship policy.
-- `subscribe(tier, periods)` — pays `price[tier] × periods` in USDG (transferFrom →
+- `subscribe(tier, periods, maxPricePerPeriod)` — pays `price[tier] × periods` in USDG (transferFrom →
   treasury), sets/extends expiry in 30-day periods. Auto-mints the token if the wallet
   has none. Prices on-chain match the app: 9.99 / 29.99 / 99.99 USDG per period.
 - **Tier switch converts remaining time by price ratio** (remaining × oldPrice ÷
@@ -127,3 +127,17 @@ and four bugs in the Python layer the first pass had "fixed":
 Confirmed still sound by the second pass: the value invariant (no sequence mints
 value), the reprice front-run staying dead, fail-open on every path, soulbound
 enforcement, reentrancy/CEI, and server-derived identity in the binding flow.
+
+## Third money-path review — blocked again; two blockers were holes my own fixes opened
+
+| Finding | Fix |
+|---|---|
+| **BLOCKER** — `/import` creates `wallet_provider="watch"` rows from pasted text with no signature and no key, and the tier resolver read every EVM wallet. Anyone could paste a known ENTERPRISE holder's public address and inherit 0.1% fees: **$900 saved per $100k swap, unlimited accounts, $0 cost**. This defeated both the unique index and the EIP-191 proof — exclusivity was enforced on one table while the resolver read another. Introduced by the review-2 fix that told me to check *all* wallets | Only ownership-proved addresses count: `User.membership_address` (signature-proved) plus wallets whose provider is key-controlled (`local`/`turnkey`) and active. `watch` explicitly excluded |
+| **BLOCKER** — `contract_errors` incremented on *every* exception, so `contract_errors == len(addresses)` was always true when nothing succeeded and the outage branch was **unreachable**. An RPC outage returned `None` and demoted an on-chain-only ENTERPRISE member to FREE: **$500 charged vs $50 owed** on a $50k swap, repeating every 15s for the whole outage. The docstring's "a timeout can never silently downgrade a paying subscriber" was false | Only non-transport failures count as contract errors, so the outage branch is reachable and stale-while-revalidate engages |
+| **HIGH** — `subscribe()` pulled USDG then clamped silently at `MAX_TERM`, so a member at the cap could pay $239.76 for **zero days**, repeatedly. Truncation is arithmetically value-preserving but that value is *unrealizable* because every later conversion clamps too | Paid purchases revert (`TermCapReached`); `grantTime` may still clamp, and now scales value with seconds so the snapshot can't exceed `MAX_PRICE` |
+| **HIGH** — `subscribe()` had no price bound. Subscription flows use unlimited approvals, so a reprice landing first could pull **$2.4M instead of $239.76** | `subscribe(tier, periods, maxPricePerPeriod)` reverts `PriceMoved` |
+| **MED** — the binding challenge named the account but not the address, so a phished signature bound a victim's wallet **permanently** (exclusivity then locked the real owner out forever) | Challenge names the claimed address; added `/unbindwallet` |
+| **MED** — unbounded executor queue: timed-out work still ran, minutes late, growing without bound | `BoundedSemaphore(8)` admission gate that fails open when saturated |
+| MED (already fixed pre-review) | `invalidate()` losing to an in-flight lookup — closed by the generation counter |
+
+Confirmed sound by this pass: value conservation across every subscribe/grantTime/setPrice sequence, the `_is_transport_error` classifier itself, `best_tier` monotonicity, lock single-flight, the `_MISS` sentinel, soulbound enforcement, CEI, `_mint` vs `_safeMint`, the migration, bindwallet transaction semantics, and that the `rpc_manager` change is chain-scoped.

@@ -67,7 +67,7 @@ def travel(w3, seconds):
 
 def test_subscribe_charges_exact_price_to_treasury(env):
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 2).transact({"from": alice})
+    m.functions.subscribe(PRO, 2, 2**200).transact({"from": alice})
     assert usdg.functions.balanceOf(treasury).call() == 2 * PRO_PRICE
     tier, _, paid = expiry_of(m, alice)
     assert tier == PRO and paid == PRO_PRICE
@@ -77,12 +77,12 @@ def test_subscribe_charges_exact_price_to_treasury(env):
 def test_tier_switch_is_value_neutral_round_trip(env):
     w3, usdg, m, owner, treasury, alice, _ = env
     # Buy 12 periods of PRO (~360 days of PRO value)
-    m.functions.subscribe(PRO, 12).transact({"from": alice})
+    m.functions.subscribe(PRO, 12, 2**200).transact({"from": alice})
     _, expiry0, _ = expiry_of(m, alice)
     now = w3.eth.get_block("latest").timestamp
     # Switch up to ENTERPRISE (+1 period), then immediately back down to PRO (+1)
-    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})
-    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    m.functions.subscribe(ENTERPRISE, 1, 2**200).transact({"from": alice})
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})
     _, expiry1, _ = expiry_of(m, alice)
     # Value bought: 12+1 periods of PRO + 1 period of ENTERPRISE (in PRO-seconds)
     ent_in_pro = PERIOD * ENTERPRISE_PRICE // PRO_PRICE
@@ -94,11 +94,11 @@ def test_tier_switch_is_value_neutral_round_trip(env):
 def test_reprice_cannot_be_front_run_into_cheap_enterprise(env):
     """Review HIGH-3: stack PRO cheap, wait for reprice, convert ~1:1. Dead now."""
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d of PRO @ 9.99
+    m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 720d of PRO @ 9.99
     # Owner reprices PRO to ENTERPRISE's price — the old exploit precondition.
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
     now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})
+    m.functions.subscribe(ENTERPRISE, 1, 2**200).transact({"from": alice})
     _, expiry, _ = expiry_of(m, alice)
     # Remaining PRO time must convert at its PAID price (9.99), not the new one:
     # 720d * 9.99/99.99 ≈ 71.9d of ENTERPRISE — NOT 720d.
@@ -109,10 +109,10 @@ def test_reprice_cannot_be_front_run_into_cheap_enterprise(env):
 
 def test_price_cut_does_not_confiscate_existing_value(env):
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(ENTERPRISE, 2).transact({"from": alice})  # 60d @ 99.99
+    m.functions.subscribe(ENTERPRISE, 2, 2**200).transact({"from": alice})  # 60d @ 99.99
     m.functions.setPrice(ENTERPRISE, PRO_PRICE).transact({"from": owner})  # huge cut
     now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})
     _, expiry, _ = expiry_of(m, alice)
     # 60d valued at 99.99 → PRO at 9.99 ≈ 600d, + 30d bought.
     converted = 2 * PERIOD * ENTERPRISE_PRICE // PRO_PRICE
@@ -126,7 +126,7 @@ def test_grant_time_converts_instead_of_destroying_paid_time(env):
     """Review HIGH-2: comping 7d of PRO onto 300d of paid ENTERPRISE must not
     burn the ENTERPRISE value."""
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(ENTERPRISE, 10).transact({"from": alice})  # 300d
+    m.functions.subscribe(ENTERPRISE, 10, 2**200).transact({"from": alice})  # 300d
     now = w3.eth.get_block("latest").timestamp
     m.functions.grantTime(alice, PRO, 7 * DAY).transact({"from": owner})
     tier, expiry, _ = expiry_of(m, alice)
@@ -139,11 +139,11 @@ def test_grant_time_converts_instead_of_destroying_paid_time(env):
 
 def test_expired_subscription_reads_free_and_resubscribe_starts_fresh(env):
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})
     travel(w3, PERIOD + DAY)
     assert m.functions.tierOf(alice).call()[0] == 0  # Free
     now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(PREMIUM, 1).transact({"from": alice})
+    m.functions.subscribe(PREMIUM, 1, 2**200).transact({"from": alice})
     _, expiry, _ = expiry_of(m, alice)
     assert abs(expiry - (now + PERIOD)) <= 12, "expired time must not carry over"
 
@@ -172,14 +172,14 @@ def test_failed_payment_leaves_no_token_behind(env):
     broke = w3.eth.accounts[5]
     usdg.functions.approve(m.address, 2**200).transact({"from": broke})
     with pytest.raises(Exception):
-        m.functions.subscribe(PRO, 1).transact({"from": broke})
+        m.functions.subscribe(PRO, 1, 2**200).transact({"from": broke})
     assert m.functions.tokenOf(broke).call() == 0
 
 
 def test_admin_bounds(env):
     w3, usdg, m, owner, treasury, alice, _ = env
     with pytest.raises(Exception):
-        m.functions.subscribe(PRO, 25).transact({"from": alice})  # > MAX_PERIODS
+        m.functions.subscribe(PRO, 25, 2**200).transact({"from": alice})  # > MAX_PERIODS
     with pytest.raises(Exception):
         m.functions.grantTime(alice, PRO, 366 * DAY).transact({"from": owner})  # > MAX_GRANT
     with pytest.raises(Exception):
@@ -198,11 +198,11 @@ def test_same_tier_renewal_after_price_rise_does_not_shrink_paid_time(env):
     for. The first snapshot-pricing fix converted on same-tier renewals too,
     which collapsed 720 paid days into 72."""
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d @ 9.99
+    m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 720d @ 9.99
     _, before, _ = expiry_of(m, alice)
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})  # 10x rise
     now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(PRO, 1).transact({"from": alice})  # renew 30d at new price
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})  # renew 30d at new price
     _, after, _ = expiry_of(m, alice)
     assert after >= before, "existing paid time was destroyed by a price rise"
     assert abs(after - (before + PERIOD)) <= 12, "renewal should simply extend"
@@ -213,11 +213,11 @@ def test_laundering_cheap_time_through_a_renewal_does_not_beat_the_price(env):
     the new price to reset the snapshot, then convert 1:1. The value-weighted
     snapshot must make this value-neutral."""
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d, 239.76 USDG
+    m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 720d, 239.76 USDG
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
-    m.functions.subscribe(PRO, 1).transact({"from": alice})  # +30d, 99.99 USDG
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})  # +30d, 99.99 USDG
     now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})  # +30d, 99.99
+    m.functions.subscribe(ENTERPRISE, 1, 2**200).transact({"from": alice})  # +30d, 99.99
     _, expiry, _ = expiry_of(m, alice)
 
     spent = usdg.functions.balanceOf(treasury).call()
@@ -237,9 +237,9 @@ def test_laundering_cheap_time_through_a_renewal_does_not_beat_the_price(env):
 
 def test_weighted_snapshot_lands_between_the_two_prices(env):
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 24).transact({"from": alice})
+    m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
-    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})
     _, _, snapshot = expiry_of(m, alice)
     assert PRO_PRICE < snapshot < ENTERPRISE_PRICE, snapshot
     # 720d @9.99 + 30d @99.99 over 750d -> ~13.59 USDG
@@ -284,11 +284,11 @@ def test_mirror_matches_the_contract(env):
     w3, usdg, m, owner, treasury, alice, _ = env
     sim = {"tier": 0, "exp": 0, "snap": 0}
 
-    m.functions.subscribe(PRO, 3).transact({"from": alice})
+    m.functions.subscribe(PRO, 3, 2**200).transact({"from": alice})
     now = w3.eth.get_block("latest").timestamp
     _credit_mirror(sim, PRO, 3 * PERIOD, PRO_PRICE, now)
 
-    m.functions.subscribe(ENTERPRISE, 2).transact({"from": alice})
+    m.functions.subscribe(ENTERPRISE, 2, 2**200).transact({"from": alice})
     now2 = w3.eth.get_block("latest").timestamp
     _credit_mirror(sim, ENTERPRISE, 2 * PERIOD, ENTERPRISE_PRICE, now2)
 
@@ -364,7 +364,7 @@ def test_grant_of_a_different_tier_cannot_shrink_the_term(env):
     """Review H1: comping 7 days of ENTERPRISE onto 720 days of PRO conserved
     dollars but cut the member from 720 days to 79. Must now revert."""
     w3, usdg, m, owner, treasury, alice, _ = env
-    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d
+    m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 720d
     _, before, _ = expiry_of(m, alice)
     with pytest.raises(Exception):
         m.functions.grantTime(alice, ENTERPRISE, 7 * DAY).transact({"from": owner})
@@ -377,21 +377,66 @@ def test_grant_of_a_different_tier_cannot_shrink_the_term(env):
 
 
 def test_price_floor_blocks_the_infinite_term_window(env):
-    """Review M1: setPrice(PRO, 1) for one block converted 720d of ENTERPRISE
-    into ~2 billion years of PRO, with no claw-back."""
+    """Review M1: setPrice(PRO, 1) converted 720d of ENTERPRISE into ~2 billion
+    years of PRO, with no claw-back."""
     w3, usdg, m, owner, treasury, alice, _ = env
     with pytest.raises(Exception):
-        m.functions.setPrice(PRO, 1).transact({"from": owner})
-    m.functions.subscribe(ENTERPRISE, 24).transact({"from": alice})
-    m.functions.setPrice(PRO, 100_000).transact({"from": owner})  # the legal floor
-    now = w3.eth.get_block("latest").timestamp
-    m.functions.subscribe(PRO, 1).transact({"from": alice})
+        m.functions.setPrice(PRO, 1).transact({"from": owner})  # below MIN_PRICE
+
+
+def test_paid_subscribe_reverts_rather_than_charging_for_undeliverable_days(env):
+    """Review HIGH-3: subscribe() pulls USDG before _creditTime and used to clamp
+    silently at MAX_TERM, so a member pinned at the cap could pay $239.76 for
+    zero additional days, repeatedly, with no revert and no refund."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(ENTERPRISE, 13, 2**200).transact({"from": alice})  # 390d
+    m.functions.setPrice(PRO, PRO_PRICE).transact({"from": owner})
+    spent_before = usdg.functions.balanceOf(treasury).call()
+    # converting 390d of ENTERPRISE into PRO would exceed the 3650d cap
+    with pytest.raises(Exception):
+        m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})
+    assert usdg.functions.balanceOf(treasury).call() == spent_before, "charged anyway"
     _, expiry, _ = expiry_of(m, alice)
-    # +2s tolerance: `now` is read before the tx, so the block timestamp the
-    # contract caps against is a second or two later.
-    assert expiry - now <= 3650 * DAY + 2, "MAX_TERM horizon not enforced"
-    # and the cap is genuinely load-bearing: without it this would be ~1,970 years
-    assert expiry - now > 3000 * DAY
+    assert expiry > 0  # membership untouched
+
+
+def test_stacking_into_the_cap_reverts_instead_of_destroying_days(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    for _ in range(5):
+        m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 3600d
+    with pytest.raises(Exception):  # the 6th would truncate 4320d -> 3650d
+        m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})
+    _, expiry, _ = expiry_of(m, alice)
+    now = w3.eth.get_block("latest").timestamp
+    assert 3590 * DAY < expiry - now <= 3650 * DAY
+
+
+def test_grant_time_may_still_clamp_and_stays_value_coherent(env):
+    """A goodwill grant must not revert on the operator, so grantTime clamps —
+    but the value is scaled with the seconds so pricePaidPerPeriod cannot exceed
+    MAX_PRICE and encode value no conversion could ever realise."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    for _ in range(5):
+        m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})
+    m.functions.grantTime(alice, PRO, 365 * DAY).transact({"from": owner})
+    _, expiry, snap = expiry_of(m, alice)
+    now = w3.eth.get_block("latest").timestamp
+    assert expiry - now <= 3650 * DAY + 2, "cap not enforced"
+    assert snap <= MAX_PRICE, "clamped value inflated the snapshot past MAX_PRICE"
+
+
+def test_subscribe_price_bound_blocks_a_reprice_front_run(env):
+    """Review HIGH-4: subscription flows use unlimited approvals, so a reprice
+    landing first could pull MAX_PRICE * periods instead of the quoted amount."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    before = usdg.functions.balanceOf(alice).call()
+    with pytest.raises(Exception):  # caller quoted PRO_PRICE
+        m.functions.subscribe(PRO, 24, PRO_PRICE).transact({"from": alice})
+    assert usdg.functions.balanceOf(alice).call() == before, "funds pulled past the bound"
+    # at the true price it succeeds
+    m.functions.subscribe(PRO, 1, ENTERPRISE_PRICE).transact({"from": alice})
+    assert usdg.functions.balanceOf(alice).call() == before - ENTERPRISE_PRICE
 
 
 def test_mint_does_not_require_erc721_receiver(env):

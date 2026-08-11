@@ -16,6 +16,7 @@ subscriber mid-swap. Results are TTL-cached so the swap path stays fast.
 
 import asyncio
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -38,6 +39,14 @@ _CACHE_MAX = 5_000  # sweep threshold; entries beyond TTL are dropped
 _CALL_TIMEOUT = 1.5  # seconds — hard budget for the whole lookup
 _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 
+# Wallet providers whose rows prove the user CONTROLS the address — the bot holds
+# or brokers the key. "watch" is deliberately excluded: bot/handlers/import_handler.py
+# creates watch rows from pasted text with no signature and no key, so treating one
+# as evidence of membership would let anyone paste a known ENTERPRISE holder's
+# address and inherit their fee tier for free. Ownership must be proved, either by
+# key custody (here) or by an EIP-191 signature (User.membership_address).
+KEY_CONTROLLED_PROVIDERS = ("local", "turnkey")
+
 # Membership lookups run on their OWN small pool, never asyncio's default
 # executor. web3's HTTPProvider timeout is seconds long and asyncio.wait_for
 # cancels the await but NOT the thread, so a hung Robinhood RPC would otherwise
@@ -45,6 +54,11 @@ _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 # here, exhaustion is contained to this feature: extra lookups fail open
 # instead of starving the swap path.
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
+# The executor's queue is unbounded and wait_for cancels the await, not the
+# thread — so during an RPC hang every timed-out lookup would still sit queued
+# and eventually run, minutes late, growing without bound. This admission gate
+# fails open immediately once the backlog is saturated instead of enqueuing.
+_INFLIGHT = threading.BoundedSemaphore(8)
 
 
 def _is_transport_error(exc: BaseException) -> bool:
@@ -134,11 +148,16 @@ class MembershipService:
     def _addresses_for_user(self, user_id: int) -> list[str]:
         """Addresses to check, deterministically ordered.
 
+        Only addresses whose ownership is PROVED are eligible:
         1. The explicitly bound membership address (User.membership_address,
            signature-proved via /bindwallet) — this is how a Robinhood Wallet /
            smart-account purchase reaches the bot.
-        2. All the user's EVM wallet rows (bounded, ordered by id so the result
-           can never flip with Postgres heap order). Max tier across all wins.
+        2. The user's key-controlled EVM wallets (bounded, ordered by id so the
+           result can never flip with Postgres heap order). Max tier wins.
+
+        WATCH-ONLY WALLETS ARE EXCLUDED. /import creates them from pasted text
+        with no proof whatsoever; including them would let any account claim any
+        on-chain tier for free by pasting a holder's public address.
         """
         out: list[str] = []
         try:
@@ -152,7 +171,12 @@ class MembershipService:
                     out.append(bound)
                 rows = (
                     session.query(Wallet.address)
-                    .filter(Wallet.user_id == user_id, Wallet.chain_type == "evm")
+                    .filter(
+                        Wallet.user_id == user_id,
+                        Wallet.chain_type == "evm",
+                        Wallet.is_active.is_(True),
+                        Wallet.wallet_provider.in_(KEY_CONTROLLED_PROVIDERS),
+                    )
                     .order_by(Wallet.id)
                     .limit(_MAX_WALLETS)
                     .all()
@@ -193,10 +217,14 @@ class MembershipService:
                     contract.w3.to_checksum_address(addr)
                 ).call()
             except Exception as e:
-                # Only genuine transport failures count against endpoint health.
-                if url and _is_transport_error(e):
-                    rpc_manager.report_failure(CHAIN, url, str(e))
-                contract_errors += 1
+                if _is_transport_error(e):
+                    # An outage. Does NOT count as a contract error, or the
+                    # "chain fine, contract silent" branch below would swallow it
+                    # and cache a paying member as having no membership.
+                    if url:
+                        rpc_manager.report_failure(CHAIN, url, str(e))
+                else:
+                    contract_errors += 1
                 continue
             saw_success = True
             tier = TIER_BY_INDEX.get(int(raw_tier))
@@ -248,6 +276,14 @@ class MembershipService:
             gen = self._generation.get(user_id, 0)
             deadline = time.time() + _CALL_TIMEOUT
             tier = None
+            if not _INFLIGHT.acquire(blocking=False):
+                # Backlogged: fail open rather than queue work nobody will wait
+                # for. Serve a known paid tier if we have one.
+                prev = self._cache.get(user_id)
+                if prev and prev[1] is not None and TIER_RANK.get(prev[1], 0) > 0:
+                    if time.time() - prev[0] < _STALE_PAID_TTL:
+                        return prev[1]
+                return None
             try:
                 addresses = await asyncio.wait_for(
                     loop.run_in_executor(_EXECUTOR, self._addresses_for_user, user_id),
@@ -261,6 +297,8 @@ class MembershipService:
             except Exception as e:  # pragma: no cover - defensive
                 logger.debug("Membership: on-chain tier lookup failed for %s: %s", user_id, e)
                 tier = None
+            finally:
+                _INFLIGHT.release()
 
             # Never let an unreadable chain silently demote a member we have
             # already SEEN holding a paid tier. This covers both an exception and
@@ -279,6 +317,10 @@ class MembershipService:
                     and TIER_RANK.get(prev[1], 0) > 0
                     and time.time() - prev[0] < _STALE_PAID_TTL
                 ):
+                    # Keep the ORIGINAL observation timestamp so the stale window
+                    # still expires on schedule, but leave it cached so the next
+                    # swap is served from memory instead of re-entering the
+                    # lookup and queueing another job per quote.
                     return prev[1]
 
             if self._generation.get(user_id, 0) != gen:

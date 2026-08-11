@@ -172,6 +172,11 @@
  },
  {
   "inputs": [],
+  "name": "PriceMoved",
+  "type": "error"
+ },
+ {
+  "inputs": [],
   "name": "PriceOutOfRange",
   "type": "error"
  },
@@ -210,6 +215,11 @@
  {
   "inputs": [],
   "name": "Soulbound",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TermCapReached",
   "type": "error"
  },
  {
@@ -899,6 +909,11 @@
    {
     "internalType": "uint256",
     "name": "periods",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "maxPricePerPeriod",
     "type": "uint256"
    }
   ],

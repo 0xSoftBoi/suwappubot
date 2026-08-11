@@ -69,10 +69,8 @@ def test_tier_switch_converts_at_the_purchase_price_snapshot():
     assert "retainedSeconds = (remaining * oldPrice) / newPrice;" in sol
     # the snapshot is value-weighted, not overwritten with the new price —
     # overwriting re-opens the reprice front-run via a same-tier renewal
-    assert (
-        "m.pricePaidPerPeriod = (retainedValue + uint256(duration) * newPrice) / totalSeconds;"
-        in sol
-    )
+    assert "uint256 totalValue = retainedValue + uint256(duration) * newPrice;" in sol
+    assert "m.pricePaidPerPeriod = totalValue / totalSeconds;" in sol
     assert "m.pricePaidPerPeriod = newPrice;" not in sol
     # grantTime must route through the same conversion (review finding HIGH-2)
     assert sol.count("_creditTime(") >= 3  # definition + subscribe + grantTime
@@ -350,7 +348,9 @@ def test_locks_are_not_evicted_while_held():
 def test_contract_term_and_price_bounds_exist():
     sol = _sol()
     assert "MAX_TERM = 3650 days" in sol
-    assert "if (totalSeconds > MAX_TERM) totalSeconds = MAX_TERM;" in sol
+    assert "if (totalSeconds > MAX_TERM) {" in sol
+    assert "if (!allowClamp) revert TermCapReached();" in sol
+    assert "totalValue = (totalValue * MAX_TERM) / totalSeconds;" in sol
     assert "if (price < MIN_PRICE || price > MAX_PRICE) revert PriceOutOfRange();" in sol
     assert "if (expiry < oldExpiry) revert GrantWouldShrinkTerm();" in sol
 
@@ -386,7 +386,7 @@ def test_contract_errors_do_not_count_against_rpc_health():
     assert mod._is_transport_error(TimeoutError()) is True
 
     src = open(mod.__file__).read()
-    assert "if url and _is_transport_error(e):" in src
+    assert "if _is_transport_error(e):" in src
 
 
 def test_all_contract_errors_cache_as_no_membership_not_as_an_outage():
@@ -441,15 +441,17 @@ def test_bindwallet_does_not_hold_a_db_session_across_an_await():
 
 
 @pytest.mark.asyncio
-async def test_invalidate_is_not_undone_by_an_in_flight_lookup():
+async def test_invalidate_is_not_undone_by_an_in_flight_lookup(monkeypatch):
     """/bindwallet invalidates so a freshly bound wallet shows up immediately.
     A lookup that started before the invalidation must not write its stale
     result afterwards, or the new binding stays hidden for a full TTL."""
     import bot.services.membership_service as mod
 
     svc = mod.MembershipService()
-    type(svc).contract_address = property(lambda self: "0x" + "11" * 20)
-    try:
+    # monkeypatch (not a raw assignment + del) — deleting the class property in a
+    # finally block removed it for every later test in the module.
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+    if True:
         svc._addresses_for_user = lambda uid: ["0x" + "22" * 20]
 
         started = asyncio.Event()
@@ -475,8 +477,6 @@ async def test_invalidate_is_not_undone_by_an_in_flight_lookup():
 
         assert result == SubscriptionTier.PRO  # caller still gets an answer
         assert 77 not in svc._cache, "stale in-flight result was cached over an invalidate"
-    finally:
-        del type(svc).contract_address
 
 
 def test_registering_robinhood_does_not_disturb_other_chains():
@@ -511,3 +511,90 @@ def test_registering_robinhood_does_not_disturb_other_chains():
     for chain in set(counts_with) & set(counts_without):
         assert counts_with[chain] == counts_without[chain], f"{chain} endpoint count changed"
     assert counts_with["robinhood"] >= 1
+
+
+# ── 7. third-review fixes ─────────────────────────────────────────────────────
+
+
+def test_watch_only_wallets_are_never_treated_as_ownership():
+    """Review BLOCKER: /import creates wallet_provider='watch' rows from pasted
+    text with no signature and no key. Including them let any fresh account
+    paste a known ENTERPRISE holder's public address and inherit 0.1% fees —
+    $900 saved per $100k swap, unlimited accounts, $0 cost. It also defeated the
+    whole point of the unique index and the EIP-191 proof."""
+    import bot.services.membership_service as mod
+
+    assert "watch" not in mod.KEY_CONTROLLED_PROVIDERS
+    assert set(mod.KEY_CONTROLLED_PROVIDERS) == {"local", "turnkey"}
+    src = open(mod.__file__).read()
+    assert "Wallet.wallet_provider.in_(KEY_CONTROLLED_PROVIDERS)" in src
+    assert "Wallet.is_active.is_(True)" in src
+
+    # and /import really does create watch rows, so the filter is load-bearing
+    imp = open(os.path.join(REPO, "bot", "handlers", "import_handler.py")).read()
+    assert 'wallet_provider="watch"' in imp
+
+
+@pytest.mark.asyncio
+async def test_transport_outage_raises_so_a_paid_tier_survives(monkeypatch):
+    """Review BLOCKER 2: contract_errors incremented on EVERY exception, so
+    `contract_errors == len(addresses)` was always true when nothing succeeded
+    and the outage branch was unreachable. An RPC outage therefore returned None
+    and demoted an on-chain-only ENTERPRISE member to FREE — $500 charged vs $50
+    owed on a $50k swap, repeating every 15s for the whole outage."""
+    import time as _t
+
+    import bot.services.membership_service as mod
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+    monkeypatch.setattr(svc, "_addresses_for_user", lambda uid: ["0x" + "22" * 20])
+    svc._cache[9] = (_t.time() - 1, SubscriptionTier.ENTERPRISE)
+
+    class _Contract:
+        class functions:
+            @staticmethod
+            def tierOf(addr):
+                raise ConnectionError("rpc down")
+
+    # a transport failure must NOT be swallowed as "no membership"
+    monkeypatch.setattr(svc, "_contract", lambda: (_ for _ in ()).throw(ConnectionError("down")))
+    assert await svc.get_onchain_tier(9) == SubscriptionTier.ENTERPRISE
+
+    src = open(mod.__file__).read()
+    body = src.split("def _tier_for_addresses_sync")[1]
+    assert "if _is_transport_error(e):" in body
+    assert "else:\n                    contract_errors += 1" in body
+
+
+def test_binding_challenge_names_the_claimed_address():
+    """Review MED: without the address in the text, an attacker could phish a
+    victim into signing the attacker's challenge and bind the victim's wallet —
+    permanently, since exclusivity then locks the real owner out."""
+    from bot.handlers.bindwallet import _challenge_text
+
+    text = _challenge_text(111, "aa" * 16, "0x" + "AB" * 20)
+    assert "address:0x" + "ab" * 20 in text
+    assert _challenge_text(111, "aa" * 16, "0x" + "ab" * 20) != _challenge_text(
+        111, "aa" * 16, "0x" + "cd" * 20
+    )
+
+
+def test_unbind_exists_so_a_binding_is_not_permanent():
+    from bot.handlers.bindwallet import unbindwallet_handler
+
+    assert unbindwallet_handler.commands == frozenset({"unbindwallet"})
+    main = open(os.path.join(REPO, "bot", "main.py")).read()
+    assert "application.add_handler(unbindwallet_handler)" in main
+
+
+def test_executor_submissions_are_admission_controlled():
+    """Review MED: wait_for cancels the await, not the thread, and the executor
+    queue is unbounded — during an RPC hang every timed-out lookup still ran,
+    minutes late, growing without bound."""
+    import bot.services.membership_service as mod
+
+    assert mod._INFLIGHT._initial_value <= 16
+    src = open(mod.__file__).read()
+    assert "_INFLIGHT.acquire(blocking=False)" in src
+    assert "_INFLIGHT.release()" in src

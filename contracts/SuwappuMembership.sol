@@ -113,6 +113,8 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     error GrantTooLong();
     error GrantWouldShrinkTerm();
     error PriceOutOfRange();
+    error TermCapReached();
+    error PriceMoved();
 
     constructor(address usdg_, address treasury_, address initialOwner)
         ERC721("Suwappu Membership", "SUWA")
@@ -136,11 +138,21 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     ///         price. Mints the membership first if the wallet has none. Extends
     ///         an existing subscription of the same tier; switching tiers converts
     ///         remaining time by price ratio so no value is burned.
-    function subscribe(Tier tier, uint256 periods) external nonReentrant {
+    /// @param maxPricePerPeriod Caller's price bound. `subscribe` pulls USDG at
+    ///        whatever `pricePerPeriod` says at execution time, and subscription
+    ///        flows use unlimited approvals, so without this a reprice landing
+    ///        first (compromised key, or an honest change in the same block)
+    ///        could pull MAX_PRICE * periods instead of the quoted amount.
+    ///        Every other owner power is already bounded; this one was not.
+    function subscribe(Tier tier, uint256 periods, uint256 maxPricePerPeriod)
+        external
+        nonReentrant
+    {
         if (tier == Tier.Free) revert BadTier(); // FREE is minted, not bought
         if (periods == 0 || periods > MAX_PERIODS_PER_PURCHASE) revert BadPeriods();
 
         uint256 price = pricePerPeriod[uint256(tier)];
+        if (price > maxPricePerPeriod) revert PriceMoved();
         uint256 cost = price * periods;
         // Checks-effects-interactions: the USDG pull happens before ANY state is
         // written (including the auto-mint), so a failed or reentrant payment can
@@ -150,7 +162,9 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         uint256 tokenId = tokenOf[msg.sender];
         if (tokenId == 0) tokenId = _mintTo(msg.sender);
 
-        uint64 expiry = _creditTime(tokenId, tier, uint64(periods) * PERIOD, price);
+        // allowClamp = false: a purchase that would be truncated at MAX_TERM
+        // must revert rather than take payment for days it cannot deliver.
+        uint64 expiry = _creditTime(tokenId, tier, uint64(periods) * PERIOD, price, false);
         emit Subscribed(tokenId, msg.sender, tier, periods, cost);
         emit SubscriptionUpdate(tokenId, expiry);
     }
@@ -170,10 +184,18 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     ///      instead would let a holder launder cheap time through a same-tier
     ///      renewal at the new price and then convert it 1:1 — which is exactly
     ///      the reprice front-run this snapshot exists to stop.
-    function _creditTime(uint256 tokenId, Tier tier, uint64 duration, uint256 newPrice)
-        internal
-        returns (uint64 expiry)
-    {
+    /// @param allowClamp When false, a term that would exceed MAX_TERM reverts
+    ///        instead of being silently truncated. Truncation preserves value
+    ///        arithmetically but that value is UNREALIZABLE — every later
+    ///        conversion is capped too — so a paid `subscribe` that clamps would
+    ///        take money for days it can never deliver.
+    function _creditTime(
+        uint256 tokenId,
+        Tier tier,
+        uint64 duration,
+        uint256 newPrice,
+        bool allowClamp
+    ) internal returns (uint64 expiry) {
         Membership storage m = _memberships[tokenId];
         uint64 nowTs = uint64(block.timestamp);
 
@@ -194,13 +216,18 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         }
 
         uint256 totalSeconds = retainedSeconds + duration;
-        // Hard horizon: see MAX_TERM. Truncating here is a deliberate safety
-        // valve for a mispricing, not normal operation — reaching it requires a
-        // price ratio no sane schedule produces.
-        if (totalSeconds > MAX_TERM) totalSeconds = MAX_TERM;
+        uint256 totalValue = retainedValue + uint256(duration) * newPrice;
+        if (totalSeconds > MAX_TERM) {
+            if (!allowClamp) revert TermCapReached();
+            // Scale value with seconds. Keeping the full value over fewer seconds
+            // inflates pricePaidPerPeriod above MAX_PRICE, encoding value that no
+            // conversion can ever realise because conversions clamp too.
+            totalValue = (totalValue * MAX_TERM) / totalSeconds;
+            totalSeconds = MAX_TERM;
+        }
         m.tier = tier;
         m.expiresAt = (uint256(nowTs) + totalSeconds).toUint64();
-        m.pricePaidPerPeriod = (retainedValue + uint256(duration) * newPrice) / totalSeconds;
+        m.pricePaidPerPeriod = totalValue / totalSeconds;
         return m.expiresAt;
     }
 
@@ -253,7 +280,10 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         uint256 tokenId = tokenOf[to];
         if (tokenId == 0) tokenId = _mintTo(to);
         uint64 oldExpiry = _memberships[tokenId].expiresAt;
-        uint64 expiry = _creditTime(tokenId, tier, duration, pricePerPeriod[uint256(tier)]);
+        // allowClamp = true: a goodwill grant may bump into the cap; it must not
+        // revert on the operator, and no user funds are involved.
+        uint64 expiry =
+            _creditTime(tokenId, tier, duration, pricePerPeriod[uint256(tier)], true);
         // A goodwill grant of a DIFFERENT tier converts by value, which conserves
         // dollars but can shorten the calendar term — comping 7 days of ENTERPRISE
         // onto 720 days of PRO would cut the member back to ~79 days. The member
