@@ -215,3 +215,57 @@ Their art is layered sprite slots (skin/eyes/hair/outfit/accessory/main_hand/off
 two_hand) plus classes and generated names with founder-exclusive variants — a character
 system, not a PFP. Ours is a live P&L card, which is a different (and chain-native) bet;
 the lesson taken is the *depth* of trait composition, not the fantasy subject matter.
+
+## The 10,000-card sweep
+
+```bash
+python3 nft/position-cards/sweep.py --plan   # print the graph
+python3 nft/position-cards/sweep.py          # advance ONE shard (500 cards), then stop
+python3 nft/position-cards/sweep.py --all    # run every remaining shard
+python3 nft/position-cards/sweep.py --reset  # start over
+```
+
+One invocation advances one shard and exits, so it can be driven a shard at a
+time and each run reports real progress. State lives in `.sweep/state.json`
+(gitignored); killing a run mid-shard costs that shard, not the sweep.
+
+`graph.py` is a small content-addressed DAG runner: nodes are cached by the hash
+of `(version, params, dependency hashes)`, so editing one node re-runs that node
+and everything downstream of it, and nothing else.
+
+```
+config
+registry
+allocation
+  corpus  <- config, allocation
+    inputs  <- config, registry, corpus
+```
+
+### This is not a pre-rendered art drop, and it must not become one
+
+Token → ticker is chosen by the minter and the entry price is stamped on-chain
+at mint, so card #4,213 cannot be known before someone mints it. Freezing an
+image would freeze the P&L — the exact failure this collection was redesigned
+away from (see the table at the top). Cards are composed at fetch time from real
+state: your stamped entry, the live Chainlink price, your mint rank.
+
+What *can* be settled before the mint is that the renderer is correct and total.
+The sweep walks a deterministic corpus of all 10,000 tokens covering every
+ticker, every grade boundary and the bp below it, both mint-badge cut-offs and
+the unpriced path, then checks each card for:
+
+| Check | Why it is in the list |
+|---|---|
+| SVG parses as XML, has a `viewBox` | One unescaped `&` renders the whole collection as a broken-image icon |
+| Ticker / Company / Sector / Mint Rank traits match the token | A trait that disagrees with the card is a listing that sorts wrong forever |
+| Grade follows `min_return_bps` exactly | Off-by-one lives on the boundary, and grade is the status |
+| Badge follows the rank cut-offs | Dropping Founder devalues the mints sold on being early |
+| `image` / `external_url` absolute | A relative URL resolves against the marketplace's domain and 404s |
+| Byte-identical across two renders | Marketplaces cache the first fetch; drift splits the art in two |
+| No two cards identical in a shard | Identical bytes mean the token id never reached the canvas |
+| Disclaimer present, no equity language | A card reading as a claim on a real security is the one failure not fixable after the mint |
+
+Current run: **10,000/10,000 rendered, 0 problems** — 35 tickers, 10 sectors,
+all 6 grades plus Unpriced, 500 Founder / 1,500 Early, 10,000 distinct card
+hashes. `tests/test_positions_sweep.py` injects each defect above and asserts the
+sweep catches it, so the validators cannot quietly rot into decoration.
