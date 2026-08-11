@@ -49,3 +49,32 @@ export interface HealthStatus {
   service: string
   timestamp?: string
 }
+
+export interface EarnPosition {
+  protocol: string
+  chain: string
+  token: string
+  balance: string
+  balanceUsd: number
+  apy: number
+}
+
+export interface EarnIdleBalance {
+  chain: string
+  token: string
+  balance: string
+  balanceUsd: number
+}
+
+export interface EarnSnapshot {
+  apy: number
+  positions: EarnPosition[]
+  idle: EarnIdleBalance[]
+  coverage: 'best_effort' | 'complete'
+}
+
+export interface EarnActionResponse {
+  ok: true
+  txHash: string
+  amount: string
+}

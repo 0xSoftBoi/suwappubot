@@ -42,6 +42,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: icon('sf:house', '●') }} />
       <Tabs.Screen name="ask" options={{ title: 'Ask', tabBarIcon: icon('sf:message', '✦') }} />
       <Tabs.Screen name="money" options={{ title: 'Money', tabBarIcon: icon('sf:chart.pie', '$') }} />
+      <Tabs.Screen name="earn" options={{ title: 'Earn', tabBarIcon: icon('sf:percent', '%') }} />
       <Tabs.Screen name="activity" options={{ title: 'Activity', tabBarIcon: icon('sf:clock', '≡') }} />
     </Tabs>
   )

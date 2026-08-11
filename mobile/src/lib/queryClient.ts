@@ -23,6 +23,8 @@ export const STALE = {
   balance: 15_000,
   /** Activity changes only when the user acts. */
   activity: 60_000,
+  /** Earn position/APY: fresh enough without polling a yield rate every render. */
+  earn: 15_000,
 } as const
 
 export const queryClient = new QueryClient({
