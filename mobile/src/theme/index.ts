@@ -28,6 +28,7 @@ export const palette = {
   accentSoft: theme.colors.brand.sunlitFlesh,
   success: theme.colors.trading.bull,
   danger: theme.colors.trading.bear,
+  warning: theme.colors.semantic.warning,
 } as const
 
 export const spacing = theme.spacing
@@ -47,6 +48,6 @@ export const styles = StyleSheet.create({
   },
   title: { color: palette.text, fontSize: 30, fontWeight: '700' },
   heading: { color: palette.text, fontSize: 17, fontWeight: '600' },
-  body: { color: palette.text, fontSize: 15 },
+  body: { color: palette.text, fontSize: 16 },
   muted: { color: palette.textMuted, fontSize: 13 },
 })

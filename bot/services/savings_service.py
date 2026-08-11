@@ -121,8 +121,25 @@ class SavingsError(Exception):
     """User-safe savings error — message is safe to surface in the UI."""
 
 
+class SavingsPending(SavingsError):
+    """A tx was broadcast but confirmation timed out — NOT a failure, and NOT
+    safe to blindly retry (a retry could double-submit on top of a tx that
+    may still land). Carries `tx_hash` so callers can surface a trackable
+    receipt (e.g. HTTP 202 + basescan link) instead of a generic 4xx that
+    invites an immediate resubmit.
+    """
+
+    def __init__(self, message: str, tx_hash: str = ""):
+        super().__init__(message)
+        self.tx_hash = tx_hash
+
+
 class _SentTx(Exception):
     """A raw tx was broadcast but a follow-up step failed — never retry elsewhere."""
+
+    def __init__(self, message: str, tx_hash: str = ""):
+        super().__init__(message)
+        self.tx_hash = tx_hash
 
 
 class SavingsService:
@@ -206,8 +223,16 @@ class SavingsService:
         wait_for_transaction_receipt. Raises SavingsError (user-safe) if the
         transaction reverts on-chain.
         """
+        from bot.utils.nonce_reservation import reserve_nonce
+
         from_addr = Web3.to_checksum_address(wallet.address)
-        nonce = web3.eth.get_transaction_count(from_addr)
+        # "pending"-block nonce reconciled against this process's own
+        # last-reserved nonce for the wallet (MONEY-PATH stale-nonce-reuse
+        # fix — see bot/utils/nonce_reservation.py). Callers of
+        # `_build_and_send` already run under the same per-wallet lock
+        # `/v1/mobile/send` uses (mobile.py deliberately shares
+        # `_earn_wallet_lock` across earn + send for this exact reason).
+        nonce = reserve_nonce(web3, from_addr)
         gas_price = web3.eth.gas_price
         tx = contract_fn.build_transaction(
             {
@@ -226,7 +251,9 @@ class SavingsService:
         try:
             receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
         except Exception as e:
-            raise _SentTx(f"receipt wait failed for {tx_hash.hex()}: {e}") from e
+            raise _SentTx(
+                f"receipt wait failed for {tx_hash.hex()}: {e}", tx_hash=tx_hash.hex()
+            ) from e
         if receipt.get("status") != 1:
             raise SavingsError("Transaction failed on-chain. No funds were moved.")
         return tx_hash.hex()
@@ -299,6 +326,11 @@ class SavingsService:
             raise SavingsError("Amount must be greater than zero.")
 
         amount_wei = self._usdc_to_wei(amount)
+        if amount_wei == 0:
+            # Dust: rounds down to 0 at USDC's 6-decimal precision. Raised
+            # BEFORE `_failover` is ever entered, so a zero-amount call never
+            # touches an RPC endpoint or trips `rpc_manager.report_failure`.
+            raise SavingsError("Amount is too small at USDC's 6-decimal precision.")
         owner = Web3.to_checksum_address(wallet.address)
         pool_addr = Web3.to_checksum_address(AAVE_POOL_ADDRESS)
 
@@ -335,9 +367,10 @@ class SavingsService:
         except _SentTx as e:
             # Tx was broadcast; treat optimistically but tell the user to check.
             logger.error(f"savings deposit post-send failure: {e}")
-            raise SavingsError(
+            raise SavingsPending(
                 "Your deposit was submitted but confirmation timed out. "
-                "Check your wallet on basescan before retrying."
+                "Check your wallet on basescan before retrying.",
+                tx_hash=e.tx_hash,
             )
         except Exception as e:
             logger.error(f"savings deposit failed: {e}", exc_info=True)
@@ -358,6 +391,11 @@ class SavingsService:
             if amount <= 0:
                 raise SavingsError("Amount must be greater than zero.")
             amount_wei = self._usdc_to_wei(amount)
+            if amount_wei == 0:
+                # Dust: rounds down to 0 at USDC's 6-decimal precision. Raised
+                # BEFORE `_failover` is ever entered — never touches an RPC
+                # endpoint or trips `rpc_manager.report_failure`.
+                raise SavingsError("Amount is too small at USDC's 6-decimal precision.")
 
         def _op(web3: Web3) -> str:
             if amount_wei != MAX_UINT256:
@@ -381,9 +419,10 @@ class SavingsService:
             raise
         except _SentTx as e:
             logger.error(f"savings withdraw post-send failure: {e}")
-            raise SavingsError(
+            raise SavingsPending(
                 "Your withdrawal was submitted but confirmation timed out. "
-                "Check your wallet on basescan before retrying."
+                "Check your wallet on basescan before retrying.",
+                tx_hash=e.tx_hash,
             )
         except Exception as e:
             logger.error(f"savings withdraw failed: {e}", exc_info=True)

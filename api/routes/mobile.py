@@ -5,19 +5,25 @@ All Phase 2 features: wallets, alerts, orders, DCA, points, referrals,
 copy trading, and sniping.  Delegates to existing service singletons.
 """
 
+import asyncio
 import hashlib
 import logging
+import math
+import re
 import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Optional, List, Tuple, Dict
 
 from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from bot.config.settings import settings
+from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
 from database.db import get_session, DATABASE_AVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -201,6 +207,161 @@ def _jwt_user(request: Request) -> dict:
 def _require_db():
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+
+def _client_ip(request: Request) -> str:
+    """Real per-client IP behind Railway's edge.
+
+    Railway's public domain is the only way to reach this process — there is
+    no route for an internet client to open a TCP connection to the
+    container directly (private-networking calls use *.railway.internal and
+    never carry this header at all). That makes Railway's edge the single
+    trusted hop, and it always APPENDS the address it observed connecting to
+    it as the LAST entry of X-Forwarded-For. Anything to the LEFT of that is
+    whatever the client itself sent and is trivially spoofable (e.g.
+    `X-Forwarded-For: 1.2.3.4`) — using it (the old behavior here, and the
+    leftmost-entry convention some frameworks default to) would let one
+    attacker mint an unlimited number of distinct "IPs" to blow through
+    `_MAX_PENDING_PER_IP` and the pairing rate limiters below.
+
+    Also see api/Dockerfile.railway's `--proxy-headers --forwarded-allow-ips`
+    uvicorn flags — this function parses the raw header itself rather than
+    relying solely on uvicorn's ProxyHeadersMiddleware rewrite of
+    `request.client`, so it stays correct even if that middleware
+    configuration ever drifts.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        hops = [hop.strip() for hop in xff.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
+    return request.client.host if request.client else "unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GEKKO MOBILE TELEGRAM DEEPLINK SIGN-IN (MONEY-PATH: mints session JWTs)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Device-initiated pairing, no Telegram Login Widget:
+#   1. POST /auth/telegram/start (unauth) -> {code, deeplink, expiresAt,
+#      verificationWord}. The app displays the word on its own screen.
+#   2. User opens the deeplink -> bot/handlers/start.py's `/start gekko_<code>`
+#      STAGES the code to the Telegram update's OWN resolved users.id (does
+#      NOT grant a session) and shows an Approve/Not me prompt with the same
+#      verification word. Only an explicit "Approve" tap — checked against
+#      the same resolved users.id — moves the code to `approved`.
+#   3. POST /auth/telegram/poll (unauth) -> pending | ready+JWT | expired.
+#      "pending" covers both not-yet-staged and staged-but-not-yet-approved.
+#      "expired" covers unknown, actually-expired, and rejected codes
+#      identically, so a client can't distinguish these cases by response.
+#      The approved -> consumed transition is an atomic conditional UPDATE so
+#      two concurrent polls can never both mint a JWT for the same code.
+#
+# Both routes are unauthenticated by necessity (there's no session yet), so
+# they're rate-limited per-IP in addition to the short TTL + single-use +
+# per-IP pending cap + explicit-approval step enforced in
+# bot/services/mobile_pairing_service.py.
+_pairing_start_limiter = UserRateLimiter(max_requests=10, window_seconds=60)
+_pairing_poll_limiter = UserRateLimiter(max_requests=60, window_seconds=60)  # ~1/sec
+
+
+class TelegramPairingPollBody(BaseModel):
+    code: str
+
+
+@router.post("/auth/telegram/start")
+async def start_telegram_pairing(request: Request):
+    """Unauthenticated. Mints a >=128-bit opaque code the caller renders as a
+    `t.me` deeplink / QR. Never logs the raw code."""
+    _require_db()
+    client_ip = _client_ip(request)
+
+    try:
+        await _pairing_start_limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    from bot.services.mobile_pairing_service import (
+        CODE_PREFIX,
+        MobilePairingError,
+        mobile_pairing_service,
+    )
+
+    try:
+        pending = mobile_pairing_service.create_pending(request_ip=client_ip)
+    except MobilePairingError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    bot_username = getattr(settings, "telegram_bot_username", None) or "suwappubot"
+    deeplink = f"https://t.me/{bot_username}?start={CODE_PREFIX}{pending.code}"
+
+    return {
+        "code": pending.code,
+        "deeplink": deeplink,
+        "expiresAt": pending.expires_at.isoformat(),
+        # The app displays this alongside the deeplink/QR. The bot shows the
+        # SAME word (derived deterministically from the code, never stored)
+        # on its Approve/Not me prompt after the deeplink is opened — the
+        # user must only tap Approve if the two match. See
+        # bot/services/mobile_pairing_service.py::derive_verification_word.
+        "verificationWord": pending.verification_word,
+    }
+
+
+@router.post("/auth/telegram/poll")
+async def poll_telegram_pairing(request: Request, body: TelegramPairingPollBody):
+    """Unauthenticated, single-use. Identical `{"status": "expired"}` shape
+    for unknown, already-consumed, and genuinely time-expired codes."""
+    _require_db()
+    client_ip = _client_ip(request)
+
+    try:
+        await _pairing_poll_limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    code = (body.code or "").strip()
+    if not code:
+        return {"status": "expired"}
+
+    from bot.services.mobile_pairing_service import mobile_pairing_service
+
+    result = mobile_pairing_service.poll_and_consume(code)
+    if result.get("status") != "ready":
+        return {"status": result.get("status", "expired")}
+
+    user_id = result["user_id"]
+
+    from api.main import create_jwt_token
+    from bot.models.user import User, Wallet
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.id == user_id).first()
+        if db_user is None:
+            # Bound account vanished between approval and poll — fail closed.
+            return {"status": "expired"}
+        wallet = (
+            session.query(Wallet)
+            .filter(Wallet.user_id == user_id, Wallet.is_active == True)
+            .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+            .first()
+        )
+        session_address = wallet.address if wallet else f"telegram:{db_user.telegram_id}"
+
+    # Same minting path/claim shape as every other session source (siwe,
+    # passkey, oauth) — see api/main.py::create_jwt_token and the
+    # auth/telegram (Telegram Login Widget) webapp route it mirrors.
+    token = create_jwt_token(address=session_address, user_id=user_id, src="telegram")
+
+    return {"status": "ready", "token": token, "userId": user_id}
 
 
 # ── request / response models ────────────────────────────────────────
@@ -482,6 +643,12 @@ class RedeemRewardBody(BaseModel):
     rewardId: int
 
 
+# -- earn / savings --
+class EarnAmountBody(BaseModel):
+    amount: str
+    walletId: Optional[int] = None
+
+
 # -- copy trading --
 class FollowTraderBody(BaseModel):
     copyMode: str = "notify"
@@ -566,6 +733,30 @@ async def ask_gecko(request: Request, body: AskBody):
         ]
 
     return _answer_from_snapshot(text, snapshot, recent)
+
+
+@router.get("/wallets")
+async def list_wallets(request: Request):
+    """List the authenticated user's wallets. Read-only — mirrors the exact
+    serialization shape POST /wallets already returns for a single wallet
+    (address/name/chainType/isDefault), just for every active wallet the
+    user has, deduplicated the same way GET /earn's wallet aggregation is."""
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(int(payload["user_id"])))
+    return [
+        {
+            "address": wallet.address,
+            "name": wallet.name,
+            "chainType": wallet.chain_type,
+            "isDefault": wallet.is_default,
+        }
+        for wallet in wallets
+    ]
 
 
 @router.post("/wallets")
@@ -2126,3 +2317,1659 @@ async def update_snipe_config(request: Request, body: UpdateSnipeConfigBody):
 
         session.commit()
     return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SAVINGS / EARN — MONEY-PATH (Aave V3 USDC on Base)
+#
+# Delegates 100% of on-chain logic (reads AND writes) to
+# bot.services.savings_service.savings_service — the exact same service the
+# Telegram /save flow uses. This module only: resolves the caller's wallet
+# from the authenticated JWT (never a client-supplied address), validates the
+# amount, and maps SavingsError -> a clean 4xx instead of a raw exception.
+# ═══════════════════════════════════════════════════════════════════
+
+_MAX_EARN_AMOUNT_INPUT_LENGTH = 64
+
+# Dust / magnitude bounds (HIGH + MED money-path findings). Below the min, a
+# real on-chain deposit/withdraw is pointless risk for the gas spent framing
+# it; above the max, an amount this large is almost certainly a client bug
+# (e.g. a unit mismatch) rather than a real USDC balance, and should fail
+# fast with a clean 400 instead of surfacing as an obscure 500 deep in
+# Decimal/web3 arithmetic.
+_MIN_EARN_AMOUNT = Decimal("0.01")
+_MAX_EARN_AMOUNT = Decimal("1000000")
+_EARN_AMOUNT_QUANT = Decimal("0.000001")  # 6dp — USDC's on-chain precision
+
+
+def _quantize_earn_amount(amount: Decimal) -> Decimal:
+    """Truncate (never round up) to USDC's 6-decimal on-chain precision, so
+    the amount echoed back to the client always matches the wei actually
+    executed on-chain (LOW finding)."""
+    return amount.quantize(_EARN_AMOUNT_QUANT, rounding=ROUND_DOWN)
+
+
+async def _resolve_earn_wallet(user_id: int):
+    """Resolve the user's default EVM wallet for Aave savings (default, else
+    first). Used when the caller doesn't specify a `walletId`.
+
+    Returns None when the user has no EVM wallet yet so callers can return a
+    clean 400 instead of a failure deep inside web3 calls.
+    """
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallet = wallet_service.get_default_wallet(user_id, "evm")
+    if wallet:
+        return wallet
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    evm_wallets = [w for w in wallets if str(w.chain_type or "").lower() == "evm"]
+    return evm_wallets[0] if evm_wallets else None
+
+
+async def _get_user_evm_wallets(user_id: int) -> list:
+    """All of the user's active EVM wallets, deduplicated — used by GET /earn
+    to aggregate savings across every wallet, and to validate a client-
+    supplied `walletId` on deposit/withdraw."""
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    return [w for w in wallets if str(w.chain_type or "").lower() == "evm" and w.address]
+
+
+async def _resolve_earn_wallet_by_id(user_id: int, wallet_id: int):
+    """Resolve a client-supplied `walletId`, validated to belong to the
+    authenticated JWT user (MED finding). Returns None for a missing/foreign/
+    non-EVM wallet — callers turn that into a 400 "Unknown wallet" rather
+    than a 404/403 that would leak whether the id exists for someone else.
+    """
+    wallets = await _get_user_evm_wallets(user_id)
+    for wallet in wallets:
+        if wallet.id == wallet_id:
+            return wallet
+    return None
+
+
+def _parse_earn_amount(
+    raw: str, *, available: Decimal, max_returns_none: bool = False
+) -> Optional[Decimal]:
+    """Parse an /earn/deposit or /earn/withdraw amount.
+
+    Accepts a positive decimal string, or the sentinel "max" (case-insensitive)
+    which resolves to the caller's live `available` balance. Returns None only
+    for the "max" sentinel on withdraw, where SavingsService.withdraw expects
+    None to mean "withdraw the full on-chain position" (captures interest
+    accrued between this read and execution). Never lets NaN/Infinity/
+    negative/zero/dust/oversized amounts through to the on-chain call.
+    """
+    if raw is None or not str(raw).strip():
+        raise HTTPException(status_code=400, detail="amount is required")
+    cleaned = str(raw).strip()
+    if len(cleaned) > _MAX_EARN_AMOUNT_INPUT_LENGTH:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if cleaned.lower() == "max":
+        if available <= 0:
+            raise HTTPException(status_code=400, detail="Nothing available to use.")
+        return None if max_returns_none else _quantize_earn_amount(available)
+    try:
+        amount = Decimal(cleaned)
+    except (InvalidOperation, ArithmeticError):
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if not amount.is_finite() or amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    if amount > _MAX_EARN_AMOUNT:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount < _MIN_EARN_AMOUNT:
+        raise HTTPException(status_code=400, detail="Minimum amount is 0.01 USDC")
+    return _quantize_earn_amount(amount)
+
+
+async def _log_earn_event(user_id: int, wallet_id: int, action: str, amount, tx_hash: str) -> None:
+    """Best-effort SavingsEvent record — mirrors bot/handlers/savings.py's
+    `_log_event` so Telegram and mobile deposits/withdrawals show up in the
+    same history. Never allowed to fail the request."""
+    try:
+        from bot.models.savings import SavingsEvent
+
+        with get_session() as session:
+            session.add(
+                SavingsEvent(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain="base",
+                    token="USDC",
+                    action=action,
+                    amount=(Decimal(str(amount)) if amount is not None else None),
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log mobile earn event: {e}")
+
+
+@router.get("/earn")
+async def get_earn(request: Request):
+    """Real Aave V3 (Base) USDC savings snapshot for the authenticated user,
+    aggregated across ALL of the user's EVM wallets (MED finding — a user
+    with more than one Base wallet previously only ever saw their default
+    wallet's savings, silently hiding funds in any other wallet).
+
+    Read-only: never signs or sends a transaction. `positions` has one entry
+    per wallet with a nonzero aUSDC position; `idle` has one entry per wallet
+    with nonzero deposit-able USDC. Each entry carries `walletId` so the
+    client can route a follow-up deposit/withdraw at that specific wallet.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.savings_service import SavingsError, savings_service
+
+    user_id = int(payload["user_id"])
+
+    try:
+        apy = await asyncio.to_thread(savings_service.get_apy)
+    except SavingsError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    wallets = await _get_user_evm_wallets(user_id)
+
+    positions: list[dict] = []
+    idle: list[dict] = []
+    coverage = "complete"
+
+    async def _read_one(wallet):
+        try:
+            position, idle_balance = await asyncio.gather(
+                asyncio.to_thread(savings_service.get_position, wallet.address),
+                asyncio.to_thread(savings_service.get_usdc_balance, wallet.address),
+            )
+            return wallet, position, idle_balance, None
+        except SavingsError as e:
+            return wallet, None, None, e
+
+    for wallet, position, idle_balance, err in await asyncio.gather(
+        *(_read_one(w) for w in wallets)
+    ):
+        if err is not None:
+            logger.warning(
+                f"mobile earn balance read failed for user {user_id} wallet {wallet.id}: {err}"
+            )
+            coverage = "best_effort"
+            continue
+        if position > 0:
+            positions.append(
+                {
+                    "walletId": wallet.id,
+                    "walletAddress": wallet.address,
+                    "protocol": "aave_v3",
+                    "chain": "base",
+                    "token": "USDC",
+                    "balance": str(position),
+                    "balanceUsd": float(position),
+                    "apy": apy,
+                }
+            )
+        if idle_balance > 0:
+            idle.append(
+                {
+                    "walletId": wallet.id,
+                    "walletAddress": wallet.address,
+                    "chain": "base",
+                    "token": "USDC",
+                    "balance": str(idle_balance),
+                    "balanceUsd": float(idle_balance),
+                }
+            )
+
+    return {"apy": apy, "positions": positions, "idle": idle, "coverage": coverage}
+
+
+# ── earn action concurrency + idempotency (HIGH finding) ────────────────────
+#
+# Mirrors the reward-redemption idempotency pattern above (`_redeem_idem_*`
+# / `_IdemEntry`), adapted for a route that is genuinely `async def` (every
+# on-chain read/write here is dispatched via `asyncio.to_thread`, so callers
+# await this coroutine rather than blocking a threadpool thread the way
+# `redeem_reward` does). Two distinct problems, one lock:
+#
+#   1. Concurrency: two overlapping deposit/withdraw calls for the SAME
+#      (user_id, wallet.address) must not both read a stale balance and both
+#      pass validation (e.g. two withdraws that each see the full position as
+#      "available" and both attempt to move it). A per-(user, wallet) asyncio
+#      lock held across the ENTIRE read -> validate -> execute block forces
+#      the second call to wait for the first to fully finish (and, per (2)
+#      below, to see whatever the first one just cached) before it reads a
+#      balance of its own.
+#   2. Idempotency: a client `Idempotency-Key` header (or a short auto-derived
+#      key for an unkeyed burst of duplicate taps) lets a dropped-response
+#      retry replay the FIRST call's result instead of re-executing a SECOND
+#      on-chain tx. Same in-process, non-durable-across-restarts caveat as
+#      `_redeem_idem_*` — that's fine, it's a UX nicety on top of the wallet
+#      lock above, not the sole safety net.
+_EARN_IDEM_TTL_SECONDS = 300
+_earn_wallet_locks: Dict[tuple, asyncio.Lock] = {}
+_earn_idem_entries: Dict[tuple, _IdemEntry] = {}
+
+_earn_action_limiter = UserRateLimiter(max_requests=6, window_seconds=60)
+
+
+def _earn_wallet_lock(user_id: int, wallet_address: str) -> asyncio.Lock:
+    """Get (or create) the asyncio lock serializing earn actions for one
+    (user, wallet) pair. Safe to call from an async context without any extra
+    locking around the dict itself — a single-threaded event loop never
+    yields mid-`dict.get`/`dict.__setitem__`, so two concurrent coroutines
+    can't race to create two different Lock objects for the same key."""
+    key = (user_id, str(wallet_address or "").lower())
+    lock = _earn_wallet_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _earn_wallet_locks[key] = lock
+    return lock
+
+
+def _earn_idempotency_cache_key(request: Request, user_id: int, scope: str) -> tuple:
+    """Same shape as `_redeem_idempotency_cache_key`: prefer the client's
+    `Idempotency-Key` header; otherwise collapse an unkeyed near-simultaneous
+    burst for the SAME (user, action, wallet) onto one auto key."""
+    header_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
+    if header_key and header_key.strip():
+        key = f"hdr:{scope}:{header_key.strip()[:128]}"
+    else:
+        bucket = int(time.time() // 2)
+        key = f"auto:{scope}:{bucket}"
+    return (user_id, key)
+
+
+def _earn_idem_lookup(cache_key: tuple) -> Optional[Tuple[int, dict]]:
+    entry = _earn_idem_entries.get(cache_key)
+    if not entry or entry.timestamp is None:
+        return None
+    if time.time() - entry.timestamp > _EARN_IDEM_TTL_SECONDS:
+        _earn_idem_entries.pop(cache_key, None)
+        return None
+    return entry.status_code, entry.body
+
+
+def _earn_idem_store(cache_key: tuple, status_code: int, body: dict) -> None:
+    now = time.time()
+    entry = _earn_idem_entries.get(cache_key)
+    if entry is None:
+        entry = _IdemEntry(lock=threading.Lock())  # `.lock` unused here — the
+        # per-wallet asyncio.Lock above already serializes; kept for shape
+        # parity with `_IdemEntry`'s other three fields.
+        _earn_idem_entries[cache_key] = entry
+    entry.timestamp = now
+    entry.status_code = status_code
+    entry.body = body
+    if len(_earn_idem_entries) > 1000:
+        expired = [
+            k
+            for k, e in _earn_idem_entries.items()
+            if e.timestamp is not None and now - e.timestamp > _EARN_IDEM_TTL_SECONDS
+        ]
+        for k in expired:
+            _earn_idem_entries.pop(k, None)
+
+
+async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action: str) -> dict:
+    """Shared executor for /earn/deposit and /earn/withdraw.
+
+    Resolves the wallet exclusively from the authenticated JWT (or a
+    JWT-owned `walletId`), validates the amount, then calls the SAME
+    SavingsService.deposit/withdraw used by the Telegram /save flow — no new
+    on-chain logic or approvals here. The whole read -> validate -> execute
+    block runs under a per-(user, wallet) lock — see `_earn_wallet_lock`.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.savings_service import SavingsError, SavingsPending, savings_service
+
+    user_id = int(payload["user_id"])
+
+    try:
+        await _earn_action_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    if body.walletId is not None:
+        wallet = await _resolve_earn_wallet_by_id(user_id, body.walletId)
+        if wallet is None:
+            raise HTTPException(status_code=400, detail="Unknown wallet")
+    else:
+        wallet = await _resolve_earn_wallet(user_id)
+        if wallet is None:
+            raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
+
+    cache_key = _earn_idempotency_cache_key(request, user_id, f"{action}:{wallet.address.lower()}")
+    lock = _earn_wallet_lock(user_id, wallet.address)
+
+    async with lock:
+        cached = _earn_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, cached_body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=cached_body.get("detail"))
+            return JSONResponse(status_code=status_code, content=cached_body)
+
+        try:
+            if action == "deposit":
+                available = await asyncio.to_thread(
+                    savings_service.get_usdc_balance, wallet.address
+                )
+            else:
+                available = await asyncio.to_thread(savings_service.get_position, wallet.address)
+        except SavingsError as e:
+            # Transient RPC/read failure — not deterministic, never cached,
+            # so a retry actually retries instead of replaying a stale 503.
+            raise HTTPException(status_code=503, detail=str(e))
+
+        amount = _parse_earn_amount(
+            body.amount, available=available, max_returns_none=(action == "withdraw")
+        )
+        is_max = amount is None
+
+        # Cross-process guard, symmetric with /send: deposit/withdraw and send
+        # reserve nonces on the SAME wallet, so the in-process lock above is
+        # only sufficient while python-api runs a single replica. Taking the DB
+        # lock here too means a scale-up (webhook mode allows replicas) cannot
+        # let an earn action and a send collide on a nonce.
+        db_lock_holder = await asyncio.to_thread(_db_wallet_lock_try_acquire, wallet.address)
+        if db_lock_holder is None:
+            raise HTTPException(
+                status_code=503,
+                detail="This wallet has a transaction in progress. Try again shortly.",
+            )
+        try:
+            # Auto top-up gas from the hot wallet if needed — MONEY-PATH.
+            # Placed here, AFTER the balance/amount validation above (and
+            # after the DB wallet lock), and BEFORE the on-chain
+            # deposit/withdraw call, so a top-up only ever accompanies a
+            # validated, funded transfer — see gas_topup_service's module
+            # docstring for the full ordering / anti-griefing rationale.
+            #
+            # `_parse_earn_amount` only cross-checks an explicit (non-"max")
+            # amount against `available` for withdraw's None-sentinel case,
+            # not for a plain numeric amount — an over-amount request is
+            # normally left for SavingsService.deposit/withdraw's own
+            # on-chain balance check to reject. Gate the top-up on the same
+            # "is this actually fundable" condition explicitly here too, so
+            # an unfundable request (bound to fail anyway) never spends on a
+            # top-up first — that's the actual anti-griefing guard, not just
+            # "runs after some check happened".
+            is_funded = is_max or amount <= available
+            if is_funded:
+                from bot.services.gas_topup_service import (
+                    GasTopUpBusy,
+                    GasTopUpCapExceeded,
+                    GasTopUpFailed,
+                    ensure_gas,
+                    estimate_gas_wei_for_deposit,
+                    estimate_gas_wei_for_withdraw,
+                    run_gas_sensitive,
+                )
+                from bot.services.savings_service import MAX_UINT256, USDC_DECIMALS
+
+                try:
+                    if action == "deposit":
+                        # F2 fix: estimate the REAL sum of approve+supply gas
+                        # (from the actual built transactions where possible)
+                        # rather than a single flat unit count — see
+                        # estimate_gas_wei_for_deposit's docstring for why the
+                        # old flat 220k estimate could wedge a first-time
+                        # depositor after consuming their one top-up.
+                        amount_wei_for_gas = int(amount * Decimal(10**USDC_DECIMALS))
+                        estimated_gas_wei = await asyncio.to_thread(
+                            estimate_gas_wei_for_deposit,
+                            "base",
+                            wallet.address,
+                            amount_wei_for_gas,
+                        )
+                    else:
+                        # L2 fix: use the REAL withdraw calldata for the L1
+                        # fee estimate (was previously computed against
+                        # empty calldata via estimate_gas_wei_for_action,
+                        # under-quoting the L1 data fee).
+                        withdraw_wei_for_gas = (
+                            MAX_UINT256 if is_max else int(amount * Decimal(10**USDC_DECIMALS))
+                        )
+                        estimated_gas_wei = await asyncio.to_thread(
+                            estimate_gas_wei_for_withdraw,
+                            "base",
+                            wallet.address,
+                            withdraw_wei_for_gas,
+                        )
+                    # F4/H3 fix: dispatch ONLY ensure_gas on gas_topup_service's
+                    # own dedicated bounded pool, not asyncio.to_thread's
+                    # shared default executor — see run_gas_sensitive's
+                    # docstring. `available` > 0 means this wallet currently
+                    # holds funds (DESIGN CHANGE eligibility gate) — NOT proof
+                    # of deposit provenance; see gas_topup_service.py's
+                    # ELIGIBILITY GATE docs for the honest predicate and its
+                    # known dust-chaining limitation.
+                    await run_gas_sensitive(
+                        ensure_gas,
+                        user_id=user_id,
+                        wallet_address=wallet.address,
+                        chain_name="base",
+                        estimated_gas_wei=estimated_gas_wei,
+                        reason=f"mobile_earn_{action}",
+                        ip_address=_client_ip(request),
+                        has_verified_funds=available > 0,
+                    )
+                except GasTopUpBusy as e:
+                    raise HTTPException(status_code=503, detail=str(e))
+                except GasTopUpCapExceeded as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                except GasTopUpFailed as e:
+                    raise HTTPException(status_code=503, detail=str(e))
+
+            if action == "deposit":
+                # "max" already resolved to the live idle balance above;
+                # `amount` is never None on the deposit path.
+                tx_hashes = await asyncio.to_thread(savings_service.deposit, wallet, amount)
+                tx_hash = tx_hashes[-1]
+                reported_amount = amount
+            else:
+                withdraw_amount = None if is_max else amount
+                reported_amount = available if is_max else amount
+                tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, withdraw_amount)
+        except SavingsPending as e:
+            # Broadcast but confirmation timed out — NOT a plain retryable
+            # failure (a client retry here could double-submit on top of a tx
+            # that may still land). 202 + the tx hash so the client polls or
+            # checks basescan instead of resubmitting. Cached so an exact
+            # retry (same Idempotency-Key) replays this same 202 rather than
+            # re-attempting the on-chain call.
+            pending_body = {"ok": False, "status": "pending", "txHash": e.tx_hash}
+            _earn_idem_store(cache_key, 202, pending_body)
+            return JSONResponse(status_code=202, content=pending_body)
+        except SavingsError as e:
+            logger.error(f"mobile earn {action} failed for user {user_id}: {e}")
+            # Business rejection (insufficient balance, on-chain revert,
+            # etc.) is deterministic for this input — safe to cache/replay.
+            _earn_idem_store(cache_key, 400, {"detail": str(e)})
+            raise HTTPException(status_code=400, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(
+                f"mobile earn {action} unexpected error for user {user_id}: {e}", exc_info=True
+            )
+            # Unknown state (network blip, unhandled edge case) — NOT cached,
+            # so a retry actually retries once the transient condition clears.
+            raise HTTPException(
+                status_code=500, detail="Something went wrong. Your funds were not moved."
+            )
+        finally:
+            await asyncio.to_thread(_db_wallet_lock_release, wallet.address, db_lock_holder)
+
+        await _log_earn_event(user_id, wallet.id, action, reported_amount, tx_hash)
+        result = {"ok": True, "txHash": tx_hash, "amount": str(reported_amount)}
+        if action == "withdraw" and is_max:
+            # The reported amount is the position read BEFORE execution;
+            # Aave's MAX_UINT256 sentinel withdraws whatever the live balance
+            # is at execution time (principal + interest accrued since the
+            # read), which can be marginally higher. Flag it rather than
+            # imply exactness (LOW finding).
+            result["approximate"] = True
+        _earn_idem_store(cache_key, 200, result)
+        return result
+
+
+@router.post("/earn/deposit")
+async def deposit_earn(request: Request, body: EarnAmountBody):
+    """Supply idle USDC into Aave V3 (Base) — MONEY-PATH."""
+    return await _execute_earn_action(request, body, action="deposit")
+
+
+@router.post("/earn/withdraw")
+async def withdraw_earn(request: Request, body: EarnAmountBody):
+    """Withdraw USDC from Aave V3 (Base) — MONEY-PATH."""
+    return await _execute_earn_action(request, body, action="withdraw")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SEND — MONEY-PATH (USDC on Base, v0)
+#
+# Reuses the EXACT ERC-20 transfer-tx builder used by the Telegram /pay
+# bulk-send flow (bot.handlers.bulk_pay._build_erc20_transfer_tx) and the
+# exact signing path (WalletService.sign_evm_transaction — Turnkey or
+# local key). No new on-chain signing logic lives in this module. Balance
+# reads reuse savings_service.get_usdc_balance (same USDC-on-Base ERC-20
+# this module already trusts for /earn). Concurrency/idempotency reuse the
+# SAME per-(user, wallet) machinery as /earn/deposit + /earn/withdraw
+# (`_earn_wallet_lock` / `_earn_idem_*`) — deliberately: a send and an earn
+# action against the SAME wallet both consume that wallet's EVM nonce
+# sequence on Base, so serializing them together (not just sends against
+# sends) is what actually prevents a nonce collision, not an accident of
+# code reuse.
+# ═══════════════════════════════════════════════════════════════════
+
+_SEND_TOKEN = "USDC"
+_SEND_CHAIN = "base"
+
+_send_action_limiter = UserRateLimiter(max_requests=6, window_seconds=60)
+
+# Cross-replica advisory wallet lock (MED finding) — see
+# bot/models/mobile_wallet_lock.py. TTL bounds how long a lock is trusted
+# before a NEW request is allowed to steal it, so a crashed/hung holder
+# can't wedge a wallet forever. 30s is generous for a Base ERC-20 transfer
+# build+sign+broadcast (this endpoint does not wait for a mined receipt).
+_DB_WALLET_LOCK_TTL_SECONDS = 30
+
+# Recipients that must always be rejected, regardless of `allowContract`
+# (MED finding) — sending USDC to its own token contract or to a
+# well-known burn address is never intentional and is unrecoverable.
+_KNOWN_BURN_ADDRESSES = {"0x000000000000000000000000000000000000dead"}
+
+
+class SendBody(BaseModel):
+    to: str
+    amount: str
+    token: str = _SEND_TOKEN
+    chain: str = _SEND_CHAIN
+    # Default-deny sending to a contract address (MED finding). A mobile
+    # client that has explicitly confirmed with the user that the recipient
+    # is intentionally a contract (e.g. a known deposit address) can set
+    # this to bypass the check.
+    allowContract: bool = False
+
+
+class SendRejected(Exception):
+    """A deterministic node-level rejection (insufficient funds, nonce too
+    low, replacement underpriced, intrinsic gas) OR our own pre-broadcast
+    gas precheck. The transaction was NEVER broadcast in either case, so —
+    unlike a transport-level failure — this is safe to surface to the client
+    immediately as a 400 (client-fixable) instead of an ambiguous 202
+    pending (HIGH finding)."""
+
+
+class SendBusy(Exception):
+    """H3 fix: the embedded gas-topup dispatch (gas_topup_service's
+    `GasTopUpBusy`) reported its dedicated pool as saturated — retryable,
+    nothing was broadcast or reserved. Mapped to HTTP 503, distinct from
+    `SendRejected`'s 400 (a deterministic, non-retryable rejection)."""
+
+
+def _is_ambiguous_broadcast_error(exc: Exception) -> bool:
+    """True only for transport-level failures (connection reset/timeout)
+    where we genuinely cannot tell whether the node received the signed tx
+    before the connection died. Node-level rejections (insufficient funds,
+    nonce too low, replacement underpriced, intrinsic gas too low) are
+    deterministic — the node parsed the request and rejected it outright, so
+    it was NEVER broadcast. Treating those as ambiguous 202s creates phantom
+    "pending" transfers that get idempotency-cached and written to
+    mobile_transfers even though nothing happened on-chain (HIGH finding)."""
+    transport_types: list = [TimeoutError, ConnectionError]
+    try:
+        import requests.exceptions as _rq_exc
+
+        transport_types += [_rq_exc.Timeout, _rq_exc.ConnectionError]
+    except ImportError:
+        pass
+    try:
+        import urllib3.exceptions as _u3_exc
+
+        transport_types += [
+            _u3_exc.TimeoutError,
+            _u3_exc.ConnectTimeoutError,
+            _u3_exc.ReadTimeoutError,
+            _u3_exc.ProtocolError,
+        ]
+    except ImportError:
+        pass
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+    return isinstance(exc, tuple(transport_types))
+
+
+def _extract_node_rejection_reason(exc: Exception) -> str:
+    """Best-effort human-readable reason from a web3/JSON-RPC rejection —
+    web3.py raises `ValueError({"message": ..., "code": ...})` for most
+    node-level rejections."""
+    if exc.args:
+        arg0 = exc.args[0]
+        if isinstance(arg0, dict) and arg0.get("message"):
+            return str(arg0["message"])
+    text = str(exc).strip()
+    return text or exc.__class__.__name__
+
+
+def _is_contract_address(to_address: str) -> bool:
+    """True if `to_address` has on-chain bytecode (a contract, not an EOA) —
+    MONEY-PATH default-deny (MED finding): USDC sent to an arbitrary
+    contract with no transfer-handling logic is typically unrecoverable,
+    unlike a mis-typed EOA."""
+    from web3 import Web3
+
+    from bot.services.rpc_manager import rpc_manager
+
+    web3 = rpc_manager.get_web3(_SEND_CHAIN)
+    code = web3.eth.get_code(Web3.to_checksum_address(to_address))
+    return code not in (b"", "0x", b"0x")
+
+
+def _send_usdc_base(
+    wallet, to_address: str, amount: Decimal, user_id: int, ip_address: str = "unknown"
+) -> Tuple[str, bool]:
+    """Broadcast a USDC (Base) ERC-20 `transfer` from `wallet` to `to_address`.
+
+    Blocking (web3 + `asyncio.run` for the Turnkey/local signing call) —
+    callers MUST dispatch this via `asyncio.to_thread`, same as
+    savings_service/morpho_api's `_sign_transaction`.
+
+    Returns (tx_hash, is_pending). `is_pending` is True only when the raw
+    broadcast call itself raised an AMBIGUOUS (transport-level) error — see
+    `_is_ambiguous_broadcast_error`. A deterministic node rejection (or our
+    own pre-broadcast gas precheck) raises `SendRejected` instead, which the
+    caller maps to a 400, never a 202 (HIGH finding). The hash returned for
+    the pending case is the deterministic pre-broadcast keccak of the signed
+    raw tx, computed BEFORE the send call, so it is always resolvable even
+    though the node may have already accepted the tx. Same rationale as
+    bot/services/hot_wallet.py's `PostBroadcastAmbiguous` /
+    `_broadcast_evm_raw_tx`. Unlike savings_service/morpho_api, this does
+    NOT wait for a mined receipt (mirrors bulk_pay's existing single-send
+    behavior) — a 200 here means "broadcast", not "confirmed".
+    """
+    import asyncio as _asyncio
+
+    from web3 import Web3
+
+    from bot.config.chains import get_chain_by_name
+    from bot.config.tokens import get_token_address, get_token_decimals
+    from bot.handlers.bulk_pay import _build_erc20_transfer_tx
+    from bot.services.rpc_manager import rpc_manager
+    from bot.services.wallet import WalletService
+    from bot.utils.nonce_reservation import release_nonce, reserve_nonce
+
+    chain = get_chain_by_name(_SEND_CHAIN)
+    token_address = get_token_address(_SEND_TOKEN, _SEND_CHAIN)
+    decimals = get_token_decimals(_SEND_TOKEN, _SEND_CHAIN)
+    if chain is None or not token_address:
+        raise RuntimeError(f"{_SEND_TOKEN} is not configured on {_SEND_CHAIN}.")
+
+    amount_raw = int(amount * Decimal(10**decimals))
+    web3 = rpc_manager.get_web3(_SEND_CHAIN)
+    from_addr = Web3.to_checksum_address(wallet.address)
+    # MONEY-PATH: "pending"-block nonce reconciled against this process's
+    # own last-reserved nonce (BLOCKER fix — bot/utils/nonce_reservation.py).
+    nonce = reserve_nonce(web3, from_addr)
+
+    tx = _build_erc20_transfer_tx(
+        web3, wallet.address, token_address, to_address, amount_raw, nonce, chain
+    )
+
+    # Gas precheck (HIGH finding) — a wallet with insufficient ETH on Base
+    # still builds/signs a structurally valid tx that the node then
+    # deterministically rejects; catch it before signing so the failure is
+    # unambiguous and the reserved nonce is freed immediately.
+    #
+    # F7 fix: op-geth's balance check for a send includes the OP-stack L1
+    # data-availability fee on top of `gas * gasPrice` — omitting it here
+    # let a congestion-inflated L1 fee pass this precheck (and the top-up
+    # recheck below, using the same understated figure) and then fail on
+    # actual broadcast, burning a top-up and a cap slot for nothing.
+    from bot.services.gas_topup_service import estimate_l1_data_fee_wei
+
+    gas_cost = int(tx.get("gas") or 0) * int(tx.get("gasPrice") or 0)
+    gas_cost += estimate_l1_data_fee_wei(_SEND_CHAIN, tx)
+    native_balance = web3.eth.get_balance(from_addr)
+    if native_balance < gas_cost:
+        # Auto top-up from the hot wallet — MONEY-PATH. Reached only AFTER
+        # the caller (send_mobile) already validated the USDC balance/amount
+        # for THIS transfer, so the top-up always accompanies a real, funded
+        # send intent (see bot/services/gas_topup_service.py's ordering /
+        # anti-griefing note) rather than being triggerable by a bare
+        # balance check — this is also the DESIGN CHANGE eligibility gate's
+        # `has_verified_funds` evidence (the caller validated `amount` is
+        # covered by a real, non-zero USDC balance for this exact transfer).
+        #
+        # H3 fix: this function (`_send_usdc_base`) already runs on the
+        # API's SHARED thread pool (see its call site's `asyncio.to_thread`,
+        # not `run_gas_sensitive`) — only the `ensure_gas` call itself is
+        # handed to gas_topup_service's dedicated bounded pool via
+        # `run_gas_sensitive_sync`, so a slow top-up here never occupies
+        # more than one dedicated-pool slot, and the fast build/sign/
+        # broadcast path above never queues behind unrelated top-ups.
+        from bot.services.gas_topup_service import (
+            GasTopUpBusy,
+            GasTopUpError,
+            ensure_gas,
+            run_gas_sensitive_sync,
+        )
+
+        try:
+            run_gas_sensitive_sync(
+                ensure_gas,
+                user_id=user_id,
+                wallet_address=from_addr,
+                chain_name=_SEND_CHAIN,
+                estimated_gas_wei=gas_cost,
+                reason="mobile_send",
+                ip_address=ip_address,
+                has_verified_funds=True,
+            )
+        except GasTopUpBusy as e:
+            release_nonce(from_addr, nonce)
+            raise SendBusy(str(e)) from e
+        except GasTopUpError as e:
+            release_nonce(from_addr, nonce)
+            raise SendRejected(str(e)) from e
+
+        native_balance = web3.eth.get_balance(from_addr)
+        if native_balance < gas_cost:
+            release_nonce(from_addr, nonce)
+            raise SendRejected(
+                "Wallet still needs ETH on Base for gas after top-up. Please try again."
+            )
+
+    signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
+    raw_hex = signed_hex[2:] if signed_hex.startswith("0x") else signed_hex
+    raw_bytes = bytes.fromhex(raw_hex)
+
+    precomputed_hash = Web3.keccak(raw_bytes).hex()
+    if not precomputed_hash.startswith("0x"):
+        precomputed_hash = "0x" + precomputed_hash
+
+    try:
+        tx_hash_bytes = web3.eth.send_raw_transaction(raw_bytes)
+    except Exception as e:
+        if _is_ambiguous_broadcast_error(e):
+            logger.error(f"mobile send broadcast ambiguous (tx may already be sent): {e}")
+            return precomputed_hash, True
+        # Deterministic node rejection — the tx was never broadcast, so the
+        # reserved nonce was never consumed; free it for the next attempt.
+        release_nonce(from_addr, nonce)
+        reason = _extract_node_rejection_reason(e)
+        logger.warning(f"mobile send rejected by node for {from_addr}: {reason}")
+        raise SendRejected(reason) from e
+
+    tx_hash = tx_hash_bytes.hex()
+    if not tx_hash.startswith("0x"):
+        tx_hash = "0x" + tx_hash
+    return tx_hash, False
+
+
+async def _log_send_event(
+    user_id: int,
+    wallet_id: int,
+    to_address: str,
+    amount: Decimal,
+    tx_hash: str,
+    *,
+    pending: bool,
+    idempotency_key: Optional[str] = None,
+) -> None:
+    """Best-effort MobileTransfer record — feeds GET /v1/mobile/statement and
+    the durable cross-replica idempotency lookup (MED finding). Mirrors
+    `_log_earn_event`: never allowed to fail the request."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        with get_session() as session:
+            session.add(
+                MobileTransfer(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain=_SEND_CHAIN,
+                    token=_SEND_TOKEN,
+                    to_address=to_address,
+                    amount=amount,
+                    amount_usd=amount,  # USDC ~= $1, same convention as /earn's balanceUsd
+                    status="pending" if pending else "sent",
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                    idempotency_key=idempotency_key,
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log mobile send event: {e}")
+
+
+def _db_wallet_lock_try_acquire(wallet_address: str) -> Optional[str]:
+    """Best-effort cross-replica advisory lock (MED finding): one row per
+    wallet in `mobile_wallet_locks`, stolen after `_DB_WALLET_LOCK_TTL_SECONDS`
+    so a crashed/hung holder can't wedge the wallet forever. Returns an
+    opaque holder token on success, `None` if another live holder has it.
+
+    Fails OPEN on any DB error (returns a token as if acquired) — the
+    in-process `_earn_wallet_lock` remains the primary, always-available
+    guard; this table only adds protection ON TOP of that when the DB is
+    reachable and multiple replicas are actually racing for the same
+    wallet, so a transient DB hiccup must not itself block a legitimate
+    send."""
+    import uuid as _uuid
+
+    from sqlalchemy.exc import IntegrityError
+
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    addr = str(wallet_address or "").lower()
+    holder = _uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=_DB_WALLET_LOCK_TTL_SECONDS)
+    try:
+        with get_session() as session:
+            existing = (
+                session.query(MobileWalletLock)
+                .filter(MobileWalletLock.wallet_address == addr)
+                .first()
+            )
+            if existing is not None:
+                existing_acquired_at = existing.acquired_at
+                if existing_acquired_at is not None and existing_acquired_at.tzinfo is None:
+                    # SQLite doesn't persist tzinfo — the column is always
+                    # written as UTC (see `acquired_at`'s default), so a
+                    # naive value read back is UTC too.
+                    existing_acquired_at = existing_acquired_at.replace(tzinfo=timezone.utc)
+                if existing_acquired_at and existing_acquired_at > cutoff:
+                    return None
+                existing.holder = holder
+                existing.acquired_at = now
+                return holder
+            try:
+                session.add(MobileWalletLock(wallet_address=addr, holder=holder, acquired_at=now))
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                return None
+            return holder
+    except Exception as e:
+        logger.warning(f"mobile send DB wallet-lock acquire failed, proceeding without it: {e}")
+        return holder
+
+
+def _db_wallet_lock_release(wallet_address: str, holder: Optional[str]) -> None:
+    if not holder:
+        return
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    addr = str(wallet_address or "").lower()
+    try:
+        with get_session() as session:
+            session.query(MobileWalletLock).filter(
+                MobileWalletLock.wallet_address == addr,
+                MobileWalletLock.holder == holder,
+            ).delete()
+    except Exception as e:
+        logger.warning(f"mobile send DB wallet-lock release failed (will expire via TTL): {e}")
+
+
+def _db_send_idem_lookup(user_id: int, idempotency_key: str) -> Optional[dict]:
+    """Durable, cross-replica idempotency lookup (MED finding) — a retry
+    landing on a DIFFERENT worker/replica than the one that handled the
+    original request still finds it via the DB instead of re-broadcasting.
+    Complements (does not replace) the in-process `_earn_idem_lookup` fast
+    path. Best-effort: any DB error here just means the retry proceeds as if
+    it were a fresh request, same posture as the DB lock above."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        with get_session() as session:
+            row = (
+                session.query(MobileTransfer)
+                .filter(
+                    MobileTransfer.user_id == user_id,
+                    MobileTransfer.idempotency_key == idempotency_key,
+                )
+                .order_by(MobileTransfer.id.desc())
+                .first()
+            )
+            if row is None:
+                return None
+            if row.status == "pending":
+                return {"ok": False, "status": "pending", "txHash": row.tx_hash}
+            return {
+                "ok": True,
+                "txHash": row.tx_hash,
+                "amount": str(row.amount),
+                "to": row.to_address,
+            }
+    except Exception as e:
+        logger.warning(f"mobile send DB idempotency lookup failed: {e}")
+        return None
+
+
+@router.post("/send")
+async def send_mobile(request: Request, body: SendBody):
+    """Send USDC on Base from the caller's wallet to an external address —
+    MONEY-PATH. v0 only: token/chain are validated against USDC/base and
+    rejected otherwise; there is no cross-chain or multi-token support yet.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.utils.validators import validate_evm_address
+
+    user_id = int(payload["user_id"])
+
+    token = str(body.token or _SEND_TOKEN).strip().upper()
+    chain = str(body.chain or _SEND_CHAIN).strip().lower()
+    if token != _SEND_TOKEN or chain != _SEND_CHAIN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {_SEND_TOKEN} on {_SEND_CHAIN} is supported right now.",
+        )
+
+    to_address = str(body.to or "").strip()
+    if not validate_evm_address(to_address):
+        raise HTTPException(status_code=400, detail="Invalid recipient address.")
+
+    to_lower = to_address.lower()
+    if to_lower in _KNOWN_BURN_ADDRESSES:
+        raise HTTPException(
+            status_code=400,
+            detail="That address is a known burn address — funds sent there are unrecoverable.",
+        )
+
+    from bot.config.tokens import get_token_address as _get_token_address
+
+    usdc_contract = _get_token_address(_SEND_TOKEN, _SEND_CHAIN)
+    if usdc_contract and to_lower == usdc_contract.lower():
+        raise HTTPException(status_code=400, detail="Cannot send USDC to the USDC token contract.")
+
+    wallet = await _resolve_earn_wallet(user_id)
+    if wallet is None:
+        raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
+
+    if to_lower == str(wallet.address or "").lower():
+        raise HTTPException(status_code=400, detail="Cannot send to your own wallet address.")
+
+    cache_key = _earn_idempotency_cache_key(request, user_id, f"send:{wallet.address.lower()}")
+    lock = _earn_wallet_lock(user_id, wallet.address)
+
+    async with lock:
+        # Idempotency cache is checked BEFORE the rate limiter consumes a
+        # token (LOW finding) — a legitimate retry of an already-completed
+        # send must never itself be the request that trips the rate limit
+        # and hides the real (successful) result behind a 429.
+        cached = _earn_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, cached_body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=cached_body.get("detail"))
+            return JSONResponse(status_code=status_code, content=cached_body)
+
+        idem_header = request.headers.get("Idempotency-Key") or request.headers.get(
+            "idempotency-key"
+        )
+        idem_header = idem_header.strip()[:128] if idem_header and idem_header.strip() else None
+        if idem_header:
+            db_hit = await asyncio.to_thread(_db_send_idem_lookup, user_id, idem_header)
+            if db_hit is not None:
+                status_code = 202 if db_hit.get("status") == "pending" else 200
+                _earn_idem_store(cache_key, status_code, db_hit)
+                return JSONResponse(status_code=status_code, content=db_hit)
+
+        try:
+            await _send_action_limiter.check(user_id)
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=429,
+                detail=str(e),
+                headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+            )
+
+        if not body.allowContract:
+            try:
+                is_contract = await asyncio.to_thread(_is_contract_address, to_address)
+            except Exception as e:
+                logger.warning(f"mobile send contract-code check failed, allowing send: {e}")
+                is_contract = False
+            if is_contract:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Recipient looks like a contract, not a wallet. If this is "
+                        "intentional, retry with allowContract=true."
+                    ),
+                )
+
+        from bot.services.savings_service import SavingsError, savings_service
+
+        try:
+            available = await asyncio.to_thread(savings_service.get_usdc_balance, wallet.address)
+        except SavingsError as e:
+            # Transient RPC/read failure — never cached, so a retry actually
+            # retries instead of replaying a stale 503.
+            raise HTTPException(status_code=503, detail=str(e))
+
+        amount = _parse_earn_amount(body.amount, available=available, max_returns_none=False)
+
+        if amount > available:
+            detail = (
+                f"Insufficient USDC. You have {available:.2f} USDC "
+                f"but tried to send {amount:.2f}."
+            )
+            _earn_idem_store(cache_key, 400, {"detail": detail})
+            raise HTTPException(status_code=400, detail=detail)
+
+        db_lock_holder = await asyncio.to_thread(_db_wallet_lock_try_acquire, wallet.address)
+        if db_lock_holder is None:
+            raise HTTPException(
+                status_code=503, detail="This wallet has a send in progress. Try again shortly."
+            )
+        try:
+            try:
+                # H3 fix: `_send_usdc_base` now runs on the API's SHARED
+                # `asyncio.to_thread` pool, not gas_topup_service's small
+                # dedicated one — its build/sign/broadcast work is fast, and
+                # only the embedded `ensure_gas` call (which can block for up
+                # to GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS) dispatches onto the
+                # dedicated pool internally via `run_gas_sensitive_sync`. The
+                # old code sent the WHOLE call through the dedicated
+                # 16-worker pool, so a burst of slow top-ups queued every
+                # other send (top-up or not) behind them with no time bound.
+                tx_hash, is_pending = await asyncio.to_thread(
+                    _send_usdc_base,
+                    wallet,
+                    to_address,
+                    amount,
+                    user_id,
+                    ip_address=_client_ip(request),
+                )
+            except HTTPException:
+                raise
+            except SendBusy as e:
+                # H3: dedicated top-up pool saturated — retryable, nothing
+                # was broadcast or reserved.
+                raise HTTPException(status_code=503, detail=str(e))
+            except SendRejected as e:
+                # Deterministic node rejection (HIGH finding) — the tx was
+                # never broadcast, so this is a plain client-fixable 400,
+                # never an ambiguous 202, and must NOT be cached or logged
+                # as a pending transfer.
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"mobile send unexpected error for user {user_id}: {e}", exc_info=True)
+                # Unknown state (network blip, unhandled edge case) — NOT
+                # cached, so a retry actually retries once the transient
+                # condition clears.
+                raise HTTPException(
+                    status_code=500, detail="Something went wrong. Your funds were not moved."
+                )
+        finally:
+            await asyncio.to_thread(_db_wallet_lock_release, wallet.address, db_lock_holder)
+
+        await _log_send_event(
+            user_id,
+            wallet.id,
+            to_address,
+            amount,
+            tx_hash,
+            pending=is_pending,
+            idempotency_key=idem_header,
+        )
+
+        if is_pending:
+            pending_body = {"ok": False, "status": "pending", "txHash": tx_hash}
+            _earn_idem_store(cache_key, 202, pending_body)
+            return JSONResponse(status_code=202, content=pending_body)
+
+        result = {"ok": True, "txHash": tx_hash, "amount": str(amount), "to": to_address}
+        _earn_idem_store(cache_key, 200, result)
+        return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  BORROW — read-only (Morpho Blue, cbBTC-collateralized USDC on Base)
+#
+# Delegates 100% of on-chain reads to bot.services.morpho_api.morpho_api —
+# the exact same service the Telegram /borrow flow uses. Never signs or
+# sends a transaction.
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("/borrow")
+async def get_borrow(request: Request):
+    """Morpho Blue borrow snapshot, aggregated across ALL of the user's EVM
+    wallets (same MED-finding rationale as GET /earn — a user's position on
+    a non-default wallet must not be silently hidden)."""
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.config.morpho_config import MAX_LTV
+    from bot.services.morpho_api import MorphoError, morpho_api
+
+    user_id = int(payload["user_id"])
+
+    try:
+        apys = await morpho_api.get_market_apys()
+        borrow_apr = apys.get("borrow_apy")
+    except MorphoError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    wallets = await _get_user_evm_wallets(user_id)
+
+    collateral: list[dict] = []
+    borrowed: list[dict] = []
+    coverage = "complete"
+    health_factors: list[float] = []
+    available_to_borrow_usd = 0.0
+
+    async def _read_one(wallet):
+        try:
+            position = await asyncio.to_thread(morpho_api.get_position, wallet.address)
+            return wallet, position, None
+        except MorphoError as e:
+            return wallet, None, e
+
+    for wallet, position, err in await asyncio.gather(*(_read_one(w) for w in wallets)):
+        if err is not None:
+            logger.warning(
+                f"mobile borrow read failed for user {user_id} wallet {wallet.id}: {err}"
+            )
+            coverage = "best_effort"
+            continue
+
+        collateral_btc = position["collateral_btc"]
+        collateral_value_usd = position["collateral_value_usdc"]
+        debt_usd = position["debt_usdc"]
+
+        if collateral_btc > 0:
+            collateral.append(
+                {
+                    "token": "cbBTC",
+                    "chain": "base",
+                    "balance": str(collateral_btc),
+                    "balanceUsd": collateral_value_usd,
+                }
+            )
+
+        if debt_usd > 0:
+            borrowed.append(
+                {
+                    "token": "USDC",
+                    "chain": "base",
+                    "balance": str(debt_usd),
+                    "balanceUsd": debt_usd,
+                    "apr": borrow_apr,
+                }
+            )
+            hf = position.get("health_factor")
+            if hf is not None and math.isfinite(hf):
+                health_factors.append(hf)
+
+        max_debt_usd = collateral_value_usd * MAX_LTV
+        available_to_borrow_usd += max(0.0, max_debt_usd - debt_usd)
+
+    health_factor = min(health_factors) if health_factors else None
+
+    return {
+        "collateral": collateral,
+        "borrowed": borrowed,
+        "healthFactor": health_factor,
+        "availableToBorrowUsd": available_to_borrow_usd,
+        "coverage": coverage,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  STATEMENT — read-only, aggregated across savings/borrow-adjacent send/
+#  swap event history already persisted by other endpoints in this module.
+# ═══════════════════════════════════════════════════════════════════
+
+_STATEMENT_MAX_ROWS = 200
+_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
+
+
+def _parse_statement_month(month: Optional[str]) -> tuple[str, datetime, datetime]:
+    """Resolve the `month` query param to (period, start, end) — `end` is
+    exclusive. Defaults to the current UTC month. Raises HTTPException(400)
+    for anything that isn't a real YYYY-MM."""
+    # Only a genuinely OMITTED `month` (None) defaults to the current UTC
+    # month — an explicit but empty `?month=` is treated as malformed input,
+    # not "unspecified", so it 400s like any other bad format.
+    period = datetime.now(timezone.utc).strftime("%Y-%m") if month is None else str(month).strip()
+    match = _MONTH_RE.match(period)
+    if not match:
+        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+    year, mon = int(match.group(1)), int(match.group(2))
+    try:
+        start = datetime(year, mon, 1, tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+    end = (
+        datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        if mon == 12
+        else datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+    )
+    return period, start, end
+
+
+@router.get("/statement")
+async def get_statement(request: Request, month: Optional[str] = Query(default=None)):
+    """Monthly account statement, aggregated from data already persisted by
+    the savings, send, and swap paths. Read-only, never signs anything.
+
+    `yieldEarnedUsd` is intentionally 0.0: Aave interest accrues
+    continuously on-chain without a discrete ledger event, so it can't be
+    reconstructed from deposit/withdraw event deltas alone within a single
+    statement window — this needs a periodic accrual-snapshot job, not
+    something this endpoint can honestly back out. Documented gap, not a
+    silent approximation.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    period, start, end = _parse_statement_month(month)
+    user_id = int(payload["user_id"])
+
+    from bot.models.mobile_transfer import MobileTransfer
+    from bot.models.savings import SavingsEvent
+    from bot.models.swap import SwapStatus, SwapTransaction
+
+    deposited = Decimal("0")
+    withdrawn = Decimal("0")
+    sent = Decimal("0")
+    swap_volume = Decimal("0")
+    transactions: list[dict] = []
+
+    with get_session() as session:
+        savings_rows = (
+            session.query(SavingsEvent)
+            .filter(
+                SavingsEvent.user_id == user_id,
+                SavingsEvent.created_at >= start,
+                SavingsEvent.created_at < end,
+            )
+            .all()
+        )
+        for row in savings_rows:
+            amount = _decimal(row.amount)
+            if row.action not in ("deposit", "withdraw"):
+                continue
+            if row.action == "deposit":
+                deposited += amount
+            else:
+                withdrawn += amount
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": row.action,
+                    "amountUsd": float(amount),
+                    "token": row.token or "USDC",
+                    "txHash": row.tx_hash,
+                }
+            )
+
+        transfer_rows = (
+            session.query(MobileTransfer)
+            .filter(
+                MobileTransfer.user_id == user_id,
+                MobileTransfer.created_at >= start,
+                MobileTransfer.created_at < end,
+            )
+            .all()
+        )
+        for row in transfer_rows:
+            amount = _decimal(row.amount)
+            # Only confirmed-broadcast sends count toward sentUsd (MED
+            # finding) — a "pending" row (ambiguous broadcast, see
+            # `_send_usdc_base`) may never actually have landed on-chain, so
+            # counting it here would overstate how much the user has sent.
+            # It still appears in `transactions` (with its `status` exposed)
+            # so the client can render it distinctly rather than hide it.
+            if row.status == "sent":
+                sent += amount
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": "send",
+                    "amountUsd": float(_decimal(row.amount_usd) or amount),
+                    "token": row.token or "USDC",
+                    "txHash": row.tx_hash,
+                    "counterparty": row.to_address,
+                    "status": row.status,
+                }
+            )
+
+        swap_rows = (
+            session.query(SwapTransaction)
+            .filter(
+                SwapTransaction.user_id == user_id,
+                SwapTransaction.created_at >= start,
+                SwapTransaction.created_at < end,
+                SwapTransaction.status == SwapStatus.COMPLETED.value,
+            )
+            .all()
+        )
+        for row in swap_rows:
+            amount_usd = _decimal(row.from_amount_usd)
+            swap_volume += amount_usd
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": "swap",
+                    "amountUsd": float(amount_usd),
+                    "token": row.from_token,
+                    "txHash": row.tx_hash,
+                    "counterparty": f"{row.from_token} → {row.to_token}",
+                }
+            )
+
+    transactions.sort(key=lambda t: t["date"] or "", reverse=True)
+    transactions = transactions[:_STATEMENT_MAX_ROWS]
+
+    return {
+        "period": period,
+        "yieldEarnedUsd": 0.0,
+        "depositedUsd": float(deposited),
+        "withdrawnUsd": float(withdrawn),
+        "sentUsd": float(sent),
+        "swapVolumeUsd": float(swap_volume),
+        "transactions": transactions,
+    }
+
+
+# ── ENS forward resolution (read-only, no funds moved) ─────────────────────
+#
+# Lets the Send flow accept `name.eth` instead of a raw address. Resolution
+# is a plain read against Ethereum mainnet via the existing health-tracked
+# `rpc_manager` — no new RPC config, `settings.ethereum_rpc_url` already
+# exists and is used across the codebase for other mainnet reads.
+
+_ENS_NAME_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$")
+_resolve_action_limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+
+
+def _resolve_ens_sync(name: str) -> Optional[str]:
+    """Blocking ENS forward-resolution — always call via asyncio.to_thread.
+
+    Returns the resolved address (possibly non-checksummed) or None if the
+    name has no ENS resolution record. Raises on RPC/transport failure.
+    """
+    from bot.services.rpc_manager import rpc_manager
+
+    w3 = rpc_manager.get_web3("ethereum")
+    return w3.ens.address(name)
+
+
+@router.get("/resolve")
+async def resolve_ens_name(request: Request, name: str = Query(...)):
+    """Forward-resolve an ENS name (`vitalik.eth`) to a checksummed address.
+
+    Read-only. 400 on malformed input, 404 if the name simply doesn't
+    resolve, 503 if the upstream RPC read itself fails (distinct from "not
+    found" so the client can retry vs. give up).
+    """
+    payload = _jwt_user(request)
+    user_id = int(payload["user_id"])
+
+    try:
+        await _resolve_action_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    cleaned = (name or "").strip().lower()
+    if not cleaned or len(cleaned) > 255 or not _ENS_NAME_RE.match(cleaned):
+        raise HTTPException(status_code=400, detail="Invalid ENS name")
+
+    try:
+        address = await asyncio.to_thread(_resolve_ens_sync, cleaned)
+    except Exception as e:
+        logger.warning(f"ENS resolve failed for {cleaned!r}: {e}")
+        raise HTTPException(status_code=503, detail="ENS resolution unavailable")
+
+    if not address:
+        raise HTTPException(status_code=404, detail="Name not found")
+
+    from web3 import Web3
+
+    return {"name": cleaned, "address": Web3.to_checksum_address(address)}
+
+
+# ── savings goals CRUD (read/write metadata only — no funds moved) ─────────
+#
+# Progress toward each goal is computed CLIENT-SIDE from the user's existing
+# `GET /v1/mobile/earn` position. This table stores only the user's target
+# name/amount, never a balance.
+
+_MAX_SAVINGS_GOALS_PER_USER = 10
+_MAX_SAVINGS_GOAL_TARGET_USD = Decimal("10000000")
+
+
+class CreateGoalBody(BaseModel):
+    name: str
+    targetUsd: float
+
+
+def _goal_dict(goal) -> dict:
+    return {
+        "id": goal.id,
+        "name": goal.name,
+        "targetUsd": float(goal.target_usd),
+        "createdAt": goal.created_at.isoformat() if goal.created_at else None,
+    }
+
+
+@router.get("/goals")
+async def list_goals(request: Request):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        rows = (
+            session.query(SavingsGoal)
+            .filter(SavingsGoal.user_id == user_id)
+            .order_by(SavingsGoal.created_at.asc())
+            .all()
+        )
+        goals = [_goal_dict(row) for row in rows]
+
+    return {"goals": goals}
+
+
+@router.post("/goals")
+async def create_goal(request: Request, body: CreateGoalBody):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(name) > 64:
+        raise HTTPException(status_code=400, detail="Name too long (max 64 characters)")
+
+    try:
+        target = Decimal(str(body.targetUsd))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid targetUsd")
+    if not target.is_finite() or target <= 0 or target > _MAX_SAVINGS_GOAL_TARGET_USD:
+        raise HTTPException(
+            status_code=400, detail="targetUsd must be greater than 0 and at most 10,000,000"
+        )
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        existing = session.query(SavingsGoal).filter(SavingsGoal.user_id == user_id).count()
+        if existing >= _MAX_SAVINGS_GOALS_PER_USER:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum of {_MAX_SAVINGS_GOALS_PER_USER} savings goals reached",
+            )
+
+        goal = SavingsGoal(user_id=user_id, name=name, target_usd=target)
+        session.add(goal)
+        session.flush()
+        result = _goal_dict(goal)
+
+    return result
+
+
+@router.delete("/goals/{goal_id}")
+async def delete_goal(request: Request, goal_id: int):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        goal = (
+            session.query(SavingsGoal)
+            .filter(SavingsGoal.id == goal_id, SavingsGoal.user_id == user_id)
+            .first()
+        )
+        if goal is None:
+            raise HTTPException(status_code=404, detail="Goal not found")
+        session.delete(goal)
+
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  MOBILE ANALYTICS EVENTS (Gekko app instrumentation sink)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Display/analytics only — never authoritative for money or account state.
+# Every event is validated and every prop redacted BEFORE a row is written;
+# nothing that looks like an address, tx hash, or an oversized value is ever
+# persisted (dropped, not stored-then-flagged).
+
+_EVENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,48}$")
+_EVM_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40,}")
+_MAX_EVENTS_PER_REQUEST = 50
+_MAX_PROP_STRING_LEN = 200
+# Strings were capped in length, but nothing capped the NUMBER of prop keys per
+# event — an authenticated user could otherwise grow mobile_events without bound
+# by sending events with thousands of tiny distinct keys. Extra keys beyond this
+# are silently truncated (dict insertion order), same "drop, don't 500" posture
+# as every other prop validation here.
+_MAX_PROPS_PER_EVENT = 20
+# Coarse guard against an oversized batch before it's persisted — generous enough
+# for a full _MAX_EVENTS_PER_REQUEST batch at max prop/string sizes, tight enough
+# to reject deliberate abuse. Checked against Content-Length (best-effort; a
+# client could omit/lie about it, but the per-event/per-prop caps below bound the
+# actual persisted size regardless of what's claimed here).
+_MAX_EVENTS_BODY_BYTES = 64 * 1024
+
+_events_limiter = UserRateLimiter(max_requests=60, window_seconds=60)
+
+
+class MobileEventItem(BaseModel):
+    name: str
+    ts: str | None = None
+    props: dict | None = None
+
+
+class MobileEventsBody(BaseModel):
+    events: List[MobileEventItem]
+
+
+def _prop_value_looks_sensitive(value: str) -> bool:
+    if len(value) > _MAX_PROP_STRING_LEN:
+        return True
+    # Covers both EVM addresses (0x + 40 hex) and tx hashes (0x + 64 hex, and
+    # anything longer) with one pattern.
+    return bool(_EVM_ADDRESS_RE.search(value))
+
+
+def _redact_event_props(props: dict | None) -> dict:
+    """Drop (never persist) any prop whose key or value looks like an
+    address, a tx hash, or is unreasonably long. Nested dict/list values are
+    dropped outright — this sink is for flat analytics props only. Also caps
+    the number of accepted keys (`_MAX_PROPS_PER_EVENT`) and drops any
+    non-finite float (NaN/Infinity) — Python's `json` module happily accepts
+    those on the way in, but Postgres JSON/JSONB rejects them at flush,
+    which previously 500'd an otherwise-valid batch."""
+    if not props:
+        return {}
+    clean: dict = {}
+    for key, value in props.items():
+        if len(clean) >= _MAX_PROPS_PER_EVENT:
+            break
+        if not isinstance(key, str) or _prop_value_looks_sensitive(key):
+            continue
+        if isinstance(value, str):
+            if _prop_value_looks_sensitive(value):
+                continue
+            clean[key] = value
+        elif isinstance(value, bool) or value is None:
+            clean[key] = value
+        elif isinstance(value, int):
+            clean[key] = value
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                continue
+            clean[key] = value
+        # dict/list/other types silently dropped.
+    return clean
+
+
+@router.post("/events")
+async def ingest_mobile_events(request: Request, body: MobileEventsBody):
+    """Authenticated analytics sink for Gekko mobile instrumentation."""
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            too_large = int(content_length) > _MAX_EVENTS_BODY_BYTES
+        except ValueError:
+            too_large = False
+        if too_large:
+            raise HTTPException(status_code=413, detail="Request body too large")
+
+    try:
+        await _events_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    if len(body.events) > _MAX_EVENTS_PER_REQUEST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many events — max {_MAX_EVENTS_PER_REQUEST} per request",
+        )
+    if not body.events:
+        return {"ok": True, "accepted": 0}
+
+    from bot.models.mobile_event import MobileEvent
+
+    accepted = 0
+    with get_session() as session:
+        for item in body.events:
+            if not _EVENT_NAME_RE.match(item.name or ""):
+                continue
+            ts = None
+            if item.ts:
+                try:
+                    ts = datetime.fromisoformat(str(item.ts).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    ts = None
+            session.add(
+                MobileEvent(
+                    user_id=user_id,
+                    name=item.name,
+                    ts=ts,
+                    props=_redact_event_props(item.props),
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            accepted += 1
+
+    return {"ok": True, "accepted": accepted}

@@ -25,6 +25,8 @@ from bot.handlers.start import (
     tos_accept_callback,
     tos_decline_callback,
     tos_review_callback,
+    gekko_approve_callback,
+    gekko_reject_callback,
 )
 from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
@@ -72,6 +74,11 @@ from bot.handlers.trending import (
     trending_buy_callback,
 )
 from bot.handlers.twofa import twofa_conversation
+from bot.handlers.sessions import (
+    sessions_handler,
+    sessions_revoke_all_handler,
+    sessions_close_handler,
+)
 from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
 from bot.handlers.recovery import recover_handler, recover_cancel_handler
 from bot.handlers.history import (
@@ -532,6 +539,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(kill_switch_handler)  # admin /ks — agent-policy kill switch
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
+    application.add_handler(sessions_handler)  # /sessions — list/revoke signed-in devices
+    application.add_handler(sessions_revoke_all_handler)  # sessions_revoke_all callback
+    application.add_handler(sessions_close_handler)  # sessions_close callback
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
     application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
@@ -598,6 +608,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
     application.add_handler(CallbackQueryHandler(tos_review_callback, pattern="^tos_review$"))
+    # Gekko mobile Telegram sign-in: staged-request Approve/Not me buttons.
+    # MONEY-PATH — approve_callback is the only call site that can mint a
+    # collectible pairing (see bot/handlers/start.py, mobile_pairing_service.py).
+    application.add_handler(CallbackQueryHandler(gekko_approve_callback, pattern="^gekko_ok:"))
+    application.add_handler(CallbackQueryHandler(gekko_reject_callback, pattern="^gekko_no:"))
 
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))

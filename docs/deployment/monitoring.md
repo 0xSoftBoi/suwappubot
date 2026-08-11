@@ -196,6 +196,49 @@ carries extra keys), so the rationale lives here instead:
   switch can tell the two schedulers apart. It must match an entry in
   `MONITOR_EXPECTED_SOURCES`.
 
+## Runbook: gas top-up circuit breaker tripped
+
+`bot/services/gas_topup_service.py` auto-funds a mobile wallet's Base gas from
+the hot wallet (send/earn deposit/withdraw) under hard per-tx/day/lifetime/
+global spend caps. When the **global daily cap**
+(`GAS_TOPUP_GLOBAL_DAILY_CAP_WEI`, ~0.1 ETH/day network-wide) trips, every
+further top-up is refused for the rest of the UTC day, a `logger.critical`
+line is written, and — this is the actual page — `health_monitor.alert(...)`
+DMs every configured admin (`ADMIN_TELEGRAM_IDS`) through the same channel as
+every other operational alert, with per-title cooldown so a sustained trip
+doesn't spam.
+
+**What this means:** this breaker is the primary *detection* signal for a
+sybil gas-drain attempt (see `_wallet_is_eligible_for_topup`'s docstring for
+the accepted limitation: an attacker can chain dust between wallets they
+control near-zero-marginal-cost, and this module pays Base gas for every hop
+— the per-IP/global daily caps, not the eligibility gate, are what actually
+bound that). It can also trip on a legitimate traffic spike, so don't assume
+attack — check first.
+
+**What to check:**
+- `gas_topups` table — recent rows (status, amount, wallet, reason). Look for
+  many small top-ups to distinct never-before-seen wallets in a short window
+  (sybil signature) vs. a smaller number of larger, spread-out top-ups
+  (organic traffic).
+- `gas_topup_daily_counters` — per-(day, scope) totals. Compare the `global`
+  scope's `topup_count` against the `ip:*`/`user:*` scopes for the same day:
+  many distinct `user:`/`ip:` scopes each near their own daily cap points at
+  sybil'd accounts; one or two scopes dominating points at a single bad actor
+  or a legitimate power user.
+- Cross-reference wallet ages (`wallets.created_at`) for the flagged
+  addresses — a cluster of very recently created wallets is the sybil tell.
+
+**Operational caveat:** the breaker itself only pauses *auto* top-ups; it
+does not disable sends/earn actions outright. If you additionally set
+`TERMINAL_WITHDRAW_ENABLED=false` as a broader stop-gap, be aware that every
+mobile send/earn action that *needs* a top-up will fail as a retryable
+"try again in a moment" (`GasTopUpFailed`/`GasTopUpBusy`) rather than a clear
+"gas top-up paused" message — from the user's perspective it looks like a
+transient bug, not an intentional pause. Prefer letting the global daily cap
+do its job (it self-clears at UTC midnight) over reaching for that switch
+unless the attack is severe enough to need an immediate, blunt stop.
+
 ## Known gaps
 
 - **`suwappubot`** was an orphan Railway service pointed at the main repo with no

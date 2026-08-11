@@ -6,10 +6,42 @@
  */
 import { request } from './api'
 import { TIMEOUTS } from './config'
-import type { ActivityEntry, AskResponse, HealthStatus, MobileSnapshot } from '../types/api'
+import type {
+  ActivityEntry,
+  AskResponse,
+  BorrowSnapshot,
+  EarnActionResponse,
+  EarnSnapshot,
+  EnsResolution,
+  Goal,
+  GoalsSnapshot,
+  HealthStatus,
+  MobileSnapshot,
+  SendActionResponse,
+  Statement,
+  Wallet,
+} from '../types/api'
+
+export interface AnalyticsEventPayload {
+  event: string
+  props: Record<string, unknown>
+  ts: number
+}
 
 export const endpoints = {
   health: () => request<HealthStatus>('/health', { timeoutMs: TIMEOUTS.fast }),
+
+  // Sink for src/lib/analytics.ts. api-ts owns fanning these out to a
+  // product-analytics backend later — this signature is the stable contract
+  // analytics.ts codes against, so that forwarder work never touches call
+  // sites elsewhere in the app.
+  events: (events: AnalyticsEventPayload[], distinctId: string | null) =>
+    request<{ ok: true }>('/v1/mobile/events', {
+      method: 'POST',
+      body: { events, distinctId },
+      retries: 0,
+      timeoutMs: TIMEOUTS.fast,
+    }),
 
   snapshot: (signal?: AbortSignal) =>
     request<MobileSnapshot>('/v1/mobile/snapshot', { signal }),
@@ -26,5 +58,70 @@ export const endpoints = {
       body: { text },
       retries: 0,
       timeoutMs: TIMEOUTS.slow,
+    }),
+
+  earn: (signal?: AbortSignal) =>
+    request<EarnSnapshot>('/v1/mobile/earn', { signal }),
+
+  // walletId is optional — omitted, the API resolves the user's default EVM
+  // wallet. Not sent by the UI yet (single-wallet flow), but the shape is
+  // ready for a future wallet picker.
+  earnDeposit: (amount: string, walletId?: number) =>
+    request<EarnActionResponse>('/v1/mobile/earn/deposit', {
+      method: 'POST',
+      body: walletId === undefined ? { amount } : { amount, walletId },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  earnWithdraw: (amount: string, walletId?: number) =>
+    request<EarnActionResponse>('/v1/mobile/earn/withdraw', {
+      method: 'POST',
+      body: walletId === undefined ? { amount } : { amount, walletId },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  wallets: (signal?: AbortSignal) =>
+    request<Wallet[]>('/v1/mobile/wallets', { signal }),
+
+  send: (to: string, amount: string) =>
+    request<SendActionResponse>('/v1/mobile/send', {
+      method: 'POST',
+      body: { to, amount, token: 'USDC', chain: 'base' },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  borrow: (signal?: AbortSignal) =>
+    request<BorrowSnapshot>('/v1/mobile/borrow', { signal }),
+
+  statement: (month: string, signal?: AbortSignal) =>
+    request<Statement>(`/v1/mobile/statement?month=${encodeURIComponent(month)}`, {
+      timeoutMs: TIMEOUTS.slow,
+      signal,
+    }),
+
+  resolveEns: (name: string, signal?: AbortSignal) =>
+    request<EnsResolution>(`/v1/mobile/resolve?name=${encodeURIComponent(name)}`, {
+      timeoutMs: TIMEOUTS.fast,
+      retries: 0,
+      signal,
+    }),
+
+  goals: (signal?: AbortSignal) =>
+    request<GoalsSnapshot>('/v1/mobile/goals', { signal }),
+
+  createGoal: (name: string, targetUsd: number) =>
+    request<Goal>('/v1/mobile/goals', {
+      method: 'POST',
+      body: { name, targetUsd },
+      retries: 0,
+    }),
+
+  deleteGoal: (goalId: number) =>
+    request<{ ok: true }>(`/v1/mobile/goals/${goalId}`, {
+      method: 'DELETE',
+      retries: 0,
     }),
 } as const

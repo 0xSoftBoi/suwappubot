@@ -1,0 +1,415 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useRouter } from 'expo-router'
+import { useQueryClient } from '@tanstack/react-query'
+import * as Clipboard from 'expo-clipboard'
+import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
+import { useEarn, useResolveEns, useSend, useStatement, useWallets } from '../src/hooks/use-gecko'
+import { ApiError } from '../src/lib/api'
+import { analytics } from '../src/lib/analytics'
+import { getAuthRevision, isAuthenticated } from '../src/lib/auth'
+import { formatUsd } from '../src/lib/format'
+import { amountBoundsMessage, friendlyMessage, insufficientBalanceMessage, PENDING_MESSAGE } from '../src/lib/messages'
+import { queryKeys } from '../src/lib/queryKeys'
+import { palette, radius, spacing, styles as s } from '../src/theme'
+import type { SendActionSuccess } from '../src/types/api'
+
+type Step = 'input' | 'confirm' | 'pending' | 'success'
+
+// Same bounds as Earn (api/routes/mobile.py's shared amount validator).
+const MIN_SEND_AMOUNT = 0.01
+const MAX_SEND_AMOUNT = 1_000_000
+const PENDING_REFETCH_DELAY_MS = 5_000
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+const ENS_NAME_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$/i
+const ENS_DEBOUNCE_MS = 500
+
+/** Uses real numbers when the failure is a balance shortfall the screen
+ * already knows about; otherwise falls back to the shared status/keyword
+ * mapper. */
+function sendErrorMessage(err: unknown, availableUsd: number, triedUsd: number): string {
+  if (err instanceof ApiError && /insufficient|not enough/i.test(err.detail)) {
+    return insufficientBalanceMessage(availableUsd, triedUsd)
+  }
+  return friendlyMessage(err)
+}
+
+function truncate(value: string, head = 8, tail = 6): string {
+  if (value.length <= head + tail + 1) return value
+  return `${value.slice(0, head)}…${value.slice(-tail)}`
+}
+
+function currentMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+interface RecentRecipient {
+  address: string
+  lastSentAt: string
+}
+
+/** Distinct addresses this wallet has sent to before, newest first. Built
+ * from this month's statement (the only client-side record of past sends,
+ * via `POST /v1/mobile/send` → the `mobile_transfers` table) — there's no
+ * dedicated "recent recipients" endpoint, and no ENS name is persisted
+ * server-side for past sends, so recents can only show the address. */
+function extractRecents(transactions: { type: string; date: string; counterparty?: string }[], ownAddresses: Set<string>): RecentRecipient[] {
+  const seen = new Map<string, string>()
+  for (const tx of transactions) {
+    if (tx.type !== 'send' || !tx.counterparty) continue
+    const address = tx.counterparty
+    if (!EVM_ADDRESS_RE.test(address)) continue
+    if (ownAddresses.has(address.toLowerCase())) continue
+    if (!seen.has(address.toLowerCase())) seen.set(address.toLowerCase(), address)
+  }
+  // transactions arrive newest-first from the API, so first-seen per address is most recent.
+  return Array.from(seen.values())
+    .slice(0, 5)
+    .map((address) => ({ address, lastSentAt: transactions.find((t) => t.counterparty === address)?.date ?? '' }))
+}
+
+export default function SendScreen() {
+  const signedIn = isAuthenticated()
+  const router = useRouter()
+  const qc = useQueryClient()
+  const wallets = useWallets(signedIn)
+  // Idle-USDC hint only — never blocks Send if /earn is unavailable.
+  const earn = useEarn(signedIn)
+  const send = useSend()
+  // Recents hint only — never blocks Send if the statement is unavailable.
+  const statement = useStatement(currentMonth(), signedIn)
+
+  const [step, setStep] = useState<Step>('input')
+  const [manualEntry, setManualEntry] = useState(false)
+  const [toInput, setToInput] = useState('')
+  const [debouncedEnsName, setDebouncedEnsName] = useState('')
+  const [rawAmount, setRawAmount] = useState('')
+  const [useMax, setUseMax] = useState(false)
+  const [result, setResult] = useState<SendActionSuccess | null>(null)
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null)
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current)
+  }, [])
+
+  const clearPendingTimer = useCallback(() => {
+    if (pendingTimer.current) {
+      clearTimeout(pendingTimer.current)
+      pendingTimer.current = null
+    }
+  }, [])
+
+  const toTrimmed = toInput.trim()
+  const loweredTo = toTrimmed.toLowerCase()
+  const isHexInput = EVM_ADDRESS_RE.test(toTrimmed)
+  const isEnsInput = ENS_NAME_RE.test(toTrimmed)
+
+  // Debounce ~500ms after typing stops before firing the resolve lookup.
+  useEffect(() => {
+    if (!isEnsInput) {
+      setDebouncedEnsName('')
+      return
+    }
+    const timer = setTimeout(() => setDebouncedEnsName(loweredTo), ENS_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [isEnsInput, loweredTo])
+
+  const ensReady = isEnsInput && debouncedEnsName === loweredTo
+  const ens = useResolveEns(debouncedEnsName, ensReady)
+  const ensResolving = isEnsInput && (!ensReady || ens.isFetching)
+  const ensResolvedAddress = ensReady && ens.data ? ens.data.address : null
+  const ensFailed = ensReady && ens.isError
+
+  useEffect(() => { analytics.screen('Send') }, [])
+
+  if (!signedIn) return <SignedOutState />
+  if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />
+  if (wallets.isError && !wallets.data) {
+    return (
+      <ErrorState
+        message={`Gecko couldn’t load your wallet right now. ${friendlyMessage(wallets.error)}`}
+        onRetry={() => void wallets.refetch()}
+      />
+    )
+  }
+
+  const ownAddresses = new Set((wallets.data ?? []).map((w) => w.address.toLowerCase()))
+  const recents = extractRecents(statement.data?.transactions ?? [], ownAddresses)
+  const showRecents = recents.length > 0 && !manualEntry && toTrimmed.length === 0
+  const idleUsdc = (earn.data?.idle ?? [])
+    .filter((i) => i.token === 'USDC')
+    .reduce((sum, i) => sum + i.balanceUsd, 0)
+
+  // The resolved 0x recipient: direct for a plain hex address, otherwise
+  // whatever a successful ENS lookup returned. This — never the raw input —
+  // is what gets sent to POST /v1/mobile/send.
+  const resolvedTo = isHexInput ? toTrimmed : ensResolvedAddress
+  const toValid = Boolean(resolvedTo)
+  const isOwnAddress = Boolean(resolvedTo) && ownAddresses.has((resolvedTo as string).toLowerCase())
+
+  const amountToSend = useMax ? 'max' : rawAmount.trim()
+  const numericAmount = Number(rawAmount.trim())
+  const amountInBounds = useMax
+    || (rawAmount.trim().length > 0
+      && Number.isFinite(numericAmount)
+      && numericAmount >= MIN_SEND_AMOUNT
+      && numericAmount <= MAX_SEND_AMOUNT)
+  const canReview = toValid && !isOwnAddress && !ensResolving && amountToSend.length > 0 && amountInBounds
+
+  const paste = useCallback(async () => {
+    const text = await Clipboard.getStringAsync()
+    if (text) setToInput(text.trim())
+  }, [])
+
+  const selectRecent = useCallback((address: string) => {
+    analytics.track('recent_recipient_tapped')
+    setToInput(address)
+    setManualEntry(true)
+  }, [])
+
+  const reset = useCallback(() => {
+    clearPendingTimer()
+    setStep('input')
+    setManualEntry(false)
+    setToInput('')
+    setRawAmount('')
+    setUseMax(false)
+    setResult(null)
+    setPendingTxHash(null)
+    send.reset()
+  }, [clearPendingTimer, send])
+
+  const submit = useCallback(() => {
+    if (!canReview || !resolvedTo) return
+    send.mutate({ to: resolvedTo, amount: amountToSend, recipientType: isHexInput ? 'hex' : 'ens' }, {
+      onSuccess: (response) => {
+        const authRevision = getAuthRevision()
+        if (response.ok) {
+          setResult(response)
+          setStep('success')
+          void qc.invalidateQueries({ queryKey: queryKeys.snapshot(authRevision) })
+        } else {
+          setPendingTxHash(response.txHash)
+          setStep('pending')
+          clearPendingTimer()
+          pendingTimer.current = setTimeout(() => {
+            void qc.invalidateQueries({ queryKey: queryKeys.snapshot(authRevision) })
+          }, PENDING_REFETCH_DELAY_MS)
+        }
+      },
+    })
+  }, [canReview, resolvedTo, send, amountToSend, qc, clearPendingTimer, isHexInput])
+
+  return (
+    <ScrollView style={s.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={local.content}>
+      {step === 'input' ? (
+        <>
+          {showRecents ? (
+            <View style={s.card}>
+              <Text style={s.muted}>Send to someone you’ve sent before</Text>
+              {recents.map((r) => (
+                <Pressable
+                  key={r.address}
+                  onPress={() => selectRecent(r.address)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Send to recent recipient ${truncate(r.address)}`}
+                  style={local.recentRow}
+                >
+                  <View style={local.recentAvatar}>
+                    <Text style={local.recentAvatarText}>{r.address.slice(2, 4).toUpperCase()}</Text>
+                  </View>
+                  <Text selectable style={s.body}>{truncate(r.address)}</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                onPress={() => setManualEntry(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Send to someone new"
+                style={local.newRecipientButton}
+              >
+                <Text style={local.newRecipientText}>Send to someone new</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={s.card}>
+              <Text style={s.muted}>Who are you sending to?</Text>
+              <View style={local.addressRow}>
+                <TextInput
+                  value={toInput}
+                  onChangeText={setToInput}
+                  placeholder="0xAbC1…6789 or a name like alex.eth"
+                  placeholderTextColor={palette.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel="Recipient address or name"
+                  style={local.addressInput}
+                />
+                <Pressable onPress={() => void paste()} accessibilityRole="button" accessibilityLabel="Paste from clipboard" style={local.pasteChip}>
+                  <Text style={local.pasteChipText}>Paste</Text>
+                </Pressable>
+              </View>
+              {recents.length > 0 ? (
+                <Pressable
+                  onPress={() => { setManualEntry(false); setToInput('') }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose from recent recipients instead"
+                >
+                  <Text style={local.backToRecents}>← Choose from recent instead</Text>
+                </Pressable>
+              ) : null}
+              {isEnsInput && ensResolving ? (
+                <Text style={s.muted}>Looking up {loweredTo}…</Text>
+              ) : null}
+              {isEnsInput && ensFailed ? (
+                <Text selectable style={local.error}>{friendlyMessage(ens.error)}</Text>
+              ) : null}
+              {isEnsInput && ensResolvedAddress ? (
+                <Text selectable style={s.muted}>{loweredTo} → {truncate(ensResolvedAddress)}</Text>
+              ) : null}
+              {toTrimmed.length > 0 && !isHexInput && !isEnsInput ? (
+                <Text selectable style={local.error}>
+                  That doesn’t look right. Use a wallet address starting with 0x (like 0xAbC1…6789) or a name ending in .eth.
+                </Text>
+              ) : null}
+              {isOwnAddress ? (
+                <Text selectable style={local.error}>That’s one of your own wallets — pick a different address to send to.</Text>
+              ) : null}
+            </View>
+          )}
+
+          <View style={s.card}>
+            <Text style={s.muted}>Amount</Text>
+            <View style={local.amountRow}>
+              <TextInput
+                value={useMax ? '' : rawAmount}
+                onChangeText={(t) => { setRawAmount(t); setUseMax(false) }}
+                placeholder={useMax ? 'Max available' : '$0.00'}
+                placeholderTextColor={palette.textMuted}
+                keyboardType="decimal-pad"
+                editable={!useMax}
+                accessibilityLabel="Amount in dollars"
+                style={local.amountInput}
+              />
+              <Pressable
+                onPress={() => { setUseMax(true); setRawAmount('') }}
+                accessibilityRole="button"
+                accessibilityLabel="Use maximum available amount"
+                style={local.maxChip}
+              >
+                <Text style={local.maxChipText}>Max</Text>
+              </Pressable>
+            </View>
+            {idleUsdc > 0 ? <Text style={s.muted}>{formatUsd(idleUsdc)} available to send</Text> : null}
+            {!useMax && rawAmount.trim().length > 0 && !amountInBounds ? (
+              <Text selectable style={local.error}>
+                {amountBoundsMessage(MIN_SEND_AMOUNT, MAX_SEND_AMOUNT)}
+              </Text>
+            ) : null}
+          </View>
+
+          <Pressable
+            onPress={() => setStep('confirm')}
+            disabled={!canReview}
+            accessibilityRole="button"
+            accessibilityLabel="Review transfer"
+            style={[local.primaryButton, !canReview && local.disabled]}
+          >
+            <Text style={local.primaryButtonText}>Review</Text>
+          </Pressable>
+        </>
+      ) : null}
+
+      {step === 'confirm' ? (
+        <View style={[s.card, local.panel]}>
+          <Text style={s.heading}>Confirm</Text>
+          <Text selectable style={local.copy}>
+            Send {useMax ? 'the full available amount' : formatUsd(numericAmount)} to{' '}
+            {isEnsInput && resolvedTo ? `${loweredTo} → ${truncate(resolvedTo)}` : truncate(resolvedTo ?? toTrimmed)}.
+            {' '}This moves real money and can’t be undone from here.
+          </Text>
+          {send.isError ? (
+            <Text selectable style={local.error}>
+              {sendErrorMessage(send.error, idleUsdc, useMax ? idleUsdc : numericAmount)}
+            </Text>
+          ) : null}
+          <View style={local.panelActions}>
+            <Pressable onPress={() => setStep('input')} disabled={send.isPending} accessibilityRole="button" accessibilityLabel="Back" style={local.cancelButton}>
+              <Text style={local.cancelText}>Back</Text>
+            </Pressable>
+            <Pressable
+              onPress={submit}
+              disabled={send.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Confirm send"
+              style={[local.confirmButton, send.isPending && local.disabled]}
+            >
+              <Text style={local.confirmText}>{send.isPending ? 'Sending…' : 'Confirm'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {step === 'pending' && pendingTxHash ? (
+        <View style={[s.card, local.panel]}>
+          <Text style={local.pending}>{PENDING_MESSAGE}</Text>
+          <Text selectable style={s.muted}>Receipt {truncate(pendingTxHash, 8, 6)}</Text>
+          <Text selectable style={local.copy}>
+            This can take a minute. Gecko will refresh your balance automatically — no need to send again.
+          </Text>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
+            <Text style={local.confirmText}>Done</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {step === 'success' && result ? (
+        <View style={[s.card, local.panel]}>
+          <Text style={local.success}>Sent.</Text>
+          <Text selectable style={s.body}>{formatUsd(Number(result.amount))} to {truncate(result.to)}</Text>
+          <Text selectable style={s.muted}>Receipt {truncate(result.txHash, 8, 6)}</Text>
+          <View style={local.panelActions}>
+            <Pressable onPress={reset} accessibilityRole="button" accessibilityLabel="Send again" style={local.cancelButton}>
+              <Text style={local.cancelText}>Send again</Text>
+            </Pressable>
+            <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
+              <Text style={local.confirmText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </ScrollView>
+  )
+}
+
+const local = StyleSheet.create({
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44, paddingVertical: spacing.xs },
+  recentAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: palette.surfaceElevated, alignItems: 'center', justifyContent: 'center' },
+  recentAvatarText: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
+  newRecipientButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, marginTop: spacing.xs },
+  newRecipientText: { color: palette.textSecondary, fontSize: 15, fontWeight: '600' },
+  backToRecents: { color: palette.accent, fontSize: 13, fontWeight: '600', paddingVertical: spacing.xs },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  addressInput: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
+  pasteChip: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  pasteChipText: { color: palette.textSecondary, fontSize: 13, fontWeight: '600' },
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  amountInput: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
+  maxChip: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  maxChipText: { color: palette.textSecondary, fontSize: 13, fontWeight: '600' },
+  primaryButton: { alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
+  primaryButtonText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  disabled: { opacity: 0.45 },
+  panel: { gap: spacing.md },
+  copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22 },
+  panelActions: { flexDirection: 'row', gap: spacing.md },
+  cancelButton: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
+  cancelText: { color: palette.textSecondary, fontSize: 16, fontWeight: '600' },
+  confirmButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
+  confirmText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  success: { color: palette.success, fontSize: 16, fontWeight: '700' },
+  pending: { color: palette.textSecondary, fontSize: 16, fontWeight: '700' },
+  error: { color: palette.danger, fontSize: 13, marginTop: spacing.xs },
+})

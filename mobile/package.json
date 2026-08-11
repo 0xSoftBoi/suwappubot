@@ -22,6 +22,7 @@
     "@tanstack/react-query-persist-client": "^5.59.0",
     "expo": "^57.0.11",
     "expo-build-properties": "~57.0.9",
+    "expo-clipboard": "^57.0.1",
     "expo-constants": "~57.0.9",
     "expo-image": "~57.0.2",
     "expo-linking": "~57.0.5",

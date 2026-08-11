@@ -720,6 +720,48 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- mobile_transfers table (Gekko mobile /v1/mobile/send event log) ---
+    _add_mobile_transfers_table(db_engine, inspector, is_sqlite)
+
+    # --- mobile_transfers: idempotency_key for durable cross-replica send-replay guard ---
+    _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite)
+
+    # --- mobile_wallet_locks table (cross-replica advisory lock for mobile send/earn) ---
+    _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite)
+
+    # --- gas_topups table (auto gas top-up audit log, MONEY-PATH — see
+    # bot/services/gas_topup_service.py) ---
+    _create_gas_topups_table(db_engine, inspector, is_sqlite)
+
+    # --- gas_topup_daily_counters table (atomic global/per-user/per-IP
+    # daily cap reserve, MONEY-PATH — see bot/services/gas_topup_service.py) ---
+    _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite)
+    _sweep_gas_topup_daily_counters(db_engine, inspector, is_sqlite)
+
+    # --- gas_topup_wallet_lifetime table (atomic per-wallet LIFETIME cap
+    # reserve, DESIGN CHANGE / MONEY-PATH — see gas_topup_service.py) ---
+    _create_gas_topup_wallet_lifetime_table(db_engine, inspector, is_sqlite)
+
+    # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
+    _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
+
+    # --- mobile_pairings table (Gekko mobile Telegram deeplink sign-in, MONEY-PATH) ---
+    _create_mobile_pairings_table(db_engine, inspector, is_sqlite)
+
+    # --- mobile_events table (Gekko mobile analytics sink) ---
+    _create_mobile_events_table(db_engine, inspector, is_sqlite)
+
+    # Fail startup LOUDLY if either mobile-auth-adjacent table is still
+    # missing after the attempt above, instead of letting it surface later as
+    # an opaque runtime 500 on the first sign-in/events call. Deliberately
+    # scoped to just these two (see their docstrings) rather than changing
+    # the catch-and-warn convention every other table-creation helper in this
+    # file uses — a missing, unrelated table elsewhere must not crash boot.
+    _post_check_critical_tables_exist(db_engine, ("mobile_pairings", "mobile_events"))
+
+    # --- user_sessions table (revocable jti sessions, MONEY-PATH) ---
+    _create_user_sessions_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1310,6 +1352,306 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created savings_events table")
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
+
+
+def _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_savings_goals table (Gekko mobile savings-goals CRUD)."""
+    try:
+        from bot.models.savings_goal import SavingsGoal
+
+        if not inspector.has_table("mobile_savings_goals"):
+            SavingsGoal.__table__.create(bind=db_engine)
+            logger.info("Created mobile_savings_goals table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_savings_goals table: {e}")
+
+
+def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_transfers table (Gekko mobile /v1/mobile/send audit log)."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        if not inspector.has_table("mobile_transfers"):
+            MobileTransfer.__table__.create(bind=db_engine)
+            logger.info("Created mobile_transfers table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_transfers table: {e}")
+
+
+def _post_check_critical_tables_exist(db_engine, table_names: tuple) -> None:
+    """Raise loudly if any of `table_names` still doesn't exist after its
+    creation helper ran (and caught-and-logged rather than raised). Only
+    call this for tables whose absence must fail startup rather than degrade
+    silently — see `_create_mobile_pairings_table`'s docstring."""
+    live_inspector = inspect(db_engine)
+    existing = set(live_inspector.get_table_names())
+    missing = [t for t in table_names if t not in existing]
+    if missing:
+        raise RuntimeError(
+            f"Startup schema check failed: required table(s) {missing} could not be "
+            "created — see the CRITICAL log line(s) above for the underlying DB error."
+        )
+
+
+def _create_mobile_pairings_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_pairings table (Gekko mobile Telegram deeplink
+    sign-in — see bot/services/mobile_pairing_service.py). MONEY-PATH:
+    this table backs the pairing codes that mint mobile session JWTs.
+
+    Still caught-and-logged rather than raised, matching every other table
+    creation helper in this file (a transient DDL failure here must not crash
+    the whole bot/API on boot) — but at CRITICAL with a traceback, and
+    `_ensure_schema()` does a cheap post-check right after calling this and
+    `_create_mobile_events_table()` that DOES raise if the table is still
+    missing, since these two specifically gate a live auth surface (a missing
+    mobile_pairings table would otherwise only surface as an opaque runtime
+    500 on the first sign-in attempt)."""
+    try:
+        from bot.models.mobile_pairing import MobilePairing
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_pairings"):
+            MobilePairing.__table__.create(bind=db_engine)
+            logger.info("Created mobile_pairings table")
+    except Exception as e:
+        logger.critical(f"Failed to create mobile_pairings table: {e}", exc_info=True)
+
+
+def _create_mobile_events_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_events table (Gekko mobile analytics sink,
+    POST /v1/mobile/events). Redacted/validated at the route layer before
+    a row is ever written — see api/routes/mobile.py.
+
+    See `_create_mobile_pairings_table`'s docstring for why this still
+    catches (rather than raises) but at CRITICAL, with a paired post-check
+    in `_ensure_schema()`."""
+    try:
+        from bot.models.mobile_event import MobileEvent
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_events"):
+            MobileEvent.__table__.create(bind=db_engine)
+            logger.info("Created mobile_events table")
+    except Exception as e:
+        logger.critical(f"Failed to create mobile_events table: {e}", exc_info=True)
+
+
+def _create_user_sessions_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the user_sessions table (revocable jti sessions — see
+    bot/models/user_session.py). MONEY-PATH-adjacent: backs session
+    revocation, not session minting/verification itself — `decode_jwt_token`
+    fails OPEN (treats the session as valid) if this table is missing or a
+    lookup errors, so a failed create here degrades to "sessions aren't
+    individually revocable yet", not an outage. Caught-and-logged like the
+    rest of this file's table-creation helpers."""
+    try:
+        from bot.models.user_session import UserSession
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("user_sessions"):
+            UserSession.__table__.create(bind=db_engine)
+            logger.info("Created user_sessions table")
+    except Exception as e:
+        logger.warning(f"Failed to create user_sessions table: {e}")
+
+
+def _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add mobile_transfers.idempotency_key + a partial UNIQUE(user_id, key) index.
+
+    MONEY-PATH: durable, cross-replica replay guard for `POST /v1/mobile/send`,
+    mirroring `_add_point_redemption_idempotency_key`. The in-process
+    idempotency cache in mobile.py is NOT durable across worker restarts or
+    multi-replica deploys — a retry landing on a different process would
+    otherwise re-broadcast a second on-chain transfer. This DB-level unique
+    index makes a replayed INSERT conflict (IntegrityError) instead of
+    silently creating a second MobileTransfer row.
+
+    Additive + idempotent: ADD COLUMN IF NOT EXISTS + CREATE UNIQUE INDEX IF
+    NOT EXISTS. Re-inspects the engine directly (rather than trusting the
+    `inspector` passed in) since `mobile_transfers` may have just been
+    created earlier in this same `_ensure_schema()` pass.
+    """
+    try:
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_transfers"):
+            return
+        cols = {c["name"] for c in live_inspector.get_columns("mobile_transfers")}
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE mobile_transfers ADD COLUMN idempotency_key VARCHAR(160)"
+            else:
+                ddl = (
+                    "ALTER TABLE mobile_transfers "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(160)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_mobile_transfers_user_idempotency_key "
+                    "ON mobile_transfers(user_id, idempotency_key) "
+                    "WHERE idempotency_key IS NOT NULL"
+                )
+            )
+    except Exception as e:
+        logger.error("Could not add mobile_transfers idempotency guard: %s", e)
+
+
+def _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_wallet_locks table (cross-replica advisory lock for
+    mobile send/earn actions — see bot/models/mobile_wallet_lock.py)."""
+    try:
+        from bot.models.mobile_wallet_lock import MobileWalletLock
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_wallet_locks"):
+            MobileWalletLock.__table__.create(bind=db_engine)
+            logger.info("Created mobile_wallet_locks table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_wallet_locks table: {e}")
+
+
+def _create_gas_topups_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the gas_topups table (auto gas top-up audit log — see
+    bot/services/gas_topup_service.py). MONEY-PATH: this table backs both
+    the audit trail for hot-wallet spend on gas top-ups AND the per-user
+    daily cap enforcement (the caps are computed by querying this same
+    table, so the audit log and the enforcement data source can never drift
+    apart — see `gas_topup_daily_counters` below for the separate global +
+    per-IP atomic counters). Caught-and-logged like every other additive
+    table-creation helper in this file — a transient DDL failure here must
+    not crash boot.
+
+    F8 fix: this docstring used to claim `gas_topup_service.ensure_gas()`
+    "fails closed (raises GasTopUpFailed)" if this table is missing —
+    that's now actually true (gas_topup_service.py's `_user_daily_stats` /
+    `_daily_reserve` wrap their queries and raise `GasTopUpFailed` on any DB
+    failure, table-missing included) rather than letting a raw
+    `OperationalError` escape as an unrelated 500."""
+    try:
+        from bot.models.gas_topup import GasTopUp
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("gas_topups"):
+            GasTopUp.__table__.create(bind=db_engine)
+            logger.info("Created gas_topups table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topups table: {e}")
+
+
+def _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create gas_topup_daily_counters (F6 fix, MONEY-PATH): a single row per
+    (UTC day, scope) backing the ATOMIC daily-cap reserve in
+    gas_topup_service.py's `_daily_reserve()`. Replaces a check-then-send
+    read of SUM(gas_topups.amount_wei) for the global breaker, whose
+    read-decide-spend window let N concurrent requests each read the same
+    stale total and collectively overshoot the cap by up to
+    N x per-tx ceiling. `scope` is "global" for the network-wide breaker and
+    "ip:<address>" for the new per-IP cap — both share this table/mechanism.
+
+    Deliberately a hand-rolled Core table here rather than an ORM model in
+    bot/models/: this migration and every read/write to this table both live
+    in files already responsible for gas top-up spend controls
+    (database/db.py, bot/services/gas_topup_service.py), and
+    gas_topup_service.py talks to it via a single raw-SQL UPSERT statement
+    (`INSERT ... ON CONFLICT (day, scope) DO UPDATE ... WHERE ...`) rather
+    than the ORM — both Postgres and SQLite (3.35+; this repo's is 3.45)
+    execute that atomically, which is the whole point of this table."""
+    try:
+        live_inspector = inspect(db_engine)
+        if live_inspector.has_table("gas_topup_daily_counters"):
+            return
+
+        from sqlalchemy import BigInteger, Column, Date, Integer, MetaData, String, Table
+
+        metadata = MetaData()
+        Table(
+            "gas_topup_daily_counters",
+            metadata,
+            Column("day", Date, primary_key=True, nullable=False),
+            Column("scope", String(64), primary_key=True, nullable=False),
+            Column("total_wei", BigInteger, nullable=False, server_default="0"),
+            Column("topup_count", Integer, nullable=False, server_default="0"),
+        )
+        metadata.create_all(bind=db_engine)
+        logger.info("Created gas_topup_daily_counters table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topup_daily_counters table: {e}")
+
+
+# M4: how long a (day, scope) row is kept before the sweep below deletes it.
+# Nothing ever reads a scope's history past "today" — gas_topup_service.py's
+# `_daily_reserve`/`_daily_release` only ever touch `day = today` — so this
+# is pure housekeeping, not a behavioral cap.
+GAS_TOPUP_COUNTER_RETENTION_DAYS = 30
+
+
+def _sweep_gas_topup_daily_counters(db_engine, inspector, is_sqlite: bool) -> None:
+    """M4 fix, MONEY-PATH-adjacent housekeeping: `gas_topup_daily_counters`
+    gets one row per (UTC day, scope). M4 also normalizes IPv6 per-IP scopes
+    to their /64 prefix (gas_topup_service.py's `_normalize_ip_for_scope`)
+    rather than one row per raw address, so this table now grows only with
+    real daily traffic, not with a single attacker's address rotation — but
+    it still grows forever without a sweep. Deletes rows older than
+    `GAS_TOPUP_COUNTER_RETENTION_DAYS`; safe to delete, since
+    `_daily_reserve`'s UPSERT recreates a row for the current day on demand
+    and nothing reads a scope's history past "today".
+
+    Runs at every boot (idempotent, additive housekeeping, same as every
+    other function in this file) rather than needing its own scheduler —
+    caught-and-logged, never raises, since a missed sweep just means the
+    table is a little larger until the next boot."""
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("gas_topup_daily_counters"):
+            return
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=GAS_TOPUP_COUNTER_RETENTION_DAYS)
+        ).date()
+        with db_engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM gas_topup_daily_counters WHERE day < :cutoff"),
+                {"cutoff": cutoff},
+            )
+        if result.rowcount:
+            logger.info(f"Swept {result.rowcount} stale gas_topup_daily_counters row(s)")
+    except Exception as e:
+        logger.warning(f"gas_topup_daily_counters retention sweep failed: {e}")
+
+
+def _create_gas_topup_wallet_lifetime_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create gas_topup_wallet_lifetime (DESIGN CHANGE, MONEY-PATH): a single
+    row per wallet_address backing the ATOMIC per-wallet LIFETIME top-up
+    ceiling in gas_topup_service.py's `_lifetime_reserve()`/
+    `_lifetime_release()` — same UPSERT-with-WHERE-guard pattern as
+    `gas_topup_daily_counters` (see that function's docstring), just keyed
+    by `wallet_address` instead of (day, scope), since a lifetime cap has no
+    day dimension to reset."""
+    try:
+        live_inspector = inspect(db_engine)
+        if live_inspector.has_table("gas_topup_wallet_lifetime"):
+            return
+
+        from sqlalchemy import BigInteger, Column, Integer, MetaData, String, Table
+
+        metadata = MetaData()
+        Table(
+            "gas_topup_wallet_lifetime",
+            metadata,
+            Column("wallet_address", String(128), primary_key=True, nullable=False),
+            Column("total_wei", BigInteger, nullable=False, server_default="0"),
+            Column("topup_count", Integer, nullable=False, server_default="0"),
+        )
+        metadata.create_all(bind=db_engine)
+        logger.info("Created gas_topup_wallet_lifetime table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topup_wallet_lifetime table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:

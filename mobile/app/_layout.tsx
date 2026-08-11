@@ -25,6 +25,20 @@ import { palette } from '../src/theme'
 // Must run before the first render, not inside an effect.
 void SplashScreen.preventAutoHideAsync()
 
+/** Header styling for non-tab screens pushed on top of the tabs, matching
+ * (tabs)/_layout.tsx's own header look so the app doesn't visibly change
+ * chrome when navigating to Send/Receive/Statement. */
+function pushedScreenOptions(title: string) {
+  return {
+    headerShown: true,
+    headerShadowVisible: false,
+    headerStyle: { backgroundColor: palette.bg },
+    headerTitleStyle: { color: palette.text, fontWeight: '700' as const },
+    headerTintColor: palette.text,
+    title,
+  }
+}
+
 export default function RootLayout() {
   const [ready, setReady] = useState(false)
 
@@ -63,6 +77,9 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="send" options={pushedScreenOptions('Send')} />
+            <Stack.Screen name="receive" options={pushedScreenOptions('Receive')} />
+            <Stack.Screen name="statement" options={pushedScreenOptions('Statement')} />
           </Stack>
         </PersistQueryClientProvider>
       </SafeAreaProvider>

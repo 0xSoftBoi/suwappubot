@@ -23,6 +23,18 @@ export const STALE = {
   balance: 15_000,
   /** Activity changes only when the user acts. */
   activity: 60_000,
+  /** Earn position/APY: fresh enough without polling a yield rate every render. */
+  earn: 15_000,
+  /** The user's own wallets: essentially static within a session. */
+  wallets: 60_000,
+  /** Credit line/health factor: same cadence as Earn — on-chain, not spot-price volatile. */
+  borrow: 15_000,
+  /** A statement month is immutable once the month has passed. */
+  statement: 60_000,
+  /** ENS resolution rarely changes mid-session; keyed per-name anyway. */
+  ensResolve: 60_000,
+  /** Savings goals: user-edited, not spot-price data. */
+  goals: 30_000,
 } as const
 
 export const queryClient = new QueryClient({

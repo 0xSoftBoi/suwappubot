@@ -1,8 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SignedOutState } from '../../src/components/screen-state'
 import { useAskGecko } from '../../src/hooks/use-gecko'
+import { analytics } from '../../src/lib/analytics'
 import { getAuthRevision, isAuthenticated } from '../../src/lib/auth'
+import { friendlyMessage } from '../../src/lib/messages'
 import { palette, spacing, styles as s } from '../../src/theme'
 
 const STARTERS = ['What changed?', 'How concentrated am I?', 'What have I done lately?']
@@ -33,6 +35,8 @@ export default function AskScreen() {
     })
   }, [ask, authRevision, signedIn, text])
 
+  useEffect(() => { analytics.screen('Ask') }, [])
+
   if (!signedIn) return <SignedOutState />
 
   return (
@@ -51,17 +55,36 @@ export default function AskScreen() {
         {suggestions.slice(0, 3).map((suggestion) => <Pressable key={suggestion} onPress={() => submit(suggestion)} style={local.chip}><Text style={local.chipText}>{suggestion}</Text></Pressable>)}
       </View>
       <View style={local.composer}>
-        <TextInput value={text} onChangeText={setText} maxLength={1000} placeholder="Ask Gecko…" placeholderTextColor={palette.textMuted} style={local.input} returnKeyType="send" onSubmitEditing={() => submit()} editable={!ask.isPending} />
-        <Pressable onPress={() => submit()} disabled={!text.trim() || ask.isPending} style={[local.send, (!text.trim() || ask.isPending) && local.sendDisabled]}><Text style={local.sendText}>{ask.isPending ? 'Thinking…' : 'Ask'}</Text></Pressable>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          maxLength={1000}
+          placeholder="Ask Gecko…"
+          placeholderTextColor={palette.textMuted}
+          accessibilityLabel="Ask Gecko a question"
+          style={local.input}
+          returnKeyType="send"
+          onSubmitEditing={() => submit()}
+          editable={!ask.isPending}
+        />
+        <Pressable
+          onPress={() => submit()}
+          disabled={!text.trim() || ask.isPending}
+          accessibilityRole="button"
+          accessibilityLabel="Ask"
+          style={[local.send, (!text.trim() || ask.isPending) && local.sendDisabled]}
+        >
+          <Text style={local.sendText}>{ask.isPending ? 'Thinking…' : 'Ask'}</Text>
+        </Pressable>
       </View>
-      {ask.isError ? <Text selectable style={local.error}>I couldn’t answer that. Check your connection and try again.</Text> : null}
+      {ask.isError ? <Text selectable style={local.error}>{friendlyMessage(ask.error)}</Text> : null}
     </ScrollView>
   )
 }
 
 const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
-  copy: { color: palette.textSecondary, fontSize: 15, lineHeight: 22, paddingTop: spacing.xs },
+  copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22, paddingTop: spacing.xs },
   exchange: { gap: spacing.sm },
   question: { alignSelf: 'flex-end', maxWidth: '88%', backgroundColor: palette.surfaceElevated, color: palette.text, padding: spacing.md, borderRadius: 16, overflow: 'hidden' },
   answer: { color: palette.text, fontSize: 16, lineHeight: 24 },
