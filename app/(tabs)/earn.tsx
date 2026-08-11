@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { AddMoneyButton } from '../../src/components/add-money-button'
 import { ErrorState, InfoNote, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useCreateGoal, useDeleteGoal, useEarn, useEarnDeposit, useEarnWithdraw, useGoals } from '../../src/hooks/use-gecko'
 import { ApiError } from '../../src/lib/api'
@@ -332,6 +333,12 @@ export default function EarnScreen() {
         <View style={s.card}>
           <Text selectable style={local.positionTotal}>{formatUsd(idleUsd)}</Text>
           <Text style={s.muted}>Not earning anything — available to add to Savings</Text>
+          {idleUsd <= 0 && !hasPosition ? (
+            <View style={local.noMoney}>
+              <Text style={s.muted}>Nothing here yet. Add money with a debit card to get started.</Text>
+              <AddMoneyButton />
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -471,6 +478,7 @@ const local = StyleSheet.create({
   section: { gap: spacing.md },
   positionTotal: { color: palette.text, fontSize: 24, fontWeight: '700', fontVariant: ['tabular-nums'] },
   positionList: { gap: spacing.md, marginTop: spacing.md },
+  noMoney: { gap: spacing.sm, marginTop: spacing.sm, alignItems: 'flex-start' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   right: { alignItems: 'flex-end', gap: 2 },
   copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22 },

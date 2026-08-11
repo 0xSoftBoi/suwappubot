@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { AddMoneyButton } from '../../src/components/add-money-button'
 import { ErrorState, InfoNote, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useBorrow, useEarn, useSnapshot } from '../../src/hooks/use-gecko'
 import { analytics } from '../../src/lib/analytics'
@@ -75,7 +76,12 @@ export default function MoneyScreen() {
             </View>
           )
         })}
-        {data?.byToken.length === 0 ? <Text style={s.muted}>Nothing to show here yet.</Text> : null}
+        {data?.byToken.length === 0 ? (
+          <View style={local.noMoney}>
+            <Text style={s.muted}>Nothing to show here yet.</Text>
+            <AddMoneyButton />
+          </View>
+        ) : null}
       </View>
       {hasSavings ? (
         <View style={local.section}>
@@ -137,6 +143,7 @@ const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.xl },
   total: { color: palette.text, fontSize: 38, fontWeight: '700', fontVariant: ['tabular-nums'] },
   section: { gap: spacing.md },
+  noMoney: { gap: spacing.sm, alignItems: 'flex-start' },
   holding: { gap: spacing.sm, paddingVertical: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   right: { alignItems: 'flex-end', gap: 2 },

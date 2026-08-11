@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
+import { AddMoneyButton } from '../src/components/add-money-button'
 import { EmptyAction, ErrorState, InfoNote, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useWallets } from '../src/hooks/use-gecko'
 import { analytics } from '../src/lib/analytics'
 import { isAuthenticated } from '../src/lib/auth'
 import { friendlyMessage } from '../src/lib/messages'
 import { palette, radius, spacing, styles as s } from '../src/theme'
-import type { Wallet } from '../src/types/api'
+import { pickPrimaryEvmWallet } from '../src/lib/wallets'
 
 /** What this address can actually receive, in plain words up front, plus a
  * discoverable technical detail for anyone who wants it — a wrong-network
@@ -25,23 +26,20 @@ function chunkAddress(address: string): string {
   return `0x${groups.join(' ')}`
 }
 
-function pickReceiveWallet(wallets: Wallet[]): Wallet | null {
-  const evm = wallets.filter((w) => w.chainType.toLowerCase() === 'evm')
-  return evm.find((w) => w.isDefault) ?? evm[0] ?? wallets[0] ?? null
-}
-
 export default function ReceiveScreen() {
   const signedIn = isAuthenticated()
   const wallets = useWallets(signedIn)
   const [copied, setCopied] = useState(false)
 
   const copy = useCallback(async (address: string) => {
+    analytics.track('funding_method_chosen', { method: 'address_qr' })
     await Clipboard.setStringAsync(address)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }, [])
 
   const share = useCallback(async (address: string) => {
+    analytics.track('funding_method_chosen', { method: 'address_qr' })
     try {
       await Share.share({ message: address })
     } catch {
@@ -51,10 +49,13 @@ export default function ReceiveScreen() {
 
   useEffect(() => { analytics.screen('Receive') }, [])
 
-  const noWallet = wallets.data !== undefined && pickReceiveWallet(wallets.data) === null
+  const noWallet = wallets.data !== undefined && pickPrimaryEvmWallet(wallets.data) === null
   useEffect(() => {
     if (noWallet) analytics.track('empty_state_seen', { screen: 'receive' })
   }, [noWallet])
+  useEffect(() => {
+    if (!noWallet && wallets.data) analytics.track('funding_method_shown', { method: 'address_qr' })
+  }, [noWallet, wallets.data])
 
   if (!signedIn) return <SignedOutState />
   if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />
@@ -67,7 +68,7 @@ export default function ReceiveScreen() {
     )
   }
 
-  const wallet = pickReceiveWallet(wallets.data ?? [])
+  const wallet = pickPrimaryEvmWallet(wallets.data ?? [])
 
   if (!wallet) {
     return (
@@ -113,6 +114,11 @@ export default function ReceiveScreen() {
             <Text style={local.shareButtonText}>Share</Text>
           </Pressable>
         </View>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.muted}>No crypto to send yet? Buy dollars with a debit card instead — they land in this same wallet.</Text>
+        <AddMoneyButton variant="secondary" />
       </View>
     </ScrollView>
   )
