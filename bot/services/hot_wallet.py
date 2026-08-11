@@ -3,9 +3,10 @@
 import asyncio
 import logging
 import os
-from typing import Optional, Tuple
+import threading
+from typing import Dict, Optional, Tuple
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from web3 import Web3
 from eth_account import Account
 import aiohttp
@@ -124,6 +125,163 @@ def _assert_recipient_compliant(
 
     if not result.allowed:
         raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
+
+
+class HotWalletBusyError(RuntimeError):
+    """Raised when the cross-replica DB lock for a (chain, address) send is
+    already held by another in-flight send. Callers should surface a
+    "try again shortly" message — this is expected under legitimate
+    concurrent sends (e.g. two gas top-ups landing near-simultaneously),
+    not a hard failure."""
+
+
+# --- Per-(chain, address) EVM send serialization — MONEY-PATH -----------
+#
+# `send_native_token`/`send_token` previously read `get_transaction_count`
+# at the default "latest" block tag with no reservation and no lock. Two
+# concurrent sends from the SAME address (most acutely: the single shared
+# gas-payer wallet used by `gas_topup_service` for every mobile top-up, but
+# also e.g. a Telegram withdraw racing a paymaster refund on the same
+# custodial wallet) could both read the same nonce, and the loser either
+# gets rejected ("replacement underpriced"/"already known") or, if it bid
+# higher gas, silently REPLACES the first transfer on-chain while a DB row
+# still records the first one as sent.
+#
+# Fix mirrors `_send_usdc_base` in api/routes/mobile.py: reserve the nonce
+# via `bot.utils.nonce_reservation` (pending-block + in-process high-water
+# mark) and hold a lock across the whole read -> build -> sign -> broadcast
+# window, keyed by the (lowercased) wallet address.
+#
+# Deliberately a plain `threading.Lock`, NOT `asyncio.Lock` (mobile.py's
+# `_earn_wallet_lock` pattern): asyncio's lock/event primitives permanently
+# bind to the first event loop that ever calls `acquire()` on them and
+# raise "bound to a different event loop" on any later `acquire()` from a
+# different loop — even after being fully released. This module is awaited
+# directly from the long-lived event loop the API/bot process runs under
+# by most callers, but `gas_topup_service.ensure_gas` wraps its call in a
+# brand-new `asyncio.run(...)` (a NEW event loop) on every single top-up —
+# a module-level asyncio.Lock reused across those calls raises on the
+# second-ever gas top-up. `threading.Lock` has no loop affinity at all, so
+# it's safe to reuse from either call style. The blocking `acquire()` runs
+# via `asyncio.to_thread` so a same-loop contender (e.g. the Telegram
+# handler and the terminal API route both awaiting directly) waits on a
+# worker thread instead of stalling the event loop — a real blocking wait,
+# not a poll loop.
+#
+# Keyed by address only (not address+chain): nonces are per-chain, so this
+# is coarser than strictly necessary, but over-serializing two different
+# chains for the same address is safe (just briefly more conservative),
+# and it keeps one lock per wallet instead of one per (wallet, chain).
+_evm_send_locks_guard = threading.Lock()
+_evm_send_locks: Dict[str, threading.Lock] = {}
+_EVM_SEND_LOCK_TIMEOUT_SECONDS = 30
+
+# TTL-based cross-replica advisory lock, same shape/posture as
+# `_db_wallet_lock_try_acquire` in api/routes/mobile.py (fails OPEN on any
+# DB error — the in-process lock above is the always-available primary
+# guard; this only adds protection when the DB is reachable AND multiple
+# replicas are actually racing the same wallet). Implemented locally here
+# rather than imported from the api layer, reusing the same
+# `mobile_wallet_locks` table (already created by `_ensure_schema`) with a
+# distinct, chain-scoped key so it can't collide with mobile.py's own
+# plain-address keys for the same table.
+_EVM_SEND_DB_LOCK_TTL_SECONDS = 30
+
+
+def _get_evm_send_thread_lock(address: str) -> threading.Lock:
+    """Get (or create) the plain threading.Lock serializing EVM sends for
+    one wallet address."""
+    key = address.lower()
+    with _evm_send_locks_guard:
+        lock = _evm_send_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _evm_send_locks[key] = lock
+        return lock
+
+
+class _EvmSendLock:
+    """Async context manager around a plain `threading.Lock` — see the
+    module comment above for why this can't just be an `asyncio.Lock`."""
+
+    __slots__ = ("_lock",)
+
+    def __init__(self, address: str):
+        self._lock = _get_evm_send_thread_lock(address)
+
+    async def __aenter__(self) -> "_EvmSendLock":
+        acquired = await asyncio.to_thread(self._lock.acquire, True, _EVM_SEND_LOCK_TIMEOUT_SECONDS)
+        if not acquired:
+            raise HotWalletBusyError(
+                "This wallet has a transaction in progress. Try again shortly."
+            )
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        self._lock.release()
+        return False
+
+
+def _evm_send_lock(address: str) -> _EvmSendLock:
+    """Return the mutex serializing EVM sends for one wallet address. See
+    `_EvmSendLock` / the module comment above."""
+    return _EvmSendLock(address)
+
+
+def _evm_send_db_lock_try_acquire(chain_name: str, address: str) -> Optional[str]:
+    """Best-effort cross-replica advisory lock keyed by chain+address.
+    Returns an opaque holder token on success, ``None`` if another live
+    holder has it. Fails OPEN (returns a token) on any DB error."""
+    import uuid as _uuid
+
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    key = f"hotwallet:{chain_name}:{address.lower()}"
+    holder = _uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=_EVM_SEND_DB_LOCK_TTL_SECONDS)
+    try:
+        with get_session() as session:
+            existing = (
+                session.query(MobileWalletLock)
+                .filter(MobileWalletLock.wallet_address == key)
+                .first()
+            )
+            if existing is not None:
+                existing_acquired_at = existing.acquired_at
+                if existing_acquired_at is not None and existing_acquired_at.tzinfo is None:
+                    existing_acquired_at = existing_acquired_at.replace(tzinfo=timezone.utc)
+                if existing_acquired_at and existing_acquired_at > cutoff:
+                    return None
+                existing.holder = holder
+                existing.acquired_at = now
+                return holder
+            try:
+                session.add(MobileWalletLock(wallet_address=key, holder=holder, acquired_at=now))
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                return None
+            return holder
+    except Exception as e:
+        logger.warning(f"hot_wallet DB send-lock acquire failed, proceeding without it: {e}")
+        return holder
+
+
+def _evm_send_db_lock_release(chain_name: str, address: str, holder: Optional[str]) -> None:
+    if not holder:
+        return
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    key = f"hotwallet:{chain_name}:{address.lower()}"
+    try:
+        with get_session() as session:
+            session.query(MobileWalletLock).filter(
+                MobileWalletLock.wallet_address == key,
+                MobileWalletLock.holder == holder,
+            ).delete()
+    except Exception as e:
+        logger.warning(f"hot_wallet DB send-lock release failed (will expire via TTL): {e}")
 
 
 class PostBroadcastAmbiguous(RuntimeError):
@@ -949,35 +1107,65 @@ class HotWalletService:
         chain = get_chain_by_name(chain_name)
 
         amount_wei = int(amount * Decimal(10**18))
+        checksum_addr = Web3.to_checksum_address(wallet.address)
 
-        # Build transaction
-        nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
-        gas_price = web3.eth.gas_price
+        from bot.utils.nonce_reservation import release_nonce, reserve_nonce
 
-        tx = {
-            "nonce": nonce,
-            "to": Web3.to_checksum_address(to_address),
-            "value": amount_wei,
-            "gas": 21000,
-            "gasPrice": gas_price,
-            "chainId": chain.chain_id,
-        }
+        # Serialize the whole read -> build -> sign -> broadcast window per
+        # (chain, address) — see module-level comment above `_evm_send_lock`.
+        # Two concurrent sends from the same wallet (e.g. gas top-up racing
+        # itself, or a withdraw racing a paymaster refund) must not both
+        # read the same "pending" nonce.
+        async with _evm_send_lock(wallet.address):
+            db_holder = await asyncio.to_thread(
+                _evm_send_db_lock_try_acquire, chain_name, wallet.address
+            )
+            if db_holder is None:
+                raise HotWalletBusyError(
+                    "This wallet has a transaction in progress. Try again shortly."
+                )
+            try:
+                nonce = reserve_nonce(web3, checksum_addr)
+                gas_price = web3.eth.gas_price
 
-        # Sign based on wallet provider. Signing itself is pre-broadcast and
-        # safe to let fail normally; only the send_raw_transaction call is
-        # ambiguous once invoked.
-        if wallet.is_turnkey_wallet:
-            signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
-            raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
-        else:
-            private_key = self.get_private_key(wallet)
-            if not private_key.startswith("0x"):
-                private_key = "0x" + private_key
-            signed = Account.sign_transaction(tx, private_key)
-            raw_tx = signed.rawTransaction
+                tx = {
+                    "nonce": nonce,
+                    "to": Web3.to_checksum_address(to_address),
+                    "value": amount_wei,
+                    "gas": 21000,
+                    "gasPrice": gas_price,
+                    "chainId": chain.chain_id,
+                }
 
-        tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
-        return tx_hash.hex()
+                # Sign based on wallet provider. Signing itself is
+                # pre-broadcast and safe to let fail normally (and release
+                # the reservation); only the send_raw_transaction call is
+                # ambiguous once invoked.
+                try:
+                    if wallet.is_turnkey_wallet:
+                        signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
+                        raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+                    else:
+                        private_key = self.get_private_key(wallet)
+                        if not private_key.startswith("0x"):
+                            private_key = "0x" + private_key
+                        signed = Account.sign_transaction(tx, private_key)
+                        raw_tx = signed.rawTransaction
+                except Exception:
+                    release_nonce(checksum_addr, nonce)
+                    raise
+
+                # `_broadcast_evm_raw_tx` raises PostBroadcastAmbiguous on
+                # any failure from send_raw_transaction itself — the node
+                # may already have accepted it, so the reservation must NOT
+                # be released on that path (a retry must not reuse a nonce
+                # that may already be on-chain).
+                tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
+                return tx_hash.hex()
+            finally:
+                await asyncio.to_thread(
+                    _evm_send_db_lock_release, chain_name, wallet.address, db_holder
+                )
 
     def _broadcast_evm_raw_tx(self, web3: Web3, raw_tx: bytes, claimed_tx_id: Optional[int] = None):
         """Submit a signed raw EVM transaction. The tx hash is deterministic
@@ -1210,76 +1398,106 @@ class HotWalletService:
         chain = get_chain_by_name(chain_name)
 
         amount_raw = int(amount * Decimal(10**decimals))
+        checksum_addr = Web3.to_checksum_address(wallet.address)
 
-        nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
-        gas_price = web3.eth.gas_price
+        from bot.utils.nonce_reservation import release_nonce, reserve_nonce
 
-        if chain_name == "tempo":
-            # TIP-20 transferWithMemo (Tempo native). build_transfer_with_memo
-            # returns {to, data, value}; we add the standard tx fields here.
-            from bot.services.tempo_tip20 import tempo_tip20
-
-            base = tempo_tip20.build_transfer_with_memo(
-                token_address=token_address,
-                to=to_address,
-                amount=amount_raw,
-                memo=memo or "",
+        # Same (chain, address) serialization as send_native_token — see the
+        # module-level comment above `_evm_send_lock`. A native send and a
+        # token send from the same wallet share one nonce space, so this
+        # lock/reservation pair is identical to (and races safely against)
+        # the one in send_native_token.
+        async with _evm_send_lock(wallet.address):
+            db_holder = await asyncio.to_thread(
+                _evm_send_db_lock_try_acquire, chain_name, wallet.address
             )
-            tx = {
-                "from": Web3.to_checksum_address(wallet.address),
-                "to": base["to"],
-                "data": base["data"],
-                "value": base.get("value", 0),
-                "nonce": nonce,
-                "gasPrice": gas_price,
-                "chainId": chain.chain_id,
-            }
-        else:
-            # ERC20 transfer ABI
-            abi = [
-                {
-                    "constant": False,
-                    "inputs": [
-                        {"name": "_to", "type": "address"},
-                        {"name": "_value", "type": "uint256"},
-                    ],
-                    "name": "transfer",
-                    "outputs": [{"name": "", "type": "bool"}],
-                    "type": "function",
-                }
-            ]
+            if db_holder is None:
+                raise HotWalletBusyError(
+                    "This wallet has a transaction in progress. Try again shortly."
+                )
+            try:
+                nonce = reserve_nonce(web3, checksum_addr)
+                gas_price = web3.eth.gas_price
 
-            contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=abi)
+                try:
+                    if chain_name == "tempo":
+                        # TIP-20 transferWithMemo (Tempo native).
+                        # build_transfer_with_memo returns {to, data, value};
+                        # we add the standard tx fields here.
+                        from bot.services.tempo_tip20 import tempo_tip20
 
-            # Build transaction
-            tx = contract.functions.transfer(
-                Web3.to_checksum_address(to_address), amount_raw
-            ).build_transaction(
-                {
-                    "nonce": nonce,
-                    "gasPrice": gas_price,
-                    "chainId": chain.chain_id,
-                }
-            )
+                        base = tempo_tip20.build_transfer_with_memo(
+                            token_address=token_address,
+                            to=to_address,
+                            amount=amount_raw,
+                            memo=memo or "",
+                        )
+                        tx = {
+                            "from": checksum_addr,
+                            "to": base["to"],
+                            "data": base["data"],
+                            "value": base.get("value", 0),
+                            "nonce": nonce,
+                            "gasPrice": gas_price,
+                            "chainId": chain.chain_id,
+                        }
+                    else:
+                        # ERC20 transfer ABI
+                        abi = [
+                            {
+                                "constant": False,
+                                "inputs": [
+                                    {"name": "_to", "type": "address"},
+                                    {"name": "_value", "type": "uint256"},
+                                ],
+                                "name": "transfer",
+                                "outputs": [{"name": "", "type": "bool"}],
+                                "type": "function",
+                            }
+                        ]
 
-        # Estimate gas
-        tx["gas"] = web3.eth.estimate_gas(tx)
+                        contract = web3.eth.contract(
+                            address=Web3.to_checksum_address(token_address), abi=abi
+                        )
 
-        # Sign based on wallet provider. Signing itself is pre-broadcast and
-        # safe to let fail normally; only the send_raw_transaction call is
-        # ambiguous once invoked.
-        if wallet.is_turnkey_wallet:
-            signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
-            raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
-        else:
-            private_key = self.get_private_key(wallet)
-            if not private_key.startswith("0x"):
-                private_key = "0x" + private_key
-            signed = Account.sign_transaction(tx, private_key)
-            raw_tx = signed.rawTransaction
+                        # Build transaction
+                        tx = contract.functions.transfer(
+                            Web3.to_checksum_address(to_address), amount_raw
+                        ).build_transaction(
+                            {
+                                "nonce": nonce,
+                                "gasPrice": gas_price,
+                                "chainId": chain.chain_id,
+                            }
+                        )
 
-        tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
-        return tx_hash.hex()
+                    # Estimate gas
+                    tx["gas"] = web3.eth.estimate_gas(tx)
+
+                    # Sign based on wallet provider. Signing itself is
+                    # pre-broadcast and safe to let fail normally; only the
+                    # send_raw_transaction call is ambiguous once invoked.
+                    if wallet.is_turnkey_wallet:
+                        signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
+                        raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+                    else:
+                        private_key = self.get_private_key(wallet)
+                        if not private_key.startswith("0x"):
+                            private_key = "0x" + private_key
+                        signed = Account.sign_transaction(tx, private_key)
+                        raw_tx = signed.rawTransaction
+                except Exception:
+                    release_nonce(checksum_addr, nonce)
+                    raise
+
+                # See send_native_token: PostBroadcastAmbiguous must NOT
+                # release the reservation — the node may already have it.
+                tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
+                return tx_hash.hex()
+            finally:
+                await asyncio.to_thread(
+                    _evm_send_db_lock_release, chain_name, wallet.address, db_holder
+                )
 
     async def _sign_via_turnkey(self, wallet: HotWallet, transaction: dict) -> str:
         """Sign a transaction via Turnkey API."""
