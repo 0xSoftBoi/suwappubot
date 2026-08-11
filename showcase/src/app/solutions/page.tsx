@@ -36,7 +36,7 @@ const quote = await client.getQuote({
   from: "USDC", to: "ETH", chain: "base", amount: "500",
 });
 const tx = await client.swap(quote);
-console.log(tx.txHash, tx.status);   // -> 0x… "filled"`,
+console.log(tx.txHash, tx.status);   // -> 0x… "completed"`,
     cta: { label: 'Read the API docs', href: '/docs/api-reference/overview' },
   },
   {
@@ -48,9 +48,10 @@ console.log(tx.txHash, tx.status);   // -> 0x… "filled"`,
     file: 'portfolio-check.sh',
     code: `curl https://api.suwappu.bot/v1/agent/portfolio \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
-# { "success": true, "chains": [...], "total_usd": "12,480.55" }
+# { "success": true, "wallet_address": "0x…", "wallet_type": "evm",
+#   "total_usd": "12480.55", "balances": [...] }
 
-curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
+curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,BTC" \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"`,
     cta: { label: 'Portfolio rebalancer guide', href: '/docs/guides/portfolio-rebalancer' },
   },
@@ -58,29 +59,36 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
     id: 'payments',
     eyebrow: 'For pay-per-call & micropayments',
     title: 'Payment & commerce agents',
-    body: 'Pay per request over HTTP 402 with x402: no signup, no subscription, no API key handshake, or settle in gasless stablecoin micropayments on Tempo for about a tenth of a cent per swap. Built for agents that transact machine-to-machine.',
-    flow: ['Call the endpoint', 'Receive HTTP 402', 'Pay in USDC', 'Get the result'],
-    file: 'x402-call.sh',
-    code: `curl -i https://api.suwappu.bot/v1/agent/quote \\
+    body: 'Agents authenticate with a bearer key and draw down a prepaid credit balance. Turn on metered payments and a caller with no credits gets an HTTP 402 carrying a signed challenge instead of a result, settled in pathUSD on Tempo at about a tenth of a cent per swap, or in USDC over x402. Built for agents that transact machine-to-machine.',
+    flow: ['Call the endpoint', 'Receive HTTP 402', 'Pay the challenge', 'Retry with proof'],
+    file: 'metered-call.sh',
+    code: `curl -i -X POST https://api.suwappu.bot/v1/agent/quote \\
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{"from_token":"USDC","to_token":"ETH","chain":"base","amount":"50"}'
-# HTTP/1.1 402 Payment Required
-# X-Payment: { "amount": "0.001", "asset": "USDC", "chain": "base" }
 
-# Pay the invoice, then retry with the payment proof attached: # no registration, no API key, charged per call.`,
+# With metered payments enabled, a caller that is out of credits
+# gets a challenge rather than a quote:
+# HTTP/1.1 402 Payment Required
+# X-Payment-Required: <base64 JSON challenge>
+# Accept-Payment: x402 network=base asset=0x… payTo=0x…`,
     cta: { label: 'Agentic Payments (x402) docs', href: '/docs/billing/agentic-payments' },
   },
   {
     id: 'wallets',
     eyebrow: "For apps that don't want to touch keys",
     title: 'Embedded wallets',
-    body: 'Provision a server-side wallet signed via Turnkey for your users or your agent, with per-key spend limits and allowed chains/pairs: your app or agent never handles a private key. Prefer full self-custody instead? Request an unsigned transaction and sign it yourself.',
+    body: 'Provision a server-side wallet signed via Turnkey for your users or your agent, then attach a policy that caps spend per time window or whitelists the addresses it may transact with. Your app or agent never handles a private key. Prefer full self-custody instead? Request an unsigned transaction and sign it yourself.',
     flow: ['Create wallet', 'Set policy', 'Get quote', 'Execute via quote_id'],
     file: 'create-wallet.sh',
     code: `curl -X POST https://api.suwappu.bot/v1/agent/wallets \\
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+# { "success": true, "wallet": { "address": "0x…", "chain_type": "evm" } }
+
+curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \\
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"chain":"base","policy":{"max_spend_usd":"1000","allowed_pairs":["USDC/ETH"]}}'
-# { "success": true, "wallet_id": "w_abc123", "address": "0x..." }`,
+  -d '{"type":"spending_limit","params":{"maxAmountWei":"1000000000000000000","timeWindowSeconds":86400}}'`,
     cta: { label: 'Managed wallets guide', href: '/docs/guides/managed-wallets' },
   },
 ];

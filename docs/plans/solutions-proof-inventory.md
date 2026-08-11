@@ -83,7 +83,7 @@ redesign doc is technically unblocked for at least chain/route data.
 
 ---
 
-## 4. A live accuracy bug on the current page
+## 4. Live accuracy bugs on the current page — all four fixed
 
 `showcase/src/app/solutions/page.tsx` (payments row) shows this curl and
 claims the response:
@@ -141,18 +141,34 @@ reading service variables was blocked by the permission classifier.** Not
 needed for the verdict — the live 401 from production is direct proof that
 neither flag is on.
 
-### What to do about it
+### Fixed
 
-Two honest options, and this is a product call, not a copy tweak:
+The payments row now shows the bearer-auth call that actually works, and
+describes the 402 challenge as what happens **when metered payments are
+enabled**, using the real `X-Payment-Required` / `Accept-Payment` headers and
+noting the challenge is base64. `AGENT_METERING_ENABLED` was **not** changed —
+turning on a billing path is a product decision, not a copy fix.
 
-- **If x402 is shipped and we want it**, turn on the flag and fix the example
-  to the real header names and base64 shape.
-- **If it isn't ready**, the payments row should describe bearer auth (what
-  actually happens) and label x402 as coming soon.
+### The other three examples were wrong too
 
-What we cannot do is leave a published page describing a billing flow that
-returns a different status code with a header that does not exist. Flagging
-this as **MONEY-PATH-adjacent**: it is a public claim about how we charge.
+Verified against `api-ts/src/routes/agent.ts` and the SDK. Every code block on
+the page had at least one false claim.
+
+| Row | Was | Actually |
+|---|---|---|
+| Trading | `tx.status` → `"filled"` | `"filled"` is not a status. Real values include `"completed"`, `"confirming"`, `"failed"` (`bot/models/swap.py:20-33`). Class, constructor, `getQuote()`/`swap()` signatures were all correct. |
+| Portfolio | `?tokens=ETH,SOL,BTC` | query param is **`?symbols=`** (`agent.ts:3059`) |
+| Portfolio | response `"chains": [...]` | field is **`"balances"`** (`agent.ts:2427-2433`) |
+| Portfolio | `"total_usd": "12,480.55"` | returned unformatted: **`"12480.55"`** |
+| Wallets | `POST /wallets` with `{chain, policy:{max_spend_usd, allowed_pairs}}` | the handler **ignores the request body entirely** (`agent.ts:2450-2533`) |
+| Wallets | response `{wallet_id, address}` | returns a nested **`wallet`** object with `address`, `chain_type`, `supported_chains` — there is no `wallet_id` |
+| Wallets (body copy) | "per-key spend limits and allowed chains/pairs" | policies are a **separate call**, `POST /v1/agent/wallet/policy`, and support `spending_limit` (maxAmountWei + timeWindowSeconds) or an **address** whitelist — not pairs |
+
+All corrected in `showcase/src/app/solutions/page.tsx`, including the wallets
+body copy, which promised a policy shape the API does not accept.
+
+**Note:** `docs.json` already used the correct `X-Payment-Required`. The docs
+were right; only the marketing page was wrong.
 
 ---
 
