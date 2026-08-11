@@ -154,3 +154,67 @@ def test_ownership_transfer_is_two_step(env):
     assert pos.functions.pendingOwner().call() == alice
     pos.functions.acceptOwnership().transact({"from": alice})
     assert pos.functions.owner().call() == alice
+
+
+def test_mint_state_is_one_call(env):
+    """Parity item: their eligibilityOf returns 13 values in a single call, so
+    the whole mint page loads in one round-trip. Ours previously needed six or
+    seven reads."""
+    w3, pos, feed, owner, alice = env
+    st = pos.functions.mintState(alice, PUBLIC, 0, 0).call()
+    (
+        live,
+        requires_proof,
+        price_cents,
+        price_wei,
+        priced_by_feed,
+        starts_at,
+        ends_at,
+        wallet_cap,
+        allocation,
+        phase_minted,
+        wallet_minted,
+        wallet_remaining,
+        ticker_remaining,
+        minted,
+        supply_remaining,
+        is_paused,
+        ended,
+        closed,
+    ) = st
+
+    assert live is True and requires_proof is False
+    assert price_cents == CENTS
+    assert price_wei == pos.functions.quote(PUBLIC, 1).call()
+    assert priced_by_feed is True
+    assert wallet_cap == 50 and wallet_minted == 0 and wallet_remaining == 50
+    assert ticker_remaining > 0 and minted == 0 and supply_remaining == 10_000
+    assert (is_paused, ended, closed) == (False, False, False)
+
+    # it tracks reality after a mint
+    pos.functions.mint(PUBLIC, 0, 2, 0, NO_PROOF).transact(
+        {"from": alice, "value": pos.functions.quote(PUBLIC, 2).call()}
+    )
+    st2 = pos.functions.mintState(alice, PUBLIC, 0, 0).call()
+    assert st2[10] == 2 and st2[11] == 48  # walletMinted / walletRemaining
+    assert st2[13] == 2 and st2[14] == 9_998  # minted / supplyRemaining
+    assert st2[12] == ticker_remaining - 2
+
+    # and reflects lifecycle without extra calls
+    pos.functions.setPaused(True).transact({"from": owner})
+    st3 = pos.functions.mintState(alice, PUBLIC, 0, 0).call()
+    assert st3[15] is True and st3[0] is False  # isPaused, live
+
+
+def test_mint_state_works_logged_out_and_on_fallback_pricing(env):
+    w3, pos, feed, owner, alice = env
+    zero = "0x" + "00" * 20
+    st = pos.functions.mintState(zero, PUBLIC, 0, 0).call()
+    assert st[10] == 0 and st[11] == 0  # no wallet figures, no revert
+
+    now = w3.eth.get_block("latest").timestamp
+    feed.functions.set(1_00000000, now).transact({"from": owner})  # out of band
+    pos.functions.setFallbackWeiPerUsdCent(10**13).transact({"from": owner})
+    st2 = pos.functions.mintState(alice, PUBLIC, 0, 0).call()
+    assert st2[4] is False, "must report that the fallback is pricing the mint"
+    assert st2[3] == CENTS * 10**13

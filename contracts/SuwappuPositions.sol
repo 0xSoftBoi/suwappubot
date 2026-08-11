@@ -319,6 +319,85 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         return used >= limit ? 0 : limit - used;
     }
 
+    /// @notice Everything a mint page needs, in ONE call.
+    ///
+    ///         Assembling this client-side takes six or seven separate reads
+    ///         (phase config, wallet usage, ticker remaining, quote, live flags,
+    ///         supply). On a cold wallet over mobile that is the difference
+    ///         between a page that appears instantly and one that pops in field
+    ///         by field. Pure view — no money-path surface.
+    ///
+    /// @param who        Wallet being quoted; pass address(0) for a logged-out view.
+    /// @param phase      Phase to describe.
+    /// @param tickerIndex Ticker the user is looking at.
+    /// @param maxQty     The allowlist grant `who` claims to hold (0 for open phases);
+    ///                   this is only used to compute their remaining allowance and is
+    ///                   NOT trusted for minting, which still verifies the proof.
+    struct MintState {
+        // phase
+        bool live;
+        bool requiresProof;
+        uint96 priceUsdCents;
+        uint256 priceWei; // for `quantity` = 1
+        bool pricedByFeed; // false == bounded fallback in force
+        uint64 startsAt;
+        uint64 endsAt;
+        uint16 walletCap;
+        uint16 allocation;
+        uint256 phaseMintedSoFar;
+        // wallet
+        uint256 walletMinted;
+        uint256 walletRemaining;
+        // supply
+        uint256 tickerRemaining;
+        uint256 minted;
+        uint256 supplyRemaining;
+        // lifecycle
+        bool isPaused;
+        bool ended;
+        bool closedForever;
+    }
+
+    function mintState(address who, Phase phase, uint8 tickerIndex, uint256 maxQty)
+        external
+        view
+        returns (MintState memory st)
+    {
+        PhaseConfig memory cfg = phaseConfig[phase];
+        st.requiresProof = cfg.merkleRoot != bytes32(0);
+        st.priceUsdCents = cfg.price;
+        st.startsAt = cfg.startsAt;
+        st.endsAt = cfg.endsAt;
+        st.walletCap = cfg.walletCap;
+        st.allocation = cfg.allocation;
+        st.phaseMintedSoFar = phaseMinted[phase];
+
+        (uint256 feedPrice, bool ok) = ethUsd();
+        st.pricedByFeed = ok;
+        if (ok || fallbackWeiPerUsdCent != 0) {
+            st.priceWei = _weiForCents(uint256(cfg.price));
+        }
+        feedPrice; // silence unused
+
+        st.isPaused = paused;
+        st.closedForever = mintingClosedForever;
+        st.ended = mintEndTime != 0 && block.timestamp > mintEndTime;
+        st.live = phaseIsLive(phase) && !st.isPaused && !st.ended && !st.closedForever;
+
+        if (who != address(0)) {
+            st.walletMinted = mintedInPhase[phase][who];
+            uint256 limit = st.requiresProof ? maxQty : type(uint256).max;
+            if (cfg.walletCap != 0 && cfg.walletCap < limit) limit = cfg.walletCap;
+            st.walletRemaining = st.walletMinted >= limit ? 0 : limit - st.walletMinted;
+        }
+
+        if (tickerIndex < TICKER_COUNT) {
+            st.tickerRemaining = tickerCap[tickerIndex] - tickerMinted[tickerIndex];
+        }
+        st.minted = totalSupply;
+        st.supplyRemaining = MAX_SUPPLY - totalSupply;
+    }
+
     function phaseIsLive(Phase phase) public view returns (bool) {
         PhaseConfig memory cfg = phaseConfig[phase];
         if (cfg.startsAt == 0 || block.timestamp < cfg.startsAt) return false;
