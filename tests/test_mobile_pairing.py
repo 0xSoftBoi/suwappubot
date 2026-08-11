@@ -2,13 +2,17 @@
 
   POST /v1/mobile/auth/telegram/start  — bot/services/mobile_pairing_service.py
   POST /v1/mobile/auth/telegram/poll   — same
-  bot/handlers/start.py's `/start gekko_<code>` binding
+  bot/handlers/start.py's `/start gekko_<code>` staging + Approve/Not me
   POST /v1/mobile/events               — analytics sink validation/redaction
 
-Covers: happy path, expired code, unknown code (identical response to
-expired), single-use enforcement, no raw code in logs, per-IP rate limits,
-binding to the Telegram-resolved user (not client input), and the events
-endpoint's name/prop validation + redaction.
+Covers: happy path (stage -> approve -> poll), expired code, unknown code
+(identical response to expired), single-use enforcement (incl. atomic
+double-poll), no raw code in logs, per-IP rate limits, binding to the
+Telegram-resolved user (not client input), the staged-but-not-approved
+"pending" gate (a bare deeplink tap must NOT be enough to sign in), "Not me"
+rejection, the verification word (returned by /start, stable, non-revealing),
+the TOS-gate-doesn't-eat-the-code path, and the events endpoint's
+name/prop validation + redaction.
 """
 
 import logging
@@ -165,6 +169,8 @@ def test_poll_ready_mints_jwt_and_is_single_use(client, monkeypatch):
         session.flush()
         user_id = user.id
 
+    staged = mobile_pairing_service.stage(pending.code, user_id)
+    assert staged is True
     approved = mobile_pairing_service.approve(pending.code, user_id)
     assert approved is True
 
@@ -183,6 +189,99 @@ def test_poll_ready_mints_jwt_and_is_single_use(client, monkeypatch):
     assert resp2.json() == {"status": "expired"}
 
 
+def test_poll_staged_but_not_approved_stays_pending(client):
+    """The core account-takeover fix: opening the deeplink alone (staging)
+    must NOT be enough for poll to hand back a session — only an explicit
+    Approve does."""
+    from bot.models.user import User
+
+    pending = mobile_pairing_service.create_pending(request_ip="5.5.5.1")
+    with get_session() as session:
+        user = User(telegram_id=111000222, username="staged_only", tos_accepted=True)
+        session.add(user)
+        session.flush()
+        user_id = user.id
+
+    staged = mobile_pairing_service.stage(pending.code, user_id)
+    assert staged is True
+
+    resp = client.post("/v1/mobile/auth/telegram/poll", json={"code": pending.code})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "pending"}
+
+
+def test_reject_prevents_approval_and_poll_never_ready(client):
+    """ "Not me" must permanently kill the code — a subsequent Approve call
+    (e.g. a delayed/duplicate tap) must not resurrect it, and poll must
+    never see it as ready."""
+    from bot.models.user import User
+
+    pending = mobile_pairing_service.create_pending(request_ip="5.5.5.2")
+    with get_session() as session:
+        user = User(telegram_id=111000333, username="rejector", tos_accepted=True)
+        session.add(user)
+        session.flush()
+        user_id = user.id
+
+    assert mobile_pairing_service.stage(pending.code, user_id) is True
+    assert mobile_pairing_service.reject(pending.code, user_id) is True
+
+    # A later Approve attempt for the same code must fail — the row is gone.
+    assert mobile_pairing_service.approve(pending.code, user_id) is False
+
+    resp = client.post("/v1/mobile/auth/telegram/poll", json={"code": pending.code})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "expired"}
+
+
+def test_approve_requires_same_user_the_code_was_staged_to():
+    """Even reaching the callback layer, approve() must reject a mismatched
+    user id — defense in depth beyond the callback handler resolving its own
+    users.id from the Telegram update."""
+    from bot.models.user import User
+
+    pending = mobile_pairing_service.create_pending(request_ip="5.5.5.3")
+    with get_session() as session:
+        victim = User(telegram_id=222000111, username="victim", tos_accepted=True)
+        attacker = User(telegram_id=222000222, username="attacker", tos_accepted=True)
+        session.add_all([victim, attacker])
+        session.flush()
+        victim_id, attacker_id = victim.id, attacker.id
+
+    assert mobile_pairing_service.stage(pending.code, victim_id) is True
+    # A different user id trying to approve the same staged code must fail.
+    assert mobile_pairing_service.approve(pending.code, attacker_id) is False
+    # The legitimate staged user can still approve it.
+    assert mobile_pairing_service.approve(pending.code, victim_id) is True
+
+
+def test_atomic_double_poll_yields_exactly_one_token(client):
+    """MED fix: poll_and_consume must be an atomic conditional claim, not
+    check-then-act — two polls racing for the same approved code must not
+    both mint a JWT."""
+    from bot.models.user import User
+
+    pending = mobile_pairing_service.create_pending(request_ip="6.6.6.6")
+    with get_session() as session:
+        user = User(telegram_id=333000111, username="racer", tos_accepted=True)
+        session.add(user)
+        session.flush()
+        user_id = user.id
+
+    assert mobile_pairing_service.stage(pending.code, user_id) is True
+    assert mobile_pairing_service.approve(pending.code, user_id) is True
+
+    results = [
+        client.post("/v1/mobile/auth/telegram/poll", json={"code": pending.code}).json()
+        for _ in range(2)
+    ]
+    ready_results = [r for r in results if r.get("status") == "ready"]
+    expired_results = [r for r in results if r.get("status") == "expired"]
+
+    assert len(ready_results) == 1, f"expected exactly one 'ready', got {results}"
+    assert len(expired_results) == 1
+
+
 def test_poll_rate_limited_per_ip(client):
     for _ in range(60):
         resp = client.post("/v1/mobile/auth/telegram/poll", json={"code": "x"})
@@ -196,10 +295,12 @@ def test_poll_rate_limited_per_ip(client):
 
 
 @pytest.mark.asyncio
-async def test_start_gekko_binds_to_telegram_resolved_user(tmp_db):
-    """`/start gekko_<code>` must bind to the users.id the bot itself
-    resolved from update.effective_user — never anything the client could
-    supply. This is the actual account-takeover boundary."""
+async def test_start_gekko_stages_only_does_not_grant_session(tmp_db):
+    """`/start gekko_<code>` must ONLY stage — binding to the users.id the
+    bot itself resolved from update.effective_user, never anything the
+    client could supply — and a bare deeplink tap must NOT be enough for
+    poll to hand back a session. This is the BLOCKER fix: one-tap
+    phishing must not equal account takeover."""
     from bot.handlers.start import start_command
     from bot.models.user import User
 
@@ -223,12 +324,74 @@ async def test_start_gekko_binds_to_telegram_resolved_user(tmp_db):
 
     await start_command(update, context)
 
+    # Staged, NOT approved — poll must still say "pending", not "ready".
     result = mobile_pairing_service.poll_and_consume(pending.code)
-    assert result == {"status": "ready", "user_id": expected_user_id}
+    assert result == {"status": "pending"}
 
     update.message.reply_text.assert_awaited_once()
     reply_text = update.message.reply_text.call_args.args[0]
-    assert "signed in" in reply_text.lower()
+    reply_markup = update.message.reply_text.call_args.kwargs.get("reply_markup")
+    assert "sign-in request" in reply_text.lower()
+    assert "verification word" in reply_text.lower()
+    assert reply_markup is not None  # Approve/Not me keyboard shown
+
+    # Now drive the explicit Approve callback — only THIS grants a session.
+    from bot.handlers.start import gekko_approve_callback, GEKKO_APPROVE_PREFIX
+
+    approve_update = MagicMock()
+    approve_update.effective_user = MagicMock(id=tg_id)
+    approve_update.callback_query = MagicMock()
+    approve_update.callback_query.data = f"{GEKKO_APPROVE_PREFIX}{pending.code}"
+    approve_update.callback_query.answer = AsyncMock()
+    approve_update.callback_query.edit_message_text = AsyncMock()
+
+    await gekko_approve_callback(approve_update, context)
+
+    approve_update.callback_query.edit_message_text.assert_awaited_once()
+    approve_reply = approve_update.callback_query.edit_message_text.call_args.args[0]
+    assert "signed in" in approve_reply.lower()
+
+    ready = mobile_pairing_service.poll_and_consume(pending.code)
+    assert ready == {"status": "ready", "user_id": expected_user_id}
+
+
+@pytest.mark.asyncio
+async def test_start_gekko_not_me_rejects_and_poll_never_ready(tmp_db):
+    """The "Not me" callback must reject a staged request, and poll must
+    never subsequently return ready for it."""
+    from bot.handlers.start import start_command, gekko_reject_callback, GEKKO_REJECT_PREFIX
+    from bot.models.user import User
+
+    tg_id = 555111444
+    with get_session() as session:
+        session.add(User(telegram_id=tg_id, username="rejector", tos_accepted=True))
+
+    pending = mobile_pairing_service.create_pending(request_ip="4.4.4.5")
+
+    update = MagicMock()
+    update.effective_user = MagicMock(id=tg_id, username="rejector", first_name="R", last_name=None)
+    update.message = MagicMock()
+    update.message.reply_text = AsyncMock()
+    context = MagicMock()
+    context.args = [f"{CODE_PREFIX}{pending.code}"]
+
+    await start_command(update, context)
+
+    reject_update = MagicMock()
+    reject_update.effective_user = MagicMock(id=tg_id)
+    reject_update.callback_query = MagicMock()
+    reject_update.callback_query.data = f"{GEKKO_REJECT_PREFIX}{pending.code}"
+    reject_update.callback_query.answer = AsyncMock()
+    reject_update.callback_query.edit_message_text = AsyncMock()
+
+    await gekko_reject_callback(reject_update, context)
+
+    reject_update.callback_query.edit_message_text.assert_awaited_once()
+    reject_reply = reject_update.callback_query.edit_message_text.call_args.args[0]
+    assert "rejected" in reject_reply.lower()
+
+    result = mobile_pairing_service.poll_and_consume(pending.code)
+    assert result == {"status": "expired"}
 
 
 @pytest.mark.asyncio
@@ -254,6 +417,64 @@ async def test_start_gekko_unknown_code_gives_neutral_reply(tmp_db):
     assert "invalid or has expired" in reply_text.lower()
 
 
+@pytest.mark.asyncio
+async def test_start_gekko_tos_gate_does_not_silently_eat_code(tmp_db):
+    """LOW fix: a first-time user (no TOS acceptance yet) tapping the
+    deeplink must be told to retry sign-in after accepting, not have the
+    code silently dropped with no explanation."""
+    from bot.handlers.start import start_command
+    from bot.models.user import User
+
+    tg_id = 555111555
+    # No User row at all yet — brand-new user, tos_accepted defaults False.
+    pending = mobile_pairing_service.create_pending(request_ip="4.4.4.6")
+
+    update = MagicMock()
+    update.effective_user = MagicMock(id=tg_id, username="newbie", first_name="N", last_name=None)
+    update.message = MagicMock()
+    update.message.reply_text = AsyncMock()
+    context = MagicMock()
+    context.args = [f"{CODE_PREFIX}{pending.code}"]
+
+    await start_command(update, context)
+
+    update.message.reply_text.assert_awaited_once()
+    reply_text = update.message.reply_text.call_args.args[0]
+    assert "terms" in reply_text.lower()
+    assert "gekko" in reply_text.lower()
+    assert "again" in reply_text.lower()
+
+    # The code must still be untouched (still "pending") — TOS gate must not
+    # have consumed/staged it.
+    with get_session() as session:
+        row = session.query(MobilePairing).first()
+        assert row.status == "pending"
+        assert row.user_id is None
+
+
+# ── verification word ───────────────────────────────────────────────────
+
+
+def test_verification_word_returned_and_stable_and_non_revealing(client):
+    resp = client.post("/v1/mobile/auth/telegram/start")
+    body = resp.json()
+
+    assert "verificationWord" in body
+    word = body["verificationWord"]
+    assert isinstance(word, str) and len(word) == 5
+
+    from bot.services.mobile_pairing_service import derive_verification_word
+
+    # Stable: recomputing from the raw code (as the bot does independently)
+    # gives the exact same word.
+    assert derive_verification_word(body["code"]) == word
+
+    # Non-revealing: the word must not literally appear inside the code
+    # (a trivial substring leak would let it "reconstruct" part of the code).
+    assert word not in body["code"]
+    assert body["code"] not in word
+
+
 # ── raw code never appears in logs ──────────────────────────────────────
 
 
@@ -264,7 +485,8 @@ def test_pairing_code_never_logged(client, caplog):
     code = resp.json()["code"]
 
     client.post("/v1/mobile/auth/telegram/poll", json={"code": code})
-    mobile_pairing_service.approve(code, telegram_resolved_user_id=1)
+    mobile_pairing_service.stage(code, telegram_resolved_user_id=1)
+    mobile_pairing_service.approve(code, telegram_confirming_user_id=1)
 
     log_text = "\n".join(record.getMessage() for record in caplog.records)
     assert code not in log_text

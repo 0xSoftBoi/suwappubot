@@ -25,6 +25,8 @@ from bot.handlers.start import (
     tos_accept_callback,
     tos_decline_callback,
     tos_review_callback,
+    gekko_approve_callback,
+    gekko_reject_callback,
 )
 from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
@@ -598,6 +600,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
     application.add_handler(CallbackQueryHandler(tos_review_callback, pattern="^tos_review$"))
+    # Gekko mobile Telegram sign-in: staged-request Approve/Not me buttons.
+    # MONEY-PATH — approve_callback is the only call site that can mint a
+    # collectible pairing (see bot/handlers/start.py, mobile_pairing_service.py).
+    application.add_handler(CallbackQueryHandler(gekko_approve_callback, pattern="^gekko_ok:"))
+    application.add_handler(CallbackQueryHandler(gekko_reject_callback, pattern="^gekko_no:"))
 
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))

@@ -12,7 +12,7 @@ from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.services.referral_service import referral_service
 from bot.services.wallet import WalletService
-from bot.services.mobile_pairing_service import mobile_pairing_service
+from bot.services.mobile_pairing_service import mobile_pairing_service, derive_verification_word
 from bot.utils.templates import HELP_MESSAGE, TOS_KEYBOARD
 from bot.i18n import get_text, get_user_lang
 
@@ -23,6 +23,13 @@ wallet_service = WalletService()
 # Checked BEFORE the referral-code branch's .upper() since pairing codes are
 # case-sensitive opaque tokens.
 MOBILE_PAIRING_PREFIX = "gekko_"
+
+# Callback data prefixes for the Approve/Not me buttons shown after staging.
+# The raw code is embedded (already visible in the /start message itself, so
+# this adds no new exposure) so the callback can resolve straight back to the
+# same pairing row without an extra DB lookup keyed some other way.
+GEKKO_APPROVE_PREFIX = "gekko_ok:"
+GEKKO_REJECT_PREFIX = "gekko_no:"
 
 
 def _build_main_keyboard() -> InlineKeyboardMarkup:
@@ -294,30 +301,67 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
                 )
 
-    # Check TOS
+    # Check TOS. If a Gekko pairing code rode in on this same /start, don't
+    # silently eat it — tell the user to retry sign-in from the app once
+    # they've accepted, instead of leaving the app's poll to just time out
+    # with no explanation.
     if not tos_accepted:
-        await update.message.reply_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
+        tos_text = TOS_TEXT
+        if pairing_code:
+            tos_text += (
+                "\n\n_Signing in to Gekko? Accept the Terms above, then tap the "
+                "sign-in link in the Gekko app again to continue._"
+            )
+        await update.message.reply_text(tos_text, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
         return
 
     # Gekko mobile Telegram sign-in: /start gekko_<code>. MONEY-PATH — binds
     # ONLY to `user_id`, which was just resolved from `update.effective_user`
     # above via the bot's own DB lookup, never from anything client-supplied.
+    #
+    # This ONLY stages the request — it does NOT grant a session. A one-tap
+    # deeplink open must never be sufficient for account takeover: an
+    # attacker who generates a code on their own device and phishes a victim
+    # into opening `t.me/<bot>?start=gekko_<code>` would otherwise get the
+    # VICTIM's session the instant they tap. Approval requires an explicit
+    # second tap on "Approve" below, gated by a verification word the
+    # legitimate requester's own Gekko app shows on its sign-in screen — a
+    # phishing target who never opened their own app has nothing to compare
+    # it against.
+    #
     # Unknown/expired codes get an identical neutral reply so a code can't be
     # probed for validity from the bot side either. The raw code is never
-    # logged — only the boolean approval outcome.
+    # logged — only the boolean staging outcome.
     if pairing_code:
         try:
-            approved = mobile_pairing_service.approve(pairing_code, user_id)
+            staged = mobile_pairing_service.stage(pairing_code, user_id)
         except Exception:
-            logger.exception("Gekko mobile pairing approval crashed")
-            approved = False
+            logger.exception("Gekko mobile pairing staging crashed")
+            staged = False
 
-        if approved:
+        if staged:
+            word = derive_verification_word(pairing_code)
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Approve", callback_data=f"{GEKKO_APPROVE_PREFIX}{pairing_code}"
+                        ),
+                        InlineKeyboardButton(
+                            "🚫 Not me", callback_data=f"{GEKKO_REJECT_PREFIX}{pairing_code}"
+                        ),
+                    ]
+                ]
+            )
             await update.message.reply_text(
-                "✅ *Gekko is now signed in on your device.*\n\n"
-                "If you didn't request this, ignore this message — do not share "
-                "this link or any sign-in code with anyone.",
+                "🔐 *Gekko sign-in request*\n\n"
+                f"Verification word: *{word}*\n\n"
+                "Only tap *Approve* if this word matches the one shown on your "
+                "Gekko app's sign-in screen right now.\n\n"
+                "If you didn't just request this from the Gekko app, tap *Not me* — "
+                "do not approve, and never share this link or code with anyone.",
                 parse_mode="Markdown",
+                reply_markup=keyboard,
             )
         else:
             await update.message.reply_text(
@@ -544,6 +588,75 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle divider buttons that do nothing."""
     query = update.callback_query
     await query.answer()
+
+
+def _resolve_db_user_id(telegram_id: int) -> int | None:
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == telegram_id).first()
+        return db_user.id if db_user else None
+
+
+async def gekko_approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the "Approve" button on a staged Gekko sign-in request.
+
+    MONEY-PATH: this is the ONLY call site that can move a pairing row into
+    `approved` (collectible by poll). Binds to the callback's own resolved
+    `users.id`, matching the row `stage()` bound to — never client-supplied.
+    """
+    query = update.callback_query
+    data = query.data or ""
+    raw_code = data[len(GEKKO_APPROVE_PREFIX) :]
+
+    user = update.effective_user
+    user_id = _resolve_db_user_id(user.id) if user else None
+
+    approved = False
+    if user_id is not None:
+        try:
+            approved = mobile_pairing_service.approve(raw_code, user_id)
+        except Exception:
+            logger.exception("Gekko mobile pairing approval crashed")
+            approved = False
+
+    await query.answer("Approved" if approved else "Expired or already handled")
+
+    if approved:
+        await query.edit_message_text(
+            "✅ *Gekko is now signed in on your device.*\n\n"
+            "If you didn't approve this, contact support immediately — do not "
+            "share this link or any sign-in code with anyone.",
+            parse_mode="Markdown",
+        )
+    else:
+        await query.edit_message_text(
+            "This sign-in request is no longer valid — it may have expired, "
+            "already been handled, or wasn't staged for your account."
+        )
+
+
+async def gekko_reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the "Not me" button on a staged Gekko sign-in request — deletes
+    the pending row so it can never subsequently be approved."""
+    query = update.callback_query
+    data = query.data or ""
+    raw_code = data[len(GEKKO_REJECT_PREFIX) :]
+
+    user = update.effective_user
+    user_id = _resolve_db_user_id(user.id) if user else None
+
+    if user_id is not None:
+        try:
+            mobile_pairing_service.reject(raw_code, user_id)
+        except Exception:
+            logger.exception("Gekko mobile pairing rejection crashed")
+
+    await query.answer("Rejected")
+    await query.edit_message_text(
+        "🚫 *Sign-in request rejected.*\n\n"
+        "If you didn't request this, no further action is needed — the code "
+        "can no longer be used.",
+        parse_mode="Markdown",
+    )
 
 
 # Create handlers

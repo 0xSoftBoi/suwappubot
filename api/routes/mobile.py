@@ -221,16 +221,24 @@ def _client_ip(request: Request) -> str:
 # ═══════════════════════════════════════════════════════════════════
 #
 # Device-initiated pairing, no Telegram Login Widget:
-#   1. POST /auth/telegram/start (unauth) -> {code, deeplink, expiresAt}
+#   1. POST /auth/telegram/start (unauth) -> {code, deeplink, expiresAt,
+#      verificationWord}. The app displays the word on its own screen.
 #   2. User opens the deeplink -> bot/handlers/start.py's `/start gekko_<code>`
-#      binds the code to the Telegram update's OWN resolved users.id.
+#      STAGES the code to the Telegram update's OWN resolved users.id (does
+#      NOT grant a session) and shows an Approve/Not me prompt with the same
+#      verification word. Only an explicit "Approve" tap — checked against
+#      the same resolved users.id — moves the code to `approved`.
 #   3. POST /auth/telegram/poll (unauth) -> pending | ready+JWT | expired.
-#      "expired" covers unknown AND actually-expired codes identically, so a
-#      client can't distinguish "never existed" from "timed out" by response.
+#      "pending" covers both not-yet-staged and staged-but-not-yet-approved.
+#      "expired" covers unknown, actually-expired, and rejected codes
+#      identically, so a client can't distinguish these cases by response.
+#      The approved -> consumed transition is an atomic conditional UPDATE so
+#      two concurrent polls can never both mint a JWT for the same code.
 #
 # Both routes are unauthenticated by necessity (there's no session yet), so
 # they're rate-limited per-IP in addition to the short TTL + single-use +
-# per-IP pending cap enforced in bot/services/mobile_pairing_service.py.
+# per-IP pending cap + explicit-approval step enforced in
+# bot/services/mobile_pairing_service.py.
 _pairing_start_limiter = UserRateLimiter(max_requests=10, window_seconds=60)
 _pairing_poll_limiter = UserRateLimiter(max_requests=60, window_seconds=60)  # ~1/sec
 
@@ -273,6 +281,12 @@ async def start_telegram_pairing(request: Request):
         "code": pending.code,
         "deeplink": deeplink,
         "expiresAt": pending.expires_at.isoformat(),
+        # The app displays this alongside the deeplink/QR. The bot shows the
+        # SAME word (derived deterministically from the code, never stored)
+        # on its Approve/Not me prompt after the deeplink is opened — the
+        # user must only tap Approve if the two match. See
+        # bot/services/mobile_pairing_service.py::derive_verification_word.
+        "verificationWord": pending.verification_word,
     }
 
 
