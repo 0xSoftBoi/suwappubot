@@ -418,6 +418,31 @@ class HealthMonitor:
                 except Exception as e:
                     logger.error(f"Failed to send alert to {admin_id}: {e}")
 
+    async def alert(
+        self, severity: str, title: str, message: str, data: Optional[Dict] = None
+    ) -> None:
+        """Public paging entry point for OTHER services that don't have their
+        own bot/admin_ids plumbing (e.g. gas_topup_service's global daily
+        circuit breaker — the primary detection signal for a sybil gas-drain
+        attempt). Reuses this monitor's existing `_send_alert` machinery
+        (same admin fan-out, same per-(severity, title) cooldown so a
+        sustained trip doesn't spam). Best-effort: any failure — including
+        `_send_alert` itself raising, or the monitor never having been
+        started with a bot — is swallowed and logged, never propagated, so a
+        paging problem can never break or block the caller's own operation."""
+        try:
+            await self._send_alert(
+                Alert(
+                    severity=severity,
+                    title=title,
+                    message=message,
+                    timestamp=datetime.now(timezone.utc),
+                    data=data,
+                )
+            )
+        except Exception as e:  # noqa: BLE001 — alerting must never break the caller
+            logger.error(f"health_monitor.alert: failed to send '{title}': {e}")
+
     async def record_swap_result(self, success: bool, chain: str = "all"):
         """Record a swap result for tracking."""
         if success:

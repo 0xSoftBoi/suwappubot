@@ -2749,8 +2749,11 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
                     # F4/H3 fix: dispatch ONLY ensure_gas on gas_topup_service's
                     # own dedicated bounded pool, not asyncio.to_thread's
                     # shared default executor — see run_gas_sensitive's
-                    # docstring. `available` > 0 here is real evidence this
-                    # wallet holds/held funds (DESIGN CHANGE eligibility gate).
+                    # docstring. `available` > 0 means this wallet currently
+                    # holds funds (DESIGN CHANGE eligibility gate) — NOT proof
+                    # of deposit provenance; see gas_topup_service.py's
+                    # ELIGIBILITY GATE docs for the honest predicate and its
+                    # known dust-chaining limitation.
                     await run_gas_sensitive(
                         ensure_gas,
                         user_id=user_id,

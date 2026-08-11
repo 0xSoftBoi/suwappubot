@@ -19,8 +19,11 @@ ever invoked. That means a top-up always accompanies genuine transfer
 intent; a user cannot cheaply trigger repeated top-ups by polling a
 balance-check endpoint alone, since no such endpoint calls this module. That
 same balance check also feeds `has_verified_funds` (see the ELIGIBILITY GATE
-section below) — callers pass `True` when it proves the wallet genuinely
-holds/held real funds.
+section below) — callers pass `True` when it proves the wallet CURRENTLY
+holds at least the amount being moved right now. This is NOT proof of a
+genuine inbound deposit or any funding history — see the ELIGIBILITY GATE
+section's honest statement of what this actually gates and its known
+limitation.
 
 SPEND CONTROLS (all enforced here, before any transfer is made):
   * Per-transaction ceiling (`GAS_TOPUP_MAX_USD`, converted to wei via a
@@ -52,15 +55,27 @@ SPEND CONTROLS (all enforced here, before any transfer is made):
     overshoot a cap.
 
 ELIGIBILITY GATE (DESIGN CHANGE, anti-sybil — see `_wallet_is_eligible_for_topup`):
-a wallet is eligible for auto top-up only if it has EITHER already been
-observed holding real funds (`has_verified_funds=True`, passed by the
-caller from the SAME balance check the ORDERING section above already
-requires) OR is at least `GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS` old. Without
-this, per-user/IP/global daily caps alone don't stop a sybil attacker: a
-fresh, never-funded account could draw gas immediately, so minting accounts
-(near-free) is all it takes to keep hitting the daily caps. This gate forces
-each account to EITHER wait out the age window OR actually receive real
-funds first.
+a wallet is eligible for auto top-up only if it EITHER has `has_verified_funds=True`
+(passed by the caller from the SAME balance check the ORDERING section above
+already requires — in practice "this wallet currently holds at least the
+amount being sent/withdrawn right now"; `api/routes/mobile.py`'s
+`_send_usdc_base` hardcodes this to `True` unconditionally, since it has
+already checked the current balance covers the send amount) OR is at least
+`GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS` old.
+
+HONEST STATEMENT OF WHAT THIS DOES NOT DO: `has_verified_funds` is NOT proof
+of a genuine inbound deposit or any deposit history — it never inspects
+where the wallet's current balance came from. A real deposit-history check
+was considered and rejected as not worth the added complexity. KNOWN
+LIMITATION (accepted): an attacker can chain dust between wallets they
+control — fund wallet B, spend from B (satisfying B's check), forward the
+remainder to wallet C, repeat — and this module pays Base gas for every hop,
+so the marginal cost per additional sybil'd wallet in such a chain is near
+zero. This gate only stops the cheaper "mint a fresh account, request a
+top-up immediately, never fund it at all" variant; it does NOT bound the
+dust-chaining variant. The per-IP/user/global daily caps (SPEND CONTROLS
+above) are the actual binding constraints against a sybil campaign, not this
+gate.
 
 H2 FIX — QUOTA REFUND ON PRE-BROADCAST FAILURE: every `_daily_reserve` /
 `_lifetime_reserve` call above reserves quota BEFORE the hot wallet ever
@@ -132,6 +147,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional, Tuple
@@ -223,6 +239,25 @@ GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS = 86400  # 24 hours
 # dedicated-pool dispatch bounds the worst case further.
 GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS = 15
 
+# Item 3 fix: bound for `run_gas_sensitive_sync`'s `future.result()` — the
+# module docstring's DISPATCH section already documents `ensure_gas`'s worst
+# case as "~1.5s price fetch + up to 30s cross-replica lock wait
+# (hot_wallet.py's `_EVM_SEND_LOCK_TIMEOUT_SECONDS`) + 15s receipt wait"; an
+# unbounded `future.result()` let a wedged worker thread (e.g. an RPC call
+# that never times out at the socket level) block the calling thread
+# forever. Sum those phase bounds plus a margin for the surrounding
+# synchronous RPC calls (balance/nonce fetch, broadcast) that aren't covered
+# by any of the three named phases.
+_GAS_TOPUP_PRICE_FETCH_WORST_CASE_SECONDS = 3  # httpx.Timeout(connect=.5,read=1,write=1,pool=.5)
+_GAS_TOPUP_SEND_LOCK_WORST_CASE_SECONDS = 30  # hot_wallet.py's _EVM_SEND_LOCK_TIMEOUT_SECONDS
+_GAS_TOPUP_SYNC_MARGIN_SECONDS = 10  # headroom for balance/nonce/broadcast RPC calls
+GAS_TOPUP_SYNC_TIMEOUT_SECONDS = (
+    _GAS_TOPUP_PRICE_FETCH_WORST_CASE_SECONDS
+    + _GAS_TOPUP_SEND_LOCK_WORST_CASE_SECONDS
+    + GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS
+    + _GAS_TOPUP_SYNC_MARGIN_SECONDS
+)
+
 # Fixed gas-unit estimates for earn withdraw (Aave V3 on Base), used when we
 # don't already have a built tx to read `.gas`/`.gasPrice` off of (unlike
 # /send, which reuses the exact built ERC-20 transfer tx). Deposit has its
@@ -307,8 +342,10 @@ class GasTopUpCapExceeded(GasTopUpError):
 
 class GasTopUpIneligible(GasTopUpCapExceeded):
     """DESIGN CHANGE: the wallet failed the eligibility gate (see
-    `_wallet_is_eligible_for_topup`) — no observed real funds and younger
-    than `GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS`. Subclasses `GasTopUpCapExceeded`
+    `_wallet_is_eligible_for_topup`) — the caller didn't pass
+    `has_verified_funds=True` (i.e. the wallet doesn't currently hold enough
+    for the action being attempted) and the wallet is younger than
+    `GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS`. Subclasses `GasTopUpCapExceeded`
     so every existing caller (which only catches that base class) already
     handles it correctly as a deterministic, non-retryable rejection; a
     caller that wants distinct copy for this specific case can catch
@@ -693,17 +730,30 @@ def run_gas_sensitive_sync(func, *args, **kwargs) -> Any:
     `ensure_gas` calls regardless of which one a caller uses.
 
     Raises `GasTopUpBusy` immediately (does not queue) if saturated, same
-    contract as `run_gas_sensitive`."""
+    contract as `run_gas_sensitive`.
+
+    Item 3 fix: `future.result()` is bounded by `GAS_TOPUP_SYNC_TIMEOUT_SECONDS`
+    (the sum of `ensure_gas`'s documented internal phase bounds plus a
+    margin) — previously unbounded, so a wedged worker thread could block
+    this call, and therefore its caller, forever. A timeout here raises the
+    same `GasTopUpBusy` (503-mapped) error as dispatch-pool saturation; the
+    underlying `func` call keeps running on its worker thread (Python cannot
+    forcibly cancel it), but the caller is freed to fail fast and retry."""
     if not _topup_slots.acquire(blocking=False):
         raise GasTopUpBusy("Gas top-up is busy right now. Please try again in a moment.")
     try:
         future = _TOPUP_EXECUTOR.submit(func, *args, **kwargs)
-        return future.result()
+        try:
+            return future.result(timeout=GAS_TOPUP_SYNC_TIMEOUT_SECONDS)
+        except FutureTimeoutError as e:
+            raise GasTopUpBusy("Gas top-up is busy right now. Please try again in a moment.") from e
     finally:
         _topup_slots.release()
 
 
-def _daily_reserve(scope: str, amount_wei: int, cap_wei: int, cap_count: int) -> bool:
+def _daily_reserve(
+    scope: str, amount_wei: int, cap_wei: int, cap_count: int, day: Optional[date] = None
+) -> bool:
     """F6 fix (M1 fix: now also used for the per-user scope). Atomically
     check-and-reserve `amount_wei` against a per-(UTC day, scope) counter row
     in `gas_topup_daily_counters` — used for the global breaker
@@ -712,6 +762,14 @@ def _daily_reserve(scope: str, amount_wei: int, cap_wei: int, cap_count: int) ->
     per-user check's read-then-compare-then-send: N concurrent requests
     could each read the same stale total and collectively overshoot the cap
     by up to N x per-tx ceiling.
+
+    `day` (cross-midnight fix): pass the exact UTC day this reservation
+    belongs to (`ensure_gas` captures it ONCE up front and threads it through
+    every reserve/release call for a single operation) so a single logical
+    top-up attempt always reserves and, if it fails, releases against the
+    SAME day's row — even if wall-clock time crosses UTC midnight between the
+    two calls. Defaults to `_utc_today()` for any other caller (e.g. tests)
+    that doesn't need that guarantee.
 
     A single `INSERT ... ON CONFLICT (day, scope) DO UPDATE ... WHERE ...`
     statement: both Postgres and SQLite (3.35+, this repo's is 3.45) execute
@@ -737,7 +795,7 @@ def _daily_reserve(scope: str, amount_wei: int, cap_wei: int, cap_count: int) ->
 
     from database.db import get_session
 
-    today = _utc_today()
+    today = day if day is not None else _utc_today()
     try:
         with get_session() as session:
             result = session.execute(
@@ -768,7 +826,7 @@ def _daily_reserve(scope: str, amount_wei: int, cap_wei: int, cap_count: int) ->
         ) from e
 
 
-def _daily_release(scope: str, amount_wei: int) -> None:
+def _daily_release(scope: str, amount_wei: int, day: Optional[date] = None) -> None:
     """H2 fix: compensating decrement for a `_daily_reserve` reservation
     whose top-up attempt failed BEFORE anything was broadcast — i.e.
     genuinely zero ETH left the hot wallet, so the reservation must not
@@ -777,6 +835,19 @@ def _daily_release(scope: str, amount_wei: int) -> None:
     cases call this — this deliberately includes `HotWalletBusyError` from
     hot_wallet.py's cross-replica send lock, expected under ordinary
     concurrent top-up traffic.
+
+    CROSS-MIDNIGHT FIX: `day` MUST be the same value passed to the
+    `_daily_reserve` call this release is compensating for (`ensure_gas`
+    threads a single `topup_day` captured up front through every reserve AND
+    release call for one operation) — NOT a fresh `_utc_today()` recomputed
+    at release time. `ensure_gas` can span real wall-clock time (up to ~30s
+    cross-replica lock wait + ~15s receipt wait), so recomputing "today"
+    independently here let an operation that reserved just before UTC
+    midnight and failed just after it decrement the NEXT day's counters for
+    a reservation that was never made against that day — silently inflating
+    the new day's budget by up to one per-tx ceiling per midnight crossing.
+    Defaults to `_utc_today()` only for callers that don't need that
+    guarantee.
 
     Deliberately NEVER called for a `PostBroadcastAmbiguous` outcome (the
     broadcast call raised AFTER the tx may already have been
@@ -797,7 +868,7 @@ def _daily_release(scope: str, amount_wei: int) -> None:
 
     from database.db import get_session
 
-    today = _utc_today()
+    today = day if day is not None else _utc_today()
     try:
         with get_session() as session:
             session.execute(
@@ -883,15 +954,24 @@ def _lifetime_release(wallet_address: str, amount_wei: int) -> None:
 
 
 def _refund_reservations(
-    reserved_scopes: list, lifetime_reserved: bool, wallet_address: str, amount_wei: int
+    reserved_scopes: list,
+    lifetime_reserved: bool,
+    wallet_address: str,
+    amount_wei: int,
+    day: Optional[date] = None,
 ) -> None:
     """H2 fix: refund every daily-scope reservation in `reserved_scopes`
     (via `_daily_release`) plus the lifetime reservation if one was taken
     (via `_lifetime_release`). Called from every PRE-BROADCAST failure
     branch in `ensure_gas` — see the module docstring's H2 section. Never
-    called once a broadcast attempt has actually occurred."""
+    called once a broadcast attempt has actually occurred.
+
+    `day` (cross-midnight fix): forwarded unchanged to every `_daily_release`
+    call — callers MUST pass the same `topup_day` captured before the first
+    `_daily_reserve` of the operation being refunded, see `_daily_release`'s
+    docstring."""
     for scope in reserved_scopes:
-        _daily_release(scope, amount_wei)
+        _daily_release(scope, amount_wei, day=day)
     if lifetime_reserved:
         _lifetime_release(wallet_address, amount_wei)
 
@@ -900,20 +980,33 @@ def _wallet_is_eligible_for_topup(
     user_id: int, wallet_address: str, has_verified_funds: bool
 ) -> bool:
     """DESIGN CHANGE (anti-sybil eligibility gate): True if `wallet_address`
-    is either already known to hold/have held real funds
-    (`has_verified_funds` — callers pass this from the SAME balance check
-    the module docstring's ORDERING section already requires before calling
-    `ensure_gas`, e.g. `savings_service.get_usdc_balance(...) > 0`; a
-    genuine inbound deposit had to land for that to be true) OR is at least
-    `GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS` old (queried from `wallets.created_at`).
+    is either flagged by the caller as `has_verified_funds=True` OR is at
+    least `GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS` old (queried from
+    `wallets.created_at`).
 
-    Without this gate, the per-user/IP/global daily caps alone don't stop a
-    sybil attacker: minting a fresh, never-funded account (near-free) resets
-    the per-user cap instantly, so an attacker only needs enough accounts +
-    IPs to keep hitting the IP/global caps every day. This forces each
-    account to EITHER wait out the age window OR actually move real (if
-    dust-sized) funds through the wallet first — which is where the
-    reviewer's dust-transfer cost estimate for a sybil campaign comes from.
+    HONEST PREDICATE (this does NOT require a genuine inbound deposit): both
+    of this module's call sites pass `has_verified_funds` from a check of
+    "does this wallet CURRENTLY hold at least the amount being sent/withdrawn
+    right now" (floored at `_MIN_EARN_AMOUNT`, 0.01 USDC, in the earn flow) —
+    not from any deposit-history or provenance check. In particular
+    `api/routes/mobile.py`'s `_send_usdc_base` hardcodes
+    `has_verified_funds=True` unconditionally (it has already validated the
+    send amount against the current balance, which is what makes that True
+    correct under this predicate — see that call site's comment). So the
+    real gate is "the wallet holds enough right now", not "funds genuinely
+    arrived from outside this system".
+
+    KNOWN LIMITATION (accepted, not a bug to fix here — a real deposit-
+    history check was considered and is not worth the added complexity): an
+    attacker can chain dust between wallets they control — send X to wallet
+    B, spend it from B (satisfying B's `has_verified_funds` check), forward
+    the remainder to wallet C, repeat — and this module pays the Base gas for
+    every hop. The marginal cost of each additional sybil'd wallet in such a
+    chain is therefore near zero; this gate does not bound it. The per-IP and
+    per-user/global daily caps (see the module docstring's SPEND CONTROLS
+    section) are the actual binding constraints against that attack, not this
+    gate — this gate only stops the cheaper "mint account, request top-up
+    immediately, never fund it at all" variant.
 
     Fails CLOSED (ineligible) if the DB lookup itself fails or no matching
     wallet row is found — same reasoning as `_daily_reserve`/
@@ -948,6 +1041,43 @@ def _wallet_is_eligible_for_topup(
             f"wallet={wallet_address}: {e}"
         )
         return False
+
+
+def _page_admins_breaker_tripped(*, user_id: int, reason: str, topup_wei: int) -> None:
+    """Item 4 fix: the global daily circuit breaker (see `ensure_gas`'s
+    "global" `_daily_reserve` branch) is now the primary DETECTION mechanism
+    for a sybil gas-drain attempt — a `logger.critical` line alone is not a
+    page, and nothing was watching for it. Fans this out through
+    `health_monitor.alert` (Telegram DM to every configured admin, same
+    cooldown/dedup as every other operational alert) in addition to, not
+    instead of, the `logger.critical` call already made by the caller.
+
+    Best-effort and fully synchronous-safe: `ensure_gas` runs on a worker
+    thread with no running event loop (see `run_gas_sensitive_sync`), so this
+    uses `asyncio.run(...)` exactly like the hot-wallet broadcast call a few
+    lines below in `ensure_gas`. ANY failure here (health_monitor never
+    started, no bot attached, Telegram API error, even a stray
+    `RuntimeError` from `asyncio.run`) is caught and logged — paging must
+    never break or block a top-up attempt, it only supplements the
+    already-raised `GasTopUpCapExceeded`."""
+    try:
+        from bot.services.health_monitor import health_monitor
+
+        asyncio.run(
+            health_monitor.alert(
+                severity="critical",
+                title="Gas top-up global circuit breaker tripped",
+                message=(
+                    f"Reserving {topup_wei} wei would exceed the global daily gas top-up cap "
+                    f"({GAS_TOPUP_GLOBAL_DAILY_CAP_WEI} wei). This is the primary signal for a "
+                    "sybil gas-drain attempt — check the `gas_topups` and "
+                    f"`gas_topup_daily_counters` tables. Last request: user={user_id} "
+                    f"reason={reason}."
+                ),
+            )
+        )
+    except Exception as e:  # noqa: BLE001 — paging must never break a top-up
+        logger.error(f"gas_topup_service: failed to page admins for tripped breaker: {e}")
 
 
 def _record_topup_pending(
@@ -1041,8 +1171,11 @@ def ensure_gas(
     optional for any non-HTTP/test caller, which just shares one bucket.
     `has_verified_funds` should be `True` when the caller has ALREADY
     confirmed (via the same balance check the ORDERING section requires)
-    that this wallet holds/held real funds — see the ELIGIBILITY GATE
-    section of the module docstring and `_wallet_is_eligible_for_topup`.
+    that this wallet CURRENTLY holds at least the amount being moved right
+    now — NOT proof of a genuine inbound deposit or funding history, see the
+    ELIGIBILITY GATE section of the module docstring and
+    `_wallet_is_eligible_for_topup` for the honest predicate and its known
+    limitation.
 
     Returns True if a top-up was performed, False if the wallet already had
     enough. Raises `GasTopUpCapExceeded` (incl. `GasTopUpIneligible`),
@@ -1092,13 +1225,27 @@ def ensure_gas(
     reserved_scopes: list = []
     lifetime_reserved = False
 
+    # CROSS-MIDNIGHT FIX: capture the UTC day ONCE, before the first reserve,
+    # and thread it through every _daily_reserve/_daily_release call below
+    # (including every _refund_reservations call). This whole function can
+    # span real wall-clock time (up to ~30s cross-replica lock wait + ~15s
+    # receipt wait, see the DISPATCH section of the module docstring) — if
+    # each call recomputed `_utc_today()` independently, an attempt that
+    # reserved just before UTC midnight and then failed just after it would
+    # decrement the NEXT day's global/ip/user counters for a reservation that
+    # was never made against that day, silently inflating the new day's
+    # budget by up to one per-tx ceiling per midnight crossing.
+    topup_day = _utc_today()
+
     # M1 fix: per-user cap is now an atomic reserve (was read-then-compare
     # via a separate query — two concurrent requests could each read the
-    # same stale count/total and both pass). M2 fix note: a pre-broadcast
+    # same stale total and both pass). M2 fix note: a pre-broadcast
     # failure below refunds this reservation (H2), so a transient failure
     # (RPC blip, HotWalletBusyError) no longer permanently consumes a slot
     # of the daily COUNT cap either — it simply never counted.
-    if not _daily_reserve(user_scope, topup_wei, max_user_daily_wei, MAX_TOPUPS_PER_USER_PER_DAY):
+    if not _daily_reserve(
+        user_scope, topup_wei, max_user_daily_wei, MAX_TOPUPS_PER_USER_PER_DAY, day=topup_day
+    ):
         raise GasTopUpCapExceeded(
             "You've reached today's gas top-up limit for this wallet. "
             "Try again tomorrow, or add a small amount of ETH on Base directly."
@@ -1106,8 +1253,12 @@ def ensure_gas(
     reserved_scopes.append(user_scope)
 
     # F6/M4: per-IP cap, atomic reserve, IPv6 normalized to /64.
-    if not _daily_reserve(ip_scope, topup_wei, max_ip_daily_wei, MAX_TOPUPS_PER_IP_PER_DAY):
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+    if not _daily_reserve(
+        ip_scope, topup_wei, max_ip_daily_wei, MAX_TOPUPS_PER_IP_PER_DAY, day=topup_day
+    ):
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         raise GasTopUpCapExceeded(
             "You've reached today's gas top-up limit for this wallet. "
             "Try again tomorrow, or add a small amount of ETH on Base directly."
@@ -1117,14 +1268,21 @@ def ensure_gas(
     # F5/F6: global circuit breaker — atomic reserve against an ABSOLUTE wei
     # constant (not a runtime-derived multiple).
     if not _daily_reserve(
-        "global", topup_wei, GAS_TOPUP_GLOBAL_DAILY_CAP_WEI, GLOBAL_DAILY_TOPUP_MAX_COUNT
+        "global",
+        topup_wei,
+        GAS_TOPUP_GLOBAL_DAILY_CAP_WEI,
+        GLOBAL_DAILY_TOPUP_MAX_COUNT,
+        day=topup_day,
     ):
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         logger.critical(
             "GAS TOP-UP GLOBAL DAILY CIRCUIT BREAKER TRIPPED: "
             f"reserving {topup_wei} wei would exceed cap {GAS_TOPUP_GLOBAL_DAILY_CAP_WEI} wei "
             f"(user={user_id}, reason={reason})"
         )
+        _page_admins_breaker_tripped(user_id=user_id, reason=reason, topup_wei=topup_wei)
         raise GasTopUpCapExceeded(
             "Gas top-up is temporarily paused network-wide. Please try again later "
             "or add a small amount of ETH on Base directly."
@@ -1133,7 +1291,9 @@ def ensure_gas(
 
     # DESIGN CHANGE: per-wallet lifetime ceiling — atomic reserve.
     if not _lifetime_reserve(from_addr, topup_wei, WALLET_LIFETIME_TOPUP_CAP_WEI):
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         raise GasTopUpCapExceeded(
             "This wallet has reached its lifetime gas top-up limit. "
             "Please add a small amount of ETH on Base directly."
@@ -1143,7 +1303,9 @@ def ensure_gas(
     gas_wallet = hot_wallet_service.get_gas_payer_wallet("evm")
     if gas_wallet is None:
         # H2: pre-broadcast failure — refund every reservation above.
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         raise GasTopUpFailed(
             "We couldn't get your wallet ready right now. Please try again in a moment."
         )
@@ -1156,7 +1318,9 @@ def ensure_gas(
         row_id = _record_topup_pending(user_id, from_addr, chain_name, topup_wei, reason)
     except GasTopUpFailed:
         # H2: pre-broadcast failure — refund every reservation above.
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         raise
 
     tx_hash: Optional[str] = None
@@ -1199,7 +1363,9 @@ def ensure_gas(
         # nothing ever spent, eventually tripping the breaker on its own.
         logger.error(f"Gas top-up broadcast failed for user {user_id} wallet {from_addr}: {e}")
         _update_topup_status(row_id, status="failed", tx_hash=None)
-        _refund_reservations(reserved_scopes, lifetime_reserved, from_addr, topup_wei)
+        _refund_reservations(
+            reserved_scopes, lifetime_reserved, from_addr, topup_wei, day=topup_day
+        )
         raise GasTopUpFailed(
             "We couldn't get your wallet ready right now. Please try again in a moment."
         ) from e
