@@ -7,12 +7,14 @@ company. That is asserted here against the deploy args themselves.
 """
 
 import ast
+import asyncio
 import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -521,3 +523,252 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
 
     # $10,000 swap: 100 bps -> 60 bps is $40 of real money
     assert (base_bps - real_bps) / 10_000 * 10_000 == 40
+
+
+# ── perks come from wallets the user actually controls ───────────────────────
+
+
+def test_watch_only_wallets_never_source_the_position_perk(tmp_db):
+    """Review HIGH: `evm_address_for_user` read the first row of
+    `get_user_wallets`, which includes wallet_provider='watch' rows — addresses a
+    user merely pasted into /import, proving no ownership at all. Anyone could
+    watch a known card holder's address and inherit their fee discount and XP
+    boost. This is the same hole already closed on the membership side; the
+    Position-card path still had it.
+
+    Real DB, real rows: the watch wallet is created FIRST so an unordered or
+    unfiltered query would return it."""
+    from bot.models.user import User, Wallet
+    from bot.services.position_cards_service import position_cards_service
+    from database.db import get_session
+
+    whale = "0x" + "aa" * 20
+    mine = "0x" + "bb" * 20
+
+    with get_session() as session:
+        session.add(User(id=90210, telegram_id=90210, username="freeloader"))
+        session.flush()
+        session.add(
+            Wallet(
+                user_id=90210,
+                address=whale,
+                chain_type="evm",
+                wallet_provider="watch",
+                is_active=True,
+            )
+        )
+        session.flush()  # lower Wallet.id than the real one
+        session.add(
+            Wallet(
+                user_id=90210,
+                address=mine,
+                chain_type="evm",
+                wallet_provider="local",
+                is_active=True,
+            )
+        )
+
+    resolved = position_cards_service.evm_address_for_user(90210)
+    assert resolved != whale, "watch-only address sourced a perk"
+    assert resolved == mine
+
+
+def test_inactive_key_wallets_are_skipped(tmp_db):
+    """A deactivated wallet is not a wallet. Without the is_active filter a
+    user could keep perks flowing through a row they had already removed."""
+    from bot.models.user import User, Wallet
+    from bot.services.position_cards_service import position_cards_service
+    from database.db import get_session
+
+    dead = "0x" + "cc" * 20
+    live = "0x" + "dd" * 20
+    with get_session() as session:
+        session.add(User(id=90211, telegram_id=90211, username="rotator"))
+        session.flush()
+        session.add(
+            Wallet(
+                user_id=90211,
+                address=dead,
+                chain_type="evm",
+                wallet_provider="local",
+                is_active=False,
+            )
+        )
+        session.flush()
+        session.add(
+            Wallet(
+                user_id=90211,
+                address=live,
+                chain_type="evm",
+                wallet_provider="local",
+                is_active=True,
+            )
+        )
+
+    assert position_cards_service.evm_address_for_user(90211) == live
+
+
+def test_no_key_controlled_wallet_means_no_perk(tmp_db):
+    """A user with only watch rows gets None, not a fallback to the watch
+    address."""
+    from bot.models.user import User, Wallet
+    from bot.services.position_cards_service import position_cards_service
+    from database.db import get_session
+
+    with get_session() as session:
+        session.add(User(id=90212, telegram_id=90212, username="watcher"))
+        session.flush()
+        session.add(
+            Wallet(
+                user_id=90212,
+                address="0x" + "ee" * 20,
+                chain_type="evm",
+                wallet_provider="watch",
+                is_active=True,
+            )
+        )
+
+    assert position_cards_service.evm_address_for_user(90212) is None
+
+
+# ── perk reads must never stall the event loop ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_perk_reads_do_not_block_the_event_loop(monkeypatch):
+    """Review HIGH: every eth_call ran inline inside `async def`. web3's
+    HTTPProvider is blocking, so a slow Robinhood RPC froze the whole loop — and
+    a bulk swap issued one such call PER LEG. Here a read that sleeps 0.4s must
+    not stop a concurrent heartbeat from ticking."""
+    import bot.services.position_cards_service as mod
+
+    svc = mod.PositionCardsService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+
+    async def fake_ids(address):
+        return [1]
+
+    monkeypatch.setattr(svc, "_token_ids", fake_ids)
+
+    class _Fn:
+        def call(self):
+            time.sleep(0.4)
+            return True
+
+    class _Functions:
+        @staticmethod
+        def holdsTicker(*a):
+            return _Fn()
+
+    class _Contract:
+        functions = _Functions
+
+        class w3:
+            @staticmethod
+            def to_checksum_address(a):
+                return a
+
+    monkeypatch.setattr(svc, "_contract", lambda: _Contract)
+    monkeypatch.setattr(mod, "_RPC_TIMEOUT", 5.0)
+
+    async def heartbeat():
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+
+    started = time.monotonic()
+    boost, _ = await asyncio.gather(
+        svc.get_ticker_xp_boost_bps("0x" + "ab" * 20, mod.PRICED_TICKERS[0]), heartbeat()
+    )
+    elapsed = time.monotonic() - started
+
+    assert boost == 2500
+    # Concurrent: the 0.4s read and the 0.4s of heartbeat overlap (~0.4s total).
+    # Blocked: they serialise (~0.8s). Counting ticks would NOT catch this —
+    # gather still awaits the heartbeat afterwards, so every tick lands either
+    # way. Wall clock is what actually distinguishes the two.
+    assert elapsed < 0.65, f"event loop was blocked during the RPC ({elapsed:.2f}s)"
+
+
+@pytest.mark.asyncio
+async def test_bulk_swap_legs_reuse_one_ticker_read(monkeypatch):
+    """A bulk swap checks the same ticker on every leg. Uncached that was one
+    eth_call per leg per side; the boost is cached per (address, ticker)."""
+    import bot.services.position_cards_service as mod
+
+    svc = mod.PositionCardsService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+
+    async def fake_ids(address):
+        return [1]
+
+    monkeypatch.setattr(svc, "_token_ids", fake_ids)
+    calls = {"n": 0}
+
+    class _Fn:
+        def call(self):
+            calls["n"] += 1
+            return True
+
+    class _Functions:
+        @staticmethod
+        def holdsTicker(*a):
+            return _Fn()
+
+    class _Contract:
+        functions = _Functions
+
+        class w3:
+            @staticmethod
+            def to_checksum_address(a):
+                return a
+
+    monkeypatch.setattr(svc, "_contract", lambda: _Contract)
+
+    addr = "0x" + "cd" * 20
+    sym = mod.PRICED_TICKERS[0]
+    for _ in range(8):  # eight legs of a bulk swap
+        assert await svc.get_ticker_xp_boost_bps(addr, sym) == 2500
+    assert calls["n"] == 1, f"one read per leg leaked through ({calls['n']} calls)"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_is_not_cached_as_no_boost(monkeypatch):
+    """A transient RPC failure must not pin `no perk` for the cache TTL — the
+    holder would silently lose their boost for five minutes."""
+    import bot.services.position_cards_service as mod
+
+    svc = mod.PositionCardsService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+
+    async def fake_ids(address):
+        return [1]
+
+    monkeypatch.setattr(svc, "_token_ids", fake_ids)
+    state = {"fail": True}
+
+    class _Fn:
+        def call(self):
+            if state["fail"]:
+                raise RuntimeError("rpc down")
+            return True
+
+    class _Functions:
+        @staticmethod
+        def holdsTicker(*a):
+            return _Fn()
+
+    class _Contract:
+        functions = _Functions
+
+        class w3:
+            @staticmethod
+            def to_checksum_address(a):
+                return a
+
+    monkeypatch.setattr(svc, "_contract", lambda: _Contract)
+
+    addr = "0x" + "ef" * 20
+    sym = mod.PRICED_TICKERS[1]
+    assert await svc.get_ticker_xp_boost_bps(addr, sym) == 0
+    state["fail"] = False
+    assert await svc.get_ticker_xp_boost_bps(addr, sym) == 2500, "failure was cached"

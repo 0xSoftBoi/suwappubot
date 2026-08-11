@@ -21,8 +21,11 @@ can never be blocked — or mispriced upward — by a Positions lookup. The sync
 fee path reads an in-memory cache only and never does I/O.
 """
 
+import asyncio
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from bot.config.settings import settings
@@ -41,6 +44,20 @@ MAX_CARD_DISCOUNT_BPS = 100
 _CACHE_TTL = 300  # seconds
 _MAX_TOKEN_IDS = 200  # cap the eth_call payload for whales / spam wallets
 
+# Every eth_call below used to run inline inside an `async def`. web3's
+# HTTPProvider is blocking and its timeout is seconds long, so a slow Robinhood
+# RPC stalled the whole event loop — and a bulk swap made one such call PER LEG,
+# multiplying the stall by the number of legs. These run on a dedicated small
+# pool, never asyncio's default executor (which swap execution also uses), so
+# exhaustion degrades this feature instead of starving swaps.
+_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="positions")
+# wait_for cancels the await, not the thread, so timed-out work would otherwise
+# keep piling into an unbounded queue during an RPC hang. Fail open immediately
+# once saturated: "no perk" is always the safe answer here.
+_INFLIGHT = threading.BoundedSemaphore(8)
+_RPC_TIMEOUT = 2.0  # seconds — perks are a nice-to-have, never worth a stall
+_VIEW_TIMEOUT = 12.0  # seconds — /cards renders up to 50 cards, 2 reads each
+
 GRADES = ["Underwater", "Flat", "In Profit", "Runner", "Multiple", "Moonshot"]
 
 # Earned-allowlist thresholds. These MUST match classify() in
@@ -57,6 +74,11 @@ ALLOWLIST_REFERRALS = 1
 # ROBINHOOD_EQUITIES (those with a live Chainlink feed on chain 4663), sorted by
 # symbol. This is the same order the contract's ticker arrays were built from;
 # see nft/position-cards/deploy_args.json. Do not reorder.
+# Wallet providers whose private key Suwappu actually holds. A "watch" wallet is
+# just an address the user typed in — proving nothing about ownership — so it must
+# never source a perk. Mirrors membership_service.KEY_CONTROLLED_PROVIDERS.
+KEY_CONTROLLED_PROVIDERS = ("local", "turnkey")
+
 PRICED_TICKERS = [
     "AAPL",
     "AMD",
@@ -151,6 +173,9 @@ class PositionCardsService:
         self._holdings: dict[str, tuple[float, list[int]]] = {}
         self._discount: dict[str, tuple[float, int]] = {}
         self._user_discount: dict[int, tuple[float, int]] = {}
+        # (address, ticker index) -> (t, bps). Without this a bulk swap did one
+        # uncached holdsTicker eth_call per leg, per side.
+        self._ticker_boost: dict[tuple[str, int], tuple[float, int]] = {}
 
     # ── config ────────────────────────────────────────────────────────────────
 
@@ -235,6 +260,26 @@ class PositionCardsService:
         w3 = rpc_manager.get_web3(CHAIN)
         return w3.eth.contract(address=w3.to_checksum_address(self.contract_address), abi=_ABI)
 
+    async def _offload(self, fn, *args, default=None, timeout: float = _RPC_TIMEOUT):
+        """Run a blocking web3 read off the event loop, bounded and time-boxed.
+
+        Returns `default` on saturation, timeout or any error — every caller here
+        treats that as "no perk", which is the fail-safe direction.
+        """
+        loop = asyncio.get_running_loop()
+        if not _INFLIGHT.acquire(blocking=False):
+            logger.debug("Positions: read skipped — executor saturated")
+            return default
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(_EXECUTOR, fn, *args), timeout=timeout
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Positions: offloaded read failed: %s", e)
+            return default
+        finally:
+            _INFLIGHT.release()
+
     async def get_discount_bps(self, address: Optional[str]) -> int:
         """Swap-fee discount in bps for an address. 0 on any failure."""
         if not address or not self.enabled:
@@ -248,10 +293,16 @@ class PositionCardsService:
             if not ids:
                 self._discount[key] = (time.time(), 0)
                 return 0
-            contract = self._contract()
-            raw = contract.functions.discountBpsFor(
-                contract.w3.to_checksum_address(address), ids
-            ).call()
+
+            def _read():
+                contract = self._contract()
+                return contract.functions.discountBpsFor(
+                    contract.w3.to_checksum_address(address), ids
+                ).call()
+
+            raw = await self._offload(_read)
+            if raw is None:
+                return 0
             bps = max(0, min(int(raw), MAX_CARD_DISCOUNT_BPS))
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Positions: discount lookup failed for %s: %s", address, e)
@@ -267,14 +318,25 @@ class PositionCardsService:
             ids = await self._token_ids(address)
             if not ids:
                 return []
-            contract = self._contract()
+
+            def _read_all():
+                contract = self._contract()
+                rows = []
+                for tid in ids[:50]:
+                    try:
+                        bps, priced = contract.functions.returnBps(tid).call()
+                        rows.append((tid, bps, priced, contract.functions.grade(tid).call()))
+                    except Exception:
+                        continue
+                return rows
+
+            # One offload for the whole loop: 50 separate hops would each pay the
+            # semaphore and could interleave with a leg's discount read. This is
+            # an explicit /cards render, not the fee path, so it gets a longer
+            # budget than _RPC_TIMEOUT — up to 100 eth_calls do not fit in 2s.
+            rows = await self._offload(_read_all, default=[], timeout=_VIEW_TIMEOUT)
             out = []
-            for tid in ids[:50]:
-                try:
-                    bps, priced = contract.functions.returnBps(tid).call()
-                    grade_idx = contract.functions.grade(tid).call()
-                except Exception:
-                    continue
+            for tid, bps, priced, grade_idx in rows or []:
                 out.append(
                     {
                         "token_id": tid,
@@ -296,14 +358,28 @@ class PositionCardsService:
         if idx is None:
             return 0
         try:
+            key = (address.lower(), idx)
+            hit = self._ticker_boost.get(key)
+            if hit and time.time() - hit[0] < _CACHE_TTL:
+                return hit[1]
             ids = await self._token_ids(address)
             if not ids:
                 return 0
-            contract = self._contract()
-            owner = contract.w3.to_checksum_address(address)
-            if not contract.functions.holdsTicker(owner, ids, idx).call():
-                return 0
-            return 2500  # +25% XP on a ticker you hold a position on
+
+            def _read():
+                contract = self._contract()
+                return contract.functions.holdsTicker(
+                    contract.w3.to_checksum_address(address), ids, idx
+                ).call()
+
+            holds = await self._offload(_read)
+            if holds is None:
+                return 0  # do not cache a failure as "no boost"
+            boost = 2500 if holds else 0  # +25% XP on a ticker you hold
+            if len(self._ticker_boost) > 4096:
+                self._ticker_boost.clear()
+            self._ticker_boost[key] = (time.time(), boost)
+            return boost
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Positions: ticker boost lookup failed for %s: %s", address, e)
             return 0
@@ -326,7 +402,8 @@ class PositionCardsService:
         if user_id is None or not self.enabled:
             return 0
         try:
-            address = self.evm_address_for_user(user_id)
+            # DB round-trip, so off the loop as well.
+            address = await self._offload(self.evm_address_for_user, user_id)
             if not address:
                 return 0
             best = 0
@@ -349,7 +426,8 @@ class PositionCardsService:
         if idx is None or not self.enabled:
             return None
         try:
-            return int(self._contract().functions.remaining(idx).call())
+            raw = await self._offload(lambda: self._contract().functions.remaining(idx).call())
+            return None if raw is None else int(raw)
         except Exception:
             return None
 
@@ -422,14 +500,37 @@ class PositionCardsService:
         return out
 
     def evm_address_for_user(self, user_id: Optional[int]) -> Optional[str]:
-        """First EVM wallet address for a user, or None. Never raises."""
+        """The user's own EVM address for perk purposes, or None. Never raises.
+
+        Only KEY-CONTROLLED wallets count. `get_user_wallets` also returns
+        watch-only entries — addresses a user merely typed in — so reading the
+        first row of that list handed anyone who watched a whale's address that
+        whale's Position-card fee discount and XP boost. Ownership of the card is
+        the perk; watching it is not.
+
+        Ordered by Wallet.id so the answer is stable: an unordered `first row`
+        makes the discount flicker between wallets across calls, which is the
+        kind of thing that only shows up as a support ticket about fees.
+        """
         if user_id is None:
             return None
         try:
-            from bot.services.wallet import wallet_service
+            from bot.models.user import Wallet
+            from database.db import get_session
 
-            wallets = wallet_service.get_user_wallets(user_id, chain_type="evm")
-            return next((w.address for w in wallets if w.address), None)
+            with get_session() as session:
+                row = (
+                    session.query(Wallet.address)
+                    .filter(
+                        Wallet.user_id == user_id,
+                        Wallet.chain_type == "evm",
+                        Wallet.is_active.is_(True),
+                        Wallet.wallet_provider.in_(KEY_CONTROLLED_PROVIDERS),
+                    )
+                    .order_by(Wallet.id)
+                    .first()
+                )
+            return row[0] if row and row[0] else None
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Positions: wallet lookup failed for user %s: %s", user_id, e)
             return None
