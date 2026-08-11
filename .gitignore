@@ -99,3 +99,4 @@ showcase/tsconfig.tsbuildinfo
 # Foundry build artifacts (contracts)
 contracts/out/
 contracts/cache/
+contracts/broadcast/

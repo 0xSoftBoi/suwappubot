@@ -52,3 +52,30 @@ active; USDCx streams at 0.000055/sec (4.75/day), claimable accrues per second.
 - HIGH (Staking): removed the flowRate==0 guard that permanently bricked epoch 2
   Verified on Base Sepolia (staking 0xAe0E9e82cdc8E72F75B6E15c1989858Dd01Fb9a6):
   epoch 1 funded → epoch 2 funded → currentEpoch=2 ✓ (would have been impossible before)
+
+## Core Primitives (immutable) — Base Sepolia — chain 84532
+
+Deployed & smoke-verified live on 2026-08-11. **Testnet only — unaudited immutable
+contracts; see MAINNET_READINESS.md before any mainnet use.**
+
+| Contract | Address |
+|----------|---------|
+| SuwappuTimeCurve (`sCRV`) | `0x13189B1fae4f7CBCfF12bb57fBB6fEF83abe1B5C` |
+| SuwappuAmortizingVault | `0x07Bc798F3f6D9a5C672C209CaBe69289AF19d8DA` |
+| SuwappuMutualCredit | `0x3938B15649129B21f53dB20D58F9084366a5570b` |
+| MockUSD (reserve / debt asset, 18-dec test token) | `0x75b2D073101f79f4A2289EF8312D5c7eD2524BD8` |
+| MockYieldVault (ERC-4626 collateral) | `0xF459a90B2aEA6a8Dc8e98a2fd9c41CD7Fef678b4` |
+
+- Deployer: `0x474Bbd1E36654210Ca06539c69C1d22a19A51B6d` (standalone testnet key)
+- Explorer: https://sepolia.basescan.org/address/0x13189B1fae4f7CBCfF12bb57fBB6fEF83abe1B5C
+
+Params: curve basePrice 0.01, slope 0.001, rate ≈ −5%/yr decay, sink 1%; vault
+borrowRate ≈ 2%/yr, maxLTV 50%, liqLTV 90%, liqBonus 5%.
+
+Smoke-verified on-chain: curve buy(100)/sell(40) → balance 60, reserve 2.44,
+totalSunk 0.036; vault supply(500)+openPosition(200 col / 50 debt) → debtOf 50,
+cash 450; mutual credit propose→accept→pay(300) → owedBy 300.
+
+Note: the MockUSD/MockYieldVault are stand-ins so the primitives are exercisable
+end-to-end; point the vault/curve at real tokens + a vetted ERC-4626 for anything
+beyond a demo.
