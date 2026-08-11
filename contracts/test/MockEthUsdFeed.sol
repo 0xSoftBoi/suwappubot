@@ -6,7 +6,10 @@ pragma solidity ^0.8.24;
 contract MockEthUsdFeed {
     int256 public answer;
     uint256 public updatedAt;
-    uint8 public decimals = 8;
+    uint8 private _decimals = 8;
+    /// @dev Lets a test build a feed whose `decimals()` reverts — the shape that
+    ///      used to propagate out of `ethUsd()` and brick the whole mint.
+    bool public failDecimals;
 
     constructor(int256 answer_) {
         answer = answer_;
@@ -19,7 +22,16 @@ contract MockEthUsdFeed {
     }
 
     function setDecimals(uint8 d) external {
-        decimals = d;
+        _decimals = d;
+    }
+
+    function setFailDecimals(bool f) external {
+        failDecimals = f;
+    }
+
+    function decimals() external view returns (uint8) {
+        require(!failDecimals, "decimals reverts");
+        return _decimals;
     }
 
     function latestRoundData()

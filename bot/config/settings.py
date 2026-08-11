@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict, field_validator
+from pydantic import Field, ConfigDict, SecretStr, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import os
@@ -1285,17 +1285,20 @@ class Settings(BaseSettings):
         default=False,
         description="Enable broadcasting membership subscriptions on the user's behalf.",
     )
-    membership_relayer_private_key: Optional[str] = Field(
+    # SecretStr, not str: this key controls a gas-funded hot wallet on 4663, and
+    # a plain str is printed in full by any model_dump()/repr()/debug log of
+    # settings. Read it with .get_secret_value().
+    membership_relayer_private_key: Optional[SecretStr] = Field(
         default=None,
         description="Private key of the ETH-funded relayer wallet on Robinhood Chain (hex).",
     )
     suwappu_membership_treasury: Optional[str] = Field(
         default=None,
         description=(
-            "Treasury address subscription USDG settles to on Robinhood Chain. MUST "
-            "equal the deployed SuwappuMembership's treasury(): the EIP-3009 "
-            "authorization signs over `to`, so a mismatch makes every gasless "
-            "subscription revert."
+            "Treasury address subscription USDG settles to on Robinhood Chain. "
+            "DISPLAY ONLY — the EIP-3009 authorization signs `to = the membership "
+            "contract`, which sweeps to the treasury it reads from its own "
+            "storage, so a stale value here cannot strand a payment."
         ),
     )
     suwappu_membership_contract: Optional[str] = Field(

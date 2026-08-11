@@ -635,7 +635,12 @@ def test_authorization_uses_the_x402_usdg_address_not_a_copy():
     deployments (there are two on 4663; only one has real supply)."""
     src = open(os.path.join(REPO, "bot", "services", "membership_service.py")).read()
     assert 'usdg = x402_service.payment_tokens[CHAIN][domain["symbol"]]' in src
-    assert 'price_base = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))' in src
+    # TIER_LIMITS is display pricing only — the signable value comes from the
+    # contract's pricePerPeriod(), because subscribeWithAuthorization requires an
+    # EXACT match and a setPrice in either direction would otherwise make every
+    # quote unsignable into a valid transaction.
+    assert 'listed = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))' in src
+    assert "c.functions.pricePerPeriod(tier_index).call()" in src
 
 
 def test_authorization_is_none_when_unconfigured():

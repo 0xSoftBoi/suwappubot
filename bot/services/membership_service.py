@@ -41,6 +41,8 @@ _BROADCAST_TIMEOUT = 20.0  # seconds — a subscription broadcast is rare and sl
 # A quote is an explicit user command, not the swap hot path, so it can wait
 # longer than _CALL_TIMEOUT — but it must never return a guessed nonce.
 _QUOTE_TIMEOUT = 5.0
+# secp256k1 n/2 — the upper bound OpenZeppelin's ECDSA.recover enforces on `s`.
+_SECP256K1_HALF_N = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
 _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 
 # Wallet providers whose rows prove the user CONTROLS the address — the bot holds
@@ -167,14 +169,21 @@ _SUBSCRIBE_ABI = [
     }
 ]
 
-_SEQ_ABI = [
+_QUOTE_ABI = [
     {
         "name": "subscriptionSeq",
         "type": "function",
         "stateMutability": "view",
         "inputs": [{"name": "subscriber", "type": "address"}],
         "outputs": [{"name": "", "type": "uint256"}],
-    }
+    },
+    {
+        "name": "pricePerPeriod",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "uint64"}],
+    },
 ]
 
 _ABI = [
@@ -447,13 +456,23 @@ class MembershipService:
         """
         return getattr(settings, "suwappu_membership_treasury", None)
 
-    def _subscription_seq_sync(self, subscriber: str) -> int:
-        """Blocking eth_call for the payer's next subscription nonce counter."""
+    def _subscription_quote_sync(self, subscriber: str, tier_index: int) -> tuple[int, int]:
+        """Blocking eth_calls for (nonce counter, price per period) — both from
+        the contract, which is the only authority on either.
+
+        The price used to come from the Python TIER_LIMITS constant, but
+        `subscribeWithAuthorization` requires `auth.value == price * periods`
+        EXACTLY. So the moment `setPrice` was called in either direction, every
+        quote became unsignable into a valid tx: the user signs, the broadcast
+        reverts, and the handler hands back calldata that also always reverts.
+        Never an overcharge — but the feature dies silently, with no alert."""
         from bot.services.rpc_manager import rpc_manager
 
         w3 = rpc_manager.get_web3(CHAIN)
-        c = w3.eth.contract(address=w3.to_checksum_address(self.contract_address), abi=_SEQ_ABI)
-        return int(c.functions.subscriptionSeq(w3.to_checksum_address(subscriber)).call())
+        c = w3.eth.contract(address=w3.to_checksum_address(self.contract_address), abi=_QUOTE_ABI)
+        seq = int(c.functions.subscriptionSeq(w3.to_checksum_address(subscriber)).call())
+        price = int(c.functions.pricePerPeriod(tier_index).call())
+        return seq, price
 
     async def quote_subscription(
         self,
@@ -469,24 +488,35 @@ class MembershipService:
         guessing it (e.g. defaulting to 0) breaks every renewal. Runs on the
         bounded membership executor so a hung RPC cannot block the event loop.
         """
-        if not self.enabled:
+        if not self.enabled or tier == SubscriptionTier.FREE:
+            return None
+        try:
+            tier_index = next(i for i, t in TIER_BY_INDEX.items() if t == tier)
+        except StopIteration:
             return None
         loop = asyncio.get_running_loop()
         if not _INFLIGHT.acquire(blocking=False):
-            logger.debug("Membership: seq lookup skipped — executor saturated")
+            logger.debug("Membership: quote skipped — executor saturated")
             return None
         try:
-            seq = await asyncio.wait_for(
-                loop.run_in_executor(_EXECUTOR, self._subscription_seq_sync, subscriber),
+            seq, price = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _EXECUTOR, self._subscription_quote_sync, subscriber, tier_index
+                ),
                 timeout=_QUOTE_TIMEOUT,
             )
         except Exception as e:
-            logger.debug("Membership: seq lookup failed: %s", e)
+            # Fail CLOSED. A guessed seq or a guessed price both produce a
+            # payload the contract rejects, which is worse than no quote.
+            logger.debug("Membership: quote lookup failed: %s", e)
             return None
         finally:
             _INFLIGHT.release()
+        if price <= 0:
+            logger.warning("Membership: contract reports price 0 for tier %s", tier)
+            return None
         return self.build_subscription_authorization(
-            subscriber, tier, periods, seq, valid_seconds=valid_seconds
+            subscriber, tier, periods, seq, price_base=price, valid_seconds=valid_seconds
         )
 
     def build_subscription_authorization(
@@ -495,6 +525,7 @@ class MembershipService:
         tier: SubscriptionTier,
         periods: int,
         seq: int,
+        price_base: Optional[int] = None,
         valid_seconds: int = 3600,
         now: Optional[int] = None,
     ) -> Optional[dict]:
@@ -530,8 +561,20 @@ class MembershipService:
             domain = X402_EIP712_DOMAINS[CHAIN]
             usdg = x402_service.payment_tokens[CHAIN][domain["symbol"]]
             # 6dp asset (the x402 registry asserts every asset is 6-decimal).
-            # round() avoids 9.99 -> 9989999 float drift.
-            price_base = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))
+            # round() avoids 9.99 -> 9989999 float drift. TIER_LIMITS is DISPLAY
+            # pricing; the contract is the authority, so callers pass what
+            # pricePerPeriod() actually returns and this is only the fallback for
+            # non-signing/preview use.
+            listed = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))
+            if price_base is None:
+                price_base = listed
+            elif price_base != listed:
+                logger.warning(
+                    "Membership: on-chain price %s != listed %s for %s; using chain",
+                    price_base,
+                    listed,
+                    tier,
+                )
             value = price_base * periods
             tier_index = next(i for i, t in TIER_BY_INDEX.items() if t == tier)
             nonce = _subscription_nonce(subscriber, tier_index, periods, seq)
@@ -645,6 +688,16 @@ class MembershipService:
             r, s_, v = raw[:32], raw[32:64], raw[64]
             if v < 27:
                 v += 27
+            # Malleability: eth_account.recover_message accepts a high-half `s`
+            # and both v parities, but OpenZeppelin's ECDSA.recover inside USDG
+            # rejects them. Without these checks a malleated signature passes the
+            # bot's `signer == bound` gate and then reverts on-chain — the user is
+            # told their signature was fine and the tx dies. No fund risk, but it
+            # is an unexplainable failure, so reject it here where we can say why.
+            if v not in (27, 28):
+                return None
+            if int.from_bytes(s_, "big") > _SECP256K1_HALF_N:
+                return None
 
             w3 = rpc_manager.get_web3(CHAIN)
             contract = w3.eth.contract(
@@ -706,7 +759,10 @@ class MembershipService:
 
             def _send_inner() -> str:
                 w3 = rpc_manager.get_web3(CHAIN)
-                acct = Account.from_key(settings.membership_relayer_private_key)
+                key = settings.membership_relayer_private_key
+                acct = Account.from_key(
+                    key.get_secret_value() if hasattr(key, "get_secret_value") else key
+                )
                 # "pending", not the default "latest": a broadcast still in the
                 # mempool is invisible to "latest", so back-to-back sends would
                 # both build on the same nonce.

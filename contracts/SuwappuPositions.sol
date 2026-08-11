@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title SuwappuPositions — 10,000 live position cards on Robinhood Chain
@@ -94,6 +95,13 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     // cost $24 without anyone touching the contract. The card is quoted in
     // dollars, so it should be charged in dollars.
     AggregatorV3Interface public ethUsdFeed;
+    /// @dev `decimals()` cached at set time. Reading it inside `ethUsd()` put an
+    ///      external call in the SUCCESS BODY of the try, not in the tried call,
+    ///      so a feed whose `decimals()` reverted propagated straight out —
+    ///      bricking `mint()`, `quote()` and `mintState()`, which is exactly what
+    ///      the bounded fallback exists to prevent. Now a feed that cannot
+    ///      answer `decimals()` is rejected at `setEthUsdFeed` instead.
+    uint8 public ethUsdFeedDecimals;
     /// @dev Sanity band on the feed. A compromised or misconfigured aggregator
     ///      reporting $0.01 or $1e9 must not let the mint be bought for dust or
     ///      become unbuyable — outside the band we fall back to a fixed wei price.
@@ -103,6 +111,20 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     /// @notice Used when the feed is stale or out of band. Bounded so a fallback
     ///         can never be set to an extractive number.
     uint256 public fallbackWeiPerUsdCent;
+
+    /// @notice Last ETH/USD (8dp) the feed reported in-band, and when. Written on
+    ///         every mint, so an outage prices against the last price the market
+    ///         actually printed rather than a constant the owner set months ago.
+    /// @dev    Packed into one slot. The flat `fallbackWeiPerUsdCent` is only
+    ///         correct at the ETH price it was configured for, yet it engaged
+    ///         precisely when ETH had MOVED: set for $3,000, an ETH drop to $99
+    ///         put the feed out of band and sold $20 cards for $0.66 — the
+    ///         remaining supply sweeping for 3% of intended. This cache bounds
+    ///         that to however far ETH moves inside MAX_LAST_GOOD_AGE.
+    uint192 public lastGoodEthUsd8dp;
+    uint64 public lastGoodAt;
+    /// @notice How long a cached price may be used once the feed goes bad.
+    uint256 public constant MAX_LAST_GOOD_AGE = 7 days;
     uint256 public constant MAX_FALLBACK_WEI_PER_CENT = 1e15; // $1 <= 0.1 ETH
 
     // ─── Credible end ─────────────────────────────────────────────────────────
@@ -174,6 +196,9 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     error InvalidEndTime();
     error FallbackOutOfBand();
     error RefundFailed();
+    error BadFeed();
+    error PriceZero();
+    error RenounceDisabled();
 
     constructor(
         uint16[35] memory caps,
@@ -232,6 +257,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // USD-denominated: convert at purchase time and REFUND the remainder.
         // Requiring an exact wei amount against a moving feed would make most
         // transactions revert on a price tick between quoting and mining.
+        _cacheEthUsd();
         uint256 cost = _weiForCents(uint256(cfg.price) * quantity);
         if (msg.value < cost) revert WrongPayment();
 
@@ -266,8 +292,18 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice Treasury / airdrop mint, bounded by RESERVE_MAX.
-    function ownerMint(address to, uint8 tickerIndex, uint256 quantity) external onlyOwner {
+    /// @dev Honours `mintEndTime` and `paused` exactly as `mint()` does.
+    ///      `announceEnd` is described as a promise the contract keeps rather
+    ///      than a tweet; an owner who can still airdrop 200 reserve cards after
+    ///      the announced end is not keeping it.
+    function ownerMint(address to, uint8 tickerIndex, uint256 quantity)
+        external
+        onlyOwner
+        nonReentrant
+    {
         if (mintingClosedForever) revert MintingIsClosed();
+        if (paused) revert MintPaused();
+        if (mintEndTime != 0 && block.timestamp > mintEndTime) revert MintEnded();
         if (quantity == 0) revert ZeroQuantity();
         if (tickerIndex >= TICKER_COUNT) revert UnknownTicker();
         if (reserveMinted + quantity > RESERVE_MAX) revert ReserveExhausted();
@@ -285,8 +321,16 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // `totalSupply` inside the loop cost an SLOAD + SSTORE per token, so a
         // 5-card mint paid for five counter updates to reach the same value.
         uint256 supply = totalSupply;
+        // Written BEFORE the loop: _safeMint hands control to the recipient's
+        // onERC721Received, and a reentrant caller must not observe a stale
+        // supply. (Both entry points are nonReentrant too — this is the belt
+        // behind the braces.)
+        totalSupply = supply + quantity;
         uint40 mintedAt = uint40(block.timestamp);
-        uint128 entryPrice = uint128(entry);
+        // Entry price is stamped once and immutable by design, and `oracle` is
+        // owner-settable at any time, so narrow it with a checked cast rather
+        // than silently recording a wrapped value forever.
+        uint128 entryPrice = SafeCast.toUint128(entry);
         for (uint256 i = 0; i < quantity;) {
             uint256 tokenId = supply + i + 1;
             _positions[tokenId] = Position({
@@ -303,7 +347,6 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
                 ++i;
             }
         }
-        totalSupply = supply + quantity;
     }
 
     /// @notice How many cards `who` can still mint in `phase`, given their grant.
@@ -372,12 +415,13 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         st.allocation = cfg.allocation;
         st.phaseMintedSoFar = phaseMinted[phase];
 
-        (uint256 feedPrice, bool ok) = ethUsd();
-        st.pricedByFeed = ok;
-        if (ok || fallbackWeiPerUsdCent != 0) {
+        (, uint8 priceSource) = effectiveEthUsd();
+        // `pricedByFeed` stays strictly "the live feed answered" so a UI can
+        // still flag degraded pricing; source 1 (cached last-good) is degraded.
+        st.pricedByFeed = priceSource == 0;
+        if (priceSource != 2 || fallbackWeiPerUsdCent != 0) {
             st.priceWei = _weiForCents(uint256(cfg.price));
         }
-        feedPrice; // silence unused
 
         st.isPaused = paused;
         st.closedForever = mintingClosedForever;
@@ -421,29 +465,58 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         try feed.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
             if (answer <= 0) return (0, false);
             uint256 p = uint256(answer);
-            uint8 dec = feed.decimals();
+            uint8 dec = ethUsdFeedDecimals;
             if (dec < 8) p *= 10 ** (8 - dec);
             if (dec > 8) p /= 10 ** (dec - 8);
             if (p < MIN_ETH_USD_8DP || p > MAX_ETH_USD_8DP) return (0, false);
-            if (block.timestamp > updatedAt && block.timestamp - updatedAt > MAX_FEED_AGE) {
-                return (0, false);
-            }
+            // A round that never happened, or one stamped in the future, is not
+            // fresh — it is broken. Skipping the staleness check whenever
+            // `updatedAt > block.timestamp` let such a feed read fresh forever.
+            if (updatedAt == 0 || updatedAt > block.timestamp) return (0, false);
+            if (block.timestamp - updatedAt > MAX_FEED_AGE) return (0, false);
             return (p, true);
         } catch {
             return (0, false);
         }
     }
 
+    /// @notice The ETH/USD (8dp) pricing will actually use, and where it came
+    ///         from. `source`: 0 = live feed, 1 = cached last-good, 2 = none.
+    function effectiveEthUsd() public view returns (uint256 price8dp, uint8 source) {
+        (uint256 p, bool ok) = ethUsd();
+        if (ok) return (p, 0);
+        uint256 cached = lastGoodEthUsd8dp;
+        if (cached != 0 && block.timestamp - lastGoodAt <= MAX_LAST_GOOD_AGE) {
+            return (cached, 1);
+        }
+        return (0, 2);
+    }
+
     function _weiForCents(uint256 cents) internal view returns (uint256) {
         if (cents == 0) return 0;
-        (uint256 price8dp, bool ok) = ethUsd();
-        if (ok) {
+        // Ladder, most trustworthy first: live feed, then the last price the feed
+        // actually printed in-band, and only then the owner's flat constant.
+        (uint256 price8dp, uint8 source) = effectiveEthUsd();
+        if (source != 2) {
             // cents -> wei: (cents / 100) USD * 1e18 / (price8dp / 1e8)
             return (cents * 1e18 * 1e8) / (price8dp * 100);
         }
         uint256 fb = fallbackWeiPerUsdCent;
         if (fb == 0) revert PriceNotConfigured();
         return cents * fb;
+    }
+
+    /// @dev Called from the non-view mint paths. Cheap when the feed is healthy
+    ///      and the slot is already warm; the point is that an outage inherits a
+    ///      real market price instead of a stale constant.
+    function _cacheEthUsd() internal {
+        (uint256 p, bool ok) = ethUsd();
+        if (ok && p != lastGoodEthUsd8dp) {
+            lastGoodEthUsd8dp = uint192(p); // < MAX_ETH_USD_8DP, cannot truncate
+            lastGoodAt = uint64(block.timestamp);
+        } else if (ok) {
+            lastGoodAt = uint64(block.timestamp);
+        }
     }
 
     function _oraclePrice(uint8 tickerIndex) internal view returns (uint256) {
@@ -543,7 +616,19 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         emit RegistrySealed();
     }
 
+    /// @dev Rejects a feed that cannot answer `decimals()`, and caches the
+    ///      answer so `ethUsd()` never makes an untried external call.
     function setEthUsdFeed(address feed) external onlyOwner {
+        if (feed != address(0)) {
+            try AggregatorV3Interface(feed).decimals() returns (uint8 dec) {
+                if (dec > 36) revert BadFeed();
+                ethUsdFeedDecimals = dec;
+            } catch {
+                revert BadFeed();
+            }
+        } else {
+            ethUsdFeedDecimals = 0;
+        }
         ethUsdFeed = AggregatorV3Interface(feed);
         emit EthUsdFeedSet(feed);
     }
@@ -554,6 +639,15 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (weiPerCent > MAX_FALLBACK_WEI_PER_CENT) revert FallbackOutOfBand();
         fallbackWeiPerUsdCent = weiPerCent;
         emit FallbackPriceSet(weiPerCent);
+    }
+
+    /// @notice Disabled. This contract custodies every wei of mint revenue
+    ///         (`withdraw` is onlyOwner) and owns the only levers that can pause
+    ///         a live mint or repoint a broken price feed. A single unguarded
+    ///         call inherited from Ownable would strand the funds and freeze the
+    ///         mint open with a feed nobody can fix.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
     }
 
     function setPaused(bool p) external onlyOwner {
@@ -609,6 +703,10 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         uint64 endsAt
     ) external onlyOwner {
         if (phase == Phase.Closed) revert BadPhase();
+        // A phase priced at 0 mints its whole allocation for free, with no burn
+        // and no claw-back, and `mintState.priceWei` reads 0 so the UI shows
+        // nothing wrong. Free mints are a deliberate act, not a missing argument.
+        if (price == 0) revert PriceZero();
         phaseConfig[phase] = PhaseConfig(
             merkleRoot, price, walletCap, allocation, startsAt, endsAt
         );
