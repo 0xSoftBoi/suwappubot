@@ -5,6 +5,7 @@ All Phase 2 features: wallets, alerts, orders, DCA, points, referrals,
 copy trading, and sniping.  Delegates to existing service singletons.
 """
 
+import asyncio
 import hashlib
 import logging
 import threading
@@ -480,6 +481,11 @@ class CreateDCABody(BaseModel):
 # -- points --
 class RedeemRewardBody(BaseModel):
     rewardId: int
+
+
+# -- earn / savings --
+class EarnAmountBody(BaseModel):
+    amount: str
 
 
 # -- copy trading --
@@ -2126,3 +2132,217 @@ async def update_snipe_config(request: Request, body: UpdateSnipeConfigBody):
 
         session.commit()
     return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SAVINGS / EARN — MONEY-PATH (Aave V3 USDC on Base)
+#
+# Delegates 100% of on-chain logic (reads AND writes) to
+# bot.services.savings_service.savings_service — the exact same service the
+# Telegram /save flow uses. This module only: resolves the caller's wallet
+# from the authenticated JWT (never a client-supplied address), validates the
+# amount, and maps SavingsError -> a clean 4xx instead of a raw exception.
+# ═══════════════════════════════════════════════════════════════════
+
+_MAX_EARN_AMOUNT_INPUT_LENGTH = 64
+
+
+async def _resolve_earn_wallet(user_id: int):
+    """Resolve the user's EVM wallet for Aave savings (default, else first).
+
+    Returns None when the user has no EVM wallet yet so callers can return a
+    clean 400 instead of a failure deep inside web3 calls.
+    """
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallet = wallet_service.get_default_wallet(user_id, "evm")
+    if wallet:
+        return wallet
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    evm_wallets = [w for w in wallets if str(w.chain_type or "").lower() == "evm"]
+    return evm_wallets[0] if evm_wallets else None
+
+
+def _parse_earn_amount(
+    raw: str, *, available: Decimal, max_returns_none: bool = False
+) -> Optional[Decimal]:
+    """Parse an /earn/deposit or /earn/withdraw amount.
+
+    Accepts a positive decimal string, or the sentinel "max" (case-insensitive)
+    which resolves to the caller's live `available` balance. Returns None only
+    for the "max" sentinel on withdraw, where SavingsService.withdraw expects
+    None to mean "withdraw the full on-chain position" (captures interest
+    accrued between this read and execution). Never lets NaN/Infinity/
+    negative/zero amounts through to the on-chain call.
+    """
+    if raw is None or not str(raw).strip():
+        raise HTTPException(status_code=400, detail="amount is required")
+    cleaned = str(raw).strip()
+    if len(cleaned) > _MAX_EARN_AMOUNT_INPUT_LENGTH:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if cleaned.lower() == "max":
+        if available <= 0:
+            raise HTTPException(status_code=400, detail="Nothing available to use.")
+        return None if max_returns_none else available
+    try:
+        amount = Decimal(cleaned)
+    except InvalidOperation:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if not amount.is_finite() or amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    return amount
+
+
+async def _log_earn_event(user_id: int, wallet_id: int, action: str, amount, tx_hash: str) -> None:
+    """Best-effort SavingsEvent record — mirrors bot/handlers/savings.py's
+    `_log_event` so Telegram and mobile deposits/withdrawals show up in the
+    same history. Never allowed to fail the request."""
+    try:
+        from bot.models.savings import SavingsEvent
+
+        with get_session() as session:
+            session.add(
+                SavingsEvent(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain="base",
+                    token="USDC",
+                    action=action,
+                    amount=(Decimal(str(amount)) if amount is not None else None),
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log mobile earn event: {e}")
+
+
+@router.get("/earn")
+async def get_earn(request: Request):
+    """Real Aave V3 (Base) USDC savings snapshot for the authenticated user.
+
+    Read-only: never signs or sends a transaction. `positions` is the user's
+    current aUSDC position; `idle` is wallet USDC that could be deposited.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.savings_service import SavingsError, savings_service
+
+    user_id = int(payload["user_id"])
+
+    try:
+        apy = await asyncio.to_thread(savings_service.get_apy)
+    except SavingsError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    wallet = await _resolve_earn_wallet(user_id)
+
+    positions: list[dict] = []
+    idle: list[dict] = []
+    coverage = "complete"
+
+    if wallet is not None:
+        try:
+            position, idle_balance = await asyncio.gather(
+                asyncio.to_thread(savings_service.get_position, wallet.address),
+                asyncio.to_thread(savings_service.get_usdc_balance, wallet.address),
+            )
+        except SavingsError as e:
+            logger.warning(f"mobile earn balance read failed for user {user_id}: {e}")
+            coverage = "best_effort"
+        else:
+            if position > 0:
+                positions.append(
+                    {
+                        "protocol": "aave_v3",
+                        "chain": "base",
+                        "token": "USDC",
+                        "balance": str(position),
+                        "balanceUsd": float(position),
+                        "apy": apy,
+                    }
+                )
+            if idle_balance > 0:
+                idle.append(
+                    {
+                        "chain": "base",
+                        "token": "USDC",
+                        "balance": str(idle_balance),
+                        "balanceUsd": float(idle_balance),
+                    }
+                )
+
+    return {"apy": apy, "positions": positions, "idle": idle, "coverage": coverage}
+
+
+async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action: str) -> dict:
+    """Shared executor for /earn/deposit and /earn/withdraw.
+
+    Resolves the wallet exclusively from the authenticated JWT, validates the
+    amount, then calls the SAME SavingsService.deposit/withdraw used by the
+    Telegram /save flow — no new on-chain logic or approvals here.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.savings_service import SavingsError, savings_service
+
+    user_id = int(payload["user_id"])
+    wallet = await _resolve_earn_wallet(user_id)
+    if wallet is None:
+        raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
+
+    try:
+        if action == "deposit":
+            available = await asyncio.to_thread(savings_service.get_usdc_balance, wallet.address)
+        else:
+            available = await asyncio.to_thread(savings_service.get_position, wallet.address)
+    except SavingsError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    amount = _parse_earn_amount(
+        body.amount, available=available, max_returns_none=(action == "withdraw")
+    )
+    is_max = amount is None
+
+    try:
+        if action == "deposit":
+            # "max" already resolved to the live idle balance above; `amount`
+            # is never None on the deposit path.
+            tx_hashes = await asyncio.to_thread(savings_service.deposit, wallet, amount)
+            tx_hash = tx_hashes[-1]
+            reported_amount = amount
+        else:
+            withdraw_amount = None if is_max else amount
+            reported_amount = available if is_max else amount
+            tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, withdraw_amount)
+    except SavingsError as e:
+        logger.error(f"mobile earn {action} failed for user {user_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"mobile earn {action} unexpected error for user {user_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=500, detail="Something went wrong. Your funds were not moved."
+        )
+
+    await _log_earn_event(user_id, wallet.id, action, reported_amount, tx_hash)
+    return {"ok": True, "txHash": tx_hash, "amount": str(reported_amount)}
+
+
+@router.post("/earn/deposit")
+async def deposit_earn(request: Request, body: EarnAmountBody):
+    """Supply idle USDC into Aave V3 (Base) — MONEY-PATH."""
+    return await _execute_earn_action(request, body, action="deposit")
+
+
+@router.post("/earn/withdraw")
+async def withdraw_earn(request: Request, body: EarnAmountBody):
+    """Withdraw USDC from Aave V3 (Base) — MONEY-PATH."""
+    return await _execute_earn_action(request, body, action="withdraw")
