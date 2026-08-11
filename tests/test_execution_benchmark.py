@@ -164,3 +164,45 @@ def test_other_pairs_do_not_leak_into_cohort(engine, bench):
     out = bench.execution_benchmark.cohort_stats("USDC", "ETH")
     assert out["suppressed"] is True
     assert out["cohort_users"] == 0
+
+
+def test_user_percentile_fetches_the_cohort_join_exactly_once(bench, engine, monkeypatch):
+    """Regression guard: the aggregate and the population share one fetch.
+
+    A previous refactor deduplicated the SQL *text* by extracting _cohort_rows,
+    but left user_percentile calling cohort_stats (which fetches) and then
+    fetching again — so the marks/swaps join still ran twice per call while the
+    docstring claimed it had been fixed. Count the calls, not the call sites.
+    """
+    from datetime import datetime
+
+    with engine.begin() as c:
+        for uid in range(1, 7):
+            c.execute(
+                text(
+                    "INSERT INTO swap_transactions (user_id, from_token, to_token) "
+                    "VALUES (:u, 'USDC', 'ETH')"
+                ),
+                {"u": uid},
+            )
+            c.execute(
+                text(
+                    "INSERT INTO swap_execution_marks "
+                    "(swap_id, horizon, realized_vs_quoted_bps, scored_at) "
+                    "VALUES (:s, '5m', :b, :t)"
+                ),
+                {"s": uid, "b": -10.0 * uid, "t": datetime.utcnow()},
+            )
+
+    calls = {"n": 0}
+    original = bench.execution_benchmark._cohort_rows
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bench.execution_benchmark, "_cohort_rows", counting)
+
+    result = bench.execution_benchmark.user_percentile(1, "USDC", "ETH")
+    assert not result.get("suppressed")
+    assert calls["n"] == 1, f"cohort join fetched {calls['n']}x, expected 1"

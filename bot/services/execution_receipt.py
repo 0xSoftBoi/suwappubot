@@ -10,7 +10,7 @@ READ THIS BEFORE CHANGING ANY LABEL IN HERE.
 The column ``swap_execution_marks.realized_vs_quoted_bps`` does NOT contain
 what its name says. The scorer computes it as::
 
-    _bps(swap.to_amount_usd, swap.from_amount_usd)
+    bps(swap.to_amount_usd, swap.from_amount_usd)
 
 and BOTH sides are written once, in ``execute_swap()``, from the *quote's*
 expected amounts (``swap_engine.py:3803-3806``). Nothing anywhere updates
@@ -65,7 +65,7 @@ from typing import Any, Optional
 
 from bot.models.swap import SwapTransaction, SwapExecutionMark, SwapRouteCandidate
 from bot.services.execution_benchmark import execution_benchmark
-from bot.services.execution_scorer import _bps
+from bot.services.execution_scorer import bps
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ def _fill_vs_quote_bps(quoted: Optional[str], realized: Optional[str]) -> Option
         return None
     # Same bps formula (and same expected<=0 guard) the scorer applies to its
     # own marks — shared so the two can never drift apart.
-    return _bps(r, q)
+    return bps(r, q)
 
 
 def _bucket(value: float) -> str:
@@ -225,22 +225,18 @@ class ExecutionReceipt:
         # cohort queries over swap_execution_marks, and an unscored swap has
         # nothing to rank, so paying for them would be pure waste on the
         # button press.
-        if not ordered_marks:
-            receipt["benchmark"] = None
-            receipt["verdict"] = self._verdict(cost_bps, ordered_marks, fill_bps)
-            return receipt
-
-        try:
-            receipt["benchmark"] = execution_benchmark.user_percentile(
-                user_id=user_id,
-                from_token=shape["from_token"],
-                to_token=shape["to_token"],
-            )
-        except Exception as e:
-            # A receipt is still useful without a percentile; never fail the
-            # whole response because the cohort query had a bad day.
-            logger.warning(f"[execution_receipt] benchmark failed for swap {swap_id}: {e}")
-            receipt["benchmark"] = None
+        receipt["benchmark"] = None
+        if ordered_marks:
+            try:
+                receipt["benchmark"] = execution_benchmark.user_percentile(
+                    user_id=user_id,
+                    from_token=shape["from_token"],
+                    to_token=shape["to_token"],
+                )
+            except Exception as e:
+                # A receipt is still useful without a percentile; never fail the
+                # whole response because the cohort query had a bad day.
+                logger.warning(f"[execution_receipt] benchmark failed for swap {swap_id}: {e}")
 
         receipt["verdict"] = self._verdict(cost_bps, ordered_marks, fill_bps)
         return receipt
@@ -300,28 +296,34 @@ class ExecutionReceipt:
         # when a settled amount was actually observed. Silence beats a
         # confident number derived from the quote's own estimate.
         if fill_bps is not None:
-            parts["fill"] = {
-                "neg": (
+            bucket = _bucket(fill_bps)
+            if bucket == "neg":
+                parts["fill"] = (
                     f"You received about {abs(fill_bps):.0f} bps less than the quote "
                     f"promised. That shortfall is ours."
-                ),
-                "pos": f"You received about {fill_bps:.0f} bps more than the quote promised.",
-                "flat": "The amount received matched the quote.",
-            }[_bucket(fill_bps)]
+                )
+            elif bucket == "pos":
+                parts["fill"] = (
+                    f"You received about {fill_bps:.0f} bps more than the quote promised."
+                )
+            else:
+                parts["fill"] = "The amount received matched the quote."
 
         if cost_bps is None:
             parts["cost"] = "Not scored yet — marks land a few minutes after a swap completes."
         else:
-            parts["cost"] = {
-                "neg": (
+            bucket = _bucket(cost_bps)
+            if bucket == "neg":
+                parts["cost"] = (
                     f"This trade cost about {abs(cost_bps):.0f} bps to cross, as quoted — "
                     f"spread, price impact and fees combined."
-                ),
-                "pos": (
+                )
+            elif bucket == "pos":
+                parts["cost"] = (
                     f"The quote had you coming out about {cost_bps:.0f} bps ahead on USD value."
-                ),
-                "flat": "The quote was close to flat on USD value.",
-            }[_bucket(cost_bps)]
+                )
+            else:
+                parts["cost"] = "The quote was close to flat on USD value."
 
         # Markout reads from the longest horizon that has one — short horizons
         # are too noisy to call drift on. This one IS post-trade observation.
@@ -329,17 +331,19 @@ class ExecutionReceipt:
         if aged:
             last = aged[-1]
             mb = last["markout_bps"]
-            parts["market"] = {
-                "pos": (
+            bucket = _bucket(mb)
+            if bucket == "pos":
+                parts["market"] = (
                     f"Over the following {last['horizon']} the price moved in your favour "
                     f"by about {mb:.0f} bps. Good timing — not something we routed."
-                ),
-                "neg": (
+                )
+            elif bucket == "neg":
+                parts["market"] = (
                     f"Over the following {last['horizon']} the price moved against you by "
                     f"about {abs(mb):.0f} bps. That is the market, not the route."
-                ),
-                "flat": f"The price barely moved over the following {last['horizon']}.",
-            }[_bucket(mb)]
+                )
+            else:
+                parts["market"] = f"The price barely moved over the following {last['horizon']}."
         return parts
 
 

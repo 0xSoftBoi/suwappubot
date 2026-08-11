@@ -379,8 +379,52 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(card_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
-def _benchmark_lines(bench: Optional[dict]) -> list[str]:
+def _cost_lines(receipt: dict) -> list[str]:
+    """What the trade cost to cross. Never a verdict on our execution."""
+    lines = [
+        "",
+        "*What this trade cost*",
+        f"Quoted cost: `{_fmt_bps(receipt['quoted_cost_bps'])}`",
+    ]
+    cost = receipt["verdict"].get("cost")
+    return lines + [f"_{cost}_"] if cost else lines
+
+
+def _fill_lines(receipt: dict) -> list[str]:
+    """The one section that grades us — and only when a fill was observed.
+
+    Absence must not read as "no shortfall", so this renders nothing at all
+    rather than a zero when no settled amount was reported.
+    """
+    if receipt.get("fill_vs_quote_bps") is None:
+        return []
+    lines = [
+        "",
+        "*Did we deliver the quote*",
+        f"Quote vs fill: `{_fmt_bps(receipt['fill_vs_quote_bps'])}`",
+    ]
+    fill = receipt["verdict"].get("fill")
+    return lines + [f"_{fill}_"] if fill else lines
+
+
+def _market_lines(receipt: dict) -> list[str]:
+    """Post-fill drift — the market's doing, kept apart from the cost line."""
+    market = receipt["verdict"].get("market")
+    return ["", "*What the market did*", f"_{market}_"] if market else []
+
+
+def _drift_lines(receipt: dict) -> list[str]:
+    """Per-horizon markout, for the horizons that actually have one."""
+    marks = [m for m in receipt["marks"] if m["markout_bps"] is not None]
+    if not marks:
+        return []
+    drift = "  ".join(f"{m['horizon']}: `{_fmt_bps(m['markout_bps'])}`" for m in marks)
+    return ["", f"Price drift after fill — {drift}"]
+
+
+def _benchmark_lines(receipt: dict) -> list[str]:
     """Cohort comparison block, or nothing when there is no cohort."""
+    bench = receipt.get("benchmark")
     if not bench:
         return []
     if bench.get("suppressed"):
@@ -400,13 +444,14 @@ def _benchmark_lines(bench: Optional[dict]) -> list[str]:
     return lines
 
 
-def _counterfactual_lines(cf: Optional[dict]) -> list[str]:
+def _counterfactual_lines(receipt: dict) -> list[str]:
     """Routing comparison block.
 
     Reported both ways. Showing only the cases where an alternative quoted
     better would be honest-looking and still selective; showing only the wins
     would be marketing.
     """
+    cf = receipt.get("counterfactual")
     if not cf:
         return []
     if cf["delta_usd"] > 0:
@@ -422,6 +467,25 @@ def _counterfactual_lines(cf: Optional[dict]) -> list[str]:
         f"{cf['priced_candidates']} quoted routes — {detail}. Modeled from quotes, "
         f"not observed fills._",
     ]
+
+
+def _caveat_lines(receipt: dict) -> list[str]:
+    """Always last, and always present — the receipt states its own limits."""
+    return ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
+
+
+# Render order. Each section owns its own "should I appear at all" test, so
+# adding one is appending here rather than threading another conditional
+# through the callback.
+_RECEIPT_SECTIONS = (
+    _cost_lines,
+    _fill_lines,
+    _market_lines,
+    _drift_lines,
+    _benchmark_lines,
+    _counterfactual_lines,
+    _caveat_lines,
+)
 
 
 def _fmt_bps(value: Optional[float]) -> str:
@@ -504,40 +568,8 @@ async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("\n".join(lines), parse_mode="Markdown", reply_markup=back)
         return
 
-    verdict = receipt["verdict"]
-
-    lines += [
-        "",
-        "*What this trade cost*",
-        f"Quoted cost: `{_fmt_bps(receipt['quoted_cost_bps'])}`",
-    ]
-    if verdict.get("cost"):
-        lines.append(f"_{verdict['cost']}_")
-
-    # Only rendered when a settled amount was actually observed — absence must
-    # not read as "no shortfall".
-    if receipt.get("fill_vs_quote_bps") is not None:
-        lines += [
-            "",
-            "*Did we deliver the quote*",
-            f"Quote vs fill: `{_fmt_bps(receipt['fill_vs_quote_bps'])}`",
-        ]
-        if verdict.get("fill"):
-            lines.append(f"_{verdict['fill']}_")
-
-    if verdict.get("market"):
-        lines += ["", "*What the market did*", f"_{verdict['market']}_"]
-
-    marks = [m for m in receipt["marks"] if m["markout_bps"] is not None]
-    if marks:
-        drift = "  ".join(f"{m['horizon']}: `{_fmt_bps(m['markout_bps'])}`" for m in marks)
-        lines += ["", f"Price drift after fill — {drift}"]
-
-    lines += _benchmark_lines(receipt.get("benchmark"))
-
-    lines += _counterfactual_lines(receipt.get("counterfactual"))
-
-    lines += ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
+    for section in _RECEIPT_SECTIONS:
+        lines += section(receipt)
 
     await query.edit_message_text(
         "\n".join(lines),

@@ -65,9 +65,12 @@ class ExecutionBenchmark:
     def _cohort_rows(self, from_token: str, to_token: str, window_days: int) -> list[tuple]:
         """Every (user_id, bps) pair for one trade shape in the window.
 
-        Single source for both the cohort aggregate and the percentile
-        population — those previously issued byte-identical SQL, scanning the
-        marks/swaps join twice per call for exactly the same rows.
+        The ONLY place this join is issued. ``cohort_stats`` and
+        ``user_percentile`` both derive from a single call's rows — an earlier
+        attempt at this had ``user_percentile`` call ``cohort_stats`` and then
+        re-fetch, which deduplicated the SQL text while still running the scan
+        twice. Keep the fetch and the aggregate separable (see
+        ``_stats_from_rows``) or that regression comes straight back.
         """
         cutoff = datetime.utcnow() - timedelta(days=window_days)
         with get_session() as session:
@@ -103,6 +106,16 @@ class ExecutionBenchmark:
         """
         window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
         rows = self._cohort_rows(from_token, to_token, window_days)
+        return self._stats_from_rows(rows, from_token, to_token, window_days)
+
+    def _stats_from_rows(
+        self, rows: list[tuple], from_token: str, to_token: str, window_days: int
+    ) -> dict[str, Any]:
+        """The aggregate, computed from rows already fetched.
+
+        Pure — takes no session — so a caller holding the rows can reuse them
+        instead of paying for the join again.
+        """
         distinct_users = {r[0] for r in rows if r[0] is not None}
 
         # THE FLOOR. Below this a "cohort statistic" identifies individuals.
@@ -141,17 +154,17 @@ class ExecutionBenchmark:
         says "you underperformed" gives the user a reason to leave and no way
         to act.
         """
-        stats = self.cohort_stats(from_token, to_token, window_days)
+        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
+
+        # ONE fetch, feeding both the aggregate and the percentile population.
+        # Calling cohort_stats() here instead would re-run this join.
+        rows = self._cohort_rows(from_token, to_token, window_days)
+        stats = self._stats_from_rows(rows, from_token, to_token, window_days)
         if stats.get("suppressed"):
             return stats
 
-        window_days = stats["window_days"]
         cutoff = datetime.utcnow() - timedelta(days=window_days)
-
-        rows = self._cohort_rows(from_token, to_token, window_days)
-        # The population is the same fetch the aggregate came from; only this
-        # user's own subset needs its own query.
-        population = [(r[1],) for r in rows]
+        population = [float(r[1]) for r in rows]
 
         with get_session() as session:
             mine = session.execute(
@@ -183,10 +196,9 @@ class ExecutionBenchmark:
             }
 
         my_median = _median(my_values)
-        pop = [float(r[0]) for r in population]
         # Less value lost is better, so a higher (less negative) bps figure
         # ranks better.
-        percentile = _pct_rank(my_median, pop, higher_is_better=True)
+        percentile = _pct_rank(my_median, population, higher_is_better=True)
 
         return {
             "suppressed": False,

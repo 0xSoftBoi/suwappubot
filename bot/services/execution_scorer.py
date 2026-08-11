@@ -6,7 +6,7 @@ completed swaps and records the destination-token price at fixed horizons,
 splitting execution quality into two independent measures:
 
   * ``realized_vs_quoted_bps`` — MISNAMED. It does not compare a realized fill
-    to a quote and never has: it is ``_bps(to_amount_usd, from_amount_usd)``,
+    to a quote and never has: it is ``bps(to_amount_usd, from_amount_usd)``,
     and BOTH of those are written once in ``execute_swap()`` from the quote's
     expected amounts. No realized fill data enters it. What it measures is the
     quoted round-trip COST of the trade — spread, price impact, platform fee,
@@ -83,7 +83,7 @@ def _as_datetime(value) -> Optional[datetime]:
         return None
 
 
-def _bps(actual: float, expected: float) -> Optional[float]:
+def bps(actual: float, expected: float) -> Optional[float]:
     """Difference in basis points, or None when the base is unusable."""
     if not expected or expected <= 0:
         return None
@@ -238,7 +238,7 @@ class ExecutionScorer:
                 # Quoted round-trip cost — value out vs value in, both from the
                 # quote. NOT fill accuracy; see the module docstring before
                 # relabelling this or the column it lands in.
-                quoted_cost = _bps(to_usd, from_usd) if (to_usd and from_usd) else None
+                quoted_cost = bps(to_usd, from_usd) if (to_usd and from_usd) else None
 
                 # Markout baseline.
                 #
@@ -252,7 +252,7 @@ class ExecutionScorer:
                 if label == BASELINE_HORIZON or baseline is None:
                     markout = None
                 else:
-                    markout = _bps(price, baseline)
+                    markout = bps(price, baseline)
 
                 self._write_mark(
                     swap_id=swap["id"],

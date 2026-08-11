@@ -214,8 +214,13 @@ class SwapExecutionMark(Base):
     happened after it. This records the destination-token price at fixed
     horizons past completion so execution quality can be separated into:
 
-      * ``realized_vs_quoted_bps`` — did we deliver what the quote promised?
-        (our routing / slippage accuracy, known immediately)
+      * ``realized_vs_quoted_bps`` — MISNAMED, and the name is load-bearing
+        enough to be worth the warning. It holds the quoted round-trip COST of
+        the trade (spread + price impact + platform fee), computed from the
+        quote's own amounts on both sides; no realized fill data reaches it.
+        It cannot answer "did we deliver the quote". True fill accuracy comes
+        from ``realized_to_amount`` above. See ``execution_scorer``'s module
+        docstring before trusting or renaming this column.
       * ``markout_bps`` — did the price move against the taker after the fill?
         (adverse selection / toxicity, only knowable later)
 
