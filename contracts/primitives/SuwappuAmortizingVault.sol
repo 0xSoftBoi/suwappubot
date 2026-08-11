@@ -41,13 +41,19 @@ contract SuwappuAmortizingVault {
     /*////////////////////////////////////////////////////////////
                           REENTRANCY GUARD (inlined)
     ////////////////////////////////////////////////////////////*/
-    uint256 private _lock = 1;
+    // EIP-1153 transient reentrancy guard (~200 gas vs ~5k for an SSTORE pair).
+    // Uses tstore/tload directly since the 0.8.27 `transient` keyword predates support.
+    uint256 private constant _LOCK_SLOT = 0;
 
     modifier nonReentrant() {
-        require(_lock == 1, "REENTRANT");
-        _lock = 2;
+        assembly {
+            if tload(_LOCK_SLOT) { revert(0, 0) }
+            tstore(_LOCK_SLOT, 1)
+        }
         _;
-        _lock = 1;
+        assembly {
+            tstore(_LOCK_SLOT, 0)
+        }
     }
 
     /*////////////////////////////////////////////////////////////
@@ -134,10 +140,13 @@ contract SuwappuAmortizingVault {
     }
 
     function withdraw(uint256 shares) external nonReentrant returns (uint256 assets_) {
-        if (shares == 0 || shares > lendShares[msg.sender]) revert ZeroAmount();
+        uint256 bal = lendShares[msg.sender];
+        if (shares == 0 || shares > bal) revert ZeroAmount();
         assets_ = _mulDiv(shares, poolAssets() + VIRTUAL, totalLendShares + VIRTUAL);
         if (assets_ > totalCash) revert InsufficientCash();
-        lendShares[msg.sender] -= shares;
+        unchecked {
+            lendShares[msg.sender] = bal - shares;
+        }
         totalLendShares -= shares;
         totalCash -= assets_;
         _safeTransferAsset(msg.sender, assets_);

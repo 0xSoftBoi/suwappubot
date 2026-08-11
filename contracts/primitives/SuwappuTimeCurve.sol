@@ -101,13 +101,19 @@ contract SuwappuTimeCurve {
     /*////////////////////////////////////////////////////////////
                           REENTRANCY GUARD (inlined)
     ////////////////////////////////////////////////////////////*/
-    uint256 private _lock = 1;
+    // EIP-1153 transient reentrancy guard (~200 gas vs ~5k for an SSTORE pair).
+    // Uses tstore/tload directly since the 0.8.27 `transient` keyword predates support.
+    uint256 private constant _LOCK_SLOT = 0;
 
     modifier nonReentrant() {
-        require(_lock == 1, "REENTRANT");
-        _lock = 2;
+        assembly {
+            if tload(_LOCK_SLOT) { revert(0, 0) }
+            tstore(_LOCK_SLOT, 1)
+        }
         _;
-        _lock = 1;
+        assembly {
+            tstore(_LOCK_SLOT, 0)
+        }
     }
 
     /*////////////////////////////////////////////////////////////

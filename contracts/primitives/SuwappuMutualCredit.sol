@@ -33,13 +33,19 @@ contract SuwappuMutualCredit {
     /*////////////////////////////////////////////////////////////
                           REENTRANCY GUARD (inlined)
     ////////////////////////////////////////////////////////////*/
-    uint256 private _lock = 1;
+    // EIP-1153 transient reentrancy guard (~200 gas vs ~5k for an SSTORE pair).
+    // Uses tstore/tload directly since the 0.8.27 `transient` keyword predates support.
+    uint256 private constant _LOCK_SLOT = 0;
 
     modifier nonReentrant() {
-        require(_lock == 1, "REENTRANT");
-        _lock = 2;
+        assembly {
+            if tload(_LOCK_SLOT) { revert(0, 0) }
+            tstore(_LOCK_SLOT, 1)
+        }
         _;
-        _lock = 1;
+        assembly {
+            tstore(_LOCK_SLOT, 0)
+        }
     }
 
     uint256 private constant WAD = 1e18;
@@ -57,20 +63,27 @@ contract SuwappuMutualCredit {
         Defaulted
     }
 
+    /// @dev The pair (a = lower address, b = higher) and `token` are NOT stored —
+    ///      they are pure functions of the lineKey inputs, which every function
+    ///      already receives, so recomputing them via `_pair` saves 3 storage slots
+    ///      per line (a big cut to proposeLine's cold-SSTORE cost). `limitA`/`limitB`
+    ///      stay bound to the lower/higher address respectively.
     struct Line {
-        address a;            // lower address of the pair
-        address b;            // higher address of the pair
-        address token;        // unit of account
-        uint256 limitA;       // max debt `a` accepts from `b` (credit a extends)
-        uint256 limitB;       // max debt `b` accepts from `a` (credit b extends)
+        uint256 limitA;       // max debt `a` (lower) accepts from `b` (credit a extends)
+        uint256 limitB;       // max debt `b` (higher) accepts from `a` (credit b extends)
         int256 balance;       // > 0: b owes a; < 0: a owes b
         uint256 feeRate;      // per-second interest on outstanding balance, WAD
         uint64 grace;         // settlement grace period in seconds
         uint64 lastAccrual;
         uint64 demandTs;      // 0 = no outstanding settlement demand
+        Status status;        // packs with the three uint64s above (25 bytes/slot)
         address demandBy;
-        Status status;
         address proposer;
+    }
+
+    /// @dev Sorted pair for a two-party line (a = lower, b = higher address).
+    function _pair(address x, address y) private pure returns (address a, address b) {
+        (a, b) = x < y ? (x, y) : (y, x);
     }
 
     mapping(bytes32 => Line) public lines;
@@ -88,7 +101,6 @@ contract SuwappuMutualCredit {
 
     error BadParams();
     error BadStatus();
-    error NotParty();
     error LimitExceeded();
     error NothingOwed();
     error GraceNotElapsed();
@@ -116,20 +128,17 @@ contract SuwappuMutualCredit {
         key = lineKey(msg.sender, counterparty, token);
         Line storage l = lines[key];
         if (l.status != Status.None && l.status != Status.Closed) revert BadStatus();
-        (address lo, address hi) = msg.sender < counterparty ? (msg.sender, counterparty) : (counterparty, msg.sender);
+        (address lo,) = _pair(msg.sender, counterparty);
         lines[key] = Line({
-            a: lo,
-            b: hi,
-            token: token,
             limitA: msg.sender == lo ? myLimit : 0,
-            limitB: msg.sender == hi ? myLimit : 0,
+            limitB: msg.sender == lo ? 0 : myLimit,
             balance: 0,
             feeRate: feeRate,
             grace: grace,
             lastAccrual: uint64(block.timestamp),
             demandTs: 0,
-            demandBy: address(0),
             status: Status.Proposed,
+            demandBy: address(0),
             proposer: msg.sender
         });
         emit LineProposed(key, msg.sender, counterparty, token, myLimit, feeRate, grace);
@@ -140,12 +149,12 @@ contract SuwappuMutualCredit {
         bytes32 key = lineKey(msg.sender, proposer, token);
         Line storage l = lines[key];
         if (l.status != Status.Proposed || l.proposer != proposer || proposer == msg.sender) revert BadStatus();
-        if (msg.sender != l.a && msg.sender != l.b) revert NotParty();
-        if (msg.sender == l.a) l.limitA = myLimit;
+        (address lo, address hi) = _pair(msg.sender, proposer);
+        if (msg.sender == lo) l.limitA = myLimit;
         else l.limitB = myLimit;
         l.status = Status.Active;
         l.lastAccrual = uint64(block.timestamp);
-        emit LineOpened(key, l.a, l.b, token);
+        emit LineOpened(key, lo, hi, token);
     }
 
     /// @notice Proposer withdraws an unaccepted proposal, freeing the (pair, token)
@@ -164,7 +173,6 @@ contract SuwappuMutualCredit {
         bytes32 key = lineKey(msg.sender, proposer, token);
         Line storage l = lines[key];
         if (l.status != Status.Proposed || l.proposer != proposer || proposer == msg.sender) revert BadStatus();
-        if (msg.sender != l.a && msg.sender != l.b) revert NotParty();
         l.status = Status.Closed;
         emit LineClosed(key);
     }
@@ -179,19 +187,18 @@ contract SuwappuMutualCredit {
         if (l.status != Status.Active) revert BadStatus();
         if (amount > uint256(type(int256).max)) revert BadParams();
         _accrue(l);
-        // balance convention: > 0 means b owes a. Payer's debt grows.
-        if (msg.sender == l.a) {
+        (address lo, address hi) = _pair(msg.sender, to);
+        // balance convention: > 0 means b (hi) owes a (lo). Payer's debt grows.
+        if (msg.sender == lo) {
             int256 newBal = l.balance - int256(amount);
             if (newBal < 0 && uint256(-newBal) > l.limitB) revert LimitExceeded();
             l.balance = newBal;
-        } else if (msg.sender == l.b) {
+        } else {
             int256 newBal = l.balance + int256(amount);
             if (newBal > 0 && uint256(newBal) > l.limitA) revert LimitExceeded();
             l.balance = newBal;
-        } else {
-            revert NotParty();
         }
-        _clearDemandIfCovered(l);
+        _clearDemandIfCovered(l, lo, hi);
         emit Payment(key, msg.sender, to, amount);
     }
 
@@ -202,8 +209,9 @@ contract SuwappuMutualCredit {
         // layers (and a debtor who wants to cure) can still read the amount owed.
         if (l.status != Status.Active && l.status != Status.Defaulted) return 0;
         int256 bal = _accruedBalance(l);
-        if (debtor == l.b && bal > 0) return uint256(bal);
-        if (debtor == l.a && bal < 0) return uint256(-bal);
+        (address lo, address hi) = _pair(debtor, creditor);
+        if (debtor == hi && bal > 0) return uint256(bal);
+        if (debtor == lo && bal < 0) return uint256(-bal);
         return 0;
     }
 
@@ -218,34 +226,40 @@ contract SuwappuMutualCredit {
         // Reject duplicate nodes: a repeated address would let the apply loop
         // hit the same line more than once, netting it past its true balance
         // and blowing through the agreed credit limits.
-        for (uint256 i = 0; i < n; i++) {
-            if (cycle[i] == address(0)) revert BadCycle();
-            for (uint256 j = i + 1; j < n; j++) {
-                if (cycle[i] == cycle[j]) revert BadCycle();
+        for (uint256 i = 0; i < n;) {
+            address node = cycle[i];
+            if (node == address(0)) revert BadCycle();
+            for (uint256 j = i + 1; j < n;) {
+                if (node == cycle[j]) revert BadCycle();
+                unchecked { ++j; }
             }
+            unchecked { ++i; }
         }
         uint256 minOwed = type(uint256).max;
-        for (uint256 i = 0; i < n; i++) {
+        for (uint256 i = 0; i < n;) {
             uint256 owed = owedBy(cycle[i], cycle[(i + 1) % n], token);
             if (owed == 0) revert BadCycle();
             if (owed < minOwed) minOwed = owed;
+            unchecked { ++i; }
         }
         int256 signedMin = int256(minOwed);
-        for (uint256 i = 0; i < n; i++) {
+        for (uint256 i = 0; i < n;) {
             address debtor = cycle[i];
             address creditor = cycle[(i + 1) % n];
             Line storage l = lines[lineKey(debtor, creditor, token)];
             if (l.status != Status.Active) revert BadCycle();
             _accrue(l);
+            (address lo, address hi) = _pair(debtor, creditor);
             // Re-derive the leg's live obligation post-accrual and require it
             // still covers the netting amount, so no leg is ever driven past 0.
-            uint256 legOwed = (debtor == l.b && l.balance > 0)
+            uint256 legOwed = (debtor == hi && l.balance > 0)
                 ? uint256(l.balance)
-                : (debtor == l.a && l.balance < 0) ? uint256(-l.balance) : 0;
+                : (debtor == lo && l.balance < 0) ? uint256(-l.balance) : 0;
             if (legOwed < minOwed) revert BadCycle();
-            if (debtor == l.b) l.balance -= signedMin;
+            if (debtor == hi) l.balance -= signedMin;
             else l.balance += signedMin;
-            _clearDemandIfCovered(l);
+            _clearDemandIfCovered(l, lo, hi);
+            unchecked { ++i; }
         }
         emit CycleNetted(token, cycle, minOwed);
     }
@@ -262,9 +276,10 @@ contract SuwappuMutualCredit {
         uint256 owed = owedBy(msg.sender, creditor, token);
         if (owed == 0) revert NothingOwed();
         if (amount > owed) amount = owed;
-        if (msg.sender == l.b) l.balance -= int256(amount);
+        (address lo, address hi) = _pair(msg.sender, creditor);
+        if (msg.sender == hi) l.balance -= int256(amount);
         else l.balance += int256(amount);
-        _clearDemandIfCovered(l);
+        _clearDemandIfCovered(l, lo, hi);
         _safeTransferFrom(token, msg.sender, creditor, amount);
         emit Settled(key, msg.sender, amount);
     }
@@ -302,7 +317,6 @@ contract SuwappuMutualCredit {
         bytes32 key = lineKey(msg.sender, counterparty, token);
         Line storage l = lines[key];
         if (l.status != Status.Active) revert BadStatus();
-        if (msg.sender != l.a && msg.sender != l.b) revert NotParty();
         _accrue(l);
         if (l.balance != 0) revert NothingOwed();
         l.status = Status.Closed;
@@ -326,13 +340,12 @@ contract SuwappuMutualCredit {
         l.lastAccrual = uint64(block.timestamp);
     }
 
-    function _clearDemandIfCovered(Line storage l) internal {
+    function _clearDemandIfCovered(Line storage l, address lo, address hi) internal {
         if (l.demandTs == 0) return;
-        address demandant = l.demandBy;
-        address debtor = demandant == l.a ? l.b : l.a;
-        // Re-derive what the debtor still owes the demanding creditor.
+        // The demandant is the creditor; the debtor is the other party.
+        address debtor = l.demandBy == lo ? hi : lo;
         int256 bal = l.balance;
-        bool stillOwed = (debtor == l.b && bal > 0) || (debtor == l.a && bal < 0);
+        bool stillOwed = (debtor == hi && bal > 0) || (debtor == lo && bal < 0);
         if (!stillOwed) {
             l.demandTs = 0;
             l.demandBy = address(0);

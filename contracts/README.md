@@ -152,6 +152,15 @@ compiles standalone with `solc` alone (no OpenZeppelin, no remappings, no libs),
 there is no transitive supply-chain surface and the deployed bytecode is fully
 auditable from one file.
 
+**Gas.** The reentrancy guard uses EIP-1153 transient storage (`tstore`/`tload`,
+Base is on Cancun), replacing an SSTORE pair with ~200 gas on every state-changing
+call. `SuwappuMutualCredit` does not store the `(a, b, token)` triple — it's a pure
+function of the call arguments, recomputed on the fly, cutting three cold SSTOREs
+from line creation (`proposeLine` ~189k → ~103k). Hot paths also cache repeated
+SLOADs and use `unchecked` loop counters. Approximate measured cost (median):
+`buy` ~109k, `sell` ~70k, `supply` ~130k, `openPosition` ~217k, `pay` ~53k,
+`settle` ~65k, `netCycle` (3-cycle) ~39k.
+
 ### `SuwappuTimeCurve.sol` — Time-Locked Continuous Bonding Curve
 The contract is itself the curve token (mint on buy, burn on sell) against one
 ERC-20 reserve. Price is a pure function of time and supply:
