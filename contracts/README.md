@@ -227,13 +227,27 @@ An adversarial money-path review (with executable PoCs) shaped these designs:
   can cure and reputation layers can read the outstanding amount.
 
 ### Tests
-`test/PrimitivesTest.t.sol` — 34 tests: solvency after decay, split-invariant sink,
-no-free-mint at vanishing multiplier, fuzzed round-trip non-profitability,
-LTV/liquidation paths, illiquid-collateral liquidation, donation resistance,
-bad-debt writeoff, poke-independent interest, self-repayment to unlock, lender
-interest, cycle netting + repeated-leg rejection, int-overflow guard,
-proposal cancel, curable defaults.
+- **Unit** (`test/PrimitivesTest.t.sol`, 37): solvency after decay, split-invariant
+  sink, no-free-mint at vanishing multiplier, fuzzed round-trip non-profitability,
+  LTV/liquidation paths, illiquid-collateral liquidation, donation resistance,
+  bad-debt writeoff, poke-independent interest, self-repayment, lender interest,
+  cycle netting + repeated-leg rejection, int-overflow guard, proposal cancel,
+  curable defaults, deadline expiry, curve-token ERC-20 conformance.
+- **Invariant / stateful fuzz** (`test/PrimitivesInvariant.t.sol`, 256 runs ×
+  64 depth): curve reserve always covers a full-supply buy-back and never hits
+  InsufficientReserve; vault debt-accounting consistency, `totalCash == real
+  balance`, no phantom debt (bad debt always written off); credit balances stay
+  within agreed limits and net-position is conserved under `netCycle`.
+- **Mainnet fork** (`test/PrimitivesFork.t.sol`): full round-trips against real
+  Base USDC (6-decimal, exercises `reserveScale != 1`) and a real Morpho ERC-4626.
+  Skips gracefully when `BASE_MAINNET_RPC_URL` is unset.
 
 ```bash
 forge test --match-path "test/PrimitivesTest.t.sol"
+forge test --match-path "test/PrimitivesInvariant.t.sol"
+BASE_MAINNET_RPC_URL=<rpc> forge test --match-path "test/PrimitivesFork.t.sol" -vvv
 ```
+
+**Mainnet readiness:** see [`MAINNET_READINESS.md`](./MAINNET_READINESS.md) — the
+engineering is hardened, but real funds still require an independent audit, a
+testnet soak, and a bug bounty. Deploy with `deploy/DeployPrimitives.s.sol`.
