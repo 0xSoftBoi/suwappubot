@@ -51,6 +51,7 @@ export interface HealthStatus {
 }
 
 export interface EarnPosition {
+  walletId: number
   protocol: string
   chain: string
   token: string
@@ -60,6 +61,7 @@ export interface EarnPosition {
 }
 
 export interface EarnIdleBalance {
+  walletId: number
   chain: string
   token: string
   balance: string
@@ -73,8 +75,23 @@ export interface EarnSnapshot {
   coverage: 'best_effort' | 'complete'
 }
 
-export interface EarnActionResponse {
+/** 200: the tx landed and confirmed. `approximate` is set on a max-withdraw,
+ * where the amount reported is the pre-execution read and the live on-chain
+ * amount (principal + interest accrued since) can be marginally higher. */
+export interface EarnActionSuccess {
   ok: true
   txHash: string
   amount: string
+  approximate?: boolean
 }
+
+/** 202: broadcast but confirmation timed out. Not an error — the tx may
+ * still land. Client should show a pending state and re-poll, never retry
+ * the write itself (a retry could double-submit on top of a tx that lands). */
+export interface EarnActionPending {
+  ok: false
+  status: 'pending'
+  txHash: string
+}
+
+export type EarnActionResponse = EarnActionSuccess | EarnActionPending

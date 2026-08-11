@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useEarn, useEarnDeposit, useEarnWithdraw } from '../../src/hooks/use-gecko'
@@ -6,10 +6,20 @@ import { ApiError } from '../../src/lib/api'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
-import type { EarnActionResponse } from '../../src/types/api'
+import type { EarnActionSuccess } from '../../src/types/api'
 
 type Mode = 'deposit' | 'withdraw'
-type Step = 'input' | 'confirm' | 'success'
+type Step = 'input' | 'confirm' | 'pending' | 'success'
+
+// Mirrors _parse_earn_amount in api/routes/mobile.py — kept in sync so the
+// input rejects out-of-bounds amounts before a round trip, not just after.
+const MIN_EARN_AMOUNT = 0.01
+const MAX_EARN_AMOUNT = 1_000_000
+
+/** How long to wait before re-checking an unconfirmed (202) tx. Just a nicer
+ * first paint than an immediate refetch that likely still shows the old
+ * balance — the manual pull-to-refresh always works in the meantime. */
+const PENDING_REFETCH_DELAY_MS = 5_000
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.detail
@@ -32,42 +42,74 @@ export default function EarnScreen() {
   const [step, setStep] = useState<Step>('input')
   const [rawAmount, setRawAmount] = useState('')
   const [useMax, setUseMax] = useState(false)
-  const [result, setResult] = useState<EarnActionResponse | null>(null)
+  const [result, setResult] = useState<EarnActionSuccess | null>(null)
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null)
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current)
+  }, [])
 
   const refresh = useCallback(() => void refetch(), [refetch])
   const mutation = mode === 'deposit' ? deposit : mode === 'withdraw' ? withdraw : null
 
+  const clearPendingTimer = useCallback(() => {
+    if (pendingTimer.current) {
+      clearTimeout(pendingTimer.current)
+      pendingTimer.current = null
+    }
+  }, [])
+
   const openAction = useCallback((next: Mode) => {
+    clearPendingTimer()
     setMode(next)
     setStep('input')
     setRawAmount('')
     setUseMax(false)
     setResult(null)
+    setPendingTxHash(null)
     deposit.reset()
     withdraw.reset()
-  }, [deposit, withdraw])
+  }, [deposit, withdraw, clearPendingTimer])
 
   const closeAction = useCallback(() => {
+    clearPendingTimer()
     setMode(null)
     setStep('input')
     setRawAmount('')
     setUseMax(false)
     setResult(null)
-  }, [])
+    setPendingTxHash(null)
+  }, [clearPendingTimer])
 
   const amountToSend = useMax ? 'max' : rawAmount.trim()
-  const canReview = amountToSend.length > 0 && (useMax || Number(amountToSend) > 0)
+  const numericAmount = Number(rawAmount.trim())
+  const amountInBounds = useMax
+    || (rawAmount.trim().length > 0
+      && Number.isFinite(numericAmount)
+      && numericAmount >= MIN_EARN_AMOUNT
+      && numericAmount <= MAX_EARN_AMOUNT)
+  const canReview = amountToSend.length > 0 && amountInBounds
 
   const submit = useCallback(() => {
     if (!mode || !mutation || !canReview) return
-    mutation.mutate(amountToSend, {
+    mutation.mutate({ amount: amountToSend }, {
       onSuccess: (response) => {
-        setResult(response)
-        setStep('success')
-        void refetch()
+        if (response.ok) {
+          setResult(response)
+          setStep('success')
+          void refetch()
+        } else {
+          // 202 broadcast-but-unconfirmed: not an error, and never auto-retried
+          // (a retry here could double-submit on top of a tx that still lands).
+          setPendingTxHash(response.txHash)
+          setStep('pending')
+          clearPendingTimer()
+          pendingTimer.current = setTimeout(() => { void refetch() }, PENDING_REFETCH_DELAY_MS)
+        }
       },
     })
-  }, [mode, mutation, canReview, amountToSend, refetch])
+  }, [mode, mutation, canReview, amountToSend, refetch, clearPendingTimer])
 
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Loading your yield…" />
@@ -167,6 +209,11 @@ export default function EarnScreen() {
                   <Text style={local.maxChipText}>Max</Text>
                 </Pressable>
               </View>
+              {!useMax && rawAmount.trim().length > 0 && !amountInBounds ? (
+                <Text selectable style={local.error}>
+                  Enter an amount between {MIN_EARN_AMOUNT} and {MAX_EARN_AMOUNT.toLocaleString('en-US')} USDC.
+                </Text>
+              ) : null}
               <View style={local.panelActions}>
                 <Pressable onPress={closeAction} style={local.cancelButton}>
                   <Text style={local.cancelText}>Cancel</Text>
@@ -203,10 +250,23 @@ export default function EarnScreen() {
             </>
           ) : null}
 
+          {step === 'pending' && pendingTxHash ? (
+            <>
+              <Text style={local.pending}>Submitted — confirming on-chain.</Text>
+              <Text selectable style={s.muted}>Tx {truncateHash(pendingTxHash)}</Text>
+              <Text selectable style={local.copy}>
+                This can take a minute. Gecko will refresh your position automatically — no need to resend.
+              </Text>
+              <Pressable onPress={closeAction} style={local.confirmButton}>
+                <Text style={local.confirmText}>Done</Text>
+              </Pressable>
+            </>
+          ) : null}
+
           {step === 'success' && result ? (
             <>
               <Text style={local.success}>{mode === 'deposit' ? 'Deposit sent.' : 'Withdrawal sent.'}</Text>
-              <Text selectable style={s.body}>{result.amount} USDC</Text>
+              <Text selectable style={s.body}>{result.approximate ? '~' : ''}{result.amount} USDC</Text>
               <Text selectable style={s.muted}>Tx {truncateHash(result.txHash)}</Text>
               <Pressable onPress={closeAction} style={local.confirmButton}>
                 <Text style={local.confirmText}>Done</Text>
@@ -245,5 +305,6 @@ const local = StyleSheet.create({
   confirmButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
   confirmText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
   success: { color: palette.success, fontSize: 15, fontWeight: '700' },
+  pending: { color: palette.textSecondary, fontSize: 15, fontWeight: '700' },
   error: { color: palette.danger, fontSize: 13 },
 })
