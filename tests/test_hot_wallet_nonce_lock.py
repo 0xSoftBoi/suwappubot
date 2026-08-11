@@ -318,6 +318,139 @@ def test_repeated_asyncio_run_per_call_does_not_raise_wrong_event_loop(tmp_db, m
 # ── unrelated existing behaviour must be unchanged ──────────────────────
 
 
+# ── H1: RPC failure between reserve_nonce and the protected try block ──
+
+
+class _FlakyGasPriceEth:
+    """Like `_FakeWeb3.eth`, but `gas_price` raises on its first access —
+    simulating an RPC hiccup that happens BETWEEN `reserve_nonce` and the
+    inner try/except. Before the fix this leaked the reservation."""
+
+    def __init__(self, pending_nonce, fail_times=1):
+        self.get_transaction_count = MagicMock(return_value=pending_nonce)
+        self.estimate_gas = MagicMock(return_value=21000)
+        self._fail_times = fail_times
+        self._calls = 0
+        contract = MagicMock()
+
+        def _build_transaction(overrides):
+            tx = {"to": TOKEN_ADDR, "data": "0xdeadbeef"}
+            tx.update(overrides)
+            return tx
+
+        contract.functions.transfer.return_value.build_transaction.side_effect = _build_transaction
+        self.contract = MagicMock(return_value=contract)
+
+    @property
+    def gas_price(self):
+        self._calls += 1
+        if self._calls <= self._fail_times:
+            raise TimeoutError("rpc hiccup fetching gas_price")
+        return 1_000_000_000
+
+
+class _FlakyWeb3:
+    def __init__(self, pending_nonce, fail_times=1):
+        self.eth = _FlakyGasPriceEth(pending_nonce, fail_times=fail_times)
+
+
+async def test_gas_price_rpc_failure_releases_reservation_native(tmp_db, monkeypatch):
+    web3 = _FlakyWeb3(pending_nonce=30, fail_times=1)
+    _patch_web3(monkeypatch, web3)
+
+    wallet = _wallet()
+    with pytest.raises(TimeoutError):
+        await hw_mod.hot_wallet_service.send_native_token(wallet, "base", TO_ADDR, Decimal("0.001"))
+
+    captured_nonces = []
+
+    async def ok_sign(wallet, tx):
+        captured_nonces.append(tx["nonce"])
+        return "0x" + "00" * 32
+
+    monkeypatch.setattr(hw_mod.hot_wallet_service, "_sign_via_turnkey", ok_sign)
+    monkeypatch.setattr(
+        hw_mod.hot_wallet_service,
+        "_broadcast_evm_raw_tx",
+        lambda web3, raw_tx, claimed_tx_id=None: b"\x07" * 32,
+    )
+    await hw_mod.hot_wallet_service.send_native_token(wallet, "base", TO_ADDR, Decimal("0.001"))
+    assert captured_nonces == [30], "gas_price RPC failure must release the nonce, not leak it"
+
+
+async def test_gas_price_rpc_failure_releases_reservation_token(tmp_db, monkeypatch):
+    web3 = _FlakyWeb3(pending_nonce=40, fail_times=1)
+    _patch_web3(monkeypatch, web3)
+
+    wallet = _wallet()
+    with pytest.raises(TimeoutError):
+        await hw_mod.hot_wallet_service.send_token(
+            wallet, "base", TOKEN_ADDR, TO_ADDR, Decimal("1"), decimals=6
+        )
+
+    captured_nonces = []
+
+    async def ok_sign(wallet, tx):
+        captured_nonces.append(tx["nonce"])
+        return "0x" + "00" * 32
+
+    monkeypatch.setattr(hw_mod.hot_wallet_service, "_sign_via_turnkey", ok_sign)
+    monkeypatch.setattr(
+        hw_mod.hot_wallet_service,
+        "_broadcast_evm_raw_tx",
+        lambda web3, raw_tx, claimed_tx_id=None: b"\x08" * 32,
+    )
+    await hw_mod.hot_wallet_service.send_token(
+        wallet, "base", TOKEN_ADDR, TO_ADDR, Decimal("1"), decimals=6
+    )
+    assert captured_nonces == [40], "gas_price RPC failure must release the nonce, not leak it"
+
+
+# ── L1: broadcast helpers always return 0x-prefixed tx hashes ──────────
+
+
+async def test_send_native_token_returns_0x_prefixed_hash(tmp_db, monkeypatch):
+    web3 = _FakeWeb3(pending_nonce=50)
+    _patch_web3(monkeypatch, web3)
+
+    async def ok_sign(wallet, tx):
+        return "0x" + "00" * 32
+
+    monkeypatch.setattr(hw_mod.hot_wallet_service, "_sign_via_turnkey", ok_sign)
+    # Exercise the real `_broadcast_evm_raw_tx` (not mocked out), simulating
+    # hexbytes==1.3.1's unprefixed `.hex()` by having the underlying
+    # send_raw_transaction call return raw bytes with no "0x" of its own.
+    monkeypatch.setattr(web3.eth, "send_raw_transaction", MagicMock(return_value=b"\x09" * 32))
+
+    result = await hw_mod.hot_wallet_service.send_native_token(
+        wallet=_wallet(), chain_name="base", to_address=TO_ADDR, amount=Decimal("0.001")
+    )
+    assert result == "0x" + "09" * 32
+    assert result.startswith("0x")
+
+
+async def test_send_token_returns_0x_prefixed_hash(tmp_db, monkeypatch):
+    web3 = _FakeWeb3(pending_nonce=60)
+    _patch_web3(monkeypatch, web3)
+
+    async def ok_sign(wallet, tx):
+        return "0x" + "00" * 32
+
+    monkeypatch.setattr(hw_mod.hot_wallet_service, "_sign_via_turnkey", ok_sign)
+    monkeypatch.setattr(web3.eth, "send_raw_transaction", MagicMock(return_value=b"\x0a" * 32))
+
+    result = await hw_mod.hot_wallet_service.send_token(
+        wallet=_wallet(),
+        chain_name="base",
+        token_address=TOKEN_ADDR,
+        to_address=TO_ADDR,
+        amount=Decimal("1"),
+        decimals=6,
+    )
+    assert result == "0x" + "0a" * 32
+    assert result.startswith("0x")
+
+
 async def test_withdrawals_disabled_still_raises_before_touching_the_lock(monkeypatch):
     monkeypatch.setenv("TERMINAL_WITHDRAW_ENABLED", "false")
     wallet = _wallet()

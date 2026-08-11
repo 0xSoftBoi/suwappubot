@@ -1126,22 +1126,24 @@ class HotWalletService:
                 )
             try:
                 nonce = reserve_nonce(web3, checksum_addr)
-                gas_price = web3.eth.gas_price
-
-                tx = {
-                    "nonce": nonce,
-                    "to": Web3.to_checksum_address(to_address),
-                    "value": amount_wei,
-                    "gas": 21000,
-                    "gasPrice": gas_price,
-                    "chainId": chain.chain_id,
-                }
-
-                # Sign based on wallet provider. Signing itself is
-                # pre-broadcast and safe to let fail normally (and release
-                # the reservation); only the send_raw_transaction call is
-                # ambiguous once invoked.
                 try:
+                    # Everything from here through signing is pre-broadcast
+                    # and safe to let fail normally (and release the
+                    # reservation); only the send_raw_transaction call
+                    # inside `_broadcast_evm_raw_tx` is ambiguous once
+                    # invoked, so it is deliberately kept OUTSIDE this
+                    # try/except.
+                    gas_price = web3.eth.gas_price
+
+                    tx = {
+                        "nonce": nonce,
+                        "to": Web3.to_checksum_address(to_address),
+                        "value": amount_wei,
+                        "gas": 21000,
+                        "gasPrice": gas_price,
+                        "chainId": chain.chain_id,
+                    }
+
                     if wallet.is_turnkey_wallet:
                         signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
                         raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
@@ -1161,7 +1163,7 @@ class HotWalletService:
                 # be released on that path (a retry must not reuse a nonce
                 # that may already be on-chain).
                 tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
-                return tx_hash.hex()
+                return Web3.to_hex(tx_hash)
             finally:
                 await asyncio.to_thread(
                     _evm_send_db_lock_release, chain_name, wallet.address, db_holder
@@ -1181,7 +1183,7 @@ class HotWalletService:
         PostBroadcastAmbiguous — the node may have already accepted the tx
         even though the call raised. Callers must NOT refund/release on this
         path; leave it for the reconciler."""
-        precomputed_hash = Web3.keccak(raw_tx).hex()
+        precomputed_hash = Web3.to_hex(Web3.keccak(raw_tx))
         if claimed_tx_id is not None:
             self.stamp_pending_tx_hash(claimed_tx_id, precomputed_hash)
         try:
@@ -1417,9 +1419,10 @@ class HotWalletService:
                 )
             try:
                 nonce = reserve_nonce(web3, checksum_addr)
-                gas_price = web3.eth.gas_price
 
                 try:
+                    gas_price = web3.eth.gas_price
+
                     if chain_name == "tempo":
                         # TIP-20 transferWithMemo (Tempo native).
                         # build_transfer_with_memo returns {to, data, value};
@@ -1493,7 +1496,7 @@ class HotWalletService:
                 # See send_native_token: PostBroadcastAmbiguous must NOT
                 # release the reservation — the node may already have it.
                 tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
-                return tx_hash.hex()
+                return Web3.to_hex(tx_hash)
             finally:
                 await asyncio.to_thread(
                     _evm_send_db_lock_release, chain_name, wallet.address, db_holder
