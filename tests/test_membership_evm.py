@@ -654,3 +654,114 @@ def test_python_built_authorization_settles_on_chain(env, monkeypatch):
     tier, _, _ = expiry_of(m, payer.address)
     assert tier == PRO
     assert usdg.functions.balanceOf(treasury).call() == PRO_PRICE * 2
+
+
+def test_bot_built_calldata_settles_against_the_real_contract(env, monkeypatch):
+    """The /subscribe path end to end: membership_service builds the payload, a
+    wallet signs it, membership_service encodes the calldata, and a RELAYER
+    broadcasts it. Proves the exact bytes the bot would send are accepted."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    import bot.services.membership_service as mod
+    from bot.models.subscription import SubscriptionTier
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: m.address))
+    monkeypatch.setattr(type(svc), "treasury_address", property(lambda self: treasury))
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
+
+    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PREMIUM, 3)
+    assert payload is not None
+
+    # sign exactly what the bot handed over (domain fixed to this test chain)
+    typed = dict(payload["typed_data"])
+    typed["domain"] = dict(typed["domain"], chainId=w3.eth.chain_id, verifyingContract=usdg.address)
+    signed = payer.sign_typed_data(full_message=typed)
+    sig = signed.signature.hex()
+    if not sig.startswith("0x"):
+        sig = "0x" + sig
+
+    # the bot verifies the signer before it will submit anything
+    payload["typed_data"] = typed
+    recovered = svc.verify_subscription_signature(payload, sig)
+    assert recovered.lower() == payer.address.lower()
+    assert svc.verify_subscription_signature(payload, "0x" + "11" * 65) != payer.address
+
+    # encode exactly as the relayer path does, then broadcast it
+    class _FakeRpc:
+        @staticmethod
+        def get_web3(chain):
+            return w3
+
+    monkeypatch.setattr(mod, "CHAIN_ID", w3.eth.chain_id)
+    import bot.services.rpc_manager as rpcmod
+
+    monkeypatch.setattr(rpcmod, "rpc_manager", _FakeRpc)
+
+    built = svc.build_subscribe_tx(payload, sig)
+    assert built is not None and built["to"] == m.address
+    rcpt = w3.eth.wait_for_transaction_receipt(
+        w3.eth.send_transaction(
+            {"from": relayer, "to": built["to"], "data": built["data"], "gas": 900_000}
+        )
+    )
+    assert rcpt.status == 1, "bot-built calldata was rejected by the contract"
+
+    tier, expiry, _ = expiry_of(m, payer.address)
+    assert tier == PREMIUM
+    assert usdg.functions.balanceOf(treasury).call() == PREMIUM_PRICE * 3
+    # relayer paid gas, payer got the term
+    assert m.functions.tokenOf(relayer).call() == 0
+
+
+def test_calldata_carries_the_quoted_price_as_the_bound(env, monkeypatch):
+    """A reprice between quote and broadcast must revert, not silently charge
+    more: the bot passes the price it quoted as maxPricePerPeriod."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    import bot.services.membership_service as mod
+    from bot.models.subscription import SubscriptionTier
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: m.address))
+    monkeypatch.setattr(type(svc), "treasury_address", property(lambda self: treasury))
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 10**12).transact({"from": owner})
+    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PRO, 1)
+    assert payload["price_per_period"] == PRO_PRICE
+
+    typed = dict(payload["typed_data"])
+    typed["domain"] = dict(typed["domain"], chainId=w3.eth.chain_id, verifyingContract=usdg.address)
+    payload["typed_data"] = typed
+    sig = payer.sign_typed_data(full_message=typed).signature.hex()
+    if not sig.startswith("0x"):
+        sig = "0x" + sig
+
+    class _FakeRpc:
+        @staticmethod
+        def get_web3(chain):
+            return w3
+
+    import bot.services.rpc_manager as rpcmod
+
+    monkeypatch.setattr(rpcmod, "rpc_manager", _FakeRpc)
+    built = svc.build_subscribe_tx(payload, sig)
+
+    # owner raises PRO above the quoted price before the relayer lands
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    # NOTE: with an explicit gas limit eth-tester returns a receipt with
+    # status 0 rather than raising, so assert on the receipt — which is the
+    # stronger check anyway: no funds moved and no term was granted.
+    rcpt = w3.eth.wait_for_transaction_receipt(
+        w3.eth.send_transaction(
+            {"from": relayer, "to": built["to"], "data": built["data"], "gas": 900_000}
+        )
+    )
+    assert rcpt.status == 0, "a reprice past the quoted bound must revert"
+    assert usdg.functions.balanceOf(treasury).call() == 0, "funds moved despite the bound"
+    assert m.functions.tokenOf(payer.address).call() == 0, "term granted despite the bound"

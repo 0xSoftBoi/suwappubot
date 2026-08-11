@@ -1276,6 +1276,19 @@ class Settings(BaseSettings):
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
     )
+    # Gasless membership relayer. SuwappuMembership.subscribeWithAuthorization
+    # credits the SIGNER, never msg.sender, so a relayer submitting someone's
+    # authorization pays gas and the signer gets the term — there is nothing to
+    # steal. DISABLED by default: only enable once the wallet is funded with ETH
+    # on chain 4663.
+    membership_relayer_enabled: bool = Field(
+        default=False,
+        description="Enable broadcasting membership subscriptions on the user's behalf.",
+    )
+    membership_relayer_private_key: Optional[str] = Field(
+        default=None,
+        description="Private key of the ETH-funded relayer wallet on Robinhood Chain (hex).",
+    )
     suwappu_membership_treasury: Optional[str] = Field(
         default=None,
         description=(

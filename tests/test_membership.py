@@ -645,3 +645,50 @@ def test_authorization_is_none_when_unconfigured():
         )
         is None
     )  # contract unset
+
+
+# ── 9. the /subscribe surface ─────────────────────────────────────────────────
+
+
+def test_subscribe_command_is_registered_and_discoverable():
+    from bot.handlers.subscribe_onchain import subscribe_onchain_handler
+
+    assert subscribe_onchain_handler.commands == frozenset({"subscribe"})
+    main = open(os.path.join(REPO, "bot", "main.py")).read()
+    assert "application.add_handler(subscribe_onchain_handler)" in main
+    assert 'BotCommand("subscribe"' in main
+
+
+def test_build_subscription_authorization_now_has_a_caller():
+    """It had zero call sites — the gasless path existed only in tests."""
+    src = open(os.path.join(REPO, "bot", "handlers", "subscribe_onchain.py")).read()
+    assert "membership_service.build_subscription_authorization(" in src
+    assert "membership_service.verify_subscription_signature(" in src
+    assert "membership_service.submit_subscription(" in src
+
+
+def test_subscribe_submits_only_our_own_payload_fields():
+    """The user supplies a signature and nothing else: tier, periods, value,
+    nonce and the price bound all come from the payload we generated."""
+    src = open(os.path.join(REPO, "bot", "services", "membership_service.py")).read()
+    body = src.split("def build_subscribe_tx")[1].split("async def submit_subscription")[0]
+    for field in ('payload["tier_index"]', 'payload["periods"]', 'payload["price_per_period"]'):
+        assert field in body, field
+    # the quoted price is the on-chain bound, so a reprice reverts
+    assert 'int(payload["price_per_period"])' in body
+
+
+def test_subscribe_requires_a_bound_wallet_and_matching_signer():
+    src = open(os.path.join(REPO, "bot", "handlers", "subscribe_onchain.py")).read()
+    assert "if not bound:" in src
+    assert "signer.lower() != bound.lower()" in src
+    assert 'getattr(chat, "type", "private") != "private"' in src
+    assert "enforce_rate_limit_for_update" in src
+
+
+def test_relayer_is_off_until_explicitly_enabled_and_funded():
+    from bot.services.membership_service import membership_service
+
+    assert membership_service.relayer_enabled is False
+    src = open(os.path.join(REPO, "bot", "config", "settings.py")).read()
+    assert "membership_relayer_enabled: bool = Field(\n        default=False," in src

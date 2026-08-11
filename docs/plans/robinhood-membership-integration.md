@@ -232,3 +232,46 @@ ERC-721 cannot avoid: the owner slot inside `_safeMint` and the `Position` struc
 Deliberately not done: it replaces the ownership bookkeeping of a contract that has
 already been blocked by three money-path reviews, and that is not a trade worth making
 for a mint-time saving on an L2. Revisit as a standalone change with its own review.
+
+## /subscribe — the gasless path, wired
+
+`build_subscription_authorization` had zero callers, so the EIP-3009 subscription
+existed only in tests. It now has a surface.
+
+**Flow** (two messages, mirroring `/bindwallet`):
+1. `/subscribe pro 3` → the bot quotes the total in USDG and returns the exact EIP-712
+   payload to sign.
+2. `/subscribe <signature>` → the bot verifies and broadcasts.
+
+**Why one signature and no gas.** USDG implements EIP-3009, so the user signs a transfer
+authorization rather than sending `approve` + `subscribe`. `subscribeWithAuthorization`
+credits the **signer**, never `msg.sender`, so the relayer that pays the gas cannot
+redirect the subscription to itself — and front-running it just means someone else paid
+for the user's transaction.
+
+**What the user can influence: only the signature.** Tier, period count, USDG value, the
+EIP-3009 nonce and the price bound all come from the payload the bot generated. Even if a
+tampered payload reached the contract, the nonce commits to `(subscriber, tier, periods)`
+and fails `IntentMismatch`.
+
+**Guards**
+- Signer must equal the user's bound `membership_address` — recovering *an* address only
+  proves someone signed, not that this user did.
+- The **quoted price is passed as `maxPricePerPeriod`**, so a reprice landing between
+  quote and broadcast reverts rather than silently charging more. Verified on real
+  bytecode: status 0, no funds moved, no term granted.
+- Private chat only, rate limited, and quotes expire with the authorization's `validBefore`.
+- The relayer is **off by default** and requires an explicitly funded key. When it is off
+  the bot hands back broadcastable calldata, so a user is never left holding a signature
+  nothing can use.
+
+Proven end-to-end on a real EVM: the bot builds the payload, a wallet signs it, the bot
+encodes the calldata, and a **relayer** broadcasts it — the payer ends up with the term
+and the relayer holds no token.
+
+### A regression my own test caught
+
+The first version of `submit_subscription` used `asyncio.to_thread`, which is the shared
+default executor that swap execution also uses — precisely the finding an earlier review
+raised for the tier lookup. A hung broadcast would have starved the swap path. It now
+runs on the feature's dedicated bounded executor with a timeout.

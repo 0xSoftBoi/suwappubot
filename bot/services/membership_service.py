@@ -37,6 +37,7 @@ _FAILURE_TTL = 15  # seconds — a transient RPC blip must not pin None for 5 mi
 _STALE_PAID_TTL = 3600  # a previously-OBSERVED paid tier survives an outage this long
 _CACHE_MAX = 5_000  # sweep threshold; entries beyond TTL are dropped
 _CALL_TIMEOUT = 1.5  # seconds — hard budget for the whole lookup
+_BROADCAST_TIMEOUT = 20.0  # seconds — a subscription broadcast is rare and slower
 _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 
 # Wallet providers whose rows prove the user CONTROLS the address — the bot holds
@@ -117,6 +118,34 @@ TIER_RANK = {
     SubscriptionTier.PREMIUM: 2,
     SubscriptionTier.ENTERPRISE: 3,
 }
+
+_SUBSCRIBE_ABI = [
+    {
+        "name": "subscribeWithAuthorization",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "tier", "type": "uint8"},
+            {"name": "periods", "type": "uint256"},
+            {"name": "maxPricePerPeriod", "type": "uint256"},
+            {
+                "name": "auth",
+                "type": "tuple",
+                "components": [
+                    {"name": "from", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "validAfter", "type": "uint256"},
+                    {"name": "validBefore", "type": "uint256"},
+                    {"name": "nonce", "type": "bytes32"},
+                    {"name": "v", "type": "uint8"},
+                    {"name": "r", "type": "bytes32"},
+                    {"name": "s", "type": "bytes32"},
+                ],
+            },
+        ],
+        "outputs": [],
+    }
+]
 
 _ABI = [
     {
@@ -473,6 +502,131 @@ class MembershipService:
             }
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Membership: authorization build failed: %s", e)
+            return None
+
+    # ── submitting a signed authorization ─────────────────────────────────────
+
+    def verify_subscription_signature(self, payload: dict, signature: str) -> Optional[str]:
+        """Recover the signer of `payload`'s EIP-712 message. None if invalid.
+
+        The caller MUST check the recovered address against the user's bound
+        membership address — recovering *an* address only proves someone signed,
+        not that this user did.
+        """
+        try:
+            from eth_account import Account
+            from eth_account.messages import encode_typed_data
+
+            msg = encode_typed_data(full_message=payload["typed_data"])
+            return Account.recover_message(msg, signature=signature)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Membership: signature recovery failed: %s", e)
+            return None
+
+    @property
+    def relayer_enabled(self) -> bool:
+        return bool(
+            getattr(settings, "membership_relayer_enabled", False)
+            and getattr(settings, "membership_relayer_private_key", None)
+            and self.enabled
+        )
+
+    def build_subscribe_tx(self, payload: dict, signature: str) -> Optional[dict]:
+        """Encode the `subscribeWithAuthorization` call for `payload`.
+
+        Every argument comes from the payload WE generated, never from user
+        input: the tier, period count, value and nonce are ours, and the nonce
+        commits to (subscriber, tier, periods), so a tampered payload simply
+        fails the contract's IntentMismatch check. The signature is the only
+        user-supplied field.
+        """
+        if not self.enabled:
+            return None
+        try:
+            from eth_account import Account
+
+            from bot.services.rpc_manager import rpc_manager
+
+            sig = signature[2:] if signature.startswith("0x") else signature
+            raw = bytes.fromhex(sig)
+            if len(raw) != 65:
+                return None
+            r, s_, v = raw[:32], raw[32:64], raw[64]
+            if v < 27:
+                v += 27
+
+            w3 = rpc_manager.get_web3(CHAIN)
+            contract = w3.eth.contract(
+                address=w3.to_checksum_address(self.contract_address), abi=_SUBSCRIBE_ABI
+            )
+            msg = payload["typed_data"]["message"]
+            auth = (
+                w3.to_checksum_address(msg["from"]),
+                int(msg["value"]),
+                int(msg["validAfter"]),
+                int(msg["validBefore"]),
+                bytes.fromhex(msg["nonce"][2:]),
+                v,
+                r,
+                s_,
+            )
+            fn = contract.functions.subscribeWithAuthorization(
+                int(payload["tier_index"]),
+                int(payload["periods"]),
+                # Price bound: the exact price this payload was quoted at, so a
+                # reprice between quote and broadcast reverts instead of
+                # silently charging the user more.
+                int(payload["price_per_period"]),
+                auth,
+            )
+            return {"to": contract.address, "data": fn._encode_transaction_data(), "fn": fn}
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Membership: calldata build failed: %s", e)
+            return None
+
+    async def submit_subscription(self, payload: dict, signature: str) -> Optional[str]:
+        """Broadcast the signed subscription from the relayer wallet.
+
+        Returns the tx hash, or None when the relayer is disabled/unfunded or the
+        broadcast fails. The user's funds move by their own EIP-3009 signature;
+        the relayer only pays gas.
+        """
+        if not self.relayer_enabled:
+            return None
+        try:
+            import asyncio
+
+            from eth_account import Account
+
+            from bot.services.rpc_manager import rpc_manager
+
+            built = self.build_subscribe_tx(payload, signature)
+            if not built:
+                return None
+
+            def _send() -> str:
+                w3 = rpc_manager.get_web3(CHAIN)
+                acct = Account.from_key(settings.membership_relayer_private_key)
+                tx = built["fn"].build_transaction(
+                    {
+                        "from": acct.address,
+                        "nonce": w3.eth.get_transaction_count(acct.address),
+                        "chainId": CHAIN_ID,
+                    }
+                )
+                signed = acct.sign_transaction(tx)
+                return w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+
+            # Dedicated executor, never asyncio's default one — a hung
+            # broadcast on the shared pool would starve the swap path (the same
+            # mistake the tier lookup was already corrected for). Bounded wait so
+            # a stuck RPC releases the worker instead of holding it forever.
+            loop = asyncio.get_running_loop()
+            return await asyncio.wait_for(
+                loop.run_in_executor(_EXECUTOR, _send), timeout=_BROADCAST_TIMEOUT
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Membership: subscription broadcast failed: %s", e)
             return None
 
     def best_tier(
