@@ -61,9 +61,18 @@ def test_tier_switch_converts_at_the_purchase_price_snapshot():
     revalues outstanding time (review finding HIGH-3). Behaviour is proven on a
     real EVM in test_membership_evm.py; this pins the mechanism in source."""
     sol = _sol()
-    assert "uint256 oldPrice = m.pricePaidPerPeriod;" in sol
-    assert ": (remaining * oldPrice) / newPrice;" in sol
-    assert "m.pricePaidPerPeriod = newPrice;" in sol
+    # remaining time is valued at the price it was BOUGHT at, never the live price
+    assert "uint256 oldPrice = m.pricePaidPerPeriod == 0 ? newPrice : m.pricePaidPerPeriod;" in sol
+    # same tier keeps time as-is; only a tier CHANGE converts
+    assert "if (m.tier == tier) {" in sol
+    assert "retainedSeconds = (remaining * oldPrice) / newPrice;" in sol
+    # the snapshot is value-weighted, not overwritten with the new price —
+    # overwriting re-opens the reprice front-run via a same-tier renewal
+    assert (
+        "m.pricePaidPerPeriod = (retainedValue + uint256(duration) * newPrice) / totalSeconds;"
+        in sol
+    )
+    assert "m.pricePaidPerPeriod = newPrice;" not in sol
     # grantTime must route through the same conversion (review finding HIGH-2)
     assert sol.count("_creditTime(") >= 3  # definition + subscribe + grantTime
 

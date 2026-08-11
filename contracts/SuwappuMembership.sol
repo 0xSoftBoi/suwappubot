@@ -140,35 +140,48 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         emit SubscriptionUpdate(tokenId, expiry);
     }
 
-    /// @dev Add `duration` of `tier`, converting any unexpired time first.
-    ///      Remaining time is valued at the price it was BOUGHT at
-    ///      (m.pricePaidPerPeriod) and converted into the new tier at `newPrice`.
-    ///      One code path for extension and switching: a same-tier extension at an
-    ///      unchanged price degenerates to base = expiresAt exactly, and every
-    ///      other case is value-neutral at the snapshot price by construction.
+    /// @dev Credit `duration` of `tier`, preserving the VALUE of unexpired time.
+    ///
+    ///      Two rules, and they must both hold or one of them opens a hole:
+    ///
+    ///      1. SAME TIER: time is time. Already-bought PRO days stay PRO days
+    ///         even if PRO is repriced — a price rise must never shorten a
+    ///         subscription somebody already paid for.
+    ///      2. TIER CHANGE: remaining time converts by the ratio of the price it
+    ///         was BOUGHT at (`pricePaidPerPeriod`) to the new tier's price.
+    ///
+    ///      `pricePaidPerPeriod` is then re-set to the VALUE-WEIGHTED AVERAGE of
+    ///      retained and newly-bought time. Overwriting it with `newPrice`
+    ///      instead would let a holder launder cheap time through a same-tier
+    ///      renewal at the new price and then convert it 1:1 — which is exactly
+    ///      the reprice front-run this snapshot exists to stop.
     function _creditTime(uint256 tokenId, Tier tier, uint64 duration, uint256 newPrice)
         internal
         returns (uint64 expiry)
     {
         Membership storage m = _memberships[tokenId];
         uint64 nowTs = uint64(block.timestamp);
-        uint64 base = nowTs;
 
+        uint256 retainedSeconds;
+        uint256 retainedValue;
         if (m.tier != Tier.Free && m.expiresAt > nowTs) {
             uint256 remaining = m.expiresAt - nowTs;
-            uint256 oldPrice = m.pricePaidPerPeriod;
-            // Value remaining time at its purchase-time price. oldPrice can be 0
-            // only for time granted before any purchase snapshot existed; treat
-            // that as same-value (1:1) rather than zeroing comped time.
-            uint256 converted = (oldPrice == 0 || oldPrice == newPrice)
-                ? remaining
-                : (remaining * oldPrice) / newPrice;
-            base = nowTs + converted.toUint64();
+            // oldPrice is 0 only for time that predates any snapshot; value it at
+            // the new price rather than confiscating it.
+            uint256 oldPrice = m.pricePaidPerPeriod == 0 ? newPrice : m.pricePaidPerPeriod;
+            if (m.tier == tier) {
+                retainedSeconds = remaining;
+                retainedValue = remaining * oldPrice;
+            } else {
+                retainedSeconds = (remaining * oldPrice) / newPrice;
+                retainedValue = retainedSeconds * newPrice;
+            }
         }
 
+        uint256 totalSeconds = retainedSeconds + duration;
         m.tier = tier;
-        m.expiresAt = base + duration;
-        m.pricePaidPerPeriod = newPrice;
+        m.expiresAt = (uint256(nowTs) + totalSeconds).toUint64();
+        m.pricePaidPerPeriod = (retainedValue + uint256(duration) * newPrice) / totalSeconds;
         return m.expiresAt;
     }
 

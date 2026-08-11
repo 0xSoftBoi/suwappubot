@@ -188,3 +188,137 @@ def test_admin_bounds(env):
         m.functions.renounceOwnership().transact({"from": owner})
     with pytest.raises(Exception):
         m.functions.setPrice(PRO, 1).transact({"from": alice})  # not owner
+
+
+# ── regressions for bugs found in the FIX itself ─────────────────────────────
+
+
+def test_same_tier_renewal_after_price_rise_does_not_shrink_paid_time(env):
+    """A price increase must never shorten a subscription somebody already paid
+    for. The first snapshot-pricing fix converted on same-tier renewals too,
+    which collapsed 720 paid days into 72."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d @ 9.99
+    _, before, _ = expiry_of(m, alice)
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})  # 10x rise
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(PRO, 1).transact({"from": alice})  # renew 30d at new price
+    _, after, _ = expiry_of(m, alice)
+    assert after >= before, "existing paid time was destroyed by a price rise"
+    assert abs(after - (before + PERIOD)) <= 12, "renewal should simply extend"
+
+
+def test_laundering_cheap_time_through_a_renewal_does_not_beat_the_price(env):
+    """The resurrection of the front-run: stack cheap PRO, reprice, renew once at
+    the new price to reset the snapshot, then convert 1:1. The value-weighted
+    snapshot must make this value-neutral."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d, 239.76 USDG
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    m.functions.subscribe(PRO, 1).transact({"from": alice})  # +30d, 99.99 USDG
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})  # +30d, 99.99
+    _, expiry, _ = expiry_of(m, alice)
+
+    spent = usdg.functions.balanceOf(treasury).call()
+    ent_seconds = expiry - now
+    # Service received, priced at ENTERPRISE list, must not exceed what was paid.
+    fair_value = ent_seconds * ENTERPRISE_PRICE // PERIOD
+    assert fair_value <= spent + PRO_PRICE, (
+        f"got {ent_seconds / DAY:.1f}d of ENTERPRISE (worth {fair_value / 1e6:.2f} USDG) "
+        f"for {spent / 1e6:.2f} USDG"
+    )
+    # Analytic expectation: 750d carried at the weighted 13.59 converts to
+    # 750*13.59/99.99 = 101.9d, plus the 30d just bought = ~131.9d. Anything
+    # materially above that means the snapshot failed to blend.
+    assert ent_seconds < 135 * DAY, f"laundering yielded {ent_seconds / DAY:.1f}d"
+    assert ent_seconds > 125 * DAY, "conversion confiscated legitimately paid time"
+
+
+def test_weighted_snapshot_lands_between_the_two_prices(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 24).transact({"from": alice})
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    _, _, snapshot = expiry_of(m, alice)
+    assert PRO_PRICE < snapshot < ENTERPRISE_PRICE, snapshot
+    # 720d @9.99 + 30d @99.99 over 750d -> ~13.59 USDG
+    assert abs(snapshot - 13_590_000) < 200_000, snapshot
+
+
+# ── property test: the conversion must never mint value ──────────────────────
+
+
+def _credit_mirror(m, tier, duration, new_price, now):
+    """Pure-Python mirror of SuwappuMembership._creditTime, integer floors and
+    all. Cross-checked against the deployed bytecode in
+    test_mirror_matches_the_contract below, so the property test below is
+    exercising the real algorithm rather than a wish."""
+    rs = rv = 0
+    if m["tier"] != 0 and m["exp"] > now:
+        remaining = m["exp"] - now
+        old = m["snap"] or new_price
+        if m["tier"] == tier:
+            rs, rv = remaining, remaining * old
+        else:
+            rs = (remaining * old) // new_price
+            rv = rs * new_price
+    total = rs + duration
+    m.update(
+        tier=tier,
+        exp=now + total,
+        snap=(rv + duration * new_price) // total,
+    )
+    return m
+
+
+def test_mirror_matches_the_contract(env):
+    """Guards the property test: run the same sequence on-chain and in the
+    mirror and require identical expiry + snapshot."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    sim = {"tier": 0, "exp": 0, "snap": 0}
+
+    m.functions.subscribe(PRO, 3).transact({"from": alice})
+    now = w3.eth.get_block("latest").timestamp
+    _credit_mirror(sim, PRO, 3 * PERIOD, PRO_PRICE, now)
+
+    m.functions.subscribe(ENTERPRISE, 2).transact({"from": alice})
+    now2 = w3.eth.get_block("latest").timestamp
+    _credit_mirror(sim, ENTERPRISE, 2 * PERIOD, ENTERPRISE_PRICE, now2)
+
+    tier, expiry, snap = expiry_of(m, alice)
+    assert tier == ENTERPRISE
+    assert abs(expiry - sim["exp"]) <= 6, (expiry, sim["exp"])
+    assert abs(snap - sim["snap"]) <= 50_000, (snap, sim["snap"])
+
+
+def test_conversion_never_mints_value():
+    """Over thousands of random subscribe/reprice sequences, the value a holder
+    carries (seconds × their price snapshot) must never exceed the USDG they
+    paid. Ratio > 1 would mean the tier-conversion arithmetic creates service
+    out of nothing — the failure mode that both earlier bugs shared."""
+    import random
+
+    random.seed(3)
+    base = {PRO: PRO_PRICE, PREMIUM: PREMIUM_PRICE, ENTERPRISE: ENTERPRISE_PRICE}
+    worst = 0.0
+    for _ in range(3000):
+        prices = dict(base)
+        sim = {"tier": 0, "exp": 0, "snap": 0}
+        now, paid = 1_000_000, 0
+        for _ in range(random.randint(1, 8)):
+            if random.random() < 0.18:  # owner reprices
+                t = random.choice([PRO, PREMIUM, ENTERPRISE])
+                prices[t] = random.choice(
+                    [1_000_000, PRO_PRICE, PREMIUM_PRICE, ENTERPRISE_PRICE, 199_990_000]
+                )
+            else:
+                t = random.choice([PRO, PREMIUM, ENTERPRISE])
+                n = random.randint(1, 24)
+                paid += prices[t] * n
+                _credit_mirror(sim, t, n * PERIOD, prices[t], now)
+                now += random.randint(0, 5 * DAY)
+        held = max(0, sim["exp"] - now)
+        if paid:
+            worst = max(worst, (held * sim["snap"] // PERIOD) / paid)
+    assert worst <= 1.001, f"conversion minted value: held/paid = {worst:.4f}"
