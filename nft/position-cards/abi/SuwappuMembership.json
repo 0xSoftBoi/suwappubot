@@ -699,9 +699,9 @@
       "type": "uint64"
      },
      {
-      "internalType": "uint256",
+      "internalType": "uint96",
       "name": "pricePaidPerPeriod",
-      "type": "uint256"
+      "type": "uint96"
      }
     ],
     "internalType": "struct SuwappuMembership.Membership",
@@ -733,6 +733,35 @@
     "internalType": "string",
     "name": "",
     "type": "string"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "subscriber",
+    "type": "address"
+   },
+   {
+    "internalType": "enum SuwappuMembership.Tier",
+    "name": "tier",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256",
+    "name": "periods",
+    "type": "uint256"
+   }
+  ],
+  "name": "nextSubscriptionNonce",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
    }
   ],
   "stateMutability": "view",
@@ -781,9 +810,9 @@
   "name": "pricePerPeriod",
   "outputs": [
    {
-    "internalType": "uint256",
+    "internalType": "uint64",
     "name": "",
-    "type": "uint256"
+    "type": "uint64"
    }
   ],
   "stateMutability": "view",
@@ -1018,6 +1047,11 @@
     "internalType": "uint256",
     "name": "periods",
     "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "seq",
+    "type": "uint256"
    }
   ],
   "name": "subscriptionNonce",
@@ -1029,6 +1063,25 @@
    }
   ],
   "stateMutability": "pure",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "subscriptionSeq",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
   "type": "function"
  },
  {
@@ -1130,9 +1183,9 @@
   "name": "totalSupply",
   "outputs": [
    {
-    "internalType": "uint256",
+    "internalType": "uint64",
     "name": "",
-    "type": "uint256"
+    "type": "uint64"
    }
   ],
   "stateMutability": "view",
