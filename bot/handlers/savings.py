@@ -495,15 +495,20 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         if action == "deposit":
-            tx_hashes = await asyncio.to_thread(
-                savings_service.deposit, wallet, Decimal(str(amount))
+            # "All" sets amount=None; resolve it to the wallet's live USDC balance
+            # (withdraw passes None straight through as the full-position sentinel).
+            deposit_amount = (
+                Decimal(str(amount))
+                if amount is not None
+                else await asyncio.to_thread(savings_service.get_usdc_balance, wallet.address)
             )
+            tx_hashes = await asyncio.to_thread(savings_service.deposit, wallet, deposit_amount)
             for h in tx_hashes:
-                await _log_event(user_id, wallet_id, "deposit", amount, h)
+                await _log_event(user_id, wallet_id, "deposit", deposit_amount, h)
             links = "\n".join(_basescan_tx(h) for h in tx_hashes)
             text = (
                 f"✅ *Deposit submitted!*\n\n"
-                f"Deposited *{amount:.2f} USDC* into Savings.\n\n"
+                f"Deposited *{deposit_amount:.2f} USDC* into Savings.\n\n"
                 f"*Transactions:*\n{links}"
             )
         else:
