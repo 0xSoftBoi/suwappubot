@@ -2707,15 +2707,15 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
             is_funded = is_max or amount <= available
             if is_funded:
                 from bot.services.gas_topup_service import (
-                    WITHDRAW_GAS_UNITS_ESTIMATE,
+                    GasTopUpBusy,
                     GasTopUpCapExceeded,
                     GasTopUpFailed,
                     ensure_gas,
-                    estimate_gas_wei_for_action,
                     estimate_gas_wei_for_deposit,
+                    estimate_gas_wei_for_withdraw,
                     run_gas_sensitive,
                 )
-                from bot.services.savings_service import USDC_DECIMALS
+                from bot.services.savings_service import MAX_UINT256, USDC_DECIMALS
 
                 try:
                     if action == "deposit":
@@ -2733,12 +2733,24 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
                             amount_wei_for_gas,
                         )
                     else:
-                        estimated_gas_wei = await asyncio.to_thread(
-                            estimate_gas_wei_for_action, "base", WITHDRAW_GAS_UNITS_ESTIMATE
+                        # L2 fix: use the REAL withdraw calldata for the L1
+                        # fee estimate (was previously computed against
+                        # empty calldata via estimate_gas_wei_for_action,
+                        # under-quoting the L1 data fee).
+                        withdraw_wei_for_gas = (
+                            MAX_UINT256 if is_max else int(amount * Decimal(10**USDC_DECIMALS))
                         )
-                    # F4 fix: dispatch on gas_topup_service's own dedicated
-                    # bounded pool, not asyncio.to_thread's shared default
-                    # executor — see run_gas_sensitive's docstring.
+                        estimated_gas_wei = await asyncio.to_thread(
+                            estimate_gas_wei_for_withdraw,
+                            "base",
+                            wallet.address,
+                            withdraw_wei_for_gas,
+                        )
+                    # F4/H3 fix: dispatch ONLY ensure_gas on gas_topup_service's
+                    # own dedicated bounded pool, not asyncio.to_thread's
+                    # shared default executor — see run_gas_sensitive's
+                    # docstring. `available` > 0 here is real evidence this
+                    # wallet holds/held funds (DESIGN CHANGE eligibility gate).
                     await run_gas_sensitive(
                         ensure_gas,
                         user_id=user_id,
@@ -2747,7 +2759,10 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
                         estimated_gas_wei=estimated_gas_wei,
                         reason=f"mobile_earn_{action}",
                         ip_address=_client_ip(request),
+                        has_verified_funds=available > 0,
                     )
+                except GasTopUpBusy as e:
+                    raise HTTPException(status_code=503, detail=str(e))
                 except GasTopUpCapExceeded as e:
                     raise HTTPException(status_code=400, detail=str(e))
                 except GasTopUpFailed as e:
@@ -2872,6 +2887,13 @@ class SendRejected(Exception):
     unlike a transport-level failure — this is safe to surface to the client
     immediately as a 400 (client-fixable) instead of an ambiguous 202
     pending (HIGH finding)."""
+
+
+class SendBusy(Exception):
+    """H3 fix: the embedded gas-topup dispatch (gas_topup_service's
+    `GasTopUpBusy`) reported its dedicated pool as saturated — retryable,
+    nothing was broadcast or reserved. Mapped to HTTP 503, distinct from
+    `SendRejected`'s 400 (a deterministic, non-retryable rejection)."""
 
 
 def _is_ambiguous_broadcast_error(exc: Exception) -> bool:
@@ -3003,18 +3025,38 @@ def _send_usdc_base(
         # for THIS transfer, so the top-up always accompanies a real, funded
         # send intent (see bot/services/gas_topup_service.py's ordering /
         # anti-griefing note) rather than being triggerable by a bare
-        # balance check.
-        from bot.services.gas_topup_service import GasTopUpError, ensure_gas
+        # balance check — this is also the DESIGN CHANGE eligibility gate's
+        # `has_verified_funds` evidence (the caller validated `amount` is
+        # covered by a real, non-zero USDC balance for this exact transfer).
+        #
+        # H3 fix: this function (`_send_usdc_base`) already runs on the
+        # API's SHARED thread pool (see its call site's `asyncio.to_thread`,
+        # not `run_gas_sensitive`) — only the `ensure_gas` call itself is
+        # handed to gas_topup_service's dedicated bounded pool via
+        # `run_gas_sensitive_sync`, so a slow top-up here never occupies
+        # more than one dedicated-pool slot, and the fast build/sign/
+        # broadcast path above never queues behind unrelated top-ups.
+        from bot.services.gas_topup_service import (
+            GasTopUpBusy,
+            GasTopUpError,
+            ensure_gas,
+            run_gas_sensitive_sync,
+        )
 
         try:
-            ensure_gas(
+            run_gas_sensitive_sync(
+                ensure_gas,
                 user_id=user_id,
                 wallet_address=from_addr,
                 chain_name=_SEND_CHAIN,
                 estimated_gas_wei=gas_cost,
                 reason="mobile_send",
                 ip_address=ip_address,
+                has_verified_funds=True,
             )
+        except GasTopUpBusy as e:
+            release_nonce(from_addr, nonce)
+            raise SendBusy(str(e)) from e
         except GasTopUpError as e:
             release_nonce(from_addr, nonce)
             raise SendRejected(str(e)) from e
@@ -3315,14 +3357,16 @@ async def send_mobile(request: Request, body: SendBody):
             )
         try:
             try:
-                from bot.services.gas_topup_service import run_gas_sensitive
-
-                # F4 fix: dispatch on gas_topup_service's own dedicated
-                # bounded pool, not asyncio.to_thread's shared default
-                # executor — see run_gas_sensitive's docstring. `_send_usdc_base`
-                # embeds the gas-topup-capable `ensure_gas` call, which can
-                # block for up to GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS.
-                tx_hash, is_pending = await run_gas_sensitive(
+                # H3 fix: `_send_usdc_base` now runs on the API's SHARED
+                # `asyncio.to_thread` pool, not gas_topup_service's small
+                # dedicated one — its build/sign/broadcast work is fast, and
+                # only the embedded `ensure_gas` call (which can block for up
+                # to GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS) dispatches onto the
+                # dedicated pool internally via `run_gas_sensitive_sync`. The
+                # old code sent the WHOLE call through the dedicated
+                # 16-worker pool, so a burst of slow top-ups queued every
+                # other send (top-up or not) behind them with no time bound.
+                tx_hash, is_pending = await asyncio.to_thread(
                     _send_usdc_base,
                     wallet,
                     to_address,
@@ -3332,6 +3376,10 @@ async def send_mobile(request: Request, body: SendBody):
                 )
             except HTTPException:
                 raise
+            except SendBusy as e:
+                # H3: dedicated top-up pool saturated — retryable, nothing
+                # was broadcast or reserved.
+                raise HTTPException(status_code=503, detail=str(e))
             except SendRejected as e:
                 # Deterministic node rejection (HIGH finding) — the tx was
                 # never broadcast, so this is a plain client-fixable 400,

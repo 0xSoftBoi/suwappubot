@@ -733,9 +733,14 @@ def _ensure_schema(db_engine) -> None:
     # bot/services/gas_topup_service.py) ---
     _create_gas_topups_table(db_engine, inspector, is_sqlite)
 
-    # --- gas_topup_daily_counters table (atomic global/per-IP daily cap
-    # reserve, MONEY-PATH — see bot/services/gas_topup_service.py) ---
+    # --- gas_topup_daily_counters table (atomic global/per-user/per-IP
+    # daily cap reserve, MONEY-PATH — see bot/services/gas_topup_service.py) ---
     _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite)
+    _sweep_gas_topup_daily_counters(db_engine, inspector, is_sqlite)
+
+    # --- gas_topup_wallet_lifetime table (atomic per-wallet LIFETIME cap
+    # reserve, DESIGN CHANGE / MONEY-PATH — see gas_topup_service.py) ---
+    _create_gas_topup_wallet_lifetime_table(db_engine, inspector, is_sqlite)
 
     # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
     _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
@@ -1575,6 +1580,78 @@ def _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite: bool
         logger.info("Created gas_topup_daily_counters table")
     except Exception as e:
         logger.warning(f"Failed to create gas_topup_daily_counters table: {e}")
+
+
+# M4: how long a (day, scope) row is kept before the sweep below deletes it.
+# Nothing ever reads a scope's history past "today" — gas_topup_service.py's
+# `_daily_reserve`/`_daily_release` only ever touch `day = today` — so this
+# is pure housekeeping, not a behavioral cap.
+GAS_TOPUP_COUNTER_RETENTION_DAYS = 30
+
+
+def _sweep_gas_topup_daily_counters(db_engine, inspector, is_sqlite: bool) -> None:
+    """M4 fix, MONEY-PATH-adjacent housekeeping: `gas_topup_daily_counters`
+    gets one row per (UTC day, scope). M4 also normalizes IPv6 per-IP scopes
+    to their /64 prefix (gas_topup_service.py's `_normalize_ip_for_scope`)
+    rather than one row per raw address, so this table now grows only with
+    real daily traffic, not with a single attacker's address rotation — but
+    it still grows forever without a sweep. Deletes rows older than
+    `GAS_TOPUP_COUNTER_RETENTION_DAYS`; safe to delete, since
+    `_daily_reserve`'s UPSERT recreates a row for the current day on demand
+    and nothing reads a scope's history past "today".
+
+    Runs at every boot (idempotent, additive housekeeping, same as every
+    other function in this file) rather than needing its own scheduler —
+    caught-and-logged, never raises, since a missed sweep just means the
+    table is a little larger until the next boot."""
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("gas_topup_daily_counters"):
+            return
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=GAS_TOPUP_COUNTER_RETENTION_DAYS)
+        ).date()
+        with db_engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM gas_topup_daily_counters WHERE day < :cutoff"),
+                {"cutoff": cutoff},
+            )
+        if result.rowcount:
+            logger.info(f"Swept {result.rowcount} stale gas_topup_daily_counters row(s)")
+    except Exception as e:
+        logger.warning(f"gas_topup_daily_counters retention sweep failed: {e}")
+
+
+def _create_gas_topup_wallet_lifetime_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create gas_topup_wallet_lifetime (DESIGN CHANGE, MONEY-PATH): a single
+    row per wallet_address backing the ATOMIC per-wallet LIFETIME top-up
+    ceiling in gas_topup_service.py's `_lifetime_reserve()`/
+    `_lifetime_release()` — same UPSERT-with-WHERE-guard pattern as
+    `gas_topup_daily_counters` (see that function's docstring), just keyed
+    by `wallet_address` instead of (day, scope), since a lifetime cap has no
+    day dimension to reset."""
+    try:
+        live_inspector = inspect(db_engine)
+        if live_inspector.has_table("gas_topup_wallet_lifetime"):
+            return
+
+        from sqlalchemy import BigInteger, Column, Integer, MetaData, String, Table
+
+        metadata = MetaData()
+        Table(
+            "gas_topup_wallet_lifetime",
+            metadata,
+            Column("wallet_address", String(128), primary_key=True, nullable=False),
+            Column("total_wei", BigInteger, nullable=False, server_default="0"),
+            Column("topup_count", Integer, nullable=False, server_default="0"),
+        )
+        metadata.create_all(bind=db_engine)
+        logger.info("Created gas_topup_wallet_lifetime table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topup_wallet_lifetime table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:

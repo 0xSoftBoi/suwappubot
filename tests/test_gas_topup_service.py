@@ -2,10 +2,10 @@
 
 Auto gas top-up from the hot wallet so a Gekko user never needs to hold ETH
 to move USDC on Base. Covers: no-op when balance is already sufficient, the
-per-transaction ceiling, per-user/per-IP/global daily caps, the happy path
+per-transaction ceiling, per-user/per-IP/global/lifetime caps, the happy path
 (zero-ETH wallet gets topped up and the audit row is written), every
 retryable-failure path (broadcast failure, confirmation timeout, on-chain
-revert, no gas payer configured), and the Opus money-path review fixes:
+revert, no gas payer configured), the Opus money-path review fixes:
   F2 — live (sum-of-both-legs) deposit gas estimate
   F3 — audit row inserted BEFORE broadcast, fails closed on insert failure
   F4 — dedicated dispatch pool / shortened confirm timeout
@@ -13,6 +13,18 @@ revert, no gas payer configured), and the Opus money-path review fixes:
   F6 — atomic global/per-IP daily reserve
   F7 — OP-stack L1 data fee included in gas estimates
   F8 — caps fail closed (GasTopUpFailed) on a DB read failure
+and the SECOND money-path review round:
+  H2 — quota refunded on every pre-broadcast failure (incl. HotWalletBusyError),
+       KEPT on a PostBroadcastAmbiguous outcome
+  H3 — only ensure_gas dispatches on the dedicated pool; bounded queue -> GasTopUpBusy
+  M1 — per-user cap is now an atomic `_daily_reserve` (was read-then-compare)
+  M2 — pre-broadcast failures no longer burn the per-user COUNT cap (H2 refund)
+  M3 — module-level HTTP client + 60s price cache, tight timeouts
+  M4 — IPv6 normalized to /64 for the per-IP scope key
+  L2 — L1 fee gaps closed (withdraw's real calldata, deposit's supply leg);
+       "never raises" made actually true
+  DESIGN CHANGE — eligibility gate (has_verified_funds / account age) +
+       per-wallet lifetime ceiling
 """
 
 import os
@@ -23,6 +35,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -33,8 +46,15 @@ import bot.services.gas_topup_service as topup_mod
 import bot.services.hot_wallet as hot_wallet_mod
 import bot.services.rpc_manager as rpc_manager_mod
 from bot.models.gas_topup import GasTopUp
-from bot.models.user import User
+from bot.models.user import User, Wallet
 from database.db import get_session
+
+# Captured at collection time, BEFORE the autouse `_patch_price` fixture ever
+# replaces `topup_mod._fetch_live_eth_price_usd` — lets the M3 cache tests
+# call the REAL implementation (it still resolves `_get_httpx_client` etc.
+# dynamically via this function's own `__globals__`, i.e. this module's
+# namespace, so patching `topup_mod._get_httpx_client` still works).
+_REAL_FETCH_LIVE_ETH_PRICE_USD = topup_mod._fetch_live_eth_price_usd
 
 WALLET = "0x" + "22" * 20
 GAS_WALLET_ADDR = "0x" + "33" * 20
@@ -108,6 +128,7 @@ def test_no_topup_when_balance_sufficient(tmp_db, monkeypatch):
         chain_name="base",
         estimated_gas_wei=1000,
         reason="test",
+        has_verified_funds=True,
     )
 
     assert result is False
@@ -136,6 +157,7 @@ def test_topup_happy_path_zero_eth_wallet(tmp_db, monkeypatch, fake_gas_wallet):
         chain_name="base",
         estimated_gas_wei=21_000 * 1_000_000_000,
         reason="mobile_send",
+        has_verified_funds=True,
         ip_address="1.2.3.4",
     )
 
@@ -173,6 +195,7 @@ def test_per_tx_ceiling_exceeded_raises_without_spending(tmp_db, monkeypatch):
             chain_name="base",
             estimated_gas_wei=10**18,  # ~1 ETH, way beyond the $0.50 ceiling
             reason="test",
+            has_verified_funds=True,
         )
 
     send_mock.assert_not_called()
@@ -183,20 +206,12 @@ def test_per_tx_ceiling_exceeded_raises_without_spending(tmp_db, monkeypatch):
 
 
 def test_per_user_daily_count_cap(tmp_db, monkeypatch):
+    """M1 fix: the per-user cap is now enforced via the SAME atomic
+    `_daily_reserve` counter table as IP/global (`scope=f"user:{user_id}"`),
+    not a read-then-compare sum over `gas_topups` — seed that table
+    directly, mirroring `test_per_ip_daily_cap_blocks_before_global_or_gas_payer`."""
     user_id = _make_user(104)
-    with get_session() as session:
-        for _ in range(topup_mod.MAX_TOPUPS_PER_USER_PER_DAY):
-            session.add(
-                GasTopUp(
-                    user_id=user_id,
-                    wallet_address=WALLET,
-                    chain="base",
-                    amount_wei=1,
-                    tx_hash="0xseed",
-                    reason="seed",
-                    status="sent",
-                )
-            )
+    _seed_counter(f"user:{user_id}", total_wei=1, count=topup_mod.MAX_TOPUPS_PER_USER_PER_DAY)
     web3 = _fake_web3(balances=[0])
     monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
     send_mock = AsyncMock()
@@ -209,27 +224,18 @@ def test_per_user_daily_count_cap(tmp_db, monkeypatch):
             chain_name="base",
             estimated_gas_wei=100,
             reason="test",
+            has_verified_funds=True,
         )
 
     send_mock.assert_not_called()
 
 
 def test_per_user_daily_value_cap(tmp_db, monkeypatch):
+    """M1 fix: same atomic counter table as the count cap above."""
     user_id = _make_user(105)
     ceiling = topup_mod._max_topup_wei()
     max_daily = ceiling * topup_mod.USER_DAILY_TOPUP_MULTIPLE
-    with get_session() as session:
-        session.add(
-            GasTopUp(
-                user_id=user_id,
-                wallet_address=WALLET,
-                chain="base",
-                amount_wei=max_daily - 10,
-                tx_hash="0xseed",
-                reason="seed",
-                status="sent",
-            )
-        )
+    _seed_counter(f"user:{user_id}", max_daily - 10)
     web3 = _fake_web3(balances=[0])
     monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
     send_mock = AsyncMock()
@@ -242,6 +248,7 @@ def test_per_user_daily_value_cap(tmp_db, monkeypatch):
             chain_name="base",
             estimated_gas_wei=ceiling,
             reason="test",
+            has_verified_funds=True,
         )
 
     send_mock.assert_not_called()
@@ -269,6 +276,7 @@ def test_per_ip_daily_cap_blocks_before_global_or_gas_payer(tmp_db, monkeypatch)
             chain_name="base",
             estimated_gas_wei=ceiling,
             reason="test",
+            has_verified_funds=True,
             ip_address="9.9.9.9",
         )
 
@@ -301,6 +309,7 @@ def test_global_daily_circuit_breaker_trips_and_logs_critical(tmp_db, monkeypatc
                 chain_name="base",
                 estimated_gas_wei=ceiling,
                 reason="test",
+                has_verified_funds=True,
             )
 
     send_mock.assert_not_called()
@@ -346,6 +355,7 @@ def test_no_gas_payer_wallet_raises_retryable_failure(tmp_db, monkeypatch):
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
 
     # F3: the row is only inserted once we're past the gas-payer lookup and
@@ -381,6 +391,7 @@ def test_topup_broadcast_failure_raises_retryable_and_records_a_failed_row(
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
 
     rows = _rows_for(user_id)
@@ -411,6 +422,7 @@ def test_topup_confirmation_timeout_raises_retryable_but_records_the_spend(
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
 
     # Real funds were broadcast even though confirmation timed out — the
@@ -443,6 +455,7 @@ def test_topup_reverted_onchain_raises_retryable_failure(tmp_db, monkeypatch, fa
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
 
 
@@ -478,9 +491,8 @@ def test_pending_row_insert_failure_fails_closed_before_any_spend(
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
-
-    send_mock.assert_not_called()
 
     send_mock.assert_not_called()
 
@@ -488,12 +500,15 @@ def test_pending_row_insert_failure_fails_closed_before_any_spend(
 # ── F8: caps fail closed on a DB read failure ────────────────────────────
 
 
-def test_user_daily_stats_db_failure_fails_closed(tmp_db, monkeypatch):
+def test_daily_reserve_db_failure_fails_closed(tmp_db, monkeypatch):
+    """M1/F8: the per-user cap is now enforced via `_daily_reserve` (same
+    atomic path as IP/global) — a DB failure there must fail closed
+    (GasTopUpFailed), not silently treat the cap as unenforced."""
     user_id = _make_user(114)
     web3 = _fake_web3(balances=[0])
     monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
     monkeypatch.setattr(
-        topup_mod, "_user_daily_stats", MagicMock(side_effect=topup_mod.GasTopUpFailed("db down"))
+        topup_mod, "_daily_reserve", MagicMock(side_effect=topup_mod.GasTopUpFailed("db down"))
     )
     send_mock = AsyncMock()
     monkeypatch.setattr(hot_wallet_mod.hot_wallet_service, "send_native_token", send_mock)
@@ -505,6 +520,7 @@ def test_user_daily_stats_db_failure_fails_closed(tmp_db, monkeypatch):
             chain_name="base",
             estimated_gas_wei=21_000,
             reason="test",
+            has_verified_funds=True,
         )
 
     send_mock.assert_not_called()
@@ -664,3 +680,550 @@ def test_estimate_gas_wei_for_action_includes_l1_fee(monkeypatch):
     result = topup_mod.estimate_gas_wei_for_action("base", 170_000)
 
     assert result == 170_000 * 1_000_000_000 + 999
+
+
+# ── L2: withdraw's real-calldata L1 fee / deposit's supply-leg L1 fee ────
+
+
+def test_estimate_gas_wei_for_withdraw_builds_real_calldata_for_l1_fee(monkeypatch):
+    web3 = MagicMock()
+    web3.eth.gas_price = 1_000_000_000
+    pool = MagicMock()
+    withdraw_tx = {"data": "0xdeadbeef", "gas": 0}
+    pool.functions.withdraw.return_value.build_transaction.return_value = withdraw_tx
+    web3.eth.contract = MagicMock(return_value=pool)
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+
+    captured = {}
+
+    def _fake_l1_fee(chain, tx):
+        captured["tx"] = tx
+        return 777
+
+    monkeypatch.setattr(topup_mod, "estimate_l1_data_fee_wei", _fake_l1_fee)
+
+    result = topup_mod.estimate_gas_wei_for_withdraw("base", WALLET, 10_000_000)
+
+    # L2 fix: the REAL withdraw calldata was used for the L1 fee, not the
+    # empty-calldata `{"data": "0x"}` estimate_gas_wei_for_action would use.
+    assert captured["tx"] == withdraw_tx
+    assert result == topup_mod.WITHDRAW_GAS_UNITS_ESTIMATE * 1_000_000_000 + 777
+
+
+def test_estimate_gas_wei_for_withdraw_never_raises_when_rpc_fully_down(monkeypatch):
+    monkeypatch.setattr(
+        rpc_manager_mod.rpc_manager, "get_web3", MagicMock(side_effect=RuntimeError("rpc down"))
+    )
+    result = topup_mod.estimate_gas_wei_for_withdraw("base", WALLET, 10_000_000)
+    assert result == topup_mod._RPC_DOWN_FALLBACK_GAS_WEI
+
+
+def test_estimate_gas_wei_for_deposit_includes_supply_l1_fee_when_approve_needed(monkeypatch):
+    """L2 fix: previously, whenever an approval was needed, the supply leg's
+    L1 fee was silently omitted entirely (only the approve leg's L1 fee was
+    added) — assert BOTH legs' real calldata now reach the L1 fee estimator."""
+    web3 = MagicMock()
+    web3.eth.gas_price = 1_000_000_000
+    usdc = MagicMock()
+    usdc.functions.allowance.return_value.call.return_value = 0  # needs approve
+    usdc.functions.approve.return_value.estimate_gas.return_value = 46_000
+    usdc.functions.approve.return_value.build_transaction.return_value = {"data": "0xapprove"}
+    pool = MagicMock()
+    pool.functions.supply.return_value.build_transaction.return_value = {"data": "0xsupply"}
+    web3.eth.contract = MagicMock(side_effect=[usdc, pool])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+
+    l1_fee_calls = []
+
+    def _fake_l1_fee(chain, tx):
+        l1_fee_calls.append(tx["data"])
+        return 100 if tx["data"] == "0xapprove" else 200
+
+    monkeypatch.setattr(topup_mod, "estimate_l1_data_fee_wei", _fake_l1_fee)
+
+    result = topup_mod.estimate_gas_wei_for_deposit("base", WALLET, 10_000_000)
+
+    assert "0xapprove" in l1_fee_calls
+    assert "0xsupply" in l1_fee_calls
+    expected_units = int(46_000 * 1.2) + int(280_000 * 1.2)
+    assert result == expected_units * 1_000_000_000 + 100 + 200
+
+
+def test_estimate_gas_wei_for_deposit_never_raises_when_rpc_fully_down(monkeypatch):
+    """L2 fix: the OLD fallback-of-a-fallback (`estimate_gas_wei_for_action`)
+    made its own `get_web3` call and could itself raise — proving the
+    "never raises" docstring claim wasn't true when RPC is down for both
+    paths. Deliberately does NOT patch `estimate_gas_wei_for_action`, so its
+    own RPC call also hits the same broken `get_web3`."""
+    monkeypatch.setattr(
+        rpc_manager_mod.rpc_manager, "get_web3", MagicMock(side_effect=RuntimeError("rpc down"))
+    )
+    result = topup_mod.estimate_gas_wei_for_deposit("base", WALLET, 10_000_000)
+    assert result == topup_mod._RPC_DOWN_FALLBACK_GAS_WEI
+
+
+# ── H2: quota refund on pre-broadcast failure / kept on ambiguous ───────
+
+
+def test_hotwalletbusyerror_refunds_all_reservations_pre_broadcast(
+    tmp_db, monkeypatch, fake_gas_wallet
+):
+    """H2: `HotWalletBusyError` (cross-replica send lock contention) is
+    EXPECTED under ordinary concurrent top-up traffic — it must refund every
+    reservation (user/IP/global/lifetime) rather than burn quota with zero
+    ETH spent, and a second attempt must still be allowed."""
+    user_id = _make_user(120)
+    web3 = _fake_web3(balances=[0, 0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "get_gas_payer_wallet",
+        MagicMock(return_value=fake_gas_wallet),
+    )
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "send_native_token",
+        AsyncMock(side_effect=hot_wallet_mod.HotWalletBusyError("locked by another replica")),
+    )
+
+    with pytest.raises(topup_mod.GasTopUpFailed):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=21_000,
+            reason="test",
+            has_verified_funds=True,
+            ip_address="7.7.7.7",
+        )
+
+    with get_session() as session:
+        for scope in (f"user:{user_id}", "ip:7.7.7.7", "global"):
+            row = session.execute(
+                text(
+                    "SELECT total_wei, topup_count FROM gas_topup_daily_counters "
+                    "WHERE day = :day AND scope = :scope"
+                ),
+                {"day": topup_mod._utc_today(), "scope": scope},
+            ).first()
+            assert row is not None, scope
+            assert row[0] == 0, f"{scope} total_wei not refunded"
+            assert row[1] == 0, f"{scope} topup_count not refunded"
+        lifetime_row = session.execute(
+            text(
+                "SELECT total_wei, topup_count FROM gas_topup_wallet_lifetime "
+                "WHERE wallet_address = :addr"
+            ),
+            {"addr": WALLET.lower()},
+        ).first()
+        assert lifetime_row is not None
+        assert lifetime_row[0] == 0
+        assert lifetime_row[1] == 0
+
+    # The breaker was never actually consumed — a second attempt succeeds.
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "send_native_token",
+        AsyncMock(return_value="0xrecovered"),
+    )
+    result = topup_mod.ensure_gas(
+        user_id=user_id,
+        wallet_address=WALLET,
+        chain_name="base",
+        estimated_gas_wei=21_000,
+        reason="test",
+        has_verified_funds=True,
+        ip_address="7.7.7.7",
+    )
+    assert result is True
+
+
+def test_repeated_pre_broadcast_failures_do_not_exhaust_the_user_count_cap(
+    tmp_db, monkeypatch, fake_gas_wallet
+):
+    """M2: a transient pre-broadcast failure must not count toward
+    MAX_TOPUPS_PER_USER_PER_DAY — H2's refund makes this automatic. Fail one
+    MORE time than the count cap allows; if failures counted, the last
+    attempt would raise GasTopUpCapExceeded instead of GasTopUpFailed."""
+    user_id = _make_user(127)
+    attempts = topup_mod.MAX_TOPUPS_PER_USER_PER_DAY + 1
+    web3 = _fake_web3(balances=[0] * attempts)
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "get_gas_payer_wallet",
+        MagicMock(return_value=fake_gas_wallet),
+    )
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "send_native_token",
+        AsyncMock(side_effect=hot_wallet_mod.HotWalletBusyError("locked")),
+    )
+
+    for _ in range(attempts):
+        with pytest.raises(topup_mod.GasTopUpFailed):
+            topup_mod.ensure_gas(
+                user_id=user_id,
+                wallet_address=WALLET,
+                chain_name="base",
+                estimated_gas_wei=21_000,
+                reason="test",
+                has_verified_funds=True,
+            )
+
+
+def test_post_broadcast_ambiguous_with_hash_keeps_reservation(tmp_db, monkeypatch, fake_gas_wallet):
+    """H2: the ONE deliberate exception — a PostBroadcastAmbiguous outcome
+    (funds may well have moved) must NOT be refunded, even though the row
+    ends up resolvable via its tx_hash and the top-up ultimately confirms."""
+    user_id = _make_user(121)
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "get_gas_payer_wallet",
+        MagicMock(return_value=fake_gas_wallet),
+    )
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "send_native_token",
+        AsyncMock(
+            side_effect=hot_wallet_mod.PostBroadcastAmbiguous("dropped response", tx_hash="0xmaybe")
+        ),
+    )
+
+    result = topup_mod.ensure_gas(
+        user_id=user_id,
+        wallet_address=WALLET,
+        chain_name="base",
+        estimated_gas_wei=21_000,
+        reason="test",
+        has_verified_funds=True,
+        ip_address="8.8.8.8",
+    )
+
+    assert result is True
+    rows = _rows_for(user_id)
+    assert len(rows) == 1
+    assert rows[0].status == "ambiguous"
+    assert rows[0].tx_hash == "0xmaybe"
+
+    with get_session() as session:
+        row = session.execute(
+            text(
+                "SELECT total_wei, topup_count FROM gas_topup_daily_counters "
+                "WHERE day = :day AND scope = :scope"
+            ),
+            {"day": topup_mod._utc_today(), "scope": "global"},
+        ).first()
+        assert row is not None
+        # KEPT, not refunded — matches the row's actually-recorded amount.
+        assert row[0] == rows[0].amount_wei
+        assert row[1] == 1
+
+
+def test_post_broadcast_ambiguous_without_hash_still_keeps_reservation(
+    tmp_db, monkeypatch, fake_gas_wallet
+):
+    """H2: the sub-case with NO resolved tx_hash is still ambiguous (the
+    node may have accepted it before the connection dropped) — also must
+    NOT be refunded, even though ensure_gas itself raises GasTopUpFailed."""
+    user_id = _make_user(128)
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "get_gas_payer_wallet",
+        MagicMock(return_value=fake_gas_wallet),
+    )
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "send_native_token",
+        AsyncMock(side_effect=hot_wallet_mod.PostBroadcastAmbiguous("dropped response")),
+    )
+
+    with pytest.raises(topup_mod.GasTopUpFailed):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=21_000,
+            reason="test",
+            has_verified_funds=True,
+        )
+
+    with get_session() as session:
+        row = session.execute(
+            text(
+                "SELECT total_wei FROM gas_topup_daily_counters WHERE day = :day AND scope = :scope"
+            ),
+            {"day": topup_mod._utc_today(), "scope": "global"},
+        ).first()
+        assert row is not None
+        assert row[0] > 0  # KEPT, not refunded
+
+
+# ── DESIGN CHANGE: eligibility gate + per-wallet lifetime ceiling ───────
+
+
+def test_ineligible_new_account_is_refused_with_stable_detail(tmp_db, monkeypatch):
+    """A wallet with no verified funds and no aged `wallets` row is refused
+    before ANY quota is touched — the sybil lever this gate closes."""
+    user_id = _make_user(122)
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    send_mock = AsyncMock()
+    monkeypatch.setattr(hot_wallet_mod.hot_wallet_service, "send_native_token", send_mock)
+
+    with pytest.raises(topup_mod.GasTopUpIneligible, match="needs to receive funds"):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=21_000,
+            reason="test",
+            has_verified_funds=False,
+        )
+
+    send_mock.assert_not_called()
+    assert _rows_for(user_id) == []
+    with get_session() as session:
+        row = session.execute(
+            text("SELECT 1 FROM gas_topup_daily_counters WHERE day = :day AND scope = :scope"),
+            {"day": topup_mod._utc_today(), "scope": f"user:{user_id}"},
+        ).first()
+        assert row is None  # gate runs BEFORE any reservation
+
+
+def test_ineligible_is_a_cap_exceeded_subclass():
+    """Callers that only catch the base GasTopUpCapExceeded (both existing
+    call sites) already handle GasTopUpIneligible correctly."""
+    assert issubclass(topup_mod.GasTopUpIneligible, topup_mod.GasTopUpCapExceeded)
+
+
+def test_wallet_row_too_new_is_still_ineligible(tmp_db, monkeypatch):
+    user_id = _make_user(124)
+    with get_session() as session:
+        session.add(
+            Wallet(
+                user_id=user_id,
+                address=WALLET,
+                chain_type="evm",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    send_mock = AsyncMock()
+    monkeypatch.setattr(hot_wallet_mod.hot_wallet_service, "send_native_token", send_mock)
+
+    with pytest.raises(topup_mod.GasTopUpIneligible):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=21_000,
+            reason="test",
+            has_verified_funds=False,
+        )
+
+    send_mock.assert_not_called()
+
+
+def test_wallet_row_old_enough_becomes_eligible(tmp_db, monkeypatch, fake_gas_wallet):
+    user_id = _make_user(123)
+    with get_session() as session:
+        session.add(
+            Wallet(
+                user_id=user_id,
+                address=WALLET,
+                chain_type="evm",
+                created_at=datetime.now(timezone.utc)
+                - timedelta(seconds=topup_mod.GAS_TOPUP_MIN_ACCOUNT_AGE_SECONDS + 60),
+            )
+        )
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service,
+        "get_gas_payer_wallet",
+        MagicMock(return_value=fake_gas_wallet),
+    )
+    monkeypatch.setattr(
+        hot_wallet_mod.hot_wallet_service, "send_native_token", AsyncMock(return_value="0xaged")
+    )
+
+    result = topup_mod.ensure_gas(
+        user_id=user_id,
+        wallet_address=WALLET,
+        chain_name="base",
+        estimated_gas_wei=21_000,
+        reason="test",
+        has_verified_funds=False,
+    )
+    assert result is True
+
+
+def test_wallet_lifetime_ceiling_enforced(tmp_db, monkeypatch):
+    user_id = _make_user(125)
+    ceiling = topup_mod._max_topup_wei()
+    with get_session() as session:
+        session.execute(
+            text(
+                "INSERT INTO gas_topup_wallet_lifetime (wallet_address, total_wei, topup_count) "
+                "VALUES (:addr, :total, 1)"
+            ),
+            {"addr": WALLET.lower(), "total": topup_mod.WALLET_LIFETIME_TOPUP_CAP_WEI - 10},
+        )
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    send_mock = AsyncMock()
+    monkeypatch.setattr(hot_wallet_mod.hot_wallet_service, "send_native_token", send_mock)
+
+    with pytest.raises(topup_mod.GasTopUpCapExceeded, match="lifetime"):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=ceiling,
+            reason="test",
+            has_verified_funds=True,
+        )
+
+    send_mock.assert_not_called()
+    # H2: the daily reservations taken before the lifetime check must have
+    # been refunded too, since nothing was ultimately spent.
+    with get_session() as session:
+        row = session.execute(
+            text(
+                "SELECT total_wei FROM gas_topup_daily_counters WHERE day = :day AND scope = :scope"
+            ),
+            {"day": topup_mod._utc_today(), "scope": "global"},
+        ).first()
+        assert row is not None
+        assert row[0] == 0
+
+
+# ── M4: IPv6 /64 scope normalization ─────────────────────────────────────
+
+
+def test_normalize_ip_for_scope_collapses_ipv6_to_slash_64():
+    a = topup_mod._normalize_ip_for_scope("2001:db8:1234:5678:aaaa:bbbb:cccc:dddd")
+    b = topup_mod._normalize_ip_for_scope("2001:db8:1234:5678:1111:2222:3333:4444")
+    assert a == b
+
+
+def test_normalize_ip_for_scope_leaves_ipv4_and_unknown_unchanged():
+    assert topup_mod._normalize_ip_for_scope("9.9.9.9") == "9.9.9.9"
+    assert topup_mod._normalize_ip_for_scope("unknown") == "unknown"
+
+
+def test_two_ipv6_addresses_in_same_64_share_the_ip_cap(tmp_db, monkeypatch):
+    """M4: an attacker rotating through addresses in the SAME /64 must not
+    get a fresh per-IP cap for each one."""
+    user_id = _make_user(126)
+    ceiling = topup_mod._max_topup_wei()
+    max_ip_daily = ceiling * topup_mod.IP_DAILY_TOPUP_MULTIPLE
+    ip_a = "2001:db8:1234:5678:0000:0000:0000:0001"
+    ip_b = "2001:db8:1234:5678:ffff:ffff:ffff:ffff"
+    scope = f"ip:{topup_mod._normalize_ip_for_scope(ip_a)}"
+    assert scope == f"ip:{topup_mod._normalize_ip_for_scope(ip_b)}"
+    _seed_counter(scope, max_ip_daily - 10)
+
+    web3 = _fake_web3(balances=[0])
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    send_mock = AsyncMock()
+    monkeypatch.setattr(hot_wallet_mod.hot_wallet_service, "send_native_token", send_mock)
+
+    with pytest.raises(topup_mod.GasTopUpCapExceeded):
+        topup_mod.ensure_gas(
+            user_id=user_id,
+            wallet_address=WALLET,
+            chain_name="base",
+            estimated_gas_wei=ceiling,
+            reason="test",
+            has_verified_funds=True,
+            ip_address=ip_b,  # different address, SAME /64 as the seeded ip_a
+        )
+
+    send_mock.assert_not_called()
+
+
+# ── H3: bounded dispatch pool -> GasTopUpBusy ─────────────────────────────
+
+
+def test_run_gas_sensitive_sync_raises_busy_when_slots_saturated():
+    acquired = [
+        topup_mod._topup_slots.acquire(blocking=False) for _ in range(topup_mod._TOPUP_QUEUE_MAX)
+    ]
+    assert all(acquired)
+    try:
+        with pytest.raises(topup_mod.GasTopUpBusy):
+            topup_mod.run_gas_sensitive_sync(lambda: 1)
+    finally:
+        for _ in acquired:
+            topup_mod._topup_slots.release()
+
+
+def test_run_gas_sensitive_raises_busy_when_slots_saturated():
+    async def _check():
+        acquired = [
+            topup_mod._topup_slots.acquire(blocking=False)
+            for _ in range(topup_mod._TOPUP_QUEUE_MAX)
+        ]
+        assert all(acquired)
+        try:
+            with pytest.raises(topup_mod.GasTopUpBusy):
+                await topup_mod.run_gas_sensitive(lambda: 1)
+        finally:
+            for _ in acquired:
+                topup_mod._topup_slots.release()
+
+    asyncio.run(_check())
+
+
+def test_run_gas_sensitive_sync_actually_dispatches_on_dedicated_pool():
+    calls = []
+
+    def _blocking_probe(x):
+        import threading
+
+        calls.append(threading.current_thread().name)
+        return x * 2
+
+    result = topup_mod.run_gas_sensitive_sync(_blocking_probe, 21)
+    assert result == 42
+    assert calls[0].startswith("gas-topup")
+
+
+# ── M3: module-level HTTP client + price cache ────────────────────────────
+
+
+def test_get_httpx_client_is_reused_across_calls(monkeypatch):
+    monkeypatch.setattr(topup_mod, "_httpx_client", None)
+    client1 = topup_mod._get_httpx_client()
+    client2 = topup_mod._get_httpx_client()
+    assert client1 is client2
+
+
+def test_fetch_live_eth_price_usd_uses_cache_within_ttl(monkeypatch):
+    monkeypatch.setattr(topup_mod, "_price_cache", {"price": None, "fetched_at": 0.0})
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ethereum": {"usd": 3333.0}}
+
+    fake_client = SimpleNamespace(get=MagicMock(return_value=_FakeResp()))
+    monkeypatch.setattr(topup_mod, "_get_httpx_client", MagicMock(return_value=fake_client))
+
+    price1 = _REAL_FETCH_LIVE_ETH_PRICE_USD()
+    price2 = _REAL_FETCH_LIVE_ETH_PRICE_USD()
+
+    assert price1 == 3333.0
+    assert price2 == 3333.0
+    # Second call was served from the ~60s in-process cache, not a second
+    # HTTP round trip.
+    fake_client.get.assert_called_once()

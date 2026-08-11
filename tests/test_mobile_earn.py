@@ -67,6 +67,13 @@ def client(monkeypatch):
     monkeypatch.setattr(
         gas_topup_mod, "estimate_gas_wei_for_deposit", MagicMock(return_value=21000)
     )
+    # L2 fix: withdraw now estimates gas (incl. the real withdraw calldata's
+    # L1 fee) via its own dedicated estimator, not the flat
+    # estimate_gas_wei_for_action path — patch it too so these dispatch
+    # tests never make a real web3/RPC call.
+    monkeypatch.setattr(
+        gas_topup_mod, "estimate_gas_wei_for_withdraw", MagicMock(return_value=21000)
+    )
     return app_client()
 
 
