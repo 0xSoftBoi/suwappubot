@@ -158,7 +158,7 @@ const quote = await client.getQuote({
   from: "USDC", to: "ETH", chain: "base", amount: "1000",
 });
 const tx = await client.swap(quote);
-console.log(tx.txHash, tx.status);   // -> 0x… "filled"`;
+console.log(tx.txHash, tx.status);   // -> 0x… "completed"`;
 
 async function Hero() {
   const t = await getTranslations('hero');

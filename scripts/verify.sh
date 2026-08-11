@@ -3,10 +3,10 @@ set -e
 MODE=${1:-all}
 
 case "$MODE" in
-  all|python|api|agent|env|health|onchain) ;;
+  all|python|api|agent|env|health|onchain|marketing) ;;
   *)
     echo "✗ Unknown verify lane: '$MODE'" >&2
-    echo "  Valid lanes: all python api agent env health onchain" >&2
+    echo "  Valid lanes: all python api agent env health onchain marketing" >&2
     exit 2
     ;;
 esac
@@ -31,6 +31,14 @@ if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
     exit 1
   fi
   echo "✓ OpenAPI spec in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "agent" || "$MODE" == "marketing" ]]; then
+  echo "=== Marketing API claims ==="
+  if ! python3 scripts/check-marketing-claims.py; then
+    echo "  The showcase site describes the agent API incorrectly."
+    exit 1
+  fi
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
