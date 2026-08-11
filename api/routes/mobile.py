@@ -2688,6 +2688,55 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
                 detail="This wallet has a transaction in progress. Try again shortly.",
             )
         try:
+            # Auto top-up gas from the hot wallet if needed — MONEY-PATH.
+            # Placed here, AFTER the balance/amount validation above (and
+            # after the DB wallet lock), and BEFORE the on-chain
+            # deposit/withdraw call, so a top-up only ever accompanies a
+            # validated, funded transfer — see gas_topup_service's module
+            # docstring for the full ordering / anti-griefing rationale.
+            #
+            # `_parse_earn_amount` only cross-checks an explicit (non-"max")
+            # amount against `available` for withdraw's None-sentinel case,
+            # not for a plain numeric amount — an over-amount request is
+            # normally left for SavingsService.deposit/withdraw's own
+            # on-chain balance check to reject. Gate the top-up on the same
+            # "is this actually fundable" condition explicitly here too, so
+            # an unfundable request (bound to fail anyway) never spends on a
+            # top-up first — that's the actual anti-griefing guard, not just
+            # "runs after some check happened".
+            is_funded = is_max or amount <= available
+            if is_funded:
+                from bot.services.gas_topup_service import (
+                    DEPOSIT_GAS_UNITS_ESTIMATE,
+                    WITHDRAW_GAS_UNITS_ESTIMATE,
+                    GasTopUpCapExceeded,
+                    GasTopUpFailed,
+                    ensure_gas,
+                    estimate_gas_wei_for_action,
+                )
+
+                gas_units = (
+                    DEPOSIT_GAS_UNITS_ESTIMATE
+                    if action == "deposit"
+                    else WITHDRAW_GAS_UNITS_ESTIMATE
+                )
+                try:
+                    estimated_gas_wei = await asyncio.to_thread(
+                        estimate_gas_wei_for_action, "base", gas_units
+                    )
+                    await asyncio.to_thread(
+                        ensure_gas,
+                        user_id=user_id,
+                        wallet_address=wallet.address,
+                        chain_name="base",
+                        estimated_gas_wei=estimated_gas_wei,
+                        reason=f"mobile_earn_{action}",
+                    )
+                except GasTopUpCapExceeded as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                except GasTopUpFailed as e:
+                    raise HTTPException(status_code=503, detail=str(e))
+
             if action == "deposit":
                 # "max" already resolved to the live idle balance above;
                 # `amount` is never None on the deposit path.
@@ -2867,7 +2916,7 @@ def _is_contract_address(to_address: str) -> bool:
     return code not in (b"", "0x", b"0x")
 
 
-def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool]:
+def _send_usdc_base(wallet, to_address: str, amount: Decimal, user_id: int) -> Tuple[str, bool]:
     """Broadcast a USDC (Base) ERC-20 `transfer` from `wallet` to `to_address`.
 
     Blocking (web3 + `asyncio.run` for the Turnkey/local signing call) —
@@ -2922,8 +2971,32 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
     gas_cost = int(tx.get("gas") or 0) * int(tx.get("gasPrice") or 0)
     native_balance = web3.eth.get_balance(from_addr)
     if native_balance < gas_cost:
-        release_nonce(from_addr, nonce)
-        raise SendRejected("Wallet needs ETH on Base for gas.")
+        # Auto top-up from the hot wallet — MONEY-PATH. Reached only AFTER
+        # the caller (send_mobile) already validated the USDC balance/amount
+        # for THIS transfer, so the top-up always accompanies a real, funded
+        # send intent (see bot/services/gas_topup_service.py's ordering /
+        # anti-griefing note) rather than being triggerable by a bare
+        # balance check.
+        from bot.services.gas_topup_service import GasTopUpError, ensure_gas
+
+        try:
+            ensure_gas(
+                user_id=user_id,
+                wallet_address=from_addr,
+                chain_name=_SEND_CHAIN,
+                estimated_gas_wei=gas_cost,
+                reason="mobile_send",
+            )
+        except GasTopUpError as e:
+            release_nonce(from_addr, nonce)
+            raise SendRejected(str(e)) from e
+
+        native_balance = web3.eth.get_balance(from_addr)
+        if native_balance < gas_cost:
+            release_nonce(from_addr, nonce)
+            raise SendRejected(
+                "Wallet still needs ETH on Base for gas after top-up. Please try again."
+            )
 
     signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
     raw_hex = signed_hex[2:] if signed_hex.startswith("0x") else signed_hex
@@ -3215,7 +3288,7 @@ async def send_mobile(request: Request, body: SendBody):
         try:
             try:
                 tx_hash, is_pending = await asyncio.to_thread(
-                    _send_usdc_base, wallet, to_address, amount
+                    _send_usdc_base, wallet, to_address, amount, user_id
                 )
             except HTTPException:
                 raise

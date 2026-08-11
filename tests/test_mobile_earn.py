@@ -51,9 +51,17 @@ def app_client():
 @pytest.fixture()
 def client(monkeypatch):
     import api.main as main_mod
+    import bot.services.gas_topup_service as gas_topup_mod
 
     monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
     monkeypatch.setattr(mobile_mod, "DATABASE_AVAILABLE", True)
+    # Gas auto-top-up (MONEY-PATH) is exercised by tests/test_gas_topup_service.py
+    # and tests/test_mobile_gas_topup.py directly. These pre-existing deposit/
+    # withdraw tests are about savings dispatch, not gas — default to "wallet
+    # already has enough gas, no top-up needed" so they never make a real
+    # web3/RPC call. Tests that DO care about gas top-up override these.
+    monkeypatch.setattr(gas_topup_mod, "ensure_gas", MagicMock(return_value=False))
+    monkeypatch.setattr(gas_topup_mod, "estimate_gas_wei_for_action", MagicMock(return_value=21000))
     return app_client()
 
 

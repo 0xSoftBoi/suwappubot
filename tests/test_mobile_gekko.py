@@ -530,15 +530,25 @@ def _patch_send_pipeline(monkeypatch, web3, *, gas=80_000, gas_price=1_000_000_0
     )
 
 
-def test_send_usdc_base_gas_precheck_rejects_when_no_native_balance(monkeypatch):
+def test_send_usdc_base_gas_precheck_triggers_topup_when_no_native_balance(monkeypatch):
+    """A zero-ETH wallet no longer hard-fails at the gas precheck (MONEY-PATH
+    gas auto-top-up) — it attempts a top-up from the hot wallet first. This
+    covers the case where the top-up itself fails: the send must still be
+    cleanly rejected (never broadcast) rather than silently proceeding."""
     from bot.utils.nonce_reservation import _reset_for_tests
+    import bot.services.gas_topup_service as gas_topup_mod
 
     _reset_for_tests()
     web3 = _mock_web3_for_send(native_balance=0)
     _patch_send_pipeline(monkeypatch, web3)
+    monkeypatch.setattr(
+        gas_topup_mod,
+        "ensure_gas",
+        MagicMock(side_effect=gas_topup_mod.GasTopUpFailed("We couldn't get your wallet ready.")),
+    )
 
-    with pytest.raises(mobile_mod.SendRejected, match="ETH on Base"):
-        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+    with pytest.raises(mobile_mod.SendRejected, match="couldn't get your wallet ready"):
+        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"), 42)
 
     web3.eth.send_raw_transaction.assert_not_called()
 
@@ -555,7 +565,7 @@ def test_send_usdc_base_deterministic_node_rejection_raises_send_rejected(monkey
     _patch_send_pipeline(monkeypatch, web3)
 
     with pytest.raises(mobile_mod.SendRejected, match="insufficient funds"):
-        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"), 42)
 
 
 def test_send_usdc_base_transport_timeout_is_ambiguous_pending(monkeypatch):
@@ -567,7 +577,7 @@ def test_send_usdc_base_transport_timeout_is_ambiguous_pending(monkeypatch):
     web3 = _mock_web3_for_send(send_raises=requests.exceptions.Timeout("node timeout"))
     _patch_send_pipeline(monkeypatch, web3)
 
-    tx_hash, is_pending = mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+    tx_hash, is_pending = mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"), 42)
 
     assert is_pending is True
     assert tx_hash.startswith("0x")

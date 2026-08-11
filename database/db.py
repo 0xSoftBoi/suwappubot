@@ -729,6 +729,10 @@ def _ensure_schema(db_engine) -> None:
     # --- mobile_wallet_locks table (cross-replica advisory lock for mobile send/earn) ---
     _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite)
 
+    # --- gas_topups table (auto gas top-up audit log, MONEY-PATH — see
+    # bot/services/gas_topup_service.py) ---
+    _create_gas_topups_table(db_engine, inspector, is_sqlite)
+
     # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
     _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
 
@@ -1499,6 +1503,28 @@ def _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite: bool) -> 
             logger.info("Created mobile_wallet_locks table")
     except Exception as e:
         logger.warning(f"Failed to create mobile_wallet_locks table: {e}")
+
+
+def _create_gas_topups_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the gas_topups table (auto gas top-up audit log — see
+    bot/services/gas_topup_service.py). MONEY-PATH: this table backs both
+    the audit trail for hot-wallet spend on gas top-ups AND the per-user /
+    global daily cap enforcement (the caps are computed by querying this
+    same table, so the audit log and the enforcement data source can never
+    drift apart). Caught-and-logged like every other additive table-creation
+    helper in this file — a transient DDL failure here must not crash boot;
+    `gas_topup_service.ensure_gas()` itself fails closed (raises
+    GasTopUpFailed) if this table is missing, so a top-up is refused rather
+    than left unrecorded."""
+    try:
+        from bot.models.gas_topup import GasTopUp
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("gas_topups"):
+            GasTopUp.__table__.create(bind=db_engine)
+            logger.info("Created gas_topups table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topups table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
