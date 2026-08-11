@@ -176,6 +176,7 @@ from bot.handlers.referral import (
     fees_callback_handler,
     rewards_callback_handler as ref_rewards_callback_handler,
 )
+from bot.handlers.fills import fills_handler
 from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
@@ -443,6 +444,7 @@ def add_handlers(application: Application) -> None:
 
     # Points/XP system
     application.add_handler(xp_handler)  # /xp
+    application.add_handler(fills_handler)  # /fills
     application.add_handler(checkin_handler)  # /checkin
     application.add_handler(leaderboard_handler)  # /lb
     application.add_handler(rewards_handler)  # /rewards (XP rewards)

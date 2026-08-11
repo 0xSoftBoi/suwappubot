@@ -3,12 +3,17 @@
   "inputs": [
    {
     "internalType": "string",
-    "name": "baseURI",
+    "name": "unrevealedURI",
     "type": "string"
    },
    {
     "internalType": "bytes32",
     "name": "provenance",
+    "type": "bytes32"
+   },
+   {
+    "internalType": "bytes32",
+    "name": "traitsCommit",
     "type": "bytes32"
    },
    {
@@ -19,6 +24,16 @@
   ],
   "stateMutability": "nonpayable",
   "type": "constructor"
+ },
+ {
+  "inputs": [],
+  "name": "AlreadyCommitted",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "AlreadyDrawn",
+  "type": "error"
  },
  {
   "inputs": [
@@ -134,6 +149,16 @@
   "type": "error"
  },
  {
+  "inputs": [],
+  "name": "NotCommitted",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "NotOwner",
+  "type": "error"
+ },
+ {
   "inputs": [
    {
     "internalType": "address",
@@ -163,6 +188,36 @@
  {
   "inputs": [],
   "name": "SoldOut",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TooEarly",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TraitsAlreadySealed",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TraitsCommitmentMismatch",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TraitsLengthMismatch",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "TraitsNotSealed",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "UnknownToken",
   "type": "error"
  },
  {
@@ -298,6 +353,45 @@
   "anonymous": false,
   "inputs": [
    {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "revealBlock",
+    "type": "uint256"
+   }
+  ],
+  "name": "RevealCommitted",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "startingIndex",
+    "type": "uint256"
+   }
+  ],
+  "name": "StartingIndexSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "assets",
+    "type": "uint256"
+   }
+  ],
+  "name": "TraitsSealed",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
     "indexed": true,
     "internalType": "address",
     "name": "from",
@@ -318,6 +412,19 @@
   ],
   "name": "Transfer",
   "type": "event"
+ },
+ {
+  "inputs": [],
+  "name": "DESK_COUNT",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
  },
  {
   "inputs": [],
@@ -346,6 +453,45 @@
   "type": "function"
  },
  {
+  "inputs": [],
+  "name": "REVEAL_DELAY",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "TICKER_COUNT",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes",
+    "name": "chunk",
+    "type": "bytes"
+   }
+  ],
+  "name": "appendTraits",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
   "inputs": [
    {
     "internalType": "address",
@@ -366,6 +512,25 @@
  {
   "inputs": [
    {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "assetIdOf",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
     "internalType": "address",
     "name": "owner",
     "type": "address"
@@ -377,6 +542,82 @@
     "internalType": "uint256",
     "name": "",
     "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "owner",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256[]",
+    "name": "tokenIds",
+    "type": "uint256[]"
+   }
+  ],
+  "name": "bestDiscountBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "best",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "commitReveal",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "name": "deskDiscountBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "drawStartingIndex",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "feeDiscountBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
    }
   ],
   "stateMutability": "view",
@@ -403,6 +644,35 @@
     "internalType": "address",
     "name": "",
     "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "owner",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256[]",
+    "name": "tokenIds",
+    "type": "uint256[]"
+   },
+   {
+    "internalType": "uint8",
+    "name": "tickerIndex",
+    "type": "uint8"
+   }
+  ],
+  "name": "holdsTicker",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
    }
   ],
   "stateMutability": "view",
@@ -587,6 +857,19 @@
   "type": "function"
  },
  {
+  "inputs": [],
+  "name": "revealBlock",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
   "inputs": [
    {
     "internalType": "address",
@@ -633,6 +916,13 @@
    }
   ],
   "name": "safeTransferFrom",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "sealTraits",
   "outputs": [],
   "stateMutability": "nonpayable",
   "type": "function"
@@ -695,6 +985,32 @@
   "type": "function"
  },
  {
+  "inputs": [],
+  "name": "startingIndex",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "startingIndexSet",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
   "inputs": [
    {
     "internalType": "bytes4",
@@ -753,6 +1069,69 @@
     "internalType": "uint256",
     "name": "",
     "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "traitsCommitment",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "traitsLength",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "traitsOf",
+  "outputs": [
+   {
+    "internalType": "uint8",
+    "name": "tickerIndex",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint8",
+    "name": "deskIndex",
+    "type": "uint8"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "traitsSealed",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
    }
   ],
   "stateMutability": "view",

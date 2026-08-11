@@ -22,6 +22,7 @@ from bot.utils.exceptions import SwapError
 from bot.services.error_guidance import classify_swap_failure, ErrorGuidance
 from bot.services.wallet import WalletService
 from bot.services.fee_service import fee_service
+from bot.services.fills_service import fills_service
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import (
     get_tokens_for_chain,
@@ -182,6 +183,11 @@ def _schedule_quote_prewarm(
             # Resolve tier/fee exactly as wallets_confirmed_callback does so the
             # cached quote is identical to what a cold fetch would return.
             user_tier = await x402_service.get_tier(user_id)
+            # Refresh the Fills NFT discount before pricing. fee_service reads it
+            # from an in-memory cache only (it is sync and must not do I/O), so the
+            # warm has to happen here in the async path or the ticket perk silently
+            # never applies.
+            await fills_service.warm_for_user(user_id)
             # Pass user_id so the prewarmed quote is keyed under the SAME VIP/points-
             # adjusted bps the execution path uses (avoids a guaranteed cache miss).
             platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
@@ -1084,6 +1090,8 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         # and the recorded fee (and the referral share scales with it).
         fee_user_id = context.user_data["user_id"]
         user_tier = await x402_service.get_tier(fee_user_id)
+        # Keep the Fills NFT discount fresh — fee_service reads it from cache only.
+        await fills_service.warm_for_user(fee_user_id)
         platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=fee_user_id)
 
         # Try the pre-warmed quote first (keyed on the reference wallet — the
@@ -1720,6 +1728,8 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         # state. user_id is required here because points/VIP discounts are
         # user-specific even within the same subscription tier.
         user_tier = await x402_service.get_tier(user_id)
+        # Keep the Fills NFT discount fresh — fee_service reads it from cache only.
+        await fills_service.warm_for_user(user_id)
         platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
 
         quote = await swap_engine.get_quote(
