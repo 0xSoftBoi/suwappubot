@@ -139,6 +139,7 @@ contract SuwappuTimeCurve {
     error BadParams();
     error TransferFailed();
     error DeadlinePassed();
+    error NonStandardToken();
 
     /// @dev MEV guard: because price is a pure function of time, a validator can
     ///      withhold a tx and execute it later at a worse deterministic price. A
@@ -193,7 +194,12 @@ contract SuwappuTimeCurve {
         reserveIn = quoteBuy(tokenAmount);
         if (reserveIn == 0) revert ZeroAmount(); // never mint for free
         if (reserveIn > maxReserveIn) revert SlippageExceeded();
+        // Exact-receipt check: fee-on-transfer / rebasing reserves would credit
+        // less than `reserveIn` while we mint the full amount — silent insolvency.
+        // Reject them rather than mis-account.
+        uint256 balBefore = reserve.balanceOf(address(this));
         _safeTransferFrom(msg.sender, address(this), reserveIn);
+        if (reserve.balanceOf(address(this)) - balBefore != reserveIn) revert NonStandardToken();
         _mint(msg.sender, tokenAmount);
         emit CurveBuy(msg.sender, tokenAmount, reserveIn);
     }

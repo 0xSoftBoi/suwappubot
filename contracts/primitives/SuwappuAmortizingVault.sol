@@ -104,6 +104,7 @@ contract SuwappuAmortizingVault {
     error NotLiquidatable();
     error TransferFailed();
     error DeadlinePassed();
+    error NonStandardToken();
 
     /// @dev MEV guard for health-sensitive entrypoints: LTV/liquidation read the
     ///      4626 share price, so a withheld tx could execute against a manipulated
@@ -343,19 +344,25 @@ contract SuwappuAmortizingVault {
         _safeCall(address(asset), abi.encodeWithSelector(IVaultToken.transfer.selector, to, amount));
     }
 
-    function _safeTransferFromAsset(address from, address to, uint256 amount) private {
-        _safeCall(address(asset), abi.encodeWithSelector(IVaultToken.transferFrom.selector, from, to, amount));
+    /// @dev Pull `amount` of a token into this contract and require exact receipt.
+    ///      Fee-on-transfer / rebasing tokens would credit less than `amount` while
+    ///      our accounting assumes the full amount — silent insolvency. Reject them.
+    function _pullExact(address token, address from, uint256 amount) private {
+        uint256 balBefore = IVaultToken(token).balanceOf(address(this));
+        _safeCall(token, abi.encodeWithSelector(IVaultToken.transferFrom.selector, from, address(this), amount));
+        if (IVaultToken(token).balanceOf(address(this)) - balBefore != amount) revert NonStandardToken();
+    }
+
+    function _safeTransferFromAsset(address from, address, uint256 amount) private {
+        _pullExact(address(asset), from, amount);
     }
 
     function _safeTransferShares(address to, uint256 amount) private {
         _safeCall(address(collateralVault), abi.encodeWithSelector(IVaultToken.transfer.selector, to, amount));
     }
 
-    function _safeTransferFromShares(address from, address to, uint256 amount) private {
-        _safeCall(
-            address(collateralVault),
-            abi.encodeWithSelector(IVaultToken.transferFrom.selector, from, to, amount)
-        );
+    function _safeTransferFromShares(address from, address, uint256 amount) private {
+        _pullExact(address(collateralVault), from, amount);
     }
 
     function _safeCall(address token, bytes memory payload) private {

@@ -267,6 +267,11 @@ contract SuwappuMutualCredit {
     // -------------------------------------------------------------- settlement
 
     /// @notice Settle outstanding debt with a real token transfer to the creditor.
+    /// @dev The transfer is peer-to-peer (debtor → creditor), so a fee-on-transfer
+    ///      or rebasing token would deliver less than `amount` while the ledger is
+    ///      credited in full. The line's unit-of-account token is chosen by the two
+    ///      parties at `proposeLine`, so standard-ERC-20 behaviour is their explicit
+    ///      assumption — pick a normal token for the line.
     function settle(address creditor, address token, uint256 amount) external nonReentrant {
         bytes32 key = lineKey(msg.sender, creditor, token);
         Line storage l = lines[key];
