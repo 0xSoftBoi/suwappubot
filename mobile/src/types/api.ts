@@ -162,3 +162,19 @@ export interface Statement {
   swapVolumeUsd: number
   transactions: StatementTransaction[]
 }
+
+export interface EnsResolution {
+  name: string
+  address: string
+}
+
+export interface Goal {
+  id: number
+  name: string
+  targetUsd: number
+  createdAt: string
+}
+
+export interface GoalsSnapshot {
+  goals: Goal[]
+}

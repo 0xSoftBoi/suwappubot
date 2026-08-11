@@ -14,5 +14,8 @@ export const queryKeys = {
   borrow: (authRevision: number) => ['gecko', authRevision, 'borrow'] as const,
   statement: (authRevision: number, month: string) =>
     ['gecko', authRevision, 'statement', month] as const,
+  resolveEns: (authRevision: number, name: string) =>
+    ['gecko', authRevision, 'resolveEns', name] as const,
+  goals: (authRevision: number) => ['gecko', authRevision, 'goals'] as const,
   health: () => ['health'] as const,
 } as const

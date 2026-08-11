@@ -3336,3 +3336,168 @@ async def get_statement(request: Request, month: Optional[str] = Query(default=N
         "swapVolumeUsd": float(swap_volume),
         "transactions": transactions,
     }
+
+
+# ── ENS forward resolution (read-only, no funds moved) ─────────────────────
+#
+# Lets the Send flow accept `name.eth` instead of a raw address. Resolution
+# is a plain read against Ethereum mainnet via the existing health-tracked
+# `rpc_manager` — no new RPC config, `settings.ethereum_rpc_url` already
+# exists and is used across the codebase for other mainnet reads.
+
+_ENS_NAME_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$")
+_resolve_action_limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+
+
+def _resolve_ens_sync(name: str) -> Optional[str]:
+    """Blocking ENS forward-resolution — always call via asyncio.to_thread.
+
+    Returns the resolved address (possibly non-checksummed) or None if the
+    name has no ENS resolution record. Raises on RPC/transport failure.
+    """
+    from bot.services.rpc_manager import rpc_manager
+
+    w3 = rpc_manager.get_web3("ethereum")
+    return w3.ens.address(name)
+
+
+@router.get("/resolve")
+async def resolve_ens_name(request: Request, name: str = Query(...)):
+    """Forward-resolve an ENS name (`vitalik.eth`) to a checksummed address.
+
+    Read-only. 400 on malformed input, 404 if the name simply doesn't
+    resolve, 503 if the upstream RPC read itself fails (distinct from "not
+    found" so the client can retry vs. give up).
+    """
+    payload = _jwt_user(request)
+    user_id = int(payload["user_id"])
+
+    try:
+        await _resolve_action_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    cleaned = (name or "").strip().lower()
+    if not cleaned or len(cleaned) > 255 or not _ENS_NAME_RE.match(cleaned):
+        raise HTTPException(status_code=400, detail="Invalid ENS name")
+
+    try:
+        address = await asyncio.to_thread(_resolve_ens_sync, cleaned)
+    except Exception as e:
+        logger.warning(f"ENS resolve failed for {cleaned!r}: {e}")
+        raise HTTPException(status_code=503, detail="ENS resolution unavailable")
+
+    if not address:
+        raise HTTPException(status_code=404, detail="Name not found")
+
+    from web3 import Web3
+
+    return {"name": cleaned, "address": Web3.to_checksum_address(address)}
+
+
+# ── savings goals CRUD (read/write metadata only — no funds moved) ─────────
+#
+# Progress toward each goal is computed CLIENT-SIDE from the user's existing
+# `GET /v1/mobile/earn` position. This table stores only the user's target
+# name/amount, never a balance.
+
+_MAX_SAVINGS_GOALS_PER_USER = 10
+_MAX_SAVINGS_GOAL_TARGET_USD = Decimal("10000000")
+
+
+class CreateGoalBody(BaseModel):
+    name: str
+    targetUsd: float
+
+
+def _goal_dict(goal) -> dict:
+    return {
+        "id": goal.id,
+        "name": goal.name,
+        "targetUsd": float(goal.target_usd),
+        "createdAt": goal.created_at.isoformat() if goal.created_at else None,
+    }
+
+
+@router.get("/goals")
+async def list_goals(request: Request):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        rows = (
+            session.query(SavingsGoal)
+            .filter(SavingsGoal.user_id == user_id)
+            .order_by(SavingsGoal.created_at.asc())
+            .all()
+        )
+        goals = [_goal_dict(row) for row in rows]
+
+    return {"goals": goals}
+
+
+@router.post("/goals")
+async def create_goal(request: Request, body: CreateGoalBody):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(name) > 64:
+        raise HTTPException(status_code=400, detail="Name too long (max 64 characters)")
+
+    try:
+        target = Decimal(str(body.targetUsd))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid targetUsd")
+    if not target.is_finite() or target <= 0 or target > _MAX_SAVINGS_GOAL_TARGET_USD:
+        raise HTTPException(
+            status_code=400, detail="targetUsd must be greater than 0 and at most 10,000,000"
+        )
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        existing = session.query(SavingsGoal).filter(SavingsGoal.user_id == user_id).count()
+        if existing >= _MAX_SAVINGS_GOALS_PER_USER:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum of {_MAX_SAVINGS_GOALS_PER_USER} savings goals reached",
+            )
+
+        goal = SavingsGoal(user_id=user_id, name=name, target_usd=target)
+        session.add(goal)
+        session.flush()
+        result = _goal_dict(goal)
+
+    return result
+
+
+@router.delete("/goals/{goal_id}")
+async def delete_goal(request: Request, goal_id: int):
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    from bot.models.savings_goal import SavingsGoal
+
+    with get_session() as session:
+        goal = (
+            session.query(SavingsGoal)
+            .filter(SavingsGoal.id == goal_id, SavingsGoal.user_id == user_id)
+            .first()
+        )
+        if goal is None:
+            raise HTTPException(status_code=404, detail="Goal not found")
+        session.delete(goal)
+
+    return {"ok": True}

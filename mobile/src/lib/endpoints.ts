@@ -12,6 +12,9 @@ import type {
   BorrowSnapshot,
   EarnActionResponse,
   EarnSnapshot,
+  EnsResolution,
+  Goal,
+  GoalsSnapshot,
   HealthStatus,
   MobileSnapshot,
   SendActionResponse,
@@ -79,5 +82,28 @@ export const endpoints = {
     request<Statement>(`/v1/mobile/statement?month=${encodeURIComponent(month)}`, {
       timeoutMs: TIMEOUTS.slow,
       signal,
+    }),
+
+  resolveEns: (name: string, signal?: AbortSignal) =>
+    request<EnsResolution>(`/v1/mobile/resolve?name=${encodeURIComponent(name)}`, {
+      timeoutMs: TIMEOUTS.fast,
+      retries: 0,
+      signal,
+    }),
+
+  goals: (signal?: AbortSignal) =>
+    request<GoalsSnapshot>('/v1/mobile/goals', { signal }),
+
+  createGoal: (name: string, targetUsd: number) =>
+    request<Goal>('/v1/mobile/goals', {
+      method: 'POST',
+      body: { name, targetUsd },
+      retries: 0,
+    }),
+
+  deleteGoal: (goalId: number) =>
+    request<{ ok: true }>(`/v1/mobile/goals/${goalId}`, {
+      method: 'DELETE',
+      retries: 0,
     }),
 } as const

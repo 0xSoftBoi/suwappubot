@@ -50,7 +50,10 @@ checklist per subsection.
    - [x] Credit (read): Morpho position via `/v1/mobile/borrow` + health-factor
      Credit section on Money — Aug 2026
    - [x] Monthly statement: `/v1/mobile/statement` + statement screen — Aug 2026
-   - [ ] ENS/name payments; recurring transfers/DCA; savings goals — not started
+   - [x] ENS payments: `name.eth` recipients in Send (`/v1/mobile/resolve`) — Aug 2026
+   - [x] Savings goals: goals CRUD + progress on Earn tab (single-pot v0) — Aug 2026
+   - [ ] Recurring transfers / auto-save DCA — not started (needs worker design
+     + money-path review)
 2. **Phase 1 — Card + on/off-ramp:** non-custodial debit (Gnosis Pay / Immersve
    track) + fiat ramps (Bridge/Stripe, Monerium SEPA), Apple/Google wallet
    provisioning.

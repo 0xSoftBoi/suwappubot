@@ -31,6 +31,10 @@ export const STALE = {
   borrow: 15_000,
   /** A statement month is immutable once the month has passed. */
   statement: 60_000,
+  /** ENS resolution rarely changes mid-session; keyed per-name anyway. */
+  ensResolve: 60_000,
+  /** Savings goals: user-edited, not spot-price data. */
+  goals: 30_000,
 } as const
 
 export const queryClient = new QueryClient({

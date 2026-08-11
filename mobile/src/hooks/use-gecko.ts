@@ -9,6 +9,9 @@ import type {
   BorrowSnapshot,
   EarnActionResponse,
   EarnSnapshot,
+  EnsResolution,
+  Goal,
+  GoalsSnapshot,
   MobileSnapshot,
   SendActionResponse,
   Statement,
@@ -106,5 +109,45 @@ export function useStatement(month: string, enabled = true) {
     queryFn: ({ signal }) => endpoints.statement(month, signal),
     staleTime: STALE.statement,
     enabled,
+  })
+}
+
+/** `name` should already be the debounced, lowercased candidate — pass
+ * enabled=false until the caller's debounce window has elapsed. */
+export function useResolveEns(name: string, enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<EnsResolution>({
+    queryKey: queryKeys.resolveEns(authRevision, name),
+    queryFn: ({ signal }) => endpoints.resolveEns(name, signal),
+    staleTime: STALE.ensResolve,
+    enabled: enabled && name.length > 0,
+    retry: false,
+  })
+}
+
+export function useGoals(enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<GoalsSnapshot>({
+    queryKey: queryKeys.goals(authRevision),
+    queryFn: ({ signal }) => endpoints.goals(signal),
+    staleTime: STALE.goals,
+    enabled,
+  })
+}
+
+interface CreateGoalVars {
+  name: string
+  targetUsd: number
+}
+
+export function useCreateGoal() {
+  return useMutation<Goal, Error, CreateGoalVars>({
+    mutationFn: (vars) => endpoints.createGoal(vars.name, vars.targetUsd),
+  })
+}
+
+export function useDeleteGoal() {
+  return useMutation<{ ok: true }, Error, number>({
+    mutationFn: (goalId) => endpoints.deleteGoal(goalId),
   })
 }

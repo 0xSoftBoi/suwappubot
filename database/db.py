@@ -729,6 +729,9 @@ def _ensure_schema(db_engine) -> None:
     # --- mobile_wallet_locks table (cross-replica advisory lock for mobile send/earn) ---
     _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite)
 
+    # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
+    _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1319,6 +1322,18 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created savings_events table")
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
+
+
+def _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_savings_goals table (Gekko mobile savings-goals CRUD)."""
+    try:
+        from bot.models.savings_goal import SavingsGoal
+
+        if not inspector.has_table("mobile_savings_goals"):
+            SavingsGoal.__table__.create(bind=db_engine)
+            logger.info("Created mobile_savings_goals table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_savings_goals table: {e}")
 
 
 def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
