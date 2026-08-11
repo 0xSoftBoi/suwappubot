@@ -3,7 +3,17 @@ import { endpoints } from '../lib/endpoints'
 import { getAuthRevision } from '../lib/auth'
 import { queryKeys } from '../lib/queryKeys'
 import { STALE } from '../lib/queryClient'
-import type { ActivityEntry, AskResponse, EarnActionResponse, EarnSnapshot, MobileSnapshot } from '../types/api'
+import type {
+  ActivityEntry,
+  AskResponse,
+  BorrowSnapshot,
+  EarnActionResponse,
+  EarnSnapshot,
+  MobileSnapshot,
+  SendActionResponse,
+  Statement,
+  Wallet,
+} from '../types/api'
 
 export function useSnapshot(enabled = true) {
   const authRevision = getAuthRevision()
@@ -55,5 +65,46 @@ export function useEarnDeposit() {
 export function useEarnWithdraw() {
   return useMutation<EarnActionResponse, Error, EarnActionVars>({
     mutationFn: (vars) => endpoints.earnWithdraw(vars.amount, vars.walletId),
+  })
+}
+
+export function useWallets(enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<Wallet[]>({
+    queryKey: queryKeys.wallets(authRevision),
+    queryFn: ({ signal }) => endpoints.wallets(signal),
+    staleTime: STALE.wallets,
+    enabled,
+  })
+}
+
+interface SendVars {
+  to: string
+  amount: string
+}
+
+export function useSend() {
+  return useMutation<SendActionResponse, Error, SendVars>({
+    mutationFn: (vars) => endpoints.send(vars.to, vars.amount),
+  })
+}
+
+export function useBorrow(enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<BorrowSnapshot>({
+    queryKey: queryKeys.borrow(authRevision),
+    queryFn: ({ signal }) => endpoints.borrow(signal),
+    staleTime: STALE.borrow,
+    enabled,
+  })
+}
+
+export function useStatement(month: string, enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<Statement>({
+    queryKey: queryKeys.statement(authRevision, month),
+    queryFn: ({ signal }) => endpoints.statement(month, signal),
+    staleTime: STALE.statement,
+    enabled,
   })
 }

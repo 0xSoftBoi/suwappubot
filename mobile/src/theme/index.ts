@@ -28,6 +28,7 @@ export const palette = {
   accentSoft: theme.colors.brand.sunlitFlesh,
   success: theme.colors.trading.bull,
   danger: theme.colors.trading.bear,
+  warning: theme.colors.semantic.warning,
 } as const
 
 export const spacing = theme.spacing

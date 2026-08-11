@@ -56,6 +56,15 @@ export default function TodayScreen() {
         {data ? <Text style={s.muted}>Updated {formatDate(data.lastUpdated)}</Text> : null}
       </View>
 
+      <View style={local.actions}>
+        <Pressable onPress={() => router.push('/send')} style={local.actionButton}>
+          <Text style={local.actionText}>Send</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/receive')} style={local.actionButtonSecondary}>
+          <Text style={local.actionTextSecondary}>Receive</Text>
+        </Pressable>
+      </View>
+
       {hasSavings ? (
         <Pressable
           onPress={() => router.push('/earn')}
@@ -104,6 +113,11 @@ const local = StyleSheet.create({
   total: { color: palette.text, fontSize: 38, fontWeight: '700', fontVariant: ['tabular-nums'] },
   stack: { gap: spacing.sm },
   stale: { color: palette.textMuted, fontSize: 12, textAlign: 'center' },
+  actions: { flexDirection: 'row', gap: spacing.md },
+  actionButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
+  actionButtonSecondary: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
+  actionText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
+  actionTextSecondary: { color: palette.text, fontSize: 15, fontWeight: '700' },
   earnCard: {
     flexDirection: 'row',
     alignItems: 'center',

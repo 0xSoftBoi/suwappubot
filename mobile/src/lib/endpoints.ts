@@ -6,7 +6,18 @@
  */
 import { request } from './api'
 import { TIMEOUTS } from './config'
-import type { ActivityEntry, AskResponse, EarnActionResponse, EarnSnapshot, HealthStatus, MobileSnapshot } from '../types/api'
+import type {
+  ActivityEntry,
+  AskResponse,
+  BorrowSnapshot,
+  EarnActionResponse,
+  EarnSnapshot,
+  HealthStatus,
+  MobileSnapshot,
+  SendActionResponse,
+  Statement,
+  Wallet,
+} from '../types/api'
 
 export const endpoints = {
   health: () => request<HealthStatus>('/health', { timeoutMs: TIMEOUTS.fast }),
@@ -48,5 +59,25 @@ export const endpoints = {
       body: walletId === undefined ? { amount } : { amount, walletId },
       retries: 0,
       timeoutMs: TIMEOUTS.slow,
+    }),
+
+  wallets: (signal?: AbortSignal) =>
+    request<Wallet[]>('/v1/mobile/wallets', { signal }),
+
+  send: (to: string, amount: string) =>
+    request<SendActionResponse>('/v1/mobile/send', {
+      method: 'POST',
+      body: { to, amount, token: 'USDC', chain: 'base' },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  borrow: (signal?: AbortSignal) =>
+    request<BorrowSnapshot>('/v1/mobile/borrow', { signal }),
+
+  statement: (month: string, signal?: AbortSignal) =>
+    request<Statement>(`/v1/mobile/statement?month=${encodeURIComponent(month)}`, {
+      timeoutMs: TIMEOUTS.slow,
+      signal,
     }),
 } as const
