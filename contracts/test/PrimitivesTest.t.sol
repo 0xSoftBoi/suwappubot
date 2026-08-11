@@ -61,7 +61,7 @@ contract TimeCurveTest is Test {
 
     function testBuyMintsAndPullsReserve() public {
         vm.prank(alice);
-        uint256 paid = curve.buy(100e18, type(uint256).max);
+        uint256 paid = curve.buy(100e18, type(uint256).max, type(uint256).max);
         assertEq(curve.balanceOf(alice), 100e18);
         assertEq(curve.reserveBalance(), paid);
         assertGt(paid, 0);
@@ -70,7 +70,7 @@ contract TimeCurveTest is Test {
     function testPriceRisesWithSupply() public {
         uint256 q1 = curve.quoteBuy(10e18);
         vm.prank(alice);
-        curve.buy(1000e18, type(uint256).max);
+        curve.buy(1000e18, type(uint256).max, type(uint256).max);
         uint256 q2 = curve.quoteBuy(10e18);
         assertGt(q2, q1);
     }
@@ -86,10 +86,10 @@ contract TimeCurveTest is Test {
 
     function testSellSolventAfterDecay() public {
         vm.prank(alice);
-        curve.buy(1000e18, type(uint256).max);
+        curve.buy(1000e18, type(uint256).max, type(uint256).max);
         vm.warp(block.timestamp + 180 days);
         vm.prank(alice);
-        uint256 out = curve.sell(1000e18, 0);
+        uint256 out = curve.sell(1000e18, 0, type(uint256).max);
         assertGt(out, 0);
         // decay + sink guarantee the curve keeps a surplus
         assertGt(curve.reserveBalance(), 0);
@@ -98,9 +98,9 @@ contract TimeCurveTest is Test {
 
     function testSinkBurnsWithoutRefund() public {
         vm.prank(alice);
-        uint256 paid = curve.buy(100e18, type(uint256).max);
+        uint256 paid = curve.buy(100e18, type(uint256).max, type(uint256).max);
         vm.prank(alice);
-        uint256 refund = curve.sell(100e18, 0);
+        uint256 refund = curve.sell(100e18, 0, type(uint256).max);
         assertGt(curve.totalSunk(), 0); // reserve units withheld by the 1% value sink
         assertEq(curve.totalSupply(), 0); // all sold tokens burned
         assertLt(refund, paid);
@@ -109,12 +109,20 @@ contract TimeCurveTest is Test {
     function testSlippageGuards() public {
         vm.prank(alice);
         vm.expectRevert(SuwappuTimeCurve.SlippageExceeded.selector);
-        curve.buy(100e18, 1);
+        curve.buy(100e18, 1, type(uint256).max);
         vm.prank(alice);
-        curve.buy(100e18, type(uint256).max);
+        curve.buy(100e18, type(uint256).max, type(uint256).max);
         vm.prank(alice);
         vm.expectRevert(SuwappuTimeCurve.SlippageExceeded.selector);
-        curve.sell(100e18, type(uint256).max);
+        curve.sell(100e18, type(uint256).max, type(uint256).max);
+    }
+
+    function testBuyRevertsAfterDeadline() public {
+        // MEV / tx-withholding guard: a stale deadline reverts.
+        vm.warp(block.timestamp + 100);
+        vm.prank(alice);
+        vm.expectRevert(SuwappuTimeCurve.DeadlinePassed.selector);
+        curve.buy(100e18, type(uint256).max, block.timestamp - 1);
     }
 
     function testGrowthRateRejected() public {
@@ -131,17 +139,17 @@ contract TimeCurveTest is Test {
         usd.mint(alice, 10_000_000e18);
         vm.startPrank(alice);
         usd.approve(address(c), type(uint256).max);
-        c.buy(1000e18, type(uint256).max);
+        c.buy(1000e18, type(uint256).max, type(uint256).max);
         uint256 oneShot = c.quoteSell(500e18);
         vm.stopPrank();
 
         SuwappuTimeCurve c2 = new SuwappuTimeCurve("S", "S", address(usd), 0.01e18, 0.001e18, 0, 0.10e18);
         vm.startPrank(alice);
         usd.approve(address(c2), type(uint256).max);
-        c2.buy(1000e18, type(uint256).max);
+        c2.buy(1000e18, type(uint256).max, type(uint256).max);
         uint256 chunked;
         for (uint256 i = 0; i < 50; i++) {
-            chunked += c2.sell(10e18, 0);
+            chunked += c2.sell(10e18, 0, type(uint256).max);
         }
         vm.stopPrank();
         // Chunked proceeds must not meaningfully exceed the one-shot quote.
@@ -156,12 +164,12 @@ contract TimeCurveTest is Test {
         vm.warp(block.timestamp + 2000 days);
         vm.prank(alice);
         vm.expectRevert(); // reserveIn rounds to 0 → buy reverts, no free mint
-        c.buy(1e18, type(uint256).max);
+        c.buy(1e18, type(uint256).max, type(uint256).max);
     }
 
     function testCurveTokenIsAWorkingERC20() public {
         vm.prank(alice);
-        curve.buy(100e18, type(uint256).max);
+        curve.buy(100e18, type(uint256).max, type(uint256).max);
         // transfer
         vm.prank(alice);
         curve.transfer(bob, 40e18);
@@ -185,8 +193,8 @@ contract TimeCurveTest is Test {
         uint256 amt = bound(uint256(amount), 1e15, 100_000e18);
         usd.mint(alice, curve.quoteBuy(amt));
         vm.startPrank(alice);
-        uint256 paid = curve.buy(amt, type(uint256).max);
-        uint256 refund = curve.sell(amt, 0);
+        uint256 paid = curve.buy(amt, type(uint256).max, type(uint256).max);
+        uint256 refund = curve.sell(amt, 0, type(uint256).max);
         vm.stopPrank();
         assertLe(refund, paid);
     }
@@ -233,8 +241,8 @@ contract AmortizingVaultTest is Test {
     function testOpenPositionRespectsLtv() public {
         vm.startPrank(borrower);
         vm.expectRevert(SuwappuAmortizingVault.LtvExceeded.selector);
-        vault.openPosition(100_000e18, 60_000e18);
-        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        vault.openPosition(100_000e18, 60_000e18, type(uint256).max);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18, type(uint256).max);
         vm.stopPrank();
         assertEq(vault.debtOf(id), 50_000e18);
         assertEq(usd.balanceOf(borrower), 950_000e18);
@@ -242,7 +250,7 @@ contract AmortizingVaultTest is Test {
 
     function testAmortizePaysDownDebtFromYield() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 40_000e18);
+        uint256 id = vault.openPosition(100_000e18, 40_000e18, type(uint256).max);
         _addYield(10_000e18); // ~10% yield on the vault
         uint256 pending = vault.pendingYield(id);
         assertGt(pending, 0);
@@ -254,28 +262,28 @@ contract AmortizingVaultTest is Test {
 
     function testSelfRepaysToZeroAndUnlocks() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 10_000e18);
+        uint256 id = vault.openPosition(100_000e18, 10_000e18, type(uint256).max);
         _addYield(50_000e18);
         vm.prank(keeper);
         vault.amortize(id);
         assertEq(vault.debtOf(id), 0);
         (, uint256 shares,,) = vault.positions(id);
         vm.prank(borrower);
-        vault.withdrawCollateral(id, shares);
+        vault.withdrawCollateral(id, shares, type(uint256).max);
         (, uint256 after_,,) = vault.positions(id);
         assertEq(after_, 0);
     }
 
     function testInterestAccrues() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 40_000e18);
+        uint256 id = vault.openPosition(100_000e18, 40_000e18, type(uint256).max);
         vm.warp(block.timestamp + 365 days);
         assertApproxEqRel(vault.debtOf(id), 40_800e18, 0.01e18); // +2%
     }
 
     function testLenderEarnsInterest() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18, type(uint256).max);
         vm.warp(block.timestamp + 365 days);
         vm.startPrank(borrower);
         usd.approve(address(vault), type(uint256).max);
@@ -289,20 +297,20 @@ contract AmortizingVaultTest is Test {
 
     function testWithdrawCollateralBlockedAboveLtv() public {
         vm.startPrank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18, type(uint256).max);
         vm.expectRevert(SuwappuAmortizingVault.LtvExceeded.selector);
-        vault.withdrawCollateral(id, 50_000e18);
+        vault.withdrawCollateral(id, 50_000e18, type(uint256).max);
         vm.stopPrank();
     }
 
     function testLiquidationOnlyWhenUndercollateralized() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18, type(uint256).max);
         usd.mint(keeper, 100_000e18);
         vm.startPrank(keeper);
         usd.approve(address(vault), type(uint256).max);
         vm.expectRevert(SuwappuAmortizingVault.NotLiquidatable.selector);
-        vault.liquidate(id, type(uint256).max);
+        vault.liquidate(id, type(uint256).max, type(uint256).max);
         vm.stopPrank();
 
         // crash the share price: pull most of the vault's assets
@@ -310,7 +318,7 @@ contract AmortizingVaultTest is Test {
         usd.transfer(address(0xdead), 45_000e18);
 
         vm.prank(keeper);
-        vault.liquidate(id, type(uint256).max);
+        vault.liquidate(id, type(uint256).max, type(uint256).max);
         assertEq(vault.debtOf(id), 0);
         assertGt(yv.balanceOf(keeper), 0);
     }
@@ -342,7 +350,7 @@ contract AmortizingVaultTest is Test {
 
     function testBadDebtWrittenOff() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 50_000e18);
+        uint256 id = vault.openPosition(100_000e18, 50_000e18, type(uint256).max);
         // wipe out almost all collateral value
         vm.prank(address(yv));
         usd.transfer(address(0xdead), 99_500e18);
@@ -352,7 +360,7 @@ contract AmortizingVaultTest is Test {
         // exhausting collateral while debt remains → shortfall is written off.
         vm.startPrank(keeper);
         usd.approve(address(vault), type(uint256).max);
-        vault.liquidate(id, 480e18);
+        vault.liquidate(id, 480e18, type(uint256).max);
         vm.stopPrank();
         assertEq(vault.debtOf(id), 0); // remaining debt written off
         (, uint256 sharesLeft,,) = vault.positions(id);
@@ -373,7 +381,7 @@ contract AmortizingVaultTest is Test {
         usd.approve(address(iyv), type(uint256).max);
         iyv.deposit(100_000e18, borrower);
         iyv.approve(address(v), type(uint256).max);
-        uint256 id = v.openPosition(100_000e18, 50_000e18);
+        uint256 id = v.openPosition(100_000e18, 50_000e18, type(uint256).max);
         vm.stopPrank();
 
         // yield accrues but the vault becomes illiquid (maxWithdraw capped to 0)
@@ -387,14 +395,21 @@ contract AmortizingVaultTest is Test {
         vm.startPrank(keeper);
         usd.approve(address(v), type(uint256).max);
         // must NOT revert inside amortize despite the withdrawal cap
-        v.liquidate(id, type(uint256).max);
+        v.liquidate(id, type(uint256).max, type(uint256).max);
         vm.stopPrank();
         assertEq(v.debtOf(id), 0);
     }
 
+    function testOpenPositionRevertsAfterDeadline() public {
+        vm.warp(block.timestamp + 100);
+        vm.prank(borrower);
+        vm.expectRevert(SuwappuAmortizingVault.DeadlinePassed.selector);
+        vault.openPosition(100_000e18, 40_000e18, block.timestamp - 1);
+    }
+
     function testInterestIsPokeIndependent() public {
         vm.prank(borrower);
-        uint256 id = vault.openPosition(100_000e18, 40_000e18);
+        uint256 id = vault.openPosition(100_000e18, 40_000e18, type(uint256).max);
         // poke amortize repeatedly; with no yield it is a no-op and must not compound
         for (uint256 i = 0; i < 20; i++) {
             vm.warp(block.timestamp + 18 days);

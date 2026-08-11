@@ -138,6 +138,19 @@ contract SuwappuTimeCurve {
     error InsufficientReserve();
     error BadParams();
     error TransferFailed();
+    error DeadlinePassed();
+
+    /// @dev MEV guard: because price is a pure function of time, a validator can
+    ///      withhold a tx and execute it later at a worse deterministic price. A
+    ///      caller-supplied deadline bounds that window. Pass type(uint256).max to
+    ///      opt out. Combined with the slippage bounds below, this is the curve's
+    ///      full MEV surface: there is no oracle to manipulate and no LP to grief;
+    ///      the only residual is a same-block sandwich on the `slope` term, bounded
+    ///      by the caller's slippage limit and taxed by `sinkRate` on the exit.
+    modifier byDeadline(uint256 deadline) {
+        if (block.timestamp > deadline) revert DeadlinePassed();
+        _;
+    }
 
     constructor(
         string memory name_,
@@ -168,10 +181,12 @@ contract SuwappuTimeCurve {
                                   TRADING
     ////////////////////////////////////////////////////////////*/
 
-    /// @notice Buy `tokenAmount` curve tokens for at most `maxReserveIn` reserve units.
-    function buy(uint256 tokenAmount, uint256 maxReserveIn)
+    /// @notice Buy `tokenAmount` curve tokens for at most `maxReserveIn` reserve
+    ///         units, reverting after `deadline` (MEV / tx-withholding guard).
+    function buy(uint256 tokenAmount, uint256 maxReserveIn, uint256 deadline)
         external
         nonReentrant
+        byDeadline(deadline)
         returns (uint256 reserveIn)
     {
         if (tokenAmount == 0) revert ZeroAmount();
@@ -183,10 +198,12 @@ contract SuwappuTimeCurve {
         emit CurveBuy(msg.sender, tokenAmount, reserveIn);
     }
 
-    /// @notice Sell `tokenAmount` curve tokens for at least `minReserveOut` reserve units.
-    function sell(uint256 tokenAmount, uint256 minReserveOut)
+    /// @notice Sell `tokenAmount` curve tokens for at least `minReserveOut` reserve
+    ///         units, reverting after `deadline` (MEV / tx-withholding guard).
+    function sell(uint256 tokenAmount, uint256 minReserveOut, uint256 deadline)
         external
         nonReentrant
+        byDeadline(deadline)
         returns (uint256 reserveOut)
     {
         if (tokenAmount == 0) revert ZeroAmount();

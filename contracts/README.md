@@ -161,6 +161,26 @@ SLOADs and use `unchecked` loop counters. Approximate measured cost (median):
 `buy` ~109k, `sell` ~70k, `supply` ~130k, `openPosition` ~217k, `pay` ~53k,
 `settle` ~65k, `netCycle` (3-cycle) ~39k.
 
+**MEV posture.** These primitives are oracle-free, so there is no price feed to
+manipulate, and they hold no LP positions to grief. Per contract:
+- **TimeCurve** — price is a pure function `p(s,t)`. Because the `m(t)` term moves
+  purely with *time*, a validator could withhold a tx and execute it later at a
+  worse deterministic price; every trade takes a **`deadline`** to bound that
+  window. The only same-block extraction is a CFMM-style sandwich on the `slope`
+  term, bounded by the caller's **slippage** limit (`maxReserveIn`/`minReserveOut`)
+  and taxed by `sinkRate` on the exit. No commit-reveal or batch auction is needed
+  because there is no discrete auction or oracle tick to snipe.
+- **AmortizingVault** — interest is *linear in time* and cash is tracked internally,
+  so there is no intra-block state (share price, debt) an adversary can move to
+  mint cheap shares or force a liquidation; the donation / first-depositor vector
+  is already closed. LTV still reads the 4626 share price, so the health-sensitive
+  entrypoints (`openPosition`, `withdrawCollateral`, `liquidate`) also take a
+  **`deadline`** to reject execution against a stale/manipulated price.
+- **MutualCredit** — a pure bilateral ledger with permissionless netting. `pay`,
+  `netCycle`, and `markDefault` move no value to the caller, so there is nothing to
+  front-run for profit, and `netCycle`'s outcome is order-independent (it reduces
+  every leg by the cycle minimum regardless of who calls it or when).
+
 ### `SuwappuTimeCurve.sol` — Time-Locked Continuous Bonding Curve
 The contract is itself the curve token (mint on buy, burn on sell) against one
 ERC-20 reserve. Price is a pure function of time and supply:

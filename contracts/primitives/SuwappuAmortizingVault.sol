@@ -103,6 +103,18 @@ contract SuwappuAmortizingVault {
     error InsufficientCash();
     error NotLiquidatable();
     error TransferFailed();
+    error DeadlinePassed();
+
+    /// @dev MEV guard for health-sensitive entrypoints: LTV/liquidation read the
+    ///      4626 share price, so a withheld tx could execute against a manipulated
+    ///      or stale price. A caller-supplied deadline bounds that window; pass
+    ///      type(uint256).max to opt out. (supply/withdraw need no deadline: share
+    ///      price there moves only with linear, time-only interest and internally
+    ///      tracked cash — no intra-block state an adversary can move.)
+    modifier byDeadline(uint256 deadline) {
+        if (block.timestamp > deadline) revert DeadlinePassed();
+        _;
+    }
 
     constructor(
         address collateralVault_,
@@ -169,9 +181,10 @@ contract SuwappuAmortizingVault {
                                 POSITIONS
     ////////////////////////////////////////////////////////////*/
 
-    function openPosition(uint256 shares, uint256 borrowAssets)
+    function openPosition(uint256 shares, uint256 borrowAssets, uint256 deadline)
         external
         nonReentrant
+        byDeadline(deadline)
         returns (uint256 id)
     {
         if (shares == 0) revert ZeroAmount();
@@ -217,7 +230,11 @@ contract SuwappuAmortizingVault {
         emit Repaid(id, assets_);
     }
 
-    function withdrawCollateral(uint256 id, uint256 shares) external nonReentrant {
+    function withdrawCollateral(uint256 id, uint256 shares, uint256 deadline)
+        external
+        nonReentrant
+        byDeadline(deadline)
+    {
         Position storage p = positions[id];
         if (p.owner != msg.sender) revert NotOwner();
         if (shares == 0 || shares > p.shares) revert ZeroAmount();
@@ -235,7 +252,11 @@ contract SuwappuAmortizingVault {
     /// @notice Liquidate an undercollateralized position: repay up to `repayAssets`,
     ///         seize collateral worth repay*(1+liqBonus). Yield is amortized first.
     ///         Shortfall (collateral gone, debt remaining) is written off against lenders.
-    function liquidate(uint256 id, uint256 repayAssets) external nonReentrant {
+    function liquidate(uint256 id, uint256 repayAssets, uint256 deadline)
+        external
+        nonReentrant
+        byDeadline(deadline)
+    {
         _amortize(id);
         Position storage p = positions[id];
         uint256 d = debtOf(id);
