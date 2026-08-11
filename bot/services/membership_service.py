@@ -46,6 +46,31 @@ _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
 # instead of starving the swap path.
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
 
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """True only for errors that say something about the ENDPOINT's health.
+
+    A missing/incompatible contract raises BadFunctionCallOutput ("could not
+    decode") or ContractLogicError — the RPC answered perfectly, the contract
+    just is not there. Reporting those as RPC failures trips the circuit breaker
+    for the whole chain and takes position cards and every other Robinhood Chain
+    read down with it. Observed live: pointing this service at an address with no
+    code circuit-opened rpc.mainnet.chain.robinhood.com within six calls.
+    """
+    try:
+        from web3.exceptions import (
+            BadFunctionCallOutput,
+            ContractLogicError,
+            InvalidAddress,
+        )
+
+        if isinstance(exc, (BadFunctionCallOutput, ContractLogicError, InvalidAddress)):
+            return False
+    except Exception:  # pragma: no cover - web3 always present in practice
+        pass
+    return True
+
+
 # Contract Tier enum index -> bot tier. Order is fixed by SuwappuMembership.sol.
 TIER_BY_INDEX = {
     0: SubscriptionTier.FREE,
@@ -155,6 +180,7 @@ class MembershipService:
 
         best: Optional[SubscriptionTier] = None
         saw_success = False
+        contract_errors = 0
         t0 = time.time()
         for addr in addresses:
             try:
@@ -162,8 +188,10 @@ class MembershipService:
                     contract.w3.to_checksum_address(addr)
                 ).call()
             except Exception as e:
-                if url:
+                # Only genuine transport failures count against endpoint health.
+                if url and _is_transport_error(e):
                     rpc_manager.report_failure(CHAIN, url, str(e))
+                contract_errors += 1
                 continue
             saw_success = True
             tier = TIER_BY_INDEX.get(int(raw_tier))
@@ -178,7 +206,12 @@ class MembershipService:
         if saw_success and url:
             rpc_manager.report_success(CHAIN, url, (time.time() - t0) * 1000)
         if not saw_success:
-            raise RuntimeError("all tierOf calls failed")
+            # Distinguish "the chain is fine, the contract answered nothing
+            # useful" (misconfigured address -> no membership, cache it) from a
+            # real outage (raise -> stale-while-revalidate keeps a paid tier).
+            if contract_errors == len(addresses):
+                return None
+            raise RuntimeError("all tierOf calls failed on transport errors")
         return best
 
     async def get_onchain_tier(self, user_id: Optional[int]) -> Optional[SubscriptionTier]:

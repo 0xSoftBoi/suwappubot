@@ -352,3 +352,46 @@ def test_contract_term_and_price_bounds_exist():
     assert "if (totalSeconds > MAX_TERM) totalSeconds = MAX_TERM;" in sol
     assert "if (price < MIN_PRICE || price > MAX_PRICE) revert PriceOutOfRange();" in sol
     assert "if (expiry < oldExpiry) revert GrantWouldShrinkTerm();" in sol
+
+
+# ── 6. dev-server integration findings ────────────────────────────────────────
+
+
+def test_robinhood_is_registered_with_rpc_manager():
+    """Found by running against the dev environment: `robinhood` was in neither
+    CHAINLIST_IDS nor the extras list, so rpc_manager raised "No RPC endpoints
+    for robinhood" on first use. Every Robinhood Chain read — position cards and
+    the membership tier that sets a user's swap fee — fails open, so the whole
+    feature set would have been silently, permanently dead in production."""
+    src = open(os.path.join(REPO, "bot", "services", "rpc_manager.py")).read()
+    assert '"tempo", "solana", "tron", "plasma", "robinhood"' in src
+
+    from bot.config.chains import CHAINS
+
+    assert "robinhood" in CHAINS
+
+
+def test_contract_errors_do_not_count_against_rpc_health():
+    """Also found live: pointing the service at an address with no code
+    circuit-opened rpc.mainnet.chain.robinhood.com within six calls, which would
+    have taken position cards and every other read on that chain down with it.
+    A missing contract says nothing about endpoint health."""
+    import bot.services.membership_service as mod
+    from web3.exceptions import BadFunctionCallOutput, ContractLogicError
+
+    assert mod._is_transport_error(BadFunctionCallOutput("no code")) is False
+    assert mod._is_transport_error(ContractLogicError("reverted")) is False
+    assert mod._is_transport_error(ConnectionError("refused")) is True
+    assert mod._is_transport_error(TimeoutError()) is True
+
+    src = open(mod.__file__).read()
+    assert "if url and _is_transport_error(e):" in src
+
+
+def test_all_contract_errors_cache_as_no_membership_not_as_an_outage():
+    """A misconfigured contract address must resolve to "no membership" (cached)
+    rather than raising, or stale-while-revalidate would keep serving a tier the
+    chain no longer backs."""
+    src = open(os.path.join(REPO, "bot", "services", "membership_service.py")).read()
+    assert "if contract_errors == len(addresses):" in src
+    assert 'raise RuntimeError("all tierOf calls failed on transport errors")' in src

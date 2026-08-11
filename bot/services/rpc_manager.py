@@ -363,8 +363,13 @@ class RPCManager:
         # Also add chains absent from CHAINLIST_IDS, which would otherwise get no
         # endpoints at all — not even their configured default — and raise
         # "No RPC endpoints for <chain>" on first use. plasma was in exactly that
-        # state, which made the arbitrum<->plasma USDT0 corridor unquotable.
-        for extra in ("tempo", "solana", "tron", "plasma"):
+        # state, which made the arbitrum<->plasma USDT0 corridor unquotable, and
+        # robinhood was too: every Robinhood Chain read (position cards, the
+        # membership tier that sets a user's swap fee) fails open to "no data",
+        # so the features would have been silently, permanently dead in prod
+        # rather than erroring visibly. Anything added to bot/config/chains.py
+        # that is not in CHAINLIST_IDS must be listed here.
+        for extra in ("tempo", "solana", "tron", "plasma", "robinhood"):
             if extra not in all_chains:
                 all_chains.append(extra)
 
