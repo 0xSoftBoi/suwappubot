@@ -216,6 +216,96 @@ https://www.twilio.com/en-us/use-cases/alerts-and-notifications · https://plaid
 
 ---
 
+## 4d. Dev-first infra — and the code question, settled
+
+These are companies selling to engineers, like us. They are the tiebreak.
+
+**Vercel `/solutions/nextjs`** — H1: *"The native Next.js platform."*
+Sections: Frontend Cloud → First-class support → Enterprise features →
+**Partial prerendering** (technical explainer with a *live visual demo* —
+the Acme store) → template gallery → CTA. **No code.** Proof: two
+role-attributed quotes (Bryce Kalow, Sr. Web Engineer; Jonathan Lemon, Eng.
+Manager), no metrics. Eight CTAs.
+
+**Vercel `/solutions/web-apps`** — H1: *"Create personalized web apps with
+Vercel."* Sub: *"Focus on features, not infrastructure."* **No code.** The
+strongest proof block in the entire scan: **"80% time saved during reviews,"
+"91% decrease in build times," "77% increase in page speed,"** plus a logo
+wall (Adobe, Sonos, Netflix, eBay, Meta, Okta).
+
+**Claude `claude.com/solutions/customer-support`** — H1: *"Build AI support
+agents with a more human touch."* Structurally separates a **"Built for
+developers"** section from the buyer-outcome sections. **The only dev-first
+page in the set with code**: one copyable prompt-engineering example with
+template variables. Not tabbed, not runnable, not a live response. 12+ logos,
+five named quotes, **no numeric metrics.**
+(`anthropic.com/solutions` and `/industries` both 404; `claude.com/solutions`
+redirects to a 403 — index UNVERIFIED.)
+
+**Pinecone `/solutions/`** — H1: *"Search like you mean it."* **No code.**
+Logos + named-role quotes (Melange CEO, Gong VP). CTAs: "Get Started" ×2,
+"Contact Sales."
+
+**Neon `/use-cases`** — a thin doc-style index. H1 *"Neon Use Cases,"* no
+sub-headline, no proof, no code, no CTAs — seven linked topic pages. This is
+almost exactly what our `/solutions` hub would degrade into if we build it
+lazily.
+
+**Supabase** — `/solutions` **404s**. Their analog is `/customers`: 50+
+filterable case-study cards with the number *in the card title* — *"one
+million users in 7 months," "4X Cost Savings," "83% reduction in data
+infrastructure costs," "8x improvement in developer speed."*
+
+**SendGrid** — the URL is now a merger notice. Proof: *"delivers more than
+200 billion emails every month."*
+
+**Vercel `/solutions` index and Resend: UNVERIFIED.** Vercel's fetch returned
+an authenticated dashboard shell across four attempts; Resend served an
+agent-oriented markdown variant rather than the human page (itself a notable
+dev-first signal — content negotiation for bots).
+
+### The tally on code
+
+| Solutions pages **with** code | Solutions pages **without** |
+|---|---|
+| Twilio alerts-and-notifications (7 languages) · Claude customer-support (1 prompt block, not runnable) | 0x `/solution/*` · Crossmint · Turnkey · Circle ×2 · Stripe · Plaid · Vercel ×2 · Pinecone · Neon · Supabase · SendGrid |
+
+**Two of fourteen.** Including every dev-first company checked except one.
+Nobody ships an interactive playground on a *solutions* page — those live in
+docs (Rango) or on the product site (Skyfire, Squid).
+
+**Conclusion: code does not belong on the solutions pages.** It belongs on
+`/agents` (our product page, matching 0x `/products/swap`) and in docs.
+The most a solutions page should carry is *one* small real response snippet
+as proof, or Vercel's better move — **a live visual demo of the mechanism**
+rather than a code dump.
+
+Sources: https://vercel.com/solutions/nextjs · https://vercel.com/solutions/web-apps ·
+https://claude.com/solutions/customer-support · https://www.pinecone.io/solutions/ ·
+https://neon.com/use-cases · https://supabase.com/customers · https://www.twilio.com/en-us/sendgrid
+
+---
+
+## 4e. What carries a page when you have no logos
+
+This is our actual constraint, and the dev-first set answers it directly:
+
+1. **Oddly-specific numbers beat logo walls.** "91% decrease in build times"
+   (Vercel), "8x improvement in developer speed" (Supabase), "<181ms / 2.5%
+   revert" (0x). One hard number in a section heading outperforms a wall of
+   unnamed logos. **We can measure latency, revert rate, uptime, routers
+   raced, chains today.**
+2. **Named, role-attributed quotes cost nothing pre-logo-wall.** "Bryce
+   Kalow, Senior Web Engineer" reads as credible to engineers in a way
+   anonymous praise never does. One real user with a job title beats zero.
+3. **A "Built for developers" section as its own block** (Claude) lets
+   engineers self-select without competing with buyer copy.
+4. **Demo the mechanism, not the code** (Vercel's Partial Prerendering).
+   For us that's the routing race — show 20 routers being quoted and the
+   winner selected. That's our Partial Prerendering.
+
+---
+
 ## 5. What this changes in our plan
 
 1. **Adopt the 0x split.** `/agents` = products, by capability. `/solutions/*`
@@ -226,14 +316,10 @@ https://www.twilio.com/en-us/use-cases/alerts-and-notifications · https://plaid
 3. **Proof is performance, not logos.** Latency, revert rate, uptime, routers
    raced, chains — 0x's entire proof block is measurable from our own
    infrastructure. This removes the blocker in the redesign doc's §4.
-4. **Code placement — the evidence splits by audience, not by page type.**
-   Every crypto-infra solutions page checked (Crossmint, Turnkey, Circle ×2)
-   has **zero** code; so do Stripe and Plaid. But **Twilio's dev-facing child
-   page ships code in 7 languages**, and 0x puts code on `/products/swap`.
-   The pattern isn't "solutions pages don't have code" — it's *"pages selling
-   to buyers don't; pages selling to builders do."* Since our reader pastes
-   curl into a terminal, we keep code. Awaiting the Vercel/Neon teardown to
-   confirm.
+4. **Code comes off the solutions pages.** 12 of 14 verified pages have none,
+   including every dev-first company checked except one (§4d). It moves to
+   `/agents` and docs. Keep at most one real response snippet as proof — and
+   prefer Vercel's move, a live demo of the *mechanism* (our routing race).
 5. **Add an FAQ.** All three crypto pages have one (Crossmint 9 items,
    Turnkey 6, Circle 5); none of the enterprise pages do. It's the category
    convention we're missing, and it's cheap objection-handling.
@@ -252,5 +338,6 @@ exchanges, funds, desks) or keep our current use-case framing (trading,
 portfolio, payments, wallets). 0x's customer-type model is the more proven
 one, and it also happens to be the axis our current page is *missing*.
 
-Remaining teardowns in flight: Stripe/Twilio/Plaid, Crossmint/Turnkey/Circle/
-Alchemy, Vercel/Anthropic/Neon/Supabase.
+All four teardowns are in (0x/LI.FI/aggregators/agent-rails, crypto infra,
+enterprise SaaS, dev-first infra). 14 pages verified section-by-section;
+UNVERIFIED items are flagged inline rather than inferred.
