@@ -74,6 +74,15 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             head = "🃏 *Suwappu Position Cards*\n\n" "You're on the *public* mint.\n" + (
                 f"Reach the allowlist with: {' or '.join(nxt)}\n" if nxt else ""
             )
+        # Live scarcity on the names people actually ask for. remaining_for_ticker
+        # existed with no callers — a supply signal nobody could see.
+        scarce = []
+        for symbol in ("NVDA", "TSLA", "AAPL", "SPCX"):
+            left = await position_cards_service.remaining_for_ticker(symbol)
+            if left is not None:
+                scarce.append(f"`{symbol}` {left} left")
+        if scarce:
+            head += "\n" + " · ".join(scarce) + "\n"
         msg = (
             f"{head}\n"
             "Pick a ticker you actually believe in — no random assignment. Your entry "

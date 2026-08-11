@@ -139,3 +139,44 @@ collection has no loop; it has a launch and then a secondary market.
   inert until Chainlink publishes one.
 - Compliance is load-bearing: these cards reference tokenized equities and must never read
   as equity exposure. Performance drives status and XP, never a payout.
+
+---
+
+## Addendum — dead-feature audit (the functionality doubling-down)
+
+Audited every method built for this feature for actual call sites. Three were
+advertised and never fired:
+
+| Method | Call sites before | Status |
+|---|---:|---|
+| `get_ticker_xp_boost_bps` | **0** | The card art prints "+25% XP" and the metadata promises it. Nothing applied it. Now wired through `swap_xp_boost_bps` into `award_swap_points` on **both** swap paths |
+| `remaining_for_ticker` | **0** | Built "to drive the mint-urgency UI" and never called. Now surfaced in `/cards` |
+| `build_subscription_authorization` | **0** | Still 0 — needs a signing surface (webapp/Mini App). Honest gap, not wired |
+
+The XP boost is the one that mattered: a perk printed on the artwork that never
+happened is worse than no perk. Design notes on the fix:
+
+- The boost multiplies **volume points only**, never the daily-streak bonus, so it
+  scales with trading rather than with logging in.
+- Clamped to `MAX_TICKER_BOOST_BPS` and floored at 0, because XP feeds season
+  standings — a bad read must not mint XP.
+- Resolved by the **async caller** and passed into the sync points service, the same
+  split the fee path uses, so the award path does no I/O.
+- Checks **both sides** of the trade: buying AAPL with USDG and selling it back are
+  both "swapping AAPL", and a holder should not lose the perk based on which side the
+  UI put first.
+
+### x402 waiver — the gap is narrower than first stated
+
+Earlier I wrote that the middleware needed a membership waiver. On inspection
+`chargeAgentForCall` already has `BYPASS_TIERS = {agent, pro, premium, enterprise}`
+and skips metering for those tiers. So **no middleware change is needed** — the real
+gap is that api-ts resolves tier from `agents.rateLimitTier` in its own database,
+which never sees the on-chain membership. Python already does `max(db, chain)` in
+`x402_service.get_tier`; api-ts does not.
+
+The fix is tier *propagation*, not a new bypass: write the effective tier to
+`agents.rateLimitTier` when a membership is bound or renewed, so the existing bypass
+applies. That is a write on a rare event rather than a chain read per call. Not done
+here: it needs the bun suite and touches agent billing, and half-shipping a billing
+change is how the previous three reviews found blockers.

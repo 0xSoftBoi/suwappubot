@@ -1548,11 +1548,20 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                 )
 
                 swap_amount_usd = fee_usd / (fee_percentage / 100) if fee_percentage > 0 else 0
+                # Position-card ticker boost. Resolved here because the points
+                # service is sync and must not do I/O; it is passed in the same
+                # way the fee path passes its discount.
+                ticker_boost = await position_cards_service.swap_xp_boost_bps(
+                    user_id,
+                    swap_data.get("from_token"),
+                    swap_data.get("to_token"),
+                )
                 points_earned, _, _ = points_service.award_swap_points(
                     user_id=user_id,
                     swap_amount_usd=swap_amount_usd,
                     swap_id=swap_tx.id,
                     fee_usd=fee_usd,
+                    ticker_boost_bps=ticker_boost,
                 )
                 total_points += points_earned
 

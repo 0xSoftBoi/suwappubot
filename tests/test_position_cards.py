@@ -434,3 +434,90 @@ def test_bot_eligibility_matches_the_snapshot_classifier():
     assert mod.ALLOWLIST_SWAPS == 5
     assert mod.ALLOWLIST_VOLUME_USD == 1_000
     assert mod.ALLOWLIST_REFERRALS == 1
+
+
+# ── 8. the perk actually fires ────────────────────────────────────────────────
+
+
+def test_ticker_xp_boost_is_applied_to_awarded_points():
+    """The card art prints '+25% XP' and the metadata promises it. Before this,
+    get_ticker_xp_boost_bps had ZERO call sites — the utility was advertised and
+    never applied."""
+    from bot.services.points_service import PointsService
+
+    svc = PointsService()
+    # $1,000 swap -> 100 base points; a 2500 bps boost must add 25.
+    assert svc.MAX_TICKER_BOOST_BPS == 3500
+
+    src = open(os.path.join(REPO, "bot", "services", "points_service.py")).read()
+    assert "base_points += (base_points * boost) // 10_000" in src
+    # clamped and floored, so a bad read cannot mint XP
+    assert "boost = max(0, min(int(ticker_boost_bps or 0), self.MAX_TICKER_BOOST_BPS))" in src
+    # the streak bonus must NOT be multiplied
+    idx_boost = src.index("base_points += (base_points * boost)")
+    idx_streak = src.index('total_points += POINT_ACTIONS["first_swap_daily"]["points"]')
+    assert idx_boost < idx_streak, "boost must apply to volume points only"
+
+
+def test_boost_is_wired_on_both_swap_paths():
+    """A perk that only fires on single swaps gets reported as broken."""
+    for handler in ("swap.py", "bulk_swap.py"):
+        src = open(os.path.join(REPO, "bot", "handlers", handler)).read()
+        assert "position_cards_service.swap_xp_boost_bps(" in src, handler
+        assert "ticker_boost_bps=ticker_boost" in src, handler
+
+
+def test_boost_checks_both_sides_of_the_trade():
+    """Buying AAPL with USDG and selling it back are both 'swapping AAPL'."""
+    import inspect
+
+    from bot.services.position_cards_service import PositionCardsService
+
+    src = inspect.getsource(PositionCardsService.swap_xp_boost_bps)
+    assert "for symbol in (from_symbol, to_symbol):" in src
+    # non-card tickers must not cost an RPC
+    assert "if self.ticker_index(symbol) is None:" in src
+
+
+def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
+    """The perk is only real if it changes the number the swap actually charges.
+    Walks the whole chain: cached discount -> get_fee_decimal -> get_fee_bps,
+    which is what is passed on-chain as platformFeeBps."""
+    import time as _t
+
+    from bot.models.subscription import SubscriptionTier
+    from bot.services import position_cards_service as mod
+    from bot.services.fee_service import MIN_EFFECTIVE_FEE_RATE, FeeService
+
+    svc = FeeService()
+    monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: False)
+
+    monkeypatch.setattr(
+        type(mod.position_cards_service),
+        "contract_address",
+        property(lambda self: "0x" + "11" * 20),
+    )
+    mod.position_cards_service._user_discount[321] = (_t.time(), 40)
+
+    base_bps = 0
+    monkeypatch.setattr(svc, "_positions_discount_decimal", lambda uid: 0.0)
+    base_bps = svc.get_fee_bps(SubscriptionTier.FREE, user_id=321)
+
+    # now with the real cached value flowing through the real resolver
+    with_card_bps = svc.get_fee_bps(SubscriptionTier.FREE, user_id=321)
+    assert with_card_bps == base_bps  # sanity: patched resolver still zero
+
+    # unpatch the resolver so the cache is genuinely consulted
+    svc2 = FeeService()
+    monkeypatch.setattr(svc2, "_active_fee_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc2, "_active_referee_rebate_applies", lambda uid: False)
+    real_bps = svc2.get_fee_bps(SubscriptionTier.FREE, user_id=321)
+    assert real_bps == base_bps - 40, f"card discount did not reach the charged bps: {real_bps}"
+    assert (
+        real_bps > 0
+        and svc2.get_fee_decimal(SubscriptionTier.FREE, user_id=321) >= MIN_EFFECTIVE_FEE_RATE
+    )
+
+    # $10,000 swap: 100 bps -> 60 bps is $40 of real money
+    assert (base_bps - real_bps) / 10_000 * 10_000 == 40

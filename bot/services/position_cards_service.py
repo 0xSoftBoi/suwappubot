@@ -308,6 +308,41 @@ class PositionCardsService:
             logger.debug("Positions: ticker boost lookup failed for %s: %s", address, e)
             return 0
 
+    async def swap_xp_boost_bps(
+        self,
+        user_id: Optional[int],
+        from_symbol: Optional[str],
+        to_symbol: Optional[str],
+    ) -> int:
+        """XP boost for a swap, given both sides of the trade.
+
+        A card boosts swaps of ITS OWN ticker. A trade has two sides and either
+        can be the tokenized equity (buying AAPL with USDG, or selling it back),
+        so both are checked and the better boost wins — a holder should not lose
+        the perk for trading in the direction the UI happened to put second.
+
+        Never raises and never does a lookup for a user with no wallet: returns 0.
+        """
+        if user_id is None or not self.enabled:
+            return 0
+        try:
+            address = self.evm_address_for_user(user_id)
+            if not address:
+                return 0
+            best = 0
+            for symbol in (from_symbol, to_symbol):
+                if not symbol:
+                    continue
+                if self.ticker_index(symbol) is None:
+                    continue  # not a card ticker; skip the RPC entirely
+                boost = await self.get_ticker_xp_boost_bps(address, symbol)
+                if boost > best:
+                    best = boost
+            return best
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Positions: swap XP boost failed for %s: %s", user_id, e)
+            return 0
+
     async def remaining_for_ticker(self, symbol: str) -> Optional[int]:
         """Unminted supply left on a ticker — drives the mint-urgency UI."""
         idx = self.ticker_index(symbol)
