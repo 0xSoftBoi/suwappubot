@@ -1,10 +1,11 @@
 import { useCallback } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useRouter } from 'expo-router'
 import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
-import { useSnapshot } from '../../src/hooks/use-gecko'
+import { useEarn, useSnapshot } from '../../src/hooks/use-gecko'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
-import { palette, spacing, styles as s } from '../../src/theme'
+import { palette, radius, spacing, styles as s } from '../../src/theme'
 
 function greeting(): string {
   const hour = new Date().getHours()
@@ -15,7 +16,12 @@ function greeting(): string {
 
 export default function TodayScreen() {
   const signedIn = isAuthenticated()
+  const router = useRouter()
   const { data, isLoading, isError, isRefetching, refetch } = useSnapshot(signedIn)
+  // Read-only and purely additive to this screen — if /earn is loading or
+  // errored, earn.data stays undefined and the card below just doesn't
+  // render. Today's own loading/error gates above are untouched by this.
+  const earn = useEarn(signedIn)
   const refresh = useCallback(() => void refetch(), [refetch])
 
   if (!signedIn) return <SignedOutState />
@@ -26,6 +32,11 @@ export default function TodayScreen() {
     ? snapshotChange(data.history, data.totalValueUsd)
     : null
   const top = data?.byToken[0]
+
+  const earnPositions = earn.data?.positions ?? []
+  const hasSavings = earnPositions.length > 0
+  const dailyEarnings = earnPositions.reduce((sum, p) => sum + (p.balanceUsd * p.apy) / 100 / 365, 0)
+  const earnApy = earn.data?.apy ?? earnPositions[0]?.apy ?? 0
 
   return (
     <ScrollView
@@ -44,6 +55,20 @@ export default function TodayScreen() {
         <Text selectable style={local.total}>{formatUsd(data?.totalValueUsd ?? 0)}</Text>
         {data ? <Text style={s.muted}>Updated {formatDate(data.lastUpdated)}</Text> : null}
       </View>
+
+      {hasSavings ? (
+        <Pressable
+          onPress={() => router.push('/earn')}
+          accessibilityRole="button"
+          accessibilityLabel="Open Earn"
+          style={local.earnCard}
+        >
+          <Text selectable style={local.earnText}>
+            Earning ~{formatUsd(dailyEarnings)}/day · {earnApy.toFixed(2)}% APY
+          </Text>
+          <Text style={local.earnChevron}>›</Text>
+        </Pressable>
+      ) : null}
 
       <Text style={s.heading}>Quick read</Text>
       <View style={local.stack}>
@@ -79,4 +104,17 @@ const local = StyleSheet.create({
   total: { color: palette.text, fontSize: 38, fontWeight: '700', fontVariant: ['tabular-nums'] },
   stack: { gap: spacing.sm },
   stale: { color: palette.textMuted, fontSize: 12, textAlign: 'center' },
+  earnCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: palette.surface,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  earnText: { color: palette.text, fontSize: 14, fontWeight: '600', flex: 1 },
+  earnChevron: { color: palette.textMuted, fontSize: 18, fontWeight: '700' },
 })
