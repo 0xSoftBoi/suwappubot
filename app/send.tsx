@@ -6,6 +6,7 @@ import * as Clipboard from 'expo-clipboard'
 import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useEarn, useResolveEns, useSend, useWallets } from '../src/hooks/use-gecko'
 import { ApiError } from '../src/lib/api'
+import { analytics } from '../src/lib/analytics'
 import { getAuthRevision, isAuthenticated } from '../src/lib/auth'
 import { formatUsd } from '../src/lib/format'
 import { queryKeys } from '../src/lib/queryKeys'
@@ -83,6 +84,8 @@ export default function SendScreen() {
   const ensResolvedAddress = ensReady && ens.data ? ens.data.address : null
   const ensFailed = ensReady && ens.isError
 
+  useEffect(() => { analytics.screen('Send') }, [])
+
   if (!signedIn) return <SignedOutState />
   if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />
   if (wallets.isError && !wallets.data) {
@@ -128,7 +131,7 @@ export default function SendScreen() {
 
   const submit = useCallback(() => {
     if (!canReview || !resolvedTo) return
-    send.mutate({ to: resolvedTo, amount: amountToSend }, {
+    send.mutate({ to: resolvedTo, amount: amountToSend, recipientType: isHexInput ? 'hex' : 'ens' }, {
       onSuccess: (response) => {
         const authRevision = getAuthRevision()
         if (response.ok) {
@@ -145,7 +148,7 @@ export default function SendScreen() {
         }
       },
     })
-  }, [canReview, resolvedTo, send, amountToSend, qc, clearPendingTimer])
+  }, [canReview, resolvedTo, send, amountToSend, qc, clearPendingTimer, isHexInput])
 
   return (
     <ScrollView style={s.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={local.content}>

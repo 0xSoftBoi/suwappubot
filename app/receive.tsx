@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useWallets } from '../src/hooks/use-gecko'
+import { analytics } from '../src/lib/analytics'
 import { isAuthenticated } from '../src/lib/auth'
 import { palette, radius, spacing, styles as s } from '../src/theme'
 import type { Wallet } from '../src/types/api'
@@ -22,6 +23,13 @@ export default function ReceiveScreen() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }, [])
+
+  useEffect(() => { analytics.screen('Receive') }, [])
+
+  const noWallet = wallets.data !== undefined && pickReceiveWallet(wallets.data) === null
+  useEffect(() => {
+    if (noWallet) analytics.track('empty_state_seen', { screen: 'receive' })
+  }, [noWallet])
 
   if (!signedIn) return <SignedOutState />
   if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />

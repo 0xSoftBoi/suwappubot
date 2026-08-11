@@ -1,9 +1,10 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useEffect } from 'react'
 import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useActivity } from '../../src/hooks/use-gecko'
+import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { relativeTime } from '../../src/lib/format'
 import { palette, spacing, styles as s } from '../../src/theme'
@@ -37,6 +38,13 @@ export default function ActivityScreen() {
   const refresh = useCallback(() => void refetch(), [refetch])
   const renderItem = useCallback(({ item }: { item: ActivityEntry }) => <ActivityRow item={item} />, [])
   const keyExtractor = useCallback((item: ActivityEntry) => item.id, [])
+
+  useEffect(() => { analytics.screen('Activity') }, [])
+
+  const isEmpty = data !== undefined && data.length === 0
+  useEffect(() => {
+    if (isEmpty) analytics.track('empty_state_seen', { screen: 'activity' })
+  }, [isEmpty])
 
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Loading activity…" />

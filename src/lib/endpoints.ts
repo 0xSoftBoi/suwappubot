@@ -22,8 +22,26 @@ import type {
   Wallet,
 } from '../types/api'
 
+export interface AnalyticsEventPayload {
+  event: string
+  props: Record<string, unknown>
+  ts: number
+}
+
 export const endpoints = {
   health: () => request<HealthStatus>('/health', { timeoutMs: TIMEOUTS.fast }),
+
+  // Sink for src/lib/analytics.ts. api-ts owns fanning these out to a
+  // product-analytics backend later — this signature is the stable contract
+  // analytics.ts codes against, so that forwarder work never touches call
+  // sites elsewhere in the app.
+  events: (events: AnalyticsEventPayload[], distinctId: string | null) =>
+    request<{ ok: true }>('/v1/mobile/events', {
+      method: 'POST',
+      body: { events, distinctId },
+      retries: 0,
+      timeoutMs: TIMEOUTS.fast,
+    }),
 
   snapshot: (signal?: AbortSignal) =>
     request<MobileSnapshot>('/v1/mobile/snapshot', { signal }),

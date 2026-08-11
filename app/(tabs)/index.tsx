@@ -1,8 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useEarn, useSnapshot } from '../../src/hooks/use-gecko'
+import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
@@ -23,6 +24,11 @@ export default function TodayScreen() {
   // render. Today's own loading/error gates above are untouched by this.
   const earn = useEarn(signedIn)
   const refresh = useCallback(() => void refetch(), [refetch])
+
+  useEffect(() => {
+    analytics.track('app_opened', { entry_source: 'cold' })
+    analytics.screen('Today')
+  }, [])
 
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Reading your money…" />

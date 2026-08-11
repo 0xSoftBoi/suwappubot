@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SignedOutState } from '../../src/components/screen-state'
 import { useAskGecko } from '../../src/hooks/use-gecko'
+import { analytics } from '../../src/lib/analytics'
 import { getAuthRevision, isAuthenticated } from '../../src/lib/auth'
 import { palette, spacing, styles as s } from '../../src/theme'
 
@@ -32,6 +33,8 @@ export default function AskScreen() {
       onError: () => setText(question),
     })
   }, [ask, authRevision, signedIn, text])
+
+  useEffect(() => { analytics.screen('Ask') }, [])
 
   if (!signedIn) return <SignedOutState />
 

@@ -1,7 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useBorrow, useEarn, useSnapshot } from '../../src/hooks/use-gecko'
+import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
@@ -25,6 +26,7 @@ export default function MoneyScreen() {
   const earn = useEarn(signedIn)
   const borrow = useBorrow(signedIn)
   const refresh = useCallback(() => void refetch(), [refetch])
+  useEffect(() => { analytics.screen('Money') }, [])
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Loading your money…" />
   if (isError && !data) return <ErrorState message="Gecko couldn’t load your money." onRetry={refresh} />
