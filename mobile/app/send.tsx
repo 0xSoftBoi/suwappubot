@@ -9,6 +9,7 @@ import { ApiError } from '../src/lib/api'
 import { analytics } from '../src/lib/analytics'
 import { getAuthRevision, isAuthenticated } from '../src/lib/auth'
 import { formatUsd } from '../src/lib/format'
+import { amountBoundsMessage, friendlyMessage, insufficientBalanceMessage, PENDING_MESSAGE } from '../src/lib/messages'
 import { queryKeys } from '../src/lib/queryKeys'
 import { palette, radius, spacing, styles as s } from '../src/theme'
 import type { SendActionSuccess } from '../src/types/api'
@@ -23,10 +24,14 @@ const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 const ENS_NAME_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.eth$/i
 const ENS_DEBOUNCE_MS = 500
 
-function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.detail
-  if (err instanceof Error) return err.message
-  return 'Something went wrong. Try again.'
+/** Uses real numbers when the failure is a balance shortfall the screen
+ * already knows about; otherwise falls back to the shared status/keyword
+ * mapper. */
+function sendErrorMessage(err: unknown, availableUsd: number, triedUsd: number): string {
+  if (err instanceof ApiError && /insufficient|not enough/i.test(err.detail)) {
+    return insufficientBalanceMessage(availableUsd, triedUsd)
+  }
+  return friendlyMessage(err)
 }
 
 function truncate(value: string, head = 8, tail = 6): string {
@@ -89,7 +94,12 @@ export default function SendScreen() {
   if (!signedIn) return <SignedOutState />
   if (wallets.isLoading && !wallets.data) return <LoadingState label="Loading your wallet…" />
   if (wallets.isError && !wallets.data) {
-    return <ErrorState message="Gecko couldn’t load your wallet." onRetry={() => void wallets.refetch()} />
+    return (
+      <ErrorState
+        message={`Gecko couldn’t load your wallet right now. ${friendlyMessage(wallets.error)}`}
+        onRetry={() => void wallets.refetch()}
+      />
+    )
   }
 
   const ownAddresses = new Set((wallets.data ?? []).map((w) => w.address.toLowerCase()))
@@ -155,58 +165,67 @@ export default function SendScreen() {
       {step === 'input' ? (
         <>
           <View style={s.card}>
-            <Text style={s.muted}>To</Text>
+            <Text style={s.muted}>Who are you sending to?</Text>
             <View style={local.addressRow}>
               <TextInput
                 value={toInput}
                 onChangeText={setToInput}
-                placeholder="0x… or name.eth"
+                placeholder="0xAbC1…6789 or a name like alex.eth"
                 placeholderTextColor={palette.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
+                accessibilityLabel="Recipient address or name"
                 style={local.addressInput}
               />
-              <Pressable onPress={() => void paste()} style={local.pasteChip}>
+              <Pressable onPress={() => void paste()} accessibilityRole="button" accessibilityLabel="Paste from clipboard" style={local.pasteChip}>
                 <Text style={local.pasteChipText}>Paste</Text>
               </Pressable>
             </View>
             {isEnsInput && ensResolving ? (
-              <Text style={s.muted}>Resolving {loweredTo}…</Text>
+              <Text style={s.muted}>Looking up {loweredTo}…</Text>
             ) : null}
             {isEnsInput && ensFailed ? (
-              <Text selectable style={local.error}>{errorMessage(ens.error)}</Text>
+              <Text selectable style={local.error}>{friendlyMessage(ens.error)}</Text>
             ) : null}
             {isEnsInput && ensResolvedAddress ? (
               <Text selectable style={s.muted}>{loweredTo} → {truncate(ensResolvedAddress)}</Text>
             ) : null}
             {toTrimmed.length > 0 && !isHexInput && !isEnsInput ? (
-              <Text selectable style={local.error}>That doesn’t look like a valid address or ENS name.</Text>
+              <Text selectable style={local.error}>
+                That doesn’t look right. Use a wallet address starting with 0x (like 0xAbC1…6789) or a name ending in .eth.
+              </Text>
             ) : null}
             {isOwnAddress ? (
-              <Text selectable style={local.error}>That’s one of your own wallets — pick a different address.</Text>
+              <Text selectable style={local.error}>That’s one of your own wallets — pick a different address to send to.</Text>
             ) : null}
           </View>
 
           <View style={s.card}>
-            <Text style={s.muted}>Amount (USDC on Base)</Text>
+            <Text style={s.muted}>Amount</Text>
             <View style={local.amountRow}>
               <TextInput
                 value={useMax ? '' : rawAmount}
                 onChangeText={(t) => { setRawAmount(t); setUseMax(false) }}
-                placeholder={useMax ? 'Max available' : '0.00'}
+                placeholder={useMax ? 'Max available' : '$0.00'}
                 placeholderTextColor={palette.textMuted}
                 keyboardType="decimal-pad"
                 editable={!useMax}
+                accessibilityLabel="Amount in dollars"
                 style={local.amountInput}
               />
-              <Pressable onPress={() => { setUseMax(true); setRawAmount('') }} style={local.maxChip}>
+              <Pressable
+                onPress={() => { setUseMax(true); setRawAmount('') }}
+                accessibilityRole="button"
+                accessibilityLabel="Use maximum available amount"
+                style={local.maxChip}
+              >
                 <Text style={local.maxChipText}>Max</Text>
               </Pressable>
             </View>
-            {idleUsdc > 0 ? <Text style={s.muted}>~{formatUsd(idleUsdc)} idle USDC available</Text> : null}
+            {idleUsdc > 0 ? <Text style={s.muted}>{formatUsd(idleUsdc)} available to send</Text> : null}
             {!useMax && rawAmount.trim().length > 0 && !amountInBounds ? (
               <Text selectable style={local.error}>
-                Enter an amount between {MIN_SEND_AMOUNT} and {MAX_SEND_AMOUNT.toLocaleString('en-US')} USDC.
+                {amountBoundsMessage(MIN_SEND_AMOUNT, MAX_SEND_AMOUNT)}
               </Text>
             ) : null}
           </View>
@@ -214,6 +233,8 @@ export default function SendScreen() {
           <Pressable
             onPress={() => setStep('confirm')}
             disabled={!canReview}
+            accessibilityRole="button"
+            accessibilityLabel="Review transfer"
             style={[local.primaryButton, !canReview && local.disabled]}
           >
             <Text style={local.primaryButtonText}>Review</Text>
@@ -223,20 +244,26 @@ export default function SendScreen() {
 
       {step === 'confirm' ? (
         <View style={[s.card, local.panel]}>
-          <Text style={s.heading}>Confirm send</Text>
+          <Text style={s.heading}>Confirm</Text>
           <Text selectable style={local.copy}>
-            Send {useMax ? 'the max available amount' : `${amountToSend} USDC`} to{' '}
+            Send {useMax ? 'the full available amount' : formatUsd(numericAmount)} to{' '}
             {isEnsInput && resolvedTo ? `${loweredTo} → ${truncate(resolvedTo)}` : truncate(resolvedTo ?? toTrimmed)}.
-            {' '}This moves real funds and can’t be undone from here.
+            {' '}This moves real money and can’t be undone from here.
           </Text>
-          {send.isError ? <Text selectable style={local.error}>{errorMessage(send.error)}</Text> : null}
+          {send.isError ? (
+            <Text selectable style={local.error}>
+              {sendErrorMessage(send.error, idleUsdc, useMax ? idleUsdc : numericAmount)}
+            </Text>
+          ) : null}
           <View style={local.panelActions}>
-            <Pressable onPress={() => setStep('input')} disabled={send.isPending} style={local.cancelButton}>
+            <Pressable onPress={() => setStep('input')} disabled={send.isPending} accessibilityRole="button" accessibilityLabel="Back" style={local.cancelButton}>
               <Text style={local.cancelText}>Back</Text>
             </Pressable>
             <Pressable
               onPress={submit}
               disabled={send.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Confirm send"
               style={[local.confirmButton, send.isPending && local.disabled]}
             >
               <Text style={local.confirmText}>{send.isPending ? 'Sending…' : 'Confirm'}</Text>
@@ -247,12 +274,12 @@ export default function SendScreen() {
 
       {step === 'pending' && pendingTxHash ? (
         <View style={[s.card, local.panel]}>
-          <Text style={local.pending}>Submitted — confirming on-chain.</Text>
-          <Text selectable style={s.muted}>Tx {truncate(pendingTxHash, 8, 6)}</Text>
+          <Text style={local.pending}>{PENDING_MESSAGE}</Text>
+          <Text selectable style={s.muted}>Receipt {truncate(pendingTxHash, 8, 6)}</Text>
           <Text selectable style={local.copy}>
-            This can take a minute. Gecko will refresh your balance automatically — no need to resend.
+            This can take a minute. Gecko will refresh your balance automatically — no need to send again.
           </Text>
-          <Pressable onPress={() => router.back()} style={local.confirmButton}>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
             <Text style={local.confirmText}>Done</Text>
           </Pressable>
         </View>
@@ -261,13 +288,13 @@ export default function SendScreen() {
       {step === 'success' && result ? (
         <View style={[s.card, local.panel]}>
           <Text style={local.success}>Sent.</Text>
-          <Text selectable style={s.body}>{result.amount} USDC to {truncate(result.to)}</Text>
-          <Text selectable style={s.muted}>Tx {truncate(result.txHash, 8, 6)}</Text>
+          <Text selectable style={s.body}>{formatUsd(Number(result.amount))} to {truncate(result.to)}</Text>
+          <Text selectable style={s.muted}>Receipt {truncate(result.txHash, 8, 6)}</Text>
           <View style={local.panelActions}>
-            <Pressable onPress={reset} style={local.cancelButton}>
+            <Pressable onPress={reset} accessibilityRole="button" accessibilityLabel="Send again" style={local.cancelButton}>
               <Text style={local.cancelText}>Send again</Text>
             </Pressable>
-            <Pressable onPress={() => router.back()} style={local.confirmButton}>
+            <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
               <Text style={local.confirmText}>Done</Text>
             </Pressable>
           </View>
@@ -280,7 +307,7 @@ export default function SendScreen() {
 const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
-  addressInput: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 15 },
+  addressInput: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
   pasteChip: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   pasteChipText: { color: palette.textSecondary, fontSize: 13, fontWeight: '600' },
   amountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
@@ -288,16 +315,16 @@ const local = StyleSheet.create({
   maxChip: { borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   maxChipText: { color: palette.textSecondary, fontSize: 13, fontWeight: '600' },
   primaryButton: { alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
-  primaryButtonText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
+  primaryButtonText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
   disabled: { opacity: 0.45 },
   panel: { gap: spacing.md },
-  copy: { color: palette.textSecondary, fontSize: 15, lineHeight: 22 },
+  copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22 },
   panelActions: { flexDirection: 'row', gap: spacing.md },
   cancelButton: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
-  cancelText: { color: palette.textSecondary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: palette.textSecondary, fontSize: 16, fontWeight: '600' },
   confirmButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
-  confirmText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
-  success: { color: palette.success, fontSize: 15, fontWeight: '700' },
-  pending: { color: palette.textSecondary, fontSize: 15, fontWeight: '700' },
+  confirmText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  success: { color: palette.success, fontSize: 16, fontWeight: '700' },
+  pending: { color: palette.textSecondary, fontSize: 16, fontWeight: '700' },
   error: { color: palette.danger, fontSize: 13, marginTop: spacing.xs },
 })

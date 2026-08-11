@@ -1,7 +1,15 @@
 import type { SnapshotHistoryPoint } from '../types/api'
 
+/** Always 2 decimal places with thousands separators — e.g. $1,234.56. Never
+ * shows token-precision (6dp) balances; every screen must route USD amounts
+ * through this instead of printing a raw number. */
 export function formatUsd(value: number): string {
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 export function formatDate(iso: string): string {
