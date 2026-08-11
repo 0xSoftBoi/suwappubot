@@ -95,12 +95,26 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     /// @dev Same token, EIP-3009 view of it (see subscribeWithAuthorization).
     IERC3009 private immutable _usdg3009;
     /// @notice Where subscription revenue lands. Multisig recommended.
+    /// @dev    GAS: `treasury` (20 bytes) and `totalSupply` (8) share a slot, so
+    ///         `subscribe` reads both for one SLOAD. 2^64 memberships is
+    ///         unreachable against a 1-per-wallet rule.
     address public treasury;
+    uint64 public totalSupply;
 
     /// @notice USDG (6dp) per 30-day period, by tier. Matches the app's pricing.
     ///         [Free, Pro, Premium, Enterprise]
-    uint256[4] public pricePerPeriod = [uint256(0), 9_990_000, 29_990_000, 99_990_000];
+    /// @dev GAS: uint64[4] packs into ONE slot (4 x 64 = 256 bits) instead of
+    ///      four. Saves three cold SSTOREs at deployment and makes a price read
+    ///      one SLOAD. uint64 max is 1.8e19 against a MAX_PRICE of 1e11.
+    uint64[4] public pricePerPeriod =
+        [uint64(0), 9_990_000, 29_990_000, 99_990_000];
 
+    /// @dev GAS: packed into ONE storage slot — 8 + 64 + 96 = 168 bits. As
+    ///      `uint256 pricePaidPerPeriod` this straddled two slots, costing an
+    ///      extra cold SSTORE (~20k) on a member's first paid subscription and
+    ///      an extra warm one on every renewal. uint96 holds 7.9e28; prices are
+    ///      capped at MAX_PRICE = 1e11, so the headroom is ~17 orders of
+    ///      magnitude and the bound is enforced by setPrice.
     struct Membership {
         Tier tier;
         uint64 expiresAt; // 0 == no expiry (FREE never expires)
@@ -108,10 +122,9 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         ///      conversions value remaining time at this snapshot, not the live
         ///      price, so setPrice() can never revalue outstanding time — no
         ///      front-running a reprice, no confiscation on a price cut.
-        uint256 pricePaidPerPeriod;
+        uint96 pricePaidPerPeriod;
     }
 
-    uint256 public totalSupply;
     mapping(uint256 => Membership) private _memberships;
     mapping(address => uint256) public tokenOf; // 0 == no membership yet
 
@@ -157,7 +170,8 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     ///         This is the function the ERC-4337 gas-sponsorship policy targets,
     ///         so calling it costs the user nothing.
     function mintFree() external nonReentrant returns (uint256 tokenId) {
-        return _mintTo(msg.sender);
+        tokenId = _mintTo(msg.sender);
+        emit SubscriptionUpdate(tokenId, 0); // ERC-5643 signal for a free, non-expiring membership
     }
 
     /// @notice Hold `tier` for `periods` × 30 days, paying USDG at the on-chain
@@ -177,7 +191,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (tier == Tier.Free) revert BadTier(); // FREE is minted, not bought
         if (periods == 0 || periods > MAX_PERIODS_PER_PURCHASE) revert BadPeriods();
 
-        uint256 price = pricePerPeriod[uint256(tier)];
+        uint256 price = uint256(pricePerPeriod[uint256(tier)]);
         if (price > maxPricePerPeriod) revert PriceMoved();
         uint256 cost = price * periods;
         // Checks-effects-interactions: the USDG pull happens before ANY state is
@@ -253,7 +267,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         }
         m.tier = tier;
         m.expiresAt = (uint256(nowTs) + totalSeconds).toUint64();
-        m.pricePaidPerPeriod = totalValue / totalSeconds;
+        m.pricePaidPerPeriod = SafeCast.toUint96(totalValue / totalSeconds);
         return m.expiresAt;
     }
 
@@ -308,7 +322,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (tier == Tier.Free) revert BadTier();
         if (periods == 0 || periods > MAX_PERIODS_PER_PURCHASE) revert BadPeriods();
 
-        uint256 price = pricePerPeriod[uint256(tier)];
+        uint256 price = uint256(pricePerPeriod[uint256(tier)]);
         if (price > maxPricePerPeriod) revert PriceMoved();
         if (auth.value != price * periods) revert WrongPayment();
         if (auth.nonce != subscriptionNonce(auth.from, tier, periods)) revert IntentMismatch();
@@ -338,14 +352,18 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (tokenOf[to] != 0) revert AlreadyMember();
         tokenId = ++totalSupply;
         tokenOf[to] = tokenId;
-        _memberships[tokenId] = Membership(Tier.Free, 0, 0);
+        // GAS: no `_memberships[tokenId] = Membership(Tier.Free, 0, 0)` — a fresh
+        // mapping slot is already zero, and token ids are never reused (no burn,
+        // totalSupply only increments), so the write was a no-op SSTORE.
         // _mint, not _safeMint: the buyer is an ERC-4337 smart account and one
         // that omits onERC721Received would otherwise be unable to subscribe at
         // all — the USDG would transfer and the mint would revert the whole tx.
         // The token is soulbound, so there is no "stuck in a contract" risk.
         _mint(to, tokenId);
         emit MembershipMinted(tokenId, to);
-        emit SubscriptionUpdate(tokenId, 0);
+        // GAS: no SubscriptionUpdate(tokenId, 0) here. Both subscribe paths mint
+        // then immediately credit, and would emit it twice in one transaction;
+        // mintFree emits it itself so a free membership still signals indexers.
     }
 
     // ─── The view the bot consumes ────────────────────────────────────────────
@@ -386,7 +404,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         // allowClamp = true: a goodwill grant may bump into the cap; it must not
         // revert on the operator, and no user funds are involved.
         uint64 expiry =
-            _creditTime(tokenId, tier, duration, pricePerPeriod[uint256(tier)], true);
+            _creditTime(tokenId, tier, duration, uint256(pricePerPeriod[uint256(tier)]), true);
         // A goodwill grant of a DIFFERENT tier converts by value, which conserves
         // dollars but can shorten the calendar term — comping 7 days of ENTERPRISE
         // onto 720 days of PRO would cut the member back to ~79 days. The member
@@ -409,7 +427,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     function setPrice(Tier tier, uint256 price) external onlyOwner {
         if (tier == Tier.Free) revert BadTier();
         if (price < MIN_PRICE || price > MAX_PRICE) revert PriceOutOfRange();
-        pricePerPeriod[uint256(tier)] = price;
+        pricePerPeriod[uint256(tier)] = uint64(price);
         emit PriceSet(tier, price);
     }
 

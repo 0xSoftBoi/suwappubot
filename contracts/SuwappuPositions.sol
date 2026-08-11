@@ -214,18 +214,29 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         uint256 entry = _oraclePrice(tickerIndex);
         minted[to] += quantity;
         tickerMinted[tickerIndex] += uint16(quantity);
-        for (uint256 i = 0; i < quantity; i++) {
-            uint256 tokenId = totalSupply + 1;
-            totalSupply = tokenId;
+        // GAS: hold the counter in memory and write it once. Reading and writing
+        // `totalSupply` inside the loop cost an SLOAD + SSTORE per token, so a
+        // 5-card mint paid for five counter updates to reach the same value.
+        uint256 supply = totalSupply;
+        uint40 mintedAt = uint40(block.timestamp);
+        uint128 entryPrice = uint128(entry);
+        for (uint256 i = 0; i < quantity;) {
+            uint256 tokenId = supply + i + 1;
             _positions[tokenId] = Position({
                 tickerIndex: tickerIndex,
-                entryPrice: uint128(entry),
-                mintedAt: uint40(block.timestamp),
+                entryPrice: entryPrice,
+                mintedAt: mintedAt,
                 mintRank: uint16(tokenId)
             });
             _safeMint(to, tokenId);
             emit Minted(tokenId, to, tickerIndex, entry);
+            // GAS: the bound is `quantity`, checked against MAX_SUPPLY by every
+            // caller, so this cannot overflow.
+            unchecked {
+                ++i;
+            }
         }
+        totalSupply = supply + quantity;
     }
 
     /// @notice How many cards `who` can still mint in `phase`, given their grant.

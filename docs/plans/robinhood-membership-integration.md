@@ -185,3 +185,50 @@ for a caller whose address holds a paid membership — the subscription *is* the
 and charging both is double-billing. Tier limits already flow through
 (`get_tier` → `TIER_LIMITS.daily_api_calls`), so this is the remaining gap. Left
 deliberately unshipped rather than half-done, since it needs the bun suite.
+
+## Gas
+
+Measured against the compiled bytecode on eth-tester before and after, not estimated.
+`tests/test_gas_snapshot.py` pins ceilings so a structural regression trips the suite.
+
+| Operation | Before | After | Delta |
+|---|---:|---:|---:|
+| `mintFree` | 123,353 | 101,636 | **−17.6%** |
+| `subscribe` (first) | 195,544 | 169,847 | **−13.1%** |
+| `subscribeWithAuthorization` | 204,122 | 178,446 | **−12.6%** |
+| `subscribe` (tier change) | 68,923 | 64,474 | −6.5% |
+| `subscribe` (renew) | 65,989 | 64,340 | −2.5% |
+| deploy | 2,371,023 | 2,392,854 | +0.9% (one-time) |
+
+What actually moved the numbers:
+
+- **`Membership` packed into one storage slot.** `uint256 pricePaidPerPeriod` straddled
+  a second slot; as `uint96` the struct is 8 + 64 + 96 = 168 bits. That removes a cold
+  SSTORE (~20k) from a member's first paid subscription. uint96 holds 7.9e28 against a
+  `MAX_PRICE` of 1e11 — seventeen orders of magnitude of headroom, and `setPrice`
+  enforces the bound.
+- **`pricePerPeriod` as `uint64[4]`** — one slot instead of four (uint64 max 1.8e19).
+- **`treasury` + `totalSupply` share a slot**, so `subscribe` reads both in one SLOAD.
+- **Dropped a redundant zero-write** in `_mintTo`: a fresh mapping slot is already zero
+  and token ids are never reused.
+- **Dropped a duplicate `SubscriptionUpdate`**: both subscribe paths mint then
+  immediately credit, emitting it twice in one transaction.
+
+Deploy costs ~22k more (SafeCast bounds-checking and packing masks) — a one-time cost
+against a permanent per-transaction saving.
+
+### Positions: measured, and mostly *not* worth it
+
+Hoisting `totalSupply` out of the mint loop reads like an obvious win and is **worth
+only −0.2%** (568,366 → 567,280 for a 10-card mint). The intuition that each loop
+iteration paid ~2,900 gas for the counter is wrong: after the first write the slot is
+warm and dirty, so each subsequent SSTORE is ~100 gas. Kept — it is strictly cheaper and
+clearer — but it is not the lever.
+
+Per-card cost (~56.7k at quantity 10) is dominated by two cold SSTOREs that a standard
+ERC-721 cannot avoid: the owner slot inside `_safeMint` and the `Position` struct.
+**ERC721A-style batch minting** — storing ownership once per batch and walking back on
+`ownerOf` — is the real lever, worth roughly 20k per additional token in a batch.
+Deliberately not done: it replaces the ownership bookkeeping of a contract that has
+already been blocked by three money-path reviews, and that is not a trade worth making
+for a mint-time saving on an L2. Revisit as a standalone change with its own review.

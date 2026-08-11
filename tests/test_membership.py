@@ -50,7 +50,7 @@ def test_onchain_prices_match_app_pricing():
     from bot.services.x402_service import TIER_LIMITS
 
     sol = _sol()
-    assert "[uint256(0), 9_990_000, 29_990_000, 99_990_000]" in sol
+    assert "[uint64(0), 9_990_000, 29_990_000, 99_990_000]" in sol
     assert TIER_LIMITS[SubscriptionTier.PRO]["price_usd"] == 9.99
     assert TIER_LIMITS[SubscriptionTier.PREMIUM]["price_usd"] == 29.99
     assert TIER_LIMITS[SubscriptionTier.ENTERPRISE]["price_usd"] == 99.99
@@ -70,7 +70,7 @@ def test_tier_switch_converts_at_the_purchase_price_snapshot():
     # the snapshot is value-weighted, not overwritten with the new price —
     # overwriting re-opens the reprice front-run via a same-tier renewal
     assert "uint256 totalValue = retainedValue + uint256(duration) * newPrice;" in sol
-    assert "m.pricePaidPerPeriod = totalValue / totalSeconds;" in sol
+    assert "m.pricePaidPerPeriod = SafeCast.toUint96(totalValue / totalSeconds);" in sol
     assert "m.pricePaidPerPeriod = newPrice;" not in sol
     # grantTime must route through the same conversion (review finding HIGH-2)
     assert sol.count("_creditTime(") >= 3  # definition + subscribe + grantTime
