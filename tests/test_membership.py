@@ -55,11 +55,17 @@ def test_onchain_prices_match_app_pricing():
     assert TIER_LIMITS[SubscriptionTier.ENTERPRISE]["price_usd"] == 99.99
 
 
-def test_tier_switch_converts_remaining_time_by_price_ratio():
+def test_tier_switch_converts_at_the_purchase_price_snapshot():
+    """Conversions must value remaining time at the price it was BOUGHT at
+    (pricePaidPerPeriod), not the live price — otherwise setPrice() retroactively
+    revalues outstanding time (review finding HIGH-3). Behaviour is proven on a
+    real EVM in test_membership_evm.py; this pins the mechanism in source."""
     sol = _sol()
-    assert (
-        "uint256 converted = (uint256(remaining) * pricePerPeriod[uint256(m.tier)])" in sol
-    ), "remaining time must convert by price ratio, not be burned"
+    assert "uint256 oldPrice = m.pricePaidPerPeriod;" in sol
+    assert ": (remaining * oldPrice) / newPrice;" in sol
+    assert "m.pricePaidPerPeriod = newPrice;" in sol
+    # grantTime must route through the same conversion (review finding HIGH-2)
+    assert sol.count("_creditTime(") >= 3  # definition + subscribe + grantTime
 
 
 def test_admin_powers_are_bounded():
@@ -194,3 +200,51 @@ async def test_get_tier_survives_membership_blowup(monkeypatch):
 
     monkeypatch.setattr(membership_service, "get_onchain_tier", boom)
     assert await svc.get_tier(1) == SubscriptionTier.PRO  # fail-open to DB
+
+
+# ── 4. the wallet binding (/bindwallet) ───────────────────────────────────────
+
+
+def test_binding_challenge_is_user_and_nonce_scoped():
+    from bot.handlers.bindwallet import _challenge_text
+
+    a = _challenge_text(111, "aa" * 16)
+    b = _challenge_text(222, "aa" * 16)
+    c = _challenge_text(111, "bb" * 16)
+    assert a != b and a != c
+    assert "telegram:111" in a and "nonce:" in a
+    assert "authorizes no transaction" in a
+
+
+def test_binding_accepts_only_the_signing_wallet():
+    """EIP-191 recovery: possession of the key is the only way to bind."""
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    from bot.handlers.bindwallet import _challenge_text
+
+    key = Account.create()
+    other = Account.create()
+    challenge = _challenge_text(4242, "cd" * 16)
+    sig = key.sign_message(encode_defunct(text=challenge)).signature
+
+    recovered = Account.recover_message(encode_defunct(text=challenge), signature=sig)
+    assert recovered.lower() == key.address.lower()
+    assert recovered.lower() != other.address.lower()
+
+    # a signature over a DIFFERENT user's challenge must not recover usefully
+    forged = Account.recover_message(
+        encode_defunct(text=_challenge_text(9999, "cd" * 16)), signature=sig
+    )
+    assert forged.lower() != key.address.lower() or _challenge_text(
+        4242, "cd" * 16
+    ) == _challenge_text(9999, "cd" * 16)
+
+
+def test_membership_address_column_is_migrated():
+    src = open(os.path.join(REPO, "database", "db.py")).read()
+    assert "ADD COLUMN membership_address VARCHAR(64)" in src
+    assert "ADD COLUMN IF NOT EXISTS membership_address VARCHAR(64)" in src
+    from bot.models.user import User
+
+    assert hasattr(User, "membership_address")

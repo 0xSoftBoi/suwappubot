@@ -177,6 +177,7 @@ from bot.handlers.referral import (
     rewards_callback_handler as ref_rewards_callback_handler,
 )
 from bot.handlers.position_cards import position_cards_handler
+from bot.handlers.bindwallet import bindwallet_handler
 from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
@@ -445,6 +446,7 @@ def add_handlers(application: Application) -> None:
     # Points/XP system
     application.add_handler(xp_handler)  # /xp
     application.add_handler(position_cards_handler)  # /cards
+    application.add_handler(bindwallet_handler)  # /bindwallet
     application.add_handler(checkin_handler)  # /checkin
     application.add_handler(leaderboard_handler)  # /lb
     application.add_handler(rewards_handler)  # /rewards (XP rewards)
@@ -846,6 +848,7 @@ async def post_init(application) -> None:
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
             BotCommand("cards", "🃏 Position cards — live P&L & swap-fee discount"),
+            BotCommand("bindwallet", "🔗 Link your Robinhood Wallet for on-chain membership"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
             BotCommand("model", "🤖 AI model for natural-language trading"),
             BotCommand("support", "🆘 Contact support"),

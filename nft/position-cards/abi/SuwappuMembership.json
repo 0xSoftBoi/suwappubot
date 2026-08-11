@@ -144,11 +144,6 @@
   "type": "error"
  },
  {
-  "inputs": [],
-  "name": "NotMember",
-  "type": "error"
- },
- {
   "inputs": [
    {
     "internalType": "address",
@@ -173,6 +168,22 @@
  {
   "inputs": [],
   "name": "ReentrancyGuardReentrantCall",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint8",
+    "name": "bits",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256",
+    "name": "value",
+    "type": "uint256"
+   }
+  ],
+  "name": "SafeCastOverflowedUintDowncast",
   "type": "error"
  },
  {
@@ -617,6 +628,11 @@
       "internalType": "uint64",
       "name": "expiresAt",
       "type": "uint64"
+     },
+     {
+      "internalType": "uint256",
+      "name": "pricePaidPerPeriod",
+      "type": "uint256"
      }
     ],
     "internalType": "struct SuwappuMembership.Membership",
@@ -708,7 +724,7 @@
   "inputs": [],
   "name": "renounceOwnership",
   "outputs": [],
-  "stateMutability": "nonpayable",
+  "stateMutability": "pure",
   "type": "function"
  },
  {

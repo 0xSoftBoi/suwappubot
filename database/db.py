@@ -447,6 +447,17 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
+    # --- users: signature-proved membership binding address (additive) ---
+    if "users" in tables:
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "membership_address" not in user_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN membership_address VARCHAR(64)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_address VARCHAR(64)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
     # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = (
         "agents"

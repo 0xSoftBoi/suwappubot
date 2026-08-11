@@ -1,0 +1,190 @@
+"""SuwappuMembership — EXECUTABLE behaviour tests on a real EVM (eth-tester/py-evm).
+
+The money-path review's core demand: a contract that pulls USDG and does ratio
+arithmetic must not ship with only source-grep tests. These deploy the actual
+compiled bytecode and exercise the arithmetic:
+
+  - tier-switch conversion is value-neutral (round-trip loses at most rounding dust)
+  - setPrice CANNOT revalue outstanding time (the front-run exploit from review
+    finding HIGH-3 is dead: time is valued at its purchase-price snapshot)
+  - grantTime converts instead of destroying paid time (HIGH-2)
+  - soulbound: transfers and approvals revert; one membership per wallet
+  - subscribe on an expired token starts fresh from now
+  - payment precedes minting (a failed transferFrom leaves no token behind)
+"""
+
+import json
+import os
+
+import pytest
+
+web3 = pytest.importorskip("web3")
+pytest.importorskip("eth_tester")
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ARTIFACTS = os.path.join(REPO, "nft", "position-cards", "abi", "membership_test_artifacts.json")
+
+DAY = 86400
+PERIOD = 30 * DAY
+PRO, PREMIUM, ENTERPRISE = 1, 2, 3
+PRO_PRICE, PREMIUM_PRICE, ENTERPRISE_PRICE = 9_990_000, 29_990_000, 99_990_000
+
+
+@pytest.fixture()
+def env():
+    from web3 import EthereumTesterProvider, Web3
+
+    w3 = Web3(EthereumTesterProvider())
+    art = json.load(open(ARTIFACTS))
+    owner, treasury, alice, bob = w3.eth.accounts[:4]
+
+    def deploy(name, *args, frm=owner):
+        c = w3.eth.contract(abi=art[name]["abi"], bytecode=art[name]["bytecode"])
+        tx = c.constructor(*args).transact({"from": frm})
+        rcpt = w3.eth.wait_for_transaction_receipt(tx)
+        return w3.eth.contract(address=rcpt.contractAddress, abi=art[name]["abi"])
+
+    usdg = deploy("MockUSDG")
+    m = deploy("SuwappuMembership", usdg.address, treasury, owner)
+    for who in (alice, bob):
+        usdg.functions.mint(who, 100_000_000_000).transact({"from": owner})  # 100k USDG
+        usdg.functions.approve(m.address, 2**200).transact({"from": who})
+    return w3, usdg, m, owner, treasury, alice, bob
+
+
+def expiry_of(m, who):
+    tid = m.functions.tokenOf(who).call()
+    return m.functions.membershipOf(tid).call()
+
+
+def travel(w3, seconds):
+    w3.provider.ethereum_tester.time_travel(w3.eth.get_block("latest").timestamp + seconds)
+    w3.provider.ethereum_tester.mine_block()
+
+
+# ── economics ────────────────────────────────────────────────────────────────
+
+
+def test_subscribe_charges_exact_price_to_treasury(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 2).transact({"from": alice})
+    assert usdg.functions.balanceOf(treasury).call() == 2 * PRO_PRICE
+    tier, _, paid = expiry_of(m, alice)
+    assert tier == PRO and paid == PRO_PRICE
+    assert m.functions.tierOf(alice).call()[0] == PRO
+
+
+def test_tier_switch_is_value_neutral_round_trip(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    # Buy 12 periods of PRO (~360 days of PRO value)
+    m.functions.subscribe(PRO, 12).transact({"from": alice})
+    _, expiry0, _ = expiry_of(m, alice)
+    now = w3.eth.get_block("latest").timestamp
+    # Switch up to ENTERPRISE (+1 period), then immediately back down to PRO (+1)
+    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})
+    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    _, expiry1, _ = expiry_of(m, alice)
+    # Value bought: 12+1 periods of PRO + 1 period of ENTERPRISE (in PRO-seconds)
+    ent_in_pro = PERIOD * ENTERPRISE_PRICE // PRO_PRICE
+    expected = now + 13 * PERIOD + ent_in_pro
+    tol = 6 * (ENTERPRISE_PRICE // PRO_PRICE) + 6
+    assert abs(expiry1 - expected) <= tol, "round-trip lost more than rounding dust"
+
+
+def test_reprice_cannot_be_front_run_into_cheap_enterprise(env):
+    """Review HIGH-3: stack PRO cheap, wait for reprice, convert ~1:1. Dead now."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d of PRO @ 9.99
+    # Owner reprices PRO to ENTERPRISE's price — the old exploit precondition.
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(ENTERPRISE, 1).transact({"from": alice})
+    _, expiry, _ = expiry_of(m, alice)
+    # Remaining PRO time must convert at its PAID price (9.99), not the new one:
+    # 720d * 9.99/99.99 ≈ 71.9d of ENTERPRISE — NOT 720d.
+    converted = 24 * PERIOD * PRO_PRICE // ENTERPRISE_PRICE
+    assert abs(expiry - (now + converted + PERIOD)) <= 12
+    assert expiry - now < 110 * DAY, "front-run yielded outsized ENTERPRISE time"
+
+
+def test_price_cut_does_not_confiscate_existing_value(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(ENTERPRISE, 2).transact({"from": alice})  # 60d @ 99.99
+    m.functions.setPrice(ENTERPRISE, PRO_PRICE).transact({"from": owner})  # huge cut
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    _, expiry, _ = expiry_of(m, alice)
+    # 60d valued at 99.99 → PRO at 9.99 ≈ 600d, + 30d bought.
+    converted = 2 * PERIOD * ENTERPRISE_PRICE // PRO_PRICE
+    # Each mined block advances time ~1s; that drift is multiplied by the price
+    # ratio in the conversion, so the tolerance scales with it.
+    tol = 6 * (ENTERPRISE_PRICE // PRO_PRICE) + 6
+    assert abs(expiry - (now + converted + PERIOD)) <= tol
+
+
+def test_grant_time_converts_instead_of_destroying_paid_time(env):
+    """Review HIGH-2: comping 7d of PRO onto 300d of paid ENTERPRISE must not
+    burn the ENTERPRISE value."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(ENTERPRISE, 10).transact({"from": alice})  # 300d
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.grantTime(alice, PRO, 7 * DAY).transact({"from": owner})
+    tier, expiry, _ = expiry_of(m, alice)
+    assert tier == PRO
+    converted = 10 * PERIOD * ENTERPRISE_PRICE // PRO_PRICE  # ≈ 3000d of PRO
+    tol = 6 * (ENTERPRISE_PRICE // PRO_PRICE) + 6  # timestamp drift × price ratio
+    assert abs(expiry - (now + converted + 7 * DAY)) <= tol
+    assert expiry - now > 2900 * DAY, "paid ENTERPRISE time was destroyed"
+
+
+def test_expired_subscription_reads_free_and_resubscribe_starts_fresh(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    travel(w3, PERIOD + DAY)
+    assert m.functions.tierOf(alice).call()[0] == 0  # Free
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(PREMIUM, 1).transact({"from": alice})
+    _, expiry, _ = expiry_of(m, alice)
+    assert abs(expiry - (now + PERIOD)) <= 12, "expired time must not carry over"
+
+
+# ── access + soulbound ───────────────────────────────────────────────────────
+
+
+def test_free_mint_once_per_wallet_and_soulbound(env):
+    w3, usdg, m, owner, treasury, alice, bob = env
+    m.functions.mintFree().transact({"from": alice})
+    assert tuple(m.functions.tierOf(alice).call()) == (0, 0)
+    with pytest.raises(Exception):
+        m.functions.mintFree().transact({"from": alice})  # AlreadyMember
+    tid = m.functions.tokenOf(alice).call()
+    with pytest.raises(Exception):
+        m.functions.transferFrom(alice, bob, tid).transact({"from": alice})  # Soulbound
+    with pytest.raises(Exception):
+        m.functions.approve(bob, tid).transact({"from": alice})
+    with pytest.raises(Exception):
+        m.functions.setApprovalForAll(bob, True).transact({"from": alice})
+
+
+def test_failed_payment_leaves_no_token_behind(env):
+    """Payment precedes the auto-mint (CEI): a broke wallet gets nothing."""
+    w3, usdg, m, owner, treasury, alice, bob = env
+    broke = w3.eth.accounts[5]
+    usdg.functions.approve(m.address, 2**200).transact({"from": broke})
+    with pytest.raises(Exception):
+        m.functions.subscribe(PRO, 1).transact({"from": broke})
+    assert m.functions.tokenOf(broke).call() == 0
+
+
+def test_admin_bounds(env):
+    w3, usdg, m, owner, treasury, alice, _ = env
+    with pytest.raises(Exception):
+        m.functions.subscribe(PRO, 25).transact({"from": alice})  # > MAX_PERIODS
+    with pytest.raises(Exception):
+        m.functions.grantTime(alice, PRO, 366 * DAY).transact({"from": owner})  # > MAX_GRANT
+    with pytest.raises(Exception):
+        m.functions.setPrice(PRO, 0).transact({"from": owner})
+    with pytest.raises(Exception):
+        m.functions.renounceOwnership().transact({"from": owner})
+    with pytest.raises(Exception):
+        m.functions.setPrice(PRO, 1).transact({"from": alice})  # not owner

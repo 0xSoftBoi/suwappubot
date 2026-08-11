@@ -85,3 +85,20 @@ Because tier → `TIER_FEE_RATES` → every quote, this diff goes through
 3. **Treasury address** for USDG subscription revenue (multisig recommended).
 4. Whether Stripe/x402 pricing should surface a small discount for paying on-chain
    (no processor fees) — pricing decision, not taken here.
+
+## Money-path review (Opus) — verdict and remediation
+
+The initial wiring was reviewed adversarially and **blocked**. Every finding was fixed
+and the exploit paths are now reproduced as failing-then-fixed tests:
+
+| Finding | Fix |
+|---|---|
+| **BLOCKER** — Robinhood Wallet purchases were unreachable (self-custody addresses never appear in the bot's Wallet table; a user could pay 99.99 USDG and keep FREE-tier fees) | `/bindwallet`: EIP-191 signature-proved binding → `users.membership_address` (additive runtime migration). Challenge embeds telegram id + 128-bit single-use nonce, 10-min expiry; possession of the key is the only way to bind. Bound address is checked first |
+| **HIGH** — sync `eth_call` blocked the event loop on every quote | Off-thread via `asyncio.to_thread` under a hard 1.5s budget, single-flighted per user; a hung RPC costs the budget once, then fails open (tested with a 5s-hang stub) |
+| **HIGH** — `grantTime` overwrote paid time (comping 7d PRO destroyed 300d of ENTERPRISE) | `grantTime` routes through the same `_creditTime` conversion as `subscribe` — proven on a real EVM |
+| **HIGH** — `setPrice` revalued outstanding time; a reprice was front-runnable into ~$2,400 of ENTERPRISE for ~$340 | `pricePaidPerPeriod` snapshot per token: conversions value remaining time at the price it was *bought* at. The exact front-run scenario is an EVM test and now yields ~72 days, not 720 |
+| MED — wallet selection was Postgres-heap-order nondeterministic | Bound address first, then all EVM wallets `ORDER BY id` (≤5), max tier across them |
+| MED — failures cached 300s; `invalidate()` dead code | Failure TTL 15s, success 300s; `invalidate()` wired into `/bindwallet`; RPC failures reported to `rpc_manager`'s circuit breaker |
+| MED — unbounded cache | Swept past 5,000 entries |
+| LOW ×4 | CEI (payment before mint — a broke wallet gets no token, tested), `nonReentrant` on `grantTime`, `SafeCast.toUint64`, `renounceOwnership` disabled, dead code removed |
+| **Verification gap** — zero executable contract tests, forge unavailable | `tests/test_membership_evm.py`: 9 behaviour tests deploying the real bytecode on eth-tester/py-evm — value-neutral round-trips, both HIGH exploits reproduced dead, soulbound/one-per-wallet/bounds |

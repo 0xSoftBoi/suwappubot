@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title SuwappuMembership — Suwappu subscriptions as soulbound NFTs on Robinhood Chain
@@ -37,7 +37,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
  */
 contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    using Strings for uint256;
+    using SafeCast for uint256;
 
     enum Tier {
         Free,
@@ -47,8 +47,9 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     }
 
     uint64 public constant PERIOD = 30 days;
-    /// @dev Cap on periods per purchase — bounds treasury exposure to a fat-finger
-    ///      and keeps expiry arithmetic far from overflow.
+    /// @dev Cap on periods PER CALL — a fat-finger guard only. Purchases stack
+    ///      across calls by design (extending a subscription is legitimate); the
+    ///      economic bound is that every period is paid at the snapshot price.
     uint256 public constant MAX_PERIODS_PER_PURCHASE = 24;
     /// @dev Cap on ops-comped time per call (grantTime), so a compromised owner
     ///      key cannot mint decades of ENTERPRISE in one transaction.
@@ -67,6 +68,11 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     struct Membership {
         Tier tier;
         uint64 expiresAt; // 0 == no expiry (FREE never expires)
+        /// @dev USDG price per period the CURRENT paid time was bought at. Tier
+        ///      conversions value remaining time at this snapshot, not the live
+        ///      price, so setPrice() can never revalue outstanding time — no
+        ///      front-running a reprice, no confiscation on a price cut.
+        uint256 pricePaidPerPeriod;
     }
 
     uint256 public totalSupply;
@@ -87,7 +93,6 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     event BaseURISet(string baseURI);
 
     error AlreadyMember();
-    error NotMember();
     error Soulbound();
     error BadTier();
     error BadPeriods();
@@ -120,43 +125,58 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (tier == Tier.Free) revert BadTier(); // FREE is minted, not bought
         if (periods == 0 || periods > MAX_PERIODS_PER_PURCHASE) revert BadPeriods();
 
+        uint256 price = pricePerPeriod[uint256(tier)];
+        uint256 cost = price * periods;
+        // Checks-effects-interactions: the USDG pull happens before ANY state is
+        // written (including the auto-mint), so a failed or reentrant payment can
+        // never leave a granted subscription or a minted token behind.
+        usdg.safeTransferFrom(msg.sender, treasury, cost);
+
         uint256 tokenId = tokenOf[msg.sender];
         if (tokenId == 0) tokenId = _mintTo(msg.sender);
 
-        uint256 cost = pricePerPeriod[uint256(tier)] * periods;
-        // CHECKS-EFFECTS-INTERACTIONS note: USDG is a known, non-reentrant Paxos
-        // token and nonReentrant guards the whole function; the pull happens before
-        // state so a failed payment can never leave a granted subscription behind.
-        usdg.safeTransferFrom(msg.sender, treasury, cost);
+        uint64 expiry = _creditTime(tokenId, tier, uint64(periods) * PERIOD, price);
+        emit Subscribed(tokenId, msg.sender, tier, periods, cost);
+        emit SubscriptionUpdate(tokenId, expiry);
+    }
 
+    /// @dev Add `duration` of `tier`, converting any unexpired time first.
+    ///      Remaining time is valued at the price it was BOUGHT at
+    ///      (m.pricePaidPerPeriod) and converted into the new tier at `newPrice`.
+    ///      One code path for extension and switching: a same-tier extension at an
+    ///      unchanged price degenerates to base = expiresAt exactly, and every
+    ///      other case is value-neutral at the snapshot price by construction.
+    function _creditTime(uint256 tokenId, Tier tier, uint64 duration, uint256 newPrice)
+        internal
+        returns (uint64 expiry)
+    {
         Membership storage m = _memberships[tokenId];
         uint64 nowTs = uint64(block.timestamp);
         uint64 base = nowTs;
 
         if (m.tier != Tier.Free && m.expiresAt > nowTs) {
-            uint64 remaining = m.expiresAt - nowTs;
-            if (m.tier == tier) {
-                base = m.expiresAt;
-            } else {
-                // Convert remaining time across tiers by price ratio (floor).
-                uint256 converted = (uint256(remaining) * pricePerPeriod[uint256(m.tier)])
-                    / pricePerPeriod[uint256(tier)];
-                base = nowTs + uint64(converted);
-            }
+            uint256 remaining = m.expiresAt - nowTs;
+            uint256 oldPrice = m.pricePaidPerPeriod;
+            // Value remaining time at its purchase-time price. oldPrice can be 0
+            // only for time granted before any purchase snapshot existed; treat
+            // that as same-value (1:1) rather than zeroing comped time.
+            uint256 converted = (oldPrice == 0 || oldPrice == newPrice)
+                ? remaining
+                : (remaining * oldPrice) / newPrice;
+            base = nowTs + converted.toUint64();
         }
 
         m.tier = tier;
-        m.expiresAt = base + uint64(periods) * PERIOD;
-
-        emit Subscribed(tokenId, msg.sender, tier, periods, cost);
-        emit SubscriptionUpdate(tokenId, m.expiresAt);
+        m.expiresAt = base + duration;
+        m.pricePaidPerPeriod = newPrice;
+        return m.expiresAt;
     }
 
     function _mintTo(address to) internal returns (uint256 tokenId) {
         if (tokenOf[to] != 0) revert AlreadyMember();
         tokenId = ++totalSupply;
         tokenOf[to] = tokenId;
-        _memberships[tokenId] = Membership(Tier.Free, 0);
+        _memberships[tokenId] = Membership(Tier.Free, 0, 0);
         _safeMint(to, tokenId);
         emit MembershipMinted(tokenId, to);
         emit SubscriptionUpdate(tokenId, 0);
@@ -187,19 +207,18 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
-    /// @notice Comp time (support remediation, promos). Bounded per call.
-    function grantTime(address to, Tier tier, uint64 duration) external onlyOwner {
+    /// @notice Comp time (support remediation, promos). Bounded per call, and it
+    ///         uses the SAME conversion as subscribe(), so comping a lower tier to
+    ///         someone holding paid higher-tier time converts that time instead of
+    ///         destroying it. Granted time is valued at the current list price.
+    function grantTime(address to, Tier tier, uint64 duration) external onlyOwner nonReentrant {
         if (tier == Tier.Free) revert BadTier();
         if (duration == 0 || duration > MAX_GRANT) revert GrantTooLong();
         uint256 tokenId = tokenOf[to];
         if (tokenId == 0) tokenId = _mintTo(to);
-        Membership storage m = _memberships[tokenId];
-        uint64 nowTs = uint64(block.timestamp);
-        uint64 base = (m.tier == tier && m.expiresAt > nowTs) ? m.expiresAt : nowTs;
-        m.tier = tier;
-        m.expiresAt = base + duration;
+        uint64 expiry = _creditTime(tokenId, tier, duration, pricePerPeriod[uint256(tier)]);
         emit TimeGranted(tokenId, tier, duration);
-        emit SubscriptionUpdate(tokenId, m.expiresAt);
+        emit SubscriptionUpdate(tokenId, expiry);
     }
 
     function setTreasury(address treasury_) external onlyOwner {
@@ -208,14 +227,22 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         emit TreasurySet(treasury_);
     }
 
-    /// @notice Reprice a paid tier (new purchases/renewals only — existing time is
-    ///         untouched). FREE stays 0 forever: repricing it would break both the
-    ///         free mint and the tier-conversion math.
+    /// @notice Reprice a paid tier. Genuinely prospective: outstanding time is
+    ///         valued at each token's purchase-time snapshot (pricePaidPerPeriod),
+    ///         so a reprice cannot be front-run into cheap higher-tier time and a
+    ///         price cut cannot confiscate existing holders' value. FREE stays 0.
     function setPrice(Tier tier, uint256 price) external onlyOwner {
         if (tier == Tier.Free) revert BadTier();
         if (price == 0) revert BadPeriods();
         pricePerPeriod[uint256(tier)] = price;
         emit PriceSet(tier, price);
+    }
+
+    /// @notice Disabled: renouncing would permanently freeze setTreasury — the
+    ///         only recovery if the treasury is ever compromised — while
+    ///         subscribe() keeps routing USDG to it.
+    function renounceOwnership() public pure override {
+        revert Soulbound();
     }
 
     function setBaseURI(string calldata baseURI) external onlyOwner {

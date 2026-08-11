@@ -25,6 +25,10 @@ class User(Base):
     whatsapp_id = Column(String(255), unique=True, nullable=True, index=True)
     discord_id = Column(String(100), unique=True, nullable=True, index=True)
     discord_username = Column(String(255), nullable=True)
+    # Signature-proved external EVM address for the SuwappuMembership NFT
+    # (Robinhood Wallet / smart accounts). Set only by /bindwallet after an
+    # EIP-191 ownership proof — never written from unauthenticated input.
+    membership_address = Column(String(64), nullable=True)
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
