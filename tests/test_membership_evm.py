@@ -249,6 +249,10 @@ def test_weighted_snapshot_lands_between_the_two_prices(env):
 # ── property test: the conversion must never mint value ──────────────────────
 
 
+MAX_TERM = 3650 * DAY
+MIN_PRICE, MAX_PRICE = 100_000, 100_000_000_000
+
+
 def _credit_mirror(m, tier, duration, new_price, now):
     """Pure-Python mirror of SuwappuMembership._creditTime, integer floors and
     all. Cross-checked against the deployed bytecode in
@@ -264,6 +268,8 @@ def _credit_mirror(m, tier, duration, new_price, now):
             rs = (remaining * old) // new_price
             rv = rs * new_price
     total = rs + duration
+    if total > MAX_TERM:  # mirrors the contract's horizon cap
+        total = MAX_TERM
     m.update(
         tier=tier,
         exp=now + total,
@@ -309,8 +315,9 @@ def test_conversion_never_mints_value():
         for _ in range(random.randint(1, 8)):
             if random.random() < 0.18:  # owner reprices
                 t = random.choice([PRO, PREMIUM, ENTERPRISE])
+                # only prices setPrice would actually accept
                 prices[t] = random.choice(
-                    [1_000_000, PRO_PRICE, PREMIUM_PRICE, ENTERPRISE_PRICE, 199_990_000]
+                    [MIN_PRICE, PRO_PRICE, PREMIUM_PRICE, ENTERPRISE_PRICE, MAX_PRICE]
                 )
             else:
                 t = random.choice([PRO, PREMIUM, ENTERPRISE])
@@ -322,6 +329,22 @@ def test_conversion_never_mints_value():
         if paid:
             worst = max(worst, (held * sim["snap"] // PERIOD) / paid)
     assert worst <= 1.001, f"conversion minted value: held/paid = {worst:.4f}"
+
+
+def test_max_term_truncation_is_value_neutral():
+    """Truncating totalSeconds at MAX_TERM keeps the FULL value in the snapshot
+    numerator, so seconds x snapshot is preserved — the cap compresses cheap time
+    into fewer, dearer seconds rather than confiscating or minting it."""
+    now = 1_000_000
+    sim = {"tier": 0, "exp": 0, "snap": 0}
+    paid = MAX_PRICE * 24
+    _credit_mirror(sim, PRO, 24 * PERIOD, MAX_PRICE, now)
+    paid += MIN_PRICE
+    _credit_mirror(sim, PREMIUM, PERIOD, MIN_PRICE, now)  # forces truncation
+    assert sim["exp"] - now == MAX_TERM, "cap did not engage"
+    held_value = (sim["exp"] - now) * sim["snap"] // PERIOD
+    assert held_value <= paid, "truncation minted value"
+    assert held_value > paid * 0.98, "truncation confiscated value"
 
 
 def test_artifacts_match_current_sources():

@@ -395,3 +395,45 @@ def test_all_contract_errors_cache_as_no_membership_not_as_an_outage():
     src = open(os.path.join(REPO, "bot", "services", "membership_service.py")).read()
     assert "if contract_errors == len(addresses):" in src
     assert 'raise RuntimeError("all tierOf calls failed on transport errors")' in src
+
+
+@pytest.mark.asyncio
+async def test_bad_node_returning_empty_state_cannot_demote_a_paid_member(monkeypatch):
+    """A node serving empty state answers eth_call with 0x, which web3 decodes as
+    a CONTRACT error, not a transport error — so it takes the "all contract
+    errors -> no membership" path rather than raising. Without stale protection
+    on that path a paying ENTERPRISE holder would be cached as FREE and billed
+    1% instead of 0.1% for the next five minutes."""
+    import time as _t
+
+    import bot.services.membership_service as mod
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+    monkeypatch.setattr(svc, "_addresses_for_user", lambda uid: ["0x" + "22" * 20])
+    svc._cache[42] = (_t.time() - 1, SubscriptionTier.ENTERPRISE)
+
+    # all addresses hit contract errors -> the sync helper returns None (no raise)
+    monkeypatch.setattr(svc, "_tier_for_addresses_sync", lambda addrs: None)
+    assert await svc.get_onchain_tier(42) == SubscriptionTier.ENTERPRISE
+
+    # a genuinely un-held tier (never seen paid) still resolves to None
+    assert await svc.get_onchain_tier(43) is None
+
+    # and stale protection expires
+    svc._cache[42] = (_t.time() - mod._STALE_PAID_TTL - 1, SubscriptionTier.ENTERPRISE)
+    assert await svc.get_onchain_tier(42) is None
+
+
+def test_bindwallet_does_not_hold_a_db_session_across_an_await():
+    """Awaiting Telegram inside `with get_session()` pins a pooled connection for
+    a full network round-trip. The DB work runs in one short transaction off the
+    await path instead."""
+    src = open(os.path.join(REPO, "bot", "handlers", "bindwallet.py")).read()
+    bind_block = src[src.index("def _bind()") : src.index("outcome = await run_in_db")]
+    assert "await " not in bind_block, "the bind transaction must not await"
+    assert "run_in_db(_bind)" in src
+    # no `with get_session()` may contain an await anywhere in this handler
+    for chunk in src.split("with get_session() as session:")[1:]:
+        body = chunk.split("\n\n")[0]
+        assert "await " not in body, "a DB session is held across an await"

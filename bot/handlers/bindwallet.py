@@ -70,15 +70,19 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         pass
 
     from bot.models.user import User
-    from database.db import get_session
+    from database.db import get_session, run_in_db
 
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await update.message.reply_text("❌ Please start the bot first with /start")
-            return
-        user_id = db_user.id
-        current = db_user.membership_address
+    def _load() -> tuple:
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                return (None, None)
+            return (db_user.id, db_user.membership_address)
+
+    user_id, current = await run_in_db(_load)
+    if user_id is None:
+        await update.message.reply_text("❌ Please start the bot first with /start")
+        return
 
     # Step 1: no args -> issue a fresh challenge.
     if not args:
@@ -141,37 +145,52 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Proven. Single-use: burn the nonce, store, invalidate the tier cache.
+    # Proven. Do all DB work in one short transaction and reply AFTER it closes —
+    # awaiting Telegram inside `with get_session()` would pin a pooled connection
+    # for the duration of a network round-trip.
     normalized = recovered.lower()
-    with get_session() as session:
-        # EXCLUSIVITY (see module docstring): one address, one account. Checked
-        # here for a clean error and enforced by a unique index underneath, so a
-        # concurrent bind cannot slip through the gap between check and write.
-        clash = (
-            session.query(User.id)
-            .filter(User.membership_address == normalized, User.id != user_id)
-            .first()
+
+    def _bind() -> str:
+        """Returns 'ok' | 'taken' | 'no_user'. Synchronous by design."""
+        with get_session() as session:
+            # EXCLUSIVITY (see module docstring): one address, one account.
+            # Checked here for a clean message; the unique index underneath is
+            # what actually closes the race, so a concurrent bind that slips
+            # through this SELECT still fails on flush.
+            clash = (
+                session.query(User.id)
+                .filter(User.membership_address == normalized, User.id != user_id)
+                .first()
+            )
+            if clash:
+                return "taken"
+            db_user = session.query(User).filter(User.id == user_id).first()
+            if not db_user:
+                return "no_user"
+            try:
+                db_user.membership_address = normalized
+                session.flush()
+            except Exception:
+                session.rollback()
+                return "taken"
+            return "ok"
+
+    try:
+        outcome = await run_in_db(_bind)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("bindwallet: bind failed for user %s: %s", user_id, e)
+        outcome = "taken"
+
+    if outcome == "taken":
+        await update.message.reply_text(
+            "❌ That address is already linked to another Suwappu account.\n\n"
+            "Each wallet can back one account — use a different wallet, or unlink "
+            "it from the other account first."
         )
-        if clash:
-            await update.message.reply_text(
-                "❌ That address is already linked to another Suwappu account.\n\n"
-                "Each wallet can back one account — use a different wallet, or "
-                "unlink it from the other account first.",
-            )
-            return
-        db_user = session.query(User).filter(User.id == user_id).first()
-        if not db_user:
-            await update.message.reply_text("❌ Account not found — try /start again.")
-            return
-        try:
-            db_user.membership_address = normalized
-            session.flush()
-        except Exception:
-            session.rollback()
-            await update.message.reply_text(
-                "❌ That address is already linked to another Suwappu account."
-            )
-            return
+        return
+    if outcome == "no_user":
+        await update.message.reply_text("❌ Account not found — try /start again.")
+        return
 
     context.user_data.pop(_CHALLENGE_KEY, None)
     try:

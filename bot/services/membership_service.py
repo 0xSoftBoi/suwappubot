@@ -254,13 +254,26 @@ class MembershipService:
                     )
             except Exception as e:  # pragma: no cover - defensive
                 logger.debug("Membership: on-chain tier lookup failed for %s: %s", user_id, e)
-                # Do not overwrite a known paid tier with a failure — keep serving
-                # it (stale) until _STALE_PAID_TTL, then fall back to the DB.
-                prev = self._cache.get(user_id)
-                if prev and prev[1] is not None and TIER_RANK.get(prev[1], 0) > 0:
-                    if time.time() - prev[0] < _STALE_PAID_TTL:
-                        return prev[1]
                 tier = None
+
+            # Never let an unreadable chain silently demote a member we have
+            # already SEEN holding a paid tier. This covers both an exception and
+            # a `None` from the all-contract-errors path: a node serving empty
+            # state answers eth_call with 0x, which decodes as a contract error,
+            # and would otherwise cache "no membership" and bill a paying
+            # ENTERPRISE holder at 1% for the next five minutes. Contracts do not
+            # disappear, so a previously observed paid tier is better evidence
+            # than one bad read. Bounded by _STALE_PAID_TTL, after which the DB
+            # tier takes over.
+            if tier is None:
+                prev = self._cache.get(user_id)
+                if (
+                    prev
+                    and prev[1] is not None
+                    and TIER_RANK.get(prev[1], 0) > 0
+                    and time.time() - prev[0] < _STALE_PAID_TTL
+                ):
+                    return prev[1]
 
             self._set_cached(user_id, tier)
             return tier
