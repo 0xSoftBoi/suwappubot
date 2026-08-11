@@ -16,7 +16,7 @@ import time
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
@@ -932,6 +932,81 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 
+def _persist_session(jti: str, user_id: int, src: str) -> bool:
+    """Best-effort: create the `user_sessions` row a `jti` claim promises
+    exists. Returns False (never raises) on any failure — `create_jwt_token`
+    then omits the `jti` claim entirely rather than minting a token that
+    would immediately fail `decode_jwt_token`'s "unknown jti" check, so a DB
+    hiccup at login time degrades to "this session isn't individually
+    revocable yet", never to "login is broken". Logged at CRITICAL either
+    way since this is the MONEY-PATH session-kill mechanism."""
+    try:
+        from bot.models.user_session import UserSession
+
+        with get_session() as session:
+            session.add(
+                UserSession(
+                    jti=jti,
+                    user_id=user_id,
+                    src=src,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        return True
+    except Exception:
+        logging.getLogger(__name__).critical(
+            "Failed to persist user_sessions row for a newly minted JWT "
+            "(user_id=%s) — issuing an un-revocable (no-jti) token instead "
+            "of blocking login",
+            user_id,
+            exc_info=True,
+        )
+        return False
+
+
+# Short-TTL cache for the revocation check so the hot auth path (every
+# authenticated request decodes a JWT) doesn't hit the DB every time. A
+# revoked session can stay usable for up to this long after being revoked —
+# acceptable latency for a MONEY-PATH kill switch that otherwise would
+# require far more invasive per-request DB reads. See `_check_session_valid`.
+_SESSION_VALIDITY_CACHE: Dict[str, Tuple[bool, float]] = {}
+_SESSION_VALIDITY_CACHE_TTL_SECONDS = 30.0
+
+
+def _check_session_valid(jti: str) -> bool:
+    """True if a `jti`-bearing token should still be honored: a matching,
+    non-revoked `user_sessions` row exists. Any DB error fails OPEN (returns
+    True) — a DB hiccup here must never lock every user out of every route,
+    it should only mean "revocation checks are temporarily not working",
+    logged loudly so that's visible."""
+    now = time.monotonic()
+    cached = _SESSION_VALIDITY_CACHE.get(jti)
+    if cached is not None and (now - cached[1]) < _SESSION_VALIDITY_CACHE_TTL_SECONDS:
+        return cached[0]
+
+    try:
+        from bot.models.user_session import UserSession
+
+        with get_session() as session:
+            row = session.query(UserSession).filter(UserSession.jti == jti).first()
+            if row is None or row.revoked_at is not None:
+                valid = False
+            else:
+                valid = True
+                row.last_seen_at = datetime.now(timezone.utc)
+    except Exception:
+        logging.getLogger(__name__).critical(
+            "Session revocation check failed for a jti-bearing JWT — failing "
+            "OPEN (request allowed) so a DB hiccup can't lock out every "
+            "session at once",
+            exc_info=True,
+        )
+        valid = True
+
+    _SESSION_VALIDITY_CACHE[jti] = (valid, now)
+    return valid
+
+
 def create_jwt_token(address: str, user_id: int, src: str) -> str:
     """Create a JWT token for authenticated user.
 
@@ -941,9 +1016,16 @@ def create_jwt_token(address: str, user_id: int, src: str) -> str:
     ('siwe', 'passkey', 'telegram') from sessions that didn't prove wallet
     possession at all ('weak'). No default is provided — every call site must
     state its provenance explicitly.
+
+    Also mints a `jti` (uuid4) and best-effort persists a matching
+    `user_sessions` row so this session can later be individually revoked
+    (see `/sessions` bot command + `_check_session_valid`). If that DB write
+    fails, the token is issued WITHOUT a `jti` claim rather than blocking
+    login — see `_persist_session`.
     """
     # EVM addresses are case-insensitive, Solana base58 public keys are not.
     session_address = address.lower() if address.startswith("0x") else address
+    jti = str(uuid.uuid4())
     payload = {
         "address": session_address,
         # api-ts flexAuth uses this camelCase field when normalizing a session.
@@ -955,18 +1037,32 @@ def create_jwt_token(address: str, user_id: int, src: str) -> str:
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
+    if _persist_session(jti, user_id, src):
+        payload["jti"] = jti
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def decode_jwt_token(token: str) -> Optional[Dict]:
-    """Decode and validate a JWT token."""
+    """Decode and validate a JWT token.
+
+    Tokens minted before session revocation shipped have no `jti` claim at
+    all — those are grandfathered as valid (never looked up) so this can
+    never retroactively invalidate every session in the wild on deploy.
+    Tokens WITH a `jti` are checked against `user_sessions`; a missing row or
+    `revoked_at` set rejects the token (see `_check_session_valid` for the
+    fail-open DB-error behavior).
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
         return None
+
+    jti = payload.get("jti")
+    if jti and not _check_session_valid(jti):
+        return None
+    return payload
 
 
 async def get_current_user_from_token(

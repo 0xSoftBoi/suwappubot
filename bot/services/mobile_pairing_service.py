@@ -51,7 +51,15 @@ logger = logging.getLogger(__name__)
 
 CODE_PREFIX = "gekko_"
 _TTL_SECONDS = 300  # 5 minutes
-_MAX_PENDING_PER_IP = 5
+# This used to bound to ONE GLOBAL bucket in production: api/routes/mobile.py's
+# `_client_ip` returned Railway's edge IP for every request (uvicorn wasn't told to
+# trust X-Forwarded-For), so 5 was actually "5 pending codes for the whole service,
+# for everyone, at once". Now that `_client_ip` resolves the real per-client IP (see
+# its docstring + api/Dockerfile.railway), this is a genuine per-client cap again —
+# bumped from 5 to 8 to leave headroom for legitimate carrier-grade-NAT/shared-WiFi
+# clients that share one public IP with a few other real users, while still bounding
+# any single client's ability to spam pending codes.
+_MAX_PENDING_PER_IP = 8
 _PENDING_WINDOW_SECONDS = 600  # matches the abuse-control window, not the code TTL
 
 # Human-eyeball verification word alphabet — no 0/O/1/I ambiguity.

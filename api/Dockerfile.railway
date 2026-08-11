@@ -79,5 +79,26 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
 
-CMD exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# --proxy-headers (uvicorn's default is actually already True, but made explicit here)
+# tells uvicorn to trust X-Forwarded-For/-Proto from the immediate TCP peer named in
+# --forwarded-allow-ips. Without this, uvicorn's default forwarded-allow-ips=127.0.0.1
+# never matches Railway's edge (which connects from its own infra IP, not localhost), so
+# every request's "peer" collapses to that one edge IP for every deployment — this is what
+# made api/routes/mobile.py's per-IP pairing-code cap a GLOBAL cap instead of per-client
+# (see bot/services/mobile_pairing_service.py::_MAX_PENDING_PER_IP).
+#
+# forwarded-allow-ips="*" (trust the header from ANY immediate peer) is used, not a fixed
+# CIDR, because Railway does not publish a stable/enumerable IP range for its edge — and
+# because Railway's public domain is the ONLY way to reach this container (there is no
+# route for an internet client to open a TCP connection to it directly; private-networking
+# calls use *.railway.internal and don't traverse the public edge at all). So the immediate
+# TCP peer for every request that reaches this process over the public domain is always
+# Railway's own edge, making "*" here equivalent in practice to naming that one trusted hop
+# — it does not let an arbitrary internet client spoof its own peer identity, since they
+# can't connect directly to begin with. If Railway ever exposes containers to raw public
+# traffic (bypassing the edge) this assumption breaks and needs revisiting.
+#
+# api/routes/mobile.py::_client_ip additionally parses X-Forwarded-For itself (rightmost
+# hop only) as defense in depth, independent of this flag.
+CMD exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips="*"
 

@@ -97,7 +97,7 @@ def test_start_pairing_no_auth_required(client):
 def test_start_pairing_rate_limited_per_ip(client, monkeypatch):
     # Isolate the request-rate limiter from the (lower) service-level pending
     # cap, which is covered separately below — otherwise this loop would trip
-    # the pending cap (5) before ever reaching the rate limiter (10).
+    # the pending cap before ever reaching the rate limiter (10).
     import bot.services.mobile_pairing_service as pairing_service_mod
 
     monkeypatch.setattr(pairing_service_mod, "_MAX_PENDING_PER_IP", 1000)
@@ -112,10 +112,14 @@ def test_start_pairing_rate_limited_per_ip(client, monkeypatch):
 
 def test_start_pairing_enforces_pending_cap_per_ip(client, monkeypatch):
     # Rate limiter (10/min) is generous enough to hit the service-level pending
-    # cap (5) first — confirm the cap itself is enforced with a 429.
+    # cap first — confirm the cap itself is enforced with a 429. Imports the
+    # real constant rather than a hardcoded literal so this can't drift out of
+    # sync if `_MAX_PENDING_PER_IP` is re-tuned again later.
+    from bot.services.mobile_pairing_service import _MAX_PENDING_PER_IP
+
     monkeypatch.setattr(mobile_mod._pairing_start_limiter, "max_requests", 100)
 
-    for _ in range(5):
+    for _ in range(_MAX_PENDING_PER_IP):
         resp = client.post("/v1/mobile/auth/telegram/start")
         assert resp.status_code == 200
 
@@ -496,7 +500,9 @@ def test_pairing_code_never_logged(client, caplog):
 
 
 def test_create_pending_raises_over_ip_cap(tmp_db):
-    for _ in range(5):
+    from bot.services.mobile_pairing_service import _MAX_PENDING_PER_IP
+
+    for _ in range(_MAX_PENDING_PER_IP):
         mobile_pairing_service.create_pending(request_ip="9.9.9.9")
 
     with pytest.raises(MobilePairingError):
@@ -580,6 +586,72 @@ def test_events_redacts_address_and_tx_hash_like_props(client):
         row = session.query(MobileEvent).filter(MobileEvent.user_id == 42).first()
         assert row is not None
         assert row.props == {"screen": "wallet", "count": 3}
+
+
+def test_events_caps_prop_key_count(client):
+    """MED fix: props were only capped by string length, not by NUMBER of
+    keys — an authenticated user could grow mobile_events unbounded by
+    sending many distinct tiny keys per event."""
+    from bot.models.mobile_event import MobileEvent
+
+    many_props = {f"k{i}": i for i in range(40)}
+    resp = client.post(
+        "/v1/mobile/events",
+        json={"events": [{"name": "prop_flood", "props": many_props}]},
+        headers=auth_headers(user_id=901),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "accepted": 1}
+
+    with get_session() as session:
+        row = session.query(MobileEvent).filter(MobileEvent.user_id == 901).first()
+        assert row is not None
+        assert len(row.props) <= 20
+
+
+def test_events_drops_non_finite_floats_instead_of_500ing(client):
+    """MED fix: Python's json module accepts NaN/Infinity on the way in, but
+    Postgres JSON/JSONB rejects them at flush — this previously 500'd an
+    otherwise-valid batch. Non-finite values must be dropped, not stored.
+
+    httpx's `json=` kwarg refuses to even encode a NaN/Infinity float
+    client-side (`ValueError: Out of range float values are not JSON
+    compliant`) — so this sends the raw JSON body (which DOES allow those as
+    an extension, same as Python's own `json.dumps`/`json.loads` defaults)
+    to reproduce exactly what a real client can send over the wire."""
+    from bot.models.mobile_event import MobileEvent
+
+    raw_body = (
+        '{"events": [{"name": "bad_number", "props": '
+        '{"nan_val": NaN, "inf_val": Infinity, "neg_inf_val": -Infinity, "fine": 3.5}}]}'
+    )
+    headers = {**auth_headers(user_id=902), "Content-Type": "application/json"}
+    resp = client.post("/v1/mobile/events", content=raw_body, headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "accepted": 1}
+
+    with get_session() as session:
+        row = session.query(MobileEvent).filter(MobileEvent.user_id == 902).first()
+        assert row is not None
+        assert row.props == {"fine": 3.5}
+
+
+def test_events_rejects_oversized_body(client):
+    """MED fix: a Content-Length guard rejects an obviously oversized batch
+    before it's persisted."""
+    huge_note = "x" * 100  # under the 200-char single-string cap...
+    events = [
+        {"name": "flood_event", "props": {f"k{i}": huge_note for i in range(20)}} for _ in range(50)
+    ]  # ...but 50 events x 20 props each pushes the whole body well past 64KB.
+    resp = client.post(
+        "/v1/mobile/events",
+        json={"events": events},
+        headers=auth_headers(user_id=903),
+    )
+
+    assert resp.status_code == 413
 
 
 def test_events_rate_limited_per_user(client):

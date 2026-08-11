@@ -738,6 +738,17 @@ def _ensure_schema(db_engine) -> None:
     # --- mobile_events table (Gekko mobile analytics sink) ---
     _create_mobile_events_table(db_engine, inspector, is_sqlite)
 
+    # Fail startup LOUDLY if either mobile-auth-adjacent table is still
+    # missing after the attempt above, instead of letting it surface later as
+    # an opaque runtime 500 on the first sign-in/events call. Deliberately
+    # scoped to just these two (see their docstrings) rather than changing
+    # the catch-and-warn convention every other table-creation helper in this
+    # file uses — a missing, unrelated table elsewhere must not crash boot.
+    _post_check_critical_tables_exist(db_engine, ("mobile_pairings", "mobile_events"))
+
+    # --- user_sessions table (revocable jti sessions, MONEY-PATH) ---
+    _create_user_sessions_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1354,10 +1365,34 @@ def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
         logger.warning(f"Failed to create mobile_transfers table: {e}")
 
 
+def _post_check_critical_tables_exist(db_engine, table_names: tuple) -> None:
+    """Raise loudly if any of `table_names` still doesn't exist after its
+    creation helper ran (and caught-and-logged rather than raised). Only
+    call this for tables whose absence must fail startup rather than degrade
+    silently — see `_create_mobile_pairings_table`'s docstring."""
+    live_inspector = inspect(db_engine)
+    existing = set(live_inspector.get_table_names())
+    missing = [t for t in table_names if t not in existing]
+    if missing:
+        raise RuntimeError(
+            f"Startup schema check failed: required table(s) {missing} could not be "
+            "created — see the CRITICAL log line(s) above for the underlying DB error."
+        )
+
+
 def _create_mobile_pairings_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the mobile_pairings table (Gekko mobile Telegram deeplink
     sign-in — see bot/services/mobile_pairing_service.py). MONEY-PATH:
-    this table backs the pairing codes that mint mobile session JWTs."""
+    this table backs the pairing codes that mint mobile session JWTs.
+
+    Still caught-and-logged rather than raised, matching every other table
+    creation helper in this file (a transient DDL failure here must not crash
+    the whole bot/API on boot) — but at CRITICAL with a traceback, and
+    `_ensure_schema()` does a cheap post-check right after calling this and
+    `_create_mobile_events_table()` that DOES raise if the table is still
+    missing, since these two specifically gate a live auth surface (a missing
+    mobile_pairings table would otherwise only surface as an opaque runtime
+    500 on the first sign-in attempt)."""
     try:
         from bot.models.mobile_pairing import MobilePairing
 
@@ -1366,13 +1401,17 @@ def _create_mobile_pairings_table(db_engine, inspector, is_sqlite: bool) -> None
             MobilePairing.__table__.create(bind=db_engine)
             logger.info("Created mobile_pairings table")
     except Exception as e:
-        logger.warning(f"Failed to create mobile_pairings table: {e}")
+        logger.critical(f"Failed to create mobile_pairings table: {e}", exc_info=True)
 
 
 def _create_mobile_events_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the mobile_events table (Gekko mobile analytics sink,
     POST /v1/mobile/events). Redacted/validated at the route layer before
-    a row is ever written — see api/routes/mobile.py."""
+    a row is ever written — see api/routes/mobile.py.
+
+    See `_create_mobile_pairings_table`'s docstring for why this still
+    catches (rather than raises) but at CRITICAL, with a paired post-check
+    in `_ensure_schema()`."""
     try:
         from bot.models.mobile_event import MobileEvent
 
@@ -1381,7 +1420,26 @@ def _create_mobile_events_table(db_engine, inspector, is_sqlite: bool) -> None:
             MobileEvent.__table__.create(bind=db_engine)
             logger.info("Created mobile_events table")
     except Exception as e:
-        logger.warning(f"Failed to create mobile_events table: {e}")
+        logger.critical(f"Failed to create mobile_events table: {e}", exc_info=True)
+
+
+def _create_user_sessions_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the user_sessions table (revocable jti sessions — see
+    bot/models/user_session.py). MONEY-PATH-adjacent: backs session
+    revocation, not session minting/verification itself — `decode_jwt_token`
+    fails OPEN (treats the session as valid) if this table is missing or a
+    lookup errors, so a failed create here degrades to "sessions aren't
+    individually revocable yet", not an outage. Caught-and-logged like the
+    rest of this file's table-creation helpers."""
+    try:
+        from bot.models.user_session import UserSession
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("user_sessions"):
+            UserSession.__table__.create(bind=db_engine)
+            logger.info("Created user_sessions table")
+    except Exception as e:
+        logger.warning(f"Failed to create user_sessions table: {e}")
 
 
 def _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:

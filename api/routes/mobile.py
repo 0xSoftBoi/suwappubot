@@ -210,9 +210,31 @@ def _require_db():
 
 
 def _client_ip(request: Request) -> str:
-    """Same convention as api/routes/terminal.py's per-IP limiter — no
-    X-Forwarded-For parsing, since that header is client-controlled unless a
-    trusted proxy layer strips/sets it, and this repo doesn't do that yet."""
+    """Real per-client IP behind Railway's edge.
+
+    Railway's public domain is the only way to reach this process — there is
+    no route for an internet client to open a TCP connection to the
+    container directly (private-networking calls use *.railway.internal and
+    never carry this header at all). That makes Railway's edge the single
+    trusted hop, and it always APPENDS the address it observed connecting to
+    it as the LAST entry of X-Forwarded-For. Anything to the LEFT of that is
+    whatever the client itself sent and is trivially spoofable (e.g.
+    `X-Forwarded-For: 1.2.3.4`) — using it (the old behavior here, and the
+    leftmost-entry convention some frameworks default to) would let one
+    attacker mint an unlimited number of distinct "IPs" to blow through
+    `_MAX_PENDING_PER_IP` and the pairing rate limiters below.
+
+    Also see api/Dockerfile.railway's `--proxy-headers --forwarded-allow-ips`
+    uvicorn flags — this function parses the raw header itself rather than
+    relying solely on uvicorn's ProxyHeadersMiddleware rewrite of
+    `request.client`, so it stays correct even if that middleware
+    configuration ever drifts.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        hops = [hop.strip() for hop in xff.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
     return request.client.host if request.client else "unknown"
 
 
@@ -3663,6 +3685,18 @@ _EVENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,48}$")
 _EVM_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40,}")
 _MAX_EVENTS_PER_REQUEST = 50
 _MAX_PROP_STRING_LEN = 200
+# Strings were capped in length, but nothing capped the NUMBER of prop keys per
+# event — an authenticated user could otherwise grow mobile_events without bound
+# by sending events with thousands of tiny distinct keys. Extra keys beyond this
+# are silently truncated (dict insertion order), same "drop, don't 500" posture
+# as every other prop validation here.
+_MAX_PROPS_PER_EVENT = 20
+# Coarse guard against an oversized batch before it's persisted — generous enough
+# for a full _MAX_EVENTS_PER_REQUEST batch at max prop/string sizes, tight enough
+# to reject deliberate abuse. Checked against Content-Length (best-effort; a
+# client could omit/lie about it, but the per-event/per-prop caps below bound the
+# actual persisted size regardless of what's claimed here).
+_MAX_EVENTS_BODY_BYTES = 64 * 1024
 
 _events_limiter = UserRateLimiter(max_requests=60, window_seconds=60)
 
@@ -3688,18 +3722,30 @@ def _prop_value_looks_sensitive(value: str) -> bool:
 def _redact_event_props(props: dict | None) -> dict:
     """Drop (never persist) any prop whose key or value looks like an
     address, a tx hash, or is unreasonably long. Nested dict/list values are
-    dropped outright — this sink is for flat analytics props only."""
+    dropped outright — this sink is for flat analytics props only. Also caps
+    the number of accepted keys (`_MAX_PROPS_PER_EVENT`) and drops any
+    non-finite float (NaN/Infinity) — Python's `json` module happily accepts
+    those on the way in, but Postgres JSON/JSONB rejects them at flush,
+    which previously 500'd an otherwise-valid batch."""
     if not props:
         return {}
     clean: dict = {}
     for key, value in props.items():
+        if len(clean) >= _MAX_PROPS_PER_EVENT:
+            break
         if not isinstance(key, str) or _prop_value_looks_sensitive(key):
             continue
         if isinstance(value, str):
             if _prop_value_looks_sensitive(value):
                 continue
             clean[key] = value
-        elif isinstance(value, (int, float, bool)) or value is None:
+        elif isinstance(value, bool) or value is None:
+            clean[key] = value
+        elif isinstance(value, int):
+            clean[key] = value
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                continue
             clean[key] = value
         # dict/list/other types silently dropped.
     return clean
@@ -3711,6 +3757,15 @@ async def ingest_mobile_events(request: Request, body: MobileEventsBody):
     payload = _jwt_user(request)
     _require_db()
     user_id = int(payload["user_id"])
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            too_large = int(content_length) > _MAX_EVENTS_BODY_BYTES
+        except ValueError:
+            too_large = False
+        if too_large:
+            raise HTTPException(status_code=413, detail="Request body too large")
 
     try:
         await _events_limiter.check(user_id)

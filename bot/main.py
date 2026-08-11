@@ -74,6 +74,11 @@ from bot.handlers.trending import (
     trending_buy_callback,
 )
 from bot.handlers.twofa import twofa_conversation
+from bot.handlers.sessions import (
+    sessions_handler,
+    sessions_revoke_all_handler,
+    sessions_close_handler,
+)
 from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
 from bot.handlers.recovery import recover_handler, recover_cancel_handler
 from bot.handlers.history import (
@@ -534,6 +539,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(kill_switch_handler)  # admin /ks — agent-policy kill switch
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
+    application.add_handler(sessions_handler)  # /sessions — list/revoke signed-in devices
+    application.add_handler(sessions_revoke_all_handler)  # sessions_revoke_all callback
+    application.add_handler(sessions_close_handler)  # sessions_close callback
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
     application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
