@@ -40,6 +40,14 @@ checklist per subsection.
 1. **Phase 0 — Permissionless core (now):** stablecoin accounts + on-chain yield
    (Aave/Morpho/Sky), cross-chain balance/statement views, ENS payments — all
    buildable on existing Suwappu rails with no bank partner.
+   - [x] Earn: Aave V3 USDC savings — mobile Earn tab + `/v1/mobile/earn`
+     (deposit/withdraw, money-path reviewed and hardened) — Aug 2026
+   - [x] Statement framing: savings surfaced in Money + "Earning ~$X/day" on
+     Today — Aug 2026
+   - [ ] Send/Receive: USDC transfers (`/v1/mobile/send`) + receive w/ QR — in progress
+   - [ ] Credit (read): Morpho position via `/v1/mobile/borrow` — in progress
+   - [ ] Monthly statement: `/v1/mobile/statement` + statement screen — in progress
+   - [ ] ENS/name payments; recurring transfers/DCA; savings goals — not started
 2. **Phase 1 — Card + on/off-ramp:** non-custodial debit (Gnosis Pay / Immersve
    track) + fiat ramps (Bridge/Stripe, Monerium SEPA), Apple/Google wallet
    provisioning.
