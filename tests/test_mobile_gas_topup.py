@@ -71,6 +71,11 @@ def client(monkeypatch):
     monkeypatch.setattr(
         gas_topup_mod, "estimate_gas_wei_for_action", MagicMock(return_value=21_000)
     )
+    # F2 fix: deposit now estimates gas via a dedicated live estimator (sum
+    # of approve+supply), not the flat estimate_gas_wei_for_action path.
+    monkeypatch.setattr(
+        gas_topup_mod, "estimate_gas_wei_for_deposit", MagicMock(return_value=21_000)
+    )
     return app_client()
 
 
@@ -144,6 +149,10 @@ def _patch_send_chain(monkeypatch, balances, tx_gas=100_000, tx_gas_price=1_000_
     web3.eth.get_transaction_count = MagicMock(return_value=5)
     web3.eth.send_raw_transaction = MagicMock(return_value=b"\x01" * 32)
     monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    # F7's L1 fee lookup calls web3.eth.contract(...).functions.getL1Fee(...).call(),
+    # and MagicMock's auto __int__ default (1) would otherwise silently add 1
+    # wei to every gas_cost computed below — pin it to a known value instead.
+    monkeypatch.setattr(gas_topup_mod, "estimate_l1_data_fee_wei", MagicMock(return_value=0))
 
     monkeypatch.setattr(
         bulk_pay_mod,

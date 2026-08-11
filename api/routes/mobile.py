@@ -2707,30 +2707,46 @@ async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action
             is_funded = is_max or amount <= available
             if is_funded:
                 from bot.services.gas_topup_service import (
-                    DEPOSIT_GAS_UNITS_ESTIMATE,
                     WITHDRAW_GAS_UNITS_ESTIMATE,
                     GasTopUpCapExceeded,
                     GasTopUpFailed,
                     ensure_gas,
                     estimate_gas_wei_for_action,
+                    estimate_gas_wei_for_deposit,
+                    run_gas_sensitive,
                 )
+                from bot.services.savings_service import USDC_DECIMALS
 
-                gas_units = (
-                    DEPOSIT_GAS_UNITS_ESTIMATE
-                    if action == "deposit"
-                    else WITHDRAW_GAS_UNITS_ESTIMATE
-                )
                 try:
-                    estimated_gas_wei = await asyncio.to_thread(
-                        estimate_gas_wei_for_action, "base", gas_units
-                    )
-                    await asyncio.to_thread(
+                    if action == "deposit":
+                        # F2 fix: estimate the REAL sum of approve+supply gas
+                        # (from the actual built transactions where possible)
+                        # rather than a single flat unit count — see
+                        # estimate_gas_wei_for_deposit's docstring for why the
+                        # old flat 220k estimate could wedge a first-time
+                        # depositor after consuming their one top-up.
+                        amount_wei_for_gas = int(amount * Decimal(10**USDC_DECIMALS))
+                        estimated_gas_wei = await asyncio.to_thread(
+                            estimate_gas_wei_for_deposit,
+                            "base",
+                            wallet.address,
+                            amount_wei_for_gas,
+                        )
+                    else:
+                        estimated_gas_wei = await asyncio.to_thread(
+                            estimate_gas_wei_for_action, "base", WITHDRAW_GAS_UNITS_ESTIMATE
+                        )
+                    # F4 fix: dispatch on gas_topup_service's own dedicated
+                    # bounded pool, not asyncio.to_thread's shared default
+                    # executor — see run_gas_sensitive's docstring.
+                    await run_gas_sensitive(
                         ensure_gas,
                         user_id=user_id,
                         wallet_address=wallet.address,
                         chain_name="base",
                         estimated_gas_wei=estimated_gas_wei,
                         reason=f"mobile_earn_{action}",
+                        ip_address=_client_ip(request),
                     )
                 except GasTopUpCapExceeded as e:
                     raise HTTPException(status_code=400, detail=str(e))
@@ -2916,7 +2932,9 @@ def _is_contract_address(to_address: str) -> bool:
     return code not in (b"", "0x", b"0x")
 
 
-def _send_usdc_base(wallet, to_address: str, amount: Decimal, user_id: int) -> Tuple[str, bool]:
+def _send_usdc_base(
+    wallet, to_address: str, amount: Decimal, user_id: int, ip_address: str = "unknown"
+) -> Tuple[str, bool]:
     """Broadcast a USDC (Base) ERC-20 `transfer` from `wallet` to `to_address`.
 
     Blocking (web3 + `asyncio.run` for the Turnkey/local signing call) —
@@ -2968,7 +2986,16 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal, user_id: int) -> T
     # still builds/signs a structurally valid tx that the node then
     # deterministically rejects; catch it before signing so the failure is
     # unambiguous and the reserved nonce is freed immediately.
+    #
+    # F7 fix: op-geth's balance check for a send includes the OP-stack L1
+    # data-availability fee on top of `gas * gasPrice` — omitting it here
+    # let a congestion-inflated L1 fee pass this precheck (and the top-up
+    # recheck below, using the same understated figure) and then fail on
+    # actual broadcast, burning a top-up and a cap slot for nothing.
+    from bot.services.gas_topup_service import estimate_l1_data_fee_wei
+
     gas_cost = int(tx.get("gas") or 0) * int(tx.get("gasPrice") or 0)
+    gas_cost += estimate_l1_data_fee_wei(_SEND_CHAIN, tx)
     native_balance = web3.eth.get_balance(from_addr)
     if native_balance < gas_cost:
         # Auto top-up from the hot wallet — MONEY-PATH. Reached only AFTER
@@ -2986,6 +3013,7 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal, user_id: int) -> T
                 chain_name=_SEND_CHAIN,
                 estimated_gas_wei=gas_cost,
                 reason="mobile_send",
+                ip_address=ip_address,
             )
         except GasTopUpError as e:
             release_nonce(from_addr, nonce)
@@ -3287,8 +3315,20 @@ async def send_mobile(request: Request, body: SendBody):
             )
         try:
             try:
-                tx_hash, is_pending = await asyncio.to_thread(
-                    _send_usdc_base, wallet, to_address, amount, user_id
+                from bot.services.gas_topup_service import run_gas_sensitive
+
+                # F4 fix: dispatch on gas_topup_service's own dedicated
+                # bounded pool, not asyncio.to_thread's shared default
+                # executor — see run_gas_sensitive's docstring. `_send_usdc_base`
+                # embeds the gas-topup-capable `ensure_gas` call, which can
+                # block for up to GAS_TOPUP_CONFIRM_TIMEOUT_SECONDS.
+                tx_hash, is_pending = await run_gas_sensitive(
+                    _send_usdc_base,
+                    wallet,
+                    to_address,
+                    amount,
+                    user_id,
+                    ip_address=_client_ip(request),
                 )
             except HTTPException:
                 raise

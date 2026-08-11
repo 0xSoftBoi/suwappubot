@@ -62,6 +62,11 @@ def client(monkeypatch):
     # web3/RPC call. Tests that DO care about gas top-up override these.
     monkeypatch.setattr(gas_topup_mod, "ensure_gas", MagicMock(return_value=False))
     monkeypatch.setattr(gas_topup_mod, "estimate_gas_wei_for_action", MagicMock(return_value=21000))
+    # F2 fix: deposit now estimates gas via a dedicated live estimator (sum
+    # of approve+supply), not the flat estimate_gas_wei_for_action path.
+    monkeypatch.setattr(
+        gas_topup_mod, "estimate_gas_wei_for_deposit", MagicMock(return_value=21000)
+    )
     return app_client()
 
 

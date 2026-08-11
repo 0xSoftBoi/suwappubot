@@ -733,6 +733,10 @@ def _ensure_schema(db_engine) -> None:
     # bot/services/gas_topup_service.py) ---
     _create_gas_topups_table(db_engine, inspector, is_sqlite)
 
+    # --- gas_topup_daily_counters table (atomic global/per-IP daily cap
+    # reserve, MONEY-PATH — see bot/services/gas_topup_service.py) ---
+    _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite)
+
     # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
     _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
 
@@ -1508,14 +1512,20 @@ def _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite: bool) -> 
 def _create_gas_topups_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the gas_topups table (auto gas top-up audit log — see
     bot/services/gas_topup_service.py). MONEY-PATH: this table backs both
-    the audit trail for hot-wallet spend on gas top-ups AND the per-user /
-    global daily cap enforcement (the caps are computed by querying this
-    same table, so the audit log and the enforcement data source can never
-    drift apart). Caught-and-logged like every other additive table-creation
-    helper in this file — a transient DDL failure here must not crash boot;
-    `gas_topup_service.ensure_gas()` itself fails closed (raises
-    GasTopUpFailed) if this table is missing, so a top-up is refused rather
-    than left unrecorded."""
+    the audit trail for hot-wallet spend on gas top-ups AND the per-user
+    daily cap enforcement (the caps are computed by querying this same
+    table, so the audit log and the enforcement data source can never drift
+    apart — see `gas_topup_daily_counters` below for the separate global +
+    per-IP atomic counters). Caught-and-logged like every other additive
+    table-creation helper in this file — a transient DDL failure here must
+    not crash boot.
+
+    F8 fix: this docstring used to claim `gas_topup_service.ensure_gas()`
+    "fails closed (raises GasTopUpFailed)" if this table is missing —
+    that's now actually true (gas_topup_service.py's `_user_daily_stats` /
+    `_daily_reserve` wrap their queries and raise `GasTopUpFailed` on any DB
+    failure, table-missing included) rather than letting a raw
+    `OperationalError` escape as an unrelated 500."""
     try:
         from bot.models.gas_topup import GasTopUp
 
@@ -1525,6 +1535,46 @@ def _create_gas_topups_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created gas_topups table")
     except Exception as e:
         logger.warning(f"Failed to create gas_topups table: {e}")
+
+
+def _create_gas_topup_daily_counters_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create gas_topup_daily_counters (F6 fix, MONEY-PATH): a single row per
+    (UTC day, scope) backing the ATOMIC daily-cap reserve in
+    gas_topup_service.py's `_daily_reserve()`. Replaces a check-then-send
+    read of SUM(gas_topups.amount_wei) for the global breaker, whose
+    read-decide-spend window let N concurrent requests each read the same
+    stale total and collectively overshoot the cap by up to
+    N x per-tx ceiling. `scope` is "global" for the network-wide breaker and
+    "ip:<address>" for the new per-IP cap — both share this table/mechanism.
+
+    Deliberately a hand-rolled Core table here rather than an ORM model in
+    bot/models/: this migration and every read/write to this table both live
+    in files already responsible for gas top-up spend controls
+    (database/db.py, bot/services/gas_topup_service.py), and
+    gas_topup_service.py talks to it via a single raw-SQL UPSERT statement
+    (`INSERT ... ON CONFLICT (day, scope) DO UPDATE ... WHERE ...`) rather
+    than the ORM — both Postgres and SQLite (3.35+; this repo's is 3.45)
+    execute that atomically, which is the whole point of this table."""
+    try:
+        live_inspector = inspect(db_engine)
+        if live_inspector.has_table("gas_topup_daily_counters"):
+            return
+
+        from sqlalchemy import BigInteger, Column, Date, Integer, MetaData, String, Table
+
+        metadata = MetaData()
+        Table(
+            "gas_topup_daily_counters",
+            metadata,
+            Column("day", Date, primary_key=True, nullable=False),
+            Column("scope", String(64), primary_key=True, nullable=False),
+            Column("total_wei", BigInteger, nullable=False, server_default="0"),
+            Column("topup_count", Integer, nullable=False, server_default="0"),
+        )
+        metadata.create_all(bind=db_engine)
+        logger.info("Created gas_topup_daily_counters table")
+    except Exception as e:
+        logger.warning(f"Failed to create gas_topup_daily_counters table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:

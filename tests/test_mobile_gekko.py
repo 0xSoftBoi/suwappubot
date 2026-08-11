@@ -514,10 +514,14 @@ def _mock_web3_for_send(
 
 def _patch_send_pipeline(monkeypatch, web3, *, gas=80_000, gas_price=1_000_000_000):
     import bot.handlers.bulk_pay as bulk_pay_mod
+    import bot.services.gas_topup_service as gas_topup_mod
     import bot.services.rpc_manager as rpc_manager_mod
     import bot.services.wallet as wallet_mod
 
     monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    # F7's L1 fee lookup would otherwise pick up MagicMock's auto __int__
+    # default (1) and silently add 1 wei to every computed gas_cost.
+    monkeypatch.setattr(gas_topup_mod, "estimate_l1_data_fee_wei", MagicMock(return_value=0))
     monkeypatch.setattr(
         bulk_pay_mod,
         "_build_erc20_transfer_tx",
