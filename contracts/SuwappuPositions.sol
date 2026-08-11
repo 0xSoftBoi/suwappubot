@@ -2,7 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
@@ -33,6 +34,18 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
  * utility is a discount on Suwappu's own swap fee. See the compliance note in
  * bot/config/tokens.py.
  */
+/// @dev Minimal Chainlink aggregator view, for the ETH/USD feed that converts a
+///      USD-cent mint price into wei at purchase time. Robinhood Chain publishes
+///      ETH/USD at 0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9 (8 decimals,
+///      verified live).
+interface AggregatorV3Interface {
+    function decimals() external view returns (uint8);
+    function latestRoundData()
+        external
+        view
+        returns (uint80, int256, uint256, uint256, uint80);
+}
+
 interface IPositionOracle {
     /// @notice Price of `token` quoted in USD, scaled to 1e18. MUST return 0 when
     ///         it has no fresh price rather than reverting or guessing.
@@ -42,7 +55,7 @@ interface IPositionOracle {
     function priceOf(address token) external view returns (uint256);
 }
 
-contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
+contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     uint256 public constant MAX_SUPPLY = 10_000;
     uint256 public constant TICKER_COUNT = 35;
     uint256 public constant MAX_PER_WALLET = 50;
@@ -75,6 +88,30 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
 
     uint256 public totalSupply;
 
+    // ─── Pricing ──────────────────────────────────────────────────────────────
+    // Phases carry a price in USD CENTS, not wei. A wei price silently reprices
+    // the whole mint whenever ETH moves — a 20% ETH rally makes a "$20 card"
+    // cost $24 without anyone touching the contract. The card is quoted in
+    // dollars, so it should be charged in dollars.
+    AggregatorV3Interface public ethUsdFeed;
+    /// @dev Sanity band on the feed. A compromised or misconfigured aggregator
+    ///      reporting $0.01 or $1e9 must not let the mint be bought for dust or
+    ///      become unbuyable — outside the band we fall back to a fixed wei price.
+    uint256 public constant MIN_ETH_USD_8DP = 100e8; // $100
+    uint256 public constant MAX_ETH_USD_8DP = 100_000e8; // $100k
+    uint256 public constant MAX_FEED_AGE = 3 hours;
+    /// @notice Used when the feed is stale or out of band. Bounded so a fallback
+    ///         can never be set to an extractive number.
+    uint256 public fallbackWeiPerUsdCent;
+    uint256 public constant MAX_FALLBACK_WEI_PER_CENT = 1e15; // $1 <= 0.1 ETH
+
+    // ─── Credible end ─────────────────────────────────────────────────────────
+    /// @notice Once announced the mint cannot be extended, and once closed no
+    ///         token can ever be minted again — including the team reserve.
+    uint64 public mintEndTime;
+    bool public mintingClosedForever;
+    bool public paused;
+
     /// @notice Mint phases. Earned access first, open market last.
     ///         Founder   — the Suwappu snapshot (XP, volume, referrals)
     ///         Allowlist — active traders and partners
@@ -83,7 +120,7 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
 
     struct PhaseConfig {
         bytes32 merkleRoot; // 0 == open phase, no proof required
-        uint96 price;       // wei per card
+        uint96 price;       // USD CENTS per card (not wei — see Pricing)
         uint16 walletCap;   // hard per-wallet cap inside this phase
         uint16 allocation;  // max cards mintable in this phase (0 == up to MAX_SUPPLY)
         uint64 startsAt;    // unix seconds, 0 == not scheduled
@@ -104,6 +141,11 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     event Minted(uint256 indexed tokenId, address indexed to, uint8 tickerIndex, uint256 entryPrice);
     event OracleSet(address oracle);
     event RegistrySealed();
+    event EthUsdFeedSet(address feed);
+    event FallbackPriceSet(uint256 weiPerUsdCent);
+    event EndAnnounced(uint64 endTime);
+    event MintingClosedForever(uint256 finalSupply);
+    event PausedSet(bool paused);
     event PhaseConfigured(Phase indexed phase, bytes32 merkleRoot, uint96 price, uint16 walletCap, uint16 allocation, uint64 startsAt, uint64 endsAt);
     event HoldDiscountSet(uint16 bps);
     event BaseURISet(string baseURI);
@@ -124,6 +166,14 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     error UnknownToken();
     error DiscountTooHigh();
     error BadCaps();
+    error PriceNotConfigured();
+    error MintPaused();
+    error MintEnded();
+    error MintingIsClosed();
+    error EndAlreadyAnnounced();
+    error InvalidEndTime();
+    error FallbackOutOfBand();
+    error RefundFailed();
 
     constructor(
         uint16[35] memory caps,
@@ -171,10 +221,19 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         if (quantity == 0) revert ZeroQuantity();
         if (tickerIndex >= TICKER_COUNT) revert UnknownTicker();
 
+        if (paused) revert MintPaused();
+        if (mintingClosedForever) revert MintingIsClosed();
+        if (mintEndTime != 0 && block.timestamp > mintEndTime) revert MintEnded();
+
         PhaseConfig memory cfg = phaseConfig[phase];
         if (cfg.startsAt == 0 || block.timestamp < cfg.startsAt) revert PhaseNotOpen();
         if (cfg.endsAt != 0 && block.timestamp > cfg.endsAt) revert PhaseNotOpen();
-        if (msg.value != uint256(cfg.price) * quantity) revert WrongPayment();
+
+        // USD-denominated: convert at purchase time and REFUND the remainder.
+        // Requiring an exact wei amount against a moving feed would make most
+        // transactions revert on a price tick between quoting and mining.
+        uint256 cost = _weiForCents(uint256(cfg.price) * quantity);
+        if (msg.value < cost) revert WrongPayment();
 
         // Allowlisted phase: prove membership and respect the per-address grant.
         if (cfg.merkleRoot != bytes32(0)) {
@@ -197,10 +256,18 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         mintedInPhase[phase][msg.sender] += quantity;
         phaseMinted[phase] += quantity;
         _mintRun(msg.sender, tickerIndex, quantity);
+
+        // Refund last, after all state is written (CEI).
+        uint256 refund = msg.value - cost;
+        if (refund > 0) {
+            (bool ok,) = msg.sender.call{ value: refund }("");
+            if (!ok) revert RefundFailed();
+        }
     }
 
     /// @notice Treasury / airdrop mint, bounded by RESERVE_MAX.
     function ownerMint(address to, uint8 tickerIndex, uint256 quantity) external onlyOwner {
+        if (mintingClosedForever) revert MintingIsClosed();
         if (quantity == 0) revert ZeroQuantity();
         if (tickerIndex >= TICKER_COUNT) revert UnknownTicker();
         if (reserveMinted + quantity > RESERVE_MAX) revert ReserveExhausted();
@@ -258,6 +325,46 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         if (cfg.endsAt != 0 && block.timestamp > cfg.endsAt) return false;
         if (cfg.allocation != 0 && phaseMinted[phase] >= cfg.allocation) return false;
         return totalSupply < MAX_SUPPLY;
+    }
+
+    /// @notice Wei cost of `quantity` cards in `phase`, at the current ETH/USD.
+    ///         Public so a UI shows the exact number the transaction will charge
+    ///         instead of guessing.
+    function quote(Phase phase, uint256 quantity) public view returns (uint256) {
+        return _weiForCents(uint256(phaseConfig[phase].price) * quantity);
+    }
+
+    /// @notice Live ETH/USD used for pricing, 8dp, and whether it came from the
+    ///         feed (false == the bounded fallback is in force).
+    function ethUsd() public view returns (uint256 price8dp, bool fromFeed) {
+        AggregatorV3Interface feed = ethUsdFeed;
+        if (address(feed) == address(0)) return (0, false);
+        try feed.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
+            if (answer <= 0) return (0, false);
+            uint256 p = uint256(answer);
+            uint8 dec = feed.decimals();
+            if (dec < 8) p *= 10 ** (8 - dec);
+            if (dec > 8) p /= 10 ** (dec - 8);
+            if (p < MIN_ETH_USD_8DP || p > MAX_ETH_USD_8DP) return (0, false);
+            if (block.timestamp > updatedAt && block.timestamp - updatedAt > MAX_FEED_AGE) {
+                return (0, false);
+            }
+            return (p, true);
+        } catch {
+            return (0, false);
+        }
+    }
+
+    function _weiForCents(uint256 cents) internal view returns (uint256) {
+        if (cents == 0) return 0;
+        (uint256 price8dp, bool ok) = ethUsd();
+        if (ok) {
+            // cents -> wei: (cents / 100) USD * 1e18 / (price8dp / 1e8)
+            return (cents * 1e18 * 1e8) / (price8dp * 100);
+        }
+        uint256 fb = fallbackWeiPerUsdCent;
+        if (fb == 0) revert PriceNotConfigured();
+        return cents * fb;
     }
 
     function _oraclePrice(uint8 tickerIndex) internal view returns (uint256) {
@@ -357,6 +464,47 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         emit RegistrySealed();
     }
 
+    function setEthUsdFeed(address feed) external onlyOwner {
+        ethUsdFeed = AggregatorV3Interface(feed);
+        emit EthUsdFeedSet(feed);
+    }
+
+    /// @notice Wei charged per USD cent when the feed is unusable. Bounded, so a
+    ///         fallback can never be set to an extractive number.
+    function setFallbackWeiPerUsdCent(uint256 weiPerCent) external onlyOwner {
+        if (weiPerCent > MAX_FALLBACK_WEI_PER_CENT) revert FallbackOutOfBand();
+        fallbackWeiPerUsdCent = weiPerCent;
+        emit FallbackPriceSet(weiPerCent);
+    }
+
+    function setPaused(bool p) external onlyOwner {
+        paused = p;
+        emit PausedSet(p);
+    }
+
+    /// @notice Announce a hard end for the mint. Callable once and never
+    ///         extendable, so "minting ends on X" is a promise the contract keeps
+    ///         rather than a tweet.
+    function announceEnd(uint64 endTime) external onlyOwner {
+        if (mintEndTime != 0) revert EndAlreadyAnnounced();
+        if (endTime <= block.timestamp) revert InvalidEndTime();
+        mintEndTime = endTime;
+        emit EndAnnounced(endTime);
+    }
+
+    /// @notice One-way door: after this NO token can ever be minted again, not by
+    ///         the public and not by the owner. Supply becomes provably final,
+    ///         which is the difference between "10,000 max" and "10,000, and here
+    ///         is the transaction proving no more can exist".
+    function closeMintingForever() external onlyOwner {
+        mintingClosedForever = true;
+        emit MintingClosedForever(totalSupply);
+    }
+
+    function setDefaultRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
+        _setDefaultRoyalty(receiver, feeNumerator);
+    }
+
     function setOracle(address o) external onlyOwner {
         oracle = IPositionOracle(o);
         emit OracleSet(o);
@@ -402,5 +550,14 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
 
     function _baseURI() internal view override returns (string memory) {
         return _renderBaseURI;
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, ERC2981)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 }

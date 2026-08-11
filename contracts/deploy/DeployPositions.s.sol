@@ -87,7 +87,11 @@ contract DeployPositions is Script {
         console.log("SuwappuPositions:", address(pos));
         console.log("chain id:", block.chainid);
         console.log("sequencer uptime feed:", sequencer);
-        console.log("next: configurePhase() per phase, then mint opens on its startsAt");
+        console.log("next: setEthUsdFeed(0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9)");
+        console.log("      setFallbackWeiPerUsdCent(...)  // used only if the feed is stale");
+        console.log("      configurePhase() per phase — price is USD CENTS, not wei");
+        console.log("      setDefaultRoyalty(treasury, 500)  // 5% secondary");
+        console.log("      announceEnd(...) then closeMintingForever() when done");
         console.log("  roots come from: python3 nft/position-cards/build_allowlist.py --from-db");
         console.log("sanity: oracle.debugPrice(<token>) should return a non-zero price1e18");
     }

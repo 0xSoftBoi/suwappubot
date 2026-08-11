@@ -182,3 +182,36 @@ python3 -m pytest tests/test_positions_collection.py
 **Sequencer uptime:** Chainlink publishes no L2 sequencer uptime feed for chain 4663 —
 this was checked against the feed directory, not merely un-found. `setSequencerUptimeFeed`
 wires one in the moment it exists, and the check then enforces itself with a 1h grace period.
+
+## Mint mechanics, benchmarked against a collection that sold out
+
+Studied [spritehood.io](https://spritehood.io) by pulling its bundle and reading the
+deployed ABI (97 functions) rather than guessing from the marketing. What it does that
+this collection did not, and what has now been closed:
+
+| Spritehood does | We did | Now |
+|---|---|---|
+| Prices in **USD cents**, converts via Chainlink at purchase, sanity-banded, with a bounded wei fallback (`quote`, `StalePrice`, `FeedAnswerOutOfBand`, `MAX_FALLBACK_WEI`) | Fixed **wei** price — a 20% ETH move silently repriced a "$20 card" to $24 | `quote(phase, qty)`, USD-cent phase prices, live ETH/USD from `0x78F3…8d3A9` (verified live, $1,883.47), $100–$100k band, 3h staleness, bounded fallback |
+| **Refunds** overpayment | Required an exact wei amount | Refunds the remainder — an exact-amount rule reverts most mints on a price tick between quote and mine |
+| `announceEnd` + `closeMintingForever` — supply is **provably** final | Owner could mint the reserve forever | Both, and `closeMintingForever` stops the owner too |
+| `Ownable2Step` | Plain `Ownable` — a typo'd transfer bricks the contract | `Ownable2Step` |
+| `setPaused` emergency stop | None once live | `setPaused` |
+| ERC-2981 royalties | **None** — zero secondary revenue | `setDefaultRoyalty` + `royaltyInfo` |
+
+### Not adopted, deliberately
+
+- **Merkle groups as visual identity.** Their allowlist groups map to *skins*
+  (`GROUP_LAZULI` → `SKIN_LAZULI`), so being on a list is a faction, not a queue
+  position. That is the single best idea in their design and it does not port cleanly:
+  our card's identity is the ticker the holder *chose*. Worth revisiting as an edition
+  frame (Founder cards rendered distinctly), which is a renderer change, not a contract one.
+- **Transfer validator** (Limit Break creator-token royalty enforcement). Real royalty
+  revenue, but it hands a third-party contract veto over every transfer. Not a dependency
+  to add to a contract holding a fee-discount entitlement without its own review.
+- **ERC721A batch minting.** See the gas section — the real per-card lever, and a rewrite
+  of ownership bookkeeping that needs its own review pass.
+
+Their art is layered sprite slots (skin/eyes/hair/outfit/accessory/main_hand/off_hand/
+two_hand) plus classes and generated names with founder-exclusive variants — a character
+system, not a PFP. Ours is a live P&L card, which is a different (and chain-native) bet;
+the lesson taken is the *depth* of trait composition, not the fantasy subject matter.
