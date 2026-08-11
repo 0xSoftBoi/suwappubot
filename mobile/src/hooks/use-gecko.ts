@@ -3,6 +3,9 @@ import { endpoints } from '../lib/endpoints'
 import { getAuthRevision } from '../lib/auth'
 import { queryKeys } from '../lib/queryKeys'
 import { STALE } from '../lib/queryClient'
+import { ApiError } from '../lib/api'
+import { analytics } from '../lib/analytics'
+import { bucketUsd, type UsdBucket } from '../lib/analytics-privacy'
 import type {
   ActivityEntry,
   AskResponse,
@@ -59,15 +62,59 @@ interface EarnActionVars {
   walletId?: number
 }
 
+// USDC is ~1:1 with USD on this stablecoin-only surface, so amount strings
+// bucket directly through bucketUsd. "max" has no known ceiling here (the
+// screen resolves it, not this hook) and buckets as '0' — a known gap, see
+// mobile analytics summary.
+function bucketAmount(raw: string): UsdBucket {
+  return bucketUsd(Number(raw))
+}
+
+function httpStatusOf(err: unknown): number | undefined {
+  return err instanceof ApiError ? err.status : undefined
+}
+
 export function useEarnDeposit() {
   return useMutation<EarnActionResponse, Error, EarnActionVars>({
-    mutationFn: (vars) => endpoints.earnDeposit(vars.amount, vars.walletId),
+    mutationFn: (vars) => {
+      analytics.track('earn_deposit_submitted', { amount_bucket: bucketAmount(vars.amount) })
+      return endpoints.earnDeposit(vars.amount, vars.walletId)
+    },
+    onSuccess: (response, vars) => {
+      analytics.track('earn_deposit_result', {
+        status: response.ok ? 'ok' : 'pending',
+        amount_bucket: bucketAmount(vars.amount),
+      })
+    },
+    onError: (err, vars) => {
+      analytics.track('earn_deposit_result', {
+        status: 'error',
+        http_status: httpStatusOf(err),
+        amount_bucket: bucketAmount(vars.amount),
+      })
+    },
   })
 }
 
 export function useEarnWithdraw() {
   return useMutation<EarnActionResponse, Error, EarnActionVars>({
-    mutationFn: (vars) => endpoints.earnWithdraw(vars.amount, vars.walletId),
+    mutationFn: (vars) => {
+      analytics.track('earn_withdraw_submitted', { amount_bucket: bucketAmount(vars.amount) })
+      return endpoints.earnWithdraw(vars.amount, vars.walletId)
+    },
+    onSuccess: (response, vars) => {
+      analytics.track('earn_withdraw_result', {
+        status: response.ok ? 'ok' : 'pending',
+        amount_bucket: bucketAmount(vars.amount),
+      })
+    },
+    onError: (err, vars) => {
+      analytics.track('earn_withdraw_result', {
+        status: 'error',
+        http_status: httpStatusOf(err),
+        amount_bucket: bucketAmount(vars.amount),
+      })
+    },
   })
 }
 
@@ -84,11 +131,32 @@ export function useWallets(enabled = true) {
 interface SendVars {
   to: string
   amount: string
+  // Never the recipient value itself — only which shape it was, per the
+  // instrumentation spec's privacy rule.
+  recipientType: 'ens' | 'hex'
 }
 
 export function useSend() {
   return useMutation<SendActionResponse, Error, SendVars>({
-    mutationFn: (vars) => endpoints.send(vars.to, vars.amount),
+    mutationFn: (vars) => {
+      analytics.track('send_submitted', { recipient_type: vars.recipientType })
+      return endpoints.send(vars.to, vars.amount)
+    },
+    onSuccess: (response, vars) => {
+      analytics.track('send_result', {
+        status: response.ok ? 'ok' : 'pending',
+        amount_bucket: bucketAmount(vars.amount),
+        recipient_type: vars.recipientType,
+      })
+    },
+    onError: (err, vars) => {
+      analytics.track('send_result', {
+        status: 'error',
+        http_status: httpStatusOf(err),
+        amount_bucket: bucketAmount(vars.amount),
+        recipient_type: vars.recipientType,
+      })
+    },
   })
 }
 
@@ -143,11 +211,13 @@ interface CreateGoalVars {
 export function useCreateGoal() {
   return useMutation<Goal, Error, CreateGoalVars>({
     mutationFn: (vars) => endpoints.createGoal(vars.name, vars.targetUsd),
+    onSuccess: () => analytics.track('goal_created'),
   })
 }
 
 export function useDeleteGoal() {
   return useMutation<{ ok: true }, Error, number>({
     mutationFn: (goalId) => endpoints.deleteGoal(goalId),
+    onSuccess: () => analytics.track('goal_deleted'),
   })
 }

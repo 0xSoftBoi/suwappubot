@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useStatement } from '../src/hooks/use-gecko'
+import { analytics } from '../src/lib/analytics'
 import { isAuthenticated } from '../src/lib/auth'
 import { formatUsd } from '../src/lib/format'
 import { palette, spacing, styles as s } from '../src/theme'
@@ -70,10 +71,24 @@ export default function StatementScreen() {
   const statement = useStatement(month, signedIn)
 
   const isCurrentOrFuture = month >= currentMonth()
-  const goPrev = useCallback(() => setMonth((m) => shiftMonth(m, -1)), [])
-  const goNext = useCallback(() => { if (!isCurrentOrFuture) setMonth((m) => shiftMonth(m, 1)) }, [isCurrentOrFuture])
+  const goPrev = useCallback(() => {
+    analytics.track('statement_month_changed', { direction: 'prev' })
+    setMonth((m) => shiftMonth(m, -1))
+  }, [])
+  const goNext = useCallback(() => {
+    if (isCurrentOrFuture) return
+    analytics.track('statement_month_changed', { direction: 'next' })
+    setMonth((m) => shiftMonth(m, 1))
+  }, [isCurrentOrFuture])
 
   const groups = useMemo(() => groupByDay(statement.data?.transactions ?? []), [statement.data])
+
+  useEffect(() => { analytics.screen('Statement') }, [])
+
+  const isEmpty = statement.data !== undefined && groups.length === 0
+  useEffect(() => {
+    if (isEmpty) analytics.track('empty_state_seen', { screen: 'statement' })
+  }, [isEmpty])
 
   if (!signedIn) return <SignedOutState />
 

@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, Vie
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useCreateGoal, useDeleteGoal, useEarn, useEarnDeposit, useEarnWithdraw, useGoals } from '../../src/hooks/use-gecko'
 import { ApiError } from '../../src/lib/api'
+import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
@@ -124,6 +125,17 @@ export default function EarnScreen() {
       },
     })
   }, [mode, mutation, canReview, amountToSend, refetch, clearPendingTimer])
+
+  useEffect(() => { analytics.screen('Earn') }, [])
+
+  const goalsEmpty = goals.data !== undefined && (goals.data.goals ?? []).length === 0
+  const positionEmpty = data !== undefined && (data.positions ?? []).length === 0
+  useEffect(() => {
+    if (goalsEmpty) analytics.track('empty_state_seen', { screen: 'earn_goals' })
+  }, [goalsEmpty])
+  useEffect(() => {
+    if (positionEmpty) analytics.track('empty_state_seen', { screen: 'earn_position' })
+  }, [positionEmpty])
 
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Loading your yield…" />
