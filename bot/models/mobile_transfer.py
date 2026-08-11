@@ -35,3 +35,8 @@ class MobileTransfer(Base):
     # api/routes/mobile.py's `_send_usdc_base`).
     status = Column(String(16), nullable=False, default="sent")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # Durable cross-replica replay guard for POST /v1/mobile/send — mirrors
+    # point_redemptions.idempotency_key (see database/db.py
+    # `_add_mobile_transfer_idempotency_key`). NULL for rows created before
+    # this column existed / without a client Idempotency-Key header.
+    idempotency_key = Column(String(160), nullable=True)

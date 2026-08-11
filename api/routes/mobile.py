@@ -2606,12 +2606,96 @@ _SEND_CHAIN = "base"
 
 _send_action_limiter = UserRateLimiter(max_requests=6, window_seconds=60)
 
+# Cross-replica advisory wallet lock (MED finding) — see
+# bot/models/mobile_wallet_lock.py. TTL bounds how long a lock is trusted
+# before a NEW request is allowed to steal it, so a crashed/hung holder
+# can't wedge a wallet forever. 30s is generous for a Base ERC-20 transfer
+# build+sign+broadcast (this endpoint does not wait for a mined receipt).
+_DB_WALLET_LOCK_TTL_SECONDS = 30
+
+# Recipients that must always be rejected, regardless of `allowContract`
+# (MED finding) — sending USDC to its own token contract or to a
+# well-known burn address is never intentional and is unrecoverable.
+_KNOWN_BURN_ADDRESSES = {"0x000000000000000000000000000000000000dead"}
+
 
 class SendBody(BaseModel):
     to: str
     amount: str
     token: str = _SEND_TOKEN
     chain: str = _SEND_CHAIN
+    # Default-deny sending to a contract address (MED finding). A mobile
+    # client that has explicitly confirmed with the user that the recipient
+    # is intentionally a contract (e.g. a known deposit address) can set
+    # this to bypass the check.
+    allowContract: bool = False
+
+
+class SendRejected(Exception):
+    """A deterministic node-level rejection (insufficient funds, nonce too
+    low, replacement underpriced, intrinsic gas) OR our own pre-broadcast
+    gas precheck. The transaction was NEVER broadcast in either case, so —
+    unlike a transport-level failure — this is safe to surface to the client
+    immediately as a 400 (client-fixable) instead of an ambiguous 202
+    pending (HIGH finding)."""
+
+
+def _is_ambiguous_broadcast_error(exc: Exception) -> bool:
+    """True only for transport-level failures (connection reset/timeout)
+    where we genuinely cannot tell whether the node received the signed tx
+    before the connection died. Node-level rejections (insufficient funds,
+    nonce too low, replacement underpriced, intrinsic gas too low) are
+    deterministic — the node parsed the request and rejected it outright, so
+    it was NEVER broadcast. Treating those as ambiguous 202s creates phantom
+    "pending" transfers that get idempotency-cached and written to
+    mobile_transfers even though nothing happened on-chain (HIGH finding)."""
+    transport_types: list = [TimeoutError, ConnectionError]
+    try:
+        import requests.exceptions as _rq_exc
+
+        transport_types += [_rq_exc.Timeout, _rq_exc.ConnectionError]
+    except ImportError:
+        pass
+    try:
+        import urllib3.exceptions as _u3_exc
+
+        transport_types += [
+            _u3_exc.TimeoutError,
+            _u3_exc.ConnectTimeoutError,
+            _u3_exc.ReadTimeoutError,
+            _u3_exc.ProtocolError,
+        ]
+    except ImportError:
+        pass
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+    return isinstance(exc, tuple(transport_types))
+
+
+def _extract_node_rejection_reason(exc: Exception) -> str:
+    """Best-effort human-readable reason from a web3/JSON-RPC rejection —
+    web3.py raises `ValueError({"message": ..., "code": ...})` for most
+    node-level rejections."""
+    if exc.args:
+        arg0 = exc.args[0]
+        if isinstance(arg0, dict) and arg0.get("message"):
+            return str(arg0["message"])
+    text = str(exc).strip()
+    return text or exc.__class__.__name__
+
+
+def _is_contract_address(to_address: str) -> bool:
+    """True if `to_address` has on-chain bytecode (a contract, not an EOA) —
+    MONEY-PATH default-deny (MED finding): USDC sent to an arbitrary
+    contract with no transfer-handling logic is typically unrecoverable,
+    unlike a mis-typed EOA."""
+    from web3 import Web3
+
+    from bot.services.rpc_manager import rpc_manager
+
+    web3 = rpc_manager.get_web3(_SEND_CHAIN)
+    code = web3.eth.get_code(Web3.to_checksum_address(to_address))
+    return code not in (b"", "0x", b"0x")
 
 
 def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool]:
@@ -2622,11 +2706,14 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
     savings_service/morpho_api's `_sign_transaction`.
 
     Returns (tx_hash, is_pending). `is_pending` is True only when the raw
-    broadcast call itself raised (dropped response / node timeout) — the
-    hash returned in that case is the deterministic pre-broadcast keccak of
-    the signed raw tx, computed BEFORE the send call, so it is always
-    resolvable even though the node may have already accepted the tx. Same
-    rationale as bot/services/hot_wallet.py's `PostBroadcastAmbiguous` /
+    broadcast call itself raised an AMBIGUOUS (transport-level) error — see
+    `_is_ambiguous_broadcast_error`. A deterministic node rejection (or our
+    own pre-broadcast gas precheck) raises `SendRejected` instead, which the
+    caller maps to a 400, never a 202 (HIGH finding). The hash returned for
+    the pending case is the deterministic pre-broadcast keccak of the signed
+    raw tx, computed BEFORE the send call, so it is always resolvable even
+    though the node may have already accepted the tx. Same rationale as
+    bot/services/hot_wallet.py's `PostBroadcastAmbiguous` /
     `_broadcast_evm_raw_tx`. Unlike savings_service/morpho_api, this does
     NOT wait for a mined receipt (mirrors bulk_pay's existing single-send
     behavior) — a 200 here means "broadcast", not "confirmed".
@@ -2640,6 +2727,7 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
     from bot.handlers.bulk_pay import _build_erc20_transfer_tx
     from bot.services.rpc_manager import rpc_manager
     from bot.services.wallet import WalletService
+    from bot.utils.nonce_reservation import release_nonce, reserve_nonce
 
     chain = get_chain_by_name(_SEND_CHAIN)
     token_address = get_token_address(_SEND_TOKEN, _SEND_CHAIN)
@@ -2650,11 +2738,23 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
     amount_raw = int(amount * Decimal(10**decimals))
     web3 = rpc_manager.get_web3(_SEND_CHAIN)
     from_addr = Web3.to_checksum_address(wallet.address)
-    nonce = web3.eth.get_transaction_count(from_addr)
+    # MONEY-PATH: "pending"-block nonce reconciled against this process's
+    # own last-reserved nonce (BLOCKER fix — bot/utils/nonce_reservation.py).
+    nonce = reserve_nonce(web3, from_addr)
 
     tx = _build_erc20_transfer_tx(
         web3, wallet.address, token_address, to_address, amount_raw, nonce, chain
     )
+
+    # Gas precheck (HIGH finding) — a wallet with insufficient ETH on Base
+    # still builds/signs a structurally valid tx that the node then
+    # deterministically rejects; catch it before signing so the failure is
+    # unambiguous and the reserved nonce is freed immediately.
+    gas_cost = int(tx.get("gas") or 0) * int(tx.get("gasPrice") or 0)
+    native_balance = web3.eth.get_balance(from_addr)
+    if native_balance < gas_cost:
+        release_nonce(from_addr, nonce)
+        raise SendRejected("Wallet needs ETH on Base for gas.")
 
     signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
     raw_hex = signed_hex[2:] if signed_hex.startswith("0x") else signed_hex
@@ -2667,8 +2767,15 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
     try:
         tx_hash_bytes = web3.eth.send_raw_transaction(raw_bytes)
     except Exception as e:
-        logger.error(f"mobile send broadcast ambiguous (tx may already be sent): {e}")
-        return precomputed_hash, True
+        if _is_ambiguous_broadcast_error(e):
+            logger.error(f"mobile send broadcast ambiguous (tx may already be sent): {e}")
+            return precomputed_hash, True
+        # Deterministic node rejection — the tx was never broadcast, so the
+        # reserved nonce was never consumed; free it for the next attempt.
+        release_nonce(from_addr, nonce)
+        reason = _extract_node_rejection_reason(e)
+        logger.warning(f"mobile send rejected by node for {from_addr}: {reason}")
+        raise SendRejected(reason) from e
 
     tx_hash = tx_hash_bytes.hex()
     if not tx_hash.startswith("0x"):
@@ -2677,10 +2784,18 @@ def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool
 
 
 async def _log_send_event(
-    user_id: int, wallet_id: int, to_address: str, amount: Decimal, tx_hash: str, *, pending: bool
+    user_id: int,
+    wallet_id: int,
+    to_address: str,
+    amount: Decimal,
+    tx_hash: str,
+    *,
+    pending: bool,
+    idempotency_key: Optional[str] = None,
 ) -> None:
-    """Best-effort MobileTransfer record — feeds GET /v1/mobile/statement.
-    Mirrors `_log_earn_event`: never allowed to fail the request."""
+    """Best-effort MobileTransfer record — feeds GET /v1/mobile/statement and
+    the durable cross-replica idempotency lookup (MED finding). Mirrors
+    `_log_earn_event`: never allowed to fail the request."""
     try:
         from bot.models.mobile_transfer import MobileTransfer
 
@@ -2698,10 +2813,115 @@ async def _log_send_event(
                     tx_hash=(
                         ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
                     ),
+                    idempotency_key=idempotency_key,
                 )
             )
     except Exception as e:
         logger.warning(f"Failed to log mobile send event: {e}")
+
+
+def _db_wallet_lock_try_acquire(wallet_address: str) -> Optional[str]:
+    """Best-effort cross-replica advisory lock (MED finding): one row per
+    wallet in `mobile_wallet_locks`, stolen after `_DB_WALLET_LOCK_TTL_SECONDS`
+    so a crashed/hung holder can't wedge the wallet forever. Returns an
+    opaque holder token on success, `None` if another live holder has it.
+
+    Fails OPEN on any DB error (returns a token as if acquired) — the
+    in-process `_earn_wallet_lock` remains the primary, always-available
+    guard; this table only adds protection ON TOP of that when the DB is
+    reachable and multiple replicas are actually racing for the same
+    wallet, so a transient DB hiccup must not itself block a legitimate
+    send."""
+    import uuid as _uuid
+
+    from sqlalchemy.exc import IntegrityError
+
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    addr = str(wallet_address or "").lower()
+    holder = _uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=_DB_WALLET_LOCK_TTL_SECONDS)
+    try:
+        with get_session() as session:
+            existing = (
+                session.query(MobileWalletLock)
+                .filter(MobileWalletLock.wallet_address == addr)
+                .first()
+            )
+            if existing is not None:
+                existing_acquired_at = existing.acquired_at
+                if existing_acquired_at is not None and existing_acquired_at.tzinfo is None:
+                    # SQLite doesn't persist tzinfo — the column is always
+                    # written as UTC (see `acquired_at`'s default), so a
+                    # naive value read back is UTC too.
+                    existing_acquired_at = existing_acquired_at.replace(tzinfo=timezone.utc)
+                if existing_acquired_at and existing_acquired_at > cutoff:
+                    return None
+                existing.holder = holder
+                existing.acquired_at = now
+                return holder
+            try:
+                session.add(MobileWalletLock(wallet_address=addr, holder=holder, acquired_at=now))
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                return None
+            return holder
+    except Exception as e:
+        logger.warning(f"mobile send DB wallet-lock acquire failed, proceeding without it: {e}")
+        return holder
+
+
+def _db_wallet_lock_release(wallet_address: str, holder: Optional[str]) -> None:
+    if not holder:
+        return
+    from bot.models.mobile_wallet_lock import MobileWalletLock
+
+    addr = str(wallet_address or "").lower()
+    try:
+        with get_session() as session:
+            session.query(MobileWalletLock).filter(
+                MobileWalletLock.wallet_address == addr,
+                MobileWalletLock.holder == holder,
+            ).delete()
+    except Exception as e:
+        logger.warning(f"mobile send DB wallet-lock release failed (will expire via TTL): {e}")
+
+
+def _db_send_idem_lookup(user_id: int, idempotency_key: str) -> Optional[dict]:
+    """Durable, cross-replica idempotency lookup (MED finding) — a retry
+    landing on a DIFFERENT worker/replica than the one that handled the
+    original request still finds it via the DB instead of re-broadcasting.
+    Complements (does not replace) the in-process `_earn_idem_lookup` fast
+    path. Best-effort: any DB error here just means the retry proceeds as if
+    it were a fresh request, same posture as the DB lock above."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        with get_session() as session:
+            row = (
+                session.query(MobileTransfer)
+                .filter(
+                    MobileTransfer.user_id == user_id,
+                    MobileTransfer.idempotency_key == idempotency_key,
+                )
+                .order_by(MobileTransfer.id.desc())
+                .first()
+            )
+            if row is None:
+                return None
+            if row.status == "pending":
+                return {"ok": False, "status": "pending", "txHash": row.tx_hash}
+            return {
+                "ok": True,
+                "txHash": row.tx_hash,
+                "amount": str(row.amount),
+                "to": row.to_address,
+            }
+    except Exception as e:
+        logger.warning(f"mobile send DB idempotency lookup failed: {e}")
+        return None
 
 
 @router.post("/send")
@@ -2729,32 +2949,75 @@ async def send_mobile(request: Request, body: SendBody):
     if not validate_evm_address(to_address):
         raise HTTPException(status_code=400, detail="Invalid recipient address.")
 
-    try:
-        await _send_action_limiter.check(user_id)
-    except RateLimitExceeded as e:
+    to_lower = to_address.lower()
+    if to_lower in _KNOWN_BURN_ADDRESSES:
         raise HTTPException(
-            status_code=429,
-            detail=str(e),
-            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+            status_code=400,
+            detail="That address is a known burn address — funds sent there are unrecoverable.",
         )
+
+    from bot.config.tokens import get_token_address as _get_token_address
+
+    usdc_contract = _get_token_address(_SEND_TOKEN, _SEND_CHAIN)
+    if usdc_contract and to_lower == usdc_contract.lower():
+        raise HTTPException(status_code=400, detail="Cannot send USDC to the USDC token contract.")
 
     wallet = await _resolve_earn_wallet(user_id)
     if wallet is None:
         raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
 
-    if to_address.lower() == str(wallet.address or "").lower():
+    if to_lower == str(wallet.address or "").lower():
         raise HTTPException(status_code=400, detail="Cannot send to your own wallet address.")
 
     cache_key = _earn_idempotency_cache_key(request, user_id, f"send:{wallet.address.lower()}")
     lock = _earn_wallet_lock(user_id, wallet.address)
 
     async with lock:
+        # Idempotency cache is checked BEFORE the rate limiter consumes a
+        # token (LOW finding) — a legitimate retry of an already-completed
+        # send must never itself be the request that trips the rate limit
+        # and hides the real (successful) result behind a 429.
         cached = _earn_idem_lookup(cache_key)
         if cached is not None:
             status_code, cached_body = cached
             if status_code >= 400:
                 raise HTTPException(status_code=status_code, detail=cached_body.get("detail"))
             return JSONResponse(status_code=status_code, content=cached_body)
+
+        idem_header = request.headers.get("Idempotency-Key") or request.headers.get(
+            "idempotency-key"
+        )
+        idem_header = idem_header.strip()[:128] if idem_header and idem_header.strip() else None
+        if idem_header:
+            db_hit = await asyncio.to_thread(_db_send_idem_lookup, user_id, idem_header)
+            if db_hit is not None:
+                status_code = 202 if db_hit.get("status") == "pending" else 200
+                _earn_idem_store(cache_key, status_code, db_hit)
+                return JSONResponse(status_code=status_code, content=db_hit)
+
+        try:
+            await _send_action_limiter.check(user_id)
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=429,
+                detail=str(e),
+                headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+            )
+
+        if not body.allowContract:
+            try:
+                is_contract = await asyncio.to_thread(_is_contract_address, to_address)
+            except Exception as e:
+                logger.warning(f"mobile send contract-code check failed, allowing send: {e}")
+                is_contract = False
+            if is_contract:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Recipient looks like a contract, not a wallet. If this is "
+                        "intentional, retry with allowContract=true."
+                    ),
+                )
 
         from bot.services.savings_service import SavingsError, savings_service
 
@@ -2775,21 +3038,44 @@ async def send_mobile(request: Request, body: SendBody):
             _earn_idem_store(cache_key, 400, {"detail": detail})
             raise HTTPException(status_code=400, detail=detail)
 
-        try:
-            tx_hash, is_pending = await asyncio.to_thread(
-                _send_usdc_base, wallet, to_address, amount
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"mobile send unexpected error for user {user_id}: {e}", exc_info=True)
-            # Unknown state (network blip, unhandled edge case) — NOT cached,
-            # so a retry actually retries once the transient condition clears.
+        db_lock_holder = await asyncio.to_thread(_db_wallet_lock_try_acquire, wallet.address)
+        if db_lock_holder is None:
             raise HTTPException(
-                status_code=500, detail="Something went wrong. Your funds were not moved."
+                status_code=503, detail="This wallet has a send in progress. Try again shortly."
             )
+        try:
+            try:
+                tx_hash, is_pending = await asyncio.to_thread(
+                    _send_usdc_base, wallet, to_address, amount
+                )
+            except HTTPException:
+                raise
+            except SendRejected as e:
+                # Deterministic node rejection (HIGH finding) — the tx was
+                # never broadcast, so this is a plain client-fixable 400,
+                # never an ambiguous 202, and must NOT be cached or logged
+                # as a pending transfer.
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"mobile send unexpected error for user {user_id}: {e}", exc_info=True)
+                # Unknown state (network blip, unhandled edge case) — NOT
+                # cached, so a retry actually retries once the transient
+                # condition clears.
+                raise HTTPException(
+                    status_code=500, detail="Something went wrong. Your funds were not moved."
+                )
+        finally:
+            await asyncio.to_thread(_db_wallet_lock_release, wallet.address, db_lock_holder)
 
-        await _log_send_event(user_id, wallet.id, to_address, amount, tx_hash, pending=is_pending)
+        await _log_send_event(
+            user_id,
+            wallet.id,
+            to_address,
+            amount,
+            tx_hash,
+            pending=is_pending,
+            idempotency_key=idem_header,
+        )
 
         if is_pending:
             pending_body = {"ok": False, "status": "pending", "txHash": tx_hash}
@@ -2994,7 +3280,14 @@ async def get_statement(request: Request, month: Optional[str] = Query(default=N
         )
         for row in transfer_rows:
             amount = _decimal(row.amount)
-            sent += amount
+            # Only confirmed-broadcast sends count toward sentUsd (MED
+            # finding) — a "pending" row (ambiguous broadcast, see
+            # `_send_usdc_base`) may never actually have landed on-chain, so
+            # counting it here would overstate how much the user has sent.
+            # It still appears in `transactions` (with its `status` exposed)
+            # so the client can render it distinctly rather than hide it.
+            if row.status == "sent":
+                sent += amount
             transactions.append(
                 {
                     "date": row.created_at.isoformat() if row.created_at else None,
@@ -3003,6 +3296,7 @@ async def get_statement(request: Request, month: Optional[str] = Query(default=N
                     "token": row.token or "USDC",
                     "txHash": row.tx_hash,
                     "counterparty": row.to_address,
+                    "status": row.status,
                 }
             )
 

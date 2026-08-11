@@ -52,6 +52,16 @@ def client(monkeypatch):
 
     monkeypatch.setattr(main_mod, "JWT_SECRET", _SECRET)
     monkeypatch.setattr(mobile_mod, "DATABASE_AVAILABLE", True)
+    # Deterministic defaults for the DB-backed guards (MED finding) so tests
+    # that don't care about them aren't at the mercy of whatever leftover
+    # SQLite file another test module's global `SessionLocal` happens to be
+    # bound to. Tests that DO care override these explicitly.
+    monkeypatch.setattr(mobile_mod, "_is_contract_address", lambda addr: False)
+    monkeypatch.setattr(
+        mobile_mod, "_db_wallet_lock_try_acquire", MagicMock(return_value="test-holder")
+    )
+    monkeypatch.setattr(mobile_mod, "_db_wallet_lock_release", MagicMock(return_value=None))
+    monkeypatch.setattr(mobile_mod, "_db_send_idem_lookup", MagicMock(return_value=None))
     return app_client()
 
 
@@ -354,6 +364,302 @@ def test_send_rate_limited_after_six_per_minute(client, monkeypatch):
     assert resp.status_code == 429
 
 
+# ── POST /send: idempotency checked BEFORE rate limit (LOW finding) ────
+
+
+def test_send_idempotency_checked_before_rate_limit_consumed(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(
+        savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("1000"))
+    )
+    send_mock = MagicMock(return_value=("0xtx", False))
+    monkeypatch.setattr(mobile_mod, "_send_usdc_base", send_mock)
+
+    for i in range(6):
+        resp = client.post(
+            "/v1/mobile/send",
+            json={"to": TO_ADDR, "amount": "1"},
+            headers={**auth_headers(), "Idempotency-Key": f"limit-{i}"},
+        )
+        assert resp.status_code == 200, resp.json()
+
+    # A brand new key confirms the limiter really is now exhausted.
+    resp = client.post(
+        "/v1/mobile/send",
+        json={"to": TO_ADDR, "amount": "1"},
+        headers={**auth_headers(), "Idempotency-Key": "limit-new"},
+    )
+    assert resp.status_code == 429
+
+    # Replaying an ALREADY-cached key must still return the cached result —
+    # the idempotency lookup happens before the rate limiter consumes a
+    # token, so a legitimate retry is never itself the request that trips
+    # the limiter.
+    resp = client.post(
+        "/v1/mobile/send",
+        json={"to": TO_ADDR, "amount": "1"},
+        headers={**auth_headers(), "Idempotency-Key": "limit-0"},
+    )
+    assert resp.status_code == 200
+    assert send_mock.call_count == 6
+
+
+# ── POST /send: contract / burn-address recipient rejection (MED finding) ──
+
+
+def test_send_rejects_contract_recipient_by_default(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    monkeypatch.setattr(mobile_mod, "_is_contract_address", lambda addr: True)
+    send_mock = MagicMock(return_value=("0xtx", False))
+    monkeypatch.setattr(mobile_mod, "_send_usdc_base", send_mock)
+
+    resp = client.post(
+        "/v1/mobile/send", json={"to": TO_ADDR, "amount": "1"}, headers=auth_headers()
+    )
+
+    assert resp.status_code == 400
+    assert "contract" in resp.json()["detail"].lower()
+    send_mock.assert_not_called()
+
+
+def test_send_allows_contract_recipient_with_allow_contract_flag(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    monkeypatch.setattr(mobile_mod, "_is_contract_address", lambda addr: True)
+    send_mock = MagicMock(return_value=("0xtx", False))
+    monkeypatch.setattr(mobile_mod, "_send_usdc_base", send_mock)
+
+    resp = client.post(
+        "/v1/mobile/send",
+        json={"to": TO_ADDR, "amount": "1", "allowContract": True},
+        headers=auth_headers(),
+    )
+
+    assert resp.status_code == 200
+    send_mock.assert_called_once()
+
+
+def test_send_rejects_usdc_contract_address(client, monkeypatch):
+    from bot.config.tokens import get_token_address
+
+    usdc_addr = get_token_address("USDC", "base")
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+
+    resp = client.post(
+        "/v1/mobile/send", json={"to": usdc_addr, "amount": "1"}, headers=auth_headers()
+    )
+
+    assert resp.status_code == 400
+    assert "USDC token contract" in resp.json()["detail"]
+
+
+def test_send_rejects_dead_burn_address(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+
+    dead_address = "0x000000000000000000000000000000000000dEaD"
+    resp = client.post(
+        "/v1/mobile/send", json={"to": dead_address, "amount": "1"}, headers=auth_headers()
+    )
+
+    assert resp.status_code == 400
+    assert "burn address" in resp.json()["detail"].lower()
+
+
+# ── POST /send: deterministic node rejection -> 400, never 202/cached ──
+
+
+def test_send_deterministic_rejection_returns_400_and_is_never_cached(client, monkeypatch):
+    monkeypatch.setattr(mobile_mod, "_resolve_earn_wallet", AsyncMock(return_value=_fake_wallet()))
+    monkeypatch.setattr(savings_service, "get_usdc_balance", MagicMock(return_value=Decimal("100")))
+    send_mock = MagicMock(side_effect=mobile_mod.SendRejected("nonce too low"))
+    monkeypatch.setattr(mobile_mod, "_send_usdc_base", send_mock)
+
+    headers = {**auth_headers(), "Idempotency-Key": "rej-1"}
+    resp1 = client.post("/v1/mobile/send", json={"to": TO_ADDR, "amount": "5"}, headers=headers)
+    assert resp1.status_code == 400
+    assert "nonce too low" in resp1.json()["detail"]
+
+    # A retry with the SAME Idempotency-Key must actually retry — a
+    # deterministic rejection is never cached and never written as a
+    # pending MobileTransfer (HIGH finding).
+    send_mock.side_effect = None
+    send_mock.return_value = ("0xok", False)
+    resp2 = client.post("/v1/mobile/send", json={"to": TO_ADDR, "amount": "5"}, headers=headers)
+    assert resp2.status_code == 200
+    assert send_mock.call_count == 2
+
+
+# ── _send_usdc_base: gas precheck + broadcast-error classification ─────
+
+
+def _mock_web3_for_send(
+    *,
+    pending_nonce: int = 5,
+    native_balance: int = 10**18,
+    send_raises: Exception | None = None,
+    send_returns: bytes | None = None,
+):
+    web3 = MagicMock()
+    web3.eth.get_transaction_count = MagicMock(return_value=pending_nonce)
+    web3.eth.get_balance = MagicMock(return_value=native_balance)
+    if send_raises is not None:
+        web3.eth.send_raw_transaction = MagicMock(side_effect=send_raises)
+    else:
+        web3.eth.send_raw_transaction = MagicMock(
+            return_value=send_returns or bytes.fromhex("ab" * 32)
+        )
+    return web3
+
+
+def _patch_send_pipeline(monkeypatch, web3, *, gas=80_000, gas_price=1_000_000_000):
+    import bot.handlers.bulk_pay as bulk_pay_mod
+    import bot.services.rpc_manager as rpc_manager_mod
+    import bot.services.wallet as wallet_mod
+
+    monkeypatch.setattr(rpc_manager_mod.rpc_manager, "get_web3", MagicMock(return_value=web3))
+    monkeypatch.setattr(
+        bulk_pay_mod,
+        "_build_erc20_transfer_tx",
+        MagicMock(return_value={"gas": gas, "gasPrice": gas_price, "nonce": 5}),
+    )
+    monkeypatch.setattr(
+        wallet_mod.WalletService,
+        "sign_evm_transaction",
+        AsyncMock(return_value="0x" + "11" * 40),
+    )
+
+
+def test_send_usdc_base_gas_precheck_rejects_when_no_native_balance(monkeypatch):
+    from bot.utils.nonce_reservation import _reset_for_tests
+
+    _reset_for_tests()
+    web3 = _mock_web3_for_send(native_balance=0)
+    _patch_send_pipeline(monkeypatch, web3)
+
+    with pytest.raises(mobile_mod.SendRejected, match="ETH on Base"):
+        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+
+    web3.eth.send_raw_transaction.assert_not_called()
+
+
+def test_send_usdc_base_deterministic_node_rejection_raises_send_rejected(monkeypatch):
+    from bot.utils.nonce_reservation import _reset_for_tests
+
+    _reset_for_tests()
+    web3 = _mock_web3_for_send(
+        send_raises=ValueError(
+            {"message": "insufficient funds for gas * price + value", "code": -32000}
+        )
+    )
+    _patch_send_pipeline(monkeypatch, web3)
+
+    with pytest.raises(mobile_mod.SendRejected, match="insufficient funds"):
+        mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+
+
+def test_send_usdc_base_transport_timeout_is_ambiguous_pending(monkeypatch):
+    import requests
+
+    from bot.utils.nonce_reservation import _reset_for_tests
+
+    _reset_for_tests()
+    web3 = _mock_web3_for_send(send_raises=requests.exceptions.Timeout("node timeout"))
+    _patch_send_pipeline(monkeypatch, web3)
+
+    tx_hash, is_pending = mobile_mod._send_usdc_base(_fake_wallet(), TO_ADDR, Decimal("1"))
+
+    assert is_pending is True
+    assert tx_hash.startswith("0x")
+
+
+# ── bot/utils/nonce_reservation.py: stale-nonce-reuse fix (BLOCKER) ────
+
+
+def test_reserve_nonce_sequential_sends_increment_even_when_chain_lags():
+    from bot.utils.nonce_reservation import _reset_for_tests, reserve_nonce
+
+    _reset_for_tests()
+    web3 = MagicMock()
+    web3.eth.get_transaction_count = MagicMock(return_value=5)
+    addr = "0x" + "11" * 20
+
+    n1 = reserve_nonce(web3, addr)
+    n2 = reserve_nonce(web3, addr)
+
+    assert (n1, n2) == (5, 6)
+    args, _ = web3.eth.get_transaction_count.call_args
+    assert args[1] == "pending"
+
+
+def test_reserve_nonce_catches_up_once_chain_reports_higher():
+    from bot.utils.nonce_reservation import _reset_for_tests, reserve_nonce
+
+    _reset_for_tests()
+    web3 = MagicMock()
+    addr = "0x" + "11" * 20
+
+    web3.eth.get_transaction_count = MagicMock(return_value=5)
+    assert reserve_nonce(web3, addr) == 5
+
+    # The chain's pending view has now caught up (mined the reserved tx).
+    web3.eth.get_transaction_count = MagicMock(return_value=6)
+    assert reserve_nonce(web3, addr) == 6
+
+
+def test_release_nonce_lets_a_rejected_sends_nonce_be_reused():
+    from bot.utils.nonce_reservation import _reset_for_tests, release_nonce, reserve_nonce
+
+    _reset_for_tests()
+    web3 = MagicMock()
+    web3.eth.get_transaction_count = MagicMock(return_value=5)
+    addr = "0x" + "11" * 20
+
+    n1 = reserve_nonce(web3, addr)
+    release_nonce(addr, n1)
+    n2 = reserve_nonce(web3, addr)
+
+    assert n1 == n2 == 5
+
+
+# ── DB-backed cross-replica guard (MED finding) ─────────────────────────
+
+
+def test_db_wallet_lock_mutual_exclusion_and_release(tmp_db):
+    addr = "0x" + "99" * 20
+
+    holder1 = mobile_mod._db_wallet_lock_try_acquire(addr)
+    assert holder1 is not None
+    assert mobile_mod._db_wallet_lock_try_acquire(addr) is None
+
+    mobile_mod._db_wallet_lock_release(addr, holder1)
+
+    holder2 = mobile_mod._db_wallet_lock_try_acquire(addr)
+    assert holder2 is not None
+    assert holder2 != holder1
+
+
+def test_db_send_idem_lookup_finds_durably_logged_transfer(tmp_db):
+    import asyncio as _asyncio
+
+    _asyncio.run(
+        mobile_mod._log_send_event(
+            user_id=1,
+            wallet_id=1,
+            to_address=TO_ADDR,
+            amount=Decimal("2.5"),
+            tx_hash="0xdurable",
+            pending=False,
+            idempotency_key="durable-key-1",
+        )
+    )
+
+    hit = mobile_mod._db_send_idem_lookup(1, "durable-key-1")
+
+    assert hit == {"ok": True, "txHash": "0xdurable", "amount": "2.500000", "to": TO_ADDR}
+    assert mobile_mod._db_send_idem_lookup(1, "nope") is None
+
+
 # ── GET /borrow ──────────────────────────────────────────────────────
 
 
@@ -600,6 +906,54 @@ def test_statement_aggregates_across_sources(client, tmp_db, monkeypatch):
     # Sorted desc by date.
     dates = [t["date"] for t in body["transactions"]]
     assert dates == sorted(dates, reverse=True)
+
+
+def test_statement_sent_usd_excludes_pending_but_lists_all_with_status(client, tmp_db, monkeypatch):
+    """MED finding: a "pending" (broadcast-ambiguous) send may never have
+    actually landed on-chain, so it must not inflate `sentUsd` — but it must
+    still be visible in `transactions` with its `status` exposed rather than
+    silently hidden."""
+    monkeypatch.setattr(mobile_mod, "DATABASE_AVAILABLE", True)
+
+    from bot.models.mobile_transfer import MobileTransfer
+    from database.db import get_session
+
+    in_month = datetime(2026, 6, 15, tzinfo=timezone.utc)
+
+    with get_session() as session:
+        session.add(
+            MobileTransfer(
+                user_id=1,
+                wallet_id=1,
+                to_address=TO_ADDR,
+                amount=Decimal("10"),
+                amount_usd=Decimal("10"),
+                tx_hash="0xsent",
+                status="sent",
+                created_at=in_month,
+            )
+        )
+        session.add(
+            MobileTransfer(
+                user_id=1,
+                wallet_id=1,
+                to_address=TO_ADDR,
+                amount=Decimal("5"),
+                amount_usd=Decimal("5"),
+                tx_hash="0xpending",
+                status="pending",
+                created_at=in_month,
+            )
+        )
+
+    resp = client.get("/v1/mobile/statement?month=2026-06", headers=auth_headers())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sentUsd"] == pytest.approx(10.0)
+
+    statuses = {t["txHash"]: t["status"] for t in body["transactions"] if t["type"] == "send"}
+    assert statuses == {"0xsent": "sent", "0xpending": "pending"}
 
 
 def test_statement_caps_at_200_rows(client, tmp_db, monkeypatch):

@@ -223,8 +223,16 @@ class SavingsService:
         wait_for_transaction_receipt. Raises SavingsError (user-safe) if the
         transaction reverts on-chain.
         """
+        from bot.utils.nonce_reservation import reserve_nonce
+
         from_addr = Web3.to_checksum_address(wallet.address)
-        nonce = web3.eth.get_transaction_count(from_addr)
+        # "pending"-block nonce reconciled against this process's own
+        # last-reserved nonce for the wallet (MONEY-PATH stale-nonce-reuse
+        # fix — see bot/utils/nonce_reservation.py). Callers of
+        # `_build_and_send` already run under the same per-wallet lock
+        # `/v1/mobile/send` uses (mobile.py deliberately shares
+        # `_earn_wallet_lock` across earn + send for this exact reason).
+        nonce = reserve_nonce(web3, from_addr)
         gas_price = web3.eth.gas_price
         tx = contract_fn.build_transaction(
             {

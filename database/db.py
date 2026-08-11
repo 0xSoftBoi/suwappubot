@@ -723,6 +723,12 @@ def _ensure_schema(db_engine) -> None:
     # --- mobile_transfers table (Gekko mobile /v1/mobile/send event log) ---
     _add_mobile_transfers_table(db_engine, inspector, is_sqlite)
 
+    # --- mobile_transfers: idempotency_key for durable cross-replica send-replay guard ---
+    _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite)
+
+    # --- mobile_wallet_locks table (cross-replica advisory lock for mobile send/earn) ---
+    _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1325,6 +1331,65 @@ def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created mobile_transfers table")
     except Exception as e:
         logger.warning(f"Failed to create mobile_transfers table: {e}")
+
+
+def _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add mobile_transfers.idempotency_key + a partial UNIQUE(user_id, key) index.
+
+    MONEY-PATH: durable, cross-replica replay guard for `POST /v1/mobile/send`,
+    mirroring `_add_point_redemption_idempotency_key`. The in-process
+    idempotency cache in mobile.py is NOT durable across worker restarts or
+    multi-replica deploys — a retry landing on a different process would
+    otherwise re-broadcast a second on-chain transfer. This DB-level unique
+    index makes a replayed INSERT conflict (IntegrityError) instead of
+    silently creating a second MobileTransfer row.
+
+    Additive + idempotent: ADD COLUMN IF NOT EXISTS + CREATE UNIQUE INDEX IF
+    NOT EXISTS. Re-inspects the engine directly (rather than trusting the
+    `inspector` passed in) since `mobile_transfers` may have just been
+    created earlier in this same `_ensure_schema()` pass.
+    """
+    try:
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_transfers"):
+            return
+        cols = {c["name"] for c in live_inspector.get_columns("mobile_transfers")}
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE mobile_transfers ADD COLUMN idempotency_key VARCHAR(160)"
+            else:
+                ddl = (
+                    "ALTER TABLE mobile_transfers "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(160)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_mobile_transfers_user_idempotency_key "
+                    "ON mobile_transfers(user_id, idempotency_key) "
+                    "WHERE idempotency_key IS NOT NULL"
+                )
+            )
+    except Exception as e:
+        logger.error("Could not add mobile_transfers idempotency guard: %s", e)
+
+
+def _create_mobile_wallet_locks_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_wallet_locks table (cross-replica advisory lock for
+    mobile send/earn actions — see bot/models/mobile_wallet_lock.py)."""
+    try:
+        from bot.models.mobile_wallet_lock import MobileWalletLock
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_wallet_locks"):
+            MobileWalletLock.__table__.create(bind=db_engine)
+            logger.info("Created mobile_wallet_locks table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_wallet_locks table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
