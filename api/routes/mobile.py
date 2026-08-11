@@ -22,6 +22,7 @@ from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from bot.config.settings import settings
 from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
 from database.db import get_session, DATABASE_AVAILABLE
 
@@ -206,6 +207,125 @@ def _jwt_user(request: Request) -> dict:
 def _require_db():
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+
+def _client_ip(request: Request) -> str:
+    """Same convention as api/routes/terminal.py's per-IP limiter — no
+    X-Forwarded-For parsing, since that header is client-controlled unless a
+    trusted proxy layer strips/sets it, and this repo doesn't do that yet."""
+    return request.client.host if request.client else "unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GEKKO MOBILE TELEGRAM DEEPLINK SIGN-IN (MONEY-PATH: mints session JWTs)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Device-initiated pairing, no Telegram Login Widget:
+#   1. POST /auth/telegram/start (unauth) -> {code, deeplink, expiresAt}
+#   2. User opens the deeplink -> bot/handlers/start.py's `/start gekko_<code>`
+#      binds the code to the Telegram update's OWN resolved users.id.
+#   3. POST /auth/telegram/poll (unauth) -> pending | ready+JWT | expired.
+#      "expired" covers unknown AND actually-expired codes identically, so a
+#      client can't distinguish "never existed" from "timed out" by response.
+#
+# Both routes are unauthenticated by necessity (there's no session yet), so
+# they're rate-limited per-IP in addition to the short TTL + single-use +
+# per-IP pending cap enforced in bot/services/mobile_pairing_service.py.
+_pairing_start_limiter = UserRateLimiter(max_requests=10, window_seconds=60)
+_pairing_poll_limiter = UserRateLimiter(max_requests=60, window_seconds=60)  # ~1/sec
+
+
+class TelegramPairingPollBody(BaseModel):
+    code: str
+
+
+@router.post("/auth/telegram/start")
+async def start_telegram_pairing(request: Request):
+    """Unauthenticated. Mints a >=128-bit opaque code the caller renders as a
+    `t.me` deeplink / QR. Never logs the raw code."""
+    _require_db()
+    client_ip = _client_ip(request)
+
+    try:
+        await _pairing_start_limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    from bot.services.mobile_pairing_service import (
+        CODE_PREFIX,
+        MobilePairingError,
+        mobile_pairing_service,
+    )
+
+    try:
+        pending = mobile_pairing_service.create_pending(request_ip=client_ip)
+    except MobilePairingError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    bot_username = getattr(settings, "telegram_bot_username", None) or "suwappubot"
+    deeplink = f"https://t.me/{bot_username}?start={CODE_PREFIX}{pending.code}"
+
+    return {
+        "code": pending.code,
+        "deeplink": deeplink,
+        "expiresAt": pending.expires_at.isoformat(),
+    }
+
+
+@router.post("/auth/telegram/poll")
+async def poll_telegram_pairing(request: Request, body: TelegramPairingPollBody):
+    """Unauthenticated, single-use. Identical `{"status": "expired"}` shape
+    for unknown, already-consumed, and genuinely time-expired codes."""
+    _require_db()
+    client_ip = _client_ip(request)
+
+    try:
+        await _pairing_poll_limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    code = (body.code or "").strip()
+    if not code:
+        return {"status": "expired"}
+
+    from bot.services.mobile_pairing_service import mobile_pairing_service
+
+    result = mobile_pairing_service.poll_and_consume(code)
+    if result.get("status") != "ready":
+        return {"status": result.get("status", "expired")}
+
+    user_id = result["user_id"]
+
+    from api.main import create_jwt_token
+    from bot.models.user import User, Wallet
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.id == user_id).first()
+        if db_user is None:
+            # Bound account vanished between approval and poll — fail closed.
+            return {"status": "expired"}
+        wallet = (
+            session.query(Wallet)
+            .filter(Wallet.user_id == user_id, Wallet.is_active == True)
+            .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+            .first()
+        )
+        session_address = wallet.address if wallet else f"telegram:{db_user.telegram_id}"
+
+    # Same minting path/claim shape as every other session source (siwe,
+    # passkey, oauth) — see api/main.py::create_jwt_token and the
+    # auth/telegram (Telegram Login Widget) webapp route it mirrors.
+    token = create_jwt_token(address=session_address, user_id=user_id, src="telegram")
+
+    return {"status": "ready", "token": token, "userId": user_id}
 
 
 # ── request / response models ────────────────────────────────────────
@@ -3514,3 +3634,109 @@ async def delete_goal(request: Request, goal_id: int):
         session.delete(goal)
 
     return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  MOBILE ANALYTICS EVENTS (Gekko app instrumentation sink)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Display/analytics only — never authoritative for money or account state.
+# Every event is validated and every prop redacted BEFORE a row is written;
+# nothing that looks like an address, tx hash, or an oversized value is ever
+# persisted (dropped, not stored-then-flagged).
+
+_EVENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,48}$")
+_EVM_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]{40,}")
+_MAX_EVENTS_PER_REQUEST = 50
+_MAX_PROP_STRING_LEN = 200
+
+_events_limiter = UserRateLimiter(max_requests=60, window_seconds=60)
+
+
+class MobileEventItem(BaseModel):
+    name: str
+    ts: str | None = None
+    props: dict | None = None
+
+
+class MobileEventsBody(BaseModel):
+    events: List[MobileEventItem]
+
+
+def _prop_value_looks_sensitive(value: str) -> bool:
+    if len(value) > _MAX_PROP_STRING_LEN:
+        return True
+    # Covers both EVM addresses (0x + 40 hex) and tx hashes (0x + 64 hex, and
+    # anything longer) with one pattern.
+    return bool(_EVM_ADDRESS_RE.search(value))
+
+
+def _redact_event_props(props: dict | None) -> dict:
+    """Drop (never persist) any prop whose key or value looks like an
+    address, a tx hash, or is unreasonably long. Nested dict/list values are
+    dropped outright — this sink is for flat analytics props only."""
+    if not props:
+        return {}
+    clean: dict = {}
+    for key, value in props.items():
+        if not isinstance(key, str) or _prop_value_looks_sensitive(key):
+            continue
+        if isinstance(value, str):
+            if _prop_value_looks_sensitive(value):
+                continue
+            clean[key] = value
+        elif isinstance(value, (int, float, bool)) or value is None:
+            clean[key] = value
+        # dict/list/other types silently dropped.
+    return clean
+
+
+@router.post("/events")
+async def ingest_mobile_events(request: Request, body: MobileEventsBody):
+    """Authenticated analytics sink for Gekko mobile instrumentation."""
+    payload = _jwt_user(request)
+    _require_db()
+    user_id = int(payload["user_id"])
+
+    try:
+        await _events_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    if len(body.events) > _MAX_EVENTS_PER_REQUEST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many events — max {_MAX_EVENTS_PER_REQUEST} per request",
+        )
+    if not body.events:
+        return {"ok": True, "accepted": 0}
+
+    from bot.models.mobile_event import MobileEvent
+
+    accepted = 0
+    with get_session() as session:
+        for item in body.events:
+            if not _EVENT_NAME_RE.match(item.name or ""):
+                continue
+            ts = None
+            if item.ts:
+                try:
+                    ts = datetime.fromisoformat(str(item.ts).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    ts = None
+            session.add(
+                MobileEvent(
+                    user_id=user_id,
+                    name=item.name,
+                    ts=ts,
+                    props=_redact_event_props(item.props),
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            accepted += 1
+
+    return {"ok": True, "accepted": accepted}

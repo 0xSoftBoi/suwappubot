@@ -732,6 +732,12 @@ def _ensure_schema(db_engine) -> None:
     # --- mobile_savings_goals table (Gekko mobile GET/POST/DELETE /v1/mobile/goals) ---
     _create_mobile_savings_goals_table(db_engine, inspector, is_sqlite)
 
+    # --- mobile_pairings table (Gekko mobile Telegram deeplink sign-in, MONEY-PATH) ---
+    _create_mobile_pairings_table(db_engine, inspector, is_sqlite)
+
+    # --- mobile_events table (Gekko mobile analytics sink) ---
+    _create_mobile_events_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1346,6 +1352,36 @@ def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created mobile_transfers table")
     except Exception as e:
         logger.warning(f"Failed to create mobile_transfers table: {e}")
+
+
+def _create_mobile_pairings_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_pairings table (Gekko mobile Telegram deeplink
+    sign-in — see bot/services/mobile_pairing_service.py). MONEY-PATH:
+    this table backs the pairing codes that mint mobile session JWTs."""
+    try:
+        from bot.models.mobile_pairing import MobilePairing
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_pairings"):
+            MobilePairing.__table__.create(bind=db_engine)
+            logger.info("Created mobile_pairings table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_pairings table: {e}")
+
+
+def _create_mobile_events_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_events table (Gekko mobile analytics sink,
+    POST /v1/mobile/events). Redacted/validated at the route layer before
+    a row is ever written — see api/routes/mobile.py."""
+    try:
+        from bot.models.mobile_event import MobileEvent
+
+        live_inspector = inspect(db_engine)
+        if not live_inspector.has_table("mobile_events"):
+            MobileEvent.__table__.create(bind=db_engine)
+            logger.info("Created mobile_events table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_events table: {e}")
 
 
 def _add_mobile_transfer_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:

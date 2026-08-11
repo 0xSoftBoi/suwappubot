@@ -12,11 +12,17 @@ from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.services.referral_service import referral_service
 from bot.services.wallet import WalletService
+from bot.services.mobile_pairing_service import mobile_pairing_service
 from bot.utils.templates import HELP_MESSAGE, TOS_KEYBOARD
 from bot.i18n import get_text, get_user_lang
 
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
+
+# Deeplink prefix for Gekko mobile Telegram sign-in: /start gekko_<code>.
+# Checked BEFORE the referral-code branch's .upper() since pairing codes are
+# case-sensitive opaque tokens.
+MOBILE_PAIRING_PREFIX = "gekko_"
 
 
 def _build_main_keyboard() -> InlineKeyboardMarkup:
@@ -223,10 +229,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """
     user = update.effective_user
 
-    # Check for referral code in deeplink arguments
+    # Check for referral code / Gekko mobile pairing code in deeplink arguments.
+    # Pairing codes are case-sensitive opaque tokens (secrets.token_urlsafe),
+    # so the prefix check happens BEFORE any uppercasing — .upper() only ever
+    # applies to referral codes.
     referral_code = None
+    pairing_code = None
     if context.args and len(context.args) > 0:
-        referral_code = context.args[0].upper()
+        raw_arg = context.args[0]
+        if raw_arg.startswith(MOBILE_PAIRING_PREFIX):
+            pairing_code = raw_arg[len(MOBILE_PAIRING_PREFIX) :]
+        else:
+            referral_code = raw_arg.upper()
 
     # Create or update user in database
     is_new_user = False
@@ -283,6 +297,33 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Check TOS
     if not tos_accepted:
         await update.message.reply_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
+        return
+
+    # Gekko mobile Telegram sign-in: /start gekko_<code>. MONEY-PATH — binds
+    # ONLY to `user_id`, which was just resolved from `update.effective_user`
+    # above via the bot's own DB lookup, never from anything client-supplied.
+    # Unknown/expired codes get an identical neutral reply so a code can't be
+    # probed for validity from the bot side either. The raw code is never
+    # logged — only the boolean approval outcome.
+    if pairing_code:
+        try:
+            approved = mobile_pairing_service.approve(pairing_code, user_id)
+        except Exception:
+            logger.exception("Gekko mobile pairing approval crashed")
+            approved = False
+
+        if approved:
+            await update.message.reply_text(
+                "✅ *Gekko is now signed in on your device.*\n\n"
+                "If you didn't request this, ignore this message — do not share "
+                "this link or any sign-in code with anyone.",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(
+                "This sign-in link is invalid or has expired. Please request a new "
+                "one from the Gekko app and try again."
+            )
         return
 
     reply_markup = _build_main_keyboard()
