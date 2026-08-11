@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
+import { ErrorState, InfoNote, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useCreateGoal, useDeleteGoal, useEarn, useEarnDeposit, useEarnWithdraw, useGoals } from '../../src/hooks/use-gecko'
 import { ApiError } from '../../src/lib/api'
 import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
+import { amountBoundsMessage, friendlyMessage, insufficientBalanceMessage, PENDING_MESSAGE, SAVINGS_DISCLOSURE } from '../../src/lib/messages'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
 import type { EarnActionSuccess, Goal } from '../../src/types/api'
+
+/** Uses real numbers when the failure is a balance shortfall the screen
+ * already knows about; otherwise falls back to the shared status/keyword
+ * mapper. */
+function actionErrorMessage(err: unknown, availableUsd: number, triedUsd: number): string {
+  if (err instanceof ApiError && /insufficient|not enough/i.test(err.detail)) {
+    return insufficientBalanceMessage(availableUsd, triedUsd)
+  }
+  return friendlyMessage(err)
+}
 
 type Mode = 'deposit' | 'withdraw'
 type Step = 'input' | 'confirm' | 'pending' | 'success'
@@ -26,20 +37,14 @@ const MAX_GOALS = 10
  * balance — the manual pull-to-refresh always works in the meantime. */
 const PENDING_REFETCH_DELAY_MS = 5_000
 
-function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.detail
-  if (err instanceof Error) return err.message
-  return 'Something went wrong. Try again.'
-}
-
-function truncateHash(hash: string): string {
+function receiptLabel(hash: string): string {
   if (hash.length <= 14) return hash
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`
 }
 
 export default function EarnScreen() {
   const signedIn = isAuthenticated()
-  const { data, isLoading, isError, isRefetching, refetch } = useEarn(signedIn)
+  const { data, isLoading, isError, isRefetching, refetch, error } = useEarn(signedIn)
   const deposit = useEarnDeposit()
   const withdraw = useEarnWithdraw()
   // Goals is a separate read that must never block or error out Earn — if
@@ -138,8 +143,10 @@ export default function EarnScreen() {
   }, [positionEmpty])
 
   if (!signedIn) return <SignedOutState />
-  if (isLoading && !data) return <LoadingState label="Loading your yield…" />
-  if (isError && !data) return <ErrorState message="Gecko couldn’t load your Earn position." onRetry={refresh} />
+  if (isLoading && !data) return <LoadingState label="Loading your savings…" />
+  if (isError && !data) {
+    return <ErrorState message={`Gecko couldn’t load your savings right now. ${friendlyMessage(error)}`} onRetry={refresh} />
+  }
 
   const positions = data?.positions ?? []
   const idle = data?.idle ?? []
@@ -184,15 +191,17 @@ export default function EarnScreen() {
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} tintColor={palette.accent} />}
     >
       <View style={s.card}>
-        <Text style={s.muted}>Aave APY</Text>
-        <Text selectable style={local.apy}>{apy.toFixed(2)}%</Text>
+        <Text style={s.muted}>Your money earns while it sits</Text>
+        <Text selectable style={local.apy}>About {apy.toFixed(2)}%/yr</Text>
+        <Text style={s.muted}>This rate isn’t fixed — it can go up or down.</Text>
         {data?.coverage === 'best_effort' ? (
-          <Text style={s.muted}>Available sources only. Gecko won’t infer missing balances.</Text>
+          <Text style={s.muted}>Showing what Gecko can currently see. It won’t guess at anything missing.</Text>
         ) : null}
+        <InfoNote detail={SAVINGS_DISCLOSURE} />
       </View>
 
       <View style={local.section}>
-        <Text style={s.heading}>Your position</Text>
+        <Text style={s.heading}>Your savings</Text>
         {hasPosition ? (
           <View style={s.card}>
             <Text selectable style={local.positionTotal}>{formatUsd(positionUsd)}</Text>
@@ -200,12 +209,11 @@ export default function EarnScreen() {
               {positions.map((p, i) => (
                 <View key={`${p.protocol}-${p.chain}-${p.token}-${i}`} style={local.row}>
                   <View>
-                    <Text style={s.body}>{p.protocol} · {p.chain}</Text>
-                    <Text style={s.muted}>{p.balance} {p.token}</Text>
+                    <Text style={s.body}>Savings</Text>
                   </View>
                   <View style={local.right}>
                     <Text selectable style={s.body}>{formatUsd(p.balanceUsd)}</Text>
-                    <Text style={s.muted}>{p.apy.toFixed(2)}% APY</Text>
+                    <Text style={s.muted}>~{p.apy.toFixed(2)}%/yr</Text>
                   </View>
                 </View>
               ))}
@@ -213,7 +221,7 @@ export default function EarnScreen() {
           </View>
         ) : (
           <View style={s.card}>
-            <Text selectable style={local.copy}>Idle USDC earns 0% — Aave pays {apy.toFixed(2)}%.</Text>
+            <Text selectable style={local.copy}>Money sitting still earns nothing. Move it to Savings so it can earn something instead — about {apy.toFixed(2)}%/yr right now, and that can change.</Text>
           </View>
         )}
       </View>
@@ -234,10 +242,16 @@ export default function EarnScreen() {
                   <Text style={s.body} numberOfLines={1}>{goal.name}</Text>
                   {confirmDeleteId === goal.id ? (
                     <View style={local.goalConfirmRow}>
-                      <Pressable onPress={() => confirmDelete(goal.id)} disabled={deleteGoal.isPending} hitSlop={8}>
+                      <Pressable
+                        onPress={() => confirmDelete(goal.id)}
+                        disabled={deleteGoal.isPending}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove goal ${goal.name}`}
+                        hitSlop={8}
+                      >
                         <Text style={local.goalConfirmText}>{deleteGoal.isPending ? 'Removing…' : 'Remove'}</Text>
                       </Pressable>
-                      <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={8}>
+                      <Pressable onPress={() => setConfirmDeleteId(null)} accessibilityRole="button" accessibilityLabel="Cancel" hitSlop={8}>
                         <Text style={s.muted}>Cancel</Text>
                       </Pressable>
                     </View>
@@ -245,7 +259,10 @@ export default function EarnScreen() {
                     <Pressable
                       onPress={() => setConfirmDeleteId(goal.id)}
                       onLongPress={() => setConfirmDeleteId(goal.id)}
-                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove goal ${goal.name}`}
+                      hitSlop={12}
+                      style={local.goalDeleteHit}
                     >
                       <Text style={local.goalDelete}>✕</Text>
                     </Pressable>
@@ -259,7 +276,7 @@ export default function EarnScreen() {
             )
           })}
           {goalList.length > 0 ? (
-            <Text style={local.goalCaption}>All goals draw on the same savings balance — this is a single pot, not separate buckets (v0).</Text>
+            <Text style={local.goalCaption}>Every goal tracks progress against the same savings balance — it’s one pot of money, not separate buckets.</Text>
           ) : null}
 
           {showNewGoal ? (
@@ -270,17 +287,19 @@ export default function EarnScreen() {
                 placeholder="Goal name"
                 placeholderTextColor={palette.textMuted}
                 maxLength={MAX_GOAL_NAME_LENGTH}
+                accessibilityLabel="Goal name"
                 style={local.goalInput}
               />
               <TextInput
                 value={goalTarget}
                 onChangeText={setGoalTarget}
-                placeholder="Target amount (USD)"
+                placeholder="Target amount, e.g. $500"
                 placeholderTextColor={palette.textMuted}
                 keyboardType="decimal-pad"
+                accessibilityLabel="Target amount in dollars"
                 style={local.goalInput}
               />
-              {createGoal.isError ? <Text selectable style={local.error}>{errorMessage(createGoal.error)}</Text> : null}
+              {createGoal.isError ? <Text selectable style={local.error}>{friendlyMessage(createGoal.error)}</Text> : null}
               <View style={local.panelActions}>
                 <Pressable onPress={() => { setShowNewGoal(false); setGoalName(''); setGoalTarget(''); createGoal.reset() }} style={local.cancelButton}>
                   <Text style={local.cancelText}>Cancel</Text>
@@ -295,7 +314,13 @@ export default function EarnScreen() {
               </View>
             </View>
           ) : (
-            <Pressable onPress={() => setShowNewGoal(true)} disabled={goalList.length >= MAX_GOALS} style={[local.actionButtonSecondary, goalList.length >= MAX_GOALS && local.actionDisabled]}>
+            <Pressable
+              onPress={() => setShowNewGoal(true)}
+              disabled={goalList.length >= MAX_GOALS}
+              accessibilityRole="button"
+              accessibilityLabel="Add a new goal"
+              style={[local.actionButtonSecondary, goalList.length >= MAX_GOALS && local.actionDisabled]}
+            >
               <Text style={local.actionTextSecondary}>New goal</Text>
             </Pressable>
           )}
@@ -303,10 +328,10 @@ export default function EarnScreen() {
       ) : null}
 
       <View style={local.section}>
-        <Text style={s.heading}>Idle USDC</Text>
+        <Text style={s.heading}>Sitting still</Text>
         <View style={s.card}>
           <Text selectable style={local.positionTotal}>{formatUsd(idleUsd)}</Text>
-          <Text style={s.muted}>Available to deposit</Text>
+          <Text style={s.muted}>Not earning anything — available to add to Savings</Text>
         </View>
       </View>
 
@@ -315,21 +340,25 @@ export default function EarnScreen() {
           <Pressable
             onPress={() => openAction('deposit')}
             disabled={idleUsd <= 0}
+            accessibilityRole="button"
+            accessibilityLabel="Add money to Savings"
             style={[local.actionButton, idleUsd <= 0 && local.actionDisabled]}
           >
-            <Text style={local.actionText}>Deposit</Text>
+            <Text style={local.actionText}>Add money</Text>
           </Pressable>
           <Pressable
             onPress={() => openAction('withdraw')}
             disabled={!hasPosition}
+            accessibilityRole="button"
+            accessibilityLabel="Move money out of Savings"
             style={[local.actionButtonSecondary, !hasPosition && local.actionDisabled]}
           >
-            <Text style={local.actionTextSecondary}>Withdraw</Text>
+            <Text style={local.actionTextSecondary}>Move money out</Text>
           </Pressable>
         </View>
       ) : (
         <View style={[s.card, local.panel]}>
-          <Text style={s.heading}>{mode === 'deposit' ? 'Deposit to Aave' : 'Withdraw from Aave'}</Text>
+          <Text style={s.heading}>{mode === 'deposit' ? 'Add money to Savings' : 'Move money out of Savings'}</Text>
 
           {step === 'input' ? (
             <>
@@ -337,28 +366,36 @@ export default function EarnScreen() {
                 <TextInput
                   value={useMax ? '' : rawAmount}
                   onChangeText={(t) => { setRawAmount(t); setUseMax(false) }}
-                  placeholder={useMax ? 'Max available' : '0.00'}
+                  placeholder={useMax ? 'Max available' : '$0.00'}
                   placeholderTextColor={palette.textMuted}
                   keyboardType="decimal-pad"
                   editable={!useMax}
+                  accessibilityLabel="Amount in dollars"
                   style={local.input}
                 />
-                <Pressable onPress={() => { setUseMax(true); setRawAmount('') }} style={local.maxChip}>
+                <Pressable
+                  onPress={() => { setUseMax(true); setRawAmount('') }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Use maximum available amount"
+                  style={local.maxChip}
+                >
                   <Text style={local.maxChipText}>Max</Text>
                 </Pressable>
               </View>
               {!useMax && rawAmount.trim().length > 0 && !amountInBounds ? (
                 <Text selectable style={local.error}>
-                  Enter an amount between {MIN_EARN_AMOUNT} and {MAX_EARN_AMOUNT.toLocaleString('en-US')} USDC.
+                  {amountBoundsMessage(MIN_EARN_AMOUNT, MAX_EARN_AMOUNT)}
                 </Text>
               ) : null}
               <View style={local.panelActions}>
-                <Pressable onPress={closeAction} style={local.cancelButton}>
+                <Pressable onPress={closeAction} accessibilityRole="button" accessibilityLabel="Cancel" style={local.cancelButton}>
                   <Text style={local.cancelText}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => setStep('confirm')}
                   disabled={!canReview}
+                  accessibilityRole="button"
+                  accessibilityLabel="Review"
                   style={[local.confirmButton, !canReview && local.actionDisabled]}
                 >
                   <Text style={local.confirmText}>Review</Text>
@@ -370,16 +407,27 @@ export default function EarnScreen() {
           {step === 'confirm' ? (
             <>
               <Text selectable style={local.copy}>
-                {mode === 'deposit' ? 'Deposit' : 'Withdraw'} {useMax ? 'the max available amount' : `${amountToSend} USDC`}. This moves real funds and can’t be undone from here.
+                {mode === 'deposit' ? 'Add' : 'Move out'} {useMax ? 'the full available amount' : formatUsd(numericAmount)}
+                {mode === 'deposit' ? ' to Savings' : ' from Savings'}. This moves real money and can’t be undone from here.
               </Text>
-              {mutation?.isError ? <Text selectable style={local.error}>{errorMessage(mutation.error)}</Text> : null}
+              {mutation?.isError ? (
+                <Text selectable style={local.error}>
+                  {actionErrorMessage(
+                    mutation.error,
+                    mode === 'deposit' ? idleUsd : positionUsd,
+                    useMax ? (mode === 'deposit' ? idleUsd : positionUsd) : numericAmount,
+                  )}
+                </Text>
+              ) : null}
               <View style={local.panelActions}>
-                <Pressable onPress={() => setStep('input')} disabled={mutation?.isPending} style={local.cancelButton}>
+                <Pressable onPress={() => setStep('input')} disabled={mutation?.isPending} accessibilityRole="button" accessibilityLabel="Back" style={local.cancelButton}>
                   <Text style={local.cancelText}>Back</Text>
                 </Pressable>
                 <Pressable
                   onPress={submit}
                   disabled={mutation?.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm"
                   style={[local.confirmButton, mutation?.isPending && local.actionDisabled]}
                 >
                   <Text style={local.confirmText}>{mutation?.isPending ? 'Sending…' : 'Confirm'}</Text>
@@ -390,12 +438,12 @@ export default function EarnScreen() {
 
           {step === 'pending' && pendingTxHash ? (
             <>
-              <Text style={local.pending}>Submitted — confirming on-chain.</Text>
-              <Text selectable style={s.muted}>Tx {truncateHash(pendingTxHash)}</Text>
+              <Text style={local.pending}>{PENDING_MESSAGE}</Text>
+              <Text selectable style={s.muted}>Receipt {receiptLabel(pendingTxHash)}</Text>
               <Text selectable style={local.copy}>
-                This can take a minute. Gecko will refresh your position automatically — no need to resend.
+                This can take a minute. Gecko will refresh your savings automatically — no need to try again.
               </Text>
-              <Pressable onPress={closeAction} style={local.confirmButton}>
+              <Pressable onPress={closeAction} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
                 <Text style={local.confirmText}>Done</Text>
               </Pressable>
             </>
@@ -403,10 +451,10 @@ export default function EarnScreen() {
 
           {step === 'success' && result ? (
             <>
-              <Text style={local.success}>{mode === 'deposit' ? 'Deposit sent.' : 'Withdrawal sent.'}</Text>
-              <Text selectable style={s.body}>{result.approximate ? '~' : ''}{result.amount} USDC</Text>
-              <Text selectable style={s.muted}>Tx {truncateHash(result.txHash)}</Text>
-              <Pressable onPress={closeAction} style={local.confirmButton}>
+              <Text style={local.success}>{mode === 'deposit' ? 'Added to Savings.' : 'Moved out of Savings.'}</Text>
+              <Text selectable style={s.body}>{result.approximate ? '~' : ''}{formatUsd(Number(result.amount))}</Text>
+              <Text selectable style={s.muted}>Receipt {receiptLabel(result.txHash)}</Text>
+              <Pressable onPress={closeAction} accessibilityRole="button" accessibilityLabel="Done" style={local.confirmButton}>
                 <Text style={local.confirmText}>Done</Text>
               </Pressable>
             </>
@@ -425,13 +473,13 @@ const local = StyleSheet.create({
   positionList: { gap: spacing.md, marginTop: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   right: { alignItems: 'flex-end', gap: 2 },
-  copy: { color: palette.textSecondary, fontSize: 15, lineHeight: 22 },
+  copy: { color: palette.textSecondary, fontSize: 16, lineHeight: 22 },
   actions: { flexDirection: 'row', gap: spacing.md },
   actionButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
   actionButtonSecondary: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
   actionDisabled: { opacity: 0.45 },
-  actionText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
-  actionTextSecondary: { color: palette.text, fontSize: 15, fontWeight: '700' },
+  actionText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  actionTextSecondary: { color: palette.text, fontSize: 16, fontWeight: '700' },
   panel: { gap: spacing.md },
   amountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   input: { flex: 1, minHeight: 48, color: palette.text, backgroundColor: palette.surfaceElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: 14, paddingHorizontal: spacing.md, fontSize: 16 },
@@ -439,16 +487,17 @@ const local = StyleSheet.create({
   maxChipText: { color: palette.textSecondary, fontSize: 13, fontWeight: '600' },
   panelActions: { flexDirection: 'row', gap: spacing.md },
   cancelButton: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
-  cancelText: { color: palette.textSecondary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: palette.textSecondary, fontSize: 16, fontWeight: '600' },
   confirmButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
-  confirmText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
-  success: { color: palette.success, fontSize: 15, fontWeight: '700' },
-  pending: { color: palette.textSecondary, fontSize: 15, fontWeight: '700' },
+  confirmText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  success: { color: palette.success, fontSize: 16, fontWeight: '700' },
+  pending: { color: palette.textSecondary, fontSize: 16, fontWeight: '700' },
   error: { color: palette.danger, fontSize: 13 },
   holding: { gap: spacing.sm, paddingVertical: spacing.xs },
   track: { height: 6, borderRadius: radius.full, backgroundColor: palette.surfaceElevated, overflow: 'hidden' },
   fill: { height: 6, borderRadius: radius.full, backgroundColor: palette.accent },
   fillSavings: { backgroundColor: palette.success },
+  goalDeleteHit: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   goalDelete: { color: palette.textMuted, fontSize: 16, fontWeight: '700', paddingHorizontal: spacing.xs },
   goalConfirmRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   goalConfirmText: { color: palette.danger, fontSize: 13, fontWeight: '700' },

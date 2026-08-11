@@ -1,11 +1,12 @@
 import { useCallback, useEffect } from 'react'
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
+import { ErrorState, InfoNote, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useEarn, useSnapshot } from '../../src/hooks/use-gecko'
 import { analytics } from '../../src/lib/analytics'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
+import { DOLLAR_DISCLOSURE, friendlyMessage } from '../../src/lib/messages'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
 
 function greeting(): string {
@@ -18,7 +19,7 @@ function greeting(): string {
 export default function TodayScreen() {
   const signedIn = isAuthenticated()
   const router = useRouter()
-  const { data, isLoading, isError, isRefetching, refetch } = useSnapshot(signedIn)
+  const { data, isLoading, isError, isRefetching, refetch, error } = useSnapshot(signedIn)
   // Read-only and purely additive to this screen — if /earn is loading or
   // errored, earn.data stays undefined and the card below just doesn't
   // render. Today's own loading/error gates above are untouched by this.
@@ -32,7 +33,9 @@ export default function TodayScreen() {
 
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Reading your money…" />
-  if (isError && !data) return <ErrorState message="Gecko couldn’t load your money." onRetry={refresh} />
+  if (isError && !data) {
+    return <ErrorState message={`Gecko couldn’t load your money right now. ${friendlyMessage(error)}`} onRetry={refresh} />
+  }
 
   const change = data?.coverage === 'complete'
     ? snapshotChange(data.history, data.totalValueUsd)
@@ -57,16 +60,17 @@ export default function TodayScreen() {
       </View>
 
       <View style={s.card}>
-        <Text style={s.muted}>Money I can price</Text>
+        <Text style={s.muted}>Your money</Text>
         <Text selectable style={local.total}>{formatUsd(data?.totalValueUsd ?? 0)}</Text>
         {data ? <Text style={s.muted}>Updated {formatDate(data.lastUpdated)}</Text> : null}
+        <InfoNote detail={DOLLAR_DISCLOSURE} />
       </View>
 
       <View style={local.actions}>
-        <Pressable onPress={() => router.push('/send')} style={local.actionButton}>
+        <Pressable onPress={() => router.push('/send')} accessibilityRole="button" accessibilityLabel="Send money" style={local.actionButton}>
           <Text style={local.actionText}>Send</Text>
         </Pressable>
-        <Pressable onPress={() => router.push('/receive')} style={local.actionButtonSecondary}>
+        <Pressable onPress={() => router.push('/receive')} accessibilityRole="button" accessibilityLabel="Receive money" style={local.actionButtonSecondary}>
           <Text style={local.actionTextSecondary}>Receive</Text>
         </Pressable>
       </View>
@@ -79,7 +83,7 @@ export default function TodayScreen() {
           style={local.earnCard}
         >
           <Text selectable style={local.earnText}>
-            Earning ~{formatUsd(dailyEarnings)}/day · {earnApy.toFixed(2)}% APY
+            Earning ~{formatUsd(dailyEarnings)}/day · about {earnApy.toFixed(2)}%/yr, and that can change
           </Text>
           <Text style={local.earnChevron}>›</Text>
         </Pressable>
@@ -93,7 +97,7 @@ export default function TodayScreen() {
             {change
               ? `${change.delta >= 0 ? 'Up' : 'Down'} ${formatUsd(Math.abs(change.delta))} (${Math.abs(change.percent).toFixed(1)}%) since ${formatDate(change.since)}`
               : data?.coverage === 'best_effort'
-                ? 'I’m withholding gain/loss until I can verify complete source coverage.'
+                ? 'I can’t see all of your money yet, so I’m holding off on showing a change.'
                 : 'History is still building. I’ll compare changes when there’s enough real data.'}
           </Text>
         </View>
@@ -101,8 +105,8 @@ export default function TodayScreen() {
           <Text style={s.muted}>Concentration</Text>
           <Text selectable style={s.body}>
             {top
-              ? `${top.symbol} is your largest holding at ${top.allocationPct.toFixed(1)}% of the money I can price.`
-              : 'No priced holdings are available yet.'}
+              ? `${top.symbol} is your largest holding at ${top.allocationPct.toFixed(1)}% of your money.`
+              : 'Nothing to show yet.'}
           </Text>
         </View>
       </View>
@@ -122,8 +126,8 @@ const local = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.md },
   actionButton: { flex: 1, alignItems: 'center', backgroundColor: palette.accent, borderRadius: radius.lg, paddingVertical: spacing.md },
   actionButtonSecondary: { flex: 1, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.lg, paddingVertical: spacing.md },
-  actionText: { color: palette.bg, fontSize: 15, fontWeight: '700' },
-  actionTextSecondary: { color: palette.text, fontSize: 15, fontWeight: '700' },
+  actionText: { color: palette.bg, fontSize: 16, fontWeight: '700' },
+  actionTextSecondary: { color: palette.text, fontSize: 16, fontWeight: '700' },
   earnCard: {
     flexDirection: 'row',
     alignItems: 'center',

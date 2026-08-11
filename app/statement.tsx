@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
+import { useRouter } from 'expo-router'
+import { EmptyAction, ErrorState, LoadingState, SignedOutState } from '../src/components/screen-state'
 import { useStatement } from '../src/hooks/use-gecko'
 import { analytics } from '../src/lib/analytics'
 import { isAuthenticated } from '../src/lib/auth'
 import { formatUsd } from '../src/lib/format'
+import { friendlyMessage } from '../src/lib/messages'
 import { palette, spacing, styles as s } from '../src/theme'
 import type { StatementTransaction } from '../src/types/api'
 
@@ -40,7 +42,7 @@ function dayKey(iso: string): string {
   return date.toISOString().slice(0, 10)
 }
 
-function truncateHash(hash: string): string {
+function receiptLabel(hash: string): string {
   if (hash.length <= 14) return hash
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`
 }
@@ -50,6 +52,20 @@ function tone(type: string): string {
   if (t.includes('deposit') || t.includes('yield') || t.includes('receive')) return palette.success
   if (t.includes('withdraw') || t.includes('send')) return palette.textSecondary
   return palette.text
+}
+
+/** Plain-language label for a transaction type, replacing raw backend
+ * type strings (deposit/withdraw/yield/…) with the vocabulary used
+ * elsewhere in the app. */
+function typeLabel(type: string): string {
+  const t = type.toLowerCase()
+  if (t.includes('deposit')) return 'Added to Savings'
+  if (t.includes('withdraw')) return 'Moved out of Savings'
+  if (t.includes('yield')) return 'Earned'
+  if (t.includes('receive')) return 'Received'
+  if (t.includes('send')) return 'Sent'
+  if (t.includes('swap')) return 'Swapped'
+  return type.charAt(0).toUpperCase() + type.slice(1)
 }
 
 function groupByDay(transactions: StatementTransaction[]): { key: string; label: string; items: StatementTransaction[] }[] {
@@ -67,6 +83,7 @@ function groupByDay(transactions: StatementTransaction[]): { key: string; label:
 
 export default function StatementScreen() {
   const signedIn = isAuthenticated()
+  const router = useRouter()
   const [month, setMonth] = useState(currentMonth())
   const statement = useStatement(month, signedIn)
 
@@ -95,33 +112,43 @@ export default function StatementScreen() {
   return (
     <ScrollView style={s.screen} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={local.content}>
       <View style={local.monthRow}>
-        <Pressable onPress={goPrev} hitSlop={12} style={local.chevron}>
+        <Pressable onPress={goPrev} accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={12} style={local.chevron}>
           <Text style={local.chevronText}>‹</Text>
         </Pressable>
         <Text style={s.heading}>{monthLabel(month)}</Text>
-        <Pressable onPress={goNext} disabled={isCurrentOrFuture} hitSlop={12} style={[local.chevron, isCurrentOrFuture && local.chevronDisabled]}>
+        <Pressable
+          onPress={goNext}
+          disabled={isCurrentOrFuture}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+          hitSlop={12}
+          style={[local.chevron, isCurrentOrFuture && local.chevronDisabled]}
+        >
           <Text style={local.chevronText}>›</Text>
         </Pressable>
       </View>
 
       {statement.isLoading && !statement.data ? <LoadingState label="Loading your statement…" /> : null}
       {statement.isError && !statement.data ? (
-        <ErrorState message="Gecko couldn’t load this statement." onRetry={() => void statement.refetch()} />
+        <ErrorState
+          message={`Gecko couldn’t load this statement right now. ${friendlyMessage(statement.error)}`}
+          onRetry={() => void statement.refetch()}
+        />
       ) : null}
 
       {statement.data ? (
         <>
           <View style={local.summaryGrid}>
             <View style={[s.card, local.summaryCard]}>
-              <Text style={s.muted}>Yield earned</Text>
+              <Text style={s.muted}>Earned from Savings</Text>
               <Text selectable style={local.summaryValue}>{formatUsd(statement.data.yieldEarnedUsd)}</Text>
             </View>
             <View style={[s.card, local.summaryCard]}>
-              <Text style={s.muted}>Deposited</Text>
+              <Text style={s.muted}>Added to Savings</Text>
               <Text selectable style={local.summaryValue}>{formatUsd(statement.data.depositedUsd)}</Text>
             </View>
             <View style={[s.card, local.summaryCard]}>
-              <Text style={s.muted}>Withdrawn</Text>
+              <Text style={s.muted}>Moved out of Savings</Text>
               <Text selectable style={local.summaryValue}>{formatUsd(statement.data.withdrawnUsd)}</Text>
             </View>
             <View style={[s.card, local.summaryCard]}>
@@ -129,15 +156,18 @@ export default function StatementScreen() {
               <Text selectable style={local.summaryValue}>{formatUsd(statement.data.sentUsd)}</Text>
             </View>
             <View style={[s.card, local.summaryCard]}>
-              <Text style={s.muted}>Swap volume</Text>
+              <Text style={s.muted}>Traded</Text>
               <Text selectable style={local.summaryValue}>{formatUsd(statement.data.swapVolumeUsd)}</Text>
             </View>
           </View>
 
           {groups.length === 0 ? (
-            <View style={s.card}>
-              <Text selectable style={local.emptyText}>Nothing happened in {monthLabel(month)}. A quiet month.</Text>
-            </View>
+            <EmptyAction
+              title="Nothing happened this month"
+              body={`No activity in ${monthLabel(month)}. Add money to start earning, or send some to try it out.`}
+              actionLabel="Add money"
+              onAction={() => router.push('/(tabs)/earn')}
+            />
           ) : (
             <View style={local.section}>
               {groups.map((group) => (
@@ -147,13 +177,13 @@ export default function StatementScreen() {
                     <View key={`${tx.txHash}-${i}`} style={local.txRow}>
                       <View style={local.txLabels}>
                         <Text style={s.body} numberOfLines={1}>
-                          {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
-                          {tx.counterparty ? ` · ${truncateHash(tx.counterparty)}` : ''}
+                          {typeLabel(tx.type)}
+                          {tx.counterparty ? ` · ${receiptLabel(tx.counterparty)}` : ''}
                         </Text>
-                        <Text style={s.muted}>Tx {truncateHash(tx.txHash)}</Text>
+                        <Text style={s.muted}>Receipt {receiptLabel(tx.txHash)}</Text>
                       </View>
                       <Text selectable style={[local.txAmount, { color: tone(tx.type) }]}>
-                        {formatUsd(tx.amountUsd)} {tx.token}
+                        {formatUsd(tx.amountUsd)}
                       </Text>
                     </View>
                   ))}
@@ -170,17 +200,17 @@ export default function StatementScreen() {
 const local = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
   monthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chevron: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  chevron: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   chevronDisabled: { opacity: 0.3 },
   chevronText: { color: palette.text, fontSize: 22, fontWeight: '700' },
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   summaryCard: { flexBasis: '47%', flexGrow: 1, gap: spacing.xs },
   summaryValue: { color: palette.text, fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  emptyText: { color: palette.textSecondary, fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  emptyText: { color: palette.textSecondary, fontSize: 16, lineHeight: 22, textAlign: 'center' },
   section: { gap: spacing.lg },
   dayGroup: { gap: spacing.sm },
   dayLabel: { color: palette.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
   txRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.xs },
   txLabels: { flex: 1, gap: 2 },
-  txAmount: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  txAmount: { fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
 })
