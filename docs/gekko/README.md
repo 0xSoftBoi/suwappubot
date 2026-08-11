@@ -44,9 +44,12 @@ checklist per subsection.
      (deposit/withdraw, money-path reviewed and hardened) — Aug 2026
    - [x] Statement framing: savings surfaced in Money + "Earning ~$X/day" on
      Today — Aug 2026
-   - [ ] Send/Receive: USDC transfers (`/v1/mobile/send`) + receive w/ QR — in progress
-   - [ ] Credit (read): Morpho position via `/v1/mobile/borrow` — in progress
-   - [ ] Monthly statement: `/v1/mobile/statement` + statement screen — in progress
+   - [x] Send/Receive: USDC-on-Base transfers (`/v1/mobile/send`, money-path
+     reviewed: nonce reservation, DB-backed idempotency, gas precheck,
+     contract-recipient guard) + Receive w/ copy (QR deferred) — Aug 2026
+   - [x] Credit (read): Morpho position via `/v1/mobile/borrow` + health-factor
+     Credit section on Money — Aug 2026
+   - [x] Monthly statement: `/v1/mobile/statement` + statement screen — Aug 2026
    - [ ] ENS/name payments; recurring transfers/DCA; savings goals — not started
 2. **Phase 1 — Card + on/off-ramp:** non-custodial debit (Gnosis Pay / Immersve
    track) + fiat ramps (Bridge/Stripe, Monerium SEPA), Apple/Google wallet
