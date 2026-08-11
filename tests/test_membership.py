@@ -1,0 +1,196 @@
+"""Suwappu Membership — subscriptions as soulbound NFTs on Robinhood Chain.
+
+Two invariants matter most:
+  1. get_tier's max() rule — the chain can only ever RAISE a tier, and every
+     failure path leaves the database tier in force (fail-open).
+  2. On-chain prices must equal the app's tier pricing, or users pay a
+     different amount depending on where they subscribe.
+"""
+
+import os
+from types import SimpleNamespace
+
+import pytest
+
+from bot.models.subscription import SubscriptionTier
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _sol():
+    return open(os.path.join(REPO, "contracts", "SuwappuMembership.sol")).read()
+
+
+# ── 1. contract source invariants ─────────────────────────────────────────────
+
+
+def test_membership_is_soulbound():
+    sol = _sol()
+    assert "if (from != address(0) && to != address(0)) revert Soulbound();" in sol
+    # approvals blocked too, so it can never be listed
+    assert "function approve(address, uint256) public pure override" in sol
+    assert "function setApprovalForAll(address, bool) public pure override" in sol
+
+
+def test_one_membership_per_wallet():
+    sol = _sol()
+    assert "if (tokenOf[to] != 0) revert AlreadyMember();" in sol
+
+
+def test_free_tier_is_minted_not_bought():
+    sol = _sol()
+    assert "if (tier == Tier.Free) revert BadTier(); // FREE is minted, not bought" in sol
+    assert "function mintFree() external nonReentrant returns (uint256 tokenId)" in sol
+
+
+def test_onchain_prices_match_app_pricing():
+    """$9.99 / $29.99 / $99.99 per 30 days, in USDG 6dp — exact parity with
+    x402's TIER_LIMITS so where you subscribe never changes what you pay."""
+    from bot.services.x402_service import TIER_LIMITS
+
+    sol = _sol()
+    assert "[uint256(0), 9_990_000, 29_990_000, 99_990_000]" in sol
+    assert TIER_LIMITS[SubscriptionTier.PRO]["price_usd"] == 9.99
+    assert TIER_LIMITS[SubscriptionTier.PREMIUM]["price_usd"] == 29.99
+    assert TIER_LIMITS[SubscriptionTier.ENTERPRISE]["price_usd"] == 99.99
+
+
+def test_tier_switch_converts_remaining_time_by_price_ratio():
+    sol = _sol()
+    assert (
+        "uint256 converted = (uint256(remaining) * pricePerPeriod[uint256(m.tier)])" in sol
+    ), "remaining time must convert by price ratio, not be burned"
+
+
+def test_admin_powers_are_bounded():
+    sol = _sol()
+    assert "MAX_GRANT = 365 days" in sol
+    assert "MAX_PERIODS_PER_PURCHASE = 24" in sol
+    assert "if (price == 0) revert BadPeriods();" in sol  # cannot zero a paid tier
+    # FREE cannot be repriced (it anchors the conversion math)
+    assert "function setPrice(Tier tier, uint256 price) external onlyOwner {" in sol
+
+
+def test_uses_canonical_usdg():
+    """The chain has two USDG deployments; the repo pinned 0x5fc5…d168 as canonical."""
+    sol = open(os.path.join(REPO, "contracts", "deploy", "DeployMembership.s.sol")).read()
+    assert "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" in sol
+    assert 'require(usdg == USDG_MAINNET, "mainnet must use canonical USDG");' in sol
+
+
+# ── 2. the service and the max() rule ─────────────────────────────────────────
+
+
+def test_tier_index_map_covers_the_contract_enum():
+    from bot.services.membership_service import TIER_BY_INDEX, TIER_RANK
+
+    assert TIER_BY_INDEX == {
+        0: SubscriptionTier.FREE,
+        1: SubscriptionTier.PRO,
+        2: SubscriptionTier.PREMIUM,
+        3: SubscriptionTier.ENTERPRISE,
+    }
+    assert set(TIER_RANK) == set(SubscriptionTier)
+
+
+def test_best_tier_only_ever_raises():
+    from bot.services.membership_service import membership_service as m
+
+    F, P, PR, E = (
+        SubscriptionTier.FREE,
+        SubscriptionTier.PRO,
+        SubscriptionTier.PREMIUM,
+        SubscriptionTier.ENTERPRISE,
+    )
+    assert m.best_tier(F, PR) == PR  # chain raises
+    assert m.best_tier(PR, F) == PR  # chain can NEVER lower
+    assert m.best_tier(PR, None) == PR  # unreadable chain -> DB stands
+    assert m.best_tier(F, None) == F
+    assert m.best_tier(E, PR) == E
+
+
+@pytest.mark.asyncio
+async def test_disabled_service_returns_none(monkeypatch):
+    from bot.services.membership_service import MembershipService
+
+    svc = MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: None))
+    assert svc.enabled is False
+    assert await svc.get_onchain_tier(1) is None
+
+
+@pytest.mark.asyncio
+async def test_rpc_failure_is_fail_open(monkeypatch):
+    from bot.services.membership_service import MembershipService
+
+    svc = MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
+    monkeypatch.setattr(
+        type(svc), "_contract", lambda self: (_ for _ in ()).throw(RuntimeError("rpc down"))
+    )
+    import bot.services.position_cards_service as pcs
+
+    monkeypatch.setattr(
+        pcs.position_cards_service, "evm_address_for_user", lambda uid: "0x" + "22" * 20
+    )
+    assert await svc.get_onchain_tier(7) is None  # not FREE — unknown
+
+
+# ── 3. get_tier integration (the money path) ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_tier_takes_max_of_db_and_chain(monkeypatch):
+    from bot.services.membership_service import membership_service
+    from bot.services.x402_service import X402Service
+
+    svc = X402Service()
+
+    async def fake_sub(user_id):
+        return SimpleNamespace(tier=SubscriptionTier.FREE, expires_at=None)
+
+    monkeypatch.setattr(svc, "get_subscription", fake_sub)
+
+    async def chain_premium(uid):
+        return SubscriptionTier.PREMIUM
+
+    monkeypatch.setattr(membership_service, "get_onchain_tier", chain_premium)
+    assert await svc.get_tier(1) == SubscriptionTier.PREMIUM
+
+
+@pytest.mark.asyncio
+async def test_get_tier_never_lowered_by_chain(monkeypatch):
+    from bot.services.membership_service import membership_service
+    from bot.services.x402_service import X402Service
+
+    svc = X402Service()
+
+    async def fake_sub(user_id):
+        return SimpleNamespace(tier=SubscriptionTier.ENTERPRISE, expires_at=None)
+
+    monkeypatch.setattr(svc, "get_subscription", fake_sub)
+
+    async def chain_free(uid):
+        return SubscriptionTier.FREE
+
+    monkeypatch.setattr(membership_service, "get_onchain_tier", chain_free)
+    assert await svc.get_tier(1) == SubscriptionTier.ENTERPRISE
+
+
+@pytest.mark.asyncio
+async def test_get_tier_survives_membership_blowup(monkeypatch):
+    from bot.services.membership_service import membership_service
+    from bot.services.x402_service import X402Service
+
+    svc = X402Service()
+
+    async def fake_sub(user_id):
+        return SimpleNamespace(tier=SubscriptionTier.PRO, expires_at=None)
+
+    monkeypatch.setattr(svc, "get_subscription", fake_sub)
+
+    async def boom(uid):
+        raise RuntimeError("chain exploded")
+
+    monkeypatch.setattr(membership_service, "get_onchain_tier", boom)
+    assert await svc.get_tier(1) == SubscriptionTier.PRO  # fail-open to DB

@@ -245,7 +245,16 @@ class X402Service:
             return sub
 
     async def get_tier(self, user_id: int) -> SubscriptionTier:
-        """Get user's current subscription tier."""
+        """User's current tier: max(database subscription, on-chain membership).
+
+        The SuwappuMembership NFT on Robinhood Chain is an additional way to hold
+        a paid tier (docs/plans/robinhood-membership-integration.md). The max()
+        rule keeps the two systems composable: Stripe/x402 subscriptions work
+        exactly as before, and the chain can only ever RAISE the tier. The
+        on-chain lookup is TTL-cached and fail-open — any failure returns None
+        and the DB tier stands, so an RPC outage can never strip a paying
+        subscriber mid-swap.
+        """
         sub = await self.get_subscription(user_id)
 
         # Subscription.expires_at is a timestamp-without-time-zone column, so
@@ -255,10 +264,18 @@ class X402Service:
         expires_at = sub.expires_at
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
+        db_tier = sub.tier
         if expires_at is not None and expires_at < datetime.now(timezone.utc):
-            return SubscriptionTier.FREE
+            db_tier = SubscriptionTier.FREE
 
-        return sub.tier
+        try:
+            from bot.services.membership_service import membership_service
+
+            onchain = await membership_service.get_onchain_tier(user_id)
+            return membership_service.best_tier(db_tier, onchain)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Membership tier lookup failed for user {user_id}: {e}")
+            return db_tier
 
     async def upgrade_subscription(
         self,

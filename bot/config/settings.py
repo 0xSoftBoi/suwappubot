@@ -1276,6 +1276,16 @@ class Settings(BaseSettings):
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
     )
+    suwappu_membership_contract: Optional[str] = Field(
+        default=None,
+        description=(
+            "SuwappuMembership soulbound ERC-721 on Robinhood Chain (chain 4663). "
+            "The NFT IS the subscription: free mint = FREE tier, USDG-paid periods = "
+            "PRO/PREMIUM/ENTERPRISE. When set, x402_service.get_tier takes "
+            "max(db tier, on-chain tier), fail-open to the DB. Unset disables the "
+            "on-chain path entirely."
+        ),
+    )
     suwappu_position_cards_contract: Optional[str] = Field(
         default=None,
         description=(
