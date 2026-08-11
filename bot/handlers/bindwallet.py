@@ -17,7 +17,15 @@ Security properties:
     signature can neither be replayed for another user nor pre-computed.
   - Nonces are single-use and expire after 10 minutes.
   - Verification uses eth_account's EIP-191 recovery — possession of the key is
-    the ONLY way to bind an address. You cannot bind someone else's wallet.
+    the ONLY way to bind an address.
+  - EXCLUSIVITY: an address can be bound to at most one account, enforced by a
+    pre-write check AND a unique index on users.membership_address. A signature
+    proves someone with the key consented; it does NOT prove that someone is
+    this Telegram user. Without exclusivity a single ENTERPRISE NFT could be
+    signed for unlimited accounts, reintroducing exactly the shared-account
+    vector the soulbound contract exists to prevent. Addresses are stored
+    lowercased so the index actually collides.
+  - Rate limited, and private chats only — the flow echoes an address back.
 """
 
 import logging
@@ -46,6 +54,20 @@ def _challenge_text(telegram_id: int, nonce: str) -> str:
 async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = context.args or []
+
+    # Never run this in a group: it echoes the challenge and the bound address.
+    chat = update.effective_chat
+    if chat is not None and getattr(chat, "type", "private") != "private":
+        await update.message.reply_text("🔒 Please use /bindwallet in a direct message with me.")
+        return
+
+    try:
+        from bot.utils.rate_limiter import enforce_rate_limit_for_update, swap_limiter
+
+        if not await enforce_rate_limit_for_update(update, swap_limiter):
+            return
+    except ImportError:  # pragma: no cover - limiter is optional at import time
+        pass
 
     from bot.models.user import User
     from database.db import get_session
@@ -120,10 +142,38 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Proven. Single-use: burn the nonce, store, invalidate the tier cache.
-    context.user_data.pop(_CHALLENGE_KEY, None)
+    normalized = recovered.lower()
     with get_session() as session:
+        # EXCLUSIVITY (see module docstring): one address, one account. Checked
+        # here for a clean error and enforced by a unique index underneath, so a
+        # concurrent bind cannot slip through the gap between check and write.
+        clash = (
+            session.query(User.id)
+            .filter(User.membership_address == normalized, User.id != user_id)
+            .first()
+        )
+        if clash:
+            await update.message.reply_text(
+                "❌ That address is already linked to another Suwappu account.\n\n"
+                "Each wallet can back one account — use a different wallet, or "
+                "unlink it from the other account first.",
+            )
+            return
         db_user = session.query(User).filter(User.id == user_id).first()
-        db_user.membership_address = recovered
+        if not db_user:
+            await update.message.reply_text("❌ Account not found — try /start again.")
+            return
+        try:
+            db_user.membership_address = normalized
+            session.flush()
+        except Exception:
+            session.rollback()
+            await update.message.reply_text(
+                "❌ That address is already linked to another Suwappu account."
+            )
+            return
+
+    context.user_data.pop(_CHALLENGE_KEY, None)
     try:
         from bot.services.membership_service import membership_service
 

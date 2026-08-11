@@ -102,3 +102,28 @@ and the exploit paths are now reproduced as failing-then-fixed tests:
 | MED — unbounded cache | Swept past 5,000 entries |
 | LOW ×4 | CEI (payment before mint — a broke wallet gets no token, tested), `nonReentrant` on `grantTime`, `SafeCast.toUint64`, `renounceOwnership` disabled, dead code removed |
 | **Verification gap** — zero executable contract tests, forge unavailable | `tests/test_membership_evm.py`: 9 behaviour tests deploying the real bytecode on eth-tester/py-evm — value-neutral round-trips, both HIGH exploits reproduced dead, soulbound/one-per-wallet/bounds |
+
+## Second money-path review — also blocked, also fixed
+
+The remediation was re-reviewed adversarially. It found the conversion arithmetic
+sound (it could not break the value invariant) but caught a term-confiscation hole
+and four bugs in the Python layer the first pass had "fixed":
+
+| Finding | Fix |
+|---|---|
+| **BLOCKER** — `membership_address` had no uniqueness. A signature proves key possession, *not identity*: a reseller could sign the inert challenge for N accounts, so one $99.99 ENTERPRISE NFT gave unlimited accounts 0.1% fees (~$90k/mo of diverted fees at 100 accounts × $100k volume) — reintroducing the exact shared-account vector soulbinding exists to prevent | Pre-write exclusivity check **plus** a unique index on `users.membership_address`, addresses stored lowercased so the index actually collides. Migration dedups any legacy rows (keeps lowest id). Verified: duplicate insert raises `IntegrityError` |
+| **HIGH** — `grantTime` conserved dollars but destroyed *term*: comping 7d of ENTERPRISE onto 720d of PRO cut the member to 79 days, unconsented | A grant that would shorten the term now reverts (`GrantWouldShrinkTerm`). Same-tier goodwill still extends |
+| **HIGH** — RPC health attributed to a weighted-*random* endpoint pick, not the one that ran the call, tripping breakers on healthy endpoints and evicting the chain-wide web3 cache | Attribute to `contract.w3.provider.endpoint_uri` |
+| **HIGH** — 6 serial `eth_call`s under one 1.5s budget; a timeout discarded everything, silently charging a paying ENTERPRISE holder 1% instead of 0.1% ($500 vs $50 on a $50k swap) | Short-circuit on ENTERPRISE, skip failing addresses instead of aborting, and **stale-while-revalidate**: a previously observed paid tier survives an outage for an hour |
+| **HIGH** — `wait_for` cancels the await, not the thread; abandoned lookups pinned up to 18s of shared default-executor workers that swap execution also uses | Dedicated bounded `ThreadPoolExecutor(max_workers=2)` — exhaustion is contained to this feature |
+| **MED** — `setPrice` had no floor: a one-block `setPrice(PRO, 1)` converted 720d of ENTERPRISE into ~2 billion years, with no claw-back | `MIN_PRICE`/`MAX_PRICE` bounds **and** a `MAX_TERM = 3650 days` horizon in the credit path |
+| **MED** — `_safeMint` would lock out any ERC-4337 smart account without `onERC721Received` — the exact wallet class this targets | `_mint` (soulbound, so no stuck-token risk) |
+| **MED** — one unknown tier index discarded an already-found paid tier | `continue` instead of abort |
+| **MED** — no rate limit / rebind cooldown on `/bindwallet`; challenge echoed in group chats | Rate limited, private-chat only |
+| **MED** — the DB read sat outside the timeout budget | Both legs share one deadline |
+| **MED** — artifacts were a hand-committed blob with no build script, so tests could pass against stale bytecode | `scripts/build_contract_test_artifacts.js` + a test asserting the committed source hashes match |
+| **LOW** ×4 | Locks no longer swept while held; `invalidate()` clears them; `db_user` None-checked; group-chat guard |
+
+Confirmed still sound by the second pass: the value invariant (no sequence mints
+value), the reprice front-run staying dead, fail-open on every path, soulbound
+enforcement, reentrancy/CEI, and server-derived identity in the binding flow.

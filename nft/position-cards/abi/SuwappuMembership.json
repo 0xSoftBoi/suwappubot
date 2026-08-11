@@ -144,6 +144,11 @@
   "type": "error"
  },
  {
+  "inputs": [],
+  "name": "GrantWouldShrinkTerm",
+  "type": "error"
+ },
+ {
   "inputs": [
    {
     "internalType": "address",
@@ -163,6 +168,11 @@
    }
   ],
   "name": "OwnableUnauthorizedAccount",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "PriceOutOfRange",
   "type": "error"
  },
  {
@@ -462,6 +472,45 @@
  {
   "inputs": [],
   "name": "MAX_PERIODS_PER_PURCHASE",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "MAX_PRICE",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "MAX_TERM",
+  "outputs": [
+   {
+    "internalType": "uint64",
+    "name": "",
+    "type": "uint64"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "MIN_PRICE",
   "outputs": [
    {
     "internalType": "uint256",

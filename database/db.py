@@ -458,6 +458,31 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
+    # --- users.membership_address: one wallet backs at most one account ---
+    # Without this a single paid membership NFT could be signed for unlimited
+    # accounts (the signature proves key possession, not identity), handing every
+    # one of them ENTERPRISE fee rates off one purchase.
+    if "users" in tables:
+        idx_names = {i["name"] for i in inspector.get_indexes("users")}
+        if "ux_users_membership_address" not in idx_names:
+            with db_engine.begin() as conn:
+                # Clear any duplicates created before the constraint existed —
+                # keep the lowest user id, unbind the rest (they can re-bind).
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = NULL "
+                        "WHERE membership_address IS NOT NULL AND id NOT IN ("
+                        "  SELECT MIN(id) FROM users WHERE membership_address IS NOT NULL"
+                        "  GROUP BY membership_address)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_membership_address "
+                        "ON users (membership_address)"
+                    )
+                )
+
     # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = (
         "agents"

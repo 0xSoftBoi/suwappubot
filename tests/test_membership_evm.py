@@ -22,7 +22,7 @@ web3 = pytest.importorskip("web3")
 pytest.importorskip("eth_tester")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS = os.path.join(REPO, "nft", "position-cards", "abi", "membership_test_artifacts.json")
+ARTIFACTS = os.path.join(REPO, "contracts", "test", "artifacts.json")
 
 DAY = 86400
 PERIOD = 30 * DAY
@@ -35,7 +35,7 @@ def env():
     from web3 import EthereumTesterProvider, Web3
 
     w3 = Web3(EthereumTesterProvider())
-    art = json.load(open(ARTIFACTS))
+    art = json.load(open(ARTIFACTS))["artifacts"]
     owner, treasury, alice, bob = w3.eth.accounts[:4]
 
     def deploy(name, *args, frm=owner):
@@ -322,3 +322,72 @@ def test_conversion_never_mints_value():
         if paid:
             worst = max(worst, (held * sim["snap"] // PERIOD) / paid)
     assert worst <= 1.001, f"conversion minted value: held/paid = {worst:.4f}"
+
+
+def test_artifacts_match_current_sources():
+    """The EVM tests deploy a committed bytecode blob. If it drifts from the
+    .sol sources the whole suite goes green against stale code, so pin it:
+    rebuild with `node scripts/build_contract_test_artifacts.js`."""
+    import hashlib
+
+    doc = json.load(open(ARTIFACTS))
+    for rel, expected in doc["sourceHashes"].items():
+        path = os.path.join(REPO, "contracts", "test" if rel == "MockUSDG.sol" else "", rel)
+        actual = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        assert actual == expected, f"{rel} changed — rerun the artifact build script"
+
+
+def test_grant_of_a_different_tier_cannot_shrink_the_term(env):
+    """Review H1: comping 7 days of ENTERPRISE onto 720 days of PRO conserved
+    dollars but cut the member from 720 days to 79. Must now revert."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    m.functions.subscribe(PRO, 24).transact({"from": alice})  # 720d
+    _, before, _ = expiry_of(m, alice)
+    with pytest.raises(Exception):
+        m.functions.grantTime(alice, ENTERPRISE, 7 * DAY).transact({"from": owner})
+    _, after, _ = expiry_of(m, alice)
+    assert after == before, "a goodwill grant must never shorten the term"
+    # same-tier goodwill still works and extends
+    m.functions.grantTime(alice, PRO, 7 * DAY).transact({"from": owner})
+    _, extended, _ = expiry_of(m, alice)
+    assert extended > before
+
+
+def test_price_floor_blocks_the_infinite_term_window(env):
+    """Review M1: setPrice(PRO, 1) for one block converted 720d of ENTERPRISE
+    into ~2 billion years of PRO, with no claw-back."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    with pytest.raises(Exception):
+        m.functions.setPrice(PRO, 1).transact({"from": owner})
+    m.functions.subscribe(ENTERPRISE, 24).transact({"from": alice})
+    m.functions.setPrice(PRO, 100_000).transact({"from": owner})  # the legal floor
+    now = w3.eth.get_block("latest").timestamp
+    m.functions.subscribe(PRO, 1).transact({"from": alice})
+    _, expiry, _ = expiry_of(m, alice)
+    # +2s tolerance: `now` is read before the tx, so the block timestamp the
+    # contract caps against is a second or two later.
+    assert expiry - now <= 3650 * DAY + 2, "MAX_TERM horizon not enforced"
+    # and the cap is genuinely load-bearing: without it this would be ~1,970 years
+    assert expiry - now > 3000 * DAY
+
+
+def test_mint_does_not_require_erc721_receiver(env):
+    """Review M2: _safeMint would lock out any ERC-4337 smart account missing
+    onERC721Received — the exact wallet class this targets."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuMembership.sol")).read()
+    code = "\n".join(ln for ln in sol.split("\n") if not ln.strip().startswith(("//", "///", "*")))
+    assert "_mint(to, tokenId);" in code
+    assert "_safeMint" not in code
+
+
+def test_conversion_never_confiscates_beyond_the_price_ratio():
+    """Companion to the value-creation bound: a regression that zeroed retained
+    time would pass that test but fail this one."""
+    now = 1_000_000
+    sim = {"tier": 0, "exp": 0, "snap": 0}
+    _credit_mirror(sim, PRO, 24 * PERIOD, PRO_PRICE, now)
+    held_before = sim["exp"] - now
+    _credit_mirror(sim, ENTERPRISE, PERIOD, ENTERPRISE_PRICE, now)
+    retained = sim["exp"] - now - PERIOD
+    expected = held_before * PRO_PRICE // ENTERPRISE_PRICE
+    assert retained >= expected - 2, "retained time was confiscated"

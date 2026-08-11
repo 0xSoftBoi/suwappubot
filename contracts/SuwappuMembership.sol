@@ -26,9 +26,12 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
  * shared-account vector, and would start to look like an instrument. Approvals
  * are disabled along with transfers.
  *
- * TIER SWITCHING. Remaining paid time converts by price ratio (remaining ×
- * oldPrice ÷ newPrice). An upgrade never burns value; a downgrade stretches time
- * value-neutrally, so gaming tier switches is pointless by construction.
+ * TIER SWITCHING. Remaining paid time converts by value, at the price it was
+ * BOUGHT at. This conserves DOLLARS, not DAYS: upgrading 720 days of PRO to
+ * ENTERPRISE buys ~72 days of ENTERPRISE, because that is what the money is
+ * worth at the higher tier. Surfaces must say so before confirming an upgrade.
+ * A same-tier renewal never converts — time already bought stays bought, even
+ * across a price change.
  *
  * WHAT THIS IS NOT. The token pays nothing, yields nothing, cannot be sold, and
  * confers only access to Suwappu's own service — deliberately shaped so it cannot
@@ -54,6 +57,16 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     /// @dev Cap on ops-comped time per call (grantTime), so a compromised owner
     ///      key cannot mint decades of ENTERPRISE in one transaction.
     uint64 public constant MAX_GRANT = 365 days;
+    /// @dev Absolute ceiling on how far an expiry can ever be pushed. Without it
+    ///      a single mispriced block (setPrice(PRO, 1)) lets a holder convert
+    ///      existing time at a ~1e8 ratio into effectively infinite term, and the
+    ///      contract has no burn or claw-back to undo it.
+    uint64 public constant MAX_TERM = 3650 days;
+    /// @dev Price bounds for setPrice. The floor is what makes MAX_TERM hard to
+    ///      reach at all; the ceiling stops a fat-finger from pricing a tier out
+    ///      of existence and mangling conversion ratios.
+    uint256 public constant MIN_PRICE = 100_000; // 0.10 USDG
+    uint256 public constant MAX_PRICE = 100_000_000_000; // 100,000 USDG
 
     /// @notice USDG (6 decimals) — canonical on chain 4663, pinned from
     ///         bot/config/tokens.py (0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168).
@@ -98,6 +111,8 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     error BadPeriods();
     error ZeroAddress();
     error GrantTooLong();
+    error GrantWouldShrinkTerm();
+    error PriceOutOfRange();
 
     constructor(address usdg_, address treasury_, address initialOwner)
         ERC721("Suwappu Membership", "SUWA")
@@ -179,6 +194,10 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         }
 
         uint256 totalSeconds = retainedSeconds + duration;
+        // Hard horizon: see MAX_TERM. Truncating here is a deliberate safety
+        // valve for a mispricing, not normal operation — reaching it requires a
+        // price ratio no sane schedule produces.
+        if (totalSeconds > MAX_TERM) totalSeconds = MAX_TERM;
         m.tier = tier;
         m.expiresAt = (uint256(nowTs) + totalSeconds).toUint64();
         m.pricePaidPerPeriod = (retainedValue + uint256(duration) * newPrice) / totalSeconds;
@@ -190,7 +209,11 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         tokenId = ++totalSupply;
         tokenOf[to] = tokenId;
         _memberships[tokenId] = Membership(Tier.Free, 0, 0);
-        _safeMint(to, tokenId);
+        // _mint, not _safeMint: the buyer is an ERC-4337 smart account and one
+        // that omits onERC721Received would otherwise be unable to subscribe at
+        // all — the USDG would transfer and the mint would revert the whole tx.
+        // The token is soulbound, so there is no "stuck in a contract" risk.
+        _mint(to, tokenId);
         emit MembershipMinted(tokenId, to);
         emit SubscriptionUpdate(tokenId, 0);
     }
@@ -229,7 +252,13 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (duration == 0 || duration > MAX_GRANT) revert GrantTooLong();
         uint256 tokenId = tokenOf[to];
         if (tokenId == 0) tokenId = _mintTo(to);
+        uint64 oldExpiry = _memberships[tokenId].expiresAt;
         uint64 expiry = _creditTime(tokenId, tier, duration, pricePerPeriod[uint256(tier)]);
+        // A goodwill grant of a DIFFERENT tier converts by value, which conserves
+        // dollars but can shorten the calendar term — comping 7 days of ENTERPRISE
+        // onto 720 days of PRO would cut the member back to ~79 days. The member
+        // never consented to that, so refuse it: grant the same tier instead.
+        if (expiry < oldExpiry) revert GrantWouldShrinkTerm();
         emit TimeGranted(tokenId, tier, duration);
         emit SubscriptionUpdate(tokenId, expiry);
     }
@@ -246,7 +275,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     ///         price cut cannot confiscate existing holders' value. FREE stays 0.
     function setPrice(Tier tier, uint256 price) external onlyOwner {
         if (tier == Tier.Free) revert BadTier();
-        if (price == 0) revert BadPeriods();
+        if (price < MIN_PRICE || price > MAX_PRICE) revert PriceOutOfRange();
         pricePerPeriod[uint256(tier)] = price;
         emit PriceSet(tier, price);
     }

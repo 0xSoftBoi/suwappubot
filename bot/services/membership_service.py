@@ -17,6 +17,7 @@ subscriber mid-swap. Results are TTL-cached so the swap path stays fast.
 import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from bot.config.settings import settings
@@ -24,14 +25,26 @@ from bot.models.subscription import SubscriptionTier
 
 logger = logging.getLogger(__name__)
 
+# Sentinel: distinguishes "cached None (chain unreadable)" from "not cached".
+_MISS = object()
+
 CHAIN = "robinhood"
 CHAIN_ID = 4663
 
 _CACHE_TTL = 300  # seconds — successful reads
 _FAILURE_TTL = 15  # seconds — a transient RPC blip must not pin None for 5 min
+_STALE_PAID_TTL = 3600  # a previously-OBSERVED paid tier survives an outage this long
 _CACHE_MAX = 5_000  # sweep threshold; entries beyond TTL are dropped
-_CALL_TIMEOUT = 1.5  # seconds — hard budget for the eth_call off-thread
+_CALL_TIMEOUT = 1.5  # seconds — hard budget for the whole lookup
 _MAX_WALLETS = 5  # EVM wallets checked per user (max tier across them wins)
+
+# Membership lookups run on their OWN small pool, never asyncio's default
+# executor. web3's HTTPProvider timeout is seconds long and asyncio.wait_for
+# cancels the await but NOT the thread, so a hung Robinhood RPC would otherwise
+# pin default-executor workers that swap execution also depends on. Bounded
+# here, exhaustion is contained to this feature: extra lookups fail open
+# instead of starving the swap path.
+_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
 
 # Contract Tier enum index -> bot tier. Order is fixed by SuwappuMembership.sol.
 TIER_BY_INDEX = {
@@ -122,35 +135,51 @@ class MembershipService:
         return out[: _MAX_WALLETS + 1]
 
     def _tier_for_addresses_sync(self, addresses: list[str]) -> Optional[SubscriptionTier]:
-        """Blocking eth_calls — always executed via asyncio.to_thread."""
+        """Blocking eth_calls — always executed on _EXECUTOR, never inline.
+
+        Returns the best tier seen. Short-circuits on ENTERPRISE (nothing can
+        beat it) and skips addresses that fail rather than discarding the whole
+        result, so one bad wallet cannot cost a user a tier they hold elsewhere.
+        """
         from bot.services.rpc_manager import rpc_manager
 
         contract = self._contract()
-        url = None
+        # Attribute health to the endpoint that ACTUALLY served the call. Asking
+        # rpc_manager for a URL instead would return a fresh weighted-random pick
+        # and blame a healthy endpoint for this one's failure — which also evicts
+        # the shared web3 cache for every other caller on this chain.
         try:
-            url = rpc_manager.get_rpc_url(CHAIN)
+            url = contract.w3.provider.endpoint_uri
         except Exception:
-            pass
+            url = None
+
         best: Optional[SubscriptionTier] = None
+        saw_success = False
         t0 = time.time()
-        try:
-            for addr in addresses:
+        for addr in addresses:
+            try:
                 raw_tier, _expiry = contract.functions.tierOf(
                     contract.w3.to_checksum_address(addr)
                 ).call()
-                tier = TIER_BY_INDEX.get(int(raw_tier))
-                # Unknown index == incompatible contract: unreadable, not FREE.
-                if tier is None:
-                    return None
-                if best is None or TIER_RANK[tier] > TIER_RANK[best]:
-                    best = tier
-            if url:
-                rpc_manager.report_success(CHAIN, url, (time.time() - t0) * 1000)
-            return best
-        except Exception as e:
-            if url:
-                rpc_manager.report_failure(CHAIN, url, str(e))
-            raise
+            except Exception as e:
+                if url:
+                    rpc_manager.report_failure(CHAIN, url, str(e))
+                continue
+            saw_success = True
+            tier = TIER_BY_INDEX.get(int(raw_tier))
+            if tier is None:
+                # Unknown index: an incompatible/other contract at this address.
+                # Skip it — do NOT discard a paid tier already found elsewhere.
+                continue
+            if best is None or TIER_RANK[tier] > TIER_RANK[best]:
+                best = tier
+            if best == SubscriptionTier.ENTERPRISE:
+                break
+        if saw_success and url:
+            rpc_manager.report_success(CHAIN, url, (time.time() - t0) * 1000)
+        if not saw_success:
+            raise RuntimeError("all tierOf calls failed")
+        return best
 
     async def get_onchain_tier(self, user_id: Optional[int]) -> Optional[SubscriptionTier]:
         """The user's membership-NFT tier, or None when unknown/unavailable.
@@ -159,52 +188,71 @@ class MembershipService:
         "chain says FREE" from "could not read the chain" — both leave the DB
         tier in force under the max() rule.
 
-        Never blocks the event loop: the sync eth_call runs in a worker thread
-        under a hard timeout, single-flighted per user so N concurrent cold
-        reads for one user cost one RPC call. Successes cache for 5 minutes,
-        failures for 15 seconds.
+        Never blocks the event loop: the DB read and the eth_calls run on a
+        dedicated bounded pool inside ONE shared deadline, single-flighted per
+        user. Stale-while-revalidate: a previously observed PAID tier is served
+        for up to an hour through an outage, so a timeout can never silently
+        downgrade a paying subscriber to FREE pricing mid-swap.
         """
         if user_id is None or not self.enabled:
             return None
-        hit = self._cache.get(user_id)
-        if hit:
-            fetched_at, tier = hit
-            ttl = _CACHE_TTL if tier is not None else _FAILURE_TTL
-            if time.time() - fetched_at < ttl:
-                return tier
+        fresh = self._cached(user_id)
+        if fresh is not _MISS:
+            return fresh
 
         lock = self._locks.setdefault(user_id, asyncio.Lock())
         async with lock:
-            # Re-check under the lock — another waiter may have filled it.
-            hit = self._cache.get(user_id)
-            if hit:
-                fetched_at, tier = hit
-                ttl = _CACHE_TTL if tier is not None else _FAILURE_TTL
-                if time.time() - fetched_at < ttl:
-                    return tier
+            fresh = self._cached(user_id)
+            if fresh is not _MISS:
+                return fresh
 
+            loop = asyncio.get_running_loop()
+            deadline = time.time() + _CALL_TIMEOUT
             tier = None
             try:
-                addresses = await asyncio.to_thread(self._addresses_for_user, user_id)
+                addresses = await asyncio.wait_for(
+                    loop.run_in_executor(_EXECUTOR, self._addresses_for_user, user_id),
+                    timeout=max(0.1, deadline - time.time()),
+                )
                 if addresses:
                     tier = await asyncio.wait_for(
-                        asyncio.to_thread(self._tier_for_addresses_sync, addresses),
-                        timeout=_CALL_TIMEOUT,
+                        loop.run_in_executor(_EXECUTOR, self._tier_for_addresses_sync, addresses),
+                        timeout=max(0.1, deadline - time.time()),
                     )
             except Exception as e:  # pragma: no cover - defensive
                 logger.debug("Membership: on-chain tier lookup failed for %s: %s", user_id, e)
+                # Do not overwrite a known paid tier with a failure — keep serving
+                # it (stale) until _STALE_PAID_TTL, then fall back to the DB.
+                prev = self._cache.get(user_id)
+                if prev and prev[1] is not None and TIER_RANK.get(prev[1], 0) > 0:
+                    if time.time() - prev[0] < _STALE_PAID_TTL:
+                        return prev[1]
                 tier = None
 
             self._set_cached(user_id, tier)
             return tier
 
+    def _cached(self, user_id: int):
+        """Cached value if still fresh, else _MISS. Failures expire fast."""
+        hit = self._cache.get(user_id)
+        if not hit:
+            return _MISS
+        fetched_at, tier = hit
+        ttl = _CACHE_TTL if tier is not None else _FAILURE_TTL
+        return tier if time.time() - fetched_at < ttl else _MISS
+
     def _set_cached(self, user_id: int, tier: Optional[SubscriptionTier]) -> None:
         if len(self._cache) > _CACHE_MAX:
             cutoff = time.time() - _CACHE_TTL
-            stale = [k for k, (ts, _t) in self._cache.items() if ts < cutoff]
-            for k in stale:
+            for k in [k for k, (ts, _t) in self._cache.items() if ts < cutoff]:
                 self._cache.pop(k, None)
-                self._locks.pop(k, None)
+        # Locks are swept separately and only when unlocked: a stale cache entry
+        # looks identical to an in-flight lookup, so evicting its lock would let
+        # another coroutine create a fresh one and defeat single-flight.
+        if len(self._locks) > _CACHE_MAX:
+            for k, lk in list(self._locks.items()):
+                if not lk.locked() and k not in self._cache:
+                    self._locks.pop(k, None)
         self._cache[user_id] = (time.time(), tier)
 
     def best_tier(
@@ -219,6 +267,9 @@ class MembershipService:
         """Drop the cached tier. Called by /bindwallet after a successful bind so
         a fresh purchase is visible immediately, not after the TTL."""
         self._cache.pop(user_id, None)
+        lock = self._locks.get(user_id)
+        if lock is not None and not lock.locked():
+            self._locks.pop(user_id, None)
 
 
 membership_service = MembershipService()
