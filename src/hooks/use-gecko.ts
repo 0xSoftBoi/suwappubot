@@ -41,14 +41,19 @@ export function useEarn(enabled = true) {
   })
 }
 
+interface EarnActionVars {
+  amount: string
+  walletId?: number
+}
+
 export function useEarnDeposit() {
-  return useMutation<EarnActionResponse, Error, string>({
-    mutationFn: (amount) => endpoints.earnDeposit(amount),
+  return useMutation<EarnActionResponse, Error, EarnActionVars>({
+    mutationFn: (vars) => endpoints.earnDeposit(vars.amount, vars.walletId),
   })
 }
 
 export function useEarnWithdraw() {
-  return useMutation<EarnActionResponse, Error, string>({
-    mutationFn: (amount) => endpoints.earnWithdraw(amount),
+  return useMutation<EarnActionResponse, Error, EarnActionVars>({
+    mutationFn: (vars) => endpoints.earnWithdraw(vars.amount, vars.walletId),
   })
 }

@@ -31,18 +31,21 @@ export const endpoints = {
   earn: (signal?: AbortSignal) =>
     request<EarnSnapshot>('/v1/mobile/earn', { signal }),
 
-  earnDeposit: (amount: string) =>
+  // walletId is optional — omitted, the API resolves the user's default EVM
+  // wallet. Not sent by the UI yet (single-wallet flow), but the shape is
+  // ready for a future wallet picker.
+  earnDeposit: (amount: string, walletId?: number) =>
     request<EarnActionResponse>('/v1/mobile/earn/deposit', {
       method: 'POST',
-      body: { amount },
+      body: walletId === undefined ? { amount } : { amount, walletId },
       retries: 0,
       timeoutMs: TIMEOUTS.slow,
     }),
 
-  earnWithdraw: (amount: string) =>
+  earnWithdraw: (amount: string, walletId?: number) =>
     request<EarnActionResponse>('/v1/mobile/earn/withdraw', {
       method: 'POST',
-      body: { amount },
+      body: walletId === undefined ? { amount } : { amount, walletId },
       retries: 0,
       timeoutMs: TIMEOUTS.slow,
     }),
