@@ -354,9 +354,10 @@ def test_artifacts_match_current_sources():
     import hashlib
 
     doc = json.load(open(ARTIFACTS))
+    assert doc["sourceHashes"], "no sources hashed"
     for rel, expected in doc["sourceHashes"].items():
-        sub = "test" if rel.startswith("Mock") else ""
-        path = os.path.join(REPO, "contracts", sub, rel)
+        # keys are real relative paths under contracts/ — no guessing
+        path = os.path.join(REPO, "contracts", rel)
         actual = hashlib.sha256(open(path, "rb").read()).hexdigest()
         assert actual == expected, f"{rel} changed — rerun the artifact build script"
 

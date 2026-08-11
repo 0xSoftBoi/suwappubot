@@ -27,6 +27,7 @@ const TARGETS = {
   "SuwappuPositions.sol": "SuwappuPositions.sol",
   "MockUSDG.sol": "test/MockUSDG.sol",
   "MockEthUsdFeed.sol": "test/MockEthUsdFeed.sol",
+  "MaliciousMinter.sol": "test/MaliciousMinter.sol",
 };
 
 let solc;
@@ -69,7 +70,7 @@ if (errors.length) process.exit(1);
 
 // Only the contracts the tests actually deploy — keeps the blob small and the
 // diff readable when it changes.
-const WANTED = new Set(["SuwappuMembership", "SuwappuPositions", "MockUSDG", "MockEthUsdFeed"]);
+const WANTED = new Set(["SuwappuMembership", "SuwappuPositions", "MockUSDG", "MockEthUsdFeed", "MaliciousMinter"]);
 const artifacts = {};
 for (const file of Object.keys(out.contracts)) {
   for (const name of Object.keys(out.contracts[file])) {
@@ -83,8 +84,11 @@ for (const file of Object.keys(out.contracts)) {
 
 const sourceHashes = {};
 const crypto = require("crypto");
-for (const [key, rel] of Object.entries(TARGETS)) {
-  sourceHashes[key] = crypto
+// Key by the REAL relative path, so the consumer never has to guess where a
+// source lives from its filename (a "starts with Mock" heuristic silently broke
+// the freshness check the first time a non-Mock test contract was added).
+for (const rel of Object.values(TARGETS)) {
+  sourceHashes[rel] = crypto
     .createHash("sha256")
     .update(fs.readFileSync(path.join(ROOT, rel)))
     .digest("hex");

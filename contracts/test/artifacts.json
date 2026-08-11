@@ -3,10 +3,197 @@
  "sourceHashes": {
   "SuwappuMembership.sol": "7165233001601357dc9f5e788ca2778f3ae09ce4ea705f13dc590ac5efbf2aba",
   "SuwappuPositions.sol": "2df169d9b2d2718b7d79cc70f1efd10a4842d3dd0df5764c5915c5e8bcb851aa",
-  "MockUSDG.sol": "0e903ec0e8720fbfe46914397e5263caaa69615b6a0dc24490bdb90bae19d93f",
-  "MockEthUsdFeed.sol": "4bebdfa51e802e974f26bfdd5d77bfadfb7e2b542d1117257ca36491b8c798d8"
+  "test/MockUSDG.sol": "0e903ec0e8720fbfe46914397e5263caaa69615b6a0dc24490bdb90bae19d93f",
+  "test/MockEthUsdFeed.sol": "4bebdfa51e802e974f26bfdd5d77bfadfb7e2b542d1117257ca36491b8c798d8",
+  "test/MaliciousMinter.sol": "c0f9da92b1c917e0f74ed389c8046638aa2f0b0dcf62eaff97bef8c25d35727e"
  },
  "artifacts": {
+  "MaliciousMinter": {
+   "abi": [
+    {
+     "inputs": [
+      {
+       "internalType": "address",
+       "name": "target_",
+       "type": "address"
+      }
+     ],
+     "stateMutability": "nonpayable",
+     "type": "constructor"
+    },
+    {
+     "inputs": [
+      {
+       "internalType": "uint8",
+       "name": "phase_",
+       "type": "uint8"
+      },
+      {
+       "internalType": "uint8",
+       "name": "ticker_",
+       "type": "uint8"
+      },
+      {
+       "internalType": "bool",
+       "name": "onReceive",
+       "type": "bool"
+      },
+      {
+       "internalType": "bool",
+       "name": "onErc721",
+       "type": "bool"
+      }
+     ],
+     "name": "arm",
+     "outputs": [],
+     "stateMutability": "nonpayable",
+     "type": "function"
+    },
+    {
+     "inputs": [
+      {
+       "internalType": "uint256",
+       "name": "quantity",
+       "type": "uint256"
+      }
+     ],
+     "name": "attack",
+     "outputs": [],
+     "stateMutability": "payable",
+     "type": "function"
+    },
+    {
+     "inputs": [
+      {
+       "internalType": "address",
+       "name": "",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "",
+       "type": "address"
+      },
+      {
+       "internalType": "uint256",
+       "name": "",
+       "type": "uint256"
+      },
+      {
+       "internalType": "bytes",
+       "name": "",
+       "type": "bytes"
+      }
+     ],
+     "name": "onERC721Received",
+     "outputs": [
+      {
+       "internalType": "bytes4",
+       "name": "",
+       "type": "bytes4"
+      }
+     ],
+     "stateMutability": "nonpayable",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "phase",
+     "outputs": [
+      {
+       "internalType": "uint8",
+       "name": "",
+       "type": "uint8"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "reenterOnERC721",
+     "outputs": [
+      {
+       "internalType": "bool",
+       "name": "",
+       "type": "bool"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "reenterOnReceive",
+     "outputs": [
+      {
+       "internalType": "bool",
+       "name": "",
+       "type": "bool"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "reentryAttempts",
+     "outputs": [
+      {
+       "internalType": "uint256",
+       "name": "",
+       "type": "uint256"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "reentrySuccesses",
+     "outputs": [
+      {
+       "internalType": "uint256",
+       "name": "",
+       "type": "uint256"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "target",
+     "outputs": [
+      {
+       "internalType": "contract IPositions",
+       "name": "",
+       "type": "address"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "inputs": [],
+     "name": "ticker",
+     "outputs": [
+      {
+       "internalType": "uint8",
+       "name": "",
+       "type": "uint8"
+      }
+     ],
+     "stateMutability": "view",
+     "type": "function"
+    },
+    {
+     "stateMutability": "payable",
+     "type": "receive"
+    }
+   ],
+   "bytecode": "0x60a060405234801561000f575f5ffd5b5060405161076c38038061076c83398101604081905261002e9161003f565b6001600160a01b031660805261006c565b5f6020828403121561004f575f5ffd5b81516001600160a01b0381168114610065575f5ffd5b9392505050565b6080516106d36100995f395f8181610249015281816102ba0152818161035f015261043f01526106d35ff3fe608060405260043610610092575f3560e01c806399d387361161005757806399d3873614610186578063a8745cd2146101a4578063b1c9fe6e146101b9578063ca84aa3b146101d1578063d4b8399214610238575f5ffd5b8063150b7a02146100b55780632e86f2f4146100f257806364dd891a146101215780638ba47bdd146101345780638f58c0d414610163575f5ffd5b366100b1575f5462010000900460ff16156100af576100af610283565b005b5f5ffd5b3480156100c0575f5ffd5b506100d46100cf3660046104d1565b6103ec565b6040516001600160e01b031990911681526020015b60405180910390f35b3480156100fd575f5ffd5b505f54610111906301000000900460ff1681565b60405190151581526020016100e9565b6100af61012f366004610566565b610418565b34801561013f575f5ffd5b505f5461015190610100900460ff1681565b60405160ff90911681526020016100e9565b34801561016e575f5ffd5b5061017860025481565b6040519081526020016100e9565b348015610191575f5ffd5b505f546101119062010000900460ff1681565b3480156101af575f5ffd5b5061017860015481565b3480156101c4575f5ffd5b505f546101519060ff1681565b3480156101dc575f5ffd5b506100af6101eb36600461059c565b5f805491151563010000000263ff0000001993151562010000029390931663ffff00001960ff9586166101000261ffff199094169590961694909417919091179390931691909117179055565b348015610243575f5ffd5b5061026b7f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b0390911681526020016100e9565b60018054905f610292836105ed565b90915550505f8054604051633968a19560e01b815260ff9091166004820152600160248201527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031690633968a19590604401602060405180830381865afa158015610307573d5f5f3e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061032b9190610611565b9050804710156103385750565b5f8054604080518381526020810191829052634293c02760e01b9091526001600160a01b037f00000000000000000000000000000000000000000000000000000000000000001692634293c0279285926103a69260ff80841693610100900416916001919060248101610662565b5f604051808303818588803b1580156103bd575f5ffd5b505af1935050505080156103cf575060015b156103e95760028054905f6103e3836105ed565b91905055505b50565b5f80546301000000900460ff161561040657610406610283565b50630a85bd0160e11b95945050505050565b5f8054604080518381526020810191829052634293c02760e01b9091526001600160a01b037f00000000000000000000000000000000000000000000000000000000000000001692634293c0279234926104859260ff808416936101009004169188919060248101610662565b5f604051808303818588803b15801561049c575f5ffd5b505af11580156104ae573d5f5f3e3d5ffd5b505050505050565b80356001600160a01b03811681146104cc575f5ffd5b919050565b5f5f5f5f5f608086880312156104e5575f5ffd5b6104ee866104b6565b94506104fc602087016104b6565b935060408601359250606086013567ffffffffffffffff81111561051e575f5ffd5b8601601f8101881361052e575f5ffd5b803567ffffffffffffffff811115610544575f5ffd5b886020828401011115610555575f5ffd5b959894975092955050506020019190565b5f60208284031215610576575f5ffd5b5035919050565b803560ff811681146104cc575f5ffd5b803580151581146104cc575f5ffd5b5f5f5f5f608085870312156105af575f5ffd5b6105b88561057d565b93506105c66020860161057d565b92506105d46040860161058d565b91506105e26060860161058d565b905092959194509250565b5f6001820161060a57634e487b7160e01b5f52601160045260245ffd5b5060010190565b5f60208284031215610621575f5ffd5b5051919050565b5f8151808452602084019350602083015f5b8281101561065857815186526020958601959091019060010161063a565b5093949350505050565b60ff8616815260ff8516602082015283604082015282606082015260a060808201525f61069260a0830184610628565b97965050505050505056fea2646970667358221220e0ff486be3769d37c08d6f64abcf04d7a3831455160a65529cc80f7891d1efe764736f6c634300081b0033"
+  },
   "MockEthUsdFeed": {
    "abi": [
     {
