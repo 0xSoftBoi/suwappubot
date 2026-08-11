@@ -10,6 +10,7 @@ import {
 	agentRoutes,
 	healthRoutes,
 	mcpRoutes,
+	primitivesRoutes,
 	publicSwapRoutes,
 	swapRoutes,
 	webappRoutes,
@@ -42,6 +43,9 @@ export function createApp(config: AppConfig) {
 
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
+
+	// Read-only view over the immutable on-chain primitives (Base Sepolia)
+	app.route('/v1/primitives', primitivesRoutes)
 
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)

@@ -24,6 +24,7 @@
     "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
     "postgres": "^3.4.5",
+    "viem": "^2.55.13",
     "zod": "^4.3.6"
   },
   "devDependencies": {
