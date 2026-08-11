@@ -598,3 +598,50 @@ def test_executor_submissions_are_admission_controlled():
     src = open(mod.__file__).read()
     assert "_INFLIGHT.acquire(blocking=False)" in src
     assert "_INFLIGHT.release()" in src
+
+
+# ── 8. x402 integration ───────────────────────────────────────────────────────
+
+
+def test_python_and_typescript_x402_domains_agree():
+    """A wrong EIP-712 domain does not fail loudly — it produces a signature that
+    recovers to the wrong address and silently fails settlement. api-ts is the
+    authority; the Python copy must not drift from it."""
+    import re
+
+    from bot.services.x402_service import X402_EIP712_DOMAINS
+
+    ts = open(os.path.join(REPO, "api-ts", "src", "config", "x402Networks.ts")).read()
+    for block in re.findall(r"export const \w+: X402Network = \{(.*?)\n\}", ts, re.S):
+        network = re.search(r"network: '([^']+)'", block).group(1)
+        if network not in X402_EIP712_DOMAINS:
+            continue
+        py = X402_EIP712_DOMAINS[network]
+        assert re.search(r"chainId: (\d+)", block).group(1) == str(py["chain_id"])
+        assert re.search(r"assetSymbol: '([^']+)'", block).group(1) == py["symbol"]
+        eip = re.search(r"eip712: \{ name: '([^']+)', version: '([^']+)' \}", block)
+        assert eip.group(1) == py["name"], f"{network} domain name drifted"
+        assert eip.group(2) == py["version"], f"{network} domain version drifted"
+
+    rh = X402_EIP712_DOMAINS["robinhood"]
+    assert (rh["name"], rh["version"], rh["chain_id"]) == ("Global Dollar", "1", 4663)
+
+
+def test_authorization_uses_the_x402_usdg_address_not_a_copy():
+    """The asset must come from x402_service.payment_tokens, the same registry
+    the payment verifier uses, so the two can never point at different USDG
+    deployments (there are two on 4663; only one has real supply)."""
+    src = open(os.path.join(REPO, "bot", "services", "membership_service.py")).read()
+    assert 'usdg = x402_service.payment_tokens[CHAIN][domain["symbol"]]' in src
+    assert 'price_base = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))' in src
+
+
+def test_authorization_is_none_when_unconfigured():
+    from bot.services.membership_service import membership_service
+
+    assert (
+        membership_service.build_subscription_authorization(
+            "0x" + "11" * 20, SubscriptionTier.PRO, 1
+        )
+        is None
+    )  # contract unset

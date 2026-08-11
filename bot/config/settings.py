@@ -1276,6 +1276,15 @@ class Settings(BaseSettings):
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
     )
+    suwappu_membership_treasury: Optional[str] = Field(
+        default=None,
+        description=(
+            "Treasury address subscription USDG settles to on Robinhood Chain. MUST "
+            "equal the deployed SuwappuMembership's treasury(): the EIP-3009 "
+            "authorization signs over `to`, so a mismatch makes every gasless "
+            "subscription revert."
+        ),
+    )
     suwappu_membership_contract: Optional[str] = Field(
         default=None,
         description=(

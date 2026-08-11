@@ -459,3 +459,197 @@ def test_conversion_never_confiscates_beyond_the_price_ratio():
     retained = sim["exp"] - now - PERIOD
     expected = held_before * PRO_PRICE // ENTERPRISE_PRICE
     assert retained >= expected - 2, "retained time was confiscated"
+
+
+# ── x402 rail: EIP-3009 subscription (no approve, gasless-capable) ────────────
+
+
+def _sign_authorization(w3, acct, usdg, to, value, nonce, valid_after=0, valid_before=None):
+    """Sign an EIP-3009 TransferWithAuthorization exactly as a wallet would."""
+    from eth_account.messages import encode_typed_data
+
+    if valid_before is None:
+        valid_before = w3.eth.get_block("latest").timestamp + 3600
+    typed = {
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+            ],
+            "TransferWithAuthorization": [
+                {"name": "from", "type": "address"},
+                {"name": "to", "type": "address"},
+                {"name": "value", "type": "uint256"},
+                {"name": "validAfter", "type": "uint256"},
+                {"name": "validBefore", "type": "uint256"},
+                {"name": "nonce", "type": "bytes32"},
+            ],
+        },
+        "primaryType": "TransferWithAuthorization",
+        # Mirrors x402Networks.ts for chain 4663 — USDG's real domain.
+        "domain": {
+            "name": "Global Dollar",
+            "version": "1",
+            "chainId": w3.eth.chain_id,
+            "verifyingContract": usdg.address,
+        },
+        "message": {
+            "from": acct.address,
+            "to": to,
+            "value": value,
+            "validAfter": valid_after,
+            "validBefore": valid_before,
+            "nonce": nonce,
+        },
+    }
+    signed = acct.sign_typed_data(full_message=typed)
+    # eth_account returns r/s as ints; the ABI wants bytes32.
+    r = signed.r.to_bytes(32, "big") if isinstance(signed.r, int) else signed.r
+    s_ = signed.s.to_bytes(32, "big") if isinstance(signed.s, int) else signed.s
+    return valid_after, valid_before, signed.v, r, s_
+
+
+def test_subscribe_with_authorization_needs_no_approve_and_credits_the_signer(env):
+    """The whole point: one signature, no approve, and a RELAYER submits it — so
+    the payer needs no gas. Credit must land on the signer, not the sender."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
+    # deliberately NO approve() from payer
+
+    periods = 2
+    value = PRO_PRICE * periods
+    nonce = m.functions.subscriptionNonce(payer.address, PRO, periods).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, value, nonce)
+
+    assert usdg.functions.allowance(payer.address, m.address).call() == 0
+    m.functions.subscribeWithAuthorization(
+        PRO,
+        periods,
+        2**200,
+        (payer.address, value, va, vb, nonce, v, r, s),
+    ).transact(
+        {"from": relayer}
+    )  # relayer pays gas, not the payer
+
+    assert usdg.functions.balanceOf(treasury).call() == value
+    tier, expiry, _ = expiry_of(m, payer.address)
+    assert tier == PRO and expiry > w3.eth.get_block("latest").timestamp
+    assert m.functions.tokenOf(relayer).call() == 0, "credited the relayer instead of the signer"
+
+
+def test_authorization_intent_is_bound_into_the_nonce(env):
+    """EIP-3009 signs no tier/periods field, so a relayer holding a 99.99 USDG
+    authorization could otherwise hand the payer ten months of PRO instead of one
+    month of ENTERPRISE. The nonce commits to the intent."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
+
+    value = ENTERPRISE_PRICE  # 1 period of ENTERPRISE
+    nonce = m.functions.subscriptionNonce(payer.address, ENTERPRISE, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, value, nonce)
+    auth = (payer.address, value, va, vb, nonce, v, r, s)
+
+    # same money, relayer tries to redirect it to 10 periods of PRO
+    with pytest.raises(Exception):
+        m.functions.subscribeWithAuthorization(PRO, 10, 2**200, auth).transact({"from": relayer})
+    # and the honest call still works
+    m.functions.subscribeWithAuthorization(ENTERPRISE, 1, 2**200, auth).transact({"from": relayer})
+    tier, _, _ = expiry_of(m, payer.address)
+    assert tier == ENTERPRISE
+
+
+def test_authorization_cannot_be_replayed(env):
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
+    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, PRO_PRICE, nonce)
+    auth = (payer.address, PRO_PRICE, va, vb, nonce, v, r, s)
+
+    m.functions.subscribeWithAuthorization(PRO, 1, 2**200, auth).transact({"from": relayer})
+    with pytest.raises(Exception):  # EIP-3009 nonce is single-use
+        m.functions.subscribeWithAuthorization(PRO, 1, 2**200, auth).transact({"from": relayer})
+
+
+def test_authorization_respects_the_price_bound(env):
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 10_000_000_000).transact({"from": owner})
+    m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})
+    nonce = m.functions.subscriptionNonce(payer.address, PRO, 1).call()
+    va, vb, v, r, s = _sign_authorization(w3, payer, usdg, treasury, ENTERPRISE_PRICE, nonce)
+    auth = (payer.address, ENTERPRISE_PRICE, va, vb, nonce, v, r, s)
+    with pytest.raises(Exception):
+        m.functions.subscribeWithAuthorization(PRO, 1, PRO_PRICE, auth).transact({"from": relayer})
+
+
+def test_python_nonce_matches_the_contract_exactly(env):
+    """membership_service builds the nonce off-chain so a wallet can sign before
+    broadcasting. If it disagrees with subscriptionNonce by one byte, every
+    gasless subscription reverts with IntentMismatch."""
+    w3, usdg, m, owner, treasury, alice, _ = env
+    from bot.services.membership_service import _subscription_nonce
+
+    for tier_index, periods in ((1, 1), (2, 7), (3, 24)):
+        onchain = m.functions.subscriptionNonce(alice, tier_index, periods).call()
+        offchain = _subscription_nonce(alice, tier_index, periods)
+        assert onchain == offchain, (tier_index, periods)
+
+
+def test_python_built_authorization_settles_on_chain(env, monkeypatch):
+    """End-to-end: the payload membership_service hands a wallet, signed as-is,
+    is accepted by the contract. This is the whole x402 integration in one test."""
+    w3, usdg, m, owner, treasury, alice, relayer = env
+    from eth_account import Account
+
+    import bot.services.membership_service as mod
+    from bot.models.subscription import SubscriptionTier
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "contract_address", property(lambda self: m.address))
+    monkeypatch.setattr(type(svc), "treasury_address", property(lambda self: treasury))
+
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1_000_000_000).transact({"from": owner})
+
+    payload = svc.build_subscription_authorization(payer.address, SubscriptionTier.PRO, 2)
+    assert payload is not None
+    assert payload["value"] == PRO_PRICE * 2, "price drifted from TIER_LIMITS"
+
+    typed = dict(payload["typed_data"])
+    typed["domain"] = dict(typed["domain"], chainId=w3.eth.chain_id, verifyingContract=usdg.address)
+    signed = payer.sign_typed_data(full_message=typed)
+    r = signed.r.to_bytes(32, "big") if isinstance(signed.r, int) else signed.r
+    s_ = signed.s.to_bytes(32, "big") if isinstance(signed.s, int) else signed.s
+
+    m.functions.subscribeWithAuthorization(
+        payload["tier_index"],
+        payload["periods"],
+        2**200,
+        (
+            payer.address,
+            payload["value"],
+            payload["valid_after"],
+            payload["valid_before"],
+            bytes.fromhex(payload["nonce"][2:]),
+            signed.v,
+            r,
+            s_,
+        ),
+    ).transact({"from": relayer})
+
+    tier, _, _ = expiry_of(m, payer.address)
+    assert tier == PRO
+    assert usdg.functions.balanceOf(treasury).call() == PRO_PRICE * 2

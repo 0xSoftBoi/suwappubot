@@ -61,6 +61,23 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
 _INFLIGHT = threading.BoundedSemaphore(8)
 
 
+def _subscription_nonce(subscriber: str, tier_index: int, periods: int) -> bytes:
+    """keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V1", subscriber, tier, periods)).
+
+    Byte-identical to SuwappuMembership.subscriptionNonce — a mismatch makes every
+    authorization revert with IntentMismatch, so it is pinned by a test.
+    """
+    from eth_abi import encode
+    from eth_utils import keccak
+
+    return keccak(
+        encode(
+            ["string", "address", "uint8", "uint256"],
+            ["SUWAPPU_SUBSCRIPTION_V1", subscriber, tier_index, periods],
+        )
+    )
+
+
 def _is_transport_error(exc: BaseException) -> bool:
     """True only for errors that say something about the ENDPOINT's health.
 
@@ -353,6 +370,110 @@ class MembershipService:
                     self._locks.pop(k, None)
                     self._generation.pop(k, None)
         self._cache[user_id] = (time.time(), tier)
+
+    # ── x402 rail: build a signable subscription authorization ────────────────
+
+    @property
+    def treasury_address(self) -> Optional[str]:
+        """Where subscription USDG settles. The authorization signs over `to`, so
+        this must match the deployed contract's treasury or the payment reverts."""
+        return getattr(settings, "suwappu_membership_treasury", None)
+
+    def build_subscription_authorization(
+        self,
+        subscriber: str,
+        tier: SubscriptionTier,
+        periods: int,
+        valid_seconds: int = 3600,
+        now: Optional[int] = None,
+    ) -> Optional[dict]:
+        """EIP-712 payload for `subscribeWithAuthorization`, ready to sign.
+
+        This is the same EIP-3009 rail x402 already settles on for chain 4663, so
+        a subscription reuses the primitive the agent stack verified rather than
+        introducing a second payment path. The wallet signs once; any relayer (or
+        an ERC-4337 paymaster) submits it, so the subscriber needs no gas and no
+        `approve`.
+
+        The nonce is NOT random: it commits to (subscriber, tier, periods),
+        mirroring `SuwappuMembership.subscriptionNonce`. EIP-3009 has no field for
+        what a payment is *for*, so without that binding a relayer holding a 99.99
+        USDG authorization could redirect it to ten months of a cheaper tier.
+
+        Returns None when membership is unconfigured or the tier is unpaid.
+        """
+        if tier == SubscriptionTier.FREE or not self.enabled:
+            return None
+        if periods < 1 or periods > 24:  # mirrors MAX_PERIODS_PER_PURCHASE
+            return None
+        try:
+            from bot.services.x402_service import (
+                TIER_LIMITS,
+                X402_EIP712_DOMAINS,
+                x402_service,
+            )
+
+            domain = X402_EIP712_DOMAINS[CHAIN]
+            usdg = x402_service.payment_tokens[CHAIN][domain["symbol"]]
+            # 6dp asset (the x402 registry asserts every asset is 6-decimal).
+            # round() avoids 9.99 -> 9989999 float drift.
+            price_base = int(round(float(TIER_LIMITS[tier]["price_usd"]) * 1_000_000))
+            value = price_base * periods
+            tier_index = next(i for i, t in TIER_BY_INDEX.items() if t == tier)
+            nonce = _subscription_nonce(subscriber, tier_index, periods)
+            issued = int(time.time()) if now is None else int(now)
+            valid_before = issued + valid_seconds
+            nonce_hex = "0x" + nonce.hex()
+
+            return {
+                "chain": CHAIN,
+                "chain_id": domain["chain_id"],
+                "asset": usdg,
+                "tier": tier.value,
+                "tier_index": tier_index,
+                "periods": periods,
+                "value": value,
+                "price_per_period": price_base,
+                "nonce": nonce_hex,
+                "valid_after": 0,
+                "valid_before": valid_before,
+                "typed_data": {
+                    "types": {
+                        "EIP712Domain": [
+                            {"name": "name", "type": "string"},
+                            {"name": "version", "type": "string"},
+                            {"name": "chainId", "type": "uint256"},
+                            {"name": "verifyingContract", "type": "address"},
+                        ],
+                        "TransferWithAuthorization": [
+                            {"name": "from", "type": "address"},
+                            {"name": "to", "type": "address"},
+                            {"name": "value", "type": "uint256"},
+                            {"name": "validAfter", "type": "uint256"},
+                            {"name": "validBefore", "type": "uint256"},
+                            {"name": "nonce", "type": "bytes32"},
+                        ],
+                    },
+                    "primaryType": "TransferWithAuthorization",
+                    "domain": {
+                        "name": domain["name"],
+                        "version": domain["version"],
+                        "chainId": domain["chain_id"],
+                        "verifyingContract": usdg,
+                    },
+                    "message": {
+                        "from": subscriber,
+                        "to": self.treasury_address or "",
+                        "value": value,
+                        "validAfter": 0,
+                        "validBefore": valid_before,
+                        "nonce": nonce_hex,
+                    },
+                },
+            }
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Membership: authorization build failed: %s", e)
+            return None
 
     def best_tier(
         self, db_tier: SubscriptionTier, onchain: Optional[SubscriptionTier]

@@ -38,6 +38,27 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
  * read as an investment product. Modeled on ERC-5643 (renewable subscriptions):
  * expiry per token + `SubscriptionUpdate` events for indexers.
  */
+/// @dev EIP-3009 transfer-with-authorization, which USDG ("Global Dollar")
+///      implements. This is the exact rail x402 already settles on for chain
+///      4663 (api-ts/src/config/x402Networks.ts, EIP-712 domain
+///      name="Global Dollar" version="1", recovered from the on-chain
+///      DOMAIN_SEPARATOR because version() reverts). A subscription therefore
+///      reuses the payment primitive the agent stack has already verified
+///      instead of inventing a second one.
+interface IERC3009 {
+    function transferWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+
 contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
@@ -71,6 +92,8 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     /// @notice USDG (6 decimals) — canonical on chain 4663, pinned from
     ///         bot/config/tokens.py (0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168).
     IERC20 public immutable usdg;
+    /// @dev Same token, EIP-3009 view of it (see subscribeWithAuthorization).
+    IERC3009 private immutable _usdg3009;
     /// @notice Where subscription revenue lands. Multisig recommended.
     address public treasury;
 
@@ -109,12 +132,14 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     error Soulbound();
     error BadTier();
     error BadPeriods();
+    error WrongPayment();
     error ZeroAddress();
     error GrantTooLong();
     error GrantWouldShrinkTerm();
     error PriceOutOfRange();
     error TermCapReached();
     error PriceMoved();
+    error IntentMismatch();
 
     constructor(address usdg_, address treasury_, address initialOwner)
         ERC721("Suwappu Membership", "SUWA")
@@ -122,6 +147,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     {
         if (usdg_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
         usdg = IERC20(usdg_);
+        _usdg3009 = IERC3009(usdg_);
         treasury = treasury_;
     }
 
@@ -229,6 +255,83 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         m.expiresAt = (uint256(nowTs) + totalSeconds).toUint64();
         m.pricePaidPerPeriod = totalValue / totalSeconds;
         return m.expiresAt;
+    }
+
+    /// @notice The EIP-3009 nonce a subscription authorization MUST use.
+    ///
+    ///         EIP-3009 signs over (from, to, value, validAfter, validBefore,
+    ///         nonce) — it has no field for "which tier, how many periods". Left
+    ///         unbound, a relayer holding a signature worth 99.99 USDG could call
+    ///         this with tier=PRO and hand the payer ten months of PRO instead of
+    ///         the one month of ENTERPRISE they intended. Binding the intent into
+    ///         the nonce closes that: change tier or periods and the recomputed
+    ///         nonce no longer matches the signed one, so the transfer reverts.
+    ///
+    ///         Clients must derive their nonce from this function. It is `pure`,
+    ///         so a wallet can compute it off-chain before signing.
+    function subscriptionNonce(address subscriber, Tier tier, uint256 periods)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V1", subscriber, tier, periods));
+    }
+
+    /// @notice An EIP-3009 authorization, bundled so the call stays within the
+    ///         EVM stack limit (the repo builds with via_ir = false).
+    struct Authorization {
+        address from;
+        uint256 value;
+        uint256 validAfter;
+        uint256 validBefore;
+        bytes32 nonce;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
+    /// @notice Subscribe by EIP-3009 signature — no `approve`, one transaction,
+    ///         and the payer needs no gas because anyone (a relayer, an ERC-4337
+    ///         paymaster, the x402 facilitator) can submit it.
+    ///
+    /// @dev    The subscription is credited to `auth.from`, the SIGNER, never to
+    ///         `msg.sender`. A relayer submitting someone else's authorization
+    ///         pays the gas and the signer gets the term — there is nothing to
+    ///         steal, and front-running is harmless for the same reason.
+    ///         EIP-3009 nonces are single-use, so it cannot be replayed.
+    function subscribeWithAuthorization(
+        Tier tier,
+        uint256 periods,
+        uint256 maxPricePerPeriod,
+        Authorization calldata auth
+    ) external nonReentrant {
+        if (tier == Tier.Free) revert BadTier();
+        if (periods == 0 || periods > MAX_PERIODS_PER_PURCHASE) revert BadPeriods();
+
+        uint256 price = pricePerPeriod[uint256(tier)];
+        if (price > maxPricePerPeriod) revert PriceMoved();
+        if (auth.value != price * periods) revert WrongPayment();
+        if (auth.nonce != subscriptionNonce(auth.from, tier, periods)) revert IntentMismatch();
+
+        // Payment first (CEI). `to` is committed inside the signed authorization,
+        // so the payer authorised this treasury specifically.
+        _usdg3009.transferWithAuthorization(
+            auth.from,
+            treasury,
+            auth.value,
+            auth.validAfter,
+            auth.validBefore,
+            auth.nonce,
+            auth.v,
+            auth.r,
+            auth.s
+        );
+
+        uint256 tokenId = tokenOf[auth.from];
+        if (tokenId == 0) tokenId = _mintTo(auth.from);
+        uint64 expiry = _creditTime(tokenId, tier, uint64(periods * PERIOD), price, false);
+        emit Subscribed(tokenId, auth.from, tier, periods, auth.value);
+        emit SubscriptionUpdate(tokenId, expiry);
     }
 
     function _mintTo(address to) internal returns (uint256 tokenId) {

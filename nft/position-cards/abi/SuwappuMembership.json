@@ -149,6 +149,11 @@
   "type": "error"
  },
  {
+  "inputs": [],
+  "name": "IntentMismatch",
+  "type": "error"
+ },
+ {
   "inputs": [
    {
     "internalType": "address",
@@ -220,6 +225,11 @@
  {
   "inputs": [],
   "name": "TermCapReached",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "WrongPayment",
   "type": "error"
  },
  {
@@ -920,6 +930,105 @@
   "name": "subscribe",
   "outputs": [],
   "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuMembership.Tier",
+    "name": "tier",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256",
+    "name": "periods",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "maxPricePerPeriod",
+    "type": "uint256"
+   },
+   {
+    "components": [
+     {
+      "internalType": "address",
+      "name": "from",
+      "type": "address"
+     },
+     {
+      "internalType": "uint256",
+      "name": "value",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "validAfter",
+      "type": "uint256"
+     },
+     {
+      "internalType": "uint256",
+      "name": "validBefore",
+      "type": "uint256"
+     },
+     {
+      "internalType": "bytes32",
+      "name": "nonce",
+      "type": "bytes32"
+     },
+     {
+      "internalType": "uint8",
+      "name": "v",
+      "type": "uint8"
+     },
+     {
+      "internalType": "bytes32",
+      "name": "r",
+      "type": "bytes32"
+     },
+     {
+      "internalType": "bytes32",
+      "name": "s",
+      "type": "bytes32"
+     }
+    ],
+    "internalType": "struct SuwappuMembership.Authorization",
+    "name": "auth",
+    "type": "tuple"
+   }
+  ],
+  "name": "subscribeWithAuthorization",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "subscriber",
+    "type": "address"
+   },
+   {
+    "internalType": "enum SuwappuMembership.Tier",
+    "name": "tier",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256",
+    "name": "periods",
+    "type": "uint256"
+   }
+  ],
+  "name": "subscriptionNonce",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
+   }
+  ],
+  "stateMutability": "pure",
   "type": "function"
  },
  {

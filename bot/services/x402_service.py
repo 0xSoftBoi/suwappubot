@@ -54,6 +54,28 @@ BETA_PASSWORDS = _load_beta_passwords()
 # (TIER_FEE_RATES) — the single source of truth for what's actually charged
 # on-chain. Do NOT hardcode the fee here: it would let this copy drift from the
 # fee the swap engine collects. Update fee_service.TIER_FEE_RATES instead.
+# EIP-712 domains for the x402 `exact` (EIP-3009) scheme, keyed by chain.
+#
+# MIRRORS api-ts/src/config/x402Networks.ts. That file is the authority; this is
+# the Python-side copy so the bot can build a signable authorization without
+# calling into the TS stack. tests/test_membership.py asserts the two agree,
+# because a wrong domain does not fail loudly — it produces a signature that
+# recovers to the wrong address and silently fails settlement.
+#
+# USDG's `version()` REVERTS, so its version was recovered by brute-forcing the
+# domain against the on-chain DOMAIN_SEPARATOR
+# (0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036).
+# Do not "fix" this by calling version().
+X402_EIP712_DOMAINS = {
+    "base": {"name": "USD Coin", "version": "2", "chain_id": 8453, "symbol": "USDC"},
+    "robinhood": {
+        "name": "Global Dollar",
+        "version": "1",
+        "chain_id": 4663,
+        "symbol": "USDG",
+    },
+}
+
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
         "daily_swaps": None,  # Unlimited — revenue comes from swap fee

@@ -141,3 +141,47 @@ enforcement, reentrancy/CEI, and server-derived identity in the binding flow.
 | MED (already fixed pre-review) | `invalidate()` losing to an in-flight lookup — closed by the generation counter |
 
 Confirmed sound by this pass: value conservation across every subscribe/grantTime/setPrice sequence, the `_is_transport_error` classifier itself, `best_tier` monotonicity, lock single-flight, the `_MISS` sentinel, soulbound enforcement, CEI, `_mint` vs `_safeMint`, the migration, bindwallet transaction semantics, and that the `rpc_manager` change is chain-scoped.
+
+## x402 integration — one payment rail, not two
+
+x402 already settles USDG on chain 4663 via **EIP-3009**, with an EIP-712 domain
+(`name="Global Dollar", version="1"`) recovered by brute-forcing the on-chain
+`DOMAIN_SEPARATOR` because USDG's `version()` reverts. The membership was built on
+`approve()` + `subscribe()` — a second, worse payment path on the same chain. It now
+uses the rail x402 already proved.
+
+**`subscribeWithAuthorization(tier, periods, maxPricePerPeriod, Authorization)`**
+
+- **One signature, no `approve`, no gas for the payer.** Anyone — a relayer, an
+  ERC-4337 paymaster, the x402 facilitator — submits it. That is what makes the
+  Robinhood Wallet flow in this doc actually gasless rather than aspirationally so.
+- **Credited to the signer, never `msg.sender`.** A relayer pays the gas and the
+  signer gets the term, so front-running is pointless and there is nothing to steal.
+- **Intent is bound into the EIP-3009 nonce.** EIP-3009 signs
+  `(from, to, value, validAfter, validBefore, nonce)` — it has no field for *what the
+  payment buys*. Unbound, a relayer holding a 99.99 USDG authorization could call this
+  with `tier=PRO` and hand the payer ten months of PRO instead of the one month of
+  ENTERPRISE they intended. The nonce is
+  `keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V1", subscriber, tier, periods))`, so
+  altering either field invalidates the signature. Replay is already prevented by
+  EIP-3009's single-use nonces.
+- **Price-bounded** (`maxPricePerPeriod`) like the regular path, since these payers
+  are exactly the ones with standing authorizations.
+
+**One constant, two stacks.** `bot/services/x402_service.py::X402_EIP712_DOMAINS`
+mirrors `api-ts/src/config/x402Networks.ts`, and a test parses the TypeScript and
+asserts they agree. A wrong domain does not fail loudly — it yields a signature that
+recovers to the wrong address and silently fails settlement. The USDG *address* is read
+from `x402_service.payment_tokens`, the same registry the payment verifier uses, so the
+two can never point at different USDG deployments (there are two on 4663; one has
+338.7M supply, the other 1.1k).
+
+`membership_service.build_subscription_authorization()` returns the ready-to-sign
+payload; its nonce is asserted byte-identical to `subscriptionNonce()` on real
+bytecode, and a test signs that exact payload and settles it end-to-end.
+
+**Still to do on the api-ts side:** the x402 middleware should waive the per-call 402
+for a caller whose address holds a paid membership — the subscription *is* the payment,
+and charging both is double-billing. Tier limits already flow through
+(`get_tier` → `TIER_LIMITS.daily_api_calls`), so this is the remaining gap. Left
+deliberately unshipped rather than half-done, since it needs the bun suite.
