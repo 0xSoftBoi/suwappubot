@@ -32,6 +32,11 @@
  },
  {
   "inputs": [],
+  "name": "BadPhase",
+  "type": "error"
+ },
+ {
+  "inputs": [],
   "name": "DiscountTooHigh",
   "type": "error"
  },
@@ -140,7 +145,7 @@
  },
  {
   "inputs": [],
-  "name": "MintClosed",
+  "name": "NotAllowlisted",
   "type": "error"
  },
  {
@@ -167,6 +172,16 @@
  },
  {
   "inputs": [],
+  "name": "PhaseAllocationExhausted",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "PhaseNotOpen",
+  "type": "error"
+ },
+ {
+  "inputs": [],
   "name": "ReentrancyGuardReentrantCall",
   "type": "error"
  },
@@ -178,6 +193,11 @@
  {
   "inputs": [],
   "name": "RegistryNotSealed",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ReserveExhausted",
   "type": "error"
  },
  {
@@ -295,32 +315,6 @@
   "anonymous": false,
   "inputs": [
    {
-    "indexed": false,
-    "internalType": "bool",
-    "name": "open",
-    "type": "bool"
-   }
-  ],
-  "name": "MintOpenSet",
-  "type": "event"
- },
- {
-  "anonymous": false,
-  "inputs": [
-   {
-    "indexed": false,
-    "internalType": "uint256",
-    "name": "price",
-    "type": "uint256"
-   }
-  ],
-  "name": "MintPriceSet",
-  "type": "event"
- },
- {
-  "anonymous": false,
-  "inputs": [
-   {
     "indexed": true,
     "internalType": "uint256",
     "name": "tokenId",
@@ -378,6 +372,55 @@
    }
   ],
   "name": "OwnershipTransferred",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "bytes32",
+    "name": "merkleRoot",
+    "type": "bytes32"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint96",
+    "name": "price",
+    "type": "uint96"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "walletCap",
+    "type": "uint16"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint16",
+    "name": "allocation",
+    "type": "uint16"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint64",
+    "name": "startsAt",
+    "type": "uint64"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint64",
+    "name": "endsAt",
+    "type": "uint64"
+   }
+  ],
+  "name": "PhaseConfigured",
   "type": "event"
  },
  {
@@ -452,6 +495,19 @@
  },
  {
   "inputs": [],
+  "name": "RESERVE_MAX",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
   "name": "TICKER_COUNT",
   "outputs": [
    {
@@ -498,6 +554,49 @@
    }
   ],
   "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   },
+   {
+    "internalType": "bytes32",
+    "name": "merkleRoot",
+    "type": "bytes32"
+   },
+   {
+    "internalType": "uint96",
+    "name": "price",
+    "type": "uint96"
+   },
+   {
+    "internalType": "uint16",
+    "name": "walletCap",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint16",
+    "name": "allocation",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint64",
+    "name": "startsAt",
+    "type": "uint64"
+   },
+   {
+    "internalType": "uint64",
+    "name": "endsAt",
+    "type": "uint64"
+   }
+  ],
+  "name": "configurePhase",
+  "outputs": [],
+  "stateMutability": "nonpayable",
   "type": "function"
  },
  {
@@ -650,6 +749,11 @@
  {
   "inputs": [
    {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   },
+   {
     "internalType": "uint8",
     "name": "tickerIndex",
     "type": "uint8"
@@ -658,6 +762,16 @@
     "internalType": "uint256",
     "name": "quantity",
     "type": "uint256"
+   },
+   {
+    "internalType": "uint256",
+    "name": "maxQty",
+    "type": "uint256"
+   },
+   {
+    "internalType": "bytes32[]",
+    "name": "proof",
+    "type": "bytes32[]"
    }
   ],
   "name": "mint",
@@ -666,21 +780,14 @@
   "type": "function"
  },
  {
-  "inputs": [],
-  "name": "mintOpen",
-  "outputs": [
+  "inputs": [
    {
-    "internalType": "bool",
+    "internalType": "address",
     "name": "",
-    "type": "bool"
+    "type": "address"
    }
   ],
-  "stateMutability": "view",
-  "type": "function"
- },
- {
-  "inputs": [],
-  "name": "mintPrice",
+  "name": "minted",
   "outputs": [
    {
     "internalType": "uint256",
@@ -694,12 +801,17 @@
  {
   "inputs": [
    {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "",
+    "type": "uint8"
+   },
+   {
     "internalType": "address",
     "name": "",
     "type": "address"
    }
   ],
-  "name": "minted",
+  "name": "mintedInPhase",
   "outputs": [
    {
     "internalType": "uint256",
@@ -752,6 +864,29 @@
  {
   "inputs": [
    {
+    "internalType": "address",
+    "name": "to",
+    "type": "address"
+   },
+   {
+    "internalType": "uint8",
+    "name": "tickerIndex",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256",
+    "name": "quantity",
+    "type": "uint256"
+   }
+  ],
+  "name": "ownerMint",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
     "internalType": "uint256",
     "name": "tokenId",
     "type": "uint256"
@@ -763,6 +898,88 @@
     "internalType": "address",
     "name": "",
     "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "",
+    "type": "uint8"
+   }
+  ],
+  "name": "phaseConfig",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "merkleRoot",
+    "type": "bytes32"
+   },
+   {
+    "internalType": "uint96",
+    "name": "price",
+    "type": "uint96"
+   },
+   {
+    "internalType": "uint16",
+    "name": "walletCap",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint16",
+    "name": "allocation",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint64",
+    "name": "startsAt",
+    "type": "uint64"
+   },
+   {
+    "internalType": "uint64",
+    "name": "endsAt",
+    "type": "uint64"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   }
+  ],
+  "name": "phaseIsLive",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "",
+    "type": "uint8"
+   }
+  ],
+  "name": "phaseMinted",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
    }
   ],
   "stateMutability": "view",
@@ -842,10 +1059,52 @@
   "type": "function"
  },
  {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   },
+   {
+    "internalType": "address",
+    "name": "who",
+    "type": "address"
+   },
+   {
+    "internalType": "uint256",
+    "name": "maxQty",
+    "type": "uint256"
+   }
+  ],
+  "name": "remainingFor",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
   "inputs": [],
   "name": "renounceOwnership",
   "outputs": [],
   "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "reserveMinted",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
   "type": "function"
  },
  {
@@ -970,32 +1229,6 @@
    }
   ],
   "name": "setHoldDiscountBps",
-  "outputs": [],
-  "stateMutability": "nonpayable",
-  "type": "function"
- },
- {
-  "inputs": [
-   {
-    "internalType": "bool",
-    "name": "open",
-    "type": "bool"
-   }
-  ],
-  "name": "setMintOpen",
-  "outputs": [],
-  "stateMutability": "nonpayable",
-  "type": "function"
- },
- {
-  "inputs": [
-   {
-    "internalType": "uint256",
-    "name": "price",
-    "type": "uint256"
-   }
-  ],
-  "name": "setMintPrice",
   "outputs": [],
   "stateMutability": "nonpayable",
   "type": "function"

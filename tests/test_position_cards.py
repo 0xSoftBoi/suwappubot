@@ -313,3 +313,124 @@ def test_committed_feeds_are_live_on_chain():
         text=True,
     )
     assert rc.returncode == 0, rc.stdout + rc.stderr
+
+
+# ── 6. the allowlist ──────────────────────────────────────────────────────────
+
+merkle = _load("positions_merkle", os.path.join(POS, "merkle.py"))
+allowlist = _load("positions_allowlist", os.path.join(POS, "build_allowlist.py"))
+
+
+def test_keccak_and_leaf_encoding_are_pinned():
+    """Any drift here invalidates every proof on-chain. Vectors cross-checked
+    against js-sha3 and against the contract's own encoding."""
+    assert (
+        merkle.keccak256(b"").hex()
+        == "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    )
+    leaf = merkle.leaf_for("0x" + "11" * 20, 3)
+    assert "0x" + leaf.hex() == "0x1c3da2d94786e8c2ec61d770e9d5e6131d7b311970ef5d64dc882d2c11be0f02"
+    pair = merkle._hash_pair(leaf, merkle.leaf_for("0x" + "22" * 20, 2))
+    assert "0x" + pair.hex() == "0x35e58ada13797da3efb195f169aae08513a8df0a33e9d9cfd2c143d2832abaea"
+
+
+def test_contract_rebuilds_the_leaf_from_msg_sender():
+    """The one rule that makes an allowlist safe: a proof must be useless to
+    anyone but its owner, so the leaf cannot come from calldata."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    assert "keccak256(bytes.concat(keccak256(abi.encode(msg.sender, maxQty))))" in sol
+    assert "MerkleProof.verify(proof, cfg.merkleRoot, leaf)" in sol
+
+
+def test_proofs_verify_and_do_not_transfer_between_wallets():
+    entries = [("0x" + f"{i:040x}", (i % 3) + 1) for i in range(1, 60)]
+    leaves = [merkle.leaf_for(a, q) for a, q in entries]
+    layers = merkle.build_tree(leaves)
+    root = merkle.root_of(layers)
+
+    for addr, qty in entries:
+        leaf = merkle.leaf_for(addr, qty)
+        assert merkle.verify(merkle.proof_for(layers, leaf), root, leaf)
+
+    # same proof, different wallet -> must fail
+    proof = merkle.proof_for(layers, leaves[0])
+    assert not merkle.verify(proof, root, merkle.leaf_for(entries[1][0], entries[0][1]))
+    # same wallet, inflated grant -> must fail
+    assert not merkle.verify(proof, root, merkle.leaf_for(entries[0][0], 99))
+
+
+def test_builder_refuses_an_allowlist_larger_than_its_allocation():
+    """An allowlist bigger than the supply behind it is a race dressed as a
+    guarantee — the classic 2021-22 gas-war setup."""
+    entries = [("0x" + f"{i:040x}", 3) for i in range(1, 101)]  # 300 grants
+    with pytest.raises(SystemExit) as e:
+        allowlist.build_phase("Founder", entries, allocation=100, oversubscribe=False)
+    assert "race, not a guarantee" in str(e.value)
+    # explicit opt-in still works
+    art = allowlist.build_phase("Founder", entries, allocation=100, oversubscribe=True)
+    assert art["granted_cards"] == 300 and art["allocation"] == 100
+
+
+def test_builder_dedupes_and_keeps_the_largest_grant():
+    entries = [("0x" + "11" * 20, 1), ("0x" + "11" * 20, 3), ("0x" + "22" * 20, 2)]
+    art = allowlist.build_phase("Allowlist", entries, allocation=100, oversubscribe=False)
+    assert art["addresses"] == 2
+    assert art["granted_cards"] == 5  # 3 + 2, not 1 + 3 + 2
+
+
+def test_phase_allocations_fit_the_supply():
+    cfg = render.load_config()
+    mint = cfg["mint"]
+    total = sum(p["allocation"] for p in mint["phases"].values()) + mint["team_reserve"]
+    assert total == cfg["collection"]["supply"] == 10_000
+
+
+def test_team_reserve_is_bounded_on_chain():
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    cfg = render.load_config()
+    assert f"RESERVE_MAX = {cfg['mint']['team_reserve']};" in sol
+    assert "if (reserveMinted + quantity > RESERVE_MAX) revert ReserveExhausted();" in sol
+
+
+def test_no_tx_origin_bot_gate():
+    """tx.origin locks out Safe and every AA wallet and stops no real bot."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    body = sol.split("contract SuwappuPositions", 1)[1]
+    code = "\n".join(ln for ln in body.split("\n") if not ln.strip().startswith("///"))
+    assert "tx.origin" not in code
+
+
+def test_bot_eligibility_matches_the_snapshot_classifier():
+    """If the bot's thresholds drift from the builder's, users are promised a
+    spot the contract then denies."""
+    from bot.services import position_cards_service as mod
+
+    cases = [
+        ({"xp_level": "gold", "total_volume_usd": 0, "total_swaps": 0, "referrals": 0}, "Founder"),
+        (
+            {"xp_level": "bronze", "total_volume_usd": 60000, "total_swaps": 0, "referrals": 0},
+            "Founder",
+        ),
+        (
+            {"xp_level": "bronze", "total_volume_usd": 0, "total_swaps": 0, "referrals": 6},
+            "Founder",
+        ),
+        (
+            {"xp_level": "bronze", "total_volume_usd": 0, "total_swaps": 9, "referrals": 0},
+            "Allowlist",
+        ),
+        (
+            {"xp_level": "bronze", "total_volume_usd": 2500, "total_swaps": 0, "referrals": 0},
+            "Allowlist",
+        ),
+        ({"xp_level": "bronze", "total_volume_usd": 10, "total_swaps": 1, "referrals": 0}, None),
+    ]
+    for row, expected in cases:
+        assert allowlist.classify(row) == expected, row
+
+    assert mod.FOUNDER_LEVELS == ("gold", "platinum", "diamond")
+    assert mod.FOUNDER_VOLUME_USD == 50_000
+    assert mod.FOUNDER_REFERRALS == 5
+    assert mod.ALLOWLIST_SWAPS == 5
+    assert mod.ALLOWLIST_VOLUME_USD == 1_000
+    assert mod.ALLOWLIST_REFERRALS == 1

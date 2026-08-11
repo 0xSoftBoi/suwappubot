@@ -43,6 +43,16 @@ _MAX_TOKEN_IDS = 200  # cap the eth_call payload for whales / spam wallets
 
 GRADES = ["Underwater", "Flat", "In Profit", "Runner", "Multiple", "Moonshot"]
 
+# Earned-allowlist thresholds. These MUST match classify() in
+# nft/position-cards/build_allowlist.py, which builds the Merkle roots the
+# contract actually enforces — otherwise the bot promises a spot the mint denies.
+FOUNDER_LEVELS = ("gold", "platinum", "diamond")
+FOUNDER_VOLUME_USD = 50_000
+FOUNDER_REFERRALS = 5
+ALLOWLIST_SWAPS = 5
+ALLOWLIST_VOLUME_USD = 1_000
+ALLOWLIST_REFERRALS = 1
+
 # Canonical ticker order for the collection — the PRICED subset of
 # ROBINHOOD_EQUITIES (those with a live Chainlink feed on chain 4663), sorted by
 # symbol. This is the same order the contract's ticker arrays were built from;
@@ -309,6 +319,72 @@ class PositionCardsService:
             return None
 
     # ── sync cache surface (used by the fee path) ─────────────────────────────
+
+    # ── allowlist eligibility (mirrors nft/position-cards/build_allowlist.py) ──
+
+    def allowlist_status(self, user_id: Optional[int]) -> dict:
+        """Which mint phase this user has EARNED, and why.
+
+        Deliberately mirrors classify() in build_allowlist.py — the snapshot that
+        actually produces the Merkle roots. If the two drift, users are told they
+        qualify and then revert at mint, so tests pin the thresholds in both.
+
+        Never raises: on any error returns the "public" fallback, which understates
+        rather than overstates eligibility.
+        """
+        out = {
+            "phase": "Public",
+            "reasons": [],
+            "volume_usd": 0.0,
+            "swaps": 0,
+            "level": None,
+            "referrals": 0,
+        }
+        if user_id is None:
+            return out
+        try:
+            from bot.models.points import UserPoints
+            from database.db import get_session
+
+            with get_session() as session:
+                pts = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                level = (getattr(pts, "level", None) or "").lower() if pts else ""
+                volume = float(getattr(pts, "total_volume_usd", 0) or 0) if pts else 0.0
+                swaps = int(getattr(pts, "total_swaps", 0) or 0) if pts else 0
+                referrals = 0
+                try:
+                    from bot.models.referral import Referral
+
+                    referrals = (
+                        session.query(Referral).filter(Referral.referrer_id == user_id).count()
+                    )
+                except Exception:
+                    pass
+
+            out.update(volume_usd=volume, swaps=swaps, level=level or None, referrals=referrals)
+            reasons = []
+            if level in FOUNDER_LEVELS:
+                reasons.append(f"{level} XP level")
+            if volume >= FOUNDER_VOLUME_USD:
+                reasons.append(f"${volume:,.0f} lifetime volume")
+            if referrals >= FOUNDER_REFERRALS:
+                reasons.append(f"{referrals} referrals")
+            if reasons:
+                out.update(phase="Founder", reasons=reasons)
+                return out
+
+            reasons = []
+            if swaps >= ALLOWLIST_SWAPS:
+                reasons.append(f"{swaps} swaps")
+            if volume >= ALLOWLIST_VOLUME_USD:
+                reasons.append(f"${volume:,.0f} lifetime volume")
+            if referrals >= ALLOWLIST_REFERRALS:
+                reasons.append(f"{referrals} referral(s)")
+            if reasons:
+                out.update(phase="Allowlist", reasons=reasons)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Positions: allowlist status failed for %s: %s", user_id, e)
+        return out
 
     def evm_address_for_user(self, user_id: Optional[int]) -> Optional[str]:
         """First EVM wallet address for a user, or None. Never raises."""

@@ -49,20 +49,44 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
     bps = await position_cards_service.warm_for_user(user_id)
 
     if bps <= 0:
+        al = position_cards_service.allowlist_status(user_id)
+        phase = al["phase"]
+        if phase == "Founder":
+            head = (
+                "🏆 *You're on the Founder list*\n\n"
+                f"Earned by: {', '.join(al['reasons'])}\n"
+                "*3 cards, free* — Founder mints first."
+            )
+        elif phase == "Allowlist":
+            head = (
+                "✅ *You're on the allowlist*\n\n"
+                f"Earned by: {', '.join(al['reasons'])}\n"
+                "*2 cards at 0.004 ETH* — before public."
+            )
+        else:
+            nxt = []
+            if al["swaps"] < 5:
+                nxt.append(f"{5 - al['swaps']} more swaps")
+            if al["volume_usd"] < 1000:
+                nxt.append(f"${1000 - al['volume_usd']:,.0f} more volume")
+            if al["referrals"] < 1:
+                nxt.append("1 referral (/ref)")
+            head = "🃏 *Suwappu Position Cards*\n\n" "You're on the *public* mint.\n" + (
+                f"Reach the allowlist with: {' or '.join(nxt)}\n" if nxt else ""
+            )
         msg = (
-            "📈 *Suwappu Positions*\n\n"
-            "You don't hold a position card yet.\n\n"
+            f"{head}\n"
             "Pick a ticker you actually believe in — no random assignment. Your entry "
             "price is stamped on-chain at mint and never changes, so the card is a "
-            "permanent public record of the call you made, and it re-renders against "
-            "the live price forever.\n\n"
+            "permanent record of the call you made, and it re-renders against the live "
+            "price forever.\n\n"
             "*Holding one takes 40 bps off every swap* — $4 back per $1,000 traded.\n\n"
             "_Collectible cards. Not equity, not a security, pays nothing._"
         )
     else:
         address = position_cards_service.evm_address_for_user(user_id)
         cards = await position_cards_service.get_positions(address)
-        lines = [f"📈 *Suwappu Positions* — {len(cards)} card(s)\n"]
+        lines = [f"🃏 *Your position cards* — {len(cards)}\n"]
         for pos in cards[:10]:
             lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}")
         if len(cards) > 10:

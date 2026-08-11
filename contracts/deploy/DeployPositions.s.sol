@@ -87,7 +87,8 @@ contract DeployPositions is Script {
         console.log("SuwappuPositions:", address(pos));
         console.log("chain id:", block.chainid);
         console.log("sequencer uptime feed:", sequencer);
-        console.log("next: setMintPrice -> setMintOpen(true)");
+        console.log("next: configurePhase() per phase, then mint opens on its startsAt");
+        console.log("  roots come from: python3 nft/position-cards/build_allowlist.py --from-db");
         console.log("sanity: oracle.debugPrice(<token>) should return a non-zero price1e18");
     }
 }

@@ -65,6 +65,50 @@ collection cannot drift from what is tradable. A test asserts the contract's tic
 index and the bot's `ticker_index()` resolve identically — if they ever diverged, every
 card would silently point at the wrong company.
 
+## Mint: phased, earned allowlist
+
+Applying what the 2021–23 drops got right — and what they got wrong.
+
+| Phase | Who | Alloc | Cap | Price |
+|---|---|---:|---:|---:|
+| **Founder** | Earned: gold+ XP level, ≥$50k lifetime volume, or ≥5 referrals | 1,500 | 3 | free |
+| **Allowlist** | Earned: ≥5 swaps, ≥$1k volume, or ≥1 referral | 4,000 | 2 | 0.004 ETH |
+| **Public** | Anyone | 4,300 | 5 | 0.008 ETH |
+| _Team reserve_ | Bounded on-chain by `RESERVE_MAX` | 200 | — | — |
+
+**The spot is earned, not farmed.** Every threshold reads signals the bot already
+tracks — XP level, lifetime volume, swap count, referrals. No retweet-for-allowlist,
+which reliably produced mercenary holders who dumped on day one.
+
+**Lessons applied:**
+
+- **The leaf is rebuilt from `msg.sender` inside the contract**, never taken from
+  calldata — so a proof issued to one wallet is useless to any other. This is the single
+  most important allowlist rule, and it's pinned by a test.
+- **`maxQty` is bound into the leaf**, so a tiered allowlist needs one root, not several,
+  and an inflated grant fails verification.
+- **A phase cannot oversell its allocation.** An allowlist larger than the supply behind
+  it is a race dressed as a guarantee — the classic gas-war setup. `build_allowlist.py`
+  *refuses to emit* such a list unless `--oversubscribe` is passed explicitly.
+- **No `tx.origin` bot gate.** It stops no determined bot and it breaks Safe and every
+  account-abstraction wallet — a well-documented way to lock real users out. Access is
+  controlled by the allowlist and per-wallet caps instead. A test asserts `tx.origin`
+  never appears.
+- **The team reserve is bounded at 200 on-chain.** An unbounded owner mint is a rug vector.
+- **Leaves are double-hashed** (`keccak256(keccak256(abi.encode(...)))`), matching
+  OpenZeppelin's merkle-tree library, so an internal node can't be passed off as a leaf.
+- **No rarity sniping to defend against.** Because you choose your ticker, there's no
+  reveal and no trait lottery — the entire class of snipe-the-reveal exploits doesn't apply.
+
+```bash
+python3 nft/position-cards/build_allowlist.py --from-db      # snapshot the live bot
+python3 nft/position-cards/build_allowlist.py --input snap.json
+```
+
+Emits a Merkle root per phase (for `configurePhase()`) plus a proof per address for the
+mint UI, and self-verifies every proof before writing. `/cards` tells a user which phase
+they've earned and, if they haven't, exactly what's missing.
+
 ## Mechanics
 
 - **10,000 cards, 35 priced tickers, per-ticker caps.** Popular names run out first;

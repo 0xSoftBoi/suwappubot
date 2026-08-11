@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 /**
  * @title SuwappuPositions — 10,000 live position cards on Robinhood Chain
@@ -73,20 +74,45 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
     mapping(address => uint256) public minted;
 
     uint256 public totalSupply;
-    uint256 public mintPrice;
-    bool public mintOpen;
+
+    /// @notice Mint phases. Earned access first, open market last.
+    ///         Founder   — the Suwappu snapshot (XP, volume, referrals)
+    ///         Allowlist — active traders and partners
+    ///         Public    — anyone
+    enum Phase { Closed, Founder, Allowlist, Public }
+
+    struct PhaseConfig {
+        bytes32 merkleRoot; // 0 == open phase, no proof required
+        uint96 price;       // wei per card
+        uint16 walletCap;   // hard per-wallet cap inside this phase
+        uint16 allocation;  // max cards mintable in this phase (0 == up to MAX_SUPPLY)
+        uint64 startsAt;    // unix seconds, 0 == not scheduled
+        uint64 endsAt;      // unix seconds, 0 == no end
+    }
+
+    mapping(Phase => PhaseConfig) public phaseConfig;
+    mapping(Phase => uint256) public phaseMinted;
+    mapping(Phase => mapping(address => uint256)) public mintedInPhase;
+
+    /// @notice Team/treasury reserve. BOUNDED at construction — an unbounded
+    ///         owner mint is a rug vector and was a recurring 2021-22 complaint.
+    uint256 public constant RESERVE_MAX = 200;
+    uint256 public reserveMinted;
 
     string private _renderBaseURI;
 
     event Minted(uint256 indexed tokenId, address indexed to, uint8 tickerIndex, uint256 entryPrice);
     event OracleSet(address oracle);
     event RegistrySealed();
-    event MintOpenSet(bool open);
-    event MintPriceSet(uint256 price);
+    event PhaseConfigured(Phase indexed phase, bytes32 merkleRoot, uint96 price, uint16 walletCap, uint16 allocation, uint64 startsAt, uint64 endsAt);
     event HoldDiscountSet(uint16 bps);
     event BaseURISet(string baseURI);
 
-    error MintClosed();
+    error PhaseNotOpen();
+    error NotAllowlisted();
+    error PhaseAllocationExhausted();
+    error ReserveExhausted();
+    error BadPhase();
     error ZeroQuantity();
     error SoldOut();
     error TickerSoldOut();
@@ -117,25 +143,77 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
 
     // ─── Mint ─────────────────────────────────────────────────────────────────
 
-    /// @notice Mint `quantity` positions on `tickerIndex`, stamping the current
-    ///         oracle price as the entry basis.
-    /// @dev    A zero oracle price is stamped as 0 rather than reverting, so an
-    ///         oracle outage cannot brick the mint. Unpriced cards render as such
-    ///         and are excluded from return calculations.
-    function mint(uint8 tickerIndex, uint256 quantity) external payable nonReentrant {
-        if (!mintOpen) revert MintClosed();
+    /// @notice Mint `quantity` positions on `tickerIndex` in `phase`, stamping the
+    ///         current oracle price as the entry basis.
+    ///
+    /// @param proof Merkle proof for an allowlisted phase. The leaf is rebuilt from
+    ///        `msg.sender` INSIDE this function, so a proof issued to one wallet is
+    ///        useless to any other — the single most important rule for allowlists.
+    ///        `maxQty` is bound into the leaf too, so a tiered list needs one root.
+    ///
+    /// @dev   Notably absent: a `tx.origin == msg.sender` bot gate. It does not stop
+    ///        a determined bot (which can mint from an EOA anyway) and it DOES break
+    ///        Safe and every account-abstraction wallet — a well-documented way to
+    ///        lock real users out. Access is controlled by the allowlist and the
+    ///        per-wallet caps instead.
+    ///
+    /// @dev   A zero oracle price is stamped as 0 rather than reverting, so an
+    ///        oracle outage cannot brick the mint.
+    function mint(
+        Phase phase,
+        uint8 tickerIndex,
+        uint256 quantity,
+        uint256 maxQty,
+        bytes32[] calldata proof
+    ) external payable nonReentrant {
+        if (phase == Phase.Closed) revert BadPhase();
         if (!registrySealed) revert RegistryNotSealed();
         if (quantity == 0) revert ZeroQuantity();
         if (tickerIndex >= TICKER_COUNT) revert UnknownTicker();
+
+        PhaseConfig memory cfg = phaseConfig[phase];
+        if (cfg.startsAt == 0 || block.timestamp < cfg.startsAt) revert PhaseNotOpen();
+        if (cfg.endsAt != 0 && block.timestamp > cfg.endsAt) revert PhaseNotOpen();
+        if (msg.value != uint256(cfg.price) * quantity) revert WrongPayment();
+
+        // Allowlisted phase: prove membership and respect the per-address grant.
+        if (cfg.merkleRoot != bytes32(0)) {
+            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(msg.sender, maxQty))));
+            if (!MerkleProof.verify(proof, cfg.merkleRoot, leaf)) revert NotAllowlisted();
+            if (mintedInPhase[phase][msg.sender] + quantity > maxQty) {
+                revert WalletLimitExceeded();
+            }
+        }
+
+        if (cfg.walletCap != 0 && mintedInPhase[phase][msg.sender] + quantity > cfg.walletCap) {
+            revert WalletLimitExceeded();
+        }
+        if (cfg.allocation != 0 && phaseMinted[phase] + quantity > cfg.allocation) {
+            revert PhaseAllocationExhausted();
+        }
         if (totalSupply + quantity > MAX_SUPPLY) revert SoldOut();
         if (tickerMinted[tickerIndex] + quantity > tickerCap[tickerIndex]) revert TickerSoldOut();
-        if (minted[msg.sender] + quantity > MAX_PER_WALLET) revert WalletLimitExceeded();
-        if (msg.value != mintPrice * quantity) revert WrongPayment();
 
+        mintedInPhase[phase][msg.sender] += quantity;
+        phaseMinted[phase] += quantity;
+        _mintRun(msg.sender, tickerIndex, quantity);
+    }
+
+    /// @notice Treasury / airdrop mint, bounded by RESERVE_MAX.
+    function ownerMint(address to, uint8 tickerIndex, uint256 quantity) external onlyOwner {
+        if (quantity == 0) revert ZeroQuantity();
+        if (tickerIndex >= TICKER_COUNT) revert UnknownTicker();
+        if (reserveMinted + quantity > RESERVE_MAX) revert ReserveExhausted();
+        if (totalSupply + quantity > MAX_SUPPLY) revert SoldOut();
+        if (tickerMinted[tickerIndex] + quantity > tickerCap[tickerIndex]) revert TickerSoldOut();
+        reserveMinted += quantity;
+        _mintRun(to, tickerIndex, quantity);
+    }
+
+    function _mintRun(address to, uint8 tickerIndex, uint256 quantity) internal {
         uint256 entry = _oraclePrice(tickerIndex);
-        minted[msg.sender] += quantity;
+        minted[to] += quantity;
         tickerMinted[tickerIndex] += uint16(quantity);
-
         for (uint256 i = 0; i < quantity; i++) {
             uint256 tokenId = totalSupply + 1;
             totalSupply = tokenId;
@@ -145,9 +223,30 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
                 mintedAt: uint40(block.timestamp),
                 mintRank: uint16(tokenId)
             });
-            _safeMint(msg.sender, tokenId);
-            emit Minted(tokenId, msg.sender, tickerIndex, entry);
+            _safeMint(to, tokenId);
+            emit Minted(tokenId, to, tickerIndex, entry);
         }
+    }
+
+    /// @notice How many cards `who` can still mint in `phase`, given their grant.
+    function remainingFor(Phase phase, address who, uint256 maxQty)
+        external
+        view
+        returns (uint256)
+    {
+        PhaseConfig memory cfg = phaseConfig[phase];
+        uint256 used = mintedInPhase[phase][who];
+        uint256 limit = cfg.merkleRoot != bytes32(0) ? maxQty : type(uint256).max;
+        if (cfg.walletCap != 0 && cfg.walletCap < limit) limit = cfg.walletCap;
+        return used >= limit ? 0 : limit - used;
+    }
+
+    function phaseIsLive(Phase phase) public view returns (bool) {
+        PhaseConfig memory cfg = phaseConfig[phase];
+        if (cfg.startsAt == 0 || block.timestamp < cfg.startsAt) return false;
+        if (cfg.endsAt != 0 && block.timestamp > cfg.endsAt) return false;
+        if (cfg.allocation != 0 && phaseMinted[phase] >= cfg.allocation) return false;
+        return totalSupply < MAX_SUPPLY;
     }
 
     function _oraclePrice(uint8 tickerIndex) internal view returns (uint256) {
@@ -258,14 +357,24 @@ contract SuwappuPositions is ERC721, Ownable, ReentrancyGuard {
         emit HoldDiscountSet(bps);
     }
 
-    function setMintOpen(bool open) external onlyOwner {
-        mintOpen = open;
-        emit MintOpenSet(open);
-    }
-
-    function setMintPrice(uint256 price) external onlyOwner {
-        mintPrice = price;
-        emit MintPriceSet(price);
+    /// @notice Configure a phase. Set `merkleRoot` to 0 for an open phase.
+    /// @dev    `allocation` is what stops the classic failure of an allowlist that
+    ///         is larger than the supply reserved for it: the phase simply cannot
+    ///         oversell, so latecomers get a clean revert rather than a gas war.
+    function configurePhase(
+        Phase phase,
+        bytes32 merkleRoot,
+        uint96 price,
+        uint16 walletCap,
+        uint16 allocation,
+        uint64 startsAt,
+        uint64 endsAt
+    ) external onlyOwner {
+        if (phase == Phase.Closed) revert BadPhase();
+        phaseConfig[phase] = PhaseConfig(
+            merkleRoot, price, walletCap, allocation, startsAt, endsAt
+        );
+        emit PhaseConfigured(phase, merkleRoot, price, walletCap, allocation, startsAt, endsAt);
     }
 
     /// @notice Renderer base. Cards are live, so metadata is intentionally dynamic

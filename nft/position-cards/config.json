@@ -161,5 +161,33 @@
       "min_return_bps": 50000,
       "accent": "#fcd34d"
     }
-  ]
+  ],
+  "mint": {
+    "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it \u2014 the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
+    "phases": {
+      "Founder": {
+        "index": 1,
+        "allocation": 1500,
+        "wallet_cap": 3,
+        "price_eth": 0.0,
+        "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
+        "note": "Free. These are the users who already built the product's volume."
+      },
+      "Allowlist": {
+        "index": 2,
+        "allocation": 4000,
+        "wallet_cap": 2,
+        "price_eth": 0.004,
+        "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral"
+      },
+      "Public": {
+        "index": 3,
+        "allocation": 4300,
+        "wallet_cap": 5,
+        "price_eth": 0.008,
+        "who": "Anyone"
+      }
+    },
+    "team_reserve": 200
+  }
 }
