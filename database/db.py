@@ -720,6 +720,9 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- mobile_transfers table (Gekko mobile /v1/mobile/send event log) ---
+    _add_mobile_transfers_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1310,6 +1313,18 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created savings_events table")
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
+
+
+def _add_mobile_transfers_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the mobile_transfers table (Gekko mobile /v1/mobile/send audit log)."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        if not inspector.has_table("mobile_transfers"):
+            MobileTransfer.__table__.create(bind=db_engine)
+            logger.info("Created mobile_transfers table")
+    except Exception as e:
+        logger.warning(f"Failed to create mobile_transfers table: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:

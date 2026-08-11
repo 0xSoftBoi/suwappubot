@@ -8,6 +8,8 @@ copy trading, and sniping.  Delegates to existing service singletons.
 import asyncio
 import hashlib
 import logging
+import math
+import re
 import threading
 import time
 from collections import defaultdict
@@ -575,6 +577,30 @@ async def ask_gecko(request: Request, body: AskBody):
         ]
 
     return _answer_from_snapshot(text, snapshot, recent)
+
+
+@router.get("/wallets")
+async def list_wallets(request: Request):
+    """List the authenticated user's wallets. Read-only — mirrors the exact
+    serialization shape POST /wallets already returns for a single wallet
+    (address/name/chainType/isDefault), just for every active wallet the
+    user has, deduplicated the same way GET /earn's wallet aggregation is."""
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(int(payload["user_id"])))
+    return [
+        {
+            "address": wallet.address,
+            "name": wallet.name,
+            "chainType": wallet.chain_type,
+            "isDefault": wallet.is_default,
+        }
+        for wallet in wallets
+    ]
 
 
 @router.post("/wallets")
@@ -2556,3 +2582,463 @@ async def deposit_earn(request: Request, body: EarnAmountBody):
 async def withdraw_earn(request: Request, body: EarnAmountBody):
     """Withdraw USDC from Aave V3 (Base) — MONEY-PATH."""
     return await _execute_earn_action(request, body, action="withdraw")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SEND — MONEY-PATH (USDC on Base, v0)
+#
+# Reuses the EXACT ERC-20 transfer-tx builder used by the Telegram /pay
+# bulk-send flow (bot.handlers.bulk_pay._build_erc20_transfer_tx) and the
+# exact signing path (WalletService.sign_evm_transaction — Turnkey or
+# local key). No new on-chain signing logic lives in this module. Balance
+# reads reuse savings_service.get_usdc_balance (same USDC-on-Base ERC-20
+# this module already trusts for /earn). Concurrency/idempotency reuse the
+# SAME per-(user, wallet) machinery as /earn/deposit + /earn/withdraw
+# (`_earn_wallet_lock` / `_earn_idem_*`) — deliberately: a send and an earn
+# action against the SAME wallet both consume that wallet's EVM nonce
+# sequence on Base, so serializing them together (not just sends against
+# sends) is what actually prevents a nonce collision, not an accident of
+# code reuse.
+# ═══════════════════════════════════════════════════════════════════
+
+_SEND_TOKEN = "USDC"
+_SEND_CHAIN = "base"
+
+_send_action_limiter = UserRateLimiter(max_requests=6, window_seconds=60)
+
+
+class SendBody(BaseModel):
+    to: str
+    amount: str
+    token: str = _SEND_TOKEN
+    chain: str = _SEND_CHAIN
+
+
+def _send_usdc_base(wallet, to_address: str, amount: Decimal) -> Tuple[str, bool]:
+    """Broadcast a USDC (Base) ERC-20 `transfer` from `wallet` to `to_address`.
+
+    Blocking (web3 + `asyncio.run` for the Turnkey/local signing call) —
+    callers MUST dispatch this via `asyncio.to_thread`, same as
+    savings_service/morpho_api's `_sign_transaction`.
+
+    Returns (tx_hash, is_pending). `is_pending` is True only when the raw
+    broadcast call itself raised (dropped response / node timeout) — the
+    hash returned in that case is the deterministic pre-broadcast keccak of
+    the signed raw tx, computed BEFORE the send call, so it is always
+    resolvable even though the node may have already accepted the tx. Same
+    rationale as bot/services/hot_wallet.py's `PostBroadcastAmbiguous` /
+    `_broadcast_evm_raw_tx`. Unlike savings_service/morpho_api, this does
+    NOT wait for a mined receipt (mirrors bulk_pay's existing single-send
+    behavior) — a 200 here means "broadcast", not "confirmed".
+    """
+    import asyncio as _asyncio
+
+    from web3 import Web3
+
+    from bot.config.chains import get_chain_by_name
+    from bot.config.tokens import get_token_address, get_token_decimals
+    from bot.handlers.bulk_pay import _build_erc20_transfer_tx
+    from bot.services.rpc_manager import rpc_manager
+    from bot.services.wallet import WalletService
+
+    chain = get_chain_by_name(_SEND_CHAIN)
+    token_address = get_token_address(_SEND_TOKEN, _SEND_CHAIN)
+    decimals = get_token_decimals(_SEND_TOKEN, _SEND_CHAIN)
+    if chain is None or not token_address:
+        raise RuntimeError(f"{_SEND_TOKEN} is not configured on {_SEND_CHAIN}.")
+
+    amount_raw = int(amount * Decimal(10**decimals))
+    web3 = rpc_manager.get_web3(_SEND_CHAIN)
+    from_addr = Web3.to_checksum_address(wallet.address)
+    nonce = web3.eth.get_transaction_count(from_addr)
+
+    tx = _build_erc20_transfer_tx(
+        web3, wallet.address, token_address, to_address, amount_raw, nonce, chain
+    )
+
+    signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
+    raw_hex = signed_hex[2:] if signed_hex.startswith("0x") else signed_hex
+    raw_bytes = bytes.fromhex(raw_hex)
+
+    precomputed_hash = Web3.keccak(raw_bytes).hex()
+    if not precomputed_hash.startswith("0x"):
+        precomputed_hash = "0x" + precomputed_hash
+
+    try:
+        tx_hash_bytes = web3.eth.send_raw_transaction(raw_bytes)
+    except Exception as e:
+        logger.error(f"mobile send broadcast ambiguous (tx may already be sent): {e}")
+        return precomputed_hash, True
+
+    tx_hash = tx_hash_bytes.hex()
+    if not tx_hash.startswith("0x"):
+        tx_hash = "0x" + tx_hash
+    return tx_hash, False
+
+
+async def _log_send_event(
+    user_id: int, wallet_id: int, to_address: str, amount: Decimal, tx_hash: str, *, pending: bool
+) -> None:
+    """Best-effort MobileTransfer record — feeds GET /v1/mobile/statement.
+    Mirrors `_log_earn_event`: never allowed to fail the request."""
+    try:
+        from bot.models.mobile_transfer import MobileTransfer
+
+        with get_session() as session:
+            session.add(
+                MobileTransfer(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain=_SEND_CHAIN,
+                    token=_SEND_TOKEN,
+                    to_address=to_address,
+                    amount=amount,
+                    amount_usd=amount,  # USDC ~= $1, same convention as /earn's balanceUsd
+                    status="pending" if pending else "sent",
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log mobile send event: {e}")
+
+
+@router.post("/send")
+async def send_mobile(request: Request, body: SendBody):
+    """Send USDC on Base from the caller's wallet to an external address —
+    MONEY-PATH. v0 only: token/chain are validated against USDC/base and
+    rejected otherwise; there is no cross-chain or multi-token support yet.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.utils.validators import validate_evm_address
+
+    user_id = int(payload["user_id"])
+
+    token = str(body.token or _SEND_TOKEN).strip().upper()
+    chain = str(body.chain or _SEND_CHAIN).strip().lower()
+    if token != _SEND_TOKEN or chain != _SEND_CHAIN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {_SEND_TOKEN} on {_SEND_CHAIN} is supported right now.",
+        )
+
+    to_address = str(body.to or "").strip()
+    if not validate_evm_address(to_address):
+        raise HTTPException(status_code=400, detail="Invalid recipient address.")
+
+    try:
+        await _send_action_limiter.check(user_id)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
+        )
+
+    wallet = await _resolve_earn_wallet(user_id)
+    if wallet is None:
+        raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
+
+    if to_address.lower() == str(wallet.address or "").lower():
+        raise HTTPException(status_code=400, detail="Cannot send to your own wallet address.")
+
+    cache_key = _earn_idempotency_cache_key(request, user_id, f"send:{wallet.address.lower()}")
+    lock = _earn_wallet_lock(user_id, wallet.address)
+
+    async with lock:
+        cached = _earn_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, cached_body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=cached_body.get("detail"))
+            return JSONResponse(status_code=status_code, content=cached_body)
+
+        from bot.services.savings_service import SavingsError, savings_service
+
+        try:
+            available = await asyncio.to_thread(savings_service.get_usdc_balance, wallet.address)
+        except SavingsError as e:
+            # Transient RPC/read failure — never cached, so a retry actually
+            # retries instead of replaying a stale 503.
+            raise HTTPException(status_code=503, detail=str(e))
+
+        amount = _parse_earn_amount(body.amount, available=available, max_returns_none=False)
+
+        if amount > available:
+            detail = (
+                f"Insufficient USDC. You have {available:.2f} USDC "
+                f"but tried to send {amount:.2f}."
+            )
+            _earn_idem_store(cache_key, 400, {"detail": detail})
+            raise HTTPException(status_code=400, detail=detail)
+
+        try:
+            tx_hash, is_pending = await asyncio.to_thread(
+                _send_usdc_base, wallet, to_address, amount
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"mobile send unexpected error for user {user_id}: {e}", exc_info=True)
+            # Unknown state (network blip, unhandled edge case) — NOT cached,
+            # so a retry actually retries once the transient condition clears.
+            raise HTTPException(
+                status_code=500, detail="Something went wrong. Your funds were not moved."
+            )
+
+        await _log_send_event(user_id, wallet.id, to_address, amount, tx_hash, pending=is_pending)
+
+        if is_pending:
+            pending_body = {"ok": False, "status": "pending", "txHash": tx_hash}
+            _earn_idem_store(cache_key, 202, pending_body)
+            return JSONResponse(status_code=202, content=pending_body)
+
+        result = {"ok": True, "txHash": tx_hash, "amount": str(amount), "to": to_address}
+        _earn_idem_store(cache_key, 200, result)
+        return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  BORROW — read-only (Morpho Blue, cbBTC-collateralized USDC on Base)
+#
+# Delegates 100% of on-chain reads to bot.services.morpho_api.morpho_api —
+# the exact same service the Telegram /borrow flow uses. Never signs or
+# sends a transaction.
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("/borrow")
+async def get_borrow(request: Request):
+    """Morpho Blue borrow snapshot, aggregated across ALL of the user's EVM
+    wallets (same MED-finding rationale as GET /earn — a user's position on
+    a non-default wallet must not be silently hidden)."""
+    payload = _jwt_user(request)
+    _require_db()
+
+    from bot.config.morpho_config import MAX_LTV
+    from bot.services.morpho_api import MorphoError, morpho_api
+
+    user_id = int(payload["user_id"])
+
+    try:
+        apys = await morpho_api.get_market_apys()
+        borrow_apr = apys.get("borrow_apy")
+    except MorphoError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    wallets = await _get_user_evm_wallets(user_id)
+
+    collateral: list[dict] = []
+    borrowed: list[dict] = []
+    coverage = "complete"
+    health_factors: list[float] = []
+    available_to_borrow_usd = 0.0
+
+    async def _read_one(wallet):
+        try:
+            position = await asyncio.to_thread(morpho_api.get_position, wallet.address)
+            return wallet, position, None
+        except MorphoError as e:
+            return wallet, None, e
+
+    for wallet, position, err in await asyncio.gather(*(_read_one(w) for w in wallets)):
+        if err is not None:
+            logger.warning(
+                f"mobile borrow read failed for user {user_id} wallet {wallet.id}: {err}"
+            )
+            coverage = "best_effort"
+            continue
+
+        collateral_btc = position["collateral_btc"]
+        collateral_value_usd = position["collateral_value_usdc"]
+        debt_usd = position["debt_usdc"]
+
+        if collateral_btc > 0:
+            collateral.append(
+                {
+                    "token": "cbBTC",
+                    "chain": "base",
+                    "balance": str(collateral_btc),
+                    "balanceUsd": collateral_value_usd,
+                }
+            )
+
+        if debt_usd > 0:
+            borrowed.append(
+                {
+                    "token": "USDC",
+                    "chain": "base",
+                    "balance": str(debt_usd),
+                    "balanceUsd": debt_usd,
+                    "apr": borrow_apr,
+                }
+            )
+            hf = position.get("health_factor")
+            if hf is not None and math.isfinite(hf):
+                health_factors.append(hf)
+
+        max_debt_usd = collateral_value_usd * MAX_LTV
+        available_to_borrow_usd += max(0.0, max_debt_usd - debt_usd)
+
+    health_factor = min(health_factors) if health_factors else None
+
+    return {
+        "collateral": collateral,
+        "borrowed": borrowed,
+        "healthFactor": health_factor,
+        "availableToBorrowUsd": available_to_borrow_usd,
+        "coverage": coverage,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  STATEMENT — read-only, aggregated across savings/borrow-adjacent send/
+#  swap event history already persisted by other endpoints in this module.
+# ═══════════════════════════════════════════════════════════════════
+
+_STATEMENT_MAX_ROWS = 200
+_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
+
+
+def _parse_statement_month(month: Optional[str]) -> tuple[str, datetime, datetime]:
+    """Resolve the `month` query param to (period, start, end) — `end` is
+    exclusive. Defaults to the current UTC month. Raises HTTPException(400)
+    for anything that isn't a real YYYY-MM."""
+    # Only a genuinely OMITTED `month` (None) defaults to the current UTC
+    # month — an explicit but empty `?month=` is treated as malformed input,
+    # not "unspecified", so it 400s like any other bad format.
+    period = datetime.now(timezone.utc).strftime("%Y-%m") if month is None else str(month).strip()
+    match = _MONTH_RE.match(period)
+    if not match:
+        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+    year, mon = int(match.group(1)), int(match.group(2))
+    try:
+        start = datetime(year, mon, 1, tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+    end = (
+        datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        if mon == 12
+        else datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+    )
+    return period, start, end
+
+
+@router.get("/statement")
+async def get_statement(request: Request, month: Optional[str] = Query(default=None)):
+    """Monthly account statement, aggregated from data already persisted by
+    the savings, send, and swap paths. Read-only, never signs anything.
+
+    `yieldEarnedUsd` is intentionally 0.0: Aave interest accrues
+    continuously on-chain without a discrete ledger event, so it can't be
+    reconstructed from deposit/withdraw event deltas alone within a single
+    statement window — this needs a periodic accrual-snapshot job, not
+    something this endpoint can honestly back out. Documented gap, not a
+    silent approximation.
+    """
+    payload = _jwt_user(request)
+    _require_db()
+
+    period, start, end = _parse_statement_month(month)
+    user_id = int(payload["user_id"])
+
+    from bot.models.mobile_transfer import MobileTransfer
+    from bot.models.savings import SavingsEvent
+    from bot.models.swap import SwapStatus, SwapTransaction
+
+    deposited = Decimal("0")
+    withdrawn = Decimal("0")
+    sent = Decimal("0")
+    swap_volume = Decimal("0")
+    transactions: list[dict] = []
+
+    with get_session() as session:
+        savings_rows = (
+            session.query(SavingsEvent)
+            .filter(
+                SavingsEvent.user_id == user_id,
+                SavingsEvent.created_at >= start,
+                SavingsEvent.created_at < end,
+            )
+            .all()
+        )
+        for row in savings_rows:
+            amount = _decimal(row.amount)
+            if row.action not in ("deposit", "withdraw"):
+                continue
+            if row.action == "deposit":
+                deposited += amount
+            else:
+                withdrawn += amount
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": row.action,
+                    "amountUsd": float(amount),
+                    "token": row.token or "USDC",
+                    "txHash": row.tx_hash,
+                }
+            )
+
+        transfer_rows = (
+            session.query(MobileTransfer)
+            .filter(
+                MobileTransfer.user_id == user_id,
+                MobileTransfer.created_at >= start,
+                MobileTransfer.created_at < end,
+            )
+            .all()
+        )
+        for row in transfer_rows:
+            amount = _decimal(row.amount)
+            sent += amount
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": "send",
+                    "amountUsd": float(_decimal(row.amount_usd) or amount),
+                    "token": row.token or "USDC",
+                    "txHash": row.tx_hash,
+                    "counterparty": row.to_address,
+                }
+            )
+
+        swap_rows = (
+            session.query(SwapTransaction)
+            .filter(
+                SwapTransaction.user_id == user_id,
+                SwapTransaction.created_at >= start,
+                SwapTransaction.created_at < end,
+                SwapTransaction.status == SwapStatus.COMPLETED.value,
+            )
+            .all()
+        )
+        for row in swap_rows:
+            amount_usd = _decimal(row.from_amount_usd)
+            swap_volume += amount_usd
+            transactions.append(
+                {
+                    "date": row.created_at.isoformat() if row.created_at else None,
+                    "type": "swap",
+                    "amountUsd": float(amount_usd),
+                    "token": row.from_token,
+                    "txHash": row.tx_hash,
+                    "counterparty": f"{row.from_token} → {row.to_token}",
+                }
+            )
+
+    transactions.sort(key=lambda t: t["date"] or "", reverse=True)
+    transactions = transactions[:_STATEMENT_MAX_ROWS]
+
+    return {
+        "period": period,
+        "yieldEarnedUsd": 0.0,
+        "depositedUsd": float(deposited),
+        "withdrawnUsd": float(withdrawn),
+        "sentUsd": float(sent),
+        "swapVolumeUsd": float(swap_volume),
+        "transactions": transactions,
+    }
