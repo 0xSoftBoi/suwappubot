@@ -21,6 +21,7 @@ taxonomy, auth/config contracts) → [`CONVENTIONS.md`](../CONVENTIONS.md)
 
 ## Runbooks (operational how-to)
 
+- [incidents/](incidents/README.md) — COE-format postmortems (blameless, action-item-driven; template inside)
 - [deployment/railway.md](deployment/railway.md) — Railway service build/deploy config per service
 - [deployment/monitoring.md](deployment/monitoring.md) — the five observability layers and what each is blind to
 - [deployment/self-healing-loop.md](deployment/self-healing-loop.md) — bounded auto-recovery for failed deploys
@@ -93,6 +94,5 @@ taxonomy, auth/config contracts) → [`CONVENTIONS.md`](../CONVENTIONS.md)
 
 ## Known gaps (want a doc? these are unclaimed)
 
-Incident-response playbook / on-call handoff · git branching & release flow ·
-DB schema reference · mobile iOS build/deploy guide · threat model & audit
-report links · metrics/KPI dashboard links.
+Git branching & release flow · DB schema reference · mobile iOS build/deploy
+guide · threat model & audit report links · metrics/KPI dashboard links.

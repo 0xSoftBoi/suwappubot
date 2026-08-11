@@ -4,6 +4,11 @@ Get from clone to a running component and a green verification pass. For what
 the system *is*, read `docs/architecture/OVERVIEW.md`; for why things are the
 way they are, read `docs/DECISIONS.md`.
 
+**This doc is tested by every new contributor** (the Etsy day-one loop): follow
+it verbatim, and when a step is wrong or missing, your first PR is the fix to
+this file. If you finished setup without correcting anything, say so — that's
+the doc passing its test.
+
 ## First 30 minutes
 
 1. Clone the repo. Copy `.env.schema` → `.env` and fill in the minimum:

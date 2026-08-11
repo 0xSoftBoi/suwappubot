@@ -24,6 +24,10 @@ fork the convention.
 - One coherent change per commit: the code, its tests, its migration, and any generated
   artifacts (`.env.schema`, `openapi-agent.json`) travel together. Don't mix unrelated
   formatting or dependency bumps into a functional commit.
+- **Docs travel with the change.** A rename, removal, or behavior change updates the
+  canonical docs (`docs/README.md` tree, ADRs, per-directory instruction files) in the
+  same PR — the `docs` lane of `scripts/verify.sh` catches stranded path references,
+  but only you can catch stranded *meaning*.
 - Imperative, conventional-style summaries (`feat(bot): …`, `fix(api-ts): …`).
 - Before any push/merge, run the pre-flight checklist in `CLAUDE.md` (build artifacts,
   locks, worktree, divergence, uncommitted work).

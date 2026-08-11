@@ -73,12 +73,14 @@ that checks Python-migration ↔ Drizzle idempotency. Follow
 
 ## Chains & swap providers
 
-- **~46 chains** configured in `bot/config/chains.py` (EVM majors + Solana,
-  TRON, StarkNet; base-sepolia for testing). Count from config, not docs.
-- **15 swap/bridge providers** dispatched by `bot/services/swap_engine.py`:
-  Jupiter+Jito, SunSwap, OKX DEX, 0x (spot + cross-chain), Li.Fi,
-  LayerZero/Stargate, CoW, Socket, Circle CCTP, Across, Wormhole, CCIP,
-  1inch, KyberSwap. Providers are raced in parallel; best quote wins.
+**Don't hand-write these numbers — they're generated.** The canonical counts
+live in `showcase/src/data/stats.generated.json`, regenerated from
+`bot/config/chains.py` and the agent API by `bun run stats:generate`
+(drift-gated in CI by the stats-contract job). At last generation: 45
+platform chains (testnets excluded), 18 agent-API chains, 20 routers
+(Jupiter, OKX, 0x, Li.Fi, CoW, Socket, CCTP, Across, Wormhole, CCIP, 1inch,
+KyberSwap, LayerZero, SunSwap, AVNU, Tempo DEX, …). Providers are dispatched
+by `bot/services/swap_engine.py` and raced in parallel; best quote wins.
 
 ## Wallets & keys (money path)
 
