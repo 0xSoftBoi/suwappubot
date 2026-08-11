@@ -13,12 +13,14 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Optional, List, Tuple, Dict
 
 from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
 from database.db import get_session, DATABASE_AVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -486,6 +488,7 @@ class RedeemRewardBody(BaseModel):
 # -- earn / savings --
 class EarnAmountBody(BaseModel):
     amount: str
+    walletId: Optional[int] = None
 
 
 # -- copy trading --
@@ -2146,9 +2149,27 @@ async def update_snipe_config(request: Request, body: UpdateSnipeConfigBody):
 
 _MAX_EARN_AMOUNT_INPUT_LENGTH = 64
 
+# Dust / magnitude bounds (HIGH + MED money-path findings). Below the min, a
+# real on-chain deposit/withdraw is pointless risk for the gas spent framing
+# it; above the max, an amount this large is almost certainly a client bug
+# (e.g. a unit mismatch) rather than a real USDC balance, and should fail
+# fast with a clean 400 instead of surfacing as an obscure 500 deep in
+# Decimal/web3 arithmetic.
+_MIN_EARN_AMOUNT = Decimal("0.01")
+_MAX_EARN_AMOUNT = Decimal("1000000")
+_EARN_AMOUNT_QUANT = Decimal("0.000001")  # 6dp — USDC's on-chain precision
+
+
+def _quantize_earn_amount(amount: Decimal) -> Decimal:
+    """Truncate (never round up) to USDC's 6-decimal on-chain precision, so
+    the amount echoed back to the client always matches the wei actually
+    executed on-chain (LOW finding)."""
+    return amount.quantize(_EARN_AMOUNT_QUANT, rounding=ROUND_DOWN)
+
 
 async def _resolve_earn_wallet(user_id: int):
-    """Resolve the user's EVM wallet for Aave savings (default, else first).
+    """Resolve the user's default EVM wallet for Aave savings (default, else
+    first). Used when the caller doesn't specify a `walletId`.
 
     Returns None when the user has no EVM wallet yet so callers can return a
     clean 400 instead of a failure deep inside web3 calls.
@@ -2164,6 +2185,30 @@ async def _resolve_earn_wallet(user_id: int):
     return evm_wallets[0] if evm_wallets else None
 
 
+async def _get_user_evm_wallets(user_id: int) -> list:
+    """All of the user's active EVM wallets, deduplicated — used by GET /earn
+    to aggregate savings across every wallet, and to validate a client-
+    supplied `walletId` on deposit/withdraw."""
+    from bot.services.wallet import WalletService
+
+    wallet_service = WalletService()
+    wallets = _unique_wallets(wallet_service.get_user_wallets(user_id))
+    return [w for w in wallets if str(w.chain_type or "").lower() == "evm" and w.address]
+
+
+async def _resolve_earn_wallet_by_id(user_id: int, wallet_id: int):
+    """Resolve a client-supplied `walletId`, validated to belong to the
+    authenticated JWT user (MED finding). Returns None for a missing/foreign/
+    non-EVM wallet — callers turn that into a 400 "Unknown wallet" rather
+    than a 404/403 that would leak whether the id exists for someone else.
+    """
+    wallets = await _get_user_evm_wallets(user_id)
+    for wallet in wallets:
+        if wallet.id == wallet_id:
+            return wallet
+    return None
+
+
 def _parse_earn_amount(
     raw: str, *, available: Decimal, max_returns_none: bool = False
 ) -> Optional[Decimal]:
@@ -2174,7 +2219,7 @@ def _parse_earn_amount(
     for the "max" sentinel on withdraw, where SavingsService.withdraw expects
     None to mean "withdraw the full on-chain position" (captures interest
     accrued between this read and execution). Never lets NaN/Infinity/
-    negative/zero amounts through to the on-chain call.
+    negative/zero/dust/oversized amounts through to the on-chain call.
     """
     if raw is None or not str(raw).strip():
         raise HTTPException(status_code=400, detail="amount is required")
@@ -2184,14 +2229,18 @@ def _parse_earn_amount(
     if cleaned.lower() == "max":
         if available <= 0:
             raise HTTPException(status_code=400, detail="Nothing available to use.")
-        return None if max_returns_none else available
+        return None if max_returns_none else _quantize_earn_amount(available)
     try:
         amount = Decimal(cleaned)
-    except InvalidOperation:
+    except (InvalidOperation, ArithmeticError):
         raise HTTPException(status_code=400, detail="Invalid amount")
     if not amount.is_finite() or amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be a positive number")
-    return amount
+    if amount > _MAX_EARN_AMOUNT:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount < _MIN_EARN_AMOUNT:
+        raise HTTPException(status_code=400, detail="Minimum amount is 0.01 USDC")
+    return _quantize_earn_amount(amount)
 
 
 async def _log_earn_event(user_id: int, wallet_id: int, action: str, amount, tx_hash: str) -> None:
@@ -2221,10 +2270,15 @@ async def _log_earn_event(user_id: int, wallet_id: int, action: str, amount, tx_
 
 @router.get("/earn")
 async def get_earn(request: Request):
-    """Real Aave V3 (Base) USDC savings snapshot for the authenticated user.
+    """Real Aave V3 (Base) USDC savings snapshot for the authenticated user,
+    aggregated across ALL of the user's EVM wallets (MED finding — a user
+    with more than one Base wallet previously only ever saw their default
+    wallet's savings, silently hiding funds in any other wallet).
 
-    Read-only: never signs or sends a transaction. `positions` is the user's
-    current aUSDC position; `idle` is wallet USDC that could be deposited.
+    Read-only: never signs or sends a transaction. `positions` has one entry
+    per wallet with a nonzero aUSDC position; `idle` has one entry per wallet
+    with nonzero deposit-able USDC. Each entry carries `walletId` so the
+    client can route a follow-up deposit/withdraw at that specific wallet.
     """
     payload = _jwt_user(request)
     _require_db()
@@ -2238,102 +2292,258 @@ async def get_earn(request: Request):
     except SavingsError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    wallet = await _resolve_earn_wallet(user_id)
+    wallets = await _get_user_evm_wallets(user_id)
 
     positions: list[dict] = []
     idle: list[dict] = []
     coverage = "complete"
 
-    if wallet is not None:
+    async def _read_one(wallet):
         try:
             position, idle_balance = await asyncio.gather(
                 asyncio.to_thread(savings_service.get_position, wallet.address),
                 asyncio.to_thread(savings_service.get_usdc_balance, wallet.address),
             )
+            return wallet, position, idle_balance, None
         except SavingsError as e:
-            logger.warning(f"mobile earn balance read failed for user {user_id}: {e}")
+            return wallet, None, None, e
+
+    for wallet, position, idle_balance, err in await asyncio.gather(
+        *(_read_one(w) for w in wallets)
+    ):
+        if err is not None:
+            logger.warning(
+                f"mobile earn balance read failed for user {user_id} wallet {wallet.id}: {err}"
+            )
             coverage = "best_effort"
-        else:
-            if position > 0:
-                positions.append(
-                    {
-                        "protocol": "aave_v3",
-                        "chain": "base",
-                        "token": "USDC",
-                        "balance": str(position),
-                        "balanceUsd": float(position),
-                        "apy": apy,
-                    }
-                )
-            if idle_balance > 0:
-                idle.append(
-                    {
-                        "chain": "base",
-                        "token": "USDC",
-                        "balance": str(idle_balance),
-                        "balanceUsd": float(idle_balance),
-                    }
-                )
+            continue
+        if position > 0:
+            positions.append(
+                {
+                    "walletId": wallet.id,
+                    "walletAddress": wallet.address,
+                    "protocol": "aave_v3",
+                    "chain": "base",
+                    "token": "USDC",
+                    "balance": str(position),
+                    "balanceUsd": float(position),
+                    "apy": apy,
+                }
+            )
+        if idle_balance > 0:
+            idle.append(
+                {
+                    "walletId": wallet.id,
+                    "walletAddress": wallet.address,
+                    "chain": "base",
+                    "token": "USDC",
+                    "balance": str(idle_balance),
+                    "balanceUsd": float(idle_balance),
+                }
+            )
 
     return {"apy": apy, "positions": positions, "idle": idle, "coverage": coverage}
+
+
+# ── earn action concurrency + idempotency (HIGH finding) ────────────────────
+#
+# Mirrors the reward-redemption idempotency pattern above (`_redeem_idem_*`
+# / `_IdemEntry`), adapted for a route that is genuinely `async def` (every
+# on-chain read/write here is dispatched via `asyncio.to_thread`, so callers
+# await this coroutine rather than blocking a threadpool thread the way
+# `redeem_reward` does). Two distinct problems, one lock:
+#
+#   1. Concurrency: two overlapping deposit/withdraw calls for the SAME
+#      (user_id, wallet.address) must not both read a stale balance and both
+#      pass validation (e.g. two withdraws that each see the full position as
+#      "available" and both attempt to move it). A per-(user, wallet) asyncio
+#      lock held across the ENTIRE read -> validate -> execute block forces
+#      the second call to wait for the first to fully finish (and, per (2)
+#      below, to see whatever the first one just cached) before it reads a
+#      balance of its own.
+#   2. Idempotency: a client `Idempotency-Key` header (or a short auto-derived
+#      key for an unkeyed burst of duplicate taps) lets a dropped-response
+#      retry replay the FIRST call's result instead of re-executing a SECOND
+#      on-chain tx. Same in-process, non-durable-across-restarts caveat as
+#      `_redeem_idem_*` — that's fine, it's a UX nicety on top of the wallet
+#      lock above, not the sole safety net.
+_EARN_IDEM_TTL_SECONDS = 300
+_earn_wallet_locks: Dict[tuple, asyncio.Lock] = {}
+_earn_idem_entries: Dict[tuple, _IdemEntry] = {}
+
+_earn_action_limiter = UserRateLimiter(max_requests=6, window_seconds=60)
+
+
+def _earn_wallet_lock(user_id: int, wallet_address: str) -> asyncio.Lock:
+    """Get (or create) the asyncio lock serializing earn actions for one
+    (user, wallet) pair. Safe to call from an async context without any extra
+    locking around the dict itself — a single-threaded event loop never
+    yields mid-`dict.get`/`dict.__setitem__`, so two concurrent coroutines
+    can't race to create two different Lock objects for the same key."""
+    key = (user_id, str(wallet_address or "").lower())
+    lock = _earn_wallet_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _earn_wallet_locks[key] = lock
+    return lock
+
+
+def _earn_idempotency_cache_key(request: Request, user_id: int, scope: str) -> tuple:
+    """Same shape as `_redeem_idempotency_cache_key`: prefer the client's
+    `Idempotency-Key` header; otherwise collapse an unkeyed near-simultaneous
+    burst for the SAME (user, action, wallet) onto one auto key."""
+    header_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
+    if header_key and header_key.strip():
+        key = f"hdr:{scope}:{header_key.strip()[:128]}"
+    else:
+        bucket = int(time.time() // 2)
+        key = f"auto:{scope}:{bucket}"
+    return (user_id, key)
+
+
+def _earn_idem_lookup(cache_key: tuple) -> Optional[Tuple[int, dict]]:
+    entry = _earn_idem_entries.get(cache_key)
+    if not entry or entry.timestamp is None:
+        return None
+    if time.time() - entry.timestamp > _EARN_IDEM_TTL_SECONDS:
+        _earn_idem_entries.pop(cache_key, None)
+        return None
+    return entry.status_code, entry.body
+
+
+def _earn_idem_store(cache_key: tuple, status_code: int, body: dict) -> None:
+    now = time.time()
+    entry = _earn_idem_entries.get(cache_key)
+    if entry is None:
+        entry = _IdemEntry(lock=threading.Lock())  # `.lock` unused here — the
+        # per-wallet asyncio.Lock above already serializes; kept for shape
+        # parity with `_IdemEntry`'s other three fields.
+        _earn_idem_entries[cache_key] = entry
+    entry.timestamp = now
+    entry.status_code = status_code
+    entry.body = body
+    if len(_earn_idem_entries) > 1000:
+        expired = [
+            k
+            for k, e in _earn_idem_entries.items()
+            if e.timestamp is not None and now - e.timestamp > _EARN_IDEM_TTL_SECONDS
+        ]
+        for k in expired:
+            _earn_idem_entries.pop(k, None)
 
 
 async def _execute_earn_action(request: Request, body: EarnAmountBody, *, action: str) -> dict:
     """Shared executor for /earn/deposit and /earn/withdraw.
 
-    Resolves the wallet exclusively from the authenticated JWT, validates the
-    amount, then calls the SAME SavingsService.deposit/withdraw used by the
-    Telegram /save flow — no new on-chain logic or approvals here.
+    Resolves the wallet exclusively from the authenticated JWT (or a
+    JWT-owned `walletId`), validates the amount, then calls the SAME
+    SavingsService.deposit/withdraw used by the Telegram /save flow — no new
+    on-chain logic or approvals here. The whole read -> validate -> execute
+    block runs under a per-(user, wallet) lock — see `_earn_wallet_lock`.
     """
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.services.savings_service import SavingsError, savings_service
+    from bot.services.savings_service import SavingsError, SavingsPending, savings_service
 
     user_id = int(payload["user_id"])
-    wallet = await _resolve_earn_wallet(user_id)
-    if wallet is None:
-        raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
 
     try:
-        if action == "deposit":
-            available = await asyncio.to_thread(savings_service.get_usdc_balance, wallet.address)
-        else:
-            available = await asyncio.to_thread(savings_service.get_position, wallet.address)
-    except SavingsError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
-    amount = _parse_earn_amount(
-        body.amount, available=available, max_returns_none=(action == "withdraw")
-    )
-    is_max = amount is None
-
-    try:
-        if action == "deposit":
-            # "max" already resolved to the live idle balance above; `amount`
-            # is never None on the deposit path.
-            tx_hashes = await asyncio.to_thread(savings_service.deposit, wallet, amount)
-            tx_hash = tx_hashes[-1]
-            reported_amount = amount
-        else:
-            withdraw_amount = None if is_max else amount
-            reported_amount = available if is_max else amount
-            tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, withdraw_amount)
-    except SavingsError as e:
-        logger.error(f"mobile earn {action} failed for user {user_id}: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"mobile earn {action} unexpected error for user {user_id}: {e}", exc_info=True
-        )
+        await _earn_action_limiter.check(user_id)
+    except RateLimitExceeded as e:
         raise HTTPException(
-            status_code=500, detail="Something went wrong. Your funds were not moved."
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 1) or 1)))},
         )
 
-    await _log_earn_event(user_id, wallet.id, action, reported_amount, tx_hash)
-    return {"ok": True, "txHash": tx_hash, "amount": str(reported_amount)}
+    if body.walletId is not None:
+        wallet = await _resolve_earn_wallet_by_id(user_id, body.walletId)
+        if wallet is None:
+            raise HTTPException(status_code=400, detail="Unknown wallet")
+    else:
+        wallet = await _resolve_earn_wallet(user_id)
+        if wallet is None:
+            raise HTTPException(status_code=400, detail="No EVM wallet found. Add one first.")
+
+    cache_key = _earn_idempotency_cache_key(request, user_id, f"{action}:{wallet.address.lower()}")
+    lock = _earn_wallet_lock(user_id, wallet.address)
+
+    async with lock:
+        cached = _earn_idem_lookup(cache_key)
+        if cached is not None:
+            status_code, cached_body = cached
+            if status_code >= 400:
+                raise HTTPException(status_code=status_code, detail=cached_body.get("detail"))
+            return JSONResponse(status_code=status_code, content=cached_body)
+
+        try:
+            if action == "deposit":
+                available = await asyncio.to_thread(
+                    savings_service.get_usdc_balance, wallet.address
+                )
+            else:
+                available = await asyncio.to_thread(savings_service.get_position, wallet.address)
+        except SavingsError as e:
+            # Transient RPC/read failure — not deterministic, never cached,
+            # so a retry actually retries instead of replaying a stale 503.
+            raise HTTPException(status_code=503, detail=str(e))
+
+        amount = _parse_earn_amount(
+            body.amount, available=available, max_returns_none=(action == "withdraw")
+        )
+        is_max = amount is None
+
+        try:
+            if action == "deposit":
+                # "max" already resolved to the live idle balance above;
+                # `amount` is never None on the deposit path.
+                tx_hashes = await asyncio.to_thread(savings_service.deposit, wallet, amount)
+                tx_hash = tx_hashes[-1]
+                reported_amount = amount
+            else:
+                withdraw_amount = None if is_max else amount
+                reported_amount = available if is_max else amount
+                tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, withdraw_amount)
+        except SavingsPending as e:
+            # Broadcast but confirmation timed out — NOT a plain retryable
+            # failure (a client retry here could double-submit on top of a tx
+            # that may still land). 202 + the tx hash so the client polls or
+            # checks basescan instead of resubmitting. Cached so an exact
+            # retry (same Idempotency-Key) replays this same 202 rather than
+            # re-attempting the on-chain call.
+            pending_body = {"ok": False, "status": "pending", "txHash": e.tx_hash}
+            _earn_idem_store(cache_key, 202, pending_body)
+            return JSONResponse(status_code=202, content=pending_body)
+        except SavingsError as e:
+            logger.error(f"mobile earn {action} failed for user {user_id}: {e}")
+            # Business rejection (insufficient balance, on-chain revert,
+            # etc.) is deterministic for this input — safe to cache/replay.
+            _earn_idem_store(cache_key, 400, {"detail": str(e)})
+            raise HTTPException(status_code=400, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(
+                f"mobile earn {action} unexpected error for user {user_id}: {e}", exc_info=True
+            )
+            # Unknown state (network blip, unhandled edge case) — NOT cached,
+            # so a retry actually retries once the transient condition clears.
+            raise HTTPException(
+                status_code=500, detail="Something went wrong. Your funds were not moved."
+            )
+
+        await _log_earn_event(user_id, wallet.id, action, reported_amount, tx_hash)
+        result = {"ok": True, "txHash": tx_hash, "amount": str(reported_amount)}
+        if action == "withdraw" and is_max:
+            # The reported amount is the position read BEFORE execution;
+            # Aave's MAX_UINT256 sentinel withdraws whatever the live balance
+            # is at execution time (principal + interest accrued since the
+            # read), which can be marginally higher. Flag it rather than
+            # imply exactness (LOW finding).
+            result["approximate"] = True
+        _earn_idem_store(cache_key, 200, result)
+        return result
 
 
 @router.post("/earn/deposit")
