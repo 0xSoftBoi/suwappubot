@@ -7,6 +7,7 @@ Two invariants matter most:
      different amount depending on where they subscribe.
 """
 
+import asyncio
 import os
 from types import SimpleNamespace
 
@@ -437,3 +438,76 @@ def test_bindwallet_does_not_hold_a_db_session_across_an_await():
     for chunk in src.split("with get_session() as session:")[1:]:
         body = chunk.split("\n\n")[0]
         assert "await " not in body, "a DB session is held across an await"
+
+
+@pytest.mark.asyncio
+async def test_invalidate_is_not_undone_by_an_in_flight_lookup():
+    """/bindwallet invalidates so a freshly bound wallet shows up immediately.
+    A lookup that started before the invalidation must not write its stale
+    result afterwards, or the new binding stays hidden for a full TTL."""
+    import bot.services.membership_service as mod
+
+    svc = mod.MembershipService()
+    type(svc).contract_address = property(lambda self: "0x" + "11" * 20)
+    try:
+        svc._addresses_for_user = lambda uid: ["0x" + "22" * 20]
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        def slow(addrs):
+            import asyncio as _a
+
+            _a.run_coroutine_threadsafe(_signal(), loop).result(timeout=5)
+            return SubscriptionTier.PRO
+
+        async def _signal():
+            started.set()
+            await release.wait()
+
+        loop = asyncio.get_running_loop()
+        task = asyncio.create_task(svc.get_onchain_tier(77))
+        svc._tier_for_addresses_sync = slow
+        await asyncio.wait_for(started.wait(), timeout=5)
+        svc.invalidate(77)  # binding changed mid-flight
+        release.set()
+        result = await asyncio.wait_for(task, timeout=5)
+
+        assert result == SubscriptionTier.PRO  # caller still gets an answer
+        assert 77 not in svc._cache, "stale in-flight result was cached over an invalidate"
+    finally:
+        del type(svc).contract_address
+
+
+def test_registering_robinhood_does_not_disturb_other_chains():
+    """_load_configured_endpoints is chain-wide. Adding an entry to its extras
+    list must be strictly additive — verified by building the endpoint table with
+    and without `robinhood` and diffing every chain."""
+    import re
+
+    import bot.services.rpc_manager as rm
+    from bot.services.rpc_manager import RPCManager
+
+    with_rh = RPCManager()
+    with_rh._load_configured_endpoints()
+    counts_with = {c: len(v) for c, v in with_rh._endpoints.items()}
+
+    code = (
+        open(rm.__file__)
+        .read()
+        .replace(
+            '"tempo", "solana", "tron", "plasma", "robinhood"',
+            '"tempo", "solana", "tron", "plasma"',
+        )
+    )
+    ns: dict = {}
+    exec(compile(code, rm.__file__, "exec"), ns)
+    without = ns["RPCManager"]()
+    without._load_configured_endpoints()
+    counts_without = {c: len(v) for c, v in without._endpoints.items()}
+
+    assert set(counts_with) - set(counts_without) == {"robinhood"}
+    assert not set(counts_without) - set(counts_with), "a chain was dropped"
+    for chain in set(counts_with) & set(counts_without):
+        assert counts_with[chain] == counts_without[chain], f"{chain} endpoint count changed"
+    assert counts_with["robinhood"] >= 1

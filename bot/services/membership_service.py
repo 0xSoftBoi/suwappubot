@@ -108,6 +108,11 @@ class MembershipService:
         # user_id -> (fetched_at, tier or None-for-failure)
         self._cache: dict[int, tuple[float, Optional[SubscriptionTier]]] = {}
         self._locks: dict[int, asyncio.Lock] = {}
+        # Bumped by invalidate(). A lookup that started before an invalidation
+        # must not write its now-stale result: /bindwallet invalidates precisely
+        # so a freshly bound wallet shows up immediately, and an in-flight read
+        # re-populating pre-bind data would hide it for a full TTL.
+        self._generation: dict[int, int] = {}
 
     @property
     def contract_address(self) -> Optional[str]:
@@ -240,6 +245,7 @@ class MembershipService:
                 return fresh
 
             loop = asyncio.get_running_loop()
+            gen = self._generation.get(user_id, 0)
             deadline = time.time() + _CALL_TIMEOUT
             tier = None
             try:
@@ -275,6 +281,10 @@ class MembershipService:
                 ):
                     return prev[1]
 
+            if self._generation.get(user_id, 0) != gen:
+                # Invalidated while this lookup was in flight — return the value
+                # but do not cache it, so the next call re-reads the chain.
+                return tier
             self._set_cached(user_id, tier)
             return tier
 
@@ -299,6 +309,7 @@ class MembershipService:
             for k, lk in list(self._locks.items()):
                 if not lk.locked() and k not in self._cache:
                     self._locks.pop(k, None)
+                    self._generation.pop(k, None)
         self._cache[user_id] = (time.time(), tier)
 
     def best_tier(
@@ -313,6 +324,7 @@ class MembershipService:
         """Drop the cached tier. Called by /bindwallet after a successful bind so
         a fresh purchase is visible immediately, not after the TTL."""
         self._cache.pop(user_id, None)
+        self._generation[user_id] = self._generation.get(user_id, 0) + 1
         lock = self._locks.get(user_id)
         if lock is not None and not lock.locked():
             self._locks.pop(user_id, None)
