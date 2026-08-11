@@ -95,3 +95,70 @@ export interface EarnActionPending {
 }
 
 export type EarnActionResponse = EarnActionSuccess | EarnActionPending
+
+/** One of the user's persisted wallets. Contract assumed from the existing
+ * `POST /v1/mobile/wallets` response shape (address/name/chainType/isDefault)
+ * in api/routes/mobile.py — no GET /v1/mobile/wallets exists yet, this is
+ * coded ahead of the parallel backend work. */
+export interface Wallet {
+  address: string
+  name: string
+  chainType: string
+  isDefault: boolean
+}
+
+/** 200: the send landed and confirmed. */
+export interface SendActionSuccess {
+  ok: true
+  txHash: string
+  amount: string
+  to: string
+}
+
+/** 202: broadcast but confirmation timed out — same semantics as Earn's
+ * pending state. Not an error, never auto-retried. */
+export interface SendActionPending {
+  ok: false
+  status: 'pending'
+  txHash: string
+}
+
+export type SendActionResponse = SendActionSuccess | SendActionPending
+
+export interface BorrowAsset {
+  token: string
+  chain: string
+  balance: string
+  balanceUsd: number
+}
+
+export interface BorrowedAsset extends BorrowAsset {
+  apr: number
+}
+
+export interface BorrowSnapshot {
+  collateral: BorrowAsset[]
+  borrowed: BorrowedAsset[]
+  healthFactor: number | null
+  availableToBorrowUsd: number
+  coverage: 'best_effort' | 'complete'
+}
+
+export interface StatementTransaction {
+  date: string
+  type: string
+  amountUsd: number
+  token: string
+  txHash: string
+  counterparty?: string
+}
+
+export interface Statement {
+  period: string
+  yieldEarnedUsd: number
+  depositedUsd: number
+  withdrawnUsd: number
+  sentUsd: number
+  swapVolumeUsd: number
+  transactions: StatementTransaction[]
+}

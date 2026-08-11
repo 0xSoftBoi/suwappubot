@@ -1,6 +1,7 @@
 import { memo, useCallback } from 'react'
-import { RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
+import { useRouter } from 'expo-router'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
 import { useActivity } from '../../src/hooks/use-gecko'
 import { isAuthenticated } from '../../src/lib/auth'
@@ -31,6 +32,7 @@ const ActivityRow = memo(ActivityRowBase, (a, b) => a.item.id === b.item.id && a
 
 export default function ActivityScreen() {
   const signedIn = isAuthenticated()
+  const router = useRouter()
   const { data, isLoading, isError, isRefetching, refetch } = useActivity(20, 0, signedIn)
   const refresh = useCallback(() => void refetch(), [refetch])
   const renderItem = useCallback(({ item }: { item: ActivityEntry }) => <ActivityRow item={item} />, [])
@@ -48,6 +50,12 @@ export default function ActivityScreen() {
       renderItem={renderItem}
       keyExtractor={keyExtractor}
       contentContainerStyle={local.content}
+      ListHeaderComponent={
+        <Pressable onPress={() => router.push('/statement')} style={local.statementLink}>
+          <Text style={local.statementLinkText}>Monthly statement</Text>
+          <Text style={local.statementChevron}>›</Text>
+        </Pressable>
+      }
       ListEmptyComponent={<View style={local.empty}><Text style={s.muted}>Nothing here yet.</Text></View>}
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} tintColor={palette.accent} />}
     />
@@ -61,4 +69,7 @@ const local = StyleSheet.create({
   values: { alignItems: 'flex-end', gap: 2 },
   status: { fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
   empty: { paddingVertical: spacing.xxl, alignItems: 'center' },
+  statementLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
+  statementLinkText: { color: palette.text, fontSize: 15, fontWeight: '600' },
+  statementChevron: { color: palette.textMuted, fontSize: 18, fontWeight: '700' },
 })

@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ErrorState, LoadingState, SignedOutState } from '../../src/components/screen-state'
-import { useEarn, useSnapshot } from '../../src/hooks/use-gecko'
+import { useBorrow, useEarn, useSnapshot } from '../../src/hooks/use-gecko'
 import { isAuthenticated } from '../../src/lib/auth'
 import { formatUsd } from '../../src/lib/format'
 import { palette, radius, spacing, styles as s } from '../../src/theme'
@@ -10,13 +10,20 @@ function titleCase(raw: string): string {
   return raw.split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
+function healthFactorColor(hf: number): string {
+  if (hf > 1.5) return palette.success
+  if (hf >= 1.1) return palette.warning
+  return palette.danger
+}
+
 export default function MoneyScreen() {
   const signedIn = isAuthenticated()
   const { data, isLoading, isError, isRefetching, refetch } = useSnapshot(signedIn)
-  // Savings is a separate read that must never block or error out Money —
-  // if /earn is loading, degraded, or unavailable, this screen simply shows
-  // no Savings section rather than an error state (see earn.tsx for that).
+  // Savings and Credit are separate reads that must never block or error out
+  // Money — if /earn or /borrow is loading, degraded, or unavailable, this
+  // screen simply omits that section rather than showing an error state.
   const earn = useEarn(signedIn)
+  const borrow = useBorrow(signedIn)
   const refresh = useCallback(() => void refetch(), [refetch])
   if (!signedIn) return <SignedOutState />
   if (isLoading && !data) return <LoadingState label="Loading your money…" />
@@ -87,6 +94,30 @@ export default function MoneyScreen() {
           })}
         </View>
       ) : null}
+      {borrow.data && (borrow.data.collateral.length > 0 || borrow.data.borrowed.length > 0) ? (
+        <View style={local.section}>
+          <Text style={s.heading}>Credit</Text>
+          <View style={s.card}>
+            <View style={local.row}>
+              <Text style={s.muted}>Health factor</Text>
+              <Text selectable style={[local.hf, borrow.data.healthFactor !== null && { color: healthFactorColor(borrow.data.healthFactor) }]}>
+                {borrow.data.healthFactor !== null ? borrow.data.healthFactor.toFixed(2) : '—'}
+              </Text>
+            </View>
+            <View style={local.row}>
+              <Text style={s.muted}>Borrowed</Text>
+              <Text selectable style={s.body}>{formatUsd(borrow.data.borrowed.reduce((sum, b) => sum + b.balanceUsd, 0))}</Text>
+            </View>
+            <View style={local.row}>
+              <Text style={s.muted}>Available credit</Text>
+              <Text selectable style={s.body}>{formatUsd(borrow.data.availableToBorrowUsd)}</Text>
+            </View>
+            {borrow.data.coverage === 'best_effort' ? (
+              <Text style={s.muted}>Available sources only. Gecko won’t infer missing balances.</Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </ScrollView>
   )
 }
@@ -104,4 +135,5 @@ const local = StyleSheet.create({
   savingsHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   apyBadge: { backgroundColor: palette.accentSoft, borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   apyBadgeText: { color: palette.accent, fontSize: 11, fontWeight: '700' },
+  hf: { color: palette.text, fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
 })
