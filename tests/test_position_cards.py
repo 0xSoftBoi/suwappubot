@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 
 import pytest
@@ -235,3 +236,80 @@ def test_config_discount_matches_service_backstop():
 
     cfg = render.load_config()
     assert cfg["economics"]["hold_discount_bps"] <= MAX_CARD_DISCOUNT_BPS
+
+
+# ── 5. the oracle ─────────────────────────────────────────────────────────────
+
+
+def _oracle_src():
+    return open(os.path.join(REPO, "contracts", "RobinhoodChainlinkOracle.sol")).read()
+
+
+def test_oracle_never_reverts_on_failure_paths():
+    """SuwappuPositions treats 0 as 'unpriced'; a reverting oracle would brick minting."""
+    src = _oracle_src()
+    # every external aggregator/token call must be wrapped
+    assert src.count("try ") >= 4, "external calls must be inside try/catch"
+    assert "catch {\n            return 0;" in src or "} catch {" in src
+    # priceOf must be a view that returns a uint, not something that can revert loudly
+    assert "function priceOf(address token) external view returns (uint256)" in src
+    for guard in (
+        "if (f.aggregator == address(0)) return 0;",
+        "if (!sequencerOk()) return 0;",
+        "if (answer <= 0 || updatedAt == 0) return 0;",
+    ):
+        assert guard in src, guard
+
+
+def test_oracle_normalises_decimals_to_1e18():
+    src = _oracle_src()
+    assert "if (f.decimals < 18) return price * (10 ** (18 - f.decimals));" in src
+    assert "if (f.decimals > 18) return price / (10 ** (f.decimals - 18));" in src
+    # decimals must be read from the feed, never hardcoded
+    assert "AggregatorV3Interface(aggregators[i]).decimals()" in src
+
+
+def test_oracle_does_not_double_apply_the_multiplier():
+    """Chainlink already reports total-return value; applying uiMultiplier again
+    would inflate every price."""
+    src = _oracle_src()
+    assert "uiMultiplier" not in src.split("*/", 1)[1], "uiMultiplier must not be applied in code"
+
+
+def test_oracle_staleness_window_covers_a_weekend():
+    """24/5 equity feeds go quiet over weekends; a tight bound blanks every card."""
+    src = _oracle_src()
+    assert "DEFAULT_MAX_AGE = 3 days" in src
+    assert "DISPLAY ORACLE" in src.upper(), "the display-only limitation must stay documented"
+
+
+def test_feeds_json_records_no_sequencer_feed_available():
+    doc = json.load(open(os.path.join(POS, "feeds.json")))
+    assert doc["_sequencer_uptime_feed"].startswith("NONE")
+    assert "sequencerUptimeFeed" in _oracle_src(), "the hook must still exist for when one ships"
+
+
+def test_prices_are_quoted_in_usd_not_usdg():
+    """All Robinhood equity feeds are <TICKER>/USD; labelling them USDG is wrong."""
+    doc = json.load(open(os.path.join(POS, "feeds.json")))
+    assert "USD" in doc["_quote"]
+    cfg, reg = render.load_config(), render.load_registry()
+    meta = render.build_metadata(cfg, reg, 1, "NVDA", 92.11, 219.32, 1)
+    assert "USDG" not in meta["description"]
+    svg = render.render_card(cfg, reg, 1, "NVDA", 92.11, 219.32, 1)
+    assert "USDG" not in svg
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_LIVE_CHAIN_TESTS") != "1",
+    reason="set RUN_LIVE_CHAIN_TESTS=1 to hit Robinhood Chain RPC",
+)
+def test_committed_feeds_are_live_on_chain():
+    """Full live re-verification. Opt-in so CI stays hermetic."""
+    rc = subprocess.run(
+        [sys.executable, os.path.join(POS, "verify_feeds.py")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    assert rc.returncode == 0, rc.stdout + rc.stderr

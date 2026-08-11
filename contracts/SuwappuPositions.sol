@@ -33,8 +33,11 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * bot/config/tokens.py.
  */
 interface IPositionOracle {
-    /// @notice Price of `token` quoted in USDG, scaled to 1e18. MUST return 0 when
+    /// @notice Price of `token` quoted in USD, scaled to 1e18. MUST return 0 when
     ///         it has no fresh price rather than reverting or guessing.
+    /// @dev    USD, not USDG: Robinhood Chain's Chainlink equity feeds are all
+    ///         <TICKER>/USD. A USDG/USD feed exists (0x61B7e5650328764B076A108EFF5fa7282a1B9aD2)
+    ///         if a USDG-denominated variant is ever wanted.
     function priceOf(address token) external view returns (uint256);
 }
 

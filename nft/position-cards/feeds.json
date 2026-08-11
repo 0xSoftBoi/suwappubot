@@ -286,5 +286,7 @@
    "description": "RHUSO / USD",
    "verified_price_usd": 128.58
   }
- }
+ },
+ "_quote": "All equity feeds are <TICKER>/USD (not USDG). A USDG/USD feed exists at 0x61B7e5650328764B076A108EFF5fa7282a1B9aD2 if a USDG-denominated variant is ever wanted.",
+ "_sequencer_uptime_feed": "NONE. Chainlink publishes no L2 sequencer uptime feed for chain 4663 as of 2026-08-11 (zero directory entries matching sequencer/uptime). RobinhoodChainlinkOracle supports one via setSequencerUptimeFeed the moment it exists."
 }

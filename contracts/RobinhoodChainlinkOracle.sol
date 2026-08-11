@@ -66,10 +66,12 @@ contract RobinhoodChainlinkOracle is Ownable {
     bool public feedsSealed;
 
     /// @notice Chainlink L2 Sequencer Uptime Feed. Robinhood Chain is an Arbitrum
-    ///         Orbit L2, and Robinhood's docs require checking it before trusting a
-    ///         price. Left unset until the published address is confirmed; when
-    ///         unset the check is skipped rather than failing closed, because a
-    ///         wrong address here would silently zero every card.
+    ///         Orbit L2 and Robinhood's docs say to check the sequencer before
+    ///         trusting a price — but as of 2026-08-11 Chainlink's Robinhood Chain
+    ///         feed directory publishes NO sequencer uptime feed (checked: zero
+    ///         entries matching sequencer/uptime). So this stays unset and the
+    ///         check is skipped; a guessed address would silently zero every card.
+    ///         Set it the moment one is published and the check enforces itself.
     address public sequencerUptimeFeed;
 
     event FeedSet(address indexed token, address aggregator, uint8 decimals, uint32 maxAge);

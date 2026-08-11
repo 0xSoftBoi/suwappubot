@@ -202,7 +202,7 @@ def render_card(
             f'<line x1="{bx0}" y1="{y_now:.1f}" x2="{bx1}" y2="{y_now:.1f}" '
             f'stroke="{accent}" stroke-width="3"/>'
             f'<text x="{bx0}" y="{y_entry + (20 if up else -9):.1f}" font-family="monospace" '
-            f'font-size="14" fill="#6b7488">ENTRY {fmt_px(entry)}</text>'
+            f'font-size="14" fill="#6b7488">ENTRY ${fmt_px(entry)}</text>'
             f'<text x="{bx1}" y="{y_now + (-9 if up else 20):.1f}" text-anchor="end" '
             f'font-family="monospace" font-size="15" fill="{accent}">NOW {fmt_px(price)}</text>'
         )
@@ -220,8 +220,8 @@ def render_card(
     colw = (IX1 - IX0) / 3
     when = (minted_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
     cells = [
-        ("ENTRY", fmt_px(entry) if priced else "—"),
-        ("CURRENT", fmt_px(price) if priced else "—"),
+        ("ENTRY", f"${fmt_px(entry)}" if priced else "—"),
+        ("CURRENT", f"${fmt_px(price)}" if priced else "—"),
         ("GRADE", grade["name"]),
         ("HELD SINCE", when),
         ("MINT RANK", f"{rank} / 10000"),
@@ -310,7 +310,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
     if priced:
         desc = (
             f"A position on {company} ({ticker}) opened on Robinhood Chain at "
-            f"{fmt_px(entry)} USDG. Currently {fmt_px(price)} — "
+            f"${fmt_px(entry)}. Currently ${fmt_px(price)} — "
             f"{'up' if ret_bps >= 0 else 'down'} {abs(ret_bps) / 100:.1f}%. "
             f"Mint rank {rank} of 10,000.\n\n"
             f"The entry price was stamped on-chain at mint and can never change; the "

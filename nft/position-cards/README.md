@@ -27,7 +27,8 @@ reads them. What the research established, all verified live on chain 4663 on 20
 | Standard `AggregatorV3Interface.latestRoundData()`, all **8 decimals**, heartbeat **86400s** | `decimals()` is still read per feed and normalised to 1e18, per Robinhood's guidance not to hardcode |
 | The answer is **Total Return Value** — share price **×** corporate-action multiplier — already applied | The oracle must **not** scale by `uiMultiplier()` again. A card's return is a total-return figure, dividends included |
 | Stock Tokens expose `oraclePaused()` and `uiMultiplier()` (NVDA returned `false` and `1e18`) | `oraclePaused()` is checked as an advisory signal; staleness stays the primary defence |
-| Robinhood Chain is an **Arbitrum Orbit L2**; the docs require an L2 Sequencer Uptime check | Implemented and enforced when set. The published feed address for 4663 was **not found**, so it stays unset and is skipped rather than failing closed on a guessed address |
+| Robinhood Chain is an **Arbitrum Orbit L2**; the docs require an L2 Sequencer Uptime check | **Chainlink publishes no sequencer uptime feed for 4663** (zero directory entries matching sequencer/uptime). The check is implemented and enforces itself the moment one is set; until then it is skipped, since a guessed address would zero every card |
+| Equity feeds are quoted **`<TICKER>/USD`**, not USDG | Cards display USD. A `USDG/USD` feed exists (`0x61B7e5650328764B076A108EFF5fa7282a1B9aD2`) if a USDG-denominated variant is ever wanted |
 | Feeds are **24/5** and go quiet over weekends | `maxAge` defaults to **3 days**, so cards don't blank every weekend |
 
 > **This is a DISPLAY oracle. Do not use it to value collateral.** The generous
@@ -106,6 +107,8 @@ The disclaimer is asserted by tests, printed on every card and carried in every 
 ## Run
 
 ```bash
+python3 nft/position-cards/verify_feeds.py          # re-verify all 35 feeds on-chain
+RUN_LIVE_CHAIN_TESTS=1 python3 -m pytest tests/test_position_cards.py
 python3 nft/position-cards/render.py --gallery
 python3 nft/position-cards/render.py --ticker NVDA --entry 92.40 --price 168.22 --rank 1
 python3 nft/position-cards/build_deploy_args.py
@@ -132,7 +135,6 @@ python3 -m pytest tests/test_positions_collection.py
 46630, so a testnet run registers feeds that return nothing and every card reads
 `UNPRICED`. That is expected, and it exercises the unpriced path.
 
-**Open item:** Chainlink's L2 Sequencer Uptime Feed address for chain 4663 is not
-published in the sources found. The check is implemented and enforced the moment
-`setSequencerUptimeFeed` is called; until then it is skipped, since a guessed address
-would silently zero every card.
+**Sequencer uptime:** Chainlink publishes no L2 sequencer uptime feed for chain 4663 —
+this was checked against the feed directory, not merely un-found. `setSequencerUptimeFeed`
+wires one in the moment it exists, and the check then enforces itself with a 1h grace period.

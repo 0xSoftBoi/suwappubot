@@ -845,6 +845,7 @@ async def post_init(application) -> None:
             BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
+            BotCommand("cards", "🃏 Position cards — live P&L & swap-fee discount"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
             BotCommand("model", "🤖 AI model for natural-language trading"),
             BotCommand("support", "🆘 Contact support"),
