@@ -117,8 +117,13 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         tx_hash = await membership_service.submit_subscription(pending, args[0])
-        context.user_data.pop(_PENDING_KEY, None)
         if tx_hash:
+            # Only now: on a transient broadcast failure the quote is still the
+            # user's cheapest path back in — dropping it forced a re-quote, and
+            # the re-quote reads a fresh seq, so retrying the SAME signature
+            # (which is safe, it reverts if the first one landed) became
+            # impossible. Expiry still bounds how long it lives.
+            context.user_data.pop(_PENDING_KEY, None)
             membership_service.invalidate(user_id)
             await update.message.reply_text(
                 f"✅ *{pending['tier'].upper()} for {pending['periods']} month(s)* submitted.\n\n"

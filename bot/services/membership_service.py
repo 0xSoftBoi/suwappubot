@@ -64,6 +64,18 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="membership")
 # fails open immediately once the backlog is saturated instead of enqueuing.
 _INFLIGHT = threading.BoundedSemaphore(8)
 
+# Relayer broadcasts are serialised. Two of them ran concurrently on the
+# 2-worker pool, each reading get_transaction_count() independently and getting
+# the SAME nonce — the second tx then replaced the first in the mempool, so one
+# user's subscription silently never landed while their signature stayed spent
+# from their point of view. The lock covers nonce read AND send, which is the
+# only window that matters.
+_RELAYER_LOCK = threading.Lock()
+# ...and a gate in front of it, because the lock alone would let broadcasts queue
+# without bound behind one stuck send. Refusing is safe: the handler falls back
+# to handing the user broadcastable calldata.
+_RELAYER_INFLIGHT = threading.BoundedSemaphore(4)
+
 
 def _subscription_nonce(subscriber: str, tier_index: int, periods: int, seq: int) -> bytes:
     """keccak256(abi.encode("SUWAPPU_SUBSCRIPTION_V2", subscriber, tier, periods, seq)).
@@ -191,6 +203,9 @@ class MembershipService:
         # so a freshly bound wallet shows up immediately, and an in-flight read
         # re-populating pre-bind data would hide it for a full TTL.
         self._generation: dict[int, int] = {}
+        # Highest relayer nonce this process has broadcast, +1. Guarded by
+        # _RELAYER_LOCK; see submit_subscription.
+        self._relayer_nonce_floor: int = 0
 
     @property
     def contract_address(self) -> Optional[str]:
@@ -681,26 +696,48 @@ class MembershipService:
                 return None
 
             def _send() -> str:
+                # Released HERE, not in the awaiting coroutine: wait_for cancels
+                # the await but not the thread, so a coroutine-side release
+                # would reopen the gate while this broadcast was still running.
+                try:
+                    return _send_inner()
+                finally:
+                    _RELAYER_INFLIGHT.release()
+
+            def _send_inner() -> str:
                 w3 = rpc_manager.get_web3(CHAIN)
                 acct = Account.from_key(settings.membership_relayer_private_key)
-                tx = built["fn"].build_transaction(
-                    {
-                        "from": acct.address,
-                        "nonce": w3.eth.get_transaction_count(acct.address),
-                        "chainId": CHAIN_ID,
-                    }
-                )
-                signed = acct.sign_transaction(tx)
-                return w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+                # "pending", not the default "latest": a broadcast still in the
+                # mempool is invisible to "latest", so back-to-back sends would
+                # both build on the same nonce.
+                with _RELAYER_LOCK:
+                    nonce = w3.eth.get_transaction_count(acct.address, "pending")
+                    # Belt and braces: some Orbit RPCs lag on the pending tag, so
+                    # never go backwards from a nonce we already used.
+                    nonce = max(nonce, self._relayer_nonce_floor)
+                    tx = built["fn"].build_transaction(
+                        {"from": acct.address, "nonce": nonce, "chainId": CHAIN_ID}
+                    )
+                    signed = acct.sign_transaction(tx)
+                    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+                    self._relayer_nonce_floor = nonce + 1
+                return tx_hash
+
+            if not _RELAYER_INFLIGHT.acquire(blocking=False):
+                logger.warning("Membership: relayer saturated, refusing broadcast")
+                return None
 
             # Dedicated executor, never asyncio's default one — a hung
             # broadcast on the shared pool would starve the swap path (the same
             # mistake the tier lookup was already corrected for). Bounded wait so
             # a stuck RPC releases the worker instead of holding it forever.
             loop = asyncio.get_running_loop()
-            return await asyncio.wait_for(
-                loop.run_in_executor(_EXECUTOR, _send), timeout=_BROADCAST_TIMEOUT
-            )
+            try:
+                fut = loop.run_in_executor(_EXECUTOR, _send)
+            except Exception:  # pragma: no cover - pool shut down
+                _RELAYER_INFLIGHT.release()
+                raise
+            return await asyncio.wait_for(fut, timeout=_BROADCAST_TIMEOUT)
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Membership: subscription broadcast failed: %s", e)
             return None

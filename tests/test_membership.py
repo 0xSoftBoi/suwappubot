@@ -9,6 +9,8 @@ Two invariants matter most:
 
 import asyncio
 import os
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -694,3 +696,89 @@ def test_relayer_is_off_until_explicitly_enabled_and_funded():
     assert membership_service.relayer_enabled is False
     src = open(os.path.join(REPO, "bot", "config", "settings.py")).read()
     assert "membership_relayer_enabled: bool = Field(\n        default=False," in src
+
+
+# ── relayer broadcast concurrency ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_concurrent_broadcasts_never_reuse_a_relayer_nonce(monkeypatch):
+    """Review HIGH: two /subscribe broadcasts ran concurrently on the relayer
+    pool and each read get_transaction_count() independently, so both built the
+    SAME nonce. The second replaced the first in the mempool: one user's
+    subscription silently never landed while their signature was spent from
+    their point of view.
+
+    Also pins the `pending` block tag — with the default `latest`, an unmined
+    broadcast is invisible and back-to-back sends collide the same way."""
+    import asyncio as aio
+
+    import bot.services.membership_service as mod
+
+    svc = mod.MembershipService()
+    monkeypatch.setattr(type(svc), "relayer_enabled", property(lambda self: True))
+
+    mined = {"n": 0}  # confirmed txs — deliberately lags, as a real RPC does
+    tags: list = []
+    sent: list[int] = []
+    lock = threading.Lock()
+
+    class _Eth:
+        @staticmethod
+        def get_transaction_count(addr, block=None):
+            tags.append(block)
+            time.sleep(0.05)  # widen the race window
+            return mined["n"]
+
+        @staticmethod
+        def send_raw_transaction(raw):
+            with lock:
+                sent.append(raw["nonce"])
+
+            class _H:
+                @staticmethod
+                def hex():
+                    return "0x" + "%064x" % raw["nonce"]
+
+            return _H
+
+    class _W3:
+        eth = _Eth
+
+    class _FakeRpc:
+        @staticmethod
+        def get_web3(chain):
+            return _W3
+
+    import bot.services.rpc_manager as rpcmod
+
+    monkeypatch.setattr(rpcmod, "rpc_manager", _FakeRpc)
+
+    class _Fn:
+        @staticmethod
+        def build_transaction(params):
+            return dict(params)
+
+    monkeypatch.setattr(svc, "build_subscribe_tx", lambda p, s: {"fn": _Fn, "to": "0x", "data": ""})
+
+    class _Acct:
+        address = "0x" + "99" * 20
+
+        @staticmethod
+        def sign_transaction(tx):
+            class _S:
+                raw_transaction = tx
+
+            return _S
+
+    import eth_account
+
+    monkeypatch.setattr(eth_account.Account, "from_key", staticmethod(lambda k: _Acct))
+    monkeypatch.setattr(mod.settings, "membership_relayer_private_key", "0x" + "11" * 32, False)
+
+    results = await aio.gather(*[svc.submit_subscription({}, "0x") for _ in range(4)])
+
+    assert all(r is not None for r in results), "a broadcast was dropped"
+    assert len(set(sent)) == len(sent), f"relayer reused a nonce: {sent}"
+    assert sorted(sent) == [0, 1, 2, 3], sent
+    assert set(tags) == {"pending"}, f"nonce read used the wrong block tag: {tags}"
