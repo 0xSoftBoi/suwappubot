@@ -6,7 +6,7 @@
  */
 import { request } from './api'
 import { TIMEOUTS } from './config'
-import type { ActivityEntry, AskResponse, HealthStatus, MobileSnapshot } from '../types/api'
+import type { ActivityEntry, AskResponse, EarnActionResponse, EarnSnapshot, HealthStatus, MobileSnapshot } from '../types/api'
 
 export const endpoints = {
   health: () => request<HealthStatus>('/health', { timeoutMs: TIMEOUTS.fast }),
@@ -24,6 +24,25 @@ export const endpoints = {
     request<AskResponse>('/v1/mobile/ask', {
       method: 'POST',
       body: { text },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  earn: (signal?: AbortSignal) =>
+    request<EarnSnapshot>('/v1/mobile/earn', { signal }),
+
+  earnDeposit: (amount: string) =>
+    request<EarnActionResponse>('/v1/mobile/earn/deposit', {
+      method: 'POST',
+      body: { amount },
+      retries: 0,
+      timeoutMs: TIMEOUTS.slow,
+    }),
+
+  earnWithdraw: (amount: string) =>
+    request<EarnActionResponse>('/v1/mobile/earn/withdraw', {
+      method: 'POST',
+      body: { amount },
       retries: 0,
       timeoutMs: TIMEOUTS.slow,
     }),

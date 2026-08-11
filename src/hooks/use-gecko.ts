@@ -3,7 +3,7 @@ import { endpoints } from '../lib/endpoints'
 import { getAuthRevision } from '../lib/auth'
 import { queryKeys } from '../lib/queryKeys'
 import { STALE } from '../lib/queryClient'
-import type { ActivityEntry, AskResponse, MobileSnapshot } from '../types/api'
+import type { ActivityEntry, AskResponse, EarnActionResponse, EarnSnapshot, MobileSnapshot } from '../types/api'
 
 export function useSnapshot(enabled = true) {
   const authRevision = getAuthRevision()
@@ -28,5 +28,27 @@ export function useActivity(limit = 20, offset = 0, enabled = true) {
 export function useAskGecko() {
   return useMutation<AskResponse, Error, string>({
     mutationFn: (text) => endpoints.ask(text),
+  })
+}
+
+export function useEarn(enabled = true) {
+  const authRevision = getAuthRevision()
+  return useQuery<EarnSnapshot>({
+    queryKey: queryKeys.earn(authRevision),
+    queryFn: ({ signal }) => endpoints.earn(signal),
+    staleTime: STALE.earn,
+    enabled,
+  })
+}
+
+export function useEarnDeposit() {
+  return useMutation<EarnActionResponse, Error, string>({
+    mutationFn: (amount) => endpoints.earnDeposit(amount),
+  })
+}
+
+export function useEarnWithdraw() {
+  return useMutation<EarnActionResponse, Error, string>({
+    mutationFn: (amount) => endpoints.earnWithdraw(amount),
   })
 }

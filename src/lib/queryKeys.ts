@@ -9,5 +9,6 @@ export const queryKeys = {
   snapshot: (authRevision: number) => ['gecko', authRevision, 'snapshot'] as const,
   activity: (authRevision: number, limit: number, offset: number) =>
     ['gecko', authRevision, 'activity', limit, offset] as const,
+  earn: (authRevision: number) => ['gecko', authRevision, 'earn'] as const,
   health: () => ['health'] as const,
 } as const
