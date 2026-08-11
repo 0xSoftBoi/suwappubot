@@ -32,8 +32,12 @@ CEILINGS = {
     "mintFree": 110_000,
     "subscribe_new": 184_000,
     "subscribe_renew": 70_000,
-    "positions_mint_x1": 238_000,
-    "positions_mint_x10_per_card": 62_000,
+    # Re-baselined when the positions case switched from a FREE phase to a
+    # PRICED one: a 0-price phase is now rejected, and the free measurement never
+    # exercised the oracle read, the last-good-price cache write or the refund
+    # branch that every real mint pays for. 256,897 / 58,767 measured.
+    "positions_mint_x1": 278_000,
+    "positions_mint_x10_per_card": 64_000,
 }
 
 
@@ -85,13 +89,33 @@ def test_positions_mint_gas_within_ceilings(w3):
     owner, alice = w3.eth.accounts[0], w3.eth.accounts[1]
     args = json.load(open(os.path.join(REPO, "nft", "position-cards", "deploy_args.json")))
     pos = _deploy(w3, art, "SuwappuPositions", args["caps"], args["tokens"], "https://x/", owner)
+    feed = _deploy(w3, art, "MockEthUsdFeed", 2000_00000000)
     pos.functions.sealRegistry().transact({"from": owner})
+    pos.functions.setEthUsdFeed(feed.address).transact({"from": owner})
     now = w3.eth.get_block("latest").timestamp
-    # Public phase: no merkle root, free, generous caps.
-    pos.functions.configurePhase(3, b"\x00" * 32, 0, 50, 0, now - 1, 0).transact({"from": owner})
+    # Public phase: no merkle root, $20 a card, generous caps. Priced, not free —
+    # a 0-price phase is rejected outright now, and measuring a free mint would
+    # miss the oracle read and the last-good-price cache the real path pays for.
+    pos.functions.configurePhase(3, b"\x00" * 32, 2000, 50, 0, now - 1, 0).transact({"from": owner})
 
-    one = _gas(w3, pos.functions.mint(3, 0, 1, 0, []), alice)
-    ten = _gas(w3, pos.functions.mint(3, 0, 10, 0, []), alice)
+    def _mint(qty):
+        cost = pos.functions.quote(3, qty).call()
+        rcpt = w3.eth.wait_for_transaction_receipt(
+            w3.eth.send_transaction(
+                {
+                    "from": alice,
+                    "to": pos.address,
+                    "value": cost,
+                    "gas": 2_000_000,
+                    "data": pos.encode_abi("mint", args=[3, 0, qty, 0, []]),
+                }
+            )
+        )
+        assert rcpt.status == 1
+        return rcpt.gasUsed
+
+    one = _mint(1)
+    ten = _mint(10)
     per_card = ten // 10
     assert one <= CEILINGS["positions_mint_x1"], f"{one:,}"
     assert per_card <= CEILINGS["positions_mint_x10_per_card"], f"{per_card:,}"
