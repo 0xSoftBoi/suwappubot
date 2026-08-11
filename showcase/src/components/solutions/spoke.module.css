@@ -1,0 +1,65 @@
+/*
+ * Shared styles for the four /solutions/* job pages (spoke.module.css).
+ * Reuses the polish layer's tokens (--sw-*) rather than inventing new ones;
+ * this file only adds the layout glue SpokeLayout needs between existing
+ * globals.css blocks (mkt-hero, compare-table, agents-caps, summer-code).
+ */
+
+.stat {
+  margin: 18px auto 0;
+  color: var(--sw-ink);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.problem {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  max-width: var(--type-measure);
+}
+
+.problemBody {
+  margin: 10px 0 0;
+  color: var(--sw-muted);
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
+
+.howItWorks {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.bvb {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.codeSection {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.codeShell {
+  margin-top: 14px;
+}
+
+.codeShell :global(.summer-code) {
+  margin: 0;
+  overflow: hidden;
+}
+
+.codeShell :global(.summer-code) pre {
+  padding: 24px;
+  font-size: 0.92rem;
+  color: #cfe0f2;
+}
+
+.ctaFoot {
+  margin: 16px 0 0;
+  color: var(--summer-muted);
+  font-size: 0.92rem;
+}
+
+.ctaFoot a {
+  color: var(--summer-accent-deep, var(--sw-ink));
+  text-decoration: underline;
+}
