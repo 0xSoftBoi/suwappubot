@@ -149,6 +149,20 @@ To-be: same copy, but the CTA reads "Start earning $[suggested amount]" where th
 
 Target: **3 taps** for a saved/recent recipient (down from 5), unchanged at ~4-5 for a fresh address since recipient entry and ENS resolution are not compressible. Add a recents list so repeat sends (the common case for a trader paying the same counterparties) skip recipient entry entirely.
 
+**Recipient discovery, staged by abuse surface (this pass's decision):**
+
+| Phase | Method | Why |
+|---|---|---|
+| **v1 — ship first** | Username + QR + recents | Lowest privacy surface — no bulk-queryable directory to abuse. Covers the recipient-entry cases above (fresh address / ENS, saved/recent) without adding a lookup surface. |
+| **v2 — gated on abuse controls** | Phone/email → address lookup | Real convenience win (contacts-based send), but only ships once the controls below exist — do not ship a raw contacts-upload/lookup feature ahead of them. |
+
+v2 abuse controls, all required before phone/email lookup ships, not optional hardening after:
+- **Hash the lookup key.** Store/query a hash of the phone number or email, not the raw value in a bulk-queryable table — a leaked or scraped table of hashed keys is far less useful than one of raw PII.
+- **Rate-limit lookups per device**, not just per account, to stop enumeration (an attacker cycling accounts to sweep a phone-number range is the realistic attack, not one account making many lookups).
+- **Default all handle/activity visibility to private, opt-in to share.** No public-by-default friend list, balance, or activity feed.
+
+**Precedent this is deliberately avoiding:** Venmo shipped public-by-default friend lists and a public activity feed; the resulting bulk-scrapeable social graph and transaction metadata enabled large-scale PII/location mining and stalking-adjacent abuse (widely documented, e.g. the 2018 public research pulling millions of Venmo transactions). Gekko's contacts feature should not repeat the "convenience first, privacy default second" sequencing that caused that.
+
 ### (e) First-run checklist
 
 A persistent, dismissible 3-item checklist on Today for the first session: Connect ✓ → Fund ✓/○ → Start earning ✓/○. For a Suwappu-beachhead user, Fund shows pre-checked the instant Connect completes (§1 correction — no separate funding action exists for them); for a net-new user Fund stays ○ until they complete 4b. Justification: gamified/progressive onboarding elements are cited (Shine 80% conversion, Extraco 2%→14%) as producing large lifts, but these are vendor-sourced case studies, not independently verified — treat the checklist as a cheap, low-risk addition to test, not a guaranteed win. It doubles as the visible instrumentation surface for funnel stage 3 (§5).

@@ -47,6 +47,30 @@ The card issuer is the processor/program manager that issues physical and virtua
 - [ ] Define decline/insufficient-funds handling for the non-custodial pre-auth path (network latency risk)
 - [ ] Physical card fulfillment vendor and timeline (verify — usually 3rd party via issuer)
 
+## On-Ramp (Cold-Start Card Funding)
+
+### What it is
+The fiat-to-stablecoin on-ramp a net-new, $0 user hits to fund their account by card before they have any crypto — distinct from the `Stablecoin Orchestrators` section below, which covers ongoing orchestration/off-ramp infrastructure once the account is live.
+
+### Vendor / provider options
+- **Coinbase Onramp** — native React Native SDK; Coinbase owns 100% of KYC for this path (Gekko runs no KYC program to use it); delivers directly to an arbitrary destination address; Base is first-class; has a 0%-fee program specifically for USDC.
+- **MoonPay** — most mature RN/Expo integration in the space, broadest country/licensing coverage; useful where Coinbase's geographic coverage has gaps.
+- **Stripe Crypto Onramp** — US-only today, not viable as the primary v1 rail.
+- **Transak / Ramp** — thinner confirmed RN tooling versus Coinbase/MoonPay (verify current SDK maturity before reconsidering).
+
+### Gekko default
+**Coinbase Onramp** as the primary cold-start card-funding path — native RN SDK, zero incremental KYC burden on Gekko, arbitrary-address delivery, Base-first, and a 0%-fee USDC program that directly benefits Gekko's stablecoin-native product. **MoonPay** as the fallback where Coinbase's country coverage doesn't reach. Do not build against Stripe Crypto Onramp for v1 (US-only); Transak/Ramp are not v1 candidates given thinner confirmed RN tooling.
+
+**Sourcing caveat:** the fee (0% USDC program) and geography figures above are sourced from aggregator/comparison blogs, not vendor primary docs — treat as directional. Get a live vendor quote and current country-coverage list from Coinbase and MoonPay before contracting or committing this to a roadmap.
+
+### Build checklist
+- [ ] Get a live Coinbase Onramp quote: current country/state coverage, actual fee schedule (confirm 0% USDC program terms and any conditions), integration requirements for the RN SDK
+- [ ] Get a comparable live quote from MoonPay as the fallback, specifically for any Coinbase coverage gaps
+- [ ] Confirm arbitrary-destination-address delivery lands correctly on Gekko's existing wallet stack (`kms_aesgcm_v2` / Turnkey — see Wallets section)
+- [ ] Confirm Base-first support covers Gekko's actual v1 chain priority
+- [ ] Fee/geography disclosure shown before user confirms purchase (compliance review)
+- [ ] Re-verify this decision once a real vendor quote replaces the aggregator-sourced figures above
+
 ## Yield Provider
 
 ### What it is
@@ -97,18 +121,22 @@ Gekko needs non-custodial (or hybrid) smart-contract wallets across 7+ chains fo
 
 ### Vendor / provider options
 - **Existing Suwappu wallet stack** — `kms_aesgcm_v2` envelope encryption, already live across 7+ chains, zero net-new vendor risk.
-- **Privy** — embedded wallet + OAuth login, powers Banana Pro's 1.3M-user onboarding (per roadmap), strong for mobile onboarding UX.
-- **Turnkey** — non-custodial key infra with policy engine, popular for programmatic/session-key control.
+- **Turnkey** — **already a production vendor here, not a candidate.** `bot/config/settings.py:76-122` exposes `wallet_provider: 'local' | 'turnkey'` as a selectable backend, and `bot/services/hot_wallet.py:185-291` + `bot/services/turnkey_client.py` already create and sign wallets through Turnkey's TEE today. Turnkey also ships a React Native SDK with email-OTP and native-passkey auth, built for exactly this cold-start mobile sign-in problem.
+- **Privy** — embedded wallet + OAuth login, powers Banana Pro's 1.3M-user onboarding (per roadmap), strong for mobile onboarding UX. Not currently used anywhere in this repo — adding it would be a genuine second wallet vendor.
 - **Safe (Gnosis Safe)** — smart-account standard, what Gnosis Pay's card is built on; good for session-key/spend-limit patterns.
 
 ### Gekko default
-**Reuse the existing Suwappu wallet + KMS envelope encryption stack** as the core, adding **Safe smart-account** wrapping for card-linked wallets to support session keys / spend limits (needed for the Immersve pre-auth flow and Morpho auto-sweep). Do not re-platform onto Privy/Turnkey unless mobile onboarding conversion data shows the existing flow is a blocker — avoid rebuilding what already works in production.
+**Correction (this pass):** the prior version of this section told Gekko not to re-platform onto Privy/Turnkey and to reuse "the existing KMS stack" as if Turnkey were an outside candidate. It isn't — Turnkey is already one of Suwappu's two production wallet backends (`local` / `turnkey`, see above), already signs live funds through its TEE, and is already an existing vendor relationship with a contract and integration in place. Standing up Turnkey's own React Native SDK (email OTP + native passkeys) for Gekko's mobile cold-start sign-in is **reusing an existing production vendor**, not re-platforming — the opposite of what the old text implied.
+
+**Reuse the existing Suwappu wallet + KMS stack as the core** (for whichever users are on the `local` backend) **and use Turnkey's native RN auth (email OTP + passkeys) for mobile cold-start sign-in** where the wallet is already on the `turnkey` backend — this is the same vendor and same underlying keys, just the mobile-native entry point Turnkey already built for. Add **Safe smart-account** wrapping for card-linked wallets to support session keys / spend limits (needed for the Immersve pre-auth flow and Morpho auto-sweep). The intent carries forward unchanged: do not add a *redundant* second wallet vendor (Privy, Web3Auth, etc.) without a specific, demonstrated gap that Turnkey/the existing stack can't cover.
 
 ### Build checklist
+- [ ] Confirm which Suwappu users/wallets are already on the `turnkey` backend vs. `local`, and whether Gekko mobile should default new wallets to `turnkey` given its RN SDK fit
+- [ ] Prototype Turnkey RN SDK (email OTP + passkey) cold-start sign-in against a `turnkey`-backend wallet end-to-end
 - [ ] Audit whether current wallet infra supports Safe-style session keys (ERC-7715) or needs an upgrade path
-- [ ] Confirm KMS envelope encryption model extends cleanly to mobile-app key storage (vs. Telegram bot server-side custody model)
+- [ ] Confirm KMS envelope encryption model extends cleanly to mobile-app key storage for `local`-backend wallets (vs. Telegram bot server-side custody model)
 - [ ] Define spend-limit / pre-auth policy engine for card-linked wallets
-- [ ] Security-audit the mobile key-storage path before any KYC/funds go live (route through `money-path-reviewer`)
+- [ ] Security-audit the mobile key-storage and Turnkey-auth path before any KYC/funds go live (route through `money-path-reviewer`)
 
 ## Stablecoin Orchestrators
 
@@ -124,10 +152,10 @@ Stablecoin orchestrators handle minting/redeeming, cross-chain movement, and fia
 - **MoonPay / Transak** — on/off-ramp widgets, fastest to integrate (days of work per roadmap), not a full orchestrator.
 
 ### Gekko default
-**Bridge (Stripe)** for US stablecoin orchestration given Stripe's balance sheet and the roadmap's identification of Bridge as the US fiat rail, **Monerium** for EU SEPA/IBAN, and **MoonPay/Transak** widgets as the fast-ship on/off-ramp for the initial mobile launch while the deeper Bridge integration is built. This mirrors the roadmap's staged approach: widget first (days), full orchestration later.
+**Bridge (Stripe)** for US stablecoin orchestration given Stripe's balance sheet and the roadmap's identification of Bridge as the US fiat rail, and **Monerium** for EU SEPA/IBAN. For the initial mobile-launch on-ramp widget itself, use **Coinbase Onramp** (MoonPay fallback) per the `On-Ramp (Cold-Start Card Funding)` decision above — supersedes the earlier "MoonPay/Transak" widget-first plan — while the deeper Bridge integration is built. This still mirrors the roadmap's staged approach: widget first (days), full orchestration later.
 
 ### Build checklist
-- [ ] Ship MoonPay/Transak widget for v1 on/off-ramp (fastest path per prior research)
+- [ ] Ship Coinbase Onramp (MoonPay fallback) widget for v1 on/off-ramp (see `On-Ramp` section above; fastest path per prior research)
 - [ ] Scope Bridge integration for direct USD stablecoin orchestration (post-v1)
 - [ ] Scope Monerium for EU users needing SEPA/IBAN-native stablecoin rails
 - [ ] Confirm which stablecoins (USDC/USDT/PYUSD) each orchestrator supports on Gekko's target chains

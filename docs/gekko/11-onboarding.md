@@ -140,3 +140,20 @@ Do not push traditional direct-deposit switching in the initial onboarding flow 
 
 ### Target metric
 - Not tracked in initial onboarding funnel; tracked separately as a primary-account-strategy metric once SMB motion is live.
+
+## App Store Launch Risk (Guideline 3.1.5)
+
+### What it is
+Apple App Store Review Guideline 3.1.5 governs crypto/blockchain apps specifically: they must demonstrate a legitimate business purpose beyond pure speculation, and must hold/display the actual licensing required per jurisdiction where the app operates. This is a submission-blocking risk, not a soft-launch nice-to-have — a rejection here stalls the entire mobile launch, not just one feature.
+
+### Playbook / options
+- **Savings/yield copy**: must not read as an unregistered security or lending product. Avoid language implying guaranteed returns, "investment," or "earn interest" framing that mirrors a deposit/lending pitch — frame as yield on the user's own idle stablecoin balance, with APY-not-guaranteed disclosure (already a build-checklist item in `01-infrastructure.md`'s Yield Provider section).
+- **On-ramp copy**: must present as "buy dollars to spend and save," not a trading terminal or speculative crypto-purchase flow — reinforces the neobank positioning over the bot's existing trading-terminal framing.
+- **Licensing readiness**: have licensing/compliance documentation ready per launch country *before* submission, not scrambled together in response to a review rejection — coordinate with `02-regulatory-compliance.md`.
+- A widely-quoted "~40% of crypto apps get rejected" figure circulates in fintech/crypto blog coverage of App Store reviews. **This is unverified against Apple's own published data** — treat it as directional signal that crypto-app rejection risk is real and non-trivial, not as a calibrated probability to plan around.
+
+### Gekko default
+Review all Savings/yield and on-ramp copy against 3.1.5 before first submission — not after a rejection. Route final copy through compliance, not just product/design, given the securities-adjacent risk on the yield feature specifically. Do not cite the ~40% rejection figure externally (to investors, in planning docs as a hard number) without a primary Apple source (verify).
+
+### Target metric
+- Not a funnel metric — track as a binary launch-readiness gate: 3.1.5 compliance review completed and signed off (compliance + product) before App Store submission.

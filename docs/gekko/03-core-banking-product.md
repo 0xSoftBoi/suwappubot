@@ -121,7 +121,7 @@ Native stablecoin balances (USDC/USDT/PYUSD) across Gekko's 7+ supported chains 
 
 ### Vendor / provider options
 - **Existing Suwappu wallet/swap stack** — already live, 7+ chains, KMS envelope encryption.
-- **Bridge (Stripe) / Monerium / MoonPay / Transak** — orchestration and on/off-ramp layer (see `01-infrastructure.md`).
+- **Bridge (Stripe) / Monerium** — orchestration layer; **Coinbase Onramp (MoonPay fallback)** — on-ramp widget (see `01-infrastructure.md` On-Ramp and Stablecoin Orchestrators sections).
 
 ### Gekko default
 Reuse the existing wallet/swap stack as-is; stablecoins are the one product surface where Gekko starts from a position of strength rather than building from zero. Focus new build effort on the UX layer (unified balance view across chains, single "spend" action regardless of chain) rather than the underlying rails.
