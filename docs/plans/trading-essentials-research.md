@@ -59,6 +59,71 @@ is a real ticket in its own right (settings UI + persistence + both stacks).
 
 ---
 
+## A2. Reference spec — the paste→buy funnel, read end-to-end
+
+This is the pattern every other Buy surface should copy. Read
+`paste_trade.py:155-278` (card) then `swap.py:2003-2100` (`paste_buy_entry`).
+
+### The chain of custody
+
+```
+paste address
+  → _render_token_card()          gates, then stash paste_token
+  → build_buy_keyboard(native)    buttons carry only "pbuy_<amount>"
+  → paste_buy_entry()             RE-gates, seeds swap context
+  → show_wallet_selection → quote → CONFIRM_SWAP → 2FA → spending limits
+  → execute
+```
+
+`paste_buy_entry` is rate-limited at entry (`swap.py:2017`) and its docstring is
+categorical: *"It NEVER calls execute_swap directly — the guardrail."*
+
+### Five properties worth copying verbatim
+
+1. **Fail-closed gates run BEFORE the CTA renders.** xStocks region
+   (`paste_trade.py:169`), Robinhood equity (`:199`), honeypot hard-block
+   (`:235`), blacklist/sanctions `check_address_gate` (`:248`).
+2. **Blocked ⇒ `paste_token` is never stashed.** The comment at `:232` is the
+   point: *"no Buy button, and we do NOT stash the token so the pbuy_ path can't
+   be used for it."* The button cannot be replayed, because the state it needs
+   was never written.
+3. **Every gate is enforced twice.** `paste_buy_entry` re-checks xStocks
+   (`swap.py:2053`) and Robinhood (`:2036`) — explicitly because *"a stale or
+   forged pbuy callback must never turn a canonical Robinhood Stock Token into a
+   quote."* `paste_trade.py:166` states the rule: *"both layers must agree."*
+   The execution-layer gate is placed *after* the address is known but *before*
+   any quote or wallet work, so it also covers users who bypass the card.
+4. **Honest degradation.** The safety check is Solana-only, and the card says so
+   — *"degrade honestly elsewhere rather than imply a check we didn't run"*
+   (`:214`). It never fakes a green check.
+5. **Native symbol comes from chain config**, not a literal:
+   `chain_config.native_token` (`:210`), rendered as `Buy with {native}` (`:271`).
+   This is precisely the line the Mini App hardcoded to "ETH".
+
+### Where even the best implementation falls short
+
+Ticket these against the framework rather than assuming the bot path is done:
+
+- **The card is info-thin.** It shows identity + safety + Buy. **No price, no
+  market cap, no liquidity, no volume, no chart.** Against *"reduce text,
+  increase numbers/charts"* the highest-conviction moment in the product shows
+  almost no numbers — while `terminal.py` already computes all of them.
+- **EVM chain resolution is serial and narrow.** `EVM_PROBE_CHAINS`
+  (`paste_trade.py:46`) probes 7 chains one at a time via Alchemy
+  (`:121-134`) — a latency cost on the `<5s` path, across 7 of 46 chains.
+  Parallelising these probes is a cheap, isolated win.
+- **The EVM fallback can render a Buy button on the wrong chain.** If Alchemy is
+  unconfigured or the token isn't on those 7 chains, `get_token_info` returns
+  `chain: "ethereum", symbol: "Token", decimals: 18` (`:136-142`) — and the card
+  still renders Buy buttons. Worth a ticket: fail visible rather than guess.
+- **Honeypot checking is Solana-only** (`:217`), but EVM tokens still get Buy
+  buttons. `check_address_gate` covers blacklist/sanctions on all chains; it does
+  not cover honeypots.
+- **tron/starknet are identity-only** (`:144-152`) — no metadata provider, guessed
+  decimals.
+
+---
+
 ## B. Correction: there is no true one-tap buy in the bot
 
 An earlier audit pass reported `/s` (`bot/handlers/quickswap.py:29`) as "1 tap".
