@@ -95,6 +95,48 @@ Note the alert also mirrors to WhatsApp via `template_service.send_price_alert`
 
 ---
 
+## C2. The bot's flagship discovery surface is structurally capped
+
+`bot/handlers/trending.py` is well-built — it correctly reuses
+`build_buy_keyboard` so Buy is identical everywhere, and it caches the list in
+`user_data` to stay under Telegram's 64-byte `callback_data` limit. But against
+*"design for infinite discovery"* it is the opposite on three axes, and all
+three are deliberate, documented choices in the module docstring:
+
+1. **Pull-only.** "THIS IS PULL-ONLY … there is NO background push, no
+   unsolicited message." No re-engagement loop exists at all.
+2. **Solana-only.** The sole feed is `launch_detector.get_recent_launches()`
+   (`bot/services/sniping/`) — Solana launches. On a product spanning 46 chains,
+   discovery covers one.
+3. **Capped at 8.** `MAX_TRENDING = 8` (trending.py:38). There is no paging, no
+   "load more", no scroll. Discovery terminates after 8 rows.
+
+Prediction markets are surfaced as a **single deep-link** into the `/predict`
+conversation rather than enumerated markets (documented as a v1 shortcut,
+because `pred_trending` is conversation-internal state, not a top-level handler).
+
+**Ticket implication:** "more surface area for discovery = more time spent = more
+trades" has no room to operate here. Paging + multi-chain feeds + a push path
+are three separable tickets.
+
+### The push loop exists — it just carries the wrong payload
+
+`bot/services/digest_service.py` is a **running background service**, started at
+`api/main.py:405` and stopped at `:497`. It already has everything a discovery
+push needs: opt-in gating, a `last_digest_at` cadence check, an hourly tick
+(`CHECK_INTERVAL_SECONDS = 3600`), and a Telegram send path.
+
+But it sends a **weekly portfolio summary** (`DIGEST_INTERVAL_DAYS = 7`). For a
+trading product, a 7-day cadence is not a re-engagement loop — it is a
+newsletter. The scheduler, opt-in model, and delivery path are all reusable;
+only the payload and cadence need to change.
+
+So "add discovery push" is **not** greenfield. Ticket it as: reuse
+`digest_service`'s opt-in + scheduler pattern for a fast-cadence discovery/alpha
+push, rather than building a second scheduler.
+
+---
+
 ## D. Ticket system
 
 - Linear team: **Suwappu** (single team in workspace).
