@@ -29,12 +29,15 @@ import type {
   CreatePolicyArgs,
   DataUsage,
   GetOhlcvArgs,
+  GetOhlcvMultiArgs,
   GetQuoteArgs,
   LendingMarket,
   LendingMarketDetail,
+  LiveCandle,
   LiveSubscription,
   LiveTick,
   OhlcvCandle,
+  OhlcvMultiResult,
   OhlcvResult,
   PerpMarket,
   PerpPosition,
@@ -730,8 +733,13 @@ export class Suwappu {
   }
 
   /**
-   * WS /v1/data/live — subscribe to live price ticks (~every 5s per symbol).
-   * Uses the standard WebSocket API (available in browsers and Bun).
+   * WS /v1/data/live — subscribe to live price ticks, pushed on change (plus
+   * a ~30s keepalive when unchanged). Uses the standard WebSocket API
+   * (available in browsers and Bun).
+   *
+   * Pass `candleSymbols` to also subscribe to the 1m OHLCV candle channel —
+   * `onCandle` fires with the in-progress candle on each price change and
+   * once more (`final: true`) when the minute closes.
    *
    * Auth note: the API authenticates `/v1/data/live` the same way as every
    * other `/v1/data/*` route — `Authorization: Bearer <apiKey>` on the
@@ -746,6 +754,8 @@ export class Suwappu {
    * const live = client.subscribeLive({
    *   symbols: ["ETH", "SOL"],
    *   onTick: (tick) => console.log(tick.symbol, tick.priceUsd),
+   *   candleSymbols: ["ETH"],
+   *   onCandle: (c) => console.log(c.symbol, c.close, c.final),
    * });
    * // later: live.subscribe(["BTC"]); live.close();
    * ```
@@ -765,8 +775,21 @@ export class Suwappu {
       ws.send(JSON.stringify({ action, symbols: symbols.map((s) => s.toUpperCase()) }));
     };
 
+    const sendCandle = (action: "subscribe" | "unsubscribe", symbols: string[]) => {
+      if (symbols.length === 0) return;
+      ws.send(
+        JSON.stringify({
+          action,
+          channel: "ohlcv",
+          timeframe: "1m",
+          symbols: symbols.map((s) => s.toUpperCase()),
+        }),
+      );
+    };
+
     ws.addEventListener("open", () => {
       send("subscribe", args.symbols);
+      if (args.candleSymbols?.length) sendCandle("subscribe", args.candleSymbols);
       args.onOpen?.();
     });
 
@@ -786,6 +809,20 @@ export class Suwappu {
           ts: String(msg.ts ?? ""),
         };
         args.onTick(tick);
+      } else if (msg.type === "candle") {
+        const candle: LiveCandle = {
+          type: "candle",
+          channel: "ohlcv",
+          timeframe: "1m",
+          symbol: String(msg.symbol ?? ""),
+          final: Boolean(msg.final),
+          ts: String(msg.ts ?? ""),
+          open: Number(msg.open ?? 0),
+          high: Number(msg.high ?? 0),
+          low: Number(msg.low ?? 0),
+          close: Number(msg.close ?? 0),
+        };
+        args.onCandle?.(candle);
       } else if (msg.type === "error") {
         args.onError?.(new Error(String(msg.message ?? "live stream error")));
       }
@@ -801,6 +838,8 @@ export class Suwappu {
     return {
       subscribe: (symbols: string[]) => send("subscribe", symbols),
       unsubscribe: (symbols: string[]) => send("unsubscribe", symbols),
+      subscribeCandles: (symbols: string[]) => sendCandle("subscribe", symbols),
+      unsubscribeCandles: (symbols: string[]) => sendCandle("unsubscribe", symbols),
       close: () => ws.close(),
     };
   }

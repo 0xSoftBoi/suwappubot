@@ -24,7 +24,9 @@ from suwappu.types import (
     LendingMarket,
     LinkCodeResult,
     LendingMarketDetail,
+    LiveCandle,
     LiveTick,
+    OhlcvMultiResult,
     OhlcvResult,
     PerpMarket,
     PerpPosition,
@@ -103,13 +105,39 @@ class _LiveSubscription:
         self._task = task
 
     async def subscribe(self, symbols: list[str]) -> None:
-        """Add symbols to the live subscription."""
+        """Add symbols to the live tick subscription."""
         await self._ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
 
     async def unsubscribe(self, symbols: list[str]) -> None:
-        """Remove symbols from the live subscription."""
+        """Remove symbols from the live tick subscription."""
         await self._ws.send(
             json.dumps({"action": "unsubscribe", "symbols": [s.upper() for s in symbols]})
+        )
+
+    async def subscribe_candles(self, symbols: list[str]) -> None:
+        """Add symbols to the 1m OHLCV candle subscription (`ohlcv` channel)."""
+        await self._ws.send(
+            json.dumps(
+                {
+                    "action": "subscribe",
+                    "channel": "ohlcv",
+                    "timeframe": "1m",
+                    "symbols": [s.upper() for s in symbols],
+                }
+            )
+        )
+
+    async def unsubscribe_candles(self, symbols: list[str]) -> None:
+        """Remove symbols from the 1m OHLCV candle subscription."""
+        await self._ws.send(
+            json.dumps(
+                {
+                    "action": "unsubscribe",
+                    "channel": "ohlcv",
+                    "timeframe": "1m",
+                    "symbols": [s.upper() for s in symbols],
+                }
+            )
         )
 
     async def close(self) -> None:
@@ -169,6 +197,31 @@ class SuwappuClient:
                 )
             raise SuwappuError(response.status_code, response.text)
         return response.json()
+
+    async def _request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> str:
+        """Like `_request`, but returns the raw response text (used for `format=csv`)."""
+        response = await self._client.request(method, path, params=params)
+        if response.status_code >= 400:
+            code: str | None = None
+            message: str | None = None
+            try:
+                error_body = response.json()
+                code = error_body.get("error_code")
+                message = error_body.get("message") or error_body.get("error")
+            except Exception:
+                pass
+            if code:
+                raise SuwappuApiError(
+                    response.status_code, response.text, code=code, message=message
+                )
+            raise SuwappuError(response.status_code, response.text)
+        return response.text
 
     async def get_quote(
         self,
@@ -400,13 +453,15 @@ class SuwappuClient:
         start: str | int | None = None,
         end: str | int | None = None,
         limit: int | None = None,
+        cursor: str | None = None,
     ) -> OhlcvResult:
         """GET /v1/data/history/ohlcv — historical candles.
 
         Served from persisted candles when available; falls back to a
         DexScreener-derived synthetic series otherwise (see `.source` on the
         result). `timeframe` is one of "1m", "5m", "1h", "1d". `start`/`end`
-        accept an ISO 8601 string or unix seconds.
+        accept an ISO 8601 string or unix seconds. Pass `cursor` (from a
+        previous result's `.next_cursor`) to page forward.
         """
         params: dict[str, str] = {"symbol": symbol, "chain": chain, "timeframe": timeframe}
         if start is not None:
@@ -415,8 +470,65 @@ class SuwappuClient:
             params["end"] = str(end)
         if limit is not None:
             params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
         data = await self._request("GET", "/v1/data/history/ohlcv", params=params)
         return OhlcvResult.model_validate(data)
+
+    async def get_ohlcv_multi(
+        self,
+        symbols: list[str],
+        chain: str,
+        *,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> OhlcvMultiResult:
+        """GET /v1/data/history/ohlcv?symbols=A,B — the multi-symbol variant
+        of `get_ohlcv`, grouped by symbol in the response."""
+        params: dict[str, str] = {"symbols": ",".join(symbols), "chain": chain, "timeframe": timeframe}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/history/ohlcv", params=params)
+        return OhlcvMultiResult.model_validate(data)
+
+    async def get_ohlcv_csv(
+        self,
+        *,
+        symbol: str | None = None,
+        symbols: list[str] | None = None,
+        chain: str,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> str:
+        """GET /v1/data/history/ohlcv?...&format=csv — returns the raw CSV
+        text (header: symbol,chain,timeframe,ts,open,high,low,close,volume,source).
+        Pass exactly one of `symbol` or `symbols`."""
+        params: dict[str, str] = {"chain": chain, "timeframe": timeframe, "format": "csv"}
+        if symbols:
+            params["symbols"] = ",".join(symbols)
+        elif symbol:
+            params["symbol"] = symbol
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._request_text("GET", "/v1/data/history/ohlcv", params=params)
 
     async def get_reference_chains(self) -> list[ReferenceChain]:
         """GET /v1/data/reference/chains — supported chain slugs + names."""
@@ -432,16 +544,44 @@ class SuwappuClient:
 
     async def resolve_symbol(self, symbol: str, chain: str | None = None) -> ResolvedSymbol:
         """GET /v1/data/reference/resolve?symbol=&chain= — canonical
-        address/decimals/coingecko id for a symbol on a chain."""
+        address/decimals/coingecko id for a symbol on a chain. Omitting
+        `chain` now returns entries across every known chain on the API side;
+        this method still returns the single-pair shape for backward
+        compatibility — use `resolve_symbols([symbol])` for the grouped
+        all-chains result."""
         params: dict[str, str] = {"symbol": symbol}
         if chain:
             params["chain"] = chain
         data = await self._request("GET", "/v1/data/reference/resolve", params=params)
         return ResolvedSymbol.model_validate(data)
 
+    async def resolve_symbols(
+        self, symbols: list[str], chain: str | None = None
+    ) -> dict[str, list[ResolvedSymbol]]:
+        """GET /v1/data/reference/resolve?symbols=A,B[&chain=] — batch
+        resolve, grouped by symbol. Without `chain`, each symbol's list
+        covers every known chain; with `chain`, each list has 0 or 1 entries.
+        """
+        params: dict[str, str] = {"symbols": ",".join(symbols)}
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/reference/resolve", params=params)
+        results = data.get("results", {})
+        return {
+            symbol: [ResolvedSymbol.model_validate(e) for e in entries]
+            for symbol, entries in results.items()
+        }
+
+    async def resolve_address(self, address: str, chain: str) -> ResolvedSymbol:
+        """GET /v1/data/reference/resolve?address=0x...&chain= — reverse
+        lookup: canonical address -> symbol/decimals."""
+        data = await self._request(
+            "GET", "/v1/data/reference/resolve", params={"address": address, "chain": chain}
+        )
+        return ResolvedSymbol.model_validate(data)
+
     async def get_data_usage(self) -> DataUsage:
-        """GET /v1/data/usage — this caller's /v1/data/* request counts
-        (in-memory, per-instance)."""
+        """GET /v1/data/usage — this caller's /v1/data/* request counts."""
         data = await self._request("GET", "/v1/data/usage")
         return DataUsage.model_validate(data)
 

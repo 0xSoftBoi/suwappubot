@@ -615,6 +615,19 @@ export interface GetOhlcvArgs {
   /** ISO 8601 string or unix seconds. */
   end?: string | number;
   limit?: number;
+  /** Opaque cursor from a previous result's `nextCursor` — pages forward. */
+  cursor?: string;
+}
+
+/** GET /v1/data/history/ohlcv?symbols=A,B — multi-symbol variant of GetOhlcvArgs. */
+export interface GetOhlcvMultiArgs {
+  symbols: string[];
+  chain: string;
+  timeframe?: Timeframe;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
 }
 
 export interface OhlcvCandle {
@@ -635,6 +648,16 @@ export interface OhlcvResult {
   source: string;
   candles: OhlcvCandle[];
   note?: string;
+  /** Present when more rows may exist — pass back into `cursor` to page forward. */
+  nextCursor?: string;
+}
+
+/** Grouped response shape for `getOhlcvMulti` (`symbols=A,B`). */
+export interface OhlcvMultiResult {
+  chain: string;
+  timeframe: Timeframe;
+  symbols: Record<string, { source: string; candles: OhlcvCandle[] }>;
+  nextCursor?: string;
 }
 
 export interface DataUsage {
@@ -652,20 +675,45 @@ export interface LiveTick {
   ts: string;
 }
 
+/**
+ * GET /v1/data/live server push on the `ohlcv` channel: the current
+ * in-progress 1m candle, pushed on price change; `final: true` once when the
+ * minute closes.
+ */
+export interface LiveCandle {
+  type: "candle";
+  channel: "ohlcv";
+  timeframe: "1m";
+  symbol: string;
+  final: boolean;
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 export interface SubscribeLiveArgs {
   /** Symbols to subscribe to on connect, e.g. ["ETH", "SOL"]. */
   symbols: string[];
   onTick: (tick: LiveTick) => void;
+  /** Symbols to also subscribe to the 1m OHLCV candle channel on connect. */
+  candleSymbols?: string[];
+  onCandle?: (candle: LiveCandle) => void;
   onOpen?: () => void;
   onClose?: (event: { code: number; reason: string }) => void;
   onError?: (err: unknown) => void;
 }
 
 export interface LiveSubscription {
-  /** Add symbols to the live subscription. */
+  /** Add symbols to the live tick subscription. */
   subscribe(symbols: string[]): void;
-  /** Remove symbols from the live subscription. */
+  /** Remove symbols from the live tick subscription. */
   unsubscribe(symbols: string[]): void;
+  /** Add symbols to the 1m OHLCV candle subscription. */
+  subscribeCandles(symbols: string[]): void;
+  /** Remove symbols from the 1m OHLCV candle subscription. */
+  unsubscribeCandles(symbols: string[]): void;
   /** Close the WebSocket connection. */
   close(): void;
 }

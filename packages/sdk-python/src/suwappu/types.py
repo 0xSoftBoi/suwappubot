@@ -149,6 +149,25 @@ class OhlcvResult(BaseModel):
     source: str
     candles: list[OhlcvCandle] = Field(default_factory=list)
     note: str | None = None
+    # Present when more rows may exist (Round 2 cursor pagination) — pass
+    # back into get_ohlcv(cursor=...) to page forward.
+    next_cursor: str | None = None
+
+
+class OhlcvSymbolGroup(BaseModel):
+    """One symbol's entry within an OhlcvMultiResult."""
+
+    source: str
+    candles: list[OhlcvCandle] = Field(default_factory=list)
+
+
+class OhlcvMultiResult(BaseModel):
+    """GET /v1/data/history/ohlcv?symbols=A,B — grouped multi-symbol response."""
+
+    chain: str
+    timeframe: str
+    symbols: dict[str, OhlcvSymbolGroup] = Field(default_factory=dict)
+    next_cursor: str | None = None
 
 
 class DataUsage(BaseModel):
@@ -165,6 +184,22 @@ class LiveTick(BaseModel):
     symbol: str
     price_usd: float
     ts: str
+
+
+class LiveCandle(BaseModel):
+    """Server push from WS /v1/data/live on the `ohlcv` channel: the current
+    in-progress 1m candle; `final=True` once when the minute closes."""
+
+    type: str = "candle"
+    channel: str = "ohlcv"
+    timeframe: str = "1m"
+    symbol: str
+    final: bool = False
+    ts: str
+    open: float
+    high: float
+    low: float
+    close: float
 
 
 # Perps types (Hyperliquid)
