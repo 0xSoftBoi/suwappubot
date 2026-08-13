@@ -49,6 +49,7 @@ from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
 from .tempo_access_key import TempoAccessKey
 from .waitlist import WaitlistSignup
+from .market_data import MarketCandle
 
 __all__ = [
     "User",
@@ -115,4 +116,6 @@ __all__ = [
     "TempoAccessKey",
     # Handle-reservation waitlist + referral leaderboard
     "WaitlistSignup",
+    # Market data (Databento-parity Phase 1): OHLCV candles
+    "MarketCandle",
 ]
