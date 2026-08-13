@@ -18,6 +18,7 @@ storage   shared Postgres, `market_candles` table (SQLAlchemy model +
 distribute api-ts, /v1/data/* (Hono; Effect-TS only for the DB read)
           Reference  GET /v1/data/reference/{chains,tokens,resolve}
           Historical GET /v1/data/history/ohlcv (DB-backed, external fallback)
+          Metadata   GET /v1/data/{metadata,status} (dataset coverage + capture freshness)
           Live       WS  /v1/data/live (in-process 2s poll of the shared price cache)
 clients   packages/sdk (TypeScript), packages/sdk-python (Python)
 metering  per-caller request counters, /v1/data/usage
@@ -297,7 +298,114 @@ Source: `api-ts/src/routes/data.ts:634-878`.
 
 ---
 
-## 5. Usage / Metering — `GET /v1/data/usage`
+## 5. Metadata API — dataset coverage + capture freshness
+
+Databento-style metadata surface: what's tracked (`/metadata`) and how fresh
+the capture pipeline is (`/status`). Both read `market_candles` with a single
+grouped aggregation query — no per-symbol/per-timeframe loop.
+
+### `GET /v1/data/metadata`
+
+| param | required | notes |
+|---|---|---|
+| `symbol` | no | uppercased; filters to one symbol |
+| `chain` | no | lowercased chain slug; filters to one chain |
+
+Groups `market_candles` by `(symbol, chain, timeframe)` in one query
+(`count(*)`, `min(ts)`, `max(ts)` per group), then nests the per-timeframe
+rows under each `(symbol, chain)` pair. Response is capped at **500
+datasets** (`(symbol, chain)` pairs) — narrow with `?symbol=`/`?chain=` to see
+more; `total_candles` always reflects every matching row, not just the
+returned page.
+
+```json
+{
+  "success": true,
+  "datasets": [
+    {
+      "symbol": "ETH",
+      "chain": "base",
+      "timeframes": {
+        "1h": { "candles": 4200, "start": "2026-07-14T00:00:00.000Z", "end": "2026-08-13T10:00:00.000Z" },
+        "1d": { "candles": 180, "start": "2025-02-15T00:00:00.000Z", "end": "2026-08-13T00:00:00.000Z" }
+      }
+    },
+    {
+      "symbol": "SOL",
+      "chain": "solana",
+      "timeframes": {
+        "1h": { "candles": 3100, "start": "2026-07-20T00:00:00.000Z", "end": "2026-08-13T10:00:00.000Z" }
+      }
+    }
+  ],
+  "total_candles": 7480
+}
+```
+
+When truncated, the response adds:
+```json
+{ "truncated": true, "note": "Response truncated to 500 datasets — refine with ?symbol=&chain= to narrow results." }
+```
+
+Errors: 500 `INTERNAL` on a DB query failure (no external fallback — this
+endpoint only reports on persisted coverage).
+
+### `GET /v1/data/status`
+
+No params. Groups `market_candles` by `(timeframe, source)` in one query
+(`max(ts)`, `count(*)` per group), then rolls that up into: the newest candle
+per timeframe (across all sources) + its age in seconds, and total candle
+counts per `source` across the whole table.
+
+`healthy` is `true` only when the `1m` timeframe's newest candle is less than
+**5 minutes** old (`FRESHNESS_HEALTHY_SECONDS = 300`) — a proxy for "is the
+Python capture service still writing". Null-safe: an empty table (or a
+timeframe with zero rows) reports `latest_ts: null, age_seconds: null` for
+that timeframe and `healthy: false`, never throws.
+
+```json
+{
+  "success": true,
+  "timeframes": {
+    "1m": { "latest_ts": "2026-08-13T10:04:32.000Z", "age_seconds": 28 },
+    "5m": { "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 300 },
+    "1h": { "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 300 },
+    "1d": { "latest_ts": "2026-08-13T00:00:00.000Z", "age_seconds": 36300 }
+  },
+  "sources": {
+    "coingecko": 812345,
+    "geckoterminal": 41200
+  },
+  "healthy": true
+}
+```
+
+Empty-table response (fresh instance, capture not yet run):
+```json
+{
+  "success": true,
+  "timeframes": {
+    "1m": { "latest_ts": null, "age_seconds": null },
+    "5m": { "latest_ts": null, "age_seconds": null },
+    "1h": { "latest_ts": null, "age_seconds": null },
+    "1d": { "latest_ts": null, "age_seconds": null }
+  },
+  "sources": {},
+  "healthy": false
+}
+```
+
+Errors: 500 `INTERNAL` on a DB query failure.
+
+Both endpoints require auth like every other `/v1/data/*` route (section 1)
+and are metered under `/v1/data/metadata` / `/v1/data/status` in
+`GET /v1/data/usage`'s `by_endpoint`.
+
+Source: `api-ts/src/routes/data.ts` (METADATA section).
+
+---
+
+## 6. Usage / Metering — `GET /v1/data/usage`
 
 No params. Returns the calling API key/agent's cumulative `/v1/data/*`
 request counts.
@@ -335,7 +443,7 @@ Source: `api-ts/src/lib/dataUsage.ts:1-246`, `api-ts/src/routes/data.ts:884-889`
 
 ---
 
-## 6. Client SDKs
+## 7. Client SDKs
 
 Both SDKs default `base_url`/`baseUrl` to `https://api.suwappu.bot` and read
 the API key from `SUWAPPU_API_KEY` if not passed explicitly.
@@ -385,6 +493,23 @@ const grouped = await client.resolveSymbols(["ETH", "SOL"]);
 const reverse = await client.resolveAddress("0xC02aaA...", "ethereum");
 ```
 
+### Dataset metadata + capture status
+
+```python
+metadata = await client.get_data_metadata(symbol="ETH", chain="base")  # both optional
+print(metadata.total_candles, [d.symbol for d in metadata.datasets])
+
+status = await client.get_data_status()
+print(status.healthy, status.timeframes["1m"].age_seconds)
+```
+```typescript
+const metadata = await client.getDataMetadata({ symbol: "ETH", chain: "base" }); // both optional
+console.log(metadata.totalCandles, metadata.datasets.map((d) => d.symbol));
+
+const status = await client.getDataStatus();
+console.log(status.healthy, status.timeframes["1m"]?.ageSeconds);
+```
+
 ### Live tick subscription
 
 ```python
@@ -427,7 +552,7 @@ Source: `packages/sdk/src/client.ts:532-846`, `packages/sdk-python/src/suwappu/c
 
 ---
 
-## 7. Data coverage
+## 8. Data coverage
 
 **Chains** — 15 EVM chains via `CHAINS`/`COMMON_TOKENS` (ethereum, optimism,
 bsc, polygon, arbitrum, base, avalanche, tempo, robinhood, plasma, fantom,
