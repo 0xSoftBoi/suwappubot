@@ -1,4 +1,15 @@
 import { Context, Effect, Layer } from 'effect'
+import {
+	COMMON_TOKENS,
+	ROBINHOOD_TOKEN_DECIMALS,
+	TEMPO_TOKEN_DECIMALS,
+} from '../config/tokenRegistry'
+
+// Re-exported for downstream consumers (agent.ts, mcp.ts, etc.) that import
+// these names from '../services' — the token registry itself now lives in
+// config/tokenRegistry.ts (see docs/plans/market-data-parity.md Phase 3), the
+// single source of truth shared with routes/data.ts's reference API.
+export { COMMON_TOKENS, ROBINHOOD_TOKEN_DECIMALS, TEMPO_TOKEN_DECIMALS }
 
 // Token info
 export interface TokenInfo {

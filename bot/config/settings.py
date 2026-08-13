@@ -757,6 +757,15 @@ class Settings(BaseSettings):
         description="Comma-separated coins to watch for HyperLiquid whale trades.",
     )
 
+    # Market data capture (docs/plans/market-data-parity.md Phase 2): polls
+    # tracked-token USD prices every 60s and persists 1m/5m/1h/1d OHLCV candles
+    # to market_candles, plus a one-time 30d GeckoTerminal backfill on startup.
+    # On by default — read-only capture, no funds/keys involved.
+    market_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the market data capture/rollup/backfill background service.",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
