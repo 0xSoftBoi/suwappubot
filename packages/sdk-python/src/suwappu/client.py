@@ -598,19 +598,31 @@ class SuwappuClient:
         symbols: list[str] | str,
         on_tick: Callable[[LiveTick], Any | Awaitable[Any]],
         *,
+        candle_symbols: list[str] | str | None = None,
+        on_candle: Callable[[LiveCandle], Any | Awaitable[Any]] | None = None,
         on_error: Callable[[Exception], Any | Awaitable[Any]] | None = None,
     ) -> "_LiveSubscription":
-        """WS /v1/data/live — subscribe to live price ticks (~every 5s per
-        symbol). `on_tick` (and `on_error`) may be sync or async callables.
+        """WS /v1/data/live — subscribe to live price ticks, pushed on
+        change (plus a ~30s keepalive when unchanged). `on_tick` (and
+        `on_error`) may be sync or async callables.
+
+        Pass `candle_symbols` (+ `on_candle`) to also subscribe to the 1m
+        OHLCV candle channel — `on_candle` fires with the in-progress candle
+        on each price change, and once more (`final=True`) when the minute
+        closes.
 
         Requires the optional `websockets` dependency:
         `pip install "suwappu[live]"`. Runs the receive loop as a background
         asyncio task; use the returned handle's `.subscribe()`,
-        `.unsubscribe()`, and `.close()` to manage the connection.
+        `.unsubscribe()`, `.subscribe_candles()`, `.unsubscribe_candles()`,
+        and `.close()` to manage the connection.
 
         ```python
         live = await client.subscribe_live(
-            ["ETH", "SOL"], on_tick=lambda t: print(t.symbol, t.price_usd)
+            ["ETH", "SOL"],
+            on_tick=lambda t: print(t.symbol, t.price_usd),
+            candle_symbols=["ETH"],
+            on_candle=lambda c: print(c.symbol, c.close, c.final),
         )
         # later:
         await live.subscribe(["BTC"])
@@ -627,6 +639,8 @@ class SuwappuClient:
 
         if isinstance(symbols, str):
             symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+        if isinstance(candle_symbols, str):
+            candle_symbols = [s.strip() for s in candle_symbols.split(",") if s.strip()]
 
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
         ws = await websockets.connect(self._ws_url("/v1/data/live"), additional_headers=headers)
@@ -650,6 +664,17 @@ class SuwappuClient:
                             ts=msg.get("ts", ""),
                         )
                         await _dispatch(on_tick, tick)
+                    elif msg.get("type") == "candle" and on_candle is not None:
+                        candle = LiveCandle(
+                            symbol=msg.get("symbol", ""),
+                            final=bool(msg.get("final", False)),
+                            ts=msg.get("ts", ""),
+                            open=msg.get("open", 0),
+                            high=msg.get("high", 0),
+                            low=msg.get("low", 0),
+                            close=msg.get("close", 0),
+                        )
+                        await _dispatch(on_candle, candle)
                     elif msg.get("type") == "error" and on_error is not None:
                         await _dispatch(on_error, RuntimeError(msg.get("message", "live stream error")))
             except asyncio.CancelledError:
@@ -660,6 +685,17 @@ class SuwappuClient:
 
         task = asyncio.create_task(_run())
         await ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
+        if candle_symbols:
+            await ws.send(
+                json.dumps(
+                    {
+                        "action": "subscribe",
+                        "channel": "ohlcv",
+                        "timeframe": "1m",
+                        "symbols": [s.upper() for s in candle_symbols],
+                    }
+                )
+            )
         return _LiveSubscription(ws, task)
 
     # --- Perps (Hyperliquid) ---
