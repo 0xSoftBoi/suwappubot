@@ -36,6 +36,14 @@ MAX_UINT256 = 2**256 - 1
 RAY = Decimal(10**27)
 SECONDS_PER_YEAR = Decimal(31_536_000)
 
+# APY is chain-global (not per-user), so it's cheap to cache briefly. A plain
+# module-level (value, fetched_at) tuple is "thread-safe enough": reads/writes
+# of a tuple reference are atomic under the GIL, and a rare duplicate fetch
+# from a race between two threads is harmless (both just re-read the same
+# on-chain value). No lock needed for a read-mostly, idempotent value like this.
+_APY_CACHE_TTL_SECONDS = 300
+_apy_cache: tuple[Optional[float], float] = (None, 0.0)
+
 # ── Minimal ABIs ─────────────────────────────────────────────────────────────
 ERC20_ABI = [
     {
@@ -239,7 +247,17 @@ class SavingsService:
         currentLiquidityRate is the supply APR in ray (1e27). We compound it to an
         APY-approx; small differences from Aave's exact second-by-second compounding
         are immaterial for display.
+
+        Cached for _APY_CACHE_TTL_SECONDS since the rate is chain-global (not
+        per-user) and barely moves minute to minute — this avoids a second
+        sequential RPC failover on every /b, /p, and /save render.
         """
+        global _apy_cache
+        cached_value, fetched_at = _apy_cache
+        now = time.monotonic()
+        if cached_value is not None and (now - fetched_at) < _APY_CACHE_TTL_SECONDS:
+            return cached_value
+
         try:
             reserve = self._failover(
                 lambda web3: self._pool(web3)
@@ -251,9 +269,15 @@ class SavingsService:
             # Per-second compounding → APY.
             per_second = apr / SECONDS_PER_YEAR
             apy = (Decimal(1) + per_second) ** SECONDS_PER_YEAR - Decimal(1)
-            return float(apy * Decimal(100))
+            apy_float = float(apy * Decimal(100))
+            _apy_cache = (apy_float, now)
+            return apy_float
         except Exception as e:
             logger.warning(f"Failed to read Aave USDC APY: {e}")
+            if cached_value is not None:
+                # Serve stale-but-known rather than erroring out a whole /b or /p.
+                logger.debug("Serving stale cached APY after a failed refresh.")
+                return cached_value
             raise SavingsError("Could not fetch the current savings rate. Try again shortly.")
 
     def get_position(self, wallet_address: str) -> Decimal:

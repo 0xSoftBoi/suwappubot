@@ -5,12 +5,26 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import bot.services.savings_service as savings_service_module
 from bot.services.savings_service import (
     MAX_UINT256,
     SavingsError,
     SavingsService,
     USDC_DECIMALS,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_apy_cache():
+    """get_apy() caches its result in a module-level tuple (chain-global TTL
+    cache). Reset it around every test so tests stay order-independent —
+    without this, a successful test earlier in the run would make a later
+    RPC-failure test observe the cached value instead of exercising the
+    failure path.
+    """
+    savings_service_module._apy_cache = (None, 0.0)
+    yield
+    savings_service_module._apy_cache = (None, 0.0)
 
 
 @pytest.fixture

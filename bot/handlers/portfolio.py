@@ -152,15 +152,24 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
     try:
         earn_addrs = [addr for _, addr, chain_type, _ in wallet_infos if chain_type == "evm"]
         if earn_addrs:
-            positions = await asyncio.gather(
-                *[asyncio.to_thread(savings_service.get_position, addr) for addr in earn_addrs],
-                return_exceptions=True,
-            )
-            total_earn = sum(
-                (p for p in positions if not isinstance(p, BaseException)), Decimal("0")
-            )
-            if total_earn > 0:
+
+            async def _fetch_earn():
+                positions = await asyncio.gather(
+                    *[asyncio.to_thread(savings_service.get_position, addr) for addr in earn_addrs],
+                    return_exceptions=True,
+                )
+                total_earn = sum(
+                    (p for p in positions if not isinstance(p, BaseException)), Decimal("0")
+                )
+                if total_earn <= 0:
+                    return None
                 apy = await asyncio.to_thread(savings_service.get_apy)
+                return total_earn, apy
+
+            # Hard cap: a slow Base RPC must never hold up /p.
+            result = await asyncio.wait_for(_fetch_earn(), timeout=5)
+            if result:
+                total_earn, apy = result
                 lines.append(f"\n🌱 Earn: {total_earn:.2f} USDC ({apy:.2f}% APY) — /earn")
                 total_usd += float(total_earn)
     except Exception as e:

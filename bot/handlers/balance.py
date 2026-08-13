@@ -35,15 +35,20 @@ async def _earn_line(wallet_infos) -> str:
         evm_addrs = [addr for _, addr, chain_type, _ in wallet_infos if chain_type == "evm"]
         if not evm_addrs:
             return ""
-        positions = await asyncio.gather(
-            *[asyncio.to_thread(savings_service.get_position, addr) for addr in evm_addrs],
-            return_exceptions=True,
-        )
-        total = sum((p for p in positions if not isinstance(p, BaseException)), Decimal("0"))
-        if total <= 0:
-            return ""
-        apy = await asyncio.to_thread(savings_service.get_apy)
-        return f"\n\n🌱 Earn: {total:.2f} USDC ({apy:.2f}% APY) — /earn"
+
+        async def _fetch() -> str:
+            positions = await asyncio.gather(
+                *[asyncio.to_thread(savings_service.get_position, addr) for addr in evm_addrs],
+                return_exceptions=True,
+            )
+            total = sum((p for p in positions if not isinstance(p, BaseException)), Decimal("0"))
+            if total <= 0:
+                return ""
+            apy = await asyncio.to_thread(savings_service.get_apy)
+            return f"\n\n🌱 Earn: {total:.2f} USDC ({apy:.2f}% APY) — /earn"
+
+        # Best-effort with a hard cap: slow Base RPCs must never hold up /b.
+        return await asyncio.wait_for(_fetch(), timeout=5)
     except Exception as e:
         logger.debug(f"Earn summary fetch failed: {e}")
         return ""
