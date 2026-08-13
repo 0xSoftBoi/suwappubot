@@ -367,6 +367,46 @@ describe('GET /v1/data/history/ohlcv — format=csv', () => {
 	})
 })
 
+describe('GET /v1/data/* metering — bounded route cardinality (Opus review bug #1)', () => {
+	it('returns 404 for an unmatched /v1/data/* path (no route registered)', async () => {
+		const res = await dataRoutes.request('/totally/not/a/real/route/xyz123', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(404)
+	})
+
+	it('buckets unmatched junk paths into "other" instead of minting a new metering key per distinct path', async () => {
+		await dataRoutes.request('/junk-path-a', { headers: AUTH_HEADERS })
+		await dataRoutes.request('/junk-path-b/also/junk?x=1', { headers: AUTH_HEADERS })
+		await dataRoutes.request('/reference/junk-under-a-real-prefix', { headers: AUTH_HEADERS })
+
+		const res = await dataRoutes.request('/usage', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.by_endpoint.other).toBeGreaterThanOrEqual(3)
+		// The raw junk paths must never appear as their own metering keys —
+		// that unbounded cardinality is exactly what bug #1 fixed.
+		expect(body.by_endpoint['/junk-path-a']).toBeUndefined()
+		expect(body.by_endpoint['/junk-path-b/also/junk']).toBeUndefined()
+		expect(body.by_endpoint['/reference/junk-under-a-real-prefix']).toBeUndefined()
+	})
+
+	it('still meters a request that resolves to a 400 validation error (try/finally around next())', async () => {
+		const before = await dataRoutes.request('/usage', { headers: AUTH_HEADERS })
+		const beforeBody = (await before.json()) as any
+		const beforeCount = beforeBody.by_endpoint['/history/ohlcv'] ?? 0
+
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&timeframe=bogus', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(400)
+
+		const after = await dataRoutes.request('/usage', { headers: AUTH_HEADERS })
+		const afterBody = (await after.json()) as any
+		expect(afterBody.by_endpoint['/history/ohlcv']).toBe(beforeCount + 1)
+	})
+})
+
 describe('GET /v1/data/history/ohlcv — cursor pagination', () => {
 	it('rejects a malformed cursor', async () => {
 		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&cursor=not-valid-base64!!', {
