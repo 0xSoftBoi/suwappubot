@@ -31,7 +31,7 @@ import { marketCandles, requireDb, type MarketCandle } from '../db'
 import { agentError } from '../lib/agentError'
 import { getDataUsage, recordDataUsage } from '../lib/dataUsage'
 import { logger } from '../lib/logger'
-import { COINGECKO_IDS, fetchTokenPrices } from '../lib/prices'
+import { COINGECKO_IDS, SUPPORTED_PRICE_SYMBOLS, fetchTokenPrices } from '../lib/prices'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { runEffectEither } from '../runtime'
 
@@ -53,9 +53,54 @@ function callerKeyOf(c: Context): string {
 	return 'unknown'
 }
 
+// Fixed allowlist of known /v1/data/* route patterns used for metering.
+// c.req.path is attacker-controlled (any /v1/data/<junk> reaches this
+// middleware even when nothing matches downstream) — metering on the raw
+// path would let a caller mint unbounded distinct route strings, blowing up
+// both the in-memory byEndpoint maps and the api_usage_daily row count.
+// Every request buckets into one of these, or 'other'.
+const KNOWN_DATA_ROUTES = new Set<string>([
+	'/reference/chains',
+	'/reference/tokens',
+	'/reference/resolve',
+	'/history/ohlcv',
+	'/live',
+	'/usage',
+])
+
+function stripDataMountPrefix(path: string): string {
+	const idx = path.indexOf('/v1/data')
+	if (idx < 0) return path
+	const suffix = path.slice(idx + '/v1/data'.length)
+	return suffix === '' ? '/' : suffix
+}
+
+/**
+ * Resolve the bounded metering bucket for this request: the matched route
+ * pattern (c.req.routePath) when Hono actually matched a handler, otherwise
+ * a best-effort allowlist match on the raw path, otherwise 'other'. Junk
+ * paths under /v1/data/* (404s) always land in 'other' since routePath for
+ * an unmatched request is the middleware's own wildcard pattern (e.g.
+ * '/v1/data/*'), which never appears in the allowlist.
+ */
+function meteringRouteOf(c: Context): string {
+	const routePath = c.req.routePath
+	if (routePath && !routePath.endsWith('/*')) {
+		const normalized = stripDataMountPrefix(routePath)
+		if (KNOWN_DATA_ROUTES.has(normalized)) return normalized
+	}
+	const normalizedPath = stripDataMountPrefix(c.req.path)
+	return KNOWN_DATA_ROUTES.has(normalizedPath) ? normalizedPath : 'other'
+}
+
 dataRoutes.use('*', async (c, next) => {
-	await next()
-	recordDataUsage(callerKeyOf(c), c.req.path)
+	try {
+		await next()
+	} finally {
+		// try/finally so a thrown handler (unhandled error, downstream
+		// exception) still records usage instead of silently evading metering.
+		recordDataUsage(callerKeyOf(c), meteringRouteOf(c))
+	}
 })
 
 // ===========================================
@@ -645,6 +690,10 @@ interface LiveConnection {
 
 const liveConnections = new Set<LiveConnection>()
 
+// Bound resource usage per connection and process-wide.
+const MAX_SYMBOLS_PER_CONNECTION = 50
+const MAX_LIVE_CONNECTIONS = 500
+
 // One shared poller per process. Short poll interval so a real price change
 // (the underlying fetchTokenPrices cache is ~60s TTL) is picked up quickly;
 // KEEPALIVE_MS bounds how long a subscriber can go without ANY message so
@@ -667,11 +716,43 @@ interface InProgressCandle {
 }
 const candleState = new Map<string, InProgressCandle>()
 
+const KNOWN_PRICE_SYMBOLS = new Set(SUPPORTED_PRICE_SYMBOLS)
+
+/**
+ * Filter subscribe requests to symbols we can actually price, then cap how
+ * many net new symbols get added so one connection can't subscribe to an
+ * unbounded symbol set (each one costs a poll-and-broadcast lookup).
+ */
+function acceptableSymbolsFor(target: Set<string>, requested: string[]): string[] {
+	const accepted: string[] = []
+	for (const s of requested) {
+		if (!KNOWN_PRICE_SYMBOLS.has(s)) continue
+		if (target.has(s)) {
+			accepted.push(s)
+			continue
+		}
+		if (target.size + accepted.length >= MAX_SYMBOLS_PER_CONNECTION) continue
+		accepted.push(s)
+	}
+	return accepted
+}
+
 function ensureLivePoller() {
 	if (livePoller) return
 	livePoller = setInterval(() => {
 		void pollAndBroadcastLive()
 	}, LIVE_POLL_INTERVAL_MS)
+	// Don't hold the process open just for this poller (mirrors dataUsage's
+	// flush timer .unref()).
+	livePoller.unref?.()
+}
+
+/** Stop the shared poller once nobody is subscribed — no point polling prices for zero listeners. */
+function maybeStopLivePoller() {
+	if (liveConnections.size === 0 && livePoller) {
+		clearInterval(livePoller)
+		livePoller = null
+	}
 }
 
 function sendToConn(conn: LiveConnection, payload: unknown) {
@@ -803,6 +884,11 @@ dataRoutes.get(
 
 		return {
 			onOpen(_evt, ws) {
+				if (liveConnections.size >= MAX_LIVE_CONNECTIONS) {
+					ws.send(JSON.stringify({ type: 'error', message: 'Too many live connections, try again later' }))
+					ws.close()
+					return
+				}
 				conn.ws = ws
 				liveConnections.add(conn)
 				ensureLivePoller()
