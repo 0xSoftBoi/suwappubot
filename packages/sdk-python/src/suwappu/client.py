@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import json
 import os
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -16,10 +19,13 @@ from suwappu.types import (
     BillingCheckoutResult,
     BillingStatus,
     Chain,
+    DataUsage,
     KillSwitch,
     LendingMarket,
     LinkCodeResult,
     LendingMarketDetail,
+    LiveTick,
+    OhlcvResult,
     PerpMarket,
     PerpPosition,
     PerpQuote,
@@ -27,7 +33,10 @@ from suwappu.types import (
     PredictionMarketDetail,
     PredictionMarketToken,
     Quote,
+    ReferenceChain,
+    ReferenceTokensResult,
     RegisterAgentResult,
+    ResolvedSymbol,
     RotateKeysResult,
     StepUpChallenge,
     SuwappuConfig,
@@ -82,6 +91,33 @@ class SuwappuApiError(SuwappuError):
             self.args = (f"Suwappu API error {status} [{code}]: {message}",)
 
 
+class _LiveSubscription:
+    """Handle returned by :meth:`SuwappuClient.subscribe_live`.
+
+    Wraps the underlying `websockets` connection and the background task
+    driving the receive loop.
+    """
+
+    def __init__(self, ws: Any, task: "asyncio.Task[None]") -> None:
+        self._ws = ws
+        self._task = task
+
+    async def subscribe(self, symbols: list[str]) -> None:
+        """Add symbols to the live subscription."""
+        await self._ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
+
+    async def unsubscribe(self, symbols: list[str]) -> None:
+        """Remove symbols from the live subscription."""
+        await self._ws.send(
+            json.dumps({"action": "unsubscribe", "symbols": [s.upper() for s in symbols]})
+        )
+
+    async def close(self) -> None:
+        """Cancel the receive loop and close the WebSocket connection."""
+        self._task.cancel()
+        await self._ws.close()
+
+
 class SuwappuClient:
     """Async client for the Suwappu cross-chain DEX API."""
 
@@ -95,6 +131,8 @@ class SuwappuClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        self._api_key = api_key
+        self._base_url = base_url
         self._client = httpx.AsyncClient(
             base_url=base_url,
             headers=headers,
@@ -350,6 +388,139 @@ class SuwappuClient:
             raise SuwappuError(
                 200, f"Malformed token entry from /v1/agent/tokens: missing {e}"
             ) from e
+
+    # --- Market data (/v1/data/*) ---
+
+    async def get_ohlcv(
+        self,
+        symbol: str,
+        chain: str,
+        *,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+    ) -> OhlcvResult:
+        """GET /v1/data/history/ohlcv — historical candles.
+
+        Served from persisted candles when available; falls back to a
+        DexScreener-derived synthetic series otherwise (see `.source` on the
+        result). `timeframe` is one of "1m", "5m", "1h", "1d". `start`/`end`
+        accept an ISO 8601 string or unix seconds.
+        """
+        params: dict[str, str] = {"symbol": symbol, "chain": chain, "timeframe": timeframe}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        data = await self._request("GET", "/v1/data/history/ohlcv", params=params)
+        return OhlcvResult.model_validate(data)
+
+    async def get_reference_chains(self) -> list[ReferenceChain]:
+        """GET /v1/data/reference/chains — supported chain slugs + names."""
+        data = await self._request("GET", "/v1/data/reference/chains")
+        return [ReferenceChain.model_validate(c) for c in data.get("chains", [])]
+
+    async def get_reference_tokens(self, chain: str | None = None) -> ReferenceTokensResult:
+        """GET /v1/data/reference/tokens?chain=... — omit `chain` for every
+        chain's registry at once (see `.chains` on the result in that case)."""
+        params = {"chain": chain} if chain else None
+        data = await self._request("GET", "/v1/data/reference/tokens", params=params)
+        return ReferenceTokensResult.model_validate(data)
+
+    async def resolve_symbol(self, symbol: str, chain: str | None = None) -> ResolvedSymbol:
+        """GET /v1/data/reference/resolve?symbol=&chain= — canonical
+        address/decimals/coingecko id for a symbol on a chain."""
+        params: dict[str, str] = {"symbol": symbol}
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/reference/resolve", params=params)
+        return ResolvedSymbol.model_validate(data)
+
+    async def get_data_usage(self) -> DataUsage:
+        """GET /v1/data/usage — this caller's /v1/data/* request counts
+        (in-memory, per-instance)."""
+        data = await self._request("GET", "/v1/data/usage")
+        return DataUsage.model_validate(data)
+
+    def _ws_url(self, path: str) -> str:
+        base = self._base_url.rstrip("/")
+        if base.startswith("https://"):
+            base = "wss://" + base[len("https://") :]
+        elif base.startswith("http://"):
+            base = "ws://" + base[len("http://") :]
+        return f"{base}{path}"
+
+    async def subscribe_live(
+        self,
+        symbols: list[str] | str,
+        on_tick: Callable[[LiveTick], Any | Awaitable[Any]],
+        *,
+        on_error: Callable[[Exception], Any | Awaitable[Any]] | None = None,
+    ) -> "_LiveSubscription":
+        """WS /v1/data/live — subscribe to live price ticks (~every 5s per
+        symbol). `on_tick` (and `on_error`) may be sync or async callables.
+
+        Requires the optional `websockets` dependency:
+        `pip install "suwappu[live]"`. Runs the receive loop as a background
+        asyncio task; use the returned handle's `.subscribe()`,
+        `.unsubscribe()`, and `.close()` to manage the connection.
+
+        ```python
+        live = await client.subscribe_live(
+            ["ETH", "SOL"], on_tick=lambda t: print(t.symbol, t.price_usd)
+        )
+        # later:
+        await live.subscribe(["BTC"])
+        await live.close()
+        ```
+        """
+        try:
+            import websockets
+        except ImportError as e:
+            raise ImportError(
+                "subscribe_live() requires the optional 'websockets' dependency. "
+                'Install it with: pip install "suwappu[live]"'
+            ) from e
+
+        if isinstance(symbols, str):
+            symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        ws = await websockets.connect(self._ws_url("/v1/data/live"), additional_headers=headers)
+
+        async def _dispatch(fn: Callable[..., Any], *fn_args: Any) -> None:
+            result = fn(*fn_args)
+            if inspect.isawaitable(result):
+                await result
+
+        async def _run() -> None:
+            try:
+                async for raw in ws:
+                    try:
+                        msg = json.loads(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if msg.get("type") == "tick":
+                        tick = LiveTick(
+                            symbol=msg.get("symbol", ""),
+                            price_usd=msg.get("price_usd", 0),
+                            ts=msg.get("ts", ""),
+                        )
+                        await _dispatch(on_tick, tick)
+                    elif msg.get("type") == "error" and on_error is not None:
+                        await _dispatch(on_error, RuntimeError(msg.get("message", "live stream error")))
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:  # connection dropped, etc.
+                if on_error is not None:
+                    await _dispatch(on_error, err)
+
+        task = asyncio.create_task(_run())
+        await ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
+        return _LiveSubscription(ws, task)
 
     # --- Perps (Hyperliquid) ---
 

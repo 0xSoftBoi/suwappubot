@@ -83,6 +83,90 @@ class Token(BaseModel):
     decimals: int = 0
 
 
+# --- Market data (/v1/data/*, docs/plans/market-data-parity.md Phase 4) ---
+
+
+class ReferenceChain(BaseModel):
+    slug: str
+    chain_id: int | str
+    name: str
+    native_token: str
+    type: str
+
+
+class ReferenceToken(BaseModel):
+    symbol: str
+    address: str
+    decimals: int = 0
+    name: str | None = None
+
+
+class ReferenceChainTokens(BaseModel):
+    """One entry of the `chains` list returned when `/reference/tokens` is
+    called without a `chain` filter."""
+
+    chain_id: int | str
+    tokens: list[ReferenceToken] = Field(default_factory=list)
+
+
+class ReferenceTokensResult(BaseModel):
+    """GET /v1/data/reference/tokens response.
+
+    When `chain` is passed to the request, `chain`/`chain_id`/`tokens` are
+    populated. When omitted, `chains` holds every chain's registry instead.
+    """
+
+    chain: str | None = None
+    chain_id: int | str | None = None
+    tokens: list[ReferenceToken] | None = None
+    chains: list[ReferenceChainTokens] | None = None
+    model_config = {"extra": "allow"}
+
+
+class ResolvedSymbol(BaseModel):
+    symbol: str
+    chain: str
+    chain_id: int | str | None = None
+    address: str
+    decimals: int = 0
+    coingecko_id: str | None = None
+
+
+class OhlcvCandle(BaseModel):
+    ts: str
+    open: str
+    high: str
+    low: str
+    close: str
+    volume: str | None = None
+    source: str
+
+
+class OhlcvResult(BaseModel):
+    symbol: str
+    chain: str
+    timeframe: str
+    source: str
+    candles: list[OhlcvCandle] = Field(default_factory=list)
+    note: str | None = None
+
+
+class DataUsage(BaseModel):
+    total_requests: int = 0
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    by_endpoint: dict[str, int] = Field(default_factory=dict)
+
+
+class LiveTick(BaseModel):
+    """Server push from WS /v1/data/live: {"type":"tick","symbol","price_usd","ts"}."""
+
+    type: str = "tick"
+    symbol: str
+    price_usd: float
+    ts: str
+
+
 # Perps types (Hyperliquid)
 class PerpMarket(BaseModel):
     name: str

@@ -644,12 +644,13 @@ export class Suwappu {
         return;
       }
       if (msg.type === "tick") {
-        args.onTick({
+        const tick: LiveTick = {
           type: "tick",
           symbol: String(msg.symbol ?? ""),
           priceUsd: Number(msg.price_usd ?? 0),
           ts: String(msg.ts ?? ""),
-        });
+        };
+        args.onTick(tick);
       } else if (msg.type === "error") {
         args.onError?.(new Error(String(msg.message ?? "live stream error")));
       }
