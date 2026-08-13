@@ -766,6 +766,15 @@ class Settings(BaseSettings):
         description="Enable the market data capture/rollup/backfill background service.",
     )
 
+    # Venue data capture (docs/plans/market-data-parity.md Round 5): captures
+    # perps (Hyperliquid), prediction odds (Polymarket), and lending rates
+    # (Morpho) into perp_metrics/prediction_snapshots/lend_metrics. Read-only
+    # capture, no funds/keys involved. On by default.
+    venue_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the venue data capture background service (perps/predictions/lend).",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",

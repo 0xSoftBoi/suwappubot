@@ -54,6 +54,7 @@ from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
 from bot.services.market_data import market_data_service
+from bot.services.venue_data import venue_data_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
@@ -348,6 +349,10 @@ async def lifespan(app: FastAPI):
         # market_data_capture_enabled (default True).
         await market_data_service.start()
         await asyncio.sleep(2)
+        # Venue data capture (perps/predictions/lend time series). No-op unless
+        # venue_data_capture_enabled (default True).
+        await venue_data_service.start()
+        await asyncio.sleep(2)
         await order_service.start(
             bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine()
         )
@@ -502,6 +507,7 @@ async def lifespan(app: FastAPI):
         await digest_service.stop()
         await alert_service.stop()
         await market_data_service.stop()
+        await venue_data_service.stop()
         await order_service.stop()
         await tx_poller.stop()
         await withdraw_reconciler.stop()
