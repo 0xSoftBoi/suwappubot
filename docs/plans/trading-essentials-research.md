@@ -270,12 +270,56 @@ wiring `paste_trade.py`'s gate to an endpoint that already exists. Given
 It also solves the info-thin card problem: this one endpoint supplies most of
 the missing "fill the grid" fields.
 
-## E3. Still open
+## E4. Chart coverage is 8 of 46 chains — and the route has no cache
 
-1. Which market-data provider backs candles/trending across 46 chains, and at
-   what cost? — *agent did not report; needs a redo*
-2. Does `_resolve_pool` (`terminal.py:102`) cover all 46 chains or a subset?
-   Chart coverage depends on the GeckoTerminal network mapping.
-3. `/discovery/final-stretch` is explicitly scoped to "the canonical memecoin
+Two findings that together change the dead-chart ticket from "trivial" to
+"small, but must ship with caching."
+
+### Coverage: 8 networks, not 46
+
+`GECKO_NETWORK` (`terminal.py:63`) maps Suwappu chain names to GeckoTerminal
+networks. Deduplicating the aliases, it covers **8 distinct networks**:
+
+`eth`, `base`, `arbitrum`, `optimism`, `polygon_pos`, `bsc`, `avax`, `solana`
+
+`bot/config/chains.py` defines **46 chains**. So wiring the chart gives real
+candles on 8 of them and nothing on the other 38 — including Blast, Ink and
+Aurora (added recently in #822/#4e64701), plus Tron, Starknet and Hyperliquid.
+
+The UI must therefore distinguish *"no chart on this chain"* from *"chart failed
+to load"*. Today `TokenChart.tsx:86` renders one undifferentiated "No chart data
+available" for both, which is exactly the honest-degradation failure the bot
+path avoids (A2, property 4).
+
+Timeframes do line up: `GECKO_TIMEFRAME` (`:89`) supports 1m/5m/15m/1h/4h/1D,
+and the webapp's `TIMEFRAMES = ['5m','15m','1h','4h','1d']` are all mapped.
+
+### No caching on the chart route
+
+`grep` for cache in `terminal.py` returns only `_leaderboard_cache` (`:347`, ~10
+min, for HL leaderboard). **`/chart/ohlcv` is uncached.** Every chart load fans
+out *two* sequential, unkeyed, public third-party calls:
+
+1. `_resolve_pool` → DexScreener `/latest/dex/tokens/{address}` (`:102`), picking
+   the highest-liquidity pair
+2. `_gecko_ohlcv` → GeckoTerminal `/networks/{n}/pools/{pool}/ohlcv/{tf}` (`:123`)
+
+GeckoTerminal's free tier is roughly 30 calls/min. Pointing the Mini App at this
+route without a cache would rate-limit at trivial traffic — and because the
+route degrades to empty rather than 5xx, it would fail **silently**, putting us
+right back at "No chart data available" with no signal.
+
+There is already a caching precedent in this file: the comment at `:2432` notes
+another unauthenticated route where "each cache miss fans out to Blockscout".
+
+**Ticket implication:** "wire the chart" and "cache the chart route" are one
+ticket, not two. Pool resolution is highly cacheable (a token's best pool rarely
+changes); candles need a short TTL keyed on interval.
+
+## E5. Still open
+
+1. Which market-data provider should back candles/trending on the other 38
+   chains, and at what cost? — *agent did not report; needs a redo*
+2. `/discovery/final-stretch` is explicitly scoped to "the canonical memecoin
    chain" (Solana) — so it does **not** solve multi-chain discovery. A
    multi-chain feed is still a real ticket.
