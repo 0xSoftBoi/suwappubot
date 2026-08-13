@@ -64,6 +64,30 @@ Non-goals (explicit scope cuts — surfaced, not silent): no colocation/raw feed
 capture (we have no venue extranet analog beyond RPCs), no C++/Rust SDKs, no
 tick-level trade capture, no paid billing integration (metering counters only).
 
+## Round 5 — the Databento of web3: perps, predictions, lending datasets
+
+Strategic direction (owner, Aug 2026): Suwappu's edge is its live venue
+connections (HL, Polymarket, Morpho, 15+ chains). The paying use cases are
+prediction markets and perpetuals. Capture the time series nobody else
+persists, serve them through the same /v1/data surface.
+
+| dataset | table | venue/source | cadence | key fields |
+|---|---|---|---|---|
+| Perp metrics | perp_metrics | Hyperliquid REST metaAndAssetCtxs (bot/services/hyperliquid_client.py) | 60s | funding_rate, open_interest, mark_price, index_price (oraclePx), volume_24h |
+| Prediction odds | prediction_snapshots | Polymarket Gamma (bot/services/polymarket_api.py) | 5 min, top ~100 active markets by volume | market_id, condition_id, question, outcome, price (probability), volume, liquidity, end_date |
+| Lend rates | lend_metrics | Morpho GraphQL (bot/services/morpho_api.py) | 10 min | market_id, chain_id, loan/collateral symbols, supply_apy, borrow_apy, tvl, utilization |
+
+Uniques: perp (venue,symbol,ts) · prediction (venue,market_id,outcome,ts) ·
+lend (venue,market_id,ts). All venue fields sourced from clients already in
+production; capture loops live in the Python bot beside market_data.py, each
+behind its own settings flag, registered in the api/main.py lifespan.
+
+Distribution (api-ts /v1/data): `perps/markets` (latest), `perps/history`
+(funding/OI/mark time series per symbol), `predictions/markets` (latest odds),
+`predictions/history` (odds time series per market), `lend/markets`,
+`lend/history`. Metadata/status extended to cover the new datasets. SDKs,
+docs, OpenAPI updated. E2E against live venues before done.
+
 ## Round 2 — closing the parity gaps
 
 1. **Live**: push-on-change ticks (no fixed 5s rebroadcast of stale prices) +
