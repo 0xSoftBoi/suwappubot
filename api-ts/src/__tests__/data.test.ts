@@ -167,7 +167,7 @@ describe('GET /v1/data/history/ohlcv — limit capping', () => {
 		)
 
 		expect(res.status).toBe(200)
-		expect(capturedLimit).toBe(1000)
+		expect(capturedLimit as number | null).toBe(1000)
 		const body = (await res.json()) as any
 		expect(body.source).toBe('db')
 		expect(body.candles).toHaveLength(1)
@@ -204,7 +204,7 @@ describe('GET /v1/data/history/ohlcv — limit capping', () => {
 			{ headers: AUTH_HEADERS },
 		)
 		expect(res.status).toBe(200)
-		expect(capturedLimit).toBe(50)
+		expect(capturedLimit as number | null).toBe(50)
 	})
 })
 
