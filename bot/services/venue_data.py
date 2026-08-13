@@ -85,10 +85,10 @@ _MORPHO_MARKETS_QUERY = """
 query TopLendMarkets($first: Int!) {
   markets(first: $first, orderBy: SupplyAssetsUsd, orderDirection: Desc) {
     items {
-      uniqueKey
+      uniqueKey: marketId
       loanAsset { symbol }
       collateralAsset { symbol }
-      morphoBlue { chain { id } }
+      chain { id }
       state {
         supplyApy
         borrowApy
@@ -300,8 +300,7 @@ def normalize_morpho_market(item: dict, ts: datetime) -> Optional[dict]:
 
     loan_asset = item.get("loanAsset") or {}
     collateral_asset = item.get("collateralAsset") or {}
-    morpho_blue = item.get("morphoBlue") or {}
-    chain = morpho_blue.get("chain") or {} if isinstance(morpho_blue, dict) else {}
+    chain = item.get("chain") or {}
     state = item.get("state") or {}
     if not isinstance(state, dict):
         state = {}

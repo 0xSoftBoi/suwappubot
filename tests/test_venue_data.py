@@ -223,7 +223,7 @@ def test_normalize_morpho_market_happy_path():
         "uniqueKey": "0xmarket1",
         "loanAsset": {"symbol": "USDC"},
         "collateralAsset": {"symbol": "cbBTC"},
-        "morphoBlue": {"chain": {"id": 8453}},
+        "chain": {"id": 8453},
         "state": {
             "supplyApy": "0.045",
             "borrowApy": "0.072",
@@ -269,7 +269,7 @@ def test_normalize_morpho_market_partial_state_leaves_fields_none():
         "not a dict",
         {},
         {"uniqueKey": ""},
-        {"uniqueKey": "x", "morphoBlue": "not a dict", "state": "not a dict"},
+        {"uniqueKey": "x", "chain": "not a dict", "state": "not a dict"},
         {"uniqueKey": "x", "loanAsset": "oops", "collateralAsset": None},
     ],
 )
