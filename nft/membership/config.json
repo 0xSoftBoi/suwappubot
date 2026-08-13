@@ -1,0 +1,85 @@
+{
+ "collection": {
+  "name": "Suwappu Membership",
+  "symbol": "SUWA",
+  "external_url": "https://suwappu.bot/membership",
+  "tagline": "The NFT IS the subscription. One soulbound membership per wallet, resolving your tier for the bot.",
+  "chain": {
+   "name": "Robinhood Chain",
+   "chain_id": 4663,
+   "testnet_chain_id": 46630,
+   "explorer": "https://robinhoodchain.blockscout.com",
+   "anchor_stable": "USDG",
+   "period_days": 30
+  },
+  "compliance": "Soulbound membership credential. It records which Suwappu service tier a wallet currently holds. It is NOT equity, NOT a security, NOT a derivative or investment of any kind, confers no shareholder, voting or ownership rights, pays nothing out, cannot be bought or sold, and gives no economic exposure to Suwappu or to any other issuer. It is access, not an asset."
+ },
+ "tiers": {
+  "_comment": "Order MUST match the Tier enum in contracts/SuwappuMembership.sol (Free=0, Pro=1, Premium=2, Enterprise=3). Card colour is a fixed IDENTITY per tier \u2014 colour-coding, the way a real membership programme distinguishes cards \u2014 and explicitly NOT a rarity signal. No tier gets a louder, darker or fancier plate for costing more: tier is BOUGHT, and in this collection ornament is reserved for what is EARNED, which is unbroken time held. Enterprise was briefly the only dark card and that was wrong for exactly this reason.",
+  "order": [
+   "Free",
+   "Pro",
+   "Premium",
+   "Enterprise"
+  ],
+  "Free": {
+   "accent": "text-2",
+   "tagline": "Bot access, standard fees",
+   "dark_plate": false
+  },
+  "Pro": {
+   "accent": "accent",
+   "tagline": "Reduced fees, priority alerts",
+   "dark_plate": false
+  },
+  "Premium": {
+   "accent": "green",
+   "tagline": "Lower fees, advanced tooling",
+   "dark_plate": false
+  },
+  "Enterprise": {
+   "accent": "text",
+   "tagline": "Custom limits, dedicated support",
+   "dark_plate": false
+  }
+ },
+ "patina": {
+  "_comment": "The ONLY axis that earns ornament: continuous, unbroken membership time on the current streak (member_since -> now). Tier does not affect this at all \u2014 a Free member who has held since genesis reaches the same patina as a long-held Enterprise member. Bands are inclusive of min_days, evaluated top-down.",
+  "bands": [
+   {
+    "name": "Founding Tenure",
+    "min_days": 730
+   },
+   {
+    "name": "Long-held",
+    "min_days": 365
+   },
+   {
+    "name": "Established",
+    "min_days": 90
+   },
+   {
+    "name": "New",
+    "min_days": 0
+   }
+  ]
+ },
+ "brand": {
+  "_comment": "Lifted verbatim from showcase/tailwind.config.ts (theme.extend.colors.warm). Pinned by tests/test_membership_card.py against the live Tailwind config so this cannot drift.",
+  "bg": "#faf8f4",
+  "surface": "#ffffff",
+  "surface-2": "#f5f0ea",
+  "border": "#e5e0d8",
+  "border-2": "#d4cec4",
+  "text": "#1a1a1a",
+  "text-2": "#6b6560",
+  "text-3": "#9a9590",
+  "accent": "#f472b6",
+  "accent-hover": "#ec4899",
+  "accent-light": "#fdf2f8",
+  "green": "#1a5c38",
+  "green-light": "#e8f5ee",
+  "dark": "#1a1a1a",
+  "dark-surface": "#222222"
+ }
+}
