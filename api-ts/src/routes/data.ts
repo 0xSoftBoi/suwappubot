@@ -15,7 +15,7 @@
  * every other Drizzle query in this codebase goes through requireDb/Effect
  * (see db/DrizzleService.ts), even from otherwise-plain route handlers.
  */
-import { and, asc, eq, gte, lte } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, lte } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono, type Context } from 'hono'
 import { upgradeWebSocket } from 'hono/bun'
