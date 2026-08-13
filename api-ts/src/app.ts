@@ -33,6 +33,7 @@ import {
 	stakingRoutes,
 	swapRoutes,
 	tokenRoutes,
+	webappDataRoutes,
 	webappRoutes,
 	webappStubs,
 } from './routes'
@@ -166,6 +167,11 @@ export function createApp(config: AppConfig) {
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Read-only market-data platform for our own front-ends (Mini App +
+	// Terminal dashboard) — flexAuth() accepts either credential. Same JSON
+	// shapes as /v1/data/*, no metering (see routes/webappData.ts).
+	app.route('/webapp/data', webappDataRoutes)
 
 	// Webapp feature stubs - intentional placeholders for in-development features
 	app.route('/webapp', webappStubs)
