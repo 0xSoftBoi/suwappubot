@@ -42,6 +42,7 @@ export default function TokenDetail() {
 
   // Transform chart data to candlestick format
   const candleData: CandlestickData<Time>[] = (chartData?.candles || []).map(c => ({ ...c, time: c.time as unknown as Time }))
+  const chartUnsupported = chartData?.unsupported ?? false
 
   const header = (
     <AppHeader
@@ -51,7 +52,25 @@ export default function TokenDetail() {
     />
   )
 
-  const BUY_PRESETS = ['0.01', '0.05', '0.1', '0.5']
+  // Mirrors PRESET_AMOUNTS / DEFAULT_PRESETS in bot/handlers/paste_trade.py so
+  // the Buy amounts are denominated in the chain's OWN native token. This page
+  // previously hardcoded ETH values and an "ETH" label on every chain.
+  const NATIVE_BY_CHAIN: Record<string, string> = {
+    solana: 'SOL', bsc: 'BNB', bnb: 'BNB', polygon: 'POL', polygon_pos: 'POL',
+    avalanche: 'AVAX', avax: 'AVAX', tron: 'TRX', fantom: 'FTM', gnosis: 'XDAI',
+    kaia: 'KLAY', flare: 'FLR', rootstock: 'RBTC', sonic: 'S', berachain: 'BERA',
+  }
+  const PRESETS_BY_NATIVE: Record<string, string[]> = {
+    SOL: ['0.1', '0.5', '1', '5'],
+    ETH: ['0.01', '0.05', '0.1', '0.5'],
+    BNB: ['0.05', '0.1', '0.5', '1'],
+    POL: ['10', '50', '100', '500'],
+    TRX: ['100', '500', '1000', '5000'],
+  }
+  const DEFAULT_PRESETS = ['0.01', '0.05', '0.1', '0.5']
+
+  const nativeSymbol = NATIVE_BY_CHAIN[(chain || '').toLowerCase()] || 'ETH'
+  const BUY_PRESETS = PRESETS_BY_NATIVE[nativeSymbol] || DEFAULT_PRESETS
   const SELL_PRESETS = [25, 50, 100]
 
   return (
@@ -69,6 +88,7 @@ export default function TokenDetail() {
               timeframe={timeframe}
               onTimeframeChange={setTimeframe}
               height={300}
+              unsupported={chartUnsupported}
             />
           )}
         </div>
@@ -118,7 +138,7 @@ export default function TokenDetail() {
 
           {/* Buy presets */}
           <div className="mb-3">
-            <p className="text-xs text-suwappu-text-secondary mb-2">Buy with ETH</p>
+            <p className="text-xs text-suwappu-text-secondary mb-2">Buy with {nativeSymbol}</p>
             <div className="flex gap-2">
               {BUY_PRESETS.map(amount => (
                 <AnimatedButton
@@ -128,7 +148,7 @@ export default function TokenDetail() {
                   onClick={() => navigate(`/swap?to=${address}&chain=${chain}&amount=${amount}`)}
                   className="flex-1 text-xs"
                 >
-                  {amount} ETH
+                  {amount} {nativeSymbol}
                 </AnimatedButton>
               ))}
             </div>
