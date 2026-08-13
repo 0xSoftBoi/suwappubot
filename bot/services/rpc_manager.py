@@ -11,6 +11,7 @@ Replaces all scattered Web3 creation patterns with a single entry point that:
 import asyncio
 import logging
 import random
+import re
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -29,6 +30,14 @@ except ImportError:
 from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+# Plan/credit exhaustion, as opposed to a transient error. -32001 is what
+# 1rpc.io returns; the phrasings cover the common providers.
+_QUOTA_ERROR = re.compile(
+    r"-32001|usage limit|quota|credits? exceeded|exceeded .{0,20}plan|payment required|"
+    r"insufficient funds for (?:rpc|request)",
+    re.IGNORECASE,
+)
 
 
 def _build_ssl_context() -> Optional[ssl.SSLContext]:
@@ -281,6 +290,16 @@ class RPCEndpoint:
         self.consecutive_failures = 0
         self.circuit_open_until = 0.0
 
+    # A provider that answers "you have reached the usage limit for your current
+    # plan" is not having a bad minute — the account is out of credit, and that
+    # does not reset in ten. The generic backoff caps at 600s, so an exhausted
+    # plan was being re-probed every 10 minutes forever: production logs showed
+    # ~607 consecutive failures on each of eleven 1rpc.io endpoints, which is
+    # what a 600s retry looks like after four days. Worse, these answer HTTP 200
+    # with the error in the JSON-RPC body, so they look healthy to any check
+    # that does not read it.
+    QUOTA_COOLDOWN_SECONDS = 6 * 3600
+
     def record_failure(self, error: str, fatal: bool = False):
         """Record a failed probe/request.
 
@@ -294,6 +313,18 @@ class RPCEndpoint:
         self.total_requests += 1
         self.last_error = error
         self.consecutive_failures += 1
+        if _QUOTA_ERROR.search(error):
+            # Log only on the transition, or a 6h cooldown still produces a wall
+            # of identical lines every time a caller retries mid-cooldown.
+            if not self.is_circuit_open:
+                logger.warning(
+                    "RPC circuit OPEN (quota exhausted) %s... (%ss, reason=%s)",
+                    self.url[:60],
+                    self.QUOTA_COOLDOWN_SECONDS,
+                    error[:120],
+                )
+            self.circuit_open_until = time.monotonic() + self.QUOTA_COOLDOWN_SECONDS
+            return
         if fatal:
             self.circuit_open_until = time.monotonic() + 600
             logger.warning(f"RPC circuit OPEN (fatal) {self.url[:60]}... (600s, reason={error})")

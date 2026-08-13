@@ -203,27 +203,27 @@ class Settings(BaseSettings):
     # Ethereum reads fail — a USDT0 quoteSend on ethereum returned no route
     # because of it. See the matching note in rpc_manager.TRUSTED_RPC_DOMAINS.
     ethereum_rpc_url: str = Field(
-        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org",
+        default="https://ethereum-rpc.publicnode.com,https://eth.drpc.org",
         description="Ethereum mainnet RPC URL(s)",
     )
     bsc_rpc_url: str = Field(
-        default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://1rpc.io/bnb,https://bsc.drpc.org",
+        default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://bsc.drpc.org",
         description="BSC mainnet RPC URL(s)",
     )
     polygon_rpc_url: str = Field(
-        default="https://polygon-bor-rpc.publicnode.com,https://1rpc.io/matic,https://polygon.drpc.org",
+        default="https://polygon-bor-rpc.publicnode.com,https://polygon.drpc.org",
         description="Polygon mainnet RPC URL(s)",
     )
     arbitrum_rpc_url: str = Field(
-        default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://1rpc.io/arb,https://arbitrum.drpc.org",
+        default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://arbitrum.drpc.org",
         description="Arbitrum mainnet RPC URL(s)",
     )
     optimism_rpc_url: str = Field(
-        default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://1rpc.io/op,https://optimism.drpc.org",
+        default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://optimism.drpc.org",
         description="Optimism mainnet RPC URL(s)",
     )
     base_rpc_url: str = Field(
-        default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
+        default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://base.drpc.org",
         description="Base mainnet RPC URL(s)",
     )
     base_sepolia_rpc_url: str = Field(
@@ -231,27 +231,27 @@ class Settings(BaseSettings):
         description="Base Sepolia testnet RPC URL(s) — used for native P2P escrow testing",
     )
     avalanche_rpc_url: str = Field(
-        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
+        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://avalanche.drpc.org",
         description="Avalanche C-Chain RPC URL(s)",
     )
     fantom_rpc_url: str = Field(
-        default="https://rpcapi.fantom.network,https://fantom-rpc.publicnode.com,https://1rpc.io/ftm,https://fantom.drpc.org,https://rpc.ftm.tools",
+        default="https://rpcapi.fantom.network,https://fantom.drpc.org",
         description="Fantom mainnet RPC URL(s)",
     )
     linea_rpc_url: str = Field(
-        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org,https://linea.blockpi.network/v1/rpc/public",
+        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://linea.drpc.org",
         description="Linea mainnet RPC URL(s)",
     )
     mantle_rpc_url: str = Field(
-        default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://1rpc.io/mantle,https://mantle.drpc.org",
+        default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://mantle.drpc.org",
         description="Mantle mainnet RPC URL(s)",
     )
     gnosis_rpc_url: str = Field(
-        default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://1rpc.io/gnosis,https://gnosis.drpc.org",
+        default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://gnosis.drpc.org",
         description="Gnosis Chain RPC URL(s)",
     )
     scroll_rpc_url: str = Field(
-        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org,https://scroll.blockpi.network/v1/rpc/public",
+        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://scroll.drpc.org",
         description="Scroll mainnet RPC URL(s)",
     )
     tempo_rpc_url: str = Field(
@@ -478,7 +478,7 @@ class Settings(BaseSettings):
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
     swellchain_rpc_url: str = Field(
-        default="https://swell-mainnet.alt.technology", description="Swellchain RPC"
+        default="https://swell.drpc.org,https://rpc.ankr.com/swell", description="Swellchain RPC"
     )
     abstract_rpc_url: str = Field(default="https://api.mainnet.abs.xyz", description="Abstract RPC")
     kaia_rpc_url: str = Field(default="https://public-en.node.kaia.io", description="Kaia RPC")
