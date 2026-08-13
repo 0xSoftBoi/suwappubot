@@ -2,10 +2,15 @@
 (commit cf6ca00 — [MONEY-PATH]).
 
 Drives the real handler functions (`confirm_swap`, `swap_confirm_earn_redeem_callback`,
-`swap_requote`) with only the external boundaries mocked: Telegram I/O,
-`savings_service.get_position` / `savings_service.withdraw`, balance/quote
-lookups, and the shared spending-limit/2FA gate (`_finish_confirm`). No real
-network, no real money.
+`twofa_code_entered`, `swap_requote`) with only the external boundaries mocked:
+Telegram I/O, `savings_service.get_position` / `savings_service.withdraw`,
+balance/quote lookups, and the spending-limit/2FA services underlying
+`_preflight_gates`. No real network, no real money.
+
+Ordering under test (post money-path-review fix): every authorization gate
+(spending limit + 2FA) MUST run and pass BEFORE the Aave Earn redeem — the
+redeem is itself real on-chain money movement, never upstream of the checks
+that authorize it.
 
 Mirrors the fixtures/conventions in tests/test_anticipatory_ux.py.
 """
@@ -35,6 +40,16 @@ def _cb_update(data, user_id=777001):
     u.callback_query.edit_message_text = AsyncMock()
     u.callback_query.message = MagicMock()
     u.message = None
+    u.effective_user = MagicMock(id=user_id)
+    return u
+
+
+def _msg_update(text, user_id=777001):
+    u = MagicMock()
+    u.callback_query = None
+    u.message = MagicMock()
+    u.message.text = text
+    u.message.reply_text = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
     u.effective_user = MagicMock(id=user_id)
     return u
 
@@ -75,9 +90,14 @@ def _short_quote(from_amount_human=100.0):
     return SimpleNamespace(from_amount_human=from_amount_human, timestamp=None)
 
 
+def _passing_gates(monkeypatch, swap_module):
+    """Make `_preflight_gates` a no-op pass-through (both gates clear)."""
+    monkeypatch.setattr(swap_module, "_preflight_gates", AsyncMock(return_value=None))
+
+
 # ---------------------------------------------------------------------------
 # 1. Eligible: single wallet, USDC-on-Base sell, idle short, Earn covers it
-#    → stash set + redeem-confirm offered.
+#    → stash set (incl. position for the redeem buffer) + redeem-confirm offered.
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_confirm_swap_offers_earn_redeem_when_eligible(tmp_db, monkeypatch):
@@ -120,6 +140,7 @@ async def test_confirm_swap_offers_earn_redeem_when_eligible(tmp_db, monkeypatch
     swap_data = context.user_data["swap"]
     assert swap_data["earn_redeem_wallet_id"] == wallet_id
     assert swap_data["earn_redeem_amount"] == Decimal("60")
+    assert swap_data["earn_redeem_position"] == Decimal("100")
     assert swap_data["earn_redeem_amount_fmt"] == "60.00"
     finish_confirm.assert_not_awaited()
 
@@ -287,8 +308,8 @@ async def test_confirm_swap_no_earn_redeem_for_non_usdc_base_sell(tmp_db, monkey
 
 
 # ---------------------------------------------------------------------------
-# 5. Redeem fails (SavingsError) → swap aborted, user-safe message, stash
-#    cleared, swap NOT executed.
+# 5. Gates pass, redeem fails (SavingsError) → swap aborted, user-safe
+#    message, stash RESTORED (retry path), swap NOT executed.
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_earn_redeem_callback_aborts_swap_on_savings_error(tmp_db, monkeypatch):
@@ -297,11 +318,11 @@ async def test_earn_redeem_callback_aborts_swap_on_savings_error(tmp_db, monkeyp
 
     user_id, wallet_id = _seed_user_and_wallet(777505)
 
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    _passing_gates(monkeypatch, swap)
     monkeypatch.setattr(
         swap.savings_service, "withdraw", MagicMock(side_effect=SavingsError("Aave RPC error"))
     )
-    finish_confirm = AsyncMock()
-    monkeypatch.setattr(swap, "_finish_confirm", finish_confirm)
     run_confirmed = AsyncMock()
     monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
 
@@ -312,6 +333,7 @@ async def test_earn_redeem_callback_aborts_swap_on_savings_error(tmp_db, monkeyp
             "swap": {
                 "earn_redeem_wallet_id": wallet_id,
                 "earn_redeem_amount": Decimal("60"),
+                "earn_redeem_position": Decimal("100"),
                 "earn_redeem_amount_fmt": "60.00",
             },
         }
@@ -320,13 +342,20 @@ async def test_earn_redeem_callback_aborts_swap_on_savings_error(tmp_db, monkeyp
     result = await swap.swap_confirm_earn_redeem_callback(update, context)
 
     assert result == swap.ConversationHandler.END
-    finish_confirm.assert_not_awaited()
     run_confirmed.assert_not_awaited()
 
+    # Withdraw was attempted with a BUFFERED amount, not the bare shortfall.
+    swap.savings_service.withdraw.assert_called_once()
+    called_amount = swap.savings_service.withdraw.call_args.args[1]
+    assert called_amount > Decimal("60")
+    assert called_amount <= Decimal("100")  # capped at position
+
+    # The stash is restored on the SavingsError retry path — it was popped
+    # BEFORE the withdraw call, and this is the one path that puts it back.
     swap_data = context.user_data["swap"]
-    assert "earn_redeem_amount" not in swap_data
-    assert "earn_redeem_wallet_id" not in swap_data
-    assert "earn_redeem_amount_fmt" not in swap_data
+    assert swap_data["earn_redeem_amount"] == Decimal("60")
+    assert swap_data["earn_redeem_wallet_id"] == wallet_id
+    assert swap_data["earn_redeem_amount_fmt"] == "60.00"
     assert "earn_redeem_done" not in swap_data
 
     last_call = update.callback_query.edit_message_text.call_args
@@ -337,8 +366,9 @@ async def test_earn_redeem_callback_aborts_swap_on_savings_error(tmp_db, monkeyp
 
 
 # ---------------------------------------------------------------------------
-# 6. Redeem succeeds → SavingsEvent logged (action="withdraw"), flow
-#    proceeds to _finish_confirm.
+# 6. Gates pass, redeem succeeds → SavingsEvent logged (action="withdraw"),
+#    stash popped, flow proceeds straight to execution (no `_finish_confirm`
+#    re-gating — the gates already ran before the redeem).
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_earn_redeem_callback_success_logs_event_and_continues(tmp_db, monkeypatch):
@@ -348,11 +378,13 @@ async def test_earn_redeem_callback_success_logs_event_and_continues(tmp_db, mon
 
     user_id, wallet_id = _seed_user_and_wallet(777506)
 
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    _passing_gates(monkeypatch, swap)
     withdraw = MagicMock(return_value="deadbeef")  # no 0x prefix on purpose
     monkeypatch.setattr(swap.savings_service, "withdraw", withdraw)
     sentinel = object()
-    finish_confirm = AsyncMock(return_value=sentinel)
-    monkeypatch.setattr(swap, "_finish_confirm", finish_confirm)
+    run_confirmed = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
 
     update, context = _cb_update("swap_confirm_earn_redeem", user_id=777506), _ctx()
     context.user_data.update(
@@ -361,6 +393,7 @@ async def test_earn_redeem_callback_success_logs_event_and_continues(tmp_db, mon
             "swap": {
                 "earn_redeem_wallet_id": wallet_id,
                 "earn_redeem_amount": Decimal("60"),
+                "earn_redeem_position": Decimal("100"),
                 "earn_redeem_amount_fmt": "60.00",
             },
         }
@@ -370,10 +403,13 @@ async def test_earn_redeem_callback_success_logs_event_and_continues(tmp_db, mon
 
     assert result is sentinel
     withdraw.assert_called_once()
-    finish_confirm.assert_awaited_once_with(
-        update.callback_query.edit_message_text, context, user_id, [wallet_id]
-    )
-    assert context.user_data["swap"]["earn_redeem_done"] is True
+    run_confirmed.assert_awaited_once()
+    swap_data = context.user_data["swap"]
+    assert swap_data["earn_redeem_done"] is True
+    # Stash popped BEFORE the withdraw and not restored on success.
+    assert "earn_redeem_amount" not in swap_data
+    assert "earn_redeem_wallet_id" not in swap_data
+    assert "earn_redeem_position" not in swap_data
 
     with SessionLocal() as session:
         events = session.query(SavingsEvent).filter(SavingsEvent.user_id == user_id).all()
@@ -383,7 +419,7 @@ async def test_earn_redeem_callback_success_logs_event_and_continues(tmp_db, mon
     assert event.chain == "base"
     assert event.token == "USDC"
     assert event.wallet_id == wallet_id
-    assert event.amount == Decimal("60")
+    assert event.amount > Decimal("60")  # buffered, not the bare shortfall
     assert event.tx_hash == "0xdeadbeef"
 
 
@@ -461,3 +497,157 @@ async def test_swap_requote_clears_earn_redeem_stash(tmp_db, monkeypatch):
     assert "earn_redeem_amount" not in swap_data
     assert "earn_redeem_amount_fmt" not in swap_data
     assert "earn_redeem_done" not in swap_data
+
+
+# ---------------------------------------------------------------------------
+# 8. MONEY-PATH ordering: spending limit blocks → no withdraw, no funds move.
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_earn_redeem_callback_limit_blocked_no_withdraw(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+
+    user_id, wallet_id = _seed_user_and_wallet(777508)
+
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        swap.spending_limit_service, "check", MagicMock(return_value=(False, "Daily limit hit"))
+    )
+    withdraw = MagicMock(return_value="deadbeef")
+    monkeypatch.setattr(swap.savings_service, "withdraw", withdraw)
+    run_confirmed = AsyncMock()
+    monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
+
+    update, context = _cb_update("swap_confirm_earn_redeem", user_id=777508), _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "amount_usd": 5000.0,
+                "earn_redeem_wallet_id": wallet_id,
+                "earn_redeem_amount": Decimal("60"),
+                "earn_redeem_position": Decimal("100"),
+                "earn_redeem_amount_fmt": "60.00",
+            },
+        }
+    )
+
+    result = await swap.swap_confirm_earn_redeem_callback(update, context)
+
+    assert result == swap.ConversationHandler.END
+    withdraw.assert_not_called()
+    run_confirmed.assert_not_awaited()
+    # The redeem stash is untouched — the gate blocked before the redeem ever ran.
+    swap_data = context.user_data["swap"]
+    assert swap_data["earn_redeem_amount"] == Decimal("60")
+
+    call = update.callback_query.edit_message_text.call_args
+    assert "Daily limit hit" in call.args[0]
+
+
+# ---------------------------------------------------------------------------
+# 9. MONEY-PATH ordering: 2FA required → redeem deferred until AFTER
+#    verify_transaction succeeds in twofa_code_entered.
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_earn_redeem_callback_2fa_required_defers_redeem(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+
+    user_id, wallet_id = _seed_user_and_wallet(777509)
+
+    monkeypatch.setattr(swap, "enforce_rate_limit_for_update", AsyncMock(return_value=True))
+    monkeypatch.setattr(swap.spending_limit_service, "check", MagicMock(return_value=(True, None)))
+    monkeypatch.setattr(
+        swap.spending_limit_service, "effective_2fa_threshold", MagicMock(return_value=100.0)
+    )
+    monkeypatch.setattr(swap.twofa_service, "is_2fa_enabled", MagicMock(return_value=True))
+    withdraw = MagicMock(return_value="deadbeef")
+    monkeypatch.setattr(swap.savings_service, "withdraw", withdraw)
+
+    update, context = _cb_update("swap_confirm_earn_redeem", user_id=777509), _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "amount_usd": 5000.0,
+                "quote": _short_quote(100.0),
+                "earn_redeem_wallet_id": wallet_id,
+                "earn_redeem_amount": Decimal("60"),
+                "earn_redeem_position": Decimal("100"),
+                "earn_redeem_amount_fmt": "60.00",
+            },
+        }
+    )
+
+    result = await swap.swap_confirm_earn_redeem_callback(update, context)
+
+    assert result == swap.ENTER_2FA_CODE
+    withdraw.assert_not_called()
+    swap_data = context.user_data["swap"]
+    assert swap_data["pending_earn_redeem"] is True
+    # Stash still intact — the redeem hasn't happened yet.
+    assert swap_data["earn_redeem_amount"] == Decimal("60")
+
+    call = update.callback_query.edit_message_text.call_args
+    assert "2FA Required" in call.args[0]
+
+    # Now the user enters a valid code — the redeem must fire only now, and
+    # only after verify_transaction() succeeds.
+    monkeypatch.setattr(swap.twofa_service, "verify_transaction", MagicMock(return_value=True))
+    # Post-redeem balance poll: report the balance as already sufficient so
+    # the cross-RPC-lag poll loop exits on its first check (no real RPC/sleep).
+    monkeypatch.setattr(swap.wallet_service, "get_evm_token_balance", AsyncMock(return_value=100.0))
+    run_confirmed = AsyncMock(return_value="EXECUTED")
+    monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
+
+    twofa_update = _msg_update("123456", user_id=777509)
+    twofa_result = await swap.twofa_code_entered(twofa_update, context)
+
+    assert twofa_result == "EXECUTED"
+    withdraw.assert_called_once()
+    run_confirmed.assert_awaited_once()
+    assert context.user_data["swap"]["earn_redeem_done"] is True
+    assert "pending_earn_redeem" not in context.user_data["swap"]
+
+
+# ---------------------------------------------------------------------------
+# 10. MONEY-PATH replay guard: after a successful redeem, replaying the
+#     earn-redeem execution path must NOT trigger a second withdraw.
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_execute_earn_redeem_replay_after_success_no_second_withdraw(tmp_db, monkeypatch):
+    import bot.handlers.swap as swap
+
+    user_id, wallet_id = _seed_user_and_wallet(777510)
+
+    withdraw = MagicMock(return_value="deadbeef")
+    monkeypatch.setattr(swap.savings_service, "withdraw", withdraw)
+    run_confirmed = AsyncMock(return_value="OK")
+    monkeypatch.setattr(swap, "_run_confirmed_swap", run_confirmed)
+
+    context = _ctx()
+    context.user_data.update(
+        {
+            "user_id": user_id,
+            "swap": {
+                "earn_redeem_wallet_id": wallet_id,
+                "earn_redeem_amount": Decimal("60"),
+                "earn_redeem_position": Decimal("100"),
+                "earn_redeem_amount_fmt": "60.00",
+            },
+        }
+    )
+
+    edit = AsyncMock()
+
+    # First call: performs the redeem.
+    result_1 = await swap._execute_earn_redeem_then_swap(edit, context, user_id)
+    assert result_1 == "OK"
+    withdraw.assert_called_once()
+    assert "earn_redeem_amount" not in context.user_data["swap"]
+
+    # Replay: the stash is already gone, so no second on-chain withdraw
+    # happens — it falls straight through to execution.
+    result_2 = await swap._execute_earn_redeem_then_swap(edit, context, user_id)
+    assert result_2 == "OK"
+    withdraw.assert_called_once()  # still just once
+    assert run_confirmed.await_count == 2
