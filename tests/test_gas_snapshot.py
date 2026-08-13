@@ -107,7 +107,7 @@ def test_positions_mint_gas_within_ceilings(w3):
                     "to": pos.address,
                     "value": cost,
                     "gas": 2_000_000,
-                    "data": pos.encode_abi("mint", args=[3, 0, qty, 0, []]),
+                    "data": pos.encode_abi("mint", args=[3, 0, qty, 0, [], True]),
                 }
             )
         )

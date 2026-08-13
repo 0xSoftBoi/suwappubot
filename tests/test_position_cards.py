@@ -303,7 +303,10 @@ def test_oracle_does_not_double_apply_the_multiplier():
     assert "multiplierOf" not in body, "priceOf must not touch the multiplier"
     # ...and it is still available to callers that need the basis, not the price
     assert "function multiplierOf(address token)" in src
-    assert "returns (uint64)" in src
+    # uint96, not uint64: the oracle clamps to 1e21 and uint64 tops out at
+    # ~1.845e19, so the old return type silently wrapped a 20:1 split.
+    assert "returns (uint96)" in src
+    assert "SafeCast.toUint96(m)" in src, "the narrowing cast must be checked, not raw"
 
 
 def test_oracle_staleness_window_covers_a_weekend():

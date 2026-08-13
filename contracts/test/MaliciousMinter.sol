@@ -12,7 +12,8 @@ interface IPositions {
         uint8 tickerIndex,
         uint256 quantity,
         uint256 maxQty,
-        bytes32[] calldata proof
+        bytes32[] calldata proof,
+        bool allowUnpriced
     ) external payable;
     function quote(uint8 phase, uint256 quantity) external view returns (uint256);
     function balanceOf(address owner) external view returns (uint256);
@@ -39,14 +40,14 @@ contract MaliciousMinter {
     }
 
     function attack(uint256 quantity) external payable {
-        target.mint{ value: msg.value }(phase, ticker, quantity, 0, new bytes32[](0));
+        target.mint{ value: msg.value }(phase, ticker, quantity, 0, new bytes32[](0), true);
     }
 
     function _tryReenter() internal {
         reentryAttempts++;
         uint256 cost = target.quote(phase, 1);
         if (address(this).balance < cost) return;
-        try target.mint{ value: cost }(phase, ticker, 1, 0, new bytes32[](0)) {
+        try target.mint{ value: cost }(phase, ticker, 1, 0, new bytes32[](0), true) {
             reentrySuccesses++;
         } catch {}
     }

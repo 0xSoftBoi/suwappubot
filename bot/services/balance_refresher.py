@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Whole-pass budget. Must stay BELOW the balance_refresher staleness threshold
 # in api/main.py (300s) so a slow pass can never cost the service a heartbeat.
-_PASS_BUDGET_SECONDS = 240
+_PASS_BUDGET_SECONDS = 180
 # One batch of BATCH_SIZE wallets.
 _BATCH_BUDGET_SECONDS = 30
 # Grace before the first pass, so the loop is not competing with the rest of

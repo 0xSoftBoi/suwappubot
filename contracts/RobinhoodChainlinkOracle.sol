@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
@@ -193,12 +195,18 @@ contract RobinhoodChainlinkOracle is Ownable {
     ///         ratio a no-op rather than a division by zero. Clamped to a sane
     ///         band so a malfunctioning token cannot rebase a stored basis into
     ///         nonsense.
-    function multiplierOf(address token) public view returns (uint64) {
+    function multiplierOf(address token) public view returns (uint96) {
         try IStockToken(token).uiMultiplier() returns (uint256 m) {
-            if (m < MIN_MULTIPLIER || m > MAX_MULTIPLIER) return uint64(ONE);
-            return uint64(m);
+            if (m < MIN_MULTIPLIER || m > MAX_MULTIPLIER) return uint96(ONE);
+            // SafeCast, not a raw narrowing cast. The clamp above already
+            // guarantees m <= 1e21 which fits uint96, but the previous return
+            // type was uint64 (~1.845e19) and the raw cast wrapped anything
+            // above it in silence — a 20:1 split became 1.553e18. Belt and
+            // braces: if the band is ever widened past the type again, this
+            // reverts instead of corrupting a stamped basis.
+            return SafeCast.toUint96(m);
         } catch {
-            return uint64(ONE);
+            return uint96(ONE);
         }
     }
 

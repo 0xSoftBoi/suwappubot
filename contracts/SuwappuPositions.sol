@@ -54,7 +54,7 @@ interface IPositionOracle {
     ///         <TICKER>/USD. A USDG/USD feed exists (0x61B7e5650328764B076A108EFF5fa7282a1B9aD2)
     ///         if a USDG-denominated variant is ever wanted.
     function priceOf(address token) external view returns (uint256);
-    function multiplierOf(address token) external view returns (uint64);
+    function multiplierOf(address token) external view returns (uint96);
 }
 
 contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
@@ -71,12 +71,21 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     struct Position {
         uint8 tickerIndex; // index into the sorted ROBINHOOD_EQUITIES registry
-        uint128 entryPrice; // USDG per unit, 1e18. 0 == minted while unpriced
+        uint96 entryPrice; // USDG per unit, 1e18. 0 == minted while unpriced
         uint40 mintedAt; // block timestamp
         uint16 mintRank; // 1-based order of mint across the whole collection
         // Corporate-action multiplier observed at mint, 1e18 == unadjusted.
-        // Completes the slot exactly: 8 + 128 + 40 + 16 + 64 = 256 bits.
-        uint64 entryMultiplier;
+        //
+        // uint96, NOT uint64. The oracle clamps the multiplier to 1e21, but
+        // uint64 tops out at ~1.845e19 — so the top 54x of the permitted band
+        // was unrepresentable and `uint64(m)` truncated it SILENTLY. A single
+        // 20:1 split (20e18) wrapped to 1.553e18, restating the basis by 12.9x
+        // in the wrong direction, and the wrapped value was stamped into this
+        // immutable field with no restamp path. uint96 holds ~7.9e28, four
+        // orders of magnitude above the clamp.
+        //
+        // Slot still packs exactly: 8 + 96 + 40 + 16 + 96 = 256 bits.
+        uint96 entryMultiplier;
     }
 
     /// @notice Immutable per-ticker supply caps, sealed at construction.
@@ -202,6 +211,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     error RefundFailed();
     error BadFeed();
     error PriceZero();
+    error UnpricedAtMint();
     error FreePhaseUnbounded();
     error RenounceDisabled();
 
@@ -244,7 +254,8 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         uint8 tickerIndex,
         uint256 quantity,
         uint256 maxQty,
-        bytes32[] calldata proof
+        bytes32[] calldata proof,
+        bool allowUnpriced
     ) external payable nonReentrant {
         if (phase == Phase.Closed) revert BadPhase();
         if (!registrySealed) revert RegistryNotSealed();
@@ -265,6 +276,23 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         _cacheEthUsd();
         uint256 cost = _weiForCents(uint256(cfg.price) * quantity);
         if (msg.value < cost) revert WrongPayment();
+
+        // A card whose entry price stamps as 0 is permanently defective: the
+        // basis is written once, there is no restamp, and returnBps() reports
+        // (0,false) forever. `priceOf` returns 0 whenever the sequencer is
+        // down, the token's oracle is paused, or the round is older than
+        // maxAge — and maxAge is 3 days against a 24/5 equity feed, so a long
+        // weekend plus a market holiday is ~89h and clears it for all 35
+        // tickers at once.
+        //
+        // Not bricking the mint during an outage is the right goal, but selling
+        // a defective card at full price is the wrong way to reach it. A PAID
+        // mint now reverts unless the buyer explicitly opts in; a free phase is
+        // unaffected, and `allowUnpriced` keeps the escape hatch open for
+        // anyone who genuinely wants the token regardless.
+        if (cfg.price != 0 && !allowUnpriced && _oraclePrice(tickerIndex) == 0) {
+            revert UnpricedAtMint();
+        }
 
         // Allowlisted phase: prove membership and respect the per-address grant.
         if (cfg.merkleRoot != bytes32(0)) {
@@ -341,10 +369,10 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // Entry price is stamped once and immutable by design, and `oracle` is
         // owner-settable at any time, so narrow it with a checked cast rather
         // than silently recording a wrapped value forever.
-        uint128 entryPrice = SafeCast.toUint128(entry);
+        uint96 entryPrice = SafeCast.toUint96(entry);
         // Stamped alongside the price, because the two are only comparable on
         // the same basis. See adjustedEntry().
-        uint64 entryMul = _oracleMultiplier(tickerIndex);
+        uint96 entryMul = _oracleMultiplier(tickerIndex);
         for (uint256 i = 0; i < quantity;) {
             uint256 tokenId = supply + i + 1;
             _positions[tokenId] = Position({
@@ -537,14 +565,14 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     /// @dev The multiplier in force for `tickerIndex` right now. 1e18 when the
     ///      oracle is unset or the token does not publish one, so every ratio
     ///      built on it degrades to a no-op rather than to a divide-by-zero.
-    function _oracleMultiplier(uint8 tickerIndex) internal view returns (uint64) {
-        if (address(oracle) == address(0)) return uint64(1e18);
+    function _oracleMultiplier(uint8 tickerIndex) internal view returns (uint96) {
+        if (address(oracle) == address(0)) return uint96(1e18);
         address token = tickerToken[tickerIndex];
-        if (token == address(0)) return uint64(1e18);
-        try oracle.multiplierOf(token) returns (uint64 m) {
-            return m == 0 ? uint64(1e18) : m;
+        if (token == address(0)) return uint96(1e18);
+        try oracle.multiplierOf(token) returns (uint96 m) {
+            return m == 0 ? uint96(1e18) : m;
         } catch {
-            return uint64(1e18);
+            return uint96(1e18);
         }
     }
 
@@ -599,8 +627,8 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     function adjustedEntry(uint256 tokenId) public view returns (uint256) {
         Position memory p = positionOf(tokenId);
         if (p.entryPrice == 0) return 0;
-        uint64 then_ = p.entryMultiplier == 0 ? uint64(1e18) : p.entryMultiplier;
-        uint64 nowMul = _oracleMultiplier(p.tickerIndex);
+        uint96 then_ = p.entryMultiplier == 0 ? uint96(1e18) : p.entryMultiplier;
+        uint96 nowMul = _oracleMultiplier(p.tickerIndex);
         if (nowMul == 0 || nowMul == then_) return uint256(p.entryPrice);
         return (uint256(p.entryPrice) * uint256(then_)) / uint256(nowMul);
     }
@@ -615,10 +643,10 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     function corporateAction(uint256 tokenId)
         external
         view
-        returns (bool survived, uint64 atMint, uint64 current)
+        returns (bool survived, uint96 atMint, uint96 current)
     {
         Position memory p = positionOf(tokenId);
-        atMint = p.entryMultiplier == 0 ? uint64(1e18) : p.entryMultiplier;
+        atMint = p.entryMultiplier == 0 ? uint96(1e18) : p.entryMultiplier;
         current = _oracleMultiplier(p.tickerIndex);
         survived = p.entryPrice != 0 && current != atMint;
     }
@@ -818,7 +846,19 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (phase == Phase.Closed) revert BadPhase();
         // A free phase with no allowlist and no wallet cap is an open faucet for
         // the whole allocation; require at least one of the two.
-        if (merkleRoot == bytes32(0) && walletCap == 0) revert FreePhaseUnbounded();
+        // An open free phase must be bounded by ALLOCATION, not just a wallet
+        // cap: allocation == 0 means "up to MAX_SUPPLY", so `walletCap = 1` with
+        // no allowlist still hands the entire 10,000 to 10,000 fresh addresses
+        // for gas. MAX_PER_WALLET is per-address and does nothing here.
+        // An open (unallowlisted) free phase needs BOTH bounds. A wallet cap
+        // alone is not a bound: allocation == 0 means "up to MAX_SUPPLY", so
+        // walletCap = 1 with no allowlist still hands the whole 10,000 to
+        // 10,000 fresh addresses for gas, and MAX_PER_WALLET is per-address so
+        // it does nothing here. An allocation alone is not a bound either —
+        // one address takes the lot.
+        if (merkleRoot == bytes32(0) && (walletCap == 0 || allocation == 0)) {
+            revert FreePhaseUnbounded();
+        }
         phaseConfig[phase] = PhaseConfig(merkleRoot, 0, walletCap, allocation, startsAt, endsAt);
         emit PhaseConfigured(phase, merkleRoot, 0, walletCap, allocation, startsAt, endsAt);
     }

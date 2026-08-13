@@ -135,7 +135,7 @@ def test_cap_rejection_never_keeps_the_money(pos_env):
                 "to": pos.address,
                 "value": cost,
                 "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 3, 0, NO_PROOF]),
+                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 3, 0, NO_PROOF, True]),
             }
         )
     )
@@ -154,7 +154,7 @@ def test_underpay_by_one_wei_is_rejected(pos_env):
                 "to": pos.address,
                 "value": cost - 1,
                 "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, NO_PROOF]),
+                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, NO_PROOF, True]),
             }
         )
     )

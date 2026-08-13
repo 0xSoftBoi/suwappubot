@@ -72,7 +72,7 @@ def _mint(w3, pos, who, qty=1):
                 "to": pos.address,
                 "value": cost,
                 "gas": 2_000_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, qty, 0, []]),
+                "data": pos.encode_abi("mint", args=[PUBLIC, 0, qty, 0, [], False]),
             }
         )
     )
@@ -175,3 +175,74 @@ def test_the_multiplier_is_stamped_in_the_position_itself(env):
     tid = _mint(w3, pos, alice)
     p = pos.functions.positionOf(tid).call()
     assert p[4] == 2 * ONE, f"entryMultiplier not stamped: {p}"
+
+
+def test_a_large_split_cannot_truncate_the_stamped_multiplier(env):
+    """BLOCKER from review: the oracle clamps the multiplier to 1e21 but the
+    field was uint64, which tops out at ~1.845e19 — so the top 54x of the
+    permitted band was unrepresentable and the narrowing cast wrapped it in
+    SILENCE. A single 20:1 split (20e18) became 1.553e18, a 12.9x error in the
+    wrong direction, and the wrapped value was stamped into an immutable field
+    with no restamp path. Every pre-split card of that ticker would print a
+    fabricated return forever."""
+    w3, pos, oracle, stock, ef, owner, alice = env
+
+    for ratio, label in ((20, "20:1"), (40, "4:1 then 10:1 cumulative")):
+        stock.functions.setMultiplier(ratio * ONE).transact({"from": owner})
+        reported = oracle.functions.multiplierOf(stock.address).call()
+        assert reported == ratio * ONE, f"{label} truncated to {reported}"
+        assert reported > 2**64 - 1 or ratio * ONE <= 2**64 - 1
+
+    # and it survives the round trip into storage, which is what actually gets
+    # stamped forever
+    stock.functions.setMultiplier(20 * ONE).transact({"from": owner})
+    ef.functions.set(5_00000000, w3.eth.get_block("latest").timestamp).transact({"from": owner})
+    tid = _mint(w3, pos, alice)
+    assert pos.functions.positionOf(tid).call()[4] == 20 * ONE
+
+
+def test_the_position_struct_still_packs_into_one_slot():
+    """The widening must not have quietly cost a storage slot: 8 + 96 + 40 + 16
+    + 96 = 256 bits exactly."""
+    src = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    struct = src[src.index("struct Position {") : src.index("}", src.index("struct Position {"))]
+    bits = sum(int(w) for w in __import__("re").findall(r"uint(\d+)\s+\w+;", struct))
+    assert bits == 256, f"Position is {bits} bits — no longer one slot"
+
+
+def test_a_paid_mint_will_not_sell_a_permanently_unpriced_card(env):
+    """BLOCKER from review: entryPrice is written once with no restamp, so a
+    card stamped 0 reports (0, false) forever. priceOf returns 0 whenever the
+    sequencer is down, the token's oracle is paused, or the round is older than
+    maxAge — and maxAge is 3 days against a 24/5 feed, so a long weekend plus a
+    market holiday clears it for all 35 tickers at once. Not bricking the mint
+    is right; selling a defective card at full price is not."""
+    w3, pos, oracle, stock, ef, owner, alice = env
+
+    stock.functions.setPaused(True).transact({"from": owner})
+    assert oracle.functions.priceOf(stock.address).call() == 0
+
+    cost = pos.functions.quote(PUBLIC, 1).call()
+
+    def send(allow):
+        return w3.eth.wait_for_transaction_receipt(
+            w3.eth.send_transaction(
+                {
+                    "from": alice,
+                    "to": pos.address,
+                    "value": cost,
+                    "gas": 2_000_000,
+                    "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, [], allow]),
+                }
+            )
+        ).status
+
+    assert send(False) == 0, "sold a permanently unpriced card at full price"
+    # the buyer can still opt in deliberately
+    assert send(True) == 1
+    tid = pos.functions.totalSupply().call()
+    assert pos.functions.positionOf(tid).call()[1] == 0  # entryPrice, opted in
+
+    # and once the oracle recovers the guard stops firing
+    stock.functions.setPaused(False).transact({"from": owner})
+    assert send(False) == 1

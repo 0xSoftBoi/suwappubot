@@ -71,7 +71,9 @@ def test_overpayment_is_refunded_not_reverted(env):
     w3, pos, feed, owner, alice = env
     cost = pos.functions.quote(PUBLIC, 2).call()
     rcpt = w3.eth.wait_for_transaction_receipt(
-        pos.functions.mint(PUBLIC, 0, 2, 0, NO_PROOF).transact({"from": alice, "value": cost * 2})
+        pos.functions.mint(PUBLIC, 0, 2, 0, NO_PROOF, True).transact(
+            {"from": alice, "value": cost * 2}
+        )
     )
     assert rcpt.status == 1
     assert pos.functions.balanceOf(alice).call() == 2
@@ -84,7 +86,9 @@ def test_underpayment_still_reverts(env):
     w3, pos, feed, owner, alice = env
     cost = pos.functions.quote(PUBLIC, 1).call()
     with pytest.raises(Exception):
-        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF).transact({"from": alice, "value": cost - 1})
+        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF, True).transact(
+            {"from": alice, "value": cost - 1}
+        )
 
 
 def test_out_of_band_or_stale_feed_falls_back_and_never_sells_for_dust(env):
@@ -118,7 +122,9 @@ def test_mint_end_is_a_promise_the_contract_keeps(env):
     w3.provider.ethereum_tester.time_travel(now + 200)
     w3.provider.ethereum_tester.mine_block()
     with pytest.raises(Exception):
-        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF).transact({"from": alice, "value": 10**17})
+        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF, True).transact(
+            {"from": alice, "value": 10**17}
+        )
 
 
 def test_close_forever_stops_the_owner_too(env):
@@ -127,7 +133,9 @@ def test_close_forever_stops_the_owner_too(env):
     pos.functions.closeMintingForever().transact({"from": owner})
     assert pos.functions.mintingClosedForever().call() is True
     with pytest.raises(Exception):
-        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF).transact({"from": alice, "value": 10**17})
+        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF, True).transact(
+            {"from": alice, "value": 10**17}
+        )
     with pytest.raises(Exception):
         pos.functions.ownerMint(alice, 0, 1).transact({"from": owner})
 
@@ -136,9 +144,11 @@ def test_pause_and_royalties(env):
     w3, pos, feed, owner, alice = env
     pos.functions.setPaused(True).transact({"from": owner})
     with pytest.raises(Exception):
-        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF).transact({"from": alice, "value": 10**17})
+        pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF, True).transact(
+            {"from": alice, "value": 10**17}
+        )
     pos.functions.setPaused(False).transact({"from": owner})
-    pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF).transact({"from": alice, "value": 10**17})
+    pos.functions.mint(PUBLIC, 0, 1, 0, NO_PROOF, True).transact({"from": alice, "value": 10**17})
 
     pos.functions.setDefaultRoyalty(owner, 500).transact({"from": owner})  # 5%
     receiver, amount = pos.functions.royaltyInfo(1, 10**18).call()
@@ -192,7 +202,7 @@ def test_mint_state_is_one_call(env):
     assert (is_paused, ended, closed) == (False, False, False)
 
     # it tracks reality after a mint
-    pos.functions.mint(PUBLIC, 0, 2, 0, NO_PROOF).transact(
+    pos.functions.mint(PUBLIC, 0, 2, 0, NO_PROOF, True).transact(
         {"from": alice, "value": pos.functions.quote(PUBLIC, 2).call()}
     )
     st2 = pos.functions.mintState(alice, PUBLIC, 0, 0).call()
@@ -271,7 +281,7 @@ def test_an_outage_prices_off_the_last_real_price_not_a_stale_constant(env):
                 "to": pos.address,
                 "value": cost,
                 "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, []]),
+                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, [], True]),
             }
         )
     )
@@ -369,7 +379,7 @@ def test_max_per_wallet_is_actually_enforced(env):
                     "to": pos.address,
                     "value": cost,
                     "gas": 6_000_000,
-                    "data": pos.encode_abi("mint", args=[PUBLIC, 0, qty, 0, []]),
+                    "data": pos.encode_abi("mint", args=[PUBLIC, 0, qty, 0, [], True]),
                 }
             )
         ).status
@@ -405,7 +415,7 @@ def test_a_free_phase_needs_the_door_marked_free(env):
                 "to": pos.address,
                 "value": 0,
                 "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[1, 0, 3, 0, []]),
+                "data": pos.encode_abi("mint", args=[1, 0, 3, 0, [], True]),
             }
         )
     )

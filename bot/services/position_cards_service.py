@@ -580,10 +580,23 @@ class PositionCardsService:
             return 0
         return max(0, min(hit[1], MAX_CARD_DISCOUNT_BPS))
 
-    def invalidate(self, address: str) -> None:
+    def invalidate(self, address: str, user_id: Optional[int] = None) -> None:
+        """Drop every cached perk derived from `address`.
+
+        It previously cleared only `_holdings` and `_discount`, leaving
+        `_ticker_boost` (keyed by address+ticker) and `_user_discount` (keyed by
+        user_id) stale — so a holder who sold or transferred their card kept the
+        fee discount and the XP boost for up to _CACHE_TTL. Bounded, but it is
+        revenue, and a cache invalidation that clears two of four is a trap for
+        the next reader.
+        """
         key = (address or "").lower()
         self._holdings.pop(key, None)
         self._discount.pop(key, None)
+        for k in [k for k in self._ticker_boost if k[0] == key]:
+            self._ticker_boost.pop(k, None)
+        if user_id is not None:
+            self._user_discount.pop(user_id, None)
 
 
 position_cards_service = PositionCardsService()
