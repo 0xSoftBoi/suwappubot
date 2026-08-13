@@ -193,6 +193,43 @@ class DataMetadataDataset(BaseModel):
     timeframes: dict[str, DataMetadataTimeframeCoverage] = Field(default_factory=dict)
 
 
+class VenueDatasetCoverage(BaseModel):
+    """Round 5 — per-dataset counts/ranges under `venue_datasets` on DataMetadata."""
+
+    count: int = 0
+    start: str | None = None
+    end: str | None = None
+
+
+class VenueDatasetFreshness(BaseModel):
+    """Round 5 — per-dataset freshness under `venue_datasets` on DataStatus.
+
+    `healthy` is trivially True when `count` is 0 — an empty (not-yet-capturing)
+    dataset never drags down the overall `.healthy` flag.
+    """
+
+    count: int = 0
+    latest_ts: str | None = None
+    age_seconds: int | None = None
+    healthy: bool = True
+
+
+class MetadataVenueDatasets(BaseModel):
+    """Round 5 `venue_datasets` shape on DataMetadata (counts/ranges)."""
+
+    perps: VenueDatasetCoverage = Field(default_factory=VenueDatasetCoverage)
+    predictions: VenueDatasetCoverage = Field(default_factory=VenueDatasetCoverage)
+    lend: VenueDatasetCoverage = Field(default_factory=VenueDatasetCoverage)
+
+
+class StatusVenueDatasets(BaseModel):
+    """Round 5 `venue_datasets` shape on DataStatus (freshness)."""
+
+    perps: VenueDatasetFreshness = Field(default_factory=VenueDatasetFreshness)
+    predictions: VenueDatasetFreshness = Field(default_factory=VenueDatasetFreshness)
+    lend: VenueDatasetFreshness = Field(default_factory=VenueDatasetFreshness)
+
+
 class DataMetadata(BaseModel):
     """GET /v1/data/metadata response."""
 
@@ -201,6 +238,8 @@ class DataMetadata(BaseModel):
     # True when `datasets` was capped (at 500) — narrow with symbol/chain to see more.
     truncated: bool | None = None
     note: str | None = None
+    # Round 5 — counts/ranges for perp_metrics/prediction_snapshots/lend_metrics.
+    venue_datasets: MetadataVenueDatasets | None = None
 
 
 class DataStatusTimeframe(BaseModel):
@@ -213,8 +252,120 @@ class DataStatus(BaseModel):
 
     timeframes: dict[str, DataStatusTimeframe] = Field(default_factory=dict)
     sources: dict[str, int] = Field(default_factory=dict)
-    # True when 1m data is fresher than 5 minutes.
+    # True when 1m data is fresher than 5 minutes AND every non-empty Round 5
+    # venue dataset is fresh.
     healthy: bool = False
+    # Round 5 — freshness for perp_metrics/prediction_snapshots/lend_metrics.
+    venue_datasets: StatusVenueDatasets | None = None
+
+
+# ===========================================
+# Round 5 — perps / predictions / lend (docs/plans/market-data-parity.md)
+# ===========================================
+
+
+class PerpMarketSnapshot(BaseModel):
+    """GET /v1/data/perps/markets — one entry per (venue, symbol), latest snapshot."""
+
+    venue: str
+    symbol: str
+    ts: str
+    funding_rate: str | None = None
+    open_interest: str | None = None
+    mark_price: str | None = None
+    index_price: str | None = None
+    volume_24h: str | None = None
+
+
+class PerpsMarketsResult(BaseModel):
+    venues: list[str] = Field(default_factory=list)
+    markets: list[PerpMarketSnapshot] = Field(default_factory=list)
+
+
+class PerpHistoryPoint(BaseModel):
+    ts: str
+    funding_rate: str | None = None
+    open_interest: str | None = None
+    mark_price: str | None = None
+    index_price: str | None = None
+    volume_24h: str | None = None
+
+
+class PerpsHistoryResult(BaseModel):
+    symbol: str
+    venue: str
+    metrics: list[PerpHistoryPoint] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class PredictionMarketSnapshot(BaseModel):
+    """GET /v1/data/predictions/markets — one entry per (market_id, outcome), latest snapshot."""
+
+    venue: str
+    market_id: str
+    condition_id: str | None = None
+    question: str | None = None
+    outcome: str
+    ts: str
+    price: str | None = None
+    volume: str | None = None
+    liquidity: str | None = None
+    end_date: str | None = None
+
+
+class PredictionMarketsResult(BaseModel):
+    markets: list[PredictionMarketSnapshot] = Field(default_factory=list)
+
+
+class PredictionHistoryPoint(BaseModel):
+    ts: str
+    price: str | None = None
+    volume: str | None = None
+    liquidity: str | None = None
+
+
+class PredictionHistoryResult(BaseModel):
+    """`history` is set when `outcome` was passed to `get_prediction_history`;
+    `outcomes` (grouped by outcome) otherwise."""
+
+    market_id: str
+    outcome: str | None = None
+    history: list[PredictionHistoryPoint] | None = None
+    outcomes: dict[str, list[PredictionHistoryPoint]] | None = None
+    next_cursor: str | None = None
+
+
+class LendMarketSnapshot(BaseModel):
+    """GET /v1/data/lend/markets — one entry per market_id, latest snapshot."""
+
+    venue: str
+    market_id: str
+    chain_id: int | None = None
+    loan_symbol: str | None = None
+    collateral_symbol: str | None = None
+    ts: str
+    supply_apy: str | None = None
+    borrow_apy: str | None = None
+    tvl: str | None = None
+    utilization: str | None = None
+
+
+class LendMarketsResult(BaseModel):
+    markets: list[LendMarketSnapshot] = Field(default_factory=list)
+
+
+class LendHistoryPoint(BaseModel):
+    ts: str
+    supply_apy: str | None = None
+    borrow_apy: str | None = None
+    tvl: str | None = None
+    utilization: str | None = None
+
+
+class LendHistoryResult(BaseModel):
+    market_id: str
+    metrics: list[LendHistoryPoint] = Field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class LiveTick(BaseModel):

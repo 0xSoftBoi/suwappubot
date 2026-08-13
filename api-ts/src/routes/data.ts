@@ -15,7 +15,7 @@
  * every other Drizzle query in this codebase goes through requireDb/Effect
  * (see db/DrizzleService.ts), even from otherwise-plain route handlers.
  */
-import { and, asc, eq, gt, gte, lte, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, ilike, lte, sql, type SQL } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono, type Context } from 'hono'
 import { upgradeWebSocket } from 'hono/bun'
@@ -27,7 +27,17 @@ import {
 	SOLANA_TOKENS,
 	TEMPO_TOKEN_DECIMALS,
 } from '../config/tokenRegistry'
-import { marketCandles, requireDb, type MarketCandle } from '../db'
+import {
+	lendMetrics,
+	marketCandles,
+	perpMetrics,
+	predictionSnapshots,
+	requireDb,
+	type LendMetric,
+	type MarketCandle,
+	type PerpMetric,
+	type PredictionSnapshot,
+} from '../db'
 import { agentError } from '../lib/agentError'
 import { getDataUsage, recordDataUsage } from '../lib/dataUsage'
 import { logger } from '../lib/logger'
@@ -64,6 +74,12 @@ const KNOWN_DATA_ROUTES = new Set<string>([
 	'/reference/tokens',
 	'/reference/resolve',
 	'/history/ohlcv',
+	'/perps/markets',
+	'/perps/history',
+	'/predictions/markets',
+	'/predictions/history',
+	'/lend/markets',
+	'/lend/history',
 	'/metadata',
 	'/status',
 	'/live',
@@ -679,6 +695,575 @@ dataRoutes.get('/history/ohlcv', async (c) => {
 })
 
 // ===========================================
+// SHARED — limit parsing for the Round 5 venue datasets (perps/predictions/lend)
+// ===========================================
+
+/** Parse+cap a `limit` query param. Returns the parsed value, or 'invalid' on a non-numeric/non-positive input. */
+function parseLimitParam(raw: string | undefined, def: number, max: number): number | 'invalid' {
+	if (!raw) return def
+	const parsed = parseInt(raw, 10)
+	if (!Number.isFinite(parsed) || parsed <= 0) return 'invalid'
+	return Math.min(parsed, max)
+}
+
+// ===========================================
+// PERPS — Round 5 (docs/plans/market-data-parity.md), served from perp_metrics
+// ===========================================
+
+interface PerpMarketRow {
+	venue: string
+	symbol: string
+	ts: Date | string
+	fundingRate: string | null
+	openInterest: string | null
+	markPrice: string | null
+	indexPrice: string | null
+	volume24h: string | null
+}
+
+async function fetchPerpMarkets(venue: string | undefined) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.selectDistinctOn(
+							[perpMetrics.venue, perpMetrics.symbol],
+							{
+								venue: perpMetrics.venue,
+								symbol: perpMetrics.symbol,
+								ts: perpMetrics.ts,
+								fundingRate: perpMetrics.fundingRate,
+								openInterest: perpMetrics.openInterest,
+								markPrice: perpMetrics.markPrice,
+								indexPrice: perpMetrics.indexPrice,
+								volume24h: perpMetrics.volume24h,
+							},
+						)
+						.from(perpMetrics)
+						.where(venue ? eq(perpMetrics.venue, venue) : undefined)
+						.orderBy(perpMetrics.venue, perpMetrics.symbol, desc(perpMetrics.ts)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/perps/markets?venue= — latest perp_metrics row per (venue, symbol) in one
+// query (selectDistinctOn on (venue, symbol) ordered by ts desc).
+dataRoutes.get('/perps/markets', async (c) => {
+	const venueParam = c.req.query('venue')?.trim().toLowerCase() || undefined
+
+	const result = await fetchPerpMarkets(venueParam)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] perps/markets query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load perp markets')
+	}
+
+	const rows = result.right as PerpMarketRow[]
+	const markets = rows.map((row) => ({
+		venue: row.venue,
+		symbol: row.symbol,
+		ts: isoOf(row.ts),
+		funding_rate: row.fundingRate,
+		open_interest: row.openInterest,
+		mark_price: row.markPrice,
+		index_price: row.indexPrice,
+		volume_24h: row.volume24h,
+	}))
+	const venues = [...new Set(markets.map((m) => m.venue))]
+
+	return c.json({ success: true, venues, markets })
+})
+
+interface PerpHistoryRow {
+	ts: Date | string
+	fundingRate: string | null
+	openInterest: string | null
+	markPrice: string | null
+	indexPrice: string | null
+	volume24h: string | null
+}
+
+const DEFAULT_PERP_VENUE = 'hyperliquid'
+
+async function fetchPerpHistory(
+	symbol: string,
+	venue: string,
+	start: Date | null,
+	end: Date | null,
+	limit: number,
+	cursorTs: Date | null,
+) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(perpMetrics.symbol, symbol), eq(perpMetrics.venue, venue)]
+			if (start) conditions.push(gte(perpMetrics.ts, start))
+			if (end) conditions.push(lte(perpMetrics.ts, end))
+			if (cursorTs) conditions.push(gt(perpMetrics.ts, cursorTs))
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							ts: perpMetrics.ts,
+							fundingRate: perpMetrics.fundingRate,
+							openInterest: perpMetrics.openInterest,
+							markPrice: perpMetrics.markPrice,
+							indexPrice: perpMetrics.indexPrice,
+							volume24h: perpMetrics.volume24h,
+						})
+						.from(perpMetrics)
+						.where(and(...conditions))
+						.orderBy(asc(perpMetrics.ts))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/perps/history?symbol=&venue=hyperliquid&start=&end=&limit=&cursor=
+// Time series of funding/OI/mark/index price for one symbol on one venue.
+dataRoutes.get('/perps/history', async (c) => {
+	const symbolParam = c.req.query('symbol')?.trim().toUpperCase()
+	const venueParam = c.req.query('venue')?.trim().toLowerCase() || DEFAULT_PERP_VENUE
+	const startParam = c.req.query('start')
+	const endParam = c.req.query('end')
+	const limitParam = c.req.query('limit')
+	const cursorParam = c.req.query('cursor')
+
+	if (!symbolParam) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'symbol query parameter is required', {
+			hint: 'GET /v1/data/perps/history?symbol=BTC&venue=hyperliquid',
+		})
+	}
+
+	const start = parseTimestamp(startParam)
+	if (startParam && !start) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid start timestamp: ${startParam}`)
+	const end = parseTimestamp(endParam)
+	if (endParam && !end) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid end timestamp: ${endParam}`)
+
+	const limit = parseLimitParam(limitParam, DEFAULT_LIMIT, MAX_LIMIT)
+	if (limit === 'invalid') return agentError(c, 400, 'VALIDATION_ERROR', `Invalid limit: ${limitParam}`)
+
+	let cursorTs: Date | null = null
+	if (cursorParam) {
+		cursorTs = decodeCursor(cursorParam)
+		if (!cursorTs) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid cursor: ${cursorParam}`)
+	}
+
+	const result = await fetchPerpHistory(symbolParam, venueParam, start, end, limit, cursorTs)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] perps/history query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load perp history')
+	}
+
+	const rows = result.right as PerpHistoryRow[]
+	const metrics = rows.map((row) => ({
+		ts: isoOf(row.ts),
+		funding_rate: row.fundingRate,
+		open_interest: row.openInterest,
+		mark_price: row.markPrice,
+		index_price: row.indexPrice,
+		volume_24h: row.volume24h,
+	}))
+	const nextCursor = rows.length === limit && rows.length > 0 ? encodeCursor(new Date(isoOf((rows[rows.length - 1] as PerpHistoryRow).ts))) : null
+
+	return c.json({
+		success: true,
+		symbol: symbolParam,
+		venue: venueParam,
+		metrics,
+		...(nextCursor ? { next_cursor: nextCursor } : {}),
+	})
+})
+
+// ===========================================
+// PREDICTIONS — Round 5, served from prediction_snapshots
+// ===========================================
+
+interface PredictionMarketRow {
+	venue: string
+	marketId: string
+	conditionId: string | null
+	question: string | null
+	outcome: string
+	ts: Date | string
+	price: string | null
+	volume: string | null
+	liquidity: string | null
+	endDate: Date | string | null
+}
+
+const DEFAULT_PREDICTION_MARKETS_LIMIT = 50
+const MAX_PREDICTION_MARKETS_LIMIT = 200
+
+async function fetchPredictionMarkets(q: string | undefined) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.selectDistinctOn(
+							[predictionSnapshots.marketId, predictionSnapshots.outcome],
+							{
+								venue: predictionSnapshots.venue,
+								marketId: predictionSnapshots.marketId,
+								conditionId: predictionSnapshots.conditionId,
+								question: predictionSnapshots.question,
+								outcome: predictionSnapshots.outcome,
+								ts: predictionSnapshots.ts,
+								price: predictionSnapshots.price,
+								volume: predictionSnapshots.volume,
+								liquidity: predictionSnapshots.liquidity,
+								endDate: predictionSnapshots.endDate,
+							},
+						)
+						.from(predictionSnapshots)
+						.where(q ? ilike(predictionSnapshots.question, `%${q}%`) : undefined)
+						.orderBy(predictionSnapshots.marketId, predictionSnapshots.outcome, desc(predictionSnapshots.ts)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/predictions/markets?q=&limit= — latest prediction_snapshots row per
+// (market_id, outcome) in one query (selectDistinctOn), then sorted by volume desc
+// and capped in JS (DISTINCT ON requires its ORDER BY to lead with the distinct
+// columns, so a volume-desc ORDER BY can't be pushed into the same query).
+dataRoutes.get('/predictions/markets', async (c) => {
+	const qParam = c.req.query('q')?.trim() || undefined
+	const limitParam = c.req.query('limit')
+
+	const limit = parseLimitParam(limitParam, DEFAULT_PREDICTION_MARKETS_LIMIT, MAX_PREDICTION_MARKETS_LIMIT)
+	if (limit === 'invalid') return agentError(c, 400, 'VALIDATION_ERROR', `Invalid limit: ${limitParam}`)
+
+	const result = await fetchPredictionMarkets(qParam)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] predictions/markets query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load prediction markets')
+	}
+
+	const rows = result.right as PredictionMarketRow[]
+	const markets = rows
+		.map((row) => ({
+			venue: row.venue,
+			market_id: row.marketId,
+			condition_id: row.conditionId,
+			question: row.question,
+			outcome: row.outcome,
+			ts: isoOf(row.ts),
+			price: row.price,
+			volume: row.volume,
+			liquidity: row.liquidity,
+			end_date: row.endDate ? isoOf(row.endDate) : null,
+		}))
+		.sort((a, b) => (Number(b.volume ?? 0) || 0) - (Number(a.volume ?? 0) || 0))
+		.slice(0, limit)
+
+	return c.json({ success: true, markets })
+})
+
+interface PredictionHistoryRow {
+	outcome: string
+	ts: Date | string
+	price: string | null
+	volume: string | null
+	liquidity: string | null
+}
+
+async function fetchPredictionHistory(
+	marketId: string,
+	outcome: string | undefined,
+	start: Date | null,
+	end: Date | null,
+	limit: number,
+	cursorTs: Date | null,
+) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(predictionSnapshots.marketId, marketId)]
+			if (outcome) conditions.push(eq(predictionSnapshots.outcome, outcome))
+			if (start) conditions.push(gte(predictionSnapshots.ts, start))
+			if (end) conditions.push(lte(predictionSnapshots.ts, end))
+			if (cursorTs) conditions.push(gt(predictionSnapshots.ts, cursorTs))
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							outcome: predictionSnapshots.outcome,
+							ts: predictionSnapshots.ts,
+							price: predictionSnapshots.price,
+							volume: predictionSnapshots.volume,
+							liquidity: predictionSnapshots.liquidity,
+						})
+						.from(predictionSnapshots)
+						.where(and(...conditions))
+						.orderBy(asc(predictionSnapshots.outcome), asc(predictionSnapshots.ts))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/predictions/history?market_id=&outcome=&start=&end=&limit=&cursor=
+//   outcome given    — flat `history` time series for that one outcome
+//   outcome omitted  — `outcomes` map grouped by outcome (shared limit/cursor
+//                       across all outcomes of the market — a single flat query,
+//                       grouped in JS, mirroring how /metadata groups market_candles)
+dataRoutes.get('/predictions/history', async (c) => {
+	const marketIdParam = c.req.query('market_id')?.trim()
+	const outcomeParam = c.req.query('outcome')?.trim() || undefined
+	const startParam = c.req.query('start')
+	const endParam = c.req.query('end')
+	const limitParam = c.req.query('limit')
+	const cursorParam = c.req.query('cursor')
+
+	if (!marketIdParam) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'market_id query parameter is required', {
+			hint: 'GET /v1/data/predictions/history?market_id=0x...&outcome=YES',
+		})
+	}
+
+	const start = parseTimestamp(startParam)
+	if (startParam && !start) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid start timestamp: ${startParam}`)
+	const end = parseTimestamp(endParam)
+	if (endParam && !end) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid end timestamp: ${endParam}`)
+
+	const limit = parseLimitParam(limitParam, DEFAULT_LIMIT, MAX_LIMIT)
+	if (limit === 'invalid') return agentError(c, 400, 'VALIDATION_ERROR', `Invalid limit: ${limitParam}`)
+
+	let cursorTs: Date | null = null
+	if (cursorParam) {
+		cursorTs = decodeCursor(cursorParam)
+		if (!cursorTs) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid cursor: ${cursorParam}`)
+	}
+
+	const result = await fetchPredictionHistory(marketIdParam, outcomeParam, start, end, limit, cursorTs)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] predictions/history query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load prediction history')
+	}
+
+	const rows = result.right as PredictionHistoryRow[]
+	const toPoint = (row: PredictionHistoryRow) => ({
+		ts: isoOf(row.ts),
+		price: row.price,
+		volume: row.volume,
+		liquidity: row.liquidity,
+	})
+	const lastRow = rows.length > 0 ? (rows[rows.length - 1] as PredictionHistoryRow) : null
+	const nextCursor = rows.length === limit && lastRow ? encodeCursor(new Date(isoOf(lastRow.ts))) : null
+
+	if (outcomeParam) {
+		return c.json({
+			success: true,
+			market_id: marketIdParam,
+			outcome: outcomeParam,
+			history: rows.map(toPoint),
+			...(nextCursor ? { next_cursor: nextCursor } : {}),
+		})
+	}
+
+	const outcomes: Record<string, ReturnType<typeof toPoint>[]> = {}
+	for (const row of rows) {
+		;(outcomes[row.outcome] ??= []).push(toPoint(row))
+	}
+	return c.json({
+		success: true,
+		market_id: marketIdParam,
+		outcomes,
+		...(nextCursor ? { next_cursor: nextCursor } : {}),
+	})
+})
+
+// ===========================================
+// LEND — Round 5, served from lend_metrics
+// ===========================================
+
+interface LendMarketRow {
+	venue: string
+	marketId: string
+	chainId: number | null
+	loanSymbol: string | null
+	collateralSymbol: string | null
+	ts: Date | string
+	supplyApy: string | null
+	borrowApy: string | null
+	tvl: string | null
+	utilization: string | null
+}
+
+async function fetchLendMarkets(chainId: number | undefined) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.selectDistinctOn(
+							[lendMetrics.marketId],
+							{
+								venue: lendMetrics.venue,
+								marketId: lendMetrics.marketId,
+								chainId: lendMetrics.chainId,
+								loanSymbol: lendMetrics.loanSymbol,
+								collateralSymbol: lendMetrics.collateralSymbol,
+								ts: lendMetrics.ts,
+								supplyApy: lendMetrics.supplyApy,
+								borrowApy: lendMetrics.borrowApy,
+								tvl: lendMetrics.tvl,
+								utilization: lendMetrics.utilization,
+							},
+						)
+						.from(lendMetrics)
+						.where(chainId !== undefined ? eq(lendMetrics.chainId, chainId) : undefined)
+						.orderBy(lendMetrics.marketId, desc(lendMetrics.ts)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/lend/markets?chain_id= — latest lend_metrics row per market_id in one
+// query (selectDistinctOn on market_id ordered by ts desc).
+dataRoutes.get('/lend/markets', async (c) => {
+	const chainIdParam = c.req.query('chain_id')
+	let chainId: number | undefined
+	if (chainIdParam) {
+		const parsed = parseInt(chainIdParam, 10)
+		if (!Number.isFinite(parsed)) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid chain_id: ${chainIdParam}`)
+		chainId = parsed
+	}
+
+	const result = await fetchLendMarkets(chainId)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] lend/markets query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load lend markets')
+	}
+
+	const rows = result.right as LendMarketRow[]
+	const markets = rows.map((row) => ({
+		venue: row.venue,
+		market_id: row.marketId,
+		chain_id: row.chainId,
+		loan_symbol: row.loanSymbol,
+		collateral_symbol: row.collateralSymbol,
+		ts: isoOf(row.ts),
+		supply_apy: row.supplyApy,
+		borrow_apy: row.borrowApy,
+		tvl: row.tvl,
+		utilization: row.utilization,
+	}))
+
+	return c.json({ success: true, markets })
+})
+
+interface LendHistoryRow {
+	ts: Date | string
+	supplyApy: string | null
+	borrowApy: string | null
+	tvl: string | null
+	utilization: string | null
+}
+
+async function fetchLendHistory(
+	marketId: string,
+	start: Date | null,
+	end: Date | null,
+	limit: number,
+	cursorTs: Date | null,
+) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(lendMetrics.marketId, marketId)]
+			if (start) conditions.push(gte(lendMetrics.ts, start))
+			if (end) conditions.push(lte(lendMetrics.ts, end))
+			if (cursorTs) conditions.push(gt(lendMetrics.ts, cursorTs))
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							ts: lendMetrics.ts,
+							supplyApy: lendMetrics.supplyApy,
+							borrowApy: lendMetrics.borrowApy,
+							tvl: lendMetrics.tvl,
+							utilization: lendMetrics.utilization,
+						})
+						.from(lendMetrics)
+						.where(and(...conditions))
+						.orderBy(asc(lendMetrics.ts))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+// GET /v1/data/lend/history?market_id=&start=&end=&limit=&cursor=
+dataRoutes.get('/lend/history', async (c) => {
+	const marketIdParam = c.req.query('market_id')?.trim()
+	const startParam = c.req.query('start')
+	const endParam = c.req.query('end')
+	const limitParam = c.req.query('limit')
+	const cursorParam = c.req.query('cursor')
+
+	if (!marketIdParam) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'market_id query parameter is required', {
+			hint: 'GET /v1/data/lend/history?market_id=0x...',
+		})
+	}
+
+	const start = parseTimestamp(startParam)
+	if (startParam && !start) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid start timestamp: ${startParam}`)
+	const end = parseTimestamp(endParam)
+	if (endParam && !end) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid end timestamp: ${endParam}`)
+
+	const limit = parseLimitParam(limitParam, DEFAULT_LIMIT, MAX_LIMIT)
+	if (limit === 'invalid') return agentError(c, 400, 'VALIDATION_ERROR', `Invalid limit: ${limitParam}`)
+
+	let cursorTs: Date | null = null
+	if (cursorParam) {
+		cursorTs = decodeCursor(cursorParam)
+		if (!cursorTs) return agentError(c, 400, 'VALIDATION_ERROR', `Invalid cursor: ${cursorParam}`)
+	}
+
+	const result = await fetchLendHistory(marketIdParam, start, end, limit, cursorTs)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] lend/history query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load lend history')
+	}
+
+	const rows = result.right as LendHistoryRow[]
+	const metrics = rows.map((row) => ({
+		ts: isoOf(row.ts),
+		supply_apy: row.supplyApy,
+		borrow_apy: row.borrowApy,
+		tvl: row.tvl,
+		utilization: row.utilization,
+	}))
+	const lastRow = rows.length > 0 ? (rows[rows.length - 1] as LendHistoryRow) : null
+	const nextCursor = rows.length === limit && lastRow ? encodeCursor(new Date(isoOf(lastRow.ts))) : null
+
+	return c.json({
+		success: true,
+		market_id: marketIdParam,
+		metrics,
+		...(nextCursor ? { next_cursor: nextCursor } : {}),
+	})
+})
+
+// ===========================================
 // METADATA — dataset coverage + capture freshness (Databento parity)
 // ===========================================
 
@@ -725,6 +1310,118 @@ function isoOf(v: string | Date): string {
 	return v instanceof Date ? v.toISOString() : new Date(v).toISOString()
 }
 
+// ===========================================
+// VENUE DATASETS — Round 5 perp_metrics/prediction_snapshots/lend_metrics
+// coverage, shared by /metadata (counts/ranges) and /status (freshness).
+// ===========================================
+
+interface VenueDatasetAggRow {
+	count: number | string
+	start: string | Date | null
+	end: string | Date | null
+}
+
+async function fetchVenueDatasetStats() {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [perpRows, predictionRows, lendRows] = yield* Effect.tryPromise({
+				try: () =>
+					Promise.all([
+						db
+							.select({
+								perpCount: sql<number>`cast(count(*) as int)`,
+								perpStart: sql<string | null>`min(${perpMetrics.ts})`,
+								perpEnd: sql<string | null>`max(${perpMetrics.ts})`,
+							})
+							.from(perpMetrics),
+						db
+							.select({
+								predictionCount: sql<number>`cast(count(*) as int)`,
+								predictionStart: sql<string | null>`min(${predictionSnapshots.ts})`,
+								predictionEnd: sql<string | null>`max(${predictionSnapshots.ts})`,
+							})
+							.from(predictionSnapshots),
+						db
+							.select({
+								lendCount: sql<number>`cast(count(*) as int)`,
+								lendStart: sql<string | null>`min(${lendMetrics.ts})`,
+								lendEnd: sql<string | null>`max(${lendMetrics.ts})`,
+							})
+							.from(lendMetrics),
+					]),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			const perpRow = perpRows[0] as
+				| { perpCount: number | string; perpStart: string | Date | null; perpEnd: string | Date | null }
+				| undefined
+			const predictionRow = predictionRows[0] as
+				| { predictionCount: number | string; predictionStart: string | Date | null; predictionEnd: string | Date | null }
+				| undefined
+			const lendRow = lendRows[0] as
+				| { lendCount: number | string; lendStart: string | Date | null; lendEnd: string | Date | null }
+				| undefined
+
+			return {
+				perps: { count: perpRow?.perpCount ?? 0, start: perpRow?.perpStart ?? null, end: perpRow?.perpEnd ?? null },
+				predictions: {
+					count: predictionRow?.predictionCount ?? 0,
+					start: predictionRow?.predictionStart ?? null,
+					end: predictionRow?.predictionEnd ?? null,
+				},
+				lend: { count: lendRow?.lendCount ?? 0, start: lendRow?.lendStart ?? null, end: lendRow?.lendEnd ?? null },
+			} satisfies Record<string, VenueDatasetAggRow>
+		}),
+	)
+}
+
+function venueDatasetCountsAndRanges(stats: Record<string, VenueDatasetAggRow>) {
+	const out: Record<string, { count: number; start: string | null; end: string | null }> = {}
+	for (const [name, row] of Object.entries(stats)) {
+		out[name] = {
+			count: Number(row.count),
+			start: row.start ? isoOf(row.start) : null,
+			end: row.end ? isoOf(row.end) : null,
+		}
+	}
+	return out
+}
+
+// Freshness thresholds — only factored into overall `healthy` when the
+// underlying table has at least one row (an empty, not-yet-capturing
+// dataset shouldn't itself flip the whole /status response unhealthy).
+const PERP_FRESHNESS_HEALTHY_SECONDS = 300 // 5 min
+const PREDICTION_FRESHNESS_HEALTHY_SECONDS = 900 // 15 min
+const LEND_FRESHNESS_HEALTHY_SECONDS = 1800 // 30 min
+
+function venueDatasetFreshness(stats: Record<string, VenueDatasetAggRow>, thresholds: Record<string, number>) {
+	const now = Date.now()
+	const out: Record<string, { count: number; latest_ts: string | null; age_seconds: number | null; healthy: boolean }> = {}
+	for (const [name, row] of Object.entries(stats)) {
+		const count = Number(row.count)
+		if (count === 0 || !row.end) {
+			// Empty (or no rows with a ts) — trivially healthy so it doesn't drag
+			// down the overall `healthy` flag for a dataset that isn't capturing yet.
+			out[name] = { count, latest_ts: null, age_seconds: null, healthy: true }
+			continue
+		}
+		const latestMs = (row.end instanceof Date ? row.end : new Date(row.end)).getTime()
+		if (Number.isNaN(latestMs)) {
+			out[name] = { count, latest_ts: null, age_seconds: null, healthy: true }
+			continue
+		}
+		const ageSeconds = Math.max(0, Math.floor((now - latestMs) / 1000))
+		out[name] = {
+			count,
+			latest_ts: isoOf(row.end),
+			age_seconds: ageSeconds,
+			healthy: ageSeconds < (thresholds[name] ?? Infinity),
+		}
+	}
+	return out
+}
+
 // GET /v1/data/metadata?symbol=&chain= — dataset coverage from market_candles,
 // grouped by (symbol, chain, timeframe) in a single aggregation query.
 dataRoutes.get('/metadata', async (c) => {
@@ -761,10 +1458,19 @@ dataRoutes.get('/metadata', async (c) => {
 	const truncated = allDatasets.length > MAX_METADATA_DATASETS
 	const datasets = truncated ? allDatasets.slice(0, MAX_METADATA_DATASETS) : allDatasets
 
+	const venueResult = await fetchVenueDatasetStats()
+	if (Either.isLeft(venueResult)) {
+		logger.error({ err: venueResult.left }, '[data] metadata venue_datasets query failed')
+	}
+	const venue_datasets = Either.isRight(venueResult)
+		? venueDatasetCountsAndRanges(venueResult.right)
+		: { perps: { count: 0, start: null, end: null }, predictions: { count: 0, start: null, end: null }, lend: { count: 0, start: null, end: null } }
+
 	return c.json({
 		success: true,
 		datasets,
 		total_candles: totalCandles,
+		venue_datasets,
 		...(truncated
 			? {
 					truncated: true,
@@ -840,9 +1546,28 @@ dataRoutes.get('/status', async (c) => {
 	}
 
 	const oneMinAge = timeframes['1m']?.age_seconds ?? null
-	const healthy = oneMinAge !== null && oneMinAge < FRESHNESS_HEALTHY_SECONDS
+	const ohlcvHealthy = oneMinAge !== null && oneMinAge < FRESHNESS_HEALTHY_SECONDS
 
-	return c.json({ success: true, timeframes, sources, healthy })
+	const venueResult = await fetchVenueDatasetStats()
+	if (Either.isLeft(venueResult)) {
+		logger.error({ err: venueResult.left }, '[data] status venue_datasets query failed')
+	}
+	const venue_datasets = Either.isRight(venueResult)
+		? venueDatasetFreshness(venueResult.right, {
+				perps: PERP_FRESHNESS_HEALTHY_SECONDS,
+				predictions: PREDICTION_FRESHNESS_HEALTHY_SECONDS,
+				lend: LEND_FRESHNESS_HEALTHY_SECONDS,
+			})
+		: {
+				perps: { count: 0, latest_ts: null, age_seconds: null, healthy: true },
+				predictions: { count: 0, latest_ts: null, age_seconds: null, healthy: true },
+				lend: { count: 0, latest_ts: null, age_seconds: null, healthy: true },
+			}
+
+	const healthy =
+		ohlcvHealthy && venue_datasets.perps.healthy && venue_datasets.predictions.healthy && venue_datasets.lend.healthy
+
+	return c.json({ success: true, timeframes, sources, healthy, venue_datasets })
 })
 
 // ===========================================

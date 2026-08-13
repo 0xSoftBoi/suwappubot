@@ -37,6 +37,18 @@ let mockCandleRows: any[] = []
 let mockMetadataRows: any[] = []
 let mockStatusRows: any[] = []
 
+// Round 5 (perps/predictions/lend) mock row sets.
+let mockPerpHistoryRows: any[] = []
+let mockPredictionHistoryRows: any[] = []
+let mockLendHistoryRows: any[] = []
+let mockPerpMarketRows: any[] = []
+let mockPredictionMarketRows: any[] = []
+let mockLendMarketRows: any[] = []
+// venue_datasets aggregate — one row each for perp_metrics/prediction_snapshots/lend_metrics.
+let mockPerpDatasetRows: any[] = [{ perpCount: 0, perpStart: null, perpEnd: null }]
+let mockPredictionDatasetRows: any[] = [{ predictionCount: 0, predictionStart: null, predictionEnd: null }]
+let mockLendDatasetRows: any[] = [{ lendCount: 0, lendStart: null, lendEnd: null }]
+
 const fakeDb = {
 	select: (selection?: Record<string, unknown>) => {
 		const keys = selection ? Object.keys(selection) : []
@@ -61,6 +73,65 @@ const fakeDb = {
 			}
 		}
 
+		if (keys.includes('perpCount')) {
+			// venue_datasets aggregate — perp_metrics whole-table count/min/max
+			return { from: () => Promise.resolve(mockPerpDatasetRows) }
+		}
+		if (keys.includes('predictionCount')) {
+			return { from: () => Promise.resolve(mockPredictionDatasetRows) }
+		}
+		if (keys.includes('lendCount')) {
+			return { from: () => Promise.resolve(mockLendDatasetRows) }
+		}
+
+		if (keys.includes('fundingRate')) {
+			// /v1/data/perps/history — flat time series
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => ({
+							limit: (n: number) => {
+								capturedLimit = n
+								return Promise.resolve(mockPerpHistoryRows)
+							},
+						}),
+					}),
+				}),
+			}
+		}
+
+		if (keys.includes('supplyApy')) {
+			// /v1/data/lend/history — flat time series
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => ({
+							limit: (n: number) => {
+								capturedLimit = n
+								return Promise.resolve(mockLendHistoryRows)
+							},
+						}),
+					}),
+				}),
+			}
+		}
+
+		if (keys.includes('price')) {
+			// /v1/data/predictions/history — flat time series (grouped by outcome in JS)
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => ({
+							limit: (n: number) => {
+								capturedLimit = n
+								return Promise.resolve(mockPredictionHistoryRows)
+							},
+						}),
+					}),
+				}),
+			}
+		}
+
 		return {
 			from: () => ({
 				where: () => ({
@@ -73,6 +144,41 @@ const fakeDb = {
 				}),
 			}),
 		}
+	},
+	selectDistinctOn: (_on: unknown[], fields?: Record<string, unknown>) => {
+		const keys = fields ? Object.keys(fields) : []
+
+		if (keys.includes('fundingRate')) {
+			// /v1/data/perps/markets
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => Promise.resolve(mockPerpMarketRows),
+					}),
+				}),
+			}
+		}
+		if (keys.includes('supplyApy')) {
+			// /v1/data/lend/markets
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => Promise.resolve(mockLendMarketRows),
+					}),
+				}),
+			}
+		}
+		if (keys.includes('price')) {
+			// /v1/data/predictions/markets
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => Promise.resolve(mockPredictionMarketRows),
+					}),
+				}),
+			}
+		}
+		throw new Error(`fakeDb.selectDistinctOn: unrecognized field selection ${JSON.stringify(keys)}`)
 	},
 } as any
 
@@ -589,5 +695,282 @@ describe('GET /v1/data/history/ohlcv — cursor pagination', () => {
 
 		const decoded = Buffer.from(body.next_cursor, 'base64').toString('utf8')
 		expect(new Date(decoded).toISOString()).toBe(decoded)
+	})
+})
+
+// ===========================================
+// ROUND 5 — perps / predictions / lend
+// ===========================================
+
+describe('GET /v1/data/perps/markets', () => {
+	it('returns 401 with no Authorization header', async () => {
+		const res = await dataRoutes.request('/perps/markets')
+		expect(res.status).toBe(401)
+	})
+
+	it('returns latest-per-symbol rows shaped as documented', async () => {
+		mockPerpMarketRows = [
+			{
+				venue: 'hyperliquid',
+				symbol: 'BTC',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				fundingRate: '0.0001',
+				openInterest: '1000000',
+				markPrice: '95000',
+				indexPrice: '94990',
+				volume24h: '500000000',
+			},
+		]
+		const res = await dataRoutes.request('/perps/markets', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.venues).toEqual(['hyperliquid'])
+		expect(body.markets).toHaveLength(1)
+		expect(body.markets[0]).toMatchObject({
+			venue: 'hyperliquid',
+			symbol: 'BTC',
+			funding_rate: '0.0001',
+			open_interest: '1000000',
+			mark_price: '95000',
+			index_price: '94990',
+			volume_24h: '500000000',
+		})
+	})
+})
+
+describe('GET /v1/data/perps/history', () => {
+	it('rejects a missing symbol', async () => {
+		const res = await dataRoutes.request('/perps/history', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+
+	it('defaults venue to hyperliquid and returns a metrics time series', async () => {
+		mockPerpHistoryRows = [
+			{
+				ts: new Date('2026-01-01T00:00:00Z'),
+				fundingRate: '0.0001',
+				openInterest: '1000000',
+				markPrice: '95000',
+				indexPrice: '94990',
+				volume24h: '500000000',
+			},
+		]
+		const res = await dataRoutes.request('/perps/history?symbol=BTC', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.symbol).toBe('BTC')
+		expect(body.venue).toBe('hyperliquid')
+		expect(body.metrics).toHaveLength(1)
+		expect(body.metrics[0].funding_rate).toBe('0.0001')
+	})
+})
+
+describe('GET /v1/data/predictions/markets', () => {
+	it('sorts by volume desc and caps at the requested limit', async () => {
+		mockPredictionMarketRows = [
+			{
+				venue: 'polymarket',
+				marketId: 'm1',
+				conditionId: 'c1',
+				question: 'Will it happen?',
+				outcome: 'YES',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				price: '0.6',
+				volume: '1000',
+				liquidity: '500',
+				endDate: new Date('2026-06-01T00:00:00Z'),
+			},
+			{
+				venue: 'polymarket',
+				marketId: 'm2',
+				conditionId: 'c2',
+				question: 'Something else?',
+				outcome: 'NO',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				price: '0.4',
+				volume: '5000',
+				liquidity: '200',
+				endDate: null,
+			},
+		]
+		const res = await dataRoutes.request('/predictions/markets?limit=1', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.markets).toHaveLength(1)
+		expect(body.markets[0].market_id).toBe('m2')
+		expect(body.markets[0].volume).toBe('5000')
+		expect(body.markets[0].end_date).toBeNull()
+	})
+
+	it('rejects an invalid limit', async () => {
+		const res = await dataRoutes.request('/predictions/markets?limit=notanumber', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+})
+
+describe('GET /v1/data/predictions/history', () => {
+	it('rejects a missing market_id', async () => {
+		const res = await dataRoutes.request('/predictions/history', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+
+	it('returns a flat history array when outcome is given', async () => {
+		mockPredictionHistoryRows = [
+			{ outcome: 'YES', ts: new Date('2026-01-01T00:00:00Z'), price: '0.6', volume: '1000', liquidity: '500' },
+		]
+		const res = await dataRoutes.request('/predictions/history?market_id=m1&outcome=YES', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.market_id).toBe('m1')
+		expect(body.outcome).toBe('YES')
+		expect(body.history).toHaveLength(1)
+		expect(body.history[0].price).toBe('0.6')
+	})
+
+	it('groups by outcome when outcome is omitted', async () => {
+		mockPredictionHistoryRows = [
+			{ outcome: 'YES', ts: new Date('2026-01-01T00:00:00Z'), price: '0.6', volume: '1000', liquidity: '500' },
+			{ outcome: 'NO', ts: new Date('2026-01-01T00:00:00Z'), price: '0.4', volume: '900', liquidity: '400' },
+		]
+		const res = await dataRoutes.request('/predictions/history?market_id=m1', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.outcomes.YES).toHaveLength(1)
+		expect(body.outcomes.NO).toHaveLength(1)
+		expect(body.outcomes.YES[0].price).toBe('0.6')
+	})
+})
+
+describe('GET /v1/data/lend/markets', () => {
+	it('returns latest-per-market rows shaped as documented', async () => {
+		mockLendMarketRows = [
+			{
+				venue: 'morpho',
+				marketId: 'mk1',
+				chainId: 8453,
+				loanSymbol: 'USDC',
+				collateralSymbol: 'WETH',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				supplyApy: '0.05',
+				borrowApy: '0.08',
+				tvl: '10000000',
+				utilization: '0.6',
+			},
+		]
+		const res = await dataRoutes.request('/lend/markets', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.markets).toHaveLength(1)
+		expect(body.markets[0]).toMatchObject({
+			venue: 'morpho',
+			market_id: 'mk1',
+			chain_id: 8453,
+			loan_symbol: 'USDC',
+			collateral_symbol: 'WETH',
+			supply_apy: '0.05',
+			borrow_apy: '0.08',
+			tvl: '10000000',
+			utilization: '0.6',
+		})
+	})
+
+	it('rejects a non-numeric chain_id', async () => {
+		const res = await dataRoutes.request('/lend/markets?chain_id=notanumber', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+})
+
+describe('GET /v1/data/lend/history', () => {
+	it('rejects a missing market_id', async () => {
+		const res = await dataRoutes.request('/lend/history', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+
+	it('returns a metrics time series', async () => {
+		mockLendHistoryRows = [
+			{
+				ts: new Date('2026-01-01T00:00:00Z'),
+				supplyApy: '0.05',
+				borrowApy: '0.08',
+				tvl: '10000000',
+				utilization: '0.6',
+			},
+		]
+		const res = await dataRoutes.request('/lend/history?market_id=mk1', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.market_id).toBe('mk1')
+		expect(body.metrics).toHaveLength(1)
+		expect(body.metrics[0].supply_apy).toBe('0.05')
+	})
+})
+
+describe('GET /v1/data/metadata and /status — venue_datasets (Round 5)', () => {
+	it('metadata reports per-dataset counts/ranges for perps/predictions/lend', async () => {
+		mockMetadataRows = []
+		mockPerpDatasetRows = [
+			{ perpCount: 10, perpStart: new Date('2026-01-01T00:00:00Z'), perpEnd: new Date('2026-01-02T00:00:00Z') },
+		]
+		mockPredictionDatasetRows = [{ predictionCount: 0, predictionStart: null, predictionEnd: null }]
+		mockLendDatasetRows = [
+			{ lendCount: 3, lendStart: new Date('2026-01-01T00:00:00Z'), lendEnd: new Date('2026-01-01T05:00:00Z') },
+		]
+
+		const res = await dataRoutes.request('/metadata', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.venue_datasets.perps.count).toBe(10)
+		expect(body.venue_datasets.perps.start).toBe('2026-01-01T00:00:00.000Z')
+		expect(body.venue_datasets.predictions.count).toBe(0)
+		expect(body.venue_datasets.predictions.start).toBeNull()
+		expect(body.venue_datasets.lend.count).toBe(3)
+	})
+
+	it('status reports freshness per dataset, healthy=true when a dataset is empty', async () => {
+		mockStatusRows = []
+		mockPerpDatasetRows = [{ perpCount: 0, perpStart: null, perpEnd: null }]
+		mockPredictionDatasetRows = [{ predictionCount: 0, predictionStart: null, predictionEnd: null }]
+		mockLendDatasetRows = [{ lendCount: 0, lendStart: null, lendEnd: null }]
+
+		const res = await dataRoutes.request('/status', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.venue_datasets.perps).toEqual({ count: 0, latest_ts: null, age_seconds: null, healthy: true })
+		expect(body.venue_datasets.predictions.healthy).toBe(true)
+		expect(body.venue_datasets.lend.healthy).toBe(true)
+	})
+
+	it('status marks a stale perp dataset unhealthy and drags down overall healthy', async () => {
+		mockStatusRows = [{ timeframe: '1m', source: 'coingecko', latestTs: new Date(), cnt: 1 }]
+		mockPerpDatasetRows = [
+			{ perpCount: 5, perpStart: new Date(Date.now() - 3_600_000), perpEnd: new Date(Date.now() - 3_600_000) },
+		]
+		mockPredictionDatasetRows = [{ predictionCount: 0, predictionStart: null, predictionEnd: null }]
+		mockLendDatasetRows = [{ lendCount: 0, lendStart: null, lendEnd: null }]
+
+		const res = await dataRoutes.request('/status', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.venue_datasets.perps.healthy).toBe(false)
+		expect(body.healthy).toBe(false)
 	})
 })

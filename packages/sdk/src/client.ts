@@ -32,6 +32,17 @@ import type {
   DataUsage,
   GetOhlcvArgs,
   GetOhlcvMultiArgs,
+  GetPerpsHistoryArgs,
+  GetPredictionMarketsArgs,
+  GetPredictionHistoryArgs,
+  GetLendMarketsArgs,
+  GetLendHistoryArgs,
+  PerpsMarketsResult,
+  PerpsHistoryResult,
+  PredictionMarketsResult,
+  PredictionHistoryResult,
+  LendMarketsResult,
+  LendHistoryResult,
   GetQuoteArgs,
   LendingMarket,
   LendingMarketDetail,
@@ -764,6 +775,170 @@ export class Suwappu {
       timeframes,
       sources: data.sources ?? {},
       healthy: Boolean(data.healthy),
+    };
+  }
+
+  // --- Round 5: perps / predictions / lend (docs/plans/market-data-parity.md) ---
+
+  /** GET /v1/data/perps/markets?venue= — latest perp_metrics row per (venue, symbol). */
+  async getPerpsMarkets(venue?: string): Promise<PerpsMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/perps/markets", {
+      params: { venue },
+    });
+    return {
+      venues: Array.isArray(data.venues) ? data.venues : [],
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            symbol: String(m.symbol ?? ""),
+            ts: String(m.ts ?? ""),
+            fundingRate: m.funding_rate ?? null,
+            openInterest: m.open_interest ?? null,
+            markPrice: m.mark_price ?? null,
+            indexPrice: m.index_price ?? null,
+            volume24h: m.volume_24h ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /** GET /v1/data/perps/history?symbol=&venue=&start=&end=&limit=&cursor= */
+  async getPerpsHistory(args: GetPerpsHistoryArgs): Promise<PerpsHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/perps/history", {
+      params: {
+        symbol: args.symbol,
+        venue: args.venue,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    return {
+      symbol: String(data.symbol ?? args.symbol),
+      venue: String(data.venue ?? args.venue ?? "hyperliquid"),
+      metrics: Array.isArray(data.metrics)
+        ? data.metrics.map((m: Record<string, any>) => ({
+            ts: String(m.ts ?? ""),
+            fundingRate: m.funding_rate ?? null,
+            openInterest: m.open_interest ?? null,
+            markPrice: m.mark_price ?? null,
+            indexPrice: m.index_price ?? null,
+            volume24h: m.volume_24h ?? null,
+          }))
+        : [],
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /** GET /v1/data/predictions/markets?q=&limit= — latest prediction_snapshots row per (market_id, outcome), sorted by volume desc. */
+  async getPredictionMarkets(args?: GetPredictionMarketsArgs): Promise<PredictionMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/predictions/markets", {
+      params: { q: args?.q, limit: args?.limit?.toString() },
+    });
+    return {
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            marketId: String(m.market_id ?? ""),
+            conditionId: m.condition_id ?? null,
+            question: m.question ?? null,
+            outcome: String(m.outcome ?? ""),
+            ts: String(m.ts ?? ""),
+            price: m.price ?? null,
+            volume: m.volume ?? null,
+            liquidity: m.liquidity ?? null,
+            endDate: m.end_date ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /**
+   * GET /v1/data/predictions/history?market_id=&outcome=&start=&end=&limit=&cursor=
+   * Pass `outcome` for a single-outcome time series; omit it to get every
+   * outcome grouped under `outcomes`.
+   */
+  async getPredictionHistory(args: GetPredictionHistoryArgs): Promise<PredictionHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/predictions/history", {
+      params: {
+        market_id: args.marketId,
+        outcome: args.outcome,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    const toPoint = (p: Record<string, any>) => ({
+      ts: String(p.ts ?? ""),
+      price: p.price ?? null,
+      volume: p.volume ?? null,
+      liquidity: p.liquidity ?? null,
+    });
+    const result: PredictionHistoryResult = {
+      marketId: String(data.market_id ?? args.marketId),
+      nextCursor: data.next_cursor,
+    };
+    if (Array.isArray(data.history)) {
+      result.outcome = String(data.outcome ?? args.outcome ?? "");
+      result.history = data.history.map(toPoint);
+    } else if (data.outcomes && typeof data.outcomes === "object") {
+      const outcomes: Record<string, ReturnType<typeof toPoint>[]> = {};
+      for (const [outcome, points] of Object.entries<any[]>(data.outcomes)) {
+        outcomes[outcome] = (points ?? []).map(toPoint);
+      }
+      result.outcomes = outcomes;
+    }
+    return result;
+  }
+
+  /** GET /v1/data/lend/markets?chain_id= — latest lend_metrics row per market_id. */
+  async getLendMarkets(args?: GetLendMarketsArgs): Promise<LendMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/lend/markets", {
+      params: { chain_id: args?.chainId?.toString() },
+    });
+    return {
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            marketId: String(m.market_id ?? ""),
+            chainId: m.chain_id ?? null,
+            loanSymbol: m.loan_symbol ?? null,
+            collateralSymbol: m.collateral_symbol ?? null,
+            ts: String(m.ts ?? ""),
+            supplyApy: m.supply_apy ?? null,
+            borrowApy: m.borrow_apy ?? null,
+            tvl: m.tvl ?? null,
+            utilization: m.utilization ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /** GET /v1/data/lend/history?market_id=&start=&end=&limit=&cursor= */
+  async getLendHistory(args: GetLendHistoryArgs): Promise<LendHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/lend/history", {
+      params: {
+        market_id: args.marketId,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    return {
+      marketId: String(data.market_id ?? args.marketId),
+      metrics: Array.isArray(data.metrics)
+        ? data.metrics.map((m: Record<string, any>) => ({
+            ts: String(m.ts ?? ""),
+            supplyApy: m.supply_apy ?? null,
+            borrowApy: m.borrow_apy ?? null,
+            tvl: m.tvl ?? null,
+            utilization: m.utilization ?? null,
+          }))
+        : [],
+      nextCursor: data.next_cursor,
     };
   }
 

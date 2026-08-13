@@ -680,6 +680,12 @@ export interface DataMetadata {
   /** True when `datasets` was capped (at 500) — narrow with `symbol`/`chain` to see more. */
   truncated?: boolean;
   note?: string;
+  /** Round 5 — counts/ranges for perp_metrics/prediction_snapshots/lend_metrics. */
+  venueDatasets?: {
+    perps: VenueDatasetCoverage;
+    predictions: VenueDatasetCoverage;
+    lend: VenueDatasetCoverage;
+  };
 }
 
 /** GET /v1/data/status — capture freshness, one entry per timeframe, plus per-source counts. */
@@ -688,11 +694,175 @@ export interface DataStatusTimeframe {
   ageSeconds: number | null;
 }
 
+/** Round 5 — per-dataset coverage reported under `venue_datasets` on `getDataMetadata`. */
+export interface VenueDatasetCoverage {
+  count: number;
+  start: string | null;
+  end: string | null;
+}
+
+/** Round 5 — per-dataset freshness reported under `venue_datasets` on `getDataStatus`. */
+export interface VenueDatasetFreshness {
+  count: number;
+  latestTs: string | null;
+  ageSeconds: number | null;
+  /** Trivially true when `count` is 0 — an empty (not-yet-capturing) dataset never drags down overall `healthy`. */
+  healthy: boolean;
+}
+
 export interface DataStatus {
   timeframes: Record<string, DataStatusTimeframe>;
   sources: Record<string, number>;
-  /** True when 1m data is fresher than 5 minutes. */
+  /** True when 1m data is fresher than 5 minutes AND every non-empty Round 5 venue dataset is fresh. */
   healthy: boolean;
+  /** Round 5 — freshness for perp_metrics/prediction_snapshots/lend_metrics. */
+  venueDatasets?: {
+    perps: VenueDatasetFreshness;
+    predictions: VenueDatasetFreshness;
+    lend: VenueDatasetFreshness;
+  };
+}
+
+// ===========================================
+// Round 5 — perps / predictions / lend (docs/plans/market-data-parity.md)
+// ===========================================
+
+/** GET /v1/data/perps/markets — one entry per (venue, symbol), latest snapshot. */
+export interface PerpMarketSnapshot {
+  venue: string;
+  symbol: string;
+  ts: string;
+  fundingRate: string | null;
+  openInterest: string | null;
+  markPrice: string | null;
+  indexPrice: string | null;
+  volume24h: string | null;
+}
+
+export interface PerpsMarketsResult {
+  venues: string[];
+  markets: PerpMarketSnapshot[];
+}
+
+export interface GetPerpsHistoryArgs {
+  symbol: string;
+  /** Defaults to "hyperliquid" server-side when omitted. */
+  venue?: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PerpHistoryPoint {
+  ts: string;
+  fundingRate: string | null;
+  openInterest: string | null;
+  markPrice: string | null;
+  indexPrice: string | null;
+  volume24h: string | null;
+}
+
+export interface PerpsHistoryResult {
+  symbol: string;
+  venue: string;
+  metrics: PerpHistoryPoint[];
+  nextCursor?: string;
+}
+
+/** GET /v1/data/predictions/markets — one entry per (market_id, outcome), latest snapshot. */
+export interface PredictionMarketSnapshot {
+  venue: string;
+  marketId: string;
+  conditionId: string | null;
+  question: string | null;
+  outcome: string;
+  ts: string;
+  price: string | null;
+  volume: string | null;
+  liquidity: string | null;
+  endDate: string | null;
+}
+
+export interface GetPredictionMarketsArgs {
+  /** Case-insensitive substring filter on `question`. */
+  q?: string;
+  /** Default 50, capped at 200. */
+  limit?: number;
+}
+
+export interface PredictionMarketsResult {
+  markets: PredictionMarketSnapshot[];
+}
+
+export interface GetPredictionHistoryArgs {
+  marketId: string;
+  /** Omit to get every outcome, grouped — see `PredictionHistoryResult.outcomes`. */
+  outcome?: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PredictionHistoryPoint {
+  ts: string;
+  price: string | null;
+  volume: string | null;
+  liquidity: string | null;
+}
+
+/** `history` is set when `outcome` was passed; `outcomes` (grouped) otherwise. */
+export interface PredictionHistoryResult {
+  marketId: string;
+  outcome?: string;
+  history?: PredictionHistoryPoint[];
+  outcomes?: Record<string, PredictionHistoryPoint[]>;
+  nextCursor?: string;
+}
+
+/** GET /v1/data/lend/markets — one entry per market_id, latest snapshot. */
+export interface LendMarketSnapshot {
+  venue: string;
+  marketId: string;
+  chainId: number | null;
+  loanSymbol: string | null;
+  collateralSymbol: string | null;
+  ts: string;
+  supplyApy: string | null;
+  borrowApy: string | null;
+  tvl: string | null;
+  utilization: string | null;
+}
+
+export interface GetLendMarketsArgs {
+  chainId?: number;
+}
+
+export interface LendMarketsResult {
+  markets: LendMarketSnapshot[];
+}
+
+export interface GetLendHistoryArgs {
+  marketId: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface LendHistoryPoint {
+  ts: string;
+  supplyApy: string | null;
+  borrowApy: string | null;
+  tvl: string | null;
+  utilization: string | null;
+}
+
+export interface LendHistoryResult {
+  marketId: string;
+  metrics: LendHistoryPoint[];
+  nextCursor?: string;
 }
 
 /** GET /v1/data/live server push: {"type":"tick","symbol","price_usd","ts"}. */

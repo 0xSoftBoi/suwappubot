@@ -338,9 +338,21 @@ returned page.
       }
     }
   ],
-  "total_candles": 7480
+  "total_candles": 7480,
+  "venue_datasets": {
+    "perps": { "count": 48210, "start": "2026-07-01T00:00:00.000Z", "end": "2026-08-13T10:04:00.000Z" },
+    "predictions": { "count": 91500, "start": "2026-07-01T00:05:00.000Z", "end": "2026-08-13T10:00:00.000Z" },
+    "lend": { "count": 6200, "start": "2026-07-01T00:10:00.000Z", "end": "2026-08-13T10:00:00.000Z" }
+  }
 }
 ```
+
+`venue_datasets` (Round 5, `docs/plans/market-data-parity.md`) reports
+whole-table `count`/`start`/`end` for each of the three venue-sourced tables
+(`perp_metrics`, `prediction_snapshots`, `lend_metrics`) — a single
+`count(*)`/`min(ts)`/`max(ts)` aggregate query per table, independent of the
+`symbol`/`chain` filters above (those only apply to `market_candles`).
+`count: 0, start: null, end: null` when a table has no rows yet.
 
 When truncated, the response adds:
 ```json
@@ -376,7 +388,12 @@ that timeframe and `healthy: false`, never throws.
     "coingecko": 812345,
     "geckoterminal": 41200
   },
-  "healthy": true
+  "healthy": true,
+  "venue_datasets": {
+    "perps": { "count": 48210, "latest_ts": "2026-08-13T10:04:00.000Z", "age_seconds": 30, "healthy": true },
+    "predictions": { "count": 91500, "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 245, "healthy": true },
+    "lend": { "count": 6200, "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 245, "healthy": true }
+  }
 }
 ```
 
@@ -391,9 +408,21 @@ Empty-table response (fresh instance, capture not yet run):
     "1d": { "latest_ts": null, "age_seconds": null }
   },
   "sources": {},
-  "healthy": false
+  "healthy": false,
+  "venue_datasets": {
+    "perps": { "count": 0, "latest_ts": null, "age_seconds": null, "healthy": true },
+    "predictions": { "count": 0, "latest_ts": null, "age_seconds": null, "healthy": true },
+    "lend": { "count": 0, "latest_ts": null, "age_seconds": null, "healthy": true }
+  }
 }
 ```
+
+`venue_datasets[name].healthy` compares `age_seconds` against a per-dataset
+threshold — **perps < 5 min**, **predictions < 15 min**, **lend < 30 min** —
+and is **trivially `true` when `count` is 0** (an empty, not-yet-capturing
+dataset never drags down the overall response). The top-level `healthy` is
+the AND of the `market_candles` 1m freshness check *and* all three
+`venue_datasets[*].healthy` flags.
 
 Errors: 500 `INTERNAL` on a DB query failure.
 
@@ -510,6 +539,33 @@ const status = await client.getDataStatus();
 console.log(status.healthy, status.timeframes["1m"]?.ageSeconds);
 ```
 
+### Perps / predictions / lend (Round 5)
+
+```python
+markets = await client.get_perps_markets(venue="hyperliquid")  # venue optional
+history = await client.get_perps_history("BTC", venue="hyperliquid", limit=200)
+
+predictions = await client.get_prediction_markets(q="election", limit=20)
+odds = await client.get_prediction_history("0xmarket...", outcome="YES")
+all_outcomes = await client.get_prediction_history("0xmarket...")  # -> .outcomes
+
+lend_markets = await client.get_lend_markets(chain_id=8453)
+lend_history = await client.get_lend_history("0xmorphomarket...", limit=200)
+```
+```typescript
+const markets = await client.getPerpsMarkets("hyperliquid"); // venue optional
+const history = await client.getPerpsHistory({ symbol: "BTC", venue: "hyperliquid", limit: 200 });
+
+const predictions = await client.getPredictionMarkets({ q: "election", limit: 20 });
+const odds = await client.getPredictionHistory({ marketId: "0xmarket...", outcome: "YES" });
+const allOutcomes = await client.getPredictionHistory({ marketId: "0xmarket..." }); // -> .outcomes
+
+const lendMarkets = await client.getLendMarkets({ chainId: 8453 });
+const lendHistory = await client.getLendHistory({ marketId: "0xmorphomarket...", limit: 200 });
+```
+
+See sections 9-11 below for full endpoint reference.
+
 ### Live tick subscription
 
 ```python
@@ -586,3 +642,220 @@ rolls completed 1m candles up into 5m/1h/1d rows periodically
 `dexscreener` appears only as the upstream API called for the
 `external_fallback` synthesis, not as a `market_candles.source` value written
 by capture.
+
+---
+
+## 9. Perps API — `perp_metrics`
+
+Round 5 (`docs/plans/market-data-parity.md`) — funding rate / open interest /
+mark & index price / 24h volume, captured every 60s from Hyperliquid REST
+`metaAndAssetCtxs` (`bot/services/hyperliquid_client.py`). Unique key
+`(venue, symbol, ts)`.
+
+### `GET /v1/data/perps/markets`
+
+| param | required | notes |
+|---|---|---|
+| `venue` | no | lowercased; omit for every venue |
+
+Latest `perp_metrics` row per `(venue, symbol)` in one query
+(`selectDistinctOn` on `(venue, symbol)` ordered by `ts desc`).
+
+```json
+{
+  "success": true,
+  "venues": ["hyperliquid"],
+  "markets": [
+    {
+      "venue": "hyperliquid",
+      "symbol": "BTC",
+      "ts": "2026-08-13T10:04:00.000Z",
+      "funding_rate": "0.0000125",
+      "open_interest": "812345000",
+      "mark_price": "95210.5",
+      "index_price": "95198.2",
+      "volume_24h": "4821000000"
+    }
+  ]
+}
+```
+
+### `GET /v1/data/perps/history`
+
+| param | required | notes |
+|---|---|---|
+| `symbol` | yes | uppercased |
+| `venue` | no (default `hyperliquid`) | lowercased |
+| `start`, `end` | no | ISO 8601 string or unix timestamp (same parsing as `history/ohlcv`) |
+| `limit` | no (default 500) | capped to 1000 |
+| `cursor` | no | opaque, base64 last-returned `ts` — pass back `next_cursor` to page forward |
+
+```json
+{
+  "success": true,
+  "symbol": "BTC",
+  "venue": "hyperliquid",
+  "metrics": [
+    {
+      "ts": "2026-08-13T10:04:00.000Z",
+      "funding_rate": "0.0000125",
+      "open_interest": "812345000",
+      "mark_price": "95210.5",
+      "index_price": "95198.2",
+      "volume_24h": "4821000000"
+    }
+  ],
+  "next_cursor": "MjAyNi0wOC0xM1QxMDowNDowMC4wMDBa"
+}
+```
+
+Errors: 400 `VALIDATION_ERROR` (missing `symbol`, bad `start`/`end`/`limit`/`cursor`).
+
+Source: `api-ts/src/routes/data.ts` (PERPS section).
+
+---
+
+## 10. Predictions API — `prediction_snapshots`
+
+Round 5 — implied-probability odds snapshots, captured every 5 minutes for the
+top ~100 active markets by volume from Polymarket Gamma
+(`bot/services/polymarket_api.py`). Unique key `(venue, market_id, outcome, ts)`.
+
+### `GET /v1/data/predictions/markets`
+
+| param | required | notes |
+|---|---|---|
+| `q` | no | case-insensitive substring match on `question` (ILIKE) |
+| `limit` | no (default 50) | capped to 200 |
+
+Latest `prediction_snapshots` row per `(market_id, outcome)` — one
+`selectDistinctOn` query ordered by `(market_id, outcome, ts desc)`, then
+sorted by `volume` desc and capped in application code (Postgres requires
+`DISTINCT ON`'s leading `ORDER BY` columns to match its distinct columns, so
+the volume-desc ordering can't be pushed into the same query).
+
+```json
+{
+  "success": true,
+  "markets": [
+    {
+      "venue": "polymarket",
+      "market_id": "0xmarket...",
+      "condition_id": "0xcondition...",
+      "question": "Will X happen by 2026?",
+      "outcome": "YES",
+      "ts": "2026-08-13T10:00:00.000Z",
+      "price": "0.62",
+      "volume": "5120000",
+      "liquidity": "180000",
+      "end_date": "2026-12-31T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `GET /v1/data/predictions/history`
+
+| param | required | notes |
+|---|---|---|
+| `market_id` | yes | |
+| `outcome` | no | omit to get every outcome for the market, grouped |
+| `start`, `end` | no | same parsing as `history/ohlcv` |
+| `limit` | no (default 500) | capped to 1000 |
+| `cursor` | no | opaque, base64 last-returned `ts` |
+
+With `outcome` — flat time series:
+```json
+{
+  "success": true,
+  "market_id": "0xmarket...",
+  "outcome": "YES",
+  "history": [
+    { "ts": "2026-08-13T10:00:00.000Z", "price": "0.62", "volume": "5120000", "liquidity": "180000" }
+  ]
+}
+```
+
+Without `outcome` — grouped by outcome (single flat query over the market,
+shared `limit`/`cursor` across all outcomes, grouped in application code —
+the same pattern `/metadata` uses to group `market_candles`):
+```json
+{
+  "success": true,
+  "market_id": "0xmarket...",
+  "outcomes": {
+    "YES": [{ "ts": "2026-08-13T10:00:00.000Z", "price": "0.62", "volume": "5120000", "liquidity": "180000" }],
+    "NO":  [{ "ts": "2026-08-13T10:00:00.000Z", "price": "0.38", "volume": "3200000", "liquidity": "95000" }]
+  }
+}
+```
+
+Errors: 400 `VALIDATION_ERROR` (missing `market_id`, bad `start`/`end`/`limit`/`cursor`).
+
+Source: `api-ts/src/routes/data.ts` (PREDICTIONS section).
+
+---
+
+## 11. Lend API — `lend_metrics`
+
+Round 5 — supply/borrow APY, TVL, utilization, captured every 10 minutes from
+Morpho GraphQL (`bot/services/morpho_api.py`). Unique key `(venue, market_id, ts)`.
+
+### `GET /v1/data/lend/markets`
+
+| param | required | notes |
+|---|---|---|
+| `chain_id` | no | numeric; filters to one chain |
+
+Latest `lend_metrics` row per `market_id` in one query (`selectDistinctOn` on
+`market_id` ordered by `ts desc`).
+
+```json
+{
+  "success": true,
+  "markets": [
+    {
+      "venue": "morpho",
+      "market_id": "0xmorphomarket...",
+      "chain_id": 8453,
+      "loan_symbol": "USDC",
+      "collateral_symbol": "WETH",
+      "ts": "2026-08-13T10:00:00.000Z",
+      "supply_apy": "0.0512",
+      "borrow_apy": "0.0834",
+      "tvl": "42100000",
+      "utilization": "0.61"
+    }
+  ]
+}
+```
+
+### `GET /v1/data/lend/history`
+
+| param | required | notes |
+|---|---|---|
+| `market_id` | yes | |
+| `start`, `end` | no | same parsing as `history/ohlcv` |
+| `limit` | no (default 500) | capped to 1000 |
+| `cursor` | no | opaque, base64 last-returned `ts` |
+
+```json
+{
+  "success": true,
+  "market_id": "0xmorphomarket...",
+  "metrics": [
+    { "ts": "2026-08-13T10:00:00.000Z", "supply_apy": "0.0512", "borrow_apy": "0.0834", "tvl": "42100000", "utilization": "0.61" }
+  ],
+  "next_cursor": null
+}
+```
+
+Errors: 400 `VALIDATION_ERROR` (missing `market_id`, bad `chain_id`/`start`/`end`/`limit`/`cursor`).
+
+Source: `api-ts/src/routes/data.ts` (LEND section).
+
+All three surfaces above share auth (section 1) and metering
+(`/v1/data/perps/markets`, `/v1/data/perps/history`,
+`/v1/data/predictions/markets`, `/v1/data/predictions/history`,
+`/v1/data/lend/markets`, `/v1/data/lend/history` are all in the
+`KNOWN_DATA_ROUTES` metering allowlist).

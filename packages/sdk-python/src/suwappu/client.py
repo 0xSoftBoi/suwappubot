@@ -23,7 +23,9 @@ from suwappu.types import (
     DataStatus,
     DataUsage,
     KillSwitch,
+    LendHistoryResult,
     LendingMarket,
+    LendMarketsResult,
     LinkCodeResult,
     LendingMarketDetail,
     LiveCandle,
@@ -33,8 +35,12 @@ from suwappu.types import (
     PerpMarket,
     PerpPosition,
     PerpQuote,
+    PerpsHistoryResult,
+    PerpsMarketsResult,
+    PredictionHistoryResult,
     PredictionMarket,
     PredictionMarketDetail,
+    PredictionMarketsResult,
     PredictionMarketToken,
     Quote,
     ReferenceChain,
@@ -608,6 +614,108 @@ class SuwappuClient:
         is true when 1m data is fresher than 5 minutes."""
         data = await self._request("GET", "/v1/data/status")
         return DataStatus.model_validate(data)
+
+    # --- Round 5: perps / predictions / lend (docs/plans/market-data-parity.md) ---
+
+    async def get_perps_markets(self, venue: str | None = None) -> PerpsMarketsResult:
+        """GET /v1/data/perps/markets?venue= — latest perp_metrics row per (venue, symbol)."""
+        params = {"venue": venue} if venue else None
+        data = await self._request("GET", "/v1/data/perps/markets", params=params)
+        return PerpsMarketsResult.model_validate(data)
+
+    async def get_perps_history(
+        self,
+        symbol: str,
+        *,
+        venue: str = "hyperliquid",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> PerpsHistoryResult:
+        """GET /v1/data/perps/history?symbol=&venue=&start=&end=&limit=&cursor="""
+        params: dict[str, str] = {"symbol": symbol, "venue": venue}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/perps/history", params=params)
+        return PerpsHistoryResult.model_validate(data)
+
+    async def get_prediction_markets(
+        self, *, q: str | None = None, limit: int | None = None
+    ) -> PredictionMarketsResult:
+        """GET /v1/data/predictions/markets?q=&limit= — latest prediction_snapshots
+        row per (market_id, outcome), sorted by volume desc. `limit` defaults to
+        50, capped at 200."""
+        params: dict[str, str] = {}
+        if q:
+            params["q"] = q
+        if limit is not None:
+            params["limit"] = str(limit)
+        data = await self._request("GET", "/v1/data/predictions/markets", params=params or None)
+        return PredictionMarketsResult.model_validate(data)
+
+    async def get_prediction_history(
+        self,
+        market_id: str,
+        *,
+        outcome: str | None = None,
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> PredictionHistoryResult:
+        """GET /v1/data/predictions/history?market_id=&outcome=&start=&end=&limit=&cursor=
+
+        Pass `outcome` for a single-outcome time series (`.history`); omit it
+        to get every outcome grouped under `.outcomes`.
+        """
+        params: dict[str, str] = {"market_id": market_id}
+        if outcome:
+            params["outcome"] = outcome
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/predictions/history", params=params)
+        return PredictionHistoryResult.model_validate(data)
+
+    async def get_lend_markets(self, *, chain_id: int | None = None) -> LendMarketsResult:
+        """GET /v1/data/lend/markets?chain_id= — latest lend_metrics row per market_id."""
+        params = {"chain_id": str(chain_id)} if chain_id is not None else None
+        data = await self._request("GET", "/v1/data/lend/markets", params=params)
+        return LendMarketsResult.model_validate(data)
+
+    async def get_lend_history(
+        self,
+        market_id: str,
+        *,
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> LendHistoryResult:
+        """GET /v1/data/lend/history?market_id=&start=&end=&limit=&cursor="""
+        params: dict[str, str] = {"market_id": market_id}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/lend/history", params=params)
+        return LendHistoryResult.model_validate(data)
 
     def _ws_url(self, path: str) -> str:
         base = self._base_url.rstrip("/")
