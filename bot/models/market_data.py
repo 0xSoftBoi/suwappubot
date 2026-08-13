@@ -102,3 +102,128 @@ class ApiUsageDaily(Base):
 
     def __repr__(self) -> str:
         return f"<ApiUsageDaily {self.api_key_id} {self.route} {self.day} count={self.count}>"
+
+
+class PerpMetric(Base):
+    """One perp market snapshot for a (venue, symbol, ts) key.
+
+    Backs Round 5 of docs/plans/market-data-parity.md — persisted funding
+    rate / open interest / mark & index price time series that Hyperliquid's
+    REST API (metaAndAssetCtxs, see bot/services/hyperliquid_client.py)
+    doesn't retain. Captured every 60s by the Python bot's perp capture loop.
+    """
+
+    __tablename__ = "perp_metrics"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    venue = Column(Text, nullable=False)  # e.g. 'hyperliquid'
+    symbol = Column(Text, nullable=False)  # perp market symbol, e.g. 'BTC'
+    ts = Column(DateTime(timezone=True), nullable=False)  # snapshot time, UTC
+
+    funding_rate = Column(Numeric(38, 18), nullable=True)
+    open_interest = Column(Numeric(38, 18), nullable=True)
+    mark_price = Column(Numeric(38, 18), nullable=True)
+    index_price = Column(Numeric(38, 18), nullable=True)  # oraclePx
+    volume_24h = Column(Numeric(38, 18), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("venue", "symbol", "ts", name="uq_perp_metrics_venue_symbol_ts"),
+        Index(
+            "ix_perp_metrics_venue_symbol_ts",
+            "venue",
+            "symbol",
+            ts.desc(),
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PerpMetric {self.venue}/{self.symbol} @ {self.ts}>"
+
+
+class PredictionSnapshot(Base):
+    """One prediction market odds snapshot for a (venue, market_id, outcome, ts) key.
+
+    Backs Round 5 of docs/plans/market-data-parity.md — persisted Polymarket
+    Gamma odds (bot/services/polymarket_api.py) for the top ~100 active
+    markets by volume, captured every 5 minutes.
+    """
+
+    __tablename__ = "prediction_snapshots"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    venue = Column(Text, nullable=False)  # e.g. 'polymarket'
+    market_id = Column(Text, nullable=False)
+    condition_id = Column(Text, nullable=True)
+    question = Column(Text, nullable=True)
+    outcome = Column(Text, nullable=False)  # e.g. 'YES' / 'NO'
+    ts = Column(DateTime(timezone=True), nullable=False)  # snapshot time, UTC
+
+    price = Column(Numeric(38, 18), nullable=True)  # implied probability
+    volume = Column(Numeric(38, 18), nullable=True)
+    liquidity = Column(Numeric(38, 18), nullable=True)
+    end_date = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "venue",
+            "market_id",
+            "outcome",
+            "ts",
+            name="uq_prediction_snapshots_venue_market_id_outcome_ts",
+        ),
+        Index(
+            "ix_prediction_snapshots_venue_market_id_ts",
+            "venue",
+            "market_id",
+            ts.desc(),
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PredictionSnapshot {self.venue}/{self.market_id}/{self.outcome} @ {self.ts}>"
+
+
+class LendMetric(Base):
+    """One lending market snapshot for a (venue, market_id, ts) key.
+
+    Backs Round 5 of docs/plans/market-data-parity.md — persisted Morpho
+    GraphQL supply/borrow APY + TVL/utilization (bot/services/morpho_api.py)
+    time series, captured every 10 minutes.
+    """
+
+    __tablename__ = "lend_metrics"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    venue = Column(Text, nullable=False)  # e.g. 'morpho'
+    market_id = Column(Text, nullable=False)
+    chain_id = Column(Integer, nullable=True)
+    loan_symbol = Column(Text, nullable=True)
+    collateral_symbol = Column(Text, nullable=True)
+    ts = Column(DateTime(timezone=True), nullable=False)  # snapshot time, UTC
+
+    supply_apy = Column(Numeric(38, 18), nullable=True)
+    borrow_apy = Column(Numeric(38, 18), nullable=True)
+    tvl = Column(Numeric(38, 18), nullable=True)
+    utilization = Column(Numeric(38, 18), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("venue", "market_id", "ts", name="uq_lend_metrics_venue_market_id_ts"),
+        Index(
+            "ix_lend_metrics_venue_market_id_ts",
+            "venue",
+            "market_id",
+            ts.desc(),
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LendMetric {self.venue}/{self.market_id} @ {self.ts}>"
