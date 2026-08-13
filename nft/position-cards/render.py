@@ -85,8 +85,14 @@ def fmt_px(v):
 # renders on; Liberation Serif is the metric-compatible Linux fallback so the
 # preview here matches production. No @font-face — a strict-CSP viewer would
 # drop it and reflow the whole plate.
-SERIF = "Georgia,'Times New Roman','Liberation Serif',serif"
-MONO = "'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace"
+# The site loads Geist and falls back to system-ui; a card cannot @font-face
+# under a marketplace CSP, so this names Geist first and lands on the same
+# grotesque skeleton everywhere else. Liberation Sans is the Linux fallback, so
+# the preview rendered here matches what a browser shows.
+DISPLAY = "Geist,'Inter',system-ui,-apple-system,'Liberation Sans',Arial,sans-serif"
+MONO = "'Geist Mono','SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace"
+# Retained name so the seal and any older reference still resolve.
+SERIF = DISPLAY
 
 
 def _seed(ticker: str, token_id: int, entry) -> int:
@@ -275,6 +281,48 @@ def contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+def palette(cfg, sector_col, accent, ret_bps, priced, proof):
+    """Every colour a plate uses, in one place.
+
+    Extracted because render_card and card_traits were each computing this
+    independently, so the quality gate measured a palette the renderer had
+    stopped using — the same two-implementations-of-one-rule bug that keeps
+    turning up in this repo. One function, both callers.
+    """
+    b = cfg["brand"]
+    if proof:  # Night proof — rare, and the only plate that leaves the light
+        field = _mix("#0b0a0c", sector_col, 0.14)
+        return {
+            "field": field,
+            "field2": _mix(field, "#000000", 0.40),
+            "edge": _mix("#08070a", accent, 0.10),
+            "rim": _mix(sector_col, accent, 0.45),
+            "body": b["bg"],
+            "quiet": b["text-3"],
+            "hero": _mix(accent, "#ffffff", 0.10),
+            "mark": b["accent"],
+        }
+    # Gains take the brand green, losses a warm red. Grade accents tuned for a
+    # black plate wash out on cream, so they are darkened against it.
+    # The neutral (Flat) accent is a pale slate that measured 3.92:1 on cream,
+    # under the floor, so the base mix runs darker and gains/losses override it.
+    hero = _mix(accent, b["text"], 0.52)
+    if priced and ret_bps >= 2500:
+        hero = _mix(b["green"], accent, 0.25)
+    elif priced and ret_bps < -200:
+        hero = "#a4243b"
+    return {
+        "field": _mix(b["bg"], sector_col, 0.10),
+        "field2": _mix(b["surface-2"], sector_col, 0.06),
+        "edge": _mix(b["surface-2"], sector_col, 0.16),
+        "rim": _mix(sector_col, b["text-2"], 0.42),
+        "body": b["text"],
+        "quiet": b["text-2"],
+        "hero": hero,
+        "mark": b["accent"],
+    }
+
+
 def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
     """The structural choices a plate resolves to, plus its legibility numbers.
 
@@ -296,9 +344,7 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
     if mag < 0.02:
         allowed = ["medallion"]
     proof = (seed >> 44) % 40 == 0
-    field = _mix("#f4efe4", sector_col, 0.30) if proof else _mix("#07070a", sector_col, 0.13)
-    body_col = "#17130c" if proof else "#f6f1e6"
-    hero_col = _mix(accent, "#0f0c06", 0.66) if proof else accent
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
     return {
         "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
         "ink": INKS[(seed >> 32) % len(INKS)],
@@ -306,8 +352,8 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
         "proof": proof,
         "sector": sector,
         "grade": grade["name"],
-        "hero_contrast": round(contrast(hero_col, field), 2),
-        "body_contrast": round(contrast(body_col, field), 2),
+        "hero_contrast": round(contrast(pal["hero"], pal["field"]), 2),
+        "body_contrast": round(contrast(pal["body"], pal["field"]), 2),
     }
 
 
@@ -389,17 +435,22 @@ def render_card(
     inner = 0.12 + 0.26 * mag
     spin = (seed >> 8) % 360
 
-    # Proof plates invert the whole ground rather than swapping a palette, so
-    # they are legible as rare from across a wall instead of needing a trait
-    # table to notice.
-    ink_light = "#f4efe4"
-    field = _mix(ink_light, sector_col, 0.30) if proof else _mix("#07070a", sector_col, 0.13)
-    field2 = _mix(field, "#ffffff", 0.18) if proof else _mix(field, "#000000", 0.42)
-    edge_col = _mix(field, "#000000", 0.22) if proof else _mix("#050507", accent, 0.10)
-    rim = _mix(accent, "#2a2418", 0.55) if proof else _mix(sector_col, accent, 0.45)
-    body_col = "#17130c" if proof else "#f6f1e6"
-    quiet = "#5c5548" if proof else "#8f8778"
-    hero_col = _mix(accent, "#0f0c06", 0.66) if proof else accent
+    # ── the brand, not a mood ───────────────────────────────────────────────
+    # The default plate is Suwappu's own surface: warm off-white, near-black
+    # ink, pink mark. The dark plate is now the RARE one ("Night proof"). This
+    # inverts how it was first built, and the first build was simply wrong —
+    # the collection is the most public artefact this project ships, and it
+    # cannot be the one surface that ignores the brand.
+    b = cfg["brand"]
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
+    field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
+    rim, body_col, quiet, hero_col, mark_col = (
+        pal["rim"],
+        pal["body"],
+        pal["quiet"],
+        pal["hero"],
+        pal["mark"],
+    )
 
     W_, H_ = W, H
     PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
@@ -441,13 +492,13 @@ def render_card(
         f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.15}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{"#f6f1e6" if proof else "#040406"}" stop-opacity="0.90"/>'
-        f'<stop offset="0.6" stop-color="{"#f6f1e6" if proof else "#040406"}" stop-opacity="0.74"/>'
-        f'<stop offset="1" stop-color="{"#f6f1e6" if proof else "#040406"}" '
+        f'<stop offset="0" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.90"/>'
+        f'<stop offset="0.6" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.74"/>'
+        f'<stop offset="1" stop-color="{field2 if proof else b["bg"]}" '
         f'stop-opacity="0"/></radialGradient>',
         f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
         f'patternTransform="rotate(35)">'
-        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
+        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#ffffff" if proof else "#000000"}" '
         f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
         f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
         f'<stop offset="0" stop-color="{hero_col}" stop-opacity="0.10"/>'
@@ -491,7 +542,12 @@ def render_card(
         f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
         f'fill="none" stroke="{rim}" stroke-opacity="0.32" stroke-width="1.2"/>'
     )
-    for cx_, cy_ in ((PL + 11, PT + 11), (PR - 11, PT + 11), (PL + 11, PB - 11), (PR - 11, PB - 11)):
+    for cx_, cy_ in (
+        (PL + 11, PT + 11),
+        (PR - 11, PT + 11),
+        (PL + 11, PB - 11),
+        (PR - 11, PB - 11),
+    ):
         p.append(
             f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{rim}" '
             f'stroke-opacity="0.5" stroke-width="1.6"/>'
@@ -499,10 +555,17 @@ def render_card(
         )
 
     # ── head ────────────────────────────────────────────────────────────────
-    p.append(_small_caps("Suwappu", IL, 118, 16, body_col, 7.0, "bold"))
+    p.append(_small_caps("Suwappu", IL, 118, 16, mark_col, 7.0, "bold"))
     p.append(
-        _small_caps("Certificate of Position", W_ / 2, 118, 11.5, _mix(rim, "#ffffff", 0.25), 4.0,
-                    anchor="middle")
+        _small_caps(
+            "Certificate of Position",
+            W_ / 2,
+            118,
+            11.5,
+            _mix(rim, "#ffffff", 0.25),
+            4.0,
+            anchor="middle",
+        )
     )
     p.append(
         f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{rim}" '
@@ -551,8 +614,15 @@ def render_card(
             f'letter-spacing="-3">{esc(hero)}</text>'
         )
         p.append(
-            _small_caps("since entry", W_ / 2, cy + 84, 12, _mix(hero_col, body_col, 0.35), 6.0,
-                        anchor="middle")
+            _small_caps(
+                "since entry",
+                W_ / 2,
+                cy + 84,
+                12,
+                _mix(hero_col, body_col, 0.35),
+                6.0,
+                anchor="middle",
+            )
         )
     else:
         p.append(
@@ -627,7 +697,7 @@ def render_card(
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
     p.append(
         f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="{body_col}">'
-        f'\u2212{disc} bps on every swap</text>'
+        f"\u2212{disc} bps on every swap</text>"
     )
     p.append(
         _small_caps(
@@ -650,9 +720,7 @@ def render_card(
             2.2,
         )
     )
-    p.append(
-        _small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, "#5f5a51", 2.2, anchor="end")
-    )
+    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, "#5f5a51", 2.2, anchor="end"))
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
@@ -763,9 +831,7 @@ if __name__ == "__main__":
             price = feeds[tk]["verified_price_usd"]
             entry = round(price * ratio, 2) if ratio else None
             minted = datetime(2026, 8, 1 + (i % 12), 9, 0, tzinfo=timezone.utc)
-            svg = render_card(
-                cfg, registry, i, tk, entry, price if ratio else None, rank, minted
-            )
+            svg = render_card(cfg, registry, i, tk, entry, price if ratio else None, rank, minted)
             open(os.path.join(args.out, f"{tk}.svg"), "w").write(svg)
         print(f"gallery -> {args.out} (current prices are live feed values)")
     else:

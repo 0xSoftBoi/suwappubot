@@ -1,193 +1,211 @@
 {
-  "collection": {
-    "name": "Suwappu Positions",
-    "symbol": "POS",
-    "supply": 10000,
-    "external_url": "https://suwappu.bot/positions",
-    "tagline": "Pick one of the 35 tokenized equities with a live Chainlink feed on Robinhood Chain. Your entry price is stamped on-chain forever.",
-    "chain": {
-      "name": "Robinhood Chain",
-      "chain_id": 4663,
-      "testnet_chain_id": 46630,
-      "explorer": "https://robinhoodchain.blockscout.com",
-      "anchor_stable": "USDG",
-      "lifi_diamond": "0xB477751B76CF82d00a686A1232f5fCD772414Af3"
-    },
-    "compliance": "Collectible position card. It records a price observed on a DEX at mint time and displays a notional return against it. It is NOT equity, NOT a security, NOT a derivative or a claim of any kind, confers no shareholder or voting rights, pays nothing out, and gives no economic exposure to any issuer or to the referenced ERC-20."
+ "collection": {
+  "name": "Suwappu Positions",
+  "symbol": "POS",
+  "supply": 10000,
+  "external_url": "https://suwappu.bot/positions",
+  "tagline": "Pick one of the 35 tokenized equities with a live Chainlink feed on Robinhood Chain. Your entry price is stamped on-chain forever.",
+  "chain": {
+   "name": "Robinhood Chain",
+   "chain_id": 4663,
+   "testnet_chain_id": 46630,
+   "explorer": "https://robinhoodchain.blockscout.com",
+   "anchor_stable": "USDG",
+   "lifi_diamond": "0xB477751B76CF82d00a686A1232f5fCD772414Af3"
   },
-  "economics": {
-    "_comment": "Fee discount for holding any Position. Set against a FREE tier of 100 bps with a 10 bps floor. 40 bps = $4 saved per $1,000 swapped, so an active trader recoups a mint in ~$4k of volume. REVENUE TRADEOFF: this is deliberately material \u2014 a 5 bps token is not worth minting. Tune here, it is the single source for the perk.",
-    "hold_discount_bps": 40,
-    "max_discount_bps": 40,
-    "early_mint_badge_ranks": {
-      "Founder": 500,
-      "Early": 2000
-    }
-  },
-  "sectors": {
-    "Semiconductors": [
-      "AMD",
-      "ASML",
-      "INTC",
-      "MU",
-      "NVDA",
-      "SNDK",
-      "TSM"
-    ],
-    "AI Infrastructure": [
-      "CRWV",
-      "DELL",
-      "NBIS"
-    ],
-    "Software": [
-      "MSFT",
-      "ORCL",
-      "PLTR"
-    ],
-    "Internet & Media": [
-      "AMZN",
-      "BABA",
-      "GOOGL",
-      "META"
-    ],
-    "Crypto & Fintech": [
-      "CLSK",
-      "COIN",
-      "CRCL",
-      "MSTR"
-    ],
-    "Space & Defense": [
-      "RKLB",
-      "SPCX"
-    ],
-    "Quantum": [
-      "IONQ",
-      "RGTI"
-    ],
-    "Energy & Materials": [
-      "USAR"
-    ],
-    "Consumer": [
-      "AAPL",
-      "GME",
-      "TSLA"
-    ],
-    "Index & Commodity": [
-      "EWY",
-      "QQQ",
-      "SGOV",
-      "SLV",
-      "SPY",
-      "USO"
-    ]
-  },
-  "sector_colors": {
-    "Semiconductors": "#7dd3fc",
-    "AI Infrastructure": "#c4b5fd",
-    "Software": "#5eead4",
-    "Internet & Media": "#fca5a5",
-    "Crypto & Fintech": "#fcd34d",
-    "Space & Defense": "#93c5fd",
-    "Quantum": "#f0abfc",
-    "Energy & Materials": "#fdba74",
-    "Consumer": "#86efac",
-    "Index & Commodity": "#d4d4d8"
-  },
-  "ticker_caps": {
-    "AAPL": 510,
-    "AMD": 255,
-    "AMZN": 509,
-    "ASML": 255,
-    "BABA": 136,
-    "CLSK": 138,
-    "COIN": 509,
-    "CRCL": 255,
-    "CRWV": 255,
-    "DELL": 138,
-    "EWY": 136,
-    "GME": 255,
-    "GOOGL": 509,
-    "INTC": 255,
-    "IONQ": 255,
-    "META": 509,
-    "MSFT": 509,
-    "MSTR": 509,
-    "MU": 255,
-    "NBIS": 138,
-    "NVDA": 509,
-    "ORCL": 255,
-    "PLTR": 509,
-    "QQQ": 509,
-    "RGTI": 67,
-    "RKLB": 67,
-    "SGOV": 136,
-    "SLV": 136,
-    "SNDK": 67,
-    "SPCX": 23,
-    "SPY": 509,
-    "TSLA": 509,
-    "TSM": 255,
-    "USAR": 23,
-    "USO": 136
-  },
-  "grades": [
-    {
-      "name": "Underwater",
-      "min_return_bps": -1000000,
-      "accent": "#ff6b6b"
-    },
-    {
-      "name": "Flat",
-      "min_return_bps": -200,
-      "accent": "#94a3b8"
-    },
-    {
-      "name": "In Profit",
-      "min_return_bps": 200,
-      "accent": "#3ddc97"
-    },
-    {
-      "name": "Runner",
-      "min_return_bps": 2500,
-      "accent": "#5eead4"
-    },
-    {
-      "name": "Multiple",
-      "min_return_bps": 10000,
-      "accent": "#7dd3fc"
-    },
-    {
-      "name": "Moonshot",
-      "min_return_bps": 50000,
-      "accent": "#fcd34d"
-    }
-  ],
-  "mint": {
-    "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it \u2014 the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
-    "phases": {
-      "Founder": {
-        "index": 1,
-        "allocation": 1500,
-        "wallet_cap": 3,
-        "price_eth": 0.0,
-        "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
-        "note": "Free. These are the users who already built the product's volume."
-      },
-      "Allowlist": {
-        "index": 2,
-        "allocation": 4000,
-        "wallet_cap": 2,
-        "price_eth": 0.004,
-        "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral"
-      },
-      "Public": {
-        "index": 3,
-        "allocation": 4300,
-        "wallet_cap": 5,
-        "price_eth": 0.008,
-        "who": "Anyone"
-      }
-    },
-    "team_reserve": 200
+  "compliance": "Collectible position card. It records a price observed on a DEX at mint time and displays a notional return against it. It is NOT equity, NOT a security, NOT a derivative or a claim of any kind, confers no shareholder or voting rights, pays nothing out, and gives no economic exposure to any issuer or to the referenced ERC-20."
+ },
+ "economics": {
+  "_comment": "Fee discount for holding any Position. Set against a FREE tier of 100 bps with a 10 bps floor. 40 bps = $4 saved per $1,000 swapped, so an active trader recoups a mint in ~$4k of volume. REVENUE TRADEOFF: this is deliberately material \u2014 a 5 bps token is not worth minting. Tune here, it is the single source for the perk.",
+  "hold_discount_bps": 40,
+  "max_discount_bps": 40,
+  "early_mint_badge_ranks": {
+   "Founder": 500,
+   "Early": 2000
   }
+ },
+ "sectors": {
+  "Semiconductors": [
+   "AMD",
+   "ASML",
+   "INTC",
+   "MU",
+   "NVDA",
+   "SNDK",
+   "TSM"
+  ],
+  "AI Infrastructure": [
+   "CRWV",
+   "DELL",
+   "NBIS"
+  ],
+  "Software": [
+   "MSFT",
+   "ORCL",
+   "PLTR"
+  ],
+  "Internet & Media": [
+   "AMZN",
+   "BABA",
+   "GOOGL",
+   "META"
+  ],
+  "Crypto & Fintech": [
+   "CLSK",
+   "COIN",
+   "CRCL",
+   "MSTR"
+  ],
+  "Space & Defense": [
+   "RKLB",
+   "SPCX"
+  ],
+  "Quantum": [
+   "IONQ",
+   "RGTI"
+  ],
+  "Energy & Materials": [
+   "USAR"
+  ],
+  "Consumer": [
+   "AAPL",
+   "GME",
+   "TSLA"
+  ],
+  "Index & Commodity": [
+   "EWY",
+   "QQQ",
+   "SGOV",
+   "SLV",
+   "SPY",
+   "USO"
+  ]
+ },
+ "sector_colors": {
+  "Semiconductors": "#7dd3fc",
+  "AI Infrastructure": "#c4b5fd",
+  "Software": "#5eead4",
+  "Internet & Media": "#fca5a5",
+  "Crypto & Fintech": "#fcd34d",
+  "Space & Defense": "#93c5fd",
+  "Quantum": "#f0abfc",
+  "Energy & Materials": "#fdba74",
+  "Consumer": "#86efac",
+  "Index & Commodity": "#d4d4d8"
+ },
+ "ticker_caps": {
+  "AAPL": 510,
+  "AMD": 255,
+  "AMZN": 509,
+  "ASML": 255,
+  "BABA": 136,
+  "CLSK": 138,
+  "COIN": 509,
+  "CRCL": 255,
+  "CRWV": 255,
+  "DELL": 138,
+  "EWY": 136,
+  "GME": 255,
+  "GOOGL": 509,
+  "INTC": 255,
+  "IONQ": 255,
+  "META": 509,
+  "MSFT": 509,
+  "MSTR": 509,
+  "MU": 255,
+  "NBIS": 138,
+  "NVDA": 509,
+  "ORCL": 255,
+  "PLTR": 509,
+  "QQQ": 509,
+  "RGTI": 67,
+  "RKLB": 67,
+  "SGOV": 136,
+  "SLV": 136,
+  "SNDK": 67,
+  "SPCX": 23,
+  "SPY": 509,
+  "TSLA": 509,
+  "TSM": 255,
+  "USAR": 23,
+  "USO": 136
+ },
+ "grades": [
+  {
+   "name": "Underwater",
+   "min_return_bps": -1000000,
+   "accent": "#ff6b6b"
+  },
+  {
+   "name": "Flat",
+   "min_return_bps": -200,
+   "accent": "#94a3b8"
+  },
+  {
+   "name": "In Profit",
+   "min_return_bps": 200,
+   "accent": "#3ddc97"
+  },
+  {
+   "name": "Runner",
+   "min_return_bps": 2500,
+   "accent": "#5eead4"
+  },
+  {
+   "name": "Multiple",
+   "min_return_bps": 10000,
+   "accent": "#7dd3fc"
+  },
+  {
+   "name": "Moonshot",
+   "min_return_bps": 50000,
+   "accent": "#fcd34d"
+  }
+ ],
+ "mint": {
+  "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it \u2014 the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
+  "phases": {
+   "Founder": {
+    "index": 1,
+    "allocation": 1500,
+    "wallet_cap": 3,
+    "price_eth": 0.0,
+    "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
+    "note": "Free. These are the users who already built the product's volume."
+   },
+   "Allowlist": {
+    "index": 2,
+    "allocation": 4000,
+    "wallet_cap": 2,
+    "price_eth": 0.004,
+    "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral"
+   },
+   "Public": {
+    "index": 3,
+    "allocation": 4300,
+    "wallet_cap": 5,
+    "price_eth": 0.008,
+    "who": "Anyone"
+   }
+  },
+  "team_reserve": 200
+ },
+ "brand": {
+  "_comment": "Lifted verbatim from showcase/tailwind.config.ts (theme.extend.colors.warm), which is what www.suwappu.bot actually renders. The card is the most public artefact this project will ship; it cannot be the one surface that ignores the brand. tests/test_position_cards.py pins these against the Tailwind config so the two cannot drift.",
+  "bg": "#faf8f4",
+  "surface": "#ffffff",
+  "surface-2": "#f5f0ea",
+  "border": "#e5e0d8",
+  "border-2": "#d4cec4",
+  "text": "#1a1a1a",
+  "text-2": "#6b6560",
+  "text-3": "#9a9590",
+  "accent": "#f472b6",
+  "accent-hover": "#ec4899",
+  "accent-light": "#fdf2f8",
+  "green": "#1a5c38",
+  "green-light": "#e8f5ee",
+  "dark": "#1a1a1a",
+  "dark-surface": "#222222"
+ }
 }

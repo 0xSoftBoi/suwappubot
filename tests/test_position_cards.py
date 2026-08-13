@@ -1116,3 +1116,63 @@ def test_the_engraving_never_climbs_into_the_masthead():
             assert float(cy_) - float(r_) > 366, f"clip reached {float(cy_) - float(r_):.0f}"
         for y_, h_ in re.findall(r'<rect x="[\d.-]+" y="([\d.-]+)"[^/]*height="([\d.]+)"', clip):
             assert float(y_) > 60, f"band clip started at {y_}"
+
+
+# ── the card is a brand surface, not a mood board ────────────────────────────
+
+
+def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
+    """The collection is the most public artefact this project ships; it cannot
+    be the one surface that ignores the brand. Tokens are lifted from
+    showcase/tailwind.config.ts — what www.suwappu.bot actually renders — so a
+    palette change on the site has to be reflected here rather than silently
+    leaving the card behind."""
+    import re
+
+    cfg = render.load_config()
+    tw = open(os.path.join(REPO, "showcase", "tailwind.config.ts")).read()
+    block = tw[tw.index("warm: {") : tw.index("},", tw.index("'dark-surface'"))]
+    live = dict(re.findall(r"'?([a-z0-9-]+)'?:\s*'(#[0-9a-fA-F]{6})'", block))
+    assert live, "could not read the Tailwind palette"
+    for key, value in live.items():
+        assert cfg["brand"].get(key) == value, f"brand token {key} drifted from the site"
+
+
+def test_the_default_plate_is_light_and_the_dark_one_is_rare():
+    """Suwappu's surface is warm off-white with near-black ink. The first build
+    had this exactly inverted — a black Victorian plate as the default and cream
+    as the rarity — which is a different company's collection."""
+    cfg, reg = render.load_config(), render.load_registry()
+    light = dark = 0
+    for tid in range(1, 400):
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 130.0, tid)
+        pal = render.palette(
+            cfg, cfg["sector_colors"]["Semiconductors"], "#3ddc97", 3000, True, t["proof"]
+        )
+        if render._lum(pal["field"]) > 0.5:
+            light += 1
+        else:
+            dark += 1
+    assert light > dark * 8, f"{dark} dark of {light + dark} — the dark plate is not rare"
+    assert dark > 0, "the Night proof never appears"
+
+
+def test_gains_take_the_brand_green_and_the_mark_takes_the_brand_pink():
+    cfg, reg = render.load_config(), render.load_registry()
+    up = render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
+    assert cfg["brand"]["accent"] in up, "the Suwappu mark is not in brand pink"
+    pal = render.palette(cfg, "#7dd3fc", "#5eead4", 30000, True, False)
+    # green-dominant: the gain ink must sit nearer the brand green than the raw
+    # grade accent, which was tuned for a black plate
+    assert render.contrast(pal["hero"], pal["field"]) >= 4.0
+
+
+def test_the_palette_has_exactly_one_implementation():
+    """render_card and card_traits each computed the palette independently, so
+    the quality gate was measuring colours the renderer had stopped using."""
+    src = open(os.path.join(REPO, "nft", "position-cards", "render.py")).read()
+    assert src.count("def palette(") == 1
+    body = src[src.index("def card_traits(") : src.index("def render_card(")]
+    assert "palette(cfg," in body, "card_traits does not use the shared palette"
+    rc = src[src.index("def render_card(") :]
+    assert "palette(cfg," in rc, "render_card does not use the shared palette"
