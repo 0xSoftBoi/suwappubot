@@ -216,11 +216,66 @@ push, rather than building a second scheduler.
 
 ---
 
-## E. Open questions blocking precise estimates
+## E. RESOLVED: the Mini App can reach the terminal API today. No auth work.
 
-1. Can the Mini App reach `api/routes/terminal.py` (mounting + auth)? Determines
-   whether Phase 0 is a URL change or a new auth path. — *research in flight*
-2. Which market-data provider backs candles/trending across 46 chains, and at
-   what cost? — *research in flight*
-3. Does `_resolve_pool` (`terminal.py:102`) cover all 46 chains or a subset?
-   Chart coverage depends on GeckoTerminal network mapping.
+This was the main open question for ticket sizing. **Answer: Phase 0 is a URL
+change, not an auth project.**
+
+- Router: `APIRouter(prefix="/terminal", tags=["terminal"])` (`terminal.py:21`),
+  mounted at `api/main.py:764` via `app.include_router(terminal_router)` —
+  **no `dependencies=[...]`**, so there is no router-wide auth.
+- The five data routes take **only `Query(...)` params, no `Depends()`**:
+
+  | Route | Signature | Auth |
+  |---|---|---|
+  | `GET /terminal/chart/ohlcv` (`:172`) | `pair, chain=ethereum, interval=1h, limit≤500` | none |
+  | `GET /terminal/perps/candles` (`:227`) | `coin, interval=1h, limit≤500` | none |
+  | `GET /terminal/perps/whales` (`:386`) | `coin, sample=60` | none |
+  | `GET /terminal/token/safety` (`:1020`) | `chain, address` | none |
+  | `GET /terminal/discovery/final-stretch` (`:1106`) | `limit≤100` | none |
+
+- The one auth helper in the file, `_terminal_user` (`:1227`), reads a Bearer
+  header or `suwappu_auth` cookie and raises 401 "Sign in to trade". It is used
+  by **user-scoped trading routes only** (perps/predictions, keyed on
+  `users.id`) — not by any of the read-only data routes above.
+- CORS already allows the Mini App origin: `app.suwappu.bot` is in the allowed
+  list at `api/main.py:655`.
+- These routes are documented as degrading to empty payloads rather than 5xx
+  ("never 5xx … matching the other public discovery endpoints"), so wiring them
+  cannot take the Mini App down when an upstream is flaky.
+
+**Ticket implication:** the dead-chart fix (`useChart.ts:88`) is a one-hook
+change pointing at `/terminal/chart/ohlcv`. No new endpoint, no auth path, no
+backend work. Same for whales, safety, and final-stretch.
+
+## E2. EVM honeypot detection already exists — it just isn't on the buy path
+
+Correcting the gap noted in A2: honeypot checking is Solana-only **in
+`paste_trade.py`**, but the capability exists in the repo.
+`GET /terminal/token/safety` (`:1020`) aggregates **free** providers:
+
+- **EVM** — GoPlus `token_security` + **Honeypot.is sell-simulation**
+  (`terminal.py:878-931`), with a Suwappu-chain → GoPlus-chain-id map at `:825`
+- **Solana** — RugCheck report summary (`:948`)
+
+Returns honeypot/can-sell, buy/sell tax, mint & freeze authority, LP-locked,
+top-holder concentration, risk flags, and a 0–100 trust score; degrades to
+`riskLevel: unknown` rather than failing.
+
+So "add EVM honeypot protection to the buy path" is **not** a build — it is
+wiring `paste_trade.py`'s gate to an endpoint that already exists. Given
+`_render_token_card` currently shows Buy buttons on EVM with no honeypot check
+(A2), this is the highest-value security ticket in the set, and it is cheap.
+
+It also solves the info-thin card problem: this one endpoint supplies most of
+the missing "fill the grid" fields.
+
+## E3. Still open
+
+1. Which market-data provider backs candles/trending across 46 chains, and at
+   what cost? — *agent did not report; needs a redo*
+2. Does `_resolve_pool` (`terminal.py:102`) cover all 46 chains or a subset?
+   Chart coverage depends on the GeckoTerminal network mapping.
+3. `/discovery/final-stretch` is explicitly scoped to "the canonical memecoin
+   chain" (Solana) — so it does **not** solve multi-chain discovery. A
+   multi-chain feed is still a real ticket.
