@@ -477,6 +477,38 @@ zksync`
 So the coverage ticket is: **add 36 dictionary entries → chart coverage goes
 8 → 44 chains.** No vendor, no key, no contract.
 
+### Proven end-to-end, not just "the id exists"
+
+Fetched the top pool per network, then pulled hourly OHLCV for it. All returned
+**100 real candles**:
+
+`blast ✅  ink ✅  aurora ✅  tron ✅  linea ✅  scroll ✅`
+
+Tron working is notable — it is non-EVM, and GeckoTerminal covers it.
+
+Network identity was also confirmed rather than assumed: `robinhood` and
+`tempo` are genuine GeckoTerminal networks (`name: "Robinhood"` /
+`"Tempo"`, with matching `coingecko_asset_platform_id`), not name collisions.
+
+### The wrong-chain bug is real, and now demonstrated
+
+I resolved a real token per chain, then queried DexScreener
+`/latest/dex/tokens/{addr}` and read back the actual `chainId`s:
+
+- an **Ink** token returned pairs on `['base', 'ink', 'optimism']`
+- a **Mantle** token returned pairs on `['berachain', 'mantle', 'stable']`
+
+With `ds_chain = None`, `_resolve_pool` skips the chain filter and runs
+`max(pairs, key=liquidity)` across all of them — so it can select a pool on a
+**different chain** and chart the wrong asset. This is no longer theoretical.
+
+**Verified DexScreener chainIds** (equal to the GT network id for these):
+`blast, ink, tron, linea, scroll, zksync, mantle, berachain`.
+
+`aurora` returned **no DexScreener pairs** for its top-pool token, so it is
+*not* confirmed and must stay unmapped. That is the rule for the whole set: a
+missing chart is correct, a wrong-chain chart is not.
+
 Two implementation notes for the ticket:
 - `DEXSCREENER_CHAIN` (`terminal.py:80`) must be extended in parallel — it maps
   GT network → DexScreener chainId for `_resolve_pool`, and currently has only
