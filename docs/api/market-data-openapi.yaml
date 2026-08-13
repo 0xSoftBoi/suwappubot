@@ -1,0 +1,122 @@
+openapi: 3.0.3
+info:
+  title: Suwappu Market Data API
+  description: >
+    Databento-style market data API: reference (symbology), historical OHLCV,
+    live WebSocket streams, dataset metadata, and usage metering.
+    Human-readable reference with worked examples: docs/api/market-data.md.
+    The live stream (WS /v1/data/live) is not expressible in OpenAPI; see the
+    markdown reference for its message protocol.
+  version: 1.0.0
+servers:
+  - url: https://api.suwappu.bot
+security:
+  - ApiKeyHeader: []
+  - BearerKey: []
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Org key `sk_live_<32-hex>` (enterprise subscription required)
+    BearerKey:
+      type: http
+      scheme: bearer
+      description: Org key `sk_live_...` or agent token `suwappu_sk_...`
+  parameters:
+    chain:
+      name: chain
+      in: query
+      schema: { type: string }
+      description: Lowercased chain slug (e.g. ethereum, base, solana)
+    timeframe:
+      name: timeframe
+      in: query
+      schema: { type: string, enum: [1m, 5m, 1h, 1d], default: 1h }
+  schemas:
+    Candle:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        open: { type: string }
+        high: { type: string }
+        low: { type: string }
+        close: { type: string }
+        volume: { type: string, nullable: true }
+        source: { type: string, enum: [coingecko, geckoterminal, external_fallback] }
+    ResolveEntry:
+      type: object
+      properties:
+        symbol: { type: string }
+        chain: { type: string }
+        chain_id: {}
+        address: { type: string }
+        decimals: { type: integer }
+        coingecko_id: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        success: { type: boolean }
+        error: { type: string }
+        error_code: { type: string }
+paths:
+  /v1/data/reference/chains:
+    get:
+      summary: List supported chains
+      responses:
+        "200":
+          description: Chain list
+  /v1/data/reference/tokens:
+    get:
+      summary: Token registry per chain (or all chains)
+      parameters:
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: Token list }
+        "400": { description: CHAIN_UNSUPPORTED, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /v1/data/reference/resolve:
+    get:
+      summary: Symbol/address resolution (single, batch, reverse, all-chains)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - { name: symbols, in: query, schema: { type: string }, description: Comma-separated batch }
+        - { name: address, in: query, schema: { type: string }, description: Reverse lookup (requires chain) }
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: ResolveEntry (flat, grouped, or batch shape) }
+        "404": { description: TOKEN_UNKNOWN }
+  /v1/data/history/ohlcv:
+    get:
+      summary: Historical OHLCV candles (DB-backed, external fallback)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - { name: symbols, in: query, schema: { type: string }, description: Comma-separated; grouped response }
+        - $ref: "#/components/parameters/chain"
+        - $ref: "#/components/parameters/timeframe"
+        - { name: start, in: query, schema: { type: string }, description: ISO 8601 or unix ts }
+        - { name: end, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 500, maximum: 1000 } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque; from next_cursor }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: Candle page (JSON body or text/csv with X-Next-Cursor header)
+  /v1/data/metadata:
+    get:
+      summary: Dataset coverage (per symbol/chain/timeframe row counts + ranges)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: Coverage datasets (capped at 500, truncation noted) }
+  /v1/data/status:
+    get:
+      summary: Capture freshness per timeframe + per-source counts
+      responses:
+        "200": { description: Freshness report; healthy=true when 1m data < 5 min old }
+  /v1/data/usage:
+    get:
+      summary: Calling key's cumulative /v1/data request counts
+      responses:
+        "200": { description: Usage totals (DB-backed daily rows + unflushed buffer) }
