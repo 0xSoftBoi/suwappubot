@@ -5,6 +5,81 @@ implementation detail needed to write tickets. Verified 2026-08-12.
 
 ---
 
+## 0. LIVE VERIFICATION (2026-08-13)
+
+Everything below this section was originally derived from reading code. These
+claims were then tested against **production**
+(`python-api-production-8526.up.railway.app`). Results, measured:
+
+| Endpoint | Result | Latency | Verdict |
+|---|---|---|---|
+| `/health` | `ready:true`, db+redis connected | — | healthy |
+| `/terminal/chart/ohlcv` (WETH/base) | HTTP 200, **real candles** | 0.82s → 0.29s | ✅ works, no auth |
+| `/terminal/chart/ohlcv` (blast) | HTTP 200, **`[]`** | 0.21s | ⚠️ silent |
+| `/terminal/token/safety` (USDC/base) | HTTP 200, full EVM report | 0.78s | ✅ works |
+| `/terminal/signals` | HTTP 200, real squeeze/funding signals | — | ✅ works |
+| `/terminal/perps/whales?coin=ETH` | HTTP 200, real whale book | — | ✅ works |
+| `/terminal/discovery/final-stretch` | HTTP 200, **`[]` even at limit=100** | — | ❌ **broken** |
+
+**Confirmed by measurement, not inference:**
+
+1. **No auth, and CORS already permits the Mini App.** A request carrying
+   `Origin: https://app.suwappu.bot` came back with
+   `access-control-allow-origin: https://app.suwappu.bot` and
+   `access-control-allow-credentials: true`. The Mini App can call these from
+   the browser today.
+2. **No caching.** Three identical `/chart/ohlcv` calls returned in 0.32s /
+   0.33s / 0.29s — no repeat-call speedup, matching the absent cache code.
+3. **Unsupported chains fail silently.** `chain=blast` returns `[]` with HTTP
+   200 — byte-identical to "upstream died" and to "no data". The UI cannot tell
+   these apart, which is why `TokenChart.tsx:86` will show "No chart data
+   available" on 38 of 46 chains with no explanation.
+4. **EVM honeypot detection genuinely works.** Live USDC/base returned
+   `isHoneypot:false, canSell:true, buyTaxPct:0, sellTaxPct:0, mintable:false,
+   topHolderPct:27.8, holderCount:9921994, score:90, riskLevel:"safe"`, sourced
+   from `["goplus","honeypot.is"]`. Every "fill the grid" field is already
+   there, on the EVM path the bot's buy flow currently leaves unchecked.
+
+### ❗ Correction to the plan: `/discovery/final-stretch` cannot replace trending
+
+`trading-product-essentials.md` Phase 0 item 2 proposed swapping the fake
+trending feed for `/discovery/final-stretch`. **That is wrong — the endpoint
+returns `[]` in production**, and the root cause is instructive.
+
+## 0b. BUGCLASS: DexScreener full-text search used as a discovery feed
+
+The **same defect exists in both stacks**, independently written:
+
+| Where | Call | Actually returns |
+|---|---|---|
+| `webapp/src/hooks/useChart.ts:44` | `search?q=trending` | tokens *named* "trending" |
+| `api/routes/terminal.py:1118` | `search?q=solana` | tokens *named* "SOL"/"solana" |
+
+`DEXSCREENER_SEARCH_URL` is DexScreener's **full-text search**, not a discovery
+endpoint. Querying it with a chain name returns name matches, not that chain's
+launches.
+
+Measured live, `search?q=solana` returned **30 pairs — and the top 5 were "SOL"
+tokens on Base**, not Solana at all. Only 21/30 had `chainId == solana`, and
+**zero** were younger than 120 minutes. Since `get_terminal_final_stretch` then
+filters to `liquidity ≤ $60k` (`:1047`) **and** `age ≤ 24h` (`:1048`), nothing
+survives — hence the permanent `[]`.
+
+So the feed isn't misconfigured; it is querying an API that cannot answer the
+question. A real pre-migration feed needs a launch source (pump.fun /
+`launch_detector`, already in-repo and already backing `/trending`) or a
+provider with a genuine new-pairs endpoint.
+
+**Ticket this as a bugclass** (`/bugclass` skill): one root cause, two
+instances, both in the discovery path — plus an audit for any third caller of
+`search?q=`.
+
+**Revised Phase 0 item 2:** the working discovery substitutes are
+`/terminal/signals` and `/terminal/perps/whales`, both verified live. Fixing
+`final-stretch` is a separate ticket with a real data-source decision inside it.
+
+---
+
 ## A. The bot already solved the action problem. The webapp reinvented it badly.
 
 This is the most important finding of the research pass, and it changes several
@@ -316,10 +391,102 @@ another unauthenticated route where "each cache miss fans out to Blockscout".
 ticket, not two. Pool resolution is highly cacheable (a token's best pool rarely
 changes); candles need a short TTL keyed on interval.
 
-## E5. Still open
+## E5. Provider landscape — and the cheapest win in the whole plan
 
-1. Which market-data provider should back candles/trending on the other 38
-   chains, and at what cost? — *agent did not report; needs a redo*
-2. `/discovery/final-stretch` is explicitly scoped to "the canonical memecoin
-   chain" (Solana) — so it does **not** solve multi-chain discovery. A
-   multi-chain feed is still a real ticket.
+### 🎯 The 8-chain chart limit is OUR dict, not GeckoTerminal's limit
+
+GeckoTerminal indexes **250+ networks, with Blast, Aurora, Tron and Starknet
+confirmed present**. Our `GECKO_NETWORK` map (`terminal.py:63`) lists 8.
+
+So most of the "38 chains have no chart" gap is closed by **adding entries to a
+dictionary** — no new vendor, no new contract, no new key. That reframes the
+coverage ticket from a procurement decision into a config change plus
+per-chain verification. Do this before evaluating any paid provider.
+
+(Hyperliquid is the exception — not confirmed on GeckoTerminal, but we already
+have `/terminal/perps/candles` via HyperLiquid's own `candleSnapshot` API.)
+
+### Provider matrix (researched 2026-08-13)
+
+| Provider | True OHLCV? | Chains | Free limit | Paid from | WS | Safety data |
+|---|---|---|---|---|---|---|
+| **GeckoTerminal** | ✅ pool OHLCV | **250+** | 30/min (raised from 10) | via CoinGecko Pro ~$35/mo | ❌ | ❌ |
+| **DexScreener** | ❌ **none** | 80+ | 300/min pairs | — | partial | ❌ |
+| **Birdeye** | ✅ | ~10–12 | dev tier | ~$699/mo (100M CU) | ✅ best | ✅ best |
+| **Codex** (ex-Defined) | ✅ | 80+ | free dev | **~$350/mo** | ✅ new-pairs | partial |
+| **Moralis** | ✅ | 19 EVM + SOL | starter | $49/mo | ❌ | ❌ |
+| **CoinGecko Pro** | CEX + onchain suite | mirrors GT | — | $35/mo | ❌ | ❌ |
+| **Alchemy** | ❌ price only | 15+ | bundled | ❌ | ❌ | ❌ |
+| **Helius** | ❌ **no market data** | Solana only | credits | raw streams | ❌ | ❌ |
+
+Key corrections to assumptions:
+- **DexScreener has no OHLCV endpoint at all.** Our use of it purely for *pool
+  resolution* is therefore correct, and the webapp's plan to get candles from it
+  was never possible. Its free limit (300/min) is far healthier than
+  GeckoTerminal's 30/min — so the **GeckoTerminal call is the rate-limit
+  bottleneck**, and the cache should prioritise candles over pool lookups.
+- **Helius has no charting product** — Solana infra only. Don't scope it here.
+- GeckoTerminal's free tier was recently *raised* 10→30/min, not cut.
+
+### Recommended stack
+
+- **(a) Candles** — stay on GeckoTerminal; expand `GECKO_NETWORK`; add caching;
+  add a CoinGecko Pro key (~$35/mo) for headroom. Codex only if per-chain
+  verification shows real gaps.
+- **(b) Live streaming** — nothing free does this. Birdeye WS is the strongest
+  but covers ~10 chains at ~$699/mo. **Defer**: `refetchInterval` polling closes
+  most of the "positions must tick" gap at zero cost. Revisit if polling proves
+  insufficient.
+- **(c) Trending** — DexScreener is purpose-built and free, but must be called
+  via its **real** pairs/new-pairs endpoints, not `search?q=` (see §0b).
+- **(d) Safety** — we already run **GoPlus + Honeypot.is + RugCheck** for free
+  and it returns a full report (verified live, §0). Birdeye's security score is
+  the paid alternative; **we do not need it**.
+
+**Net:** the plan needs roughly **$35/mo**, not a $700/mo vendor. The expensive-
+looking gaps are config, caching, and polling.
+
+### ✅ DONE: the full chain mapping, verified against the live GT API
+
+Fetched all **250 GeckoTerminal networks** and diffed against the **45 chains**
+in `bot/config/chains.py`. Result: **44 of 45 are supported today.**
+
+**30 match GeckoTerminal's id exactly** — including every chain I previously
+listed as a coverage gap (Blast, Ink, Aurora, Tron), plus HyperEVM and our own
+Robinhood and Tempo chains:
+
+`abstract, apechain, aurora, berachain, blast, citrea, flare, fraxtal, goat,
+hemi, hyperevm, ink, kaia, linea, lisk, mantle, mode, opbnb, plasma, robinhood,
+rootstock, scroll, soneium, sonic, swellchain, taiko, tempo, tron, unichain,
+zksync`
+
+**6 need an alias** (verified by name lookup against the live list):
+
+| ours | GeckoTerminal id | GT name |
+|---|---|---|
+| `bob` | `bob-network` | BOB Network |
+| `fantom` | `ftm` | Fantom |
+| `flow` | `flow-evm` | Flow EVM |
+| `gnosis` | `xdai` | Gnosis XDAI |
+| `sei` | `sei-evm` | Sei V2 |
+| `starknet` | `starknet-alpha` | Starknet |
+
+**1 unsupported:** `worldchain` — absent from all 250. It must render the
+"charts unavailable on this chain" state, not an empty chart.
+
+So the coverage ticket is: **add 36 dictionary entries → chart coverage goes
+8 → 44 chains.** No vendor, no key, no contract.
+
+Two implementation notes for the ticket:
+- `DEXSCREENER_CHAIN` (`terminal.py:80`) must be extended in parallel — it maps
+  GT network → DexScreener chainId for `_resolve_pool`, and currently has only
+  8 entries. A GT entry without its DexScreener counterpart yields `ds_chain =
+  None`, which skips the chain filter and can select a pool **on the wrong
+  chain** (`:115`). Both dicts, same PR.
+- Non-EVM members of the list (`tron`, `starknet`) resolve pools differently;
+  verify each before claiming support rather than trusting the id match.
+
+### Still open
+1. Ink coverage unconfirmed on paid providers (irrelevant if GT works — it has
+   an exact `ink` id; verify with one live call).
+2. `/discovery/final-stretch` needs a real data source (§0b), not a filter tweak.
