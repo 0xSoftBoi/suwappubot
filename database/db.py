@@ -723,6 +723,9 @@ def _ensure_schema(db_engine) -> None:
     # --- Market data parity Phase 1: normalized OHLCV candles ---
     _create_market_candles_table(db_engine, inspector, is_sqlite)
 
+    # --- API usage metering: per-caller/route/day request counts ---
+    _create_api_usage_daily_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -4102,5 +4105,60 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
                 "ON market_candles(symbol, chain, timeframe, ts DESC)"
+            )
+        )
+
+
+def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the api_usage_daily table idempotently.
+
+    Per-caller (`api_key_id`), per-route, per-day request counter backing
+    /v1/data/* metering (see `callerKeyOf()` in api-ts/src/routes/data.ts).
+    One row per (api_key_id, route, day); `count` increments per request and
+    `last_used_at` records the most recent hit.
+
+    Mirrors api-ts's Drizzle schema (apiUsageDaily.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "api_usage_daily" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count INTEGER NOT NULL DEFAULT 0,
+                        last_used_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id BIGSERIAL PRIMARY KEY,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count BIGINT NOT NULL DEFAULT 0,
+                        last_used_at TIMESTAMPTZ
+                    )
+                """))
+            logger.info("Created api_usage_daily table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
+                "ON api_usage_daily(api_key_id, route, day)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
+                "ON api_usage_daily(api_key_id, day)"
             )
         )

@@ -49,7 +49,7 @@ from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
 from .tempo_access_key import TempoAccessKey
 from .waitlist import WaitlistSignup
-from .market_data import MarketCandle
+from .market_data import MarketCandle, ApiUsageDaily
 
 __all__ = [
     "User",
@@ -118,4 +118,6 @@ __all__ = [
     "WaitlistSignup",
     # Market data (Databento-parity Phase 1): OHLCV candles
     "MarketCandle",
+    # API usage metering (per-caller/route/day request counts)
+    "ApiUsageDaily",
 ]

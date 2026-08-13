@@ -13,7 +13,18 @@ decimal arithmetic holds across chains with wildly different token decimals
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from database.db import Base
 
@@ -60,3 +71,34 @@ class MarketCandle(Base):
 
     def __repr__(self) -> str:
         return f"<MarketCandle {self.symbol}/{self.chain} {self.timeframe} @ {self.ts}>"
+
+
+class ApiUsageDaily(Base):
+    """Per-caller, per-route, per-day request counter for /v1/data/* metering.
+
+    `api_key_id` is the caller identifier api-ts's data metering middleware
+    computes (see `callerKeyOf()` in api-ts/src/routes/data.ts) — an org API
+    key id (``apikey:<id>``) or agent identity (``agent:<uuid|id>``). `route`
+    is the metered route (e.g. ``data.history.ohlcv``). One row per
+    (api_key_id, route, day); `count` increments on each request and
+    `last_used_at` records the most recent hit.
+    """
+
+    __tablename__ = "api_usage_daily"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    api_key_id = Column(Text, nullable=False)
+    route = Column(Text, nullable=False)
+    day = Column(Date, nullable=False)
+
+    count = Column(BigInteger, nullable=False, default=0)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("api_key_id", "route", "day", name="uq_api_usage_daily_key_route_day"),
+        Index("ix_api_usage_daily_key_day", "api_key_id", "day"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ApiUsageDaily {self.api_key_id} {self.route} {self.day} count={self.count}>"

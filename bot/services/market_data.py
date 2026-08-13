@@ -2,9 +2,10 @@
 
 capture -> normalize -> store: polls tracked-token USD prices every 60s,
 aggregates into 1m OHLCV candles, rolls those up into 5m/1h/1d candles, and
-does a one-time 30-day 1h backfill from GeckoTerminal on startup. Feeds the
-``market_candles`` table (bot/models/market_data.py) that the api-ts
-Historical API (Phase 3) serves from.
+does a one-time tiered backfill from GeckoTerminal on startup: ~365 days of
+1d candles, ~30 days of 1h candles, and ~24h of 1m candles per (symbol,
+chain). Feeds the ``market_candles`` table (bot/models/market_data.py) that
+the api-ts Historical API (Phase 3) serves from.
 
 Lifecycle mirrors bot/services/alerts.py / bot/services/hl_ws_alerts.py:
 a start(bot=None)/stop() pair, an internal feature-flag no-op guard, and all
@@ -56,8 +57,17 @@ DEXSCREENER_CHAIN = {  # GeckoTerminal network id -> DexScreener chainId
 
 CAPTURE_SOURCE = "coingecko"
 BACKFILL_SOURCE = "geckoterminal"
-BACKFILL_HOURS = 24 * 30  # ~30 days of 1h candles
 BACKFILL_SLEEP_SECONDS = 1.5  # be polite to GeckoTerminal/DexScreener
+
+# (our timeframe, GeckoTerminal ohlcv path segment, aggregate, candle limit).
+# Mirrors api/routes/terminal.py's GECKO_TIMEFRAME. Backfilled in this order
+# (coarsest first) per (symbol, chain); each tier only runs if that
+# symbol/chain/timeframe has no rows yet.
+BACKFILL_TIERS = [
+    ("1d", "day", 1, 365),  # ~365 days of 1d candles
+    ("1h", "hour", 1, 24 * 30),  # ~30 days of 1h candles
+    ("1m", "minute", 1, 24 * 60),  # ~24h of 1m candles
+]
 
 # (source_timeframe, target_timeframe, bucket_seconds, lookback)
 ROLLUP_SPECS = [
@@ -344,7 +354,10 @@ class MarketDataService:
                         f"/{row['timeframe']}@{row['ts']}: {e}"
                     )
 
-    # === Backfill: one-time 30d of 1h candles from GeckoTerminal ===
+    # === Backfill: one-time tiered candles from GeckoTerminal ===
+    # 1d (~365d) -> 1h (~30d) -> 1m (~24h), per (symbol, chain). Each tier is
+    # independently guarded so a partially-backfilled symbol (e.g. only 1d
+    # done from a prior deploy) only fetches the tiers still missing.
 
     async def _backfill_once(self):
         try:
@@ -365,37 +378,55 @@ class MarketDataService:
             if not token_address:
                 continue
 
-            try:
-                already_backfilled = await run_in_db(self._has_rows, symbol, chain, "1h")
-                if already_backfilled:
-                    continue
+            pool: Optional[str] = None
+            pool_resolved = False
+            for timeframe, gecko_timeframe, aggregate, limit in BACKFILL_TIERS:
+                if not self._running:
+                    return
 
-                candles = await self._fetch_geckoterminal_backfill(network, token_address)
-                if candles:
-                    rows = [
-                        dict(
-                            symbol=symbol,
-                            chain=chain,
-                            token_address=token_address,
-                            timeframe="1h",
-                            ts=datetime.fromtimestamp(c["time"], tz=timezone.utc),
-                            open=c["open"],
-                            high=c["high"],
-                            low=c["low"],
-                            close=c["close"],
-                            volume=c.get("volume"),
-                            source=BACKFILL_SOURCE,
-                        )
-                        for c in candles
-                    ]
-                    await run_in_db(self._insert_ignore_rows, rows)
-                    logger.info(
-                        f"market_data: backfilled {len(rows)} 1h candles for {symbol}/{chain}"
+                try:
+                    already_backfilled = await run_in_db(self._has_rows, symbol, chain, timeframe)
+                    if already_backfilled:
+                        continue
+
+                    if not pool_resolved:
+                        pool = await self._resolve_pool(token_address, network)
+                        pool_resolved = True
+                        await asyncio.sleep(BACKFILL_SLEEP_SECONDS)
+                    if not pool:
+                        break  # no pool found; skip remaining tiers for this token
+
+                    candles = await self._fetch_geckoterminal_ohlcv(
+                        network, pool, gecko_timeframe, aggregate, limit
                     )
-            except Exception as e:
-                logger.warning(f"market_data: backfill failed for {symbol}/{chain}: {e}")
+                    if candles:
+                        rows = [
+                            dict(
+                                symbol=symbol,
+                                chain=chain,
+                                token_address=token_address,
+                                timeframe=timeframe,
+                                ts=datetime.fromtimestamp(c["time"], tz=timezone.utc),
+                                open=c["open"],
+                                high=c["high"],
+                                low=c["low"],
+                                close=c["close"],
+                                volume=c.get("volume"),
+                                source=BACKFILL_SOURCE,
+                            )
+                            for c in candles
+                        ]
+                        await run_in_db(self._insert_ignore_rows, rows)
+                        logger.info(
+                            f"market_data: backfilled {len(rows)} {timeframe} candles"
+                            f" for {symbol}/{chain}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"market_data: {timeframe} backfill failed for {symbol}/{chain}: {e}"
+                    )
 
-            await asyncio.sleep(BACKFILL_SLEEP_SECONDS)
+                await asyncio.sleep(BACKFILL_SLEEP_SECONDS)
 
     def _has_rows(self, symbol: str, chain: str, timeframe: str) -> bool:
         from bot.models.market_data import MarketCandle
@@ -432,17 +463,15 @@ class MarketDataService:
         best = max(pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
         return best.get("pairAddress")
 
-    async def _fetch_geckoterminal_backfill(self, network: str, token_address: str) -> list[dict]:
-        pool = await self._resolve_pool(token_address, network)
-        if not pool:
-            return []
-
-        url = f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool}/ohlcv/hour"
+    async def _fetch_geckoterminal_ohlcv(
+        self, network: str, pool: str, gecko_timeframe: str, aggregate: int, limit: int
+    ) -> list[dict]:
+        url = f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool}/ohlcv/{gecko_timeframe}"
         try:
             session = await get_http_session()
             async with session.get(
                 url,
-                params={"aggregate": 1, "limit": min(BACKFILL_HOURS, 1000)},
+                params={"aggregate": aggregate, "limit": min(limit, 1000)},
                 headers={
                     "User-Agent": "suwappu-market-data/1.0",
                     "Accept": "application/json",
