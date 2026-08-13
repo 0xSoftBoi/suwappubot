@@ -772,3 +772,149 @@ async def test_a_failed_read_is_not_cached_as_no_boost(monkeypatch):
     assert await svc.get_ticker_xp_boost_bps(addr, sym) == 0
     state["fail"] = False
     assert await svc.get_ticker_xp_boost_bps(addr, sym) == 2500, "failure was cached"
+
+
+# ── audit fixes ──────────────────────────────────────────────────────────────
+
+
+def test_allowlist_snapshot_excludes_watch_only_wallets(tmp_db, monkeypatch):
+    """Audit HIGH: rows_from_db picked the user's EVM wallet with an unfiltered,
+    unordered .first(). A watch row is an address pasted into /import with no
+    key and no signature — baking one into the on-chain Merkle root hands a free
+    EARNED mint grant to whoever actually controls it."""
+    import importlib.util
+
+    from bot.models.points import UserPoints
+    from bot.models.user import User, Wallet
+    from database.db import get_session
+
+    path = os.path.join(REPO, "nft", "position-cards", "build_allowlist.py")
+    spec = importlib.util.spec_from_file_location("build_allowlist", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    whale = "0x" + "aa" * 20
+    mine = "0x" + "bb" * 20
+    with get_session() as s:
+        s.add(User(id=7001, telegram_id=7001, username="freeloader"))
+        s.flush()
+        s.add(UserPoints(user_id=7001, total_swaps=9, total_volume_usd=2000))
+        # watch row created FIRST, so an unordered query would surface it
+        s.add(
+            Wallet(
+                user_id=7001,
+                address=whale,
+                chain_type="evm",
+                wallet_provider="watch",
+                is_active=True,
+            )
+        )
+        s.flush()
+        s.add(
+            Wallet(
+                user_id=7001,
+                address=mine,
+                chain_type="evm",
+                wallet_provider="local",
+                is_active=True,
+            )
+        )
+
+    rows = mod.rows_from_db()
+    got = {r["address"] for r in rows}
+    assert whale not in got, "a watch-only address reached the allowlist snapshot"
+    assert mine in got
+    assert mod.classify(next(r for r in rows if r["address"] == mine)) == mod.ALLOWLIST
+
+
+def test_allowlist_counts_only_verified_referrals(tmp_db):
+    """Audit HIGH: referrals were counted with no verified_at filter, so five
+    throwaway accounts bought the Founder phase. bot/models/referral.py states
+    verified_at is NULL until a fraud check passes and only verified referrals
+    count toward milestones."""
+    import importlib.util
+    from datetime import datetime, timezone
+
+    from bot.models.referral import Referral
+    from bot.models.user import User, Wallet
+    from database.db import get_session
+
+    path = os.path.join(REPO, "nft", "position-cards", "build_allowlist.py")
+    spec = importlib.util.spec_from_file_location("build_allowlist", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    with get_session() as s:
+        s.add(User(id=7100, telegram_id=7100, username="sybil"))
+        s.flush()
+        s.add(
+            Wallet(
+                user_id=7100,
+                address="0x" + "cc" * 20,
+                chain_type="evm",
+                wallet_provider="local",
+                is_active=True,
+            )
+        )
+        for i in range(6):
+            s.add(User(id=7200 + i, telegram_id=7200 + i, username=f"burner{i}"))
+        s.flush()
+        for i in range(6):  # six referrals, NONE verified
+            s.add(
+                Referral(
+                    referrer_id=7100,
+                    referee_id=7200 + i,
+                    referral_code=f"SYBIL_{i}",
+                )
+            )
+
+    row = next(r for r in mod.rows_from_db() if r["address"] == "0x" + "cc" * 20)
+    assert row["referrals"] == 0, "unverified referrals counted"
+    assert mod.classify(row) is None, "sybil reached a mint phase"
+
+    # verify two of them and the count moves, but still short of Founder
+    with get_session() as s:
+        for r in s.query(Referral).filter(Referral.referrer_id == 7100).limit(2).all():
+            r.verified_at = datetime.now(timezone.utc)
+    row = next(r for r in mod.rows_from_db() if r["address"] == "0x" + "cc" * 20)
+    assert row["referrals"] == 2
+    assert mod.classify(row) == mod.ALLOWLIST
+
+
+def test_service_and_snapshot_count_referrals_the_same_way(tmp_db):
+    """Their docstrings say they must not drift: the bot tells a user they
+    qualify using the number the snapshot uses to decide."""
+    from datetime import datetime, timezone
+
+    from bot.models.referral import Referral
+    from bot.models.user import User
+    from bot.services.position_cards_service import position_cards_service
+    from database.db import get_session
+
+    with get_session() as s:
+        s.add(User(id=7300, telegram_id=7300, username="honest"))
+        for i in range(4):
+            s.add(User(id=7400 + i, telegram_id=7400 + i, username=f"ref{i}"))
+        s.flush()
+        for i in range(4):
+            s.add(
+                Referral(
+                    referrer_id=7300,
+                    referee_id=7400 + i,
+                    referral_code=f"H_{i}",
+                    verified_at=datetime.now(timezone.utc) if i < 3 else None,
+                )
+            )
+
+    assert position_cards_service.allowlist_status(7300)["referrals"] == 3
+
+
+def test_cards_command_is_rate_limited_and_quotes_the_real_ticker_count():
+    """Audit: /cards had no rate limit while /bindwallet and /subscribe did, and
+    advertised 96 tickers when only the 35 with a Chainlink feed are mintable."""
+    src = open(os.path.join(REPO, "bot", "handlers", "position_cards.py")).read()
+    assert "enforce_rate_limit_for_update(update, swap_limiter)" in src
+    assert "96 tokenized equities" not in src
+    assert "len(PRICED_TICKERS)" in src
+    # no synchronous session left on the event loop
+    assert "with get_session() as session:" not in src.split("def _load_user_id")[0]

@@ -96,10 +96,50 @@ class Graph:
         visit(target, [])
         return order
 
+    @staticmethod
+    def _fn_fingerprint(fn) -> bytes:
+        """Bytes that change when the node's code changes.
+
+        Without this the digest covered only (name, version, params, deps), so
+        editing a node's BODY and re-running silently replayed the cached value:
+        `0 ran / 1 cached`, old answer. For a sweep whose whole job is to catch
+        renderer regressions, a cache that serves the pre-edit corpus and prints
+        "10,000/10,000 ok" is the failure it was built to prevent.
+        """
+        code = getattr(fn, "__code__", None)
+        if code is None:  # builtins / callables without bytecode
+            return repr(fn).encode()
+        parts = [code.co_code, repr(code.co_consts).encode(), repr(code.co_names).encode()]
+        # Closures capture inputs the bytecode does not show, so a node closing
+        # over a config constant must re-run when that constant changes. Only
+        # IMMUTABLE captures are hashed by value: a node closing over a mutable
+        # accumulator would otherwise get a different digest on every call as
+        # that object mutated, and nothing would ever cache. Falling back to the
+        # type name keeps such a node stable, at the cost of not noticing a
+        # change inside it — which is the right trade, since a node reading
+        # mutable shared state is not a pure function of its declared inputs and
+        # has already broken the contract this cache relies on.
+        immutable = (int, float, complex, bool, str, bytes, type(None), tuple, frozenset)
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                val = cell.cell_contents
+            except ValueError:  # empty cell during recursive definition
+                parts.append(b"<empty>")
+                continue
+            if isinstance(val, immutable):
+                try:
+                    parts.append(repr(val).encode())
+                    continue
+                except Exception:  # pragma: no cover - exotic __repr__
+                    pass
+            parts.append(type(val).__name__.encode())
+        return b"|".join(parts)
+
     def _digest(self, node: _Node) -> str:
         h = hashlib.sha256()
         h.update(node.name.encode())
         h.update(node.version.encode())
+        h.update(self._fn_fingerprint(node.fn))
         h.update(json.dumps(node.params, sort_keys=True, default=str).encode())
         for d in node.deps:
             dep = self._nodes[d]

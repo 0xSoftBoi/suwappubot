@@ -464,8 +464,23 @@ def _ensure_schema(db_engine) -> None:
     # one of them ENTERPRISE fee rates off one purchase.
     if "users" in tables:
         idx_names = {i["name"] for i in inspector.get_indexes("users")}
-        if "ux_users_membership_address" not in idx_names:
+        # Indexed on lower(...), not the raw column. A plain unique index is
+        # CASE-SENSITIVE, so 0xab..ab and 0xAB..AB both insert and two accounts
+        # share one wallet — the exact thing this index exists to stop. It held
+        # only because bindwallet.py lowercases before writing, i.e. one caller
+        # remembering. Any other writer (admin tool, API route, import) that
+        # forgets reopens the vector silently. Enforce it in the database.
+        if "ux_users_membership_address_lower" not in idx_names:
             with db_engine.begin() as conn:
+                # Normalise first: a pre-existing mixed-case row would fail the
+                # index creation below and block startup.
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = lower(membership_address) "
+                        "WHERE membership_address IS NOT NULL "
+                        "AND membership_address <> lower(membership_address)"
+                    )
+                )
                 # Clear any duplicates created before the constraint existed —
                 # keep the lowest user id, unbind the rest (they can re-bind).
                 conn.execute(
@@ -473,13 +488,15 @@ def _ensure_schema(db_engine) -> None:
                         "UPDATE users SET membership_address = NULL "
                         "WHERE membership_address IS NOT NULL AND id NOT IN ("
                         "  SELECT MIN(id) FROM users WHERE membership_address IS NOT NULL"
-                        "  GROUP BY membership_address)"
+                        "  GROUP BY lower(membership_address))"
                     )
                 )
+                conn.execute(text("DROP INDEX IF EXISTS ux_users_membership_address"))
                 conn.execute(
                     text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_membership_address "
-                        "ON users (membership_address)"
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_users_membership_address_lower "
+                        "ON users (lower(membership_address))"
                     )
                 )
 

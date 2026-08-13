@@ -270,14 +270,23 @@ def test_binding_is_exclusive_to_one_account():
     one of them reads ENTERPRISE off a single $99.99 purchase."""
     src = open(os.path.join(REPO, "bot", "handlers", "bindwallet.py")).read()
     assert "User.membership_address == normalized" in src
-    assert "already linked to another Suwappu account" in src
-    # stored lowercased, or the unique index never collides
+    # stored lowercased, belt to the index's braces
     assert "normalized = recovered.lower()" in src
 
     db = open(os.path.join(REPO, "database", "db.py")).read()
-    assert "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_membership_address" in db
-    # pre-existing duplicates must be cleared or the index creation fails
+    # Indexed on lower(...): a plain unique index is case-sensitive, so
+    # 0xab..ab and 0xAB..AB both inserted and one wallet backed two accounts.
+    assert "ux_users_membership_address_lower" in db
+    assert "ON users (lower(membership_address))" in db
+    # pre-existing duplicates and mixed case must be resolved or index creation fails
     assert "UPDATE users SET membership_address = NULL" in db
+    assert "SET membership_address = lower(membership_address)" in db
+
+    # A clash now RECLAIMS on a fresh proof rather than refusing. Refusing was
+    # the lockout: an attacker who phished one signature held the victim's
+    # address forever, since /unbindwallet is self-scoped. Behaviour is pinned
+    # by test_a_fresh_signature_reclaims_a_binding_from_another_account.
+    assert "claimed" in src and "reclaimed from user" in src
 
 
 def test_bindwallet_is_rate_limited_and_private_only():
@@ -433,7 +442,7 @@ def test_bindwallet_does_not_hold_a_db_session_across_an_await():
     a full network round-trip. The DB work runs in one short transaction off the
     await path instead."""
     src = open(os.path.join(REPO, "bot", "handlers", "bindwallet.py")).read()
-    bind_block = src[src.index("def _bind()") : src.index("outcome = await run_in_db")]
+    bind_block = src[src.index("def _bind()") : src.index("await run_in_db(_bind)")]
     assert "await " not in bind_block, "the bind transaction must not await"
     assert "run_in_db(_bind)" in src
     # no `with get_session()` may contain an await anywhere in this handler
@@ -787,3 +796,106 @@ async def test_concurrent_broadcasts_never_reuse_a_relayer_nonce(monkeypatch):
     assert len(set(sent)) == len(sent), f"relayer reused a nonce: {sent}"
     assert sorted(sent) == [0, 1, 2, 3], sent
     assert set(tags) == {"pending"}, f"nonce read used the wrong block tag: {tags}"
+
+
+# ── audit fix: a fresh proof reclaims a hijacked binding ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_signature_reclaims_a_binding_from_another_account(tmp_db, monkeypatch):
+    """Audit HIGH: an attacker who phished ONE signature could bind a victim's
+    address to their own account, inherit the victim's on-chain tier, and lock
+    the victim out forever — /unbindwallet is self-scoped, so only the attacker
+    could release it. A fresh nonce-bound signature is stronger evidence than an
+    incumbent binding, and the asymmetry favours the owner: the key holder can
+    always re-sign, an attacker with a stale signature cannot re-steal."""
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    import bot.handlers.bindwallet as bw
+    from bot.models.user import User
+    from database.db import get_session
+
+    key = Account.create()
+    with get_session() as s:
+        s.add(User(id=8001, telegram_id=8001, username="attacker"))
+        s.add(User(id=8002, telegram_id=8002, username="victim"))
+        s.flush()
+        # attacker already holds the victim's address (the phished bind)
+        s.query(User).filter(User.id == 8001).first().membership_address = key.address.lower()
+
+    sent = []
+
+    class _Msg:
+        async def reply_text(self, text, **kw):
+            sent.append(text)
+
+    class _Chat:
+        type = "private"
+
+    class _User:
+        id = 8002
+        username = "victim"
+
+    class _Update:
+        message = _Msg()
+        effective_user = _User()
+        effective_chat = _Chat()
+
+    class _Ctx:
+        args = []
+        user_data = {}
+
+    update, ctx = _Update(), _Ctx()
+    monkeypatch.setattr(bw, "_NONCE_TTL", 600)
+
+    await bw.bindwallet_command(update, ctx)  # step 1: issue a challenge
+    nonce = ctx.user_data[bw._CHALLENGE_KEY][0]
+
+    challenge = bw._challenge_text(8002, nonce, key.address, "victim")
+    sig = key.sign_message(encode_defunct(text=challenge)).signature.hex()
+    ctx.args = [key.address, sig if sig.startswith("0x") else "0x" + sig]
+    await bw.bindwallet_command(update, ctx)  # step 2: the real owner proves it
+
+    with get_session() as s:
+        assert s.query(User).filter(User.id == 8002).first().membership_address == (
+            key.address.lower()
+        ), f"owner could not reclaim their own wallet: {sent[-1]}"
+        assert (
+            s.query(User).filter(User.id == 8001).first().membership_address is None
+        ), "the hijacking account kept the binding"
+    assert "Bound" in sent[-1]
+
+
+def test_the_binding_challenge_names_the_account_in_human_terms():
+    """A bare numeric telegram id is not something a victim can recognise as
+    not-theirs, which is what made the phish work."""
+    import bot.handlers.bindwallet as bw
+
+    text = bw._challenge_text(8123456, "abcd", "0x" + "11" * 20, "someone_else")
+    assert "@someone_else" in text
+    assert "do not sign" in text.lower()
+    assert "telegram:8123456" in text  # the id is still what the bind is keyed on
+
+
+def test_membership_address_uniqueness_is_case_insensitive(tmp_db):
+    """Audit MEDIUM: a plain UNIQUE index let 0xab..ab and 0xAB..AB coexist, so
+    one wallet could back two accounts. It held only because one caller
+    remembered to lowercase."""
+    from sqlalchemy.exc import IntegrityError
+
+    from bot.models.user import User
+    from database.db import get_session
+
+    addr = "0x" + "ab" * 20
+    with get_session() as s:
+        for i in (8101, 8102):
+            s.add(User(id=i, telegram_id=i, username=f"u{i}"))
+        s.flush()
+    with get_session() as s:
+        s.query(User).filter(User.id == 8101).first().membership_address = addr
+    with pytest.raises(IntegrityError):
+        with get_session() as s:
+            s.query(User).filter(User.id == 8102).first().membership_address = addr.upper().replace(
+                "0X", "0x"
+            )

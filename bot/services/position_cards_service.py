@@ -464,12 +464,24 @@ class PositionCardsService:
                 level = (getattr(pts, "level", None) or "").lower() if pts else ""
                 volume = float(getattr(pts, "total_volume_usd", 0) or 0) if pts else 0.0
                 swaps = int(getattr(pts, "total_swaps", 0) or 0) if pts else 0
+                # VERIFIED referrals only. Referral.verified_at is NULL until
+                # the service layer clears a fraud/activity check, and the model
+                # states only verified referrals count toward milestones.
+                # Counting raw rows here told a user with five throwaway
+                # referrals they had earned Founder — and build_allowlist.py
+                # counted the same way, so the snapshot agreed and the sybil
+                # went all the way onto the on-chain Merkle root.
                 referrals = 0
                 try:
                     from bot.models.referral import Referral
 
                     referrals = (
-                        session.query(Referral).filter(Referral.referrer_id == user_id).count()
+                        session.query(Referral)
+                        .filter(
+                            Referral.referrer_id == user_id,
+                            Referral.verified_at.isnot(None),
+                        )
+                        .count()
                     )
                 except Exception:
                     pass

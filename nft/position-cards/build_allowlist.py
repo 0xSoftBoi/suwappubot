@@ -38,6 +38,25 @@ def load_config() -> dict:
         return json.load(f)
 
 
+def verified_referrals(session, user_id: int) -> int:
+    """Referrals that passed the fraud/activity check, or 0 if unavailable.
+
+    Shared with position_cards_service.allowlist_status: the bot tells a user
+    they qualify using the same number the snapshot uses to decide, so counting
+    differently in the two places means promising a spot the mint denies.
+    """
+    try:
+        from bot.models.referral import Referral
+
+        return (
+            session.query(Referral)
+            .filter(Referral.referrer_id == user_id, Referral.verified_at.isnot(None))
+            .count()
+        )
+    except Exception:
+        return 0
+
+
 def classify(row: dict) -> str | None:
     """Which phase a user has earned. Founder beats Allowlist."""
     level = str(row.get("xp_level") or "").lower()
@@ -52,8 +71,30 @@ def classify(row: dict) -> str | None:
     return None
 
 
+# Wallet providers whose private key Suwappu actually holds. A "watch" row is an
+# address the user pasted into /import — no key, no signature, no proof of
+# anything. Baking one into the Merkle root hands a free, EARNED mint grant to
+# whoever really controls that address. Mirrors membership_service and
+# position_cards_service, which both exclude watch wallets for the same reason.
+KEY_CONTROLLED_PROVIDERS = ("local", "turnkey")
+
+
 def rows_from_db() -> list[dict]:
-    """Snapshot every user with an EVM wallet and their earned signals."""
+    """Snapshot every user with a PROVEN EVM wallet and their earned signals.
+
+    Two rules that look like details and are not:
+
+    * Only key-controlled, active wallets count, and the pick is ordered by
+      Wallet.id. An unordered `.first()` also made the snapshot
+      nondeterministic — a user with two wallets could resolve differently on
+      each build, and since the root goes on-chain via `configurePhase` while
+      proofs are handed to users, a rebuild would silently invalidate proofs
+      with no way to fix it short of a new root.
+    * Referrals must be VERIFIED. `Referral.verified_at` is NULL until the
+      service layer clears a fraud/activity check, and the model says only
+      verified referrals count toward milestones. Counting raw rows let five
+      throwaway accounts buy the Founder phase.
+    """
     sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
     from bot.models.points import UserPoints
     from bot.models.user import User, Wallet
@@ -64,23 +105,24 @@ def rows_from_db() -> list[dict]:
         q = (
             session.query(User, UserPoints)
             .outerjoin(UserPoints, UserPoints.user_id == User.id)
+            .order_by(User.id)
             .all()
         )
         for user, pts in q:
             wallet = (
                 session.query(Wallet)
-                .filter(Wallet.user_id == user.id, Wallet.chain_type == "evm")
+                .filter(
+                    Wallet.user_id == user.id,
+                    Wallet.chain_type == "evm",
+                    Wallet.is_active.is_(True),
+                    Wallet.wallet_provider.in_(KEY_CONTROLLED_PROVIDERS),
+                )
+                .order_by(Wallet.id)
                 .first()
             )
             if not wallet or not wallet.address:
                 continue
-            referrals = 0
-            try:
-                from bot.models.referral import Referral
-
-                referrals = session.query(Referral).filter(Referral.referrer_id == user.id).count()
-            except Exception:
-                pass
+            referrals = verified_referrals(session, user.id)
             out.append(
                 {
                     "address": wallet.address,

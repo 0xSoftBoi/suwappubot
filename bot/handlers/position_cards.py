@@ -5,7 +5,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from bot.services.position_cards_service import position_cards_service
+from bot.services.position_cards_service import PRICED_TICKERS, position_cards_service
 
 logger = logging.getLogger(__name__)
 
@@ -23,23 +23,44 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
     """Show the user's position cards, their live P&L, and the fee perk."""
     user = update.effective_user
 
-    from bot.models.user import User
-    from database.db import get_session
+    # Rate limited like /bindwallet and /subscribe. One uncapped invocation can
+    # drive ~100 eth_calls (get_positions reads returnBps + grade for up to 50
+    # cards) plus four remaining_for_ticker calls and an indexer fetch, so
+    # spamming it burns Robinhood Chain RPC quota and saturates the positions
+    # executor for everyone else.
+    try:
+        from bot.utils.rate_limiter import enforce_rate_limit_for_update, swap_limiter
 
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await update.message.reply_text("❌ Please start the bot first with /start")
+        if not await enforce_rate_limit_for_update(update, swap_limiter):
             return
-        user_id = db_user.id
+    except ImportError:  # pragma: no cover - limiter is optional at import time
+        pass
+
+    from bot.models.user import User
+    from database.db import get_session, run_in_db
+
+    def _load_user_id():
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            return db_user.id if db_user else None
+
+    # Off the event loop: a synchronous session here blocked every other user's
+    # swap for the duration of the query, which is the defect the positions
+    # service was just hardened against — its only caller should not reintroduce
+    # it one line up.
+    user_id = await run_in_db(_load_user_id)
+    if user_id is None:
+        await update.message.reply_text("❌ Please start the bot first with /start")
+        return
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Open a position", url=MINT_URL)]])
 
     if not position_cards_service.enabled:
         await update.message.reply_text(
             "📈 *Suwappu Positions*\n\n"
-            "Pick any of the 96 tokenized equities on Robinhood Chain and open a "
-            "position on it. Your entry price is stamped on-chain at mint and never "
+            f"Pick any of the {len(PRICED_TICKERS)} tokenized equities with a live "
+            "Chainlink feed on Robinhood Chain and open a position on it. Your entry "
+            "price is stamped on-chain at mint and never "
             "changes — the card re-renders against the live price forever.\n\n"
             "_Not live yet._",
             parse_mode="Markdown",
@@ -93,7 +114,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             "_Collectible cards. Not equity, not a security, pays nothing._"
         )
     else:
-        address = position_cards_service.evm_address_for_user(user_id)
+        # Another DB round-trip — same rule, off the loop.
+        address = await run_in_db(lambda: position_cards_service.evm_address_for_user(user_id))
         cards = await position_cards_service.get_positions(address)
         lines = [f"🃏 *Your position cards* — {len(cards)}\n"]
         for pos in cards[:10]:

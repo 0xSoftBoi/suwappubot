@@ -261,3 +261,56 @@ def test_graph_resolves_every_declared_dependency(sweep):
     g = sweep.build_graph(workers=2)
     names = {name for name, _, _ in g.describe("inputs")}
     assert {"config", "registry", "allocation", "corpus", "inputs"} <= names
+
+
+def test_editing_a_node_body_busts_its_cache(graph_mod, tmp_path):
+    """Audit MEDIUM: _digest covered (name, version, params, deps) but not the
+    node function, so editing a node's body and re-running silently replayed the
+    cached value — 0 ran / 1 cached, old answer. For a sweep whose entire job is
+    catching renderer regressions, a cache that serves the pre-edit corpus and
+    prints '10,000/10,000 ok' is the failure it exists to prevent."""
+    d = str(tmp_path)
+
+    g1 = graph_mod.Graph(cache_dir=d)
+    g1.node("corpus", [], lambda _: ["OLD"])
+    assert g1.run("corpus")["corpus"] == ["OLD"]
+
+    g2 = graph_mod.Graph(cache_dir=d)
+    g2.node("corpus", [], lambda _: ["NEW"])  # same name, same version, new body
+    assert g2.run("corpus")["corpus"] == ["NEW"], "stale cached value was replayed"
+    assert g2.stats["ran"] == 1
+
+    g3 = graph_mod.Graph(cache_dir=d)
+    g3.node("corpus", [], lambda _: ["NEW"])  # unchanged: must still cache
+    assert g3.run("corpus")["corpus"] == ["NEW"]
+    assert g3.stats["cached"] == 1, "caching stopped working entirely"
+
+
+def test_a_changed_closure_variable_busts_the_cache(graph_mod, tmp_path):
+    """Node bodies often close over config. Identical bytecode with a different
+    captured value is a different function for caching purposes."""
+    d = str(tmp_path)
+
+    def build(limit):
+        g = graph_mod.Graph(cache_dir=d)
+        g.node("rows", [], lambda _: list(range(limit)))
+        return g
+
+    assert build(3).run("rows")["rows"] == [0, 1, 2]
+    assert build(5).run("rows")["rows"] == [0, 1, 2, 3, 4], "closure change was cached over"
+
+
+def test_a_downstream_node_reruns_when_its_dependency_changes(graph_mod, tmp_path):
+    """The digest chains through deps, so editing `corpus` must invalidate
+    everything built on it — otherwise the sweep validates a new corpus with a
+    stale summary."""
+    d = str(tmp_path)
+
+    def build(body):
+        g = graph_mod.Graph(cache_dir=d)
+        g.node("corpus", [], body)
+        g.node("summary", ["corpus"], lambda i: len(i["corpus"]))
+        return g
+
+    assert build(lambda _: [1, 2, 3]).run("summary")["summary"] == 3
+    assert build(lambda _: [1, 2, 3, 4]).run("summary")["summary"] == 4

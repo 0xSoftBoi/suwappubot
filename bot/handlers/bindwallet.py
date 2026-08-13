@@ -42,22 +42,30 @@ _NONCE_TTL = 600  # seconds
 _CHALLENGE_KEY = "bindwallet_challenge"  # (nonce, issued_at) in user_data
 
 
-def _challenge_text(telegram_id: int, nonce: str, address: str = "") -> str:
+def _challenge_text(telegram_id: int, nonce: str, address: str = "", username: str = "") -> str:
     """The challenge names the account AND the address being claimed.
 
     Without the address, an attacker could run /bindwallet on their own account
     and phish a victim into signing that challenge ("verify your wallet for the
     airdrop"); the recovered signer would be the victim's address and the
-    attacker would bind it. Naming the address makes the text self-evidently
-    about linking THAT wallet to THAT account, so a victim signing it is
-    consenting to exactly what happens.
+    attacker would bind it.
+
+    Naming the address was not enough on its own: the account was identified
+    only by an opaque numeric telegram id, which a victim cannot recognise as
+    not-theirs. The handle is included so the text reads as a sentence a human
+    can refuse — "links this wallet to @someone_else" is checkable in a way that
+    "telegram:8123456" is not. The id stays in the message because it, not the
+    handle, is what the binding is keyed on and handles can be changed.
     """
+    who = f"@{username}" if username else f"id {telegram_id}"
     return (
         "Suwappu membership binding\n"
+        f"account:{who}\n"
         f"telegram:{telegram_id}\n"
         f"address:{address.lower()}\n"
         f"nonce:{nonce}\n"
-        "Signing links this wallet to that Suwappu account. "
+        f"Signing links this wallet to the Suwappu account {who}. "
+        "If that is not your account, do not sign. "
         "It authorizes no transaction and costs nothing."
     )
 
@@ -99,7 +107,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not args:
         nonce = secrets.token_hex(16)
         context.user_data[_CHALLENGE_KEY] = (nonce, time.time())
-        challenge = _challenge_text(user.id, nonce, "<YOUR_ADDRESS>")
+        challenge = _challenge_text(user.id, nonce, "<YOUR_ADDRESS>", user.username or "")
         current_line = f"Currently bound: `{current}`\n\n" if current else ""
         await update.message.reply_text(
             "🔗 *Bind your Robinhood Wallet*\n\n"
@@ -139,7 +147,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from eth_account import Account
         from eth_account.messages import encode_defunct
 
-        message = encode_defunct(text=_challenge_text(user.id, nonce, address))
+        message = encode_defunct(text=_challenge_text(user.id, nonce, address, user.username or ""))
         recovered = Account.recover_message(message, signature=signature)
     except Exception as e:
         logger.debug("bindwallet: recovery failed for user %s: %s", user_id, e)
@@ -161,47 +169,71 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # for the duration of a network round-trip.
     normalized = recovered.lower()
 
-    def _bind() -> str:
-        """Returns 'ok' | 'taken' | 'no_user'. Synchronous by design."""
+    def _bind() -> tuple:
+        """Returns ('ok'|'claimed'|'no_user'|'error', displaced_user_id|None).
+
+        EXCLUSIVITY (see module docstring): one address, one account — but a
+        clash RECLAIMS rather than refuses.
+
+        Refusing looked safer and was not. An attacker who phished one signature
+        could bind a victim's address to their own account, inherit the victim's
+        on-chain tier, and lock the victim out permanently: /unbindwallet is
+        self-scoped, so only the attacker could ever release it. The victim had
+        no recovery path at all.
+
+        A fresh nonce-bound signature is strictly stronger evidence than an
+        incumbent binding, and the asymmetry runs the right way: the real key
+        holder can sign again at will, while an attacker holding one stale
+        phished signature cannot re-steal without phishing again. So the newest
+        proof wins, the displaced account is unbound and its tier cache dropped.
+        """
         with get_session() as session:
-            # EXCLUSIVITY (see module docstring): one address, one account.
-            # Checked here for a clean message; the unique index underneath is
-            # what actually closes the race, so a concurrent bind that slips
-            # through this SELECT still fails on flush.
-            clash = (
-                session.query(User.id)
+            incumbent = (
+                session.query(User)
                 .filter(User.membership_address == normalized, User.id != user_id)
                 .first()
             )
-            if clash:
-                return "taken"
             db_user = session.query(User).filter(User.id == user_id).first()
             if not db_user:
-                return "no_user"
+                return ("no_user", None)
+            displaced = None
             try:
+                if incumbent is not None:
+                    displaced = incumbent.id
+                    # Must clear the incumbent BEFORE claiming, in one
+                    # transaction, or the unique index rejects the write.
+                    incumbent.membership_address = None
+                    session.flush()
                 db_user.membership_address = normalized
                 session.flush()
             except Exception:
                 session.rollback()
-                return "taken"
-            return "ok"
+                return ("error", None)
+            return (("claimed" if displaced else "ok"), displaced)
 
     try:
-        outcome = await run_in_db(_bind)
+        outcome, displaced = await run_in_db(_bind)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("bindwallet: bind failed for user %s: %s", user_id, e)
-        outcome = "taken"
+        outcome, displaced = "error", None
 
-    if outcome == "taken":
-        await update.message.reply_text(
-            "❌ That address is already linked to another Suwappu account.\n\n"
-            "Each wallet can back one account — use a different wallet, or unlink "
-            "it from the other account first."
-        )
+    if outcome == "error":
+        await update.message.reply_text("❌ Couldn't link that wallet right now — try again.")
         return
     if outcome == "no_user":
         await update.message.reply_text("❌ Account not found — try /start again.")
         return
+    if outcome == "claimed":
+        # Security-relevant: one wallet moved between accounts on a fresh proof.
+        logger.warning(
+            "bindwallet: %s reclaimed from user %s by user %s", normalized, displaced, user_id
+        )
+        try:
+            from bot.services.membership_service import membership_service as _ms
+
+            _ms.invalidate(displaced)
+        except Exception:  # pragma: no cover - cache drop is best-effort
+            pass
 
     context.user_data.pop(_CHALLENGE_KEY, None)
     try:
@@ -211,10 +243,16 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:  # pragma: no cover - cache drop is best-effort
         pass
 
+    moved = (
+        "\n\n_This wallet was linked to another account; your signature proves the key, "
+        "so it moved here and that account was unlinked._"
+        if outcome == "claimed"
+        else ""
+    )
     await update.message.reply_text(
         f"✅ *Bound* `{recovered}`\n\n"
         "Your on-chain Suwappu membership (and any tier you buy from this wallet) "
-        "now counts toward your subscription automatically.",
+        "now counts toward your subscription automatically." + moved,
         parse_mode="Markdown",
     )
 
