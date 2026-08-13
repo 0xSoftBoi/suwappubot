@@ -20,6 +20,15 @@ registered at `bot/main.py:521`.
 | Fee sponsorship (platform pays gas) | ➖ users self-pay Base gas from their own wallet; sponsorship needs a paymaster/relayer | not built; flagged for product |
 | Private earning (Tempo Zones) | n/a — chain-level privacy feature of Tempo's own L1 | n/a |
 
+## Money-path review (Opus) — verdict BLOCK, fixes in progress
+Findings on commits 1793904 + cf6ca00 being fixed on this branch before merge:
+- **CRITICAL**: 2FA + spending-limit gates ran *after* the on-chain Earn redeem → gates hoisted ahead of the withdraw; 2FA-required path defers the redeem until after TOTP verification.
+- **HIGH**: redeem stash survived state-preserving paths (replayable callback → double-withdraw) → stash popped before the withdraw + rate limit on the handler.
+- **HIGH**: exact-shortfall redeem + cross-RPC balance lag could leave the swap still failing after funds moved → small over-redeem buffer, round-up wei conversion, post-redeem balance poll.
+- **MEDIUM ×3**: "funds are safe" note unreachable on the likeliest failure path; no quote re-validation after the redeem; `/b`/`/p` could block ~2min on slow Base RPC (no timeout, uncached APY).
+- **LOW ×2**: memo markdown escaping without parse_mode; memo button attaches to latest withdrawal instead of the tapped one (event id now carried in callback data + user-scoped update).
+Verified clean by the review: wallet-identity binding, no key exposure, memo IDOR not exploitable (defense-in-depth filter added anyway), additive migration, double-tap serialization, swap-leg idempotency.
+
 ## Build items (this branch)
 1. **Spend-while-earning** [MONEY-PATH]: in the swap flow, when selling USDC on Base and
    idle balance < amount ≤ idle + earn position, redeem the shortfall from Aave first,
