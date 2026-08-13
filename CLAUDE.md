@@ -207,6 +207,9 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 | TypeScript api-ts feature work | `api-ts-dev` | sonnet |
 | Webapp (Telegram Mini App) feature work | `webapp-dev` | sonnet |
 | Showcase site / marketing / visual polish | `showcase-dev` | sonnet |
+| **Visual quality gate for anything people look at** — NFT/generative output, card renderers, visual systems. Renders and LOOKS; judges the 190px grid, not the hero shot | `art-director` | **opus** |
+| Brand drift across surfaces, design-token single-sourcing, voice consistency | `brand-guardian` | sonnet |
+| Positioning, launch narrative, mint/landing copy, distribution | `growth-marketing` | sonnet |
 | Dual-ORM schema change | `db-migrate` | sonnet |
 | New chain integration | `chain-support` | sonnet |
 | SDK/package sync | `sdk-dev` | sonnet |
