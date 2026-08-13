@@ -15,7 +15,7 @@
   "compliance": "Soulbound membership credential. It records which Suwappu service tier a wallet currently holds. It is NOT equity, NOT a security, NOT a derivative or investment of any kind, confers no shareholder, voting or ownership rights, pays nothing out, cannot be bought or sold, and gives no economic exposure to Suwappu or to any other issuer. It is access, not an asset."
  },
  "tiers": {
-  "_comment": "Order MUST match the Tier enum in contracts/SuwappuMembership.sol (Free=0, Pro=1, Premium=2, Enterprise=3). Card colour is a fixed IDENTITY per tier \u2014 colour-coding, the way a real membership programme distinguishes cards \u2014 and explicitly NOT a rarity signal. No tier gets a louder, darker or fancier plate for costing more: tier is BOUGHT, and in this collection ornament is reserved for what is EARNED, which is unbroken time held. Enterprise was briefly the only dark card and that was wrong for exactly this reason.",
+  "_comment": "Order MUST match the Tier enum in contracts/SuwappuMembership.sol (Free=0, Pro=1, Premium=2, Enterprise=3). `accent` is the tier's INK, given as a literal hex rather than a brand-token key, because the point of this set is a property no single token carries: the four inks are tuned to a 7.14-7.84:1 contrast band on the shared #faf8f4 ground so that NO TIER IS LOUDER, DARKER OR RICHER THAN ANOTHER. Colour is a fixed IDENTITY per tier -- colour-coding, the way a real club distinguishes cards -- and explicitly NOT a rarity signal. The previous mapping failed this quietly: Free got the weakest grey (text-2) and Enterprise got pure black (text), which is a rarity ramp wearing a colour-coding costume. Every tier now gets the SAME card on the SAME cream ground; only the ink changes. Ornament is reserved for what is EARNED, which is unbroken time held.",
   "order": [
    "Free",
    "Pro",
@@ -23,28 +23,32 @@
    "Enterprise"
   ],
   "Free": {
-   "accent": "text-2",
+   "accent": "#544d45",
    "tagline": "Bot access, standard fees",
+   "ink_note": "Warm slate. Brand text-2 (#6b6560) taken to ink density; the base tier gets the most classic, most neutral ink on the card, which is the plainest possible statement that tier is not rank.",
    "dark_plate": false
   },
   "Pro": {
-   "accent": "accent",
+   "accent": "#8f3355",
    "tagline": "Reduced fees, priority alerts",
+   "ink_note": "Deep rose. The brand accent (#f472b6, hue ~330) at printable density -- the raw accent measures 2.50:1 on cream and is unusable as ink, which is why position-cards never sets body copy in it either. Same hue, printed.",
    "dark_plate": false
   },
   "Premium": {
-   "accent": "green",
+   "accent": "#1a5c38",
    "tagline": "Lower fees, advanced tooling",
+   "ink_note": "Brand green, canonical and unmodified from designTokens.brand.green.",
    "dark_plate": false
   },
   "Enterprise": {
-   "accent": "text",
+   "accent": "#734b28",
    "tagline": "Custom limits, dedicated support",
+   "ink_note": "Tobacco. Outside the token set; justified as the fourth ink needed to complete an equal-weight club set, and it is the warm-neutral counterpart to the cream ground rather than a new brand hue.",
    "dark_plate": false
   }
  },
  "patina": {
-  "_comment": "The ONLY axis that earns ornament: continuous, unbroken membership time on the current streak (member_since -> now). Tier does not affect this at all \u2014 a Free member who has held since genesis reaches the same patina as a long-held Enterprise member. Bands are inclusive of min_days, evaluated top-down.",
+  "_comment": "The ONLY axis that earns ornament: continuous, unbroken membership time on the current streak (member_since -> now). Tier does not affect this at all -- a Free member who has held since genesis reaches the same patina as a long-held Enterprise member. Ornament is spent as MATERIAL, not decoration: New = ink mon + letterpress bite on plain stock; Established = + milled long edges + ruled intaglio ground; Long-held = + the mark struck in FOIL with a specular crest + full milled edge; Founding = + aged ground + double keyline + deep ruling. Bands are inclusive of min_days, evaluated top-down.",
   "bands": [
    {
     "name": "Founding Tenure",
