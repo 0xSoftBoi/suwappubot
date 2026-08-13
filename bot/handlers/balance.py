@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+from decimal import Decimal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
+from bot.services.savings_service import savings_service
 from bot.utils.formatters import format_balance_list, format_amount, format_chain_name
 from bot.utils.telegram_safe import safe_md
 from bot.utils.templates import (
@@ -21,6 +23,30 @@ from bot.utils.tos_utils import enforce_tos
 
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
+
+
+async def _earn_line(wallet_infos) -> str:
+    """Best-effort Aave Earn summary across the user's Base-capable EVM wallets.
+
+    Never raises — any error (RPC down, etc.) silently omits the line so /b
+    still renders. Skips the APY call entirely when the aggregate position is 0.
+    """
+    try:
+        evm_addrs = [addr for _, addr, chain_type, _ in wallet_infos if chain_type == "evm"]
+        if not evm_addrs:
+            return ""
+        positions = await asyncio.gather(
+            *[asyncio.to_thread(savings_service.get_position, addr) for addr in evm_addrs],
+            return_exceptions=True,
+        )
+        total = sum((p for p in positions if not isinstance(p, BaseException)), Decimal("0"))
+        if total <= 0:
+            return ""
+        apy = await asyncio.to_thread(savings_service.get_apy)
+        return f"\n\n🌱 Earn: {total:.2f} USDC ({apy:.2f}% APY) — /earn"
+    except Exception as e:
+        logger.debug(f"Earn summary fetch failed: {e}")
+        return ""
 
 
 @enforce_tos
@@ -66,12 +92,15 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
                 return {}
 
-        balance_results = await asyncio.gather(
-            *[fetch_wallet_balance(w) for w in wallet_infos], return_exceptions=True
+        balance_results, earn_line = await asyncio.gather(
+            asyncio.gather(
+                *[fetch_wallet_balance(w) for w in wallet_infos], return_exceptions=True
+            ),
+            _earn_line(wallet_infos),
         )
 
         # Build per-wallet display with full addresses
-        text = _format_wallet_balances(wallet_infos, balance_results)
+        text = _format_wallet_balances(wallet_infos, balance_results) + earn_line
 
         await loading_msg.edit_text(
             text,
@@ -147,12 +176,15 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
                 return {}
 
-        balance_results = await asyncio.gather(
-            *[fetch_wallet_balance(w) for w in wallet_infos], return_exceptions=True
+        balance_results, earn_line = await asyncio.gather(
+            asyncio.gather(
+                *[fetch_wallet_balance(w) for w in wallet_infos], return_exceptions=True
+            ),
+            _earn_line(wallet_infos),
         )
 
         # Build per-wallet display with full addresses
-        text = _format_wallet_balances(wallet_infos, balance_results)
+        text = _format_wallet_balances(wallet_infos, balance_results) + earn_line
 
         keyboard = [
             [

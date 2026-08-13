@@ -20,4 +20,5 @@ class SavingsEvent(Base):
     action = Column(String(16), nullable=False)  # deposit / withdraw
     amount = Column(Numeric(18, 6), nullable=True)  # None for withdraw-all
     tx_hash = Column(String(80), nullable=True)
+    memo = Column(String(256), nullable=True)  # optional user-supplied reconciliation memo
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
