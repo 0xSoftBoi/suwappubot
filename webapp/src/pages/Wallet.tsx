@@ -4,7 +4,6 @@ import {
   createWalletClient,
   createPublicClient,
   http,
-  parseEther,
   parseUnits,
   formatEther,
   formatUnits,
@@ -657,7 +656,12 @@ function SendView({
             to: toAddr,
             value,
             ...feeOverrides,
-          })
+            // Type-only cast: getFeeOverrides() may carry legacy `gasPrice` OR
+            // the EIP-1559 pair, but viem models those as a discriminated union
+            // so a value that *might* hold either is rejected at compile time.
+            // The runtime object only ever holds one set (see getFeeOverrides).
+            // Same reason signTransaction below already casts. No behavior change.
+          } as never)
           serializedTransaction = await walletClient.signTransaction(request as any)
         } else {
           const tokenAddress = getAddress(selectedToken.address)
@@ -673,7 +677,9 @@ function SendView({
             to: tokenAddress,
             data,
             ...feeOverrides,
-          })
+            // See the native-transfer branch above: viem's fee-field union
+            // rejects a maybe-either object. Type-only, no behavior change.
+          } as never)
           serializedTransaction = await walletClient.signTransaction(request as any)
         }
       } catch (signErr: any) {
