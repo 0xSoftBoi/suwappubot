@@ -284,10 +284,26 @@ def test_oracle_normalises_decimals_to_1e18():
 
 
 def test_oracle_does_not_double_apply_the_multiplier():
-    """Chainlink already reports total-return value; applying uiMultiplier again
-    would inflate every price."""
+    """Chainlink already reports total-return value, so scaling a PRICE by
+    uiMultiplier would inflate every quote.
+
+    The oracle now reads the multiplier deliberately — `multiplierOf` exposes it
+    so a stored entry price can be restated when a licensed equity splits — so
+    the check is no longer "the identifier must not appear". It is the precise
+    invariant: `priceOf` must never multiply by it. A blunt source grep could
+    not tell the two apart, and would have blocked the corporate-action work
+    while still passing on a real double-apply written a line lower.
+    """
     src = _oracle_src()
-    assert "uiMultiplier" not in src.split("*/", 1)[1], "uiMultiplier must not be applied in code"
+    start = src.index("function priceOf(")
+    # priceOf only — multiplierOf now sits between it and debugPrice, so slicing
+    # to debugPrice would swallow the very function this is allowed to have.
+    body = src[start : src.index("\n    function ", start + 10)]
+    assert "uiMultiplier" not in body, "priceOf must not touch the multiplier"
+    assert "multiplierOf" not in body, "priceOf must not touch the multiplier"
+    # ...and it is still available to callers that need the basis, not the price
+    assert "function multiplierOf(address token)" in src
+    assert "returns (uint64)" in src
 
 
 def test_oracle_staleness_window_covers_a_weekend():

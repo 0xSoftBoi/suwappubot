@@ -48,6 +48,9 @@ interface AggregatorV3Interface {
 interface IStockToken {
     /// @notice True while a corporate action is being applied. Advisory per Robinhood's docs.
     function oraclePaused() external view returns (bool);
+    /// @dev Corporate-action multiplier, 1e18 == unadjusted. Robinhood Chain is
+    ///      the only chain that publishes this on-chain for licensed equities.
+    function uiMultiplier() external view returns (uint256);
 }
 
 contract RobinhoodChainlinkOracle is Ownable {
@@ -141,6 +144,12 @@ contract RobinhoodChainlinkOracle is Ownable {
 
     /// @notice Price of `token` in USD, scaled to 1e18. Returns 0 when unavailable.
     /// @dev    Never reverts — SuwappuPositions relies on 0 meaning "unpriced".
+    uint256 internal constant ONE = 1e18;
+    /// @dev A 1000:1 split either way is far outside anything a listed equity
+    ///      does; beyond this band the token is malfunctioning, not adjusting.
+    uint256 internal constant MIN_MULTIPLIER = 1e15;
+    uint256 internal constant MAX_MULTIPLIER = 1e21;
+
     function priceOf(address token) external view returns (uint256) {
         Feed memory f = feedOf[token];
         if (f.aggregator == address(0)) return 0;
@@ -165,6 +174,31 @@ contract RobinhoodChainlinkOracle is Ownable {
             return price;
         } catch {
             return 0;
+        }
+    }
+
+    /// @notice The corporate-action multiplier for `token`, 1e18 == unadjusted.
+    ///
+    /// @dev    This is the hook that makes Robinhood Chain different. These are
+    ///         LICENSED equities, so they undergo real corporate actions —
+    ///         splits, consolidations — and the chain publishes the resulting
+    ///         multiplier on-chain rather than leaving it to an off-chain
+    ///         indexer. `priceOf` already returns 0 while `oraclePaused()` is
+    ///         true, which is precisely the window in which an action lands, so
+    ///         a consumer that reads the price without also reading THIS is
+    ///         comparing two numbers taken on different bases.
+    ///
+    ///         Never reverts, and never returns 0: an unknown multiplier is
+    ///         reported as 1e18 (unadjusted), which makes every downstream
+    ///         ratio a no-op rather than a division by zero. Clamped to a sane
+    ///         band so a malfunctioning token cannot rebase a stored basis into
+    ///         nonsense.
+    function multiplierOf(address token) public view returns (uint64) {
+        try IStockToken(token).uiMultiplier() returns (uint256 m) {
+            if (m < MIN_MULTIPLIER || m > MAX_MULTIPLIER) return uint64(ONE);
+            return uint64(m);
+        } catch {
+            return uint64(ONE);
         }
     }
 

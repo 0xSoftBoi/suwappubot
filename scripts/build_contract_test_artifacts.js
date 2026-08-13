@@ -28,6 +28,8 @@ const TARGETS = {
   "MockUSDG.sol": "test/MockUSDG.sol",
   "MockEthUsdFeed.sol": "test/MockEthUsdFeed.sol",
   "MaliciousMinter.sol": "test/MaliciousMinter.sol",
+  "MockStockToken.sol": "test/MockStockToken.sol",
+  "RobinhoodChainlinkOracle.sol": "RobinhoodChainlinkOracle.sol",
 };
 
 let solc;
@@ -70,7 +72,15 @@ if (errors.length) process.exit(1);
 
 // Only the contracts the tests actually deploy — keeps the blob small and the
 // diff readable when it changes.
-const WANTED = new Set(["SuwappuMembership", "SuwappuPositions", "MockUSDG", "MockEthUsdFeed", "MaliciousMinter"]);
+const WANTED = new Set([
+  "SuwappuMembership",
+  "SuwappuPositions",
+  "MockUSDG",
+  "MockEthUsdFeed",
+  "MaliciousMinter",
+  "MockStockToken",
+  "RobinhoodChainlinkOracle",
+]);
 const artifacts = {};
 for (const file of Object.keys(out.contracts)) {
   for (const name of Object.keys(out.contracts[file])) {

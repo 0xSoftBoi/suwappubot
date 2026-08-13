@@ -54,6 +54,7 @@ interface IPositionOracle {
     ///         <TICKER>/USD. A USDG/USD feed exists (0x61B7e5650328764B076A108EFF5fa7282a1B9aD2)
     ///         if a USDG-denominated variant is ever wanted.
     function priceOf(address token) external view returns (uint256);
+    function multiplierOf(address token) external view returns (uint64);
 }
 
 contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
@@ -73,6 +74,9 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         uint128 entryPrice; // USDG per unit, 1e18. 0 == minted while unpriced
         uint40 mintedAt; // block timestamp
         uint16 mintRank; // 1-based order of mint across the whole collection
+        // Corporate-action multiplier observed at mint, 1e18 == unadjusted.
+        // Completes the slot exactly: 8 + 128 + 40 + 16 + 64 = 256 bits.
+        uint64 entryMultiplier;
     }
 
     /// @notice Immutable per-ticker supply caps, sealed at construction.
@@ -338,13 +342,17 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // owner-settable at any time, so narrow it with a checked cast rather
         // than silently recording a wrapped value forever.
         uint128 entryPrice = SafeCast.toUint128(entry);
+        // Stamped alongside the price, because the two are only comparable on
+        // the same basis. See adjustedEntry().
+        uint64 entryMul = _oracleMultiplier(tickerIndex);
         for (uint256 i = 0; i < quantity;) {
             uint256 tokenId = supply + i + 1;
             _positions[tokenId] = Position({
                 tickerIndex: tickerIndex,
                 entryPrice: entryPrice,
                 mintedAt: mintedAt,
-                mintRank: uint16(tokenId)
+                mintRank: uint16(tokenId),
+                entryMultiplier: entryMul
             });
             _safeMint(to, tokenId);
             emit Minted(tokenId, to, tickerIndex, entry);
@@ -526,6 +534,20 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         }
     }
 
+    /// @dev The multiplier in force for `tickerIndex` right now. 1e18 when the
+    ///      oracle is unset or the token does not publish one, so every ratio
+    ///      built on it degrades to a no-op rather than to a divide-by-zero.
+    function _oracleMultiplier(uint8 tickerIndex) internal view returns (uint64) {
+        if (address(oracle) == address(0)) return uint64(1e18);
+        address token = tickerToken[tickerIndex];
+        if (token == address(0)) return uint64(1e18);
+        try oracle.multiplierOf(token) returns (uint64 m) {
+            return m == 0 ? uint64(1e18) : m;
+        } catch {
+            return uint64(1e18);
+        }
+    }
+
     function _oraclePrice(uint8 tickerIndex) internal view returns (uint256) {
         if (address(oracle) == address(0)) return 0;
         address token = tickerToken[tickerIndex];
@@ -549,6 +571,58 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         return _oraclePrice(positionOf(tokenId).tickerIndex);
     }
 
+    /// @notice The stamped entry price restated on TODAY's basis.
+    ///
+    /// @dev    These are licensed equities, so they split. When one does, the
+    ///         chain moves `uiMultiplier()` and every price after that point is
+    ///         quoted on a new basis — while the entry price stamped at mint is
+    ///         still on the old one. Comparing them directly would print a
+    ///         fabricated ±90% on a card whose holder did nothing but hold
+    ///         through a 10:1 split, and the position would look destroyed.
+    ///
+    ///         So the basis travels with the price: entry x (then / now). A
+    ///         ticker that has never had a corporate action has a ratio of
+    ///         exactly 1 and is unaffected.
+    ///
+    /// @dev    DIRECTION, stated plainly because it matters and cannot yet be
+    ///         observed: `uiMultiplier` scales the DISPLAYED quantity, so a
+    ///         10:1 split takes it 1e18 -> 10e18 while the price per unit falls
+    ///         tenfold. The adjustment is therefore INVERSE — multiply the old
+    ///         basis by then/now. Every licensed token on chain 4663 currently
+    ///         reports exactly 1e18 (NVDA, AAPL, TSLA and GME all verified
+    ///         live), so no real corporate action has happened yet to confirm
+    ///         this against. `corporateAction()` returns both raw multipliers
+    ///         precisely so an operator can check the direction the first time
+    ///         one lands; if it is backwards, this is a one-line flip and the
+    ///         tests here pin the intended behaviour either way. Do not deploy
+    ///         to mainnet without that confirmation.
+    function adjustedEntry(uint256 tokenId) public view returns (uint256) {
+        Position memory p = positionOf(tokenId);
+        if (p.entryPrice == 0) return 0;
+        uint64 then_ = p.entryMultiplier == 0 ? uint64(1e18) : p.entryMultiplier;
+        uint64 nowMul = _oracleMultiplier(p.tickerIndex);
+        if (nowMul == 0 || nowMul == then_) return uint256(p.entryPrice);
+        return (uint256(p.entryPrice) * uint256(then_)) / uint256(nowMul);
+    }
+
+    /// @notice Has this position lived through a corporate action?
+    ///
+    /// @dev    The one piece of status in this collection that cannot be bought,
+    ///         rolled, or minted for — you had to have been holding when a real
+    ///         licensed equity split. It is only expressible here because
+    ///         Robinhood Chain is the only chain that publishes the multiplier
+    ///         on-chain for licensed instruments.
+    function corporateAction(uint256 tokenId)
+        external
+        view
+        returns (bool survived, uint64 atMint, uint64 current)
+    {
+        Position memory p = positionOf(tokenId);
+        atMint = p.entryMultiplier == 0 ? uint64(1e18) : p.entryMultiplier;
+        current = _oracleMultiplier(p.tickerIndex);
+        survived = p.entryPrice != 0 && current != atMint;
+    }
+
     /// @notice Live return in basis points vs the stamped entry. Positive = in profit.
     /// @return bps Return in basis points, or 0 when `priced` is false.
     /// @return priced False when either entry or current price is unavailable, in
@@ -558,9 +632,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (p.entryPrice == 0) return (0, false);
         uint256 cur = _oraclePrice(p.tickerIndex);
         if (cur == 0) return (0, false);
-        // (cur - entry) / entry, in bps. Values fit comfortably in int256.
-        int256 diff = int256(cur) - int256(uint256(p.entryPrice));
-        return ((diff * 10_000) / int256(uint256(p.entryPrice)), true);
+        // Both sides on today's basis. Using the raw stamp here was the bug: a
+        // split would have made every pre-split card read as a catastrophe.
+        uint256 basis = adjustedEntry(tokenId);
+        if (basis == 0) return (0, false);
+        int256 diff = int256(cur) - int256(basis);
+        return ((diff * 10_000) / int256(basis), true);
     }
 
     /// @notice 0=Underwater 1=Flat 2=In Profit 3=Runner 4=Multiple 5=Moonshot.
