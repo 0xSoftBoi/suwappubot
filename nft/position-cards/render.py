@@ -132,12 +132,183 @@ def _small_caps(text, x, y, size, fill, tracking=3.2, weight="normal", family=No
     )
 
 
+# ─── engraving families ──────────────────────────────────────────────────────
+# Six authentic engine-turning patterns, not six settings of one. A rose engine
+# and a straight-line engine cut fundamentally different geometry, and these
+# mirror that split: rosette / waves / moire / sunburst come off the rose engine,
+# barleycorn and clous de Paris off the straight-line. Which one a plate gets is
+# a STRUCTURAL choice, so two cards are not the same composition recoloured.
+#
+# Sizing note that applies to all six: stroke weights are set for a ~190px
+# marketplace thumbnail, which is a 5x reduction. Hairlines are invisible there.
+
+ENGRAVINGS = ("rosette", "waves", "barleycorn", "hobnail", "sunburst", "moire")
+COMPOSITIONS = ("medallion", "field", "band", "twin")
+INKS = ("line", "double", "stipple")
+
+
+def _eng_rosette(cx, cy, r, seed, petals, inner):
+    """Rose-engine rosette: an epitrochoid, repeated by rotation."""
+    arms = 5 + (seed >> 16) % 4
+    defs = f'<path id="e1" d="{_guilloche(cx, cy, r, petals, inner)}"/>'
+    body = "".join(
+        f'<use href="#e1" transform="rotate({(seed % 360) + i * (360.0 / (arms * 3)):.2f} '
+        f'{cx} {cy})" opacity="0.34"/>'
+        for i in range(arms * 3)
+    )
+    return defs, body
+
+
+def _eng_moire(cx, cy, r, seed, petals, inner):
+    """Two ring stacks struck from offset centres — the interference IS the
+    pattern, which is why moire was used on scrip that had to resist copying."""
+    off = 14 + (seed % 22)
+    rings = 16 + (seed >> 4) % 10
+    out = []
+    for i in range(rings):
+        rr = r * (0.24 + 0.76 * (i + 1) / rings)
+        out.append(f'<circle cx="{cx - off}" cy="{cy}" r="{rr:.1f}"/>')
+        out.append(f'<circle cx="{cx + off}" cy="{cy}" r="{rr:.1f}"/>')
+    return "", "".join(out)
+
+
+def _eng_sunburst(cx, cy, r, seed, petals, inner):
+    """Straight radial rays of modulated length — a rayon flamme burst."""
+    import math
+
+    n = 72 + (seed % 5) * 24
+    out = []
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        rr = r * (0.62 + 0.38 * abs(math.cos(petals * a / 2)))
+        out.append(
+            f'<line x1="{cx + math.cos(a) * r * 0.2:.1f}" y1="{cy + math.sin(a) * r * 0.2:.1f}" '
+            f'x2="{cx + math.cos(a) * rr:.1f}" y2="{cy + math.sin(a) * rr:.1f}"/>'
+        )
+    return "", "".join(out)
+
+
+def _eng_waves(cx, cy, r, seed, petals, inner):
+    """Rose-engine waves: parallel bands whose phase walks, so the field reads
+    as a woven ripple rather than as stripes."""
+    import math
+
+    rows = 26
+    amp = 10 + (seed % 16)
+    freq = 0.010 + ((seed >> 3) % 9) * 0.0016
+    out = []
+    for row in range(rows):
+        y0 = cy - r + (2 * r) * row / (rows - 1)
+        ph = row * 0.55
+        pts = [
+            f"{cx - r * 1.35 + (2.7 * r) * i / 40:.0f} "
+            f"{y0 + amp * math.sin(freq * (2.7 * r) * i / 40 * 6.28 + ph):.1f}"
+            for i in range(41)
+        ]
+        out.append(f'<path d="M{"L".join(pts)}"/>')
+    return "", "".join(out)
+
+
+def _eng_barleycorn(cx, cy, r, seed, petals, inner):
+    """Grain d'orge: interlaced diagonal lattice off the straight-line engine.
+    Tiled as a <pattern>, so a full-bleed field costs a few hundred bytes."""
+    step = 22 + (seed % 12)
+    defs = (
+        f'<pattern id="ebar" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate({30 + seed % 30})">'
+        f'<path d="M0 0 L{step} {step} M{step} 0 L0 {step}" fill="none" '
+        f'stroke="currentColor" stroke-width="1.6"/>'
+        f'<circle cx="{step / 2}" cy="{step / 2}" r="{step / 5:.1f}" fill="none" '
+        f'stroke="currentColor" stroke-width="1.2"/></pattern>'
+    )
+    return defs, "__PATTERN__ebar"
+
+
+def _eng_hobnail(cx, cy, r, seed, petals, inner):
+    """Clous de Paris: the pyramid grid. Straight-line engine, tiled."""
+    step = 18 + (seed % 14)
+    h = step / 2
+    defs = (
+        f'<pattern id="ehob" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate({seed % 45})">'
+        f'<path d="M{h} 0 L{step} {h} L{h} {step} L0 {h} Z" fill="none" '
+        f'stroke="currentColor" stroke-width="1.5"/>'
+        f'<path d="M{h} {h * 0.45} L{step * 0.78} {h} L{h} {step - h * 0.45} L{step * 0.22} {h} Z" '
+        f'fill="none" stroke="currentColor" stroke-width="1"/></pattern>'
+    )
+    return defs, "__PATTERN__ehob"
+
+
+_ENGRAVERS = {
+    "rosette": _eng_rosette,
+    "moire": _eng_moire,
+    "sunburst": _eng_sunburst,
+    "waves": _eng_waves,
+    "barleycorn": _eng_barleycorn,
+    "hobnail": _eng_hobnail,
+}
+
+
 def _mix(a: str, b: str, t: float) -> str:
     """Blend two #rrggbb colours. Used to build a per-card field colour so the
     collection reads as families in a grid rather than 10,000 black rectangles."""
     ca = tuple(int(a[i : i + 2], 16) for i in (1, 3, 5))
     cb = tuple(int(b[i : i + 2], 16) for i in (1, 3, 5))
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
+
+
+def _lum(hexcol: str) -> float:
+    """Relative luminance, WCAG-style."""
+
+    def ch(v):
+        v = v / 255.0
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hexcol[i : i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG contrast ratio between two #rrggbb colours (1.0 to 21.0)."""
+    la, lb = _lum(a), _lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
+    """The structural choices a plate resolves to, plus its legibility numbers.
+
+    Long-form generative work cannot rely on the artist culling weak outputs —
+    a collector sees the entire space. So the sweep enforces a floor on every
+    one of the 10,000 rather than trusting a spot check of a contact sheet.
+    """
+    priced = bool(entry and price and entry > 0)
+    ret_bps = int(round((price - entry) / entry * 10_000)) if priced else 0
+    grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
+    accent = grade["accent"]
+    sector = sector_of(cfg, ticker)
+    sector_col = cfg["sector_colors"].get(sector, "#94a3b8")
+    seed = _seed(ticker, token_id, entry)
+    mag = min(abs(ret_bps) / 20_000.0, 1.0) if priced else 0.0
+    lift = max(-1.0, min(1.0, (ret_bps / 20_000.0) if priced else 0.0))
+
+    allowed = ["medallion", "band"] if lift < 0.05 else list(COMPOSITIONS)
+    if mag < 0.02:
+        allowed = ["medallion"]
+    proof = (seed >> 44) % 40 == 0
+    field = _mix("#f4efe4", sector_col, 0.30) if proof else _mix("#07070a", sector_col, 0.13)
+    body_col = "#17130c" if proof else "#f6f1e6"
+    hero_col = _mix(accent, "#0f0c06", 0.66) if proof else accent
+    return {
+        "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
+        "ink": INKS[(seed >> 32) % len(INKS)],
+        "composition": allowed[(seed >> 36) % len(allowed)],
+        "proof": proof,
+        "sector": sector,
+        "grade": grade["name"],
+        "hero_contrast": round(contrast(hero_col, field), 2),
+        "body_contrast": round(contrast(body_col, field), 2),
+    }
 
 
 def render_card(
@@ -185,83 +356,133 @@ def render_card(
     disc = cfg["economics"]["hold_discount_bps"]
     seed = _seed(ticker, token_id, entry)
 
-    # ── composition, driven by the position itself ──────────────────────────
-    # A losing plate sits low and closes up; a runner rises and opens out. Two
-    # cards at different returns are laid out differently, not just recoloured,
-    # which is what gives a wall of these any rhythm.
+    # ── STRUCTURAL modes, not parameter jitter ──────────────────────────────
+    # Long-form generative work has nowhere to hide: a collector sees the whole
+    # output space, so an algorithm that emits one composition 10,000 times
+    # reads as an edition that was too large. Variety here is combinatorial and
+    # structural — 6 engraving families x 4 compositions x 3 inks x 10 sector
+    # palettes, plus a rare proof state — rather than one plate recoloured.
+    #
+    # None of it is a trait roll. The choice is drawn from a hash of what the
+    # token actually IS (ticker, mint rank, stamped basis), and the position
+    # BIASES the draw: only a real runner can be struck full-bleed, and only a
+    # deep drawdown gets the closed, tight plates. The engraving is evidence.
     mag = min(abs(ret_bps) / 20_000.0, 1.0) if priced else 0.0
-    lift = (ret_bps / 20_000.0) if priced else 0.0
-    lift = max(-1.0, min(1.0, lift))
+    lift = max(-1.0, min(1.0, (ret_bps / 20_000.0) if priced else 0.0))
+
+    engraving = ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)]
+    ink = INKS[(seed >> 32) % len(INKS)]
+    # Composition is earned. Full-bleed is reserved for positions that actually
+    # ran; a losing plate cannot buy the loudest layout.
+    allowed = ["medallion", "band"] if lift < 0.05 else list(COMPOSITIONS)
+    if mag < 0.02:
+        allowed = ["medallion"]  # a flat position gets the quietest plate
+    composition = allowed[(seed >> 36) % len(allowed)]
+    # Proof state: a light plate struck in dark ink. Rare (about 1 in 40) and a
+    # complete inversion rather than another palette, so it is legible as rare
+    # from across a wall instead of needing a trait table to notice.
+    proof = (seed >> 44) % 40 == 0
+
     rad = 200 + int(mag * 82)
-    cy = 672 - int(lift * 52)
-    # A big winner both rises and grows, and unclamped the two compounded until
-    # the rosette climbed through the issuer line (visible on SPCX at +257%).
-    # The engraving may bleed anywhere below the masthead block, never into it.
-    cy = max(cy, 372 + rad)
+    cy = max(672 - int(lift * 52), 372 + rad)
     petals = 7 + (seed % 12)
     inner = 0.12 + 0.26 * mag
     spin = (seed >> 8) % 360
-    arms = 5 + (seed >> 16) % 4
 
-    # Field: sector hue sets the family, the grade tints it. Kept dark enough
-    # that white type holds contrast, saturated enough to be sortable by eye.
-    deep = _mix("#07070a", sector_col, 0.13)
-    edge_col = _mix("#050507", accent, 0.10)
-    rim = _mix(sector_col, accent, 0.45)
+    # Proof plates invert the whole ground rather than swapping a palette, so
+    # they are legible as rare from across a wall instead of needing a trait
+    # table to notice.
+    ink_light = "#f4efe4"
+    field = _mix(ink_light, sector_col, 0.30) if proof else _mix("#07070a", sector_col, 0.13)
+    field2 = _mix(field, "#ffffff", 0.18) if proof else _mix(field, "#000000", 0.42)
+    edge_col = _mix(field, "#000000", 0.22) if proof else _mix("#050507", accent, 0.10)
+    rim = _mix(accent, "#2a2418", 0.55) if proof else _mix(sector_col, accent, 0.45)
+    body_col = "#17130c" if proof else "#f6f1e6"
+    quiet = "#5c5548" if proof else "#8f8778"
+    hero_col = _mix(accent, "#0f0c06", 0.66) if proof else accent
 
     W_, H_ = W, H
     PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
     IL, IR = 96, W_ - 96
 
+    # Composition decides WHERE the engraving is cut; the family decides WHAT
+    # is cut. Keeping the two independent is what turns 6 + 4 into 24 distinct
+    # plates instead of six layouts with an ornament bolted on.
+    if composition == "field":
+        eng_cx, eng_cy, eng_r = W_ / 2, H_ / 2, 660
+        clip_shape = (
+            f'<rect x="{PL + 12}" y="{PT + 12}" width="{PR - PL - 24}" '
+            f'height="{PB - PT - 24}"/>'
+        )
+    elif composition == "band":
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.55
+        clip_shape = f'<rect x="{PL + 12}" y="{cy - 236}" width="{PR - PL - 24}" height="472"/>'
+    elif composition == "twin":
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 0.92
+        clip_shape = (
+            f'<circle cx="{W_ / 2 - rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
+            f'<circle cx="{W_ / 2 + rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
+        )
+    else:  # medallion
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
+        clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
+    eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
+
     p = [
         "<defs>",
+        f'<clipPath id="cut">{clip_shape}</clipPath>',
+        eng_defs,
         f'<linearGradient id="plate" x1="0.1" y1="0" x2="0.85" y2="1">'
-        f'<stop offset="0" stop-color="{deep}"/>'
-        f'<stop offset="0.62" stop-color="{_mix(deep, "#000000", 0.42)}"/>'
+        f'<stop offset="0" stop-color="{field}"/>'
+        f'<stop offset="0.62" stop-color="{field2}"/>'
         f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
         f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.34"/>'
-        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="0.15"/>'
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.16 if proof else 0.34}"/>'
+        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.15}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
-        '<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        '<stop offset="0" stop-color="#040406" stop-opacity="0.90"/>'
-        '<stop offset="0.6" stop-color="#040406" stop-opacity="0.72"/>'
-        '<stop offset="1" stop-color="#040406" stop-opacity="0"/></radialGradient>',
-        '<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
-        'patternTransform="rotate(35)">'
-        '<line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" stroke-opacity="0.030" '
-        'stroke-width="1"/></pattern>',
+        f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
+        f'<stop offset="0" stop-color="{"#f6f1e6" if proof else "#040406"}" stop-opacity="0.90"/>'
+        f'<stop offset="0.6" stop-color="{"#f6f1e6" if proof else "#040406"}" stop-opacity="0.74"/>'
+        f'<stop offset="1" stop-color="{"#f6f1e6" if proof else "#040406"}" '
+        f'stop-opacity="0"/></radialGradient>',
+        f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate(35)">'
+        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
+        f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
         f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.10"/>'
-        f'<stop offset="1" stop-color="{accent}" stop-opacity="0.55"/></linearGradient>',
-        f'<path id="g1" d="{_guilloche(W_ / 2, cy, rad, petals, inner)}"/>',
-        f'<path id="g2" d="{_guilloche(W_ / 2, cy, rad * 0.62, petals + 3, inner * 0.7)}"/>',
+        f'<stop offset="0" stop-color="{hero_col}" stop-opacity="0.10"/>'
+        f'<stop offset="1" stop-color="{hero_col}" stop-opacity="0.55"/></linearGradient>',
         f'<path id="gs" d="{_guilloche(W_ - 200, 1082, 52, petals + 2, inner * 0.8, 140)}"/>',
         f'<path id="sealArc" d="M{W_ - 258} 1082 A58 58 0 0 1 {W_ - 142} 1082" fill="none"/>',
         "</defs>",
         f'<rect width="{W_}" height="{H_}" fill="url(#plate)"/>',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
-        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad + 130}" ry="{rad + 120}" fill="url(#bloom)"/>',
+        f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
+        f'fill="url(#bloom)"/>',
     ]
 
-    # ── engine-turned ground ────────────────────────────────────────────────
-    # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate the
-    # rosette resolved to 0.13px in a 190px grid cell and simply disappeared;
-    # these survive the downscale and still look engraved at full size.
-    p.append(f'<g stroke="{rim}" fill="none" stroke-width="2.4" opacity="0.55">')
-    for i in range(arms * 3):
+    # ── the engraving ───────────────────────────────────────────────────────
+    # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate an
+    # engraving resolves to 0.13px in a 190px grid cell and simply vanishes.
+    if eng_body.startswith("__PATTERN__"):
+        pid = eng_body[len("__PATTERN__") :]
         p.append(
-            f'<use href="#g1" transform="rotate({spin + i * (120.0 / arms):.2f} '
-            f'{W_ / 2} {cy})" opacity="0.34"/>'
+            f'<g clip-path="url(#cut)" color="{rim}" opacity="0.55">'
+            f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
         )
-    p.append("</g>")
-    p.append(f'<g stroke="{sector_col}" fill="none" stroke-width="1.8" opacity="0.42">')
-    for i in range(arms * 2):
+    else:
+        dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
         p.append(
-            f'<use href="#g2" transform="rotate({-spin + i * (180.0 / arms):.2f} '
-            f'{W_ / 2} {cy})" opacity="0.34"/>'
+            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.2" '
+            f'opacity="0.52"{dash}>{eng_body}</g>'
         )
-    p.append("</g>")
+        if ink == "double":
+            # The same cut struck again off-register, the way a second pass on
+            # the lathe reads.
+            p.append(
+                f'<g clip-path="url(#cut)" stroke="{sector_col}" fill="none" '
+                f'stroke-width="1.1" opacity="0.40" transform="translate(3 3)">{eng_body}</g>'
+            )
 
     # ── ruled border ────────────────────────────────────────────────────────
     p.append(
@@ -278,7 +499,7 @@ def render_card(
         )
 
     # ── head ────────────────────────────────────────────────────────────────
-    p.append(_small_caps("Suwappu", IL, 118, 16, "#efe9dd", 7.0, "bold"))
+    p.append(_small_caps("Suwappu", IL, 118, 16, body_col, 7.0, "bold"))
     p.append(
         _small_caps("Certificate of Position", W_ / 2, 118, 11.5, _mix(rim, "#ffffff", 0.25), 4.0,
                     anchor="middle")
@@ -296,7 +517,7 @@ def render_card(
     tsize = 150 if len(ticker) <= 4 else (124 if len(ticker) == 5 else 104)
     p.append(
         f'<text x="{IL}" y="290" font-family="{SERIF}" font-size="{tsize}" font-weight="bold" '
-        f'fill="#f6f1e6" letter-spacing="-3">{esc(ticker)}</text>'
+        f'fill="{body_col}" letter-spacing="-3">{esc(ticker)}</text>'
     )
     if len(company) <= 40:
         name = company
@@ -326,11 +547,11 @@ def render_card(
         hsize = 138 if len(hero) <= 6 else (120 if len(hero) <= 7 else 104)
         p.append(
             f'<text x="{W_ / 2}" y="{cy + 44}" font-family="{SERIF}" font-size="{hsize}" '
-            f'font-weight="bold" fill="{accent}" text-anchor="middle" '
+            f'font-weight="bold" fill="{hero_col}" text-anchor="middle" '
             f'letter-spacing="-3">{esc(hero)}</text>'
         )
         p.append(
-            _small_caps("since entry", W_ / 2, cy + 84, 12, _mix(accent, "#ffffff", 0.2), 6.0,
+            _small_caps("since entry", W_ / 2, cy + 84, 12, _mix(hero_col, body_col, 0.35), 6.0,
                         anchor="middle")
         )
     else:
@@ -365,15 +586,15 @@ def render_card(
             f'fill="url(#span)"{flip}/>'
         )
         for xx, lab, val, col in (
-            (e_x, "basis", fmt_px(entry), "#a49c8d"),
-            (n_x, "now", fmt_px(price), accent),
+            (e_x, "basis", fmt_px(entry), quiet),
+            (n_x, "now", fmt_px(price), hero_col),
         ):
             anc = "start" if xx < W_ / 2 else "end"
             p.append(
                 f'<line x1="{xx}" y1="{sy - 26}" x2="{xx}" y2="{sy + 26}" stroke="{col}" '
                 f'stroke-width="3"/>'
             )
-            p.append(_small_caps(lab, xx, sy - 38, 11, "#8f8778", 4.0, anchor=anc))
+            p.append(_small_caps(lab, xx, sy - 38, 11, quiet, 4.0, anchor=anc))
             p.append(
                 f'<text x="{xx}" y="{sy + 60}" font-family="{SERIF}" font-size="34" '
                 f'fill="{col}" text-anchor="{anc}">${esc(val)}</text>'
@@ -382,7 +603,7 @@ def render_card(
     # ── seal ────────────────────────────────────────────────────────────────
     scx, scy, sr = W_ - 200, 1082, 72
     p.append(
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="#05050a" fill-opacity="0.7"/>'
+        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="{edge_col}" fill-opacity="0.75"/>'
         f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{accent}" '
         f'stroke-opacity="0.7" stroke-width="2.6"/>'
         f'<circle cx="{scx}" cy="{scy}" r="{sr - 10}" fill="none" stroke="{accent}" '
@@ -399,13 +620,13 @@ def render_card(
     )
     p.append(
         f'<text x="{scx}" y="{scy + 12}" font-family="{SERIF}" font-size="30" '
-        f'font-weight="bold" fill="#f2ece0" text-anchor="middle">{esc(ticker[:4])}</text>'
+        f'font-weight="bold" fill="{body_col}" text-anchor="middle">{esc(ticker[:4])}</text>'
     )
 
     # ── one footing band, not four ──────────────────────────────────────────
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
     p.append(
-        f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="#e6dfd1">'
+        f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="{body_col}">'
         f'\u2212{disc} bps on every swap</text>'
     )
     p.append(
@@ -414,7 +635,7 @@ def render_card(
             IL,
             1104,
             11.5,
-            "#8f8778",
+            quiet,
             3.0,
         )
     )

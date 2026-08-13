@@ -951,23 +951,6 @@ def test_every_plate_is_distinct_even_at_identical_price_and_grade():
     assert len(seen) == 60
 
 
-def test_the_ornament_moves_with_the_position():
-    """The lobe depth opens with the size of the move, so a runner visibly
-    blooms and an underwater plate stays closed. If the geometry did not change
-    with the return, the engraving would be a trait roll wearing a costume."""
-    import re
-
-    cfg, reg = render.load_config(), render.load_registry()
-
-    def rosette(entry, price):
-        svg = render.render_card(cfg, reg, 7, "NVDA", entry, price, 7)
-        return re.search(r'id="g1" d="([^"]+)"', svg).group(1)
-
-    assert rosette(100.0, 100.5) != rosette(100.0, 900.0)
-    # and it is deterministic: same state, same plate
-    assert rosette(100.0, 900.0) == rosette(100.0, 900.0)
-
-
 def test_the_plate_carries_no_invented_price_history():
     """The card has exactly two real numbers — the basis stamped at mint and the
     live oracle. The previous collection drew a fake random-walk chart of a
@@ -1027,29 +1010,109 @@ def test_the_field_colour_comes_from_the_sector():
     assert a.split('id="plate"')[1][:200] != b.split('id="plate"')[1][:200]
 
 
-def test_the_composition_moves_with_the_return_not_just_the_colour():
-    """Thirty-two identical layouts in a grid is a template. The rosette's
-    height and scale track the position, so a wall of these has rhythm."""
-    import re
+def test_the_output_space_is_structurally_combinatorial_not_one_recoloured_plate():
+    """Long-form work has nowhere to hide: a collector sees the whole space, so
+    one composition emitted 10,000 times reads as an edition that was too large.
+    Every engraving family, composition and ink must actually appear, and no
+    single mode may dominate its axis."""
+    import collections
+    import json
 
     cfg, reg = render.load_config(), render.load_registry()
+    order = json.load(open(os.path.join(REPO, "nft", "position-cards", "deploy_args.json")))[
+        "ticker_order"
+    ]
+    seen = collections.Counter()
+    ratios = [0.3, 0.6, 0.9, 1.0, 1.1, 1.5, 2.5, 5.0, None]
+    n = 3000
+    for i in range(1, n + 1):
+        r = ratios[i % len(ratios)]
+        t = render.card_traits(
+            cfg, reg, i, order[i % len(order)], 100.0 / r if r else None, 100.0 if r else None, i
+        )
+        seen[("eng", t["engraving"])] += 1
+        seen[("comp", t["composition"])] += 1
+        seen[("ink", t["ink"])] += 1
+        seen[("proof", t["proof"])] += 1
 
-    def geom(price):
-        svg = render.render_card(cfg, reg, 5, "NVDA", 100.0, price, 5)
-        d = re.search(r'id="g1" d="M([\d.]+) ([\d.]+)', svg)
-        return float(d.group(1)), float(d.group(2))
+    assert {k[1] for k in seen if k[0] == "eng"} == set(render.ENGRAVINGS)
+    assert {k[1] for k in seen if k[0] == "comp"} == set(render.COMPOSITIONS)
+    assert {k[1] for k in seen if k[0] == "ink"} == set(render.INKS)
+    # no engraving family may run away with the collection
+    for fam in render.ENGRAVINGS:
+        share = seen[("eng", fam)] / n
+        assert 0.10 < share < 0.25, f"{fam} is {share:.0%} of the space"
+    # the proof plate must be rare but real
+    assert 0.005 < seen[("proof", True)] / n < 0.08
 
-    assert geom(40.0) != geom(400.0)
+
+def test_the_loudest_composition_has_to_be_earned():
+    """Structure is drawn from what the token IS, and the position biases the
+    draw — a losing plate cannot buy the full-bleed layout."""
+    cfg, reg = render.load_config(), render.load_registry()
+    for tid in range(1, 400):
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 60.0, tid)
+        assert t["composition"] in ("medallion", "band"), t
+    # and a flat position gets the quietest plate of all
+    for tid in range(1, 200):
+        assert render.card_traits(cfg, reg, tid, "NVDA", 100.0, 100.05, tid)["composition"] == (
+            "medallion"
+        )
+    # while a real runner can reach every composition
+    reached = {
+        render.card_traits(cfg, reg, t, "NVDA", 100.0, 900.0, t)["composition"]
+        for t in range(1, 400)
+    }
+    assert reached == set(render.COMPOSITIONS)
 
 
-def test_the_rosette_never_climbs_into_the_masthead():
+def test_every_plate_clears_a_legibility_floor():
+    """The other half of the long-form standard: consistent minimum quality
+    across the ENTIRE output space, because the artist cannot cull the weak
+    ones. A proof plate struck in a light accent measured 2.93:1 before this."""
+    import json
+
+    cfg, reg = render.load_config(), render.load_registry()
+    order = json.load(open(os.path.join(REPO, "nft", "position-cards", "deploy_args.json")))[
+        "ticker_order"
+    ]
+    ratios = [0.3, 0.6, 0.9, 1.0, 1.1, 1.5, 2.5, 5.0, None]
+    worst_hero = worst_body = 99.0
+    for i in range(1, 2500):
+        r = ratios[i % len(ratios)]
+        t = render.card_traits(
+            cfg, reg, i, order[i % len(order)], 100.0 / r if r else None, 100.0 if r else None, i
+        )
+        worst_hero = min(worst_hero, t["hero_contrast"])
+        worst_body = min(worst_body, t["body_contrast"])
+    assert worst_hero >= 4.0, f"hero numeral fell to {worst_hero}:1"
+    assert worst_body >= 4.5, f"ticker fell to {worst_body}:1"
+
+
+def test_structure_is_derived_from_the_token_not_rolled():
+    """Same ticker, rank and basis must always resolve to the same plate; change
+    any one of them and the structure may move. This is what makes the engraving
+    evidence rather than a trait roll."""
+    cfg, reg = render.load_config(), render.load_registry()
+    a = render.card_traits(cfg, reg, 42, "NVDA", 100.0, 300.0, 42)
+    assert a == render.card_traits(cfg, reg, 42, "NVDA", 100.0, 300.0, 42)
+    changed = {
+        tuple(sorted(render.card_traits(cfg, reg, t, "NVDA", 100.0, 300.0, t).items()))
+        for t in range(1, 60)
+    }
+    assert len(changed) > 12, "rank does not move the structure"
+
+
+def test_the_engraving_never_climbs_into_the_masthead():
     """A big winner both rises and grows; unclamped the two compounded until the
-    engraving ran through the issuer line."""
+    engraving ran up through the issuer line."""
     import re
 
     cfg, reg = render.load_config(), render.load_registry()
     for ratio in (0.2, 0.5, 1.0, 1.5, 3, 6, 12, 40):
         svg = render.render_card(cfg, reg, 1, "SPCX", 100.0, 100.0 * ratio, 1)
-        path = re.search(r'id="g1" d="([^"]+)"', svg).group(1)
-        top = min(float(y) for y in re.findall(r"[ML][\d.]+ ([\d.]+)", path))
-        assert top > 366, f"rosette reached y={top:.0f} at ratio {ratio}, over the sector line"
+        clip = re.search(r'<clipPath id="cut">(.*?)</clipPath>', svg).group(1)
+        for cy_, r_ in re.findall(r'<circle cx="[\d.-]+" cy="([\d.]+)" r="([\d.]+)"', clip):
+            assert float(cy_) - float(r_) > 366, f"clip reached {float(cy_) - float(r_):.0f}"
+        for y_, h_ in re.findall(r'<rect x="[\d.-]+" y="([\d.-]+)"[^/]*height="([\d.]+)"', clip):
+            assert float(y_) > 60, f"band clip started at {y_}"

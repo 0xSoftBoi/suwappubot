@@ -34,8 +34,12 @@ sys.path.insert(0, HERE)
 
 from graph import Graph  # noqa: E402
 from render import (  # noqa: E402
+    COMPOSITIONS,
+    ENGRAVINGS,
+    INKS,
     badge_for,
     build_metadata,
+    card_traits,
     grade_for,
     load_config,
     load_registry,
@@ -153,6 +157,14 @@ def render_one(cfg, registry, row):
 # ── validation ───────────────────────────────────────────────────────────────
 
 
+# Legibility floor, enforced on every plate rather than spot-checked on a
+# contact sheet. Long-form generative work has nowhere to hide — a collector
+# sees the whole output space, so "95% good, 5% garbage" is not a shipping
+# state. 3:1 is the WCAG floor for large text; a hero numeral gets 4:1.
+MIN_HERO_CONTRAST = 4.0
+MIN_BODY_CONTRAST = 4.5
+
+
 def validate(cfg, registry, row, svg, meta) -> list:
     """Every way a card can be broken. Returns a list of problem strings."""
     bad = []
@@ -205,7 +217,22 @@ def validate(cfg, registry, row, svg, meta) -> list:
     if traits.get("Badge") != want_badge:
         bad.append(f"#{tid} badge {traits.get('Badge')!r} != {want_badge!r}")
 
-    # 5. compliance: a collectible must never read as a claim on a real security
+    # 5. quality floor: every plate must be legible, whatever structural mode
+    #    it resolved to. A proof plate struck in a light accent fell to 2.93:1
+    #    before this check existed.
+    entry, price = (None, None) if row["ret_bps"] is None else _entry_and_price(row["ret_bps"])
+    tr = card_traits(cfg, registry, tid, ticker, entry, price, tid)
+    if tr["hero_contrast"] < MIN_HERO_CONTRAST:
+        bad.append(f"#{tid} hero contrast {tr['hero_contrast']} < {MIN_HERO_CONTRAST}")
+    if tr["body_contrast"] < MIN_BODY_CONTRAST:
+        bad.append(f"#{tid} body contrast {tr['body_contrast']} < {MIN_BODY_CONTRAST}")
+    if tr["engraving"] not in ENGRAVINGS or tr["composition"] not in COMPOSITIONS:
+        bad.append(f"#{tid} resolved to an unknown structural mode: {tr}")
+    # A losing position must not be able to buy the loudest composition.
+    if row["ret_bps"] is not None and row["ret_bps"] < 1000 and tr["composition"] == "field":
+        bad.append(f"#{tid} full-bleed on a {row['ret_bps']}bps position")
+
+    # 6. compliance: a collectible must never read as a claim on a real security
     disclaimer = cfg["collection"]["compliance"]
     if disclaimer not in meta["description"]:
         bad.append(f"#{tid} disclaimer missing from description")
@@ -274,6 +301,12 @@ def run_shard(cfg, registry, corpus, index: int, st: dict) -> dict:
             if a["trait_type"] in ("Ticker", "Sector", "Grade", "Badge"):
                 key = f"{a['trait_type']}:{a['value']}"
                 traits[key] = traits.get(key, 0) + 1
+        e, pr = (None, None) if row["ret_bps"] is None else _entry_and_price(row["ret_bps"])
+        tr = card_traits(cfg, registry, row["token_id"], row["ticker"], e, pr, row["token_id"])
+        for k in ("engraving", "composition", "ink"):
+            traits[f"{k}:{tr[k]}"] = traits.get(f"{k}:{tr[k]}", 0) + 1
+        if tr["proof"]:
+            traits["proof:yes"] = traits.get("proof:yes", 0) + 1
         lines.append(
             json.dumps(
                 {
