@@ -655,13 +655,14 @@ function SendView({
             chain,
             to: toAddr,
             value,
-            ...feeOverrides,
-            // Type-only cast: getFeeOverrides() may carry legacy `gasPrice` OR
-            // the EIP-1559 pair, but viem models those as a discriminated union
-            // so a value that *might* hold either is rejected at compile time.
-            // The runtime object only ever holds one set (see getFeeOverrides).
-            // Same reason signTransaction below already casts. No behavior change.
-          } as never)
+            // Cast scoped to the fee bag ONLY. getFeeOverrides() returns legacy
+            // `gasPrice` OR the EIP-1559 pair — never both, see its body — but
+            // viem models those as a discriminated union and rejects a value
+            // that might hold either. Keeping the cast this narrow (rather than
+            // casting the whole literal) means `to`/`value`/`account` above stay
+            // type-checked, so a wrong-typed amount still fails the build.
+            ...(feeOverrides as {}),
+          })
           serializedTransaction = await walletClient.signTransaction(request as any)
         } else {
           const tokenAddress = getAddress(selectedToken.address)
@@ -676,10 +677,10 @@ function SendView({
             chain,
             to: tokenAddress,
             data,
-            ...feeOverrides,
-            // See the native-transfer branch above: viem's fee-field union
-            // rejects a maybe-either object. Type-only, no behavior change.
-          } as never)
+            // See the native-transfer branch above: cast scoped to the fee bag
+            // so `to`/`data`/`account` stay type-checked.
+            ...(feeOverrides as {}),
+          })
           serializedTransaction = await walletClient.signTransaction(request as any)
         }
       } catch (signErr: any) {
