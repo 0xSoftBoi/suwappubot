@@ -563,3 +563,109 @@ export interface SetKillSwitchArgs {
   active: boolean;
   reason?: string;
 }
+
+// --- Market data (/v1/data/*, docs/plans/market-data-parity.md Phase 4) ---
+
+export interface ReferenceChain {
+  slug: string;
+  chainId: number | string;
+  name: string;
+  nativeToken: string;
+  type: string;
+}
+
+export interface ReferenceToken {
+  symbol: string;
+  address: string;
+  decimals: number;
+  name?: string;
+}
+
+/** GET /v1/data/reference/tokens?chain=... — shape when a single chain is requested. */
+export interface ReferenceTokensForChain {
+  chain: string;
+  chainId?: number | string;
+  tokens: ReferenceToken[];
+}
+
+/** GET /v1/data/reference/tokens (no chain param) — every chain's registry. */
+export interface ReferenceTokensAllChains {
+  chains: Array<{ chainId: number | string; tokens: ReferenceToken[] }>;
+}
+
+export type ReferenceTokensResult = ReferenceTokensForChain | ReferenceTokensAllChains;
+
+export interface ResolvedSymbol {
+  symbol: string;
+  chain: string;
+  chainId?: number | string;
+  address: string;
+  decimals: number;
+  coingeckoId: string | null;
+}
+
+export type Timeframe = "1m" | "5m" | "1h" | "1d";
+
+export interface GetOhlcvArgs {
+  symbol: string;
+  chain: string;
+  timeframe?: Timeframe;
+  /** ISO 8601 string or unix seconds. */
+  start?: string | number;
+  /** ISO 8601 string or unix seconds. */
+  end?: string | number;
+  limit?: number;
+}
+
+export interface OhlcvCandle {
+  ts: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string | null;
+  source: string;
+}
+
+export interface OhlcvResult {
+  symbol: string;
+  chain: string;
+  timeframe: Timeframe;
+  /** "db" when served from persisted candles, "external_fallback" otherwise. */
+  source: string;
+  candles: OhlcvCandle[];
+  note?: string;
+}
+
+export interface DataUsage {
+  totalRequests: number;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  byEndpoint: Record<string, number>;
+}
+
+/** GET /v1/data/live server push: {"type":"tick","symbol","price_usd","ts"}. */
+export interface LiveTick {
+  type: "tick";
+  symbol: string;
+  priceUsd: number;
+  ts: string;
+}
+
+export interface SubscribeLiveArgs {
+  /** Symbols to subscribe to on connect, e.g. ["ETH", "SOL"]. */
+  symbols: string[];
+  onTick: (tick: LiveTick) => void;
+  onOpen?: () => void;
+  onClose?: (event: { code: number; reason: string }) => void;
+  onError?: (err: unknown) => void;
+}
+
+export interface LiveSubscription {
+  /** Add symbols to the live subscription. */
+  subscribe(symbols: string[]): void;
+  /** Remove symbols from the live subscription. */
+  unsubscribe(symbols: string[]): void;
+  /** Close the WebSocket connection. */
+  close(): void;
+}

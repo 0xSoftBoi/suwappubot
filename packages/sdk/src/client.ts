@@ -27,9 +27,15 @@ import type {
   BillingStatus,
   Chain,
   CreatePolicyArgs,
+  DataUsage,
+  GetOhlcvArgs,
   GetQuoteArgs,
   LendingMarket,
   LendingMarketDetail,
+  LiveSubscription,
+  LiveTick,
+  OhlcvCandle,
+  OhlcvResult,
   PerpMarket,
   PerpPosition,
   PerpQuote,
@@ -44,13 +50,19 @@ import type {
   PredictionPrices,
   PredictionTrades,
   Quote,
+  ReferenceChain,
+  ReferenceToken,
+  ReferenceTokensResult,
   RegisterAgentArgs,
   RegisterAgentResult,
   RegisterResult,
+  ResolvedSymbol,
   RotateKeysResult,
+  SubscribeLiveArgs,
   SuwappuConfig,
   SwapResult,
   SwapStatus,
+  Timeframe,
   Token,
   TokenBalance,
   TokenPrice,
@@ -481,6 +493,180 @@ export class Suwappu {
     });
     if (Array.isArray(data)) return data;
     return data.tokens ?? [];
+  }
+
+  // --- Market data (/v1/data/*) ---
+
+  /**
+   * GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=&start=&end=&limit=
+   *
+   * Served from persisted candles when available; falls back to a
+   * DexScreener-derived synthetic series otherwise (see `source` on the
+   * result).
+   */
+  async getOhlcv(args: GetOhlcvArgs): Promise<OhlcvResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbol: args.symbol,
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+      },
+    });
+    return {
+      symbol: String(data.symbol ?? args.symbol),
+      chain: String(data.chain ?? args.chain),
+      timeframe: (data.timeframe ?? args.timeframe ?? "1h") as Timeframe,
+      source: String(data.source ?? ""),
+      candles: Array.isArray(data.candles) ? (data.candles as OhlcvCandle[]) : [],
+      note: data.note,
+    };
+  }
+
+  /**
+   * GET /v1/data/reference/tokens?chain=... — omit `chain` to get every
+   * chain's registry back at once.
+   */
+  async getReferenceTokens(chain?: string): Promise<ReferenceTokensResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/tokens", {
+      params: { chain },
+    });
+    if (Array.isArray(data.chains)) {
+      return {
+        chains: data.chains.map((c: Record<string, any>) => ({
+          chainId: c.chain_id,
+          tokens: (c.tokens ?? []) as ReferenceToken[],
+        })),
+      };
+    }
+    return {
+      chain: String(data.chain ?? chain ?? ""),
+      chainId: data.chain_id,
+      tokens: (data.tokens ?? []) as ReferenceToken[],
+    };
+  }
+
+  /** GET /v1/data/reference/chains */
+  async getReferenceChains(): Promise<ReferenceChain[]> {
+    const data = await this._request<{ chains?: Record<string, any>[] }>(
+      "GET",
+      "/v1/data/reference/chains",
+    );
+    return (data.chains ?? []).map((c) => ({
+      slug: String(c.slug ?? ""),
+      chainId: c.chain_id,
+      name: String(c.name ?? ""),
+      nativeToken: String(c.native_token ?? ""),
+      type: String(c.type ?? ""),
+    }));
+  }
+
+  /** GET /v1/data/reference/resolve?symbol=&chain= */
+  async resolveSymbol(symbol: string, chain?: string): Promise<ResolvedSymbol> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { symbol, chain },
+    });
+    return {
+      symbol: String(data.symbol ?? symbol),
+      chain: String(data.chain ?? chain ?? ""),
+      chainId: data.chain_id,
+      address: String(data.address ?? ""),
+      decimals: Number(data.decimals ?? 0),
+      coingeckoId: data.coingecko_id ?? null,
+    };
+  }
+
+  /** GET /v1/data/usage — this caller's /v1/data/* request counts. */
+  async getDataUsage(): Promise<DataUsage> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/usage");
+    return {
+      totalRequests: Number(data.total_requests ?? 0),
+      firstSeenAt: data.first_seen_at ?? null,
+      lastSeenAt: data.last_seen_at ?? null,
+      byEndpoint: data.by_endpoint ?? {},
+    };
+  }
+
+  /** @internal Derive the ws(s):// base for /v1/data/live from baseUrl. */
+  private _wsBaseUrl(): string {
+    return this.baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+  }
+
+  /**
+   * WS /v1/data/live — subscribe to live price ticks (~every 5s per symbol).
+   * Uses the standard WebSocket API (available in browsers and Bun).
+   *
+   * Auth note: the API authenticates `/v1/data/live` the same way as every
+   * other `/v1/data/*` route — `Authorization: Bearer <apiKey>` on the
+   * upgrade request (see `agentFlexAuth` in api-ts/src/routes/data.ts).
+   * Browsers cannot attach custom headers to a WebSocket handshake, so under
+   * Bun (which extends the WebSocket constructor with a `headers` option)
+   * the API key is sent; in browser environments it is not — point browser
+   * callers at a same-origin proxy that injects the header if auth is
+   * required there.
+   *
+   * ```ts
+   * const live = client.subscribeLive({
+   *   symbols: ["ETH", "SOL"],
+   *   onTick: (tick) => console.log(tick.symbol, tick.priceUsd),
+   * });
+   * // later: live.subscribe(["BTC"]); live.close();
+   * ```
+   */
+  subscribeLive(args: SubscribeLiveArgs): LiveSubscription {
+    const url = `${this._wsBaseUrl()}/v1/data/live`;
+    const isBun = typeof (globalThis as any).Bun !== "undefined";
+    const ws: WebSocket =
+      isBun && this.apiKey
+        ? (new WebSocket(url, {
+            headers: { Authorization: `Bearer ${this.apiKey}` },
+          } as any) as WebSocket)
+        : new WebSocket(url);
+
+    const send = (action: "subscribe" | "unsubscribe", symbols: string[]) => {
+      if (symbols.length === 0) return;
+      ws.send(JSON.stringify({ action, symbols: symbols.map((s) => s.toUpperCase()) }));
+    };
+
+    ws.addEventListener("open", () => {
+      send("subscribe", args.symbols);
+      args.onOpen?.();
+    });
+
+    ws.addEventListener("message", (evt: any) => {
+      let msg: Record<string, any>;
+      try {
+        msg = JSON.parse(String(evt.data));
+      } catch (err) {
+        args.onError?.(err);
+        return;
+      }
+      if (msg.type === "tick") {
+        args.onTick({
+          type: "tick",
+          symbol: String(msg.symbol ?? ""),
+          priceUsd: Number(msg.price_usd ?? 0),
+          ts: String(msg.ts ?? ""),
+        });
+      } else if (msg.type === "error") {
+        args.onError?.(new Error(String(msg.message ?? "live stream error")));
+      }
+    });
+
+    ws.addEventListener("close", (evt: any) => {
+      args.onClose?.({ code: evt.code, reason: evt.reason });
+    });
+    ws.addEventListener("error", (evt: unknown) => {
+      args.onError?.(evt);
+    });
+
+    return {
+      subscribe: (symbols: string[]) => send("subscribe", symbols),
+      unsubscribe: (symbols: string[]) => send("unsubscribe", symbols),
+      close: () => ws.close(),
+    };
   }
 
   // --- Billing ---
