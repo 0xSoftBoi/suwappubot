@@ -145,18 +145,23 @@ def test_return_and_grade_track_real_prices():
     cfg, reg = render.load_config(), render.load_registry()
     svg = render.render_card(cfg, reg, 1, "NVDA", entry=100.0, price=200.0, rank=7)
     assert "+100.0%" in svg
-    assert "Multiple" in svg  # 10,000 bps
+    # The grade is STRUCK INTO THE SEAL, so it is set in caps. Compare
+    # case-insensitively: the durable property is that the card states its
+    # grade, not which case the seal happens to use.
+    assert "multiple" in svg.lower()  # 10,000 bps
     down = render.render_card(cfg, reg, 2, "NVDA", entry=100.0, price=50.0, rank=8)
     assert "−50.0%" in down
-    assert "Underwater" in down
+    assert "underwater" in down.lower()
 
 
 def test_unpriced_card_claims_no_return():
     cfg, reg = render.load_config(), render.load_registry()
     svg = render.render_card(cfg, reg, 3, "TSLA", entry=None, price=None, rank=99)
-    assert "UNPRICED" in svg
+    assert "unpriced" in svg.lower()
     assert "RETURN SINCE ENTRY" not in svg, "unpriced card must not show a return figure"
-    assert "return not tracked" in svg
+    # No basis was stamped, so the plate must say so rather than imply a flat 0%.
+    assert "NO BASIS STAMPED" in svg
+    assert "%" not in svg.split("SUWAPPU")[1].split("STRUCK")[0], "a return figure leaked"
     meta = render.build_metadata(cfg, reg, 3, "TSLA", None, None, 99)
     assert meta["name"].endswith("Unpriced")
     assert all(a["trait_type"] != "Return %" for a in meta["attributes"])
@@ -918,3 +923,69 @@ def test_cards_command_is_rate_limited_and_quotes_the_real_ticker_count():
     assert "len(PRICED_TICKERS)" in src
     # no synchronous session left on the event loop
     assert "with get_session() as session:" not in src.split("def _load_user_id")[0]
+
+
+# ── the engraving is evidence, not decoration ────────────────────────────────
+
+
+def test_every_plate_is_distinct_even_at_identical_price_and_grade():
+    """Sixty NVDA cards at the same entry, same live price and the same grade
+    must still engrave differently — the rosette is seeded from the token's own
+    identity, so two plates can only match if ticker, rank and basis all match."""
+    import hashlib
+
+    cfg, reg = render.load_config(), render.load_registry()
+    seen = {
+        hashlib.sha256(
+            render.render_card(cfg, reg, tid, "NVDA", 100.0, 200.0, tid).encode()
+        ).hexdigest()
+        for tid in range(1, 61)
+    }
+    assert len(seen) == 60
+
+
+def test_the_ornament_moves_with_the_position():
+    """The lobe depth opens with the size of the move, so a runner visibly
+    blooms and an underwater plate stays closed. If the geometry did not change
+    with the return, the engraving would be a trait roll wearing a costume."""
+    import re
+
+    cfg, reg = render.load_config(), render.load_registry()
+
+    def rosette(entry, price):
+        svg = render.render_card(cfg, reg, 7, "NVDA", entry, price, 7)
+        return re.search(r'id="g1" d="([^"]+)"', svg).group(1)
+
+    assert rosette(100.0, 100.5) != rosette(100.0, 900.0)
+    # and it is deterministic: same state, same plate
+    assert rosette(100.0, 900.0) == rosette(100.0, 900.0)
+
+
+def test_the_plate_carries_no_invented_price_history():
+    """The card has exactly two real numbers — the basis stamped at mint and the
+    live oracle. The previous collection drew a fake random-walk chart of a
+    trade that never happened; nothing here may reintroduce one."""
+    cfg, reg = render.load_config(), render.load_registry()
+    svg = render.render_card(cfg, reg, 1, "NVDA", 92.11, 219.32, 1)
+    assert "92.11" in svg and "219.32" in svg
+    # a fabricated series would need many plotted points in a polyline
+    assert "<polyline" not in svg
+    assert svg.count("<path") <= 6, "unexpected path count — is something drawing a series?"
+
+
+def test_no_external_resources_are_referenced():
+    """A marketplace renders this under a strict CSP. Any remote font, image or
+    stylesheet silently drops and the plate falls apart."""
+    cfg, reg = render.load_config(), render.load_registry()
+    svg = render.render_card(cfg, reg, 1, "AAPL", 100.0, 130.0, 42)
+    # The xmlns declaration is an identifier, not a fetch — strip it before
+    # looking for anything the renderer would actually try to load.
+    body = svg.replace('xmlns="http://www.w3.org/2000/svg"', "")
+    for bad in ("http://", "https://", "@import", "@font-face", "<image", "url(http", " src="):
+        assert bad not in body, bad
+    # internal refs only: every href must point at a #id defined in this document
+    import re
+
+    for ref in re.findall(r'href="([^"]+)"', body):
+        assert ref.startswith("#"), ref
+        assert f'id="{ref[1:]}"' in body, f"dangling ref {ref}"
