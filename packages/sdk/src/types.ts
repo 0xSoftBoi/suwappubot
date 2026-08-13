@@ -667,6 +667,34 @@ export interface DataUsage {
   byEndpoint: Record<string, number>;
 }
 
+/** GET /v1/data/metadata — per-(symbol, chain) dataset coverage, one entry per timeframe. */
+export interface DataMetadataDataset {
+  symbol: string;
+  chain: string;
+  timeframes: Record<string, { candles: number; start: string; end: string }>;
+}
+
+export interface DataMetadata {
+  datasets: DataMetadataDataset[];
+  totalCandles: number;
+  /** True when `datasets` was capped (at 500) — narrow with `symbol`/`chain` to see more. */
+  truncated?: boolean;
+  note?: string;
+}
+
+/** GET /v1/data/status — capture freshness, one entry per timeframe, plus per-source counts. */
+export interface DataStatusTimeframe {
+  latestTs: string | null;
+  ageSeconds: number | null;
+}
+
+export interface DataStatus {
+  timeframes: Record<string, DataStatusTimeframe>;
+  sources: Record<string, number>;
+  /** True when 1m data is fresher than 5 minutes. */
+  healthy: boolean;
+}
+
 /** GET /v1/data/live server push: {"type":"tick","symbol","price_usd","ts"}. */
 export interface LiveTick {
   type: "tick";

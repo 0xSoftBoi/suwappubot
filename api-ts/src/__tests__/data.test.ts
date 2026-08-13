@@ -27,22 +27,53 @@ const TEST_AGENT = {
 const VALID_KEY = 'suwappu_sk_test_00000000000000000000000000'
 
 // --- Fake Drizzle chain: select().from().where().orderBy().limit() -------
+// Also supports the grouped-aggregation chains used by /metadata
+// (select({candleCount,...}).from().where().groupBy()) and /status
+// (select({latestTs,cnt,...}).from().groupBy()), dispatched by inspecting
+// the projection object's keys so the original ohlcv chain (select() with
+// no args) is completely untouched.
 let capturedLimit: number | null = null
 let mockCandleRows: any[] = []
+let mockMetadataRows: any[] = []
+let mockStatusRows: any[] = []
 
 const fakeDb = {
-	select: () => ({
-		from: () => ({
-			where: () => ({
-				orderBy: () => ({
-					limit: (n: number) => {
-						capturedLimit = n
-						return Promise.resolve(mockCandleRows)
-					},
+	select: (selection?: Record<string, unknown>) => {
+		const keys = selection ? Object.keys(selection) : []
+
+		if (keys.includes('candleCount')) {
+			// /v1/data/metadata — grouped aggregation with an optional filter
+			return {
+				from: () => ({
+					where: () => ({
+						groupBy: () => Promise.resolve(mockMetadataRows),
+					}),
+				}),
+			}
+		}
+
+		if (keys.includes('latestTs') && keys.includes('cnt')) {
+			// /v1/data/status — grouped aggregation, no filter
+			return {
+				from: () => ({
+					groupBy: () => Promise.resolve(mockStatusRows),
+				}),
+			}
+		}
+
+		return {
+			from: () => ({
+				where: () => ({
+					orderBy: () => ({
+						limit: (n: number) => {
+							capturedLimit = n
+							return Promise.resolve(mockCandleRows)
+						},
+					}),
 				}),
 			}),
-		}),
-	}),
+		}
+	},
 } as any
 
 const testLayer = Layer.mergeAll(
@@ -364,6 +395,123 @@ describe('GET /v1/data/history/ohlcv — format=csv', () => {
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
 		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+})
+
+describe('GET /v1/data/metadata', () => {
+	it('returns 401 with no Authorization header', async () => {
+		const res = await dataRoutes.request('/metadata')
+		expect(res.status).toBe(401)
+	})
+
+	it('returns the grouped dataset shape from mocked rows', async () => {
+		mockMetadataRows = [
+			{
+				symbol: 'ETH',
+				chain: 'base',
+				timeframe: '1h',
+				candleCount: 42,
+				startTs: new Date('2026-01-01T00:00:00Z'),
+				endTs: new Date('2026-01-02T00:00:00Z'),
+			},
+			{
+				symbol: 'ETH',
+				chain: 'base',
+				timeframe: '1d',
+				candleCount: 3,
+				startTs: new Date('2026-01-01T00:00:00Z'),
+				endTs: new Date('2026-01-03T00:00:00Z'),
+			},
+			{
+				symbol: 'SOL',
+				chain: 'solana',
+				timeframe: '1h',
+				candleCount: 10,
+				startTs: new Date('2026-01-01T00:00:00Z'),
+				endTs: new Date('2026-01-01T10:00:00Z'),
+			},
+		]
+
+		const res = await dataRoutes.request('/metadata', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.total_candles).toBe(55)
+		expect(body.datasets).toHaveLength(2)
+
+		const ethDataset = body.datasets.find((d: any) => d.symbol === 'ETH' && d.chain === 'base')
+		expect(ethDataset).toBeDefined()
+		expect(ethDataset.timeframes['1h'].candles).toBe(42)
+		expect(ethDataset.timeframes['1h'].start).toBe('2026-01-01T00:00:00.000Z')
+		expect(ethDataset.timeframes['1h'].end).toBe('2026-01-02T00:00:00.000Z')
+		expect(ethDataset.timeframes['1d'].candles).toBe(3)
+
+		const solDataset = body.datasets.find((d: any) => d.symbol === 'SOL')
+		expect(solDataset.timeframes['1h'].candles).toBe(10)
+		expect(body.truncated).toBeUndefined()
+	})
+
+	it('accepts symbol and chain filters without erroring', async () => {
+		mockMetadataRows = []
+		const res = await dataRoutes.request('/metadata?symbol=ETH&chain=base', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.datasets).toEqual([])
+		expect(body.total_candles).toBe(0)
+	})
+})
+
+describe('GET /v1/data/status', () => {
+	it('returns 401 with no Authorization header', async () => {
+		const res = await dataRoutes.request('/status')
+		expect(res.status).toBe(401)
+	})
+
+	it('reports fresh 1m data as healthy with per-source counts', async () => {
+		const now = new Date()
+		mockStatusRows = [
+			{ timeframe: '1m', source: 'coingecko', latestTs: now, cnt: 100 },
+			{ timeframe: '1m', source: 'geckoterminal', latestTs: new Date(now.getTime() - 60_000), cnt: 20 },
+			{ timeframe: '1h', source: 'coingecko', latestTs: new Date(now.getTime() - 3_600_000), cnt: 5 },
+		]
+
+		const res = await dataRoutes.request('/status', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.healthy).toBe(true)
+		expect(body.timeframes['1m'].age_seconds).toBeLessThan(300)
+		expect(body.timeframes['1m'].latest_ts).toBe(now.toISOString())
+		expect(body.sources.coingecko).toBe(105)
+		expect(body.sources.geckoterminal).toBe(20)
+		expect(body.timeframes['5m'].latest_ts).toBeNull()
+		expect(body.timeframes['5m'].age_seconds).toBeNull()
+	})
+
+	it('is null-safe and unhealthy when the table is empty', async () => {
+		mockStatusRows = []
+		const res = await dataRoutes.request('/status', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.healthy).toBe(false)
+		for (const tf of ['1m', '5m', '1h', '1d']) {
+			expect(body.timeframes[tf].latest_ts).toBeNull()
+			expect(body.timeframes[tf].age_seconds).toBeNull()
+		}
+		expect(body.sources).toEqual({})
+	})
+
+	it('reports unhealthy when 1m data is stale (>5 minutes old)', async () => {
+		const staleTs = new Date(Date.now() - 10 * 60_000)
+		mockStatusRows = [{ timeframe: '1m', source: 'coingecko', latestTs: staleTs, cnt: 1 }]
+
+		const res = await dataRoutes.request('/status', { headers: AUTH_HEADERS })
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.healthy).toBe(false)
+		expect(body.timeframes['1m'].age_seconds).toBeGreaterThanOrEqual(590)
 	})
 })
 

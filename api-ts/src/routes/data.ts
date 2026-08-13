@@ -15,7 +15,7 @@
  * every other Drizzle query in this codebase goes through requireDb/Effect
  * (see db/DrizzleService.ts), even from otherwise-plain route handlers.
  */
-import { and, asc, eq, gt, gte, lte } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, lte, sql, type SQL } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono, type Context } from 'hono'
 import { upgradeWebSocket } from 'hono/bun'
@@ -64,6 +64,8 @@ const KNOWN_DATA_ROUTES = new Set<string>([
 	'/reference/tokens',
 	'/reference/resolve',
 	'/history/ohlcv',
+	'/metadata',
+	'/status',
 	'/live',
 	'/usage',
 ])
@@ -674,6 +676,173 @@ dataRoutes.get('/history/ohlcv', async (c) => {
 				}
 			: {}),
 	})
+})
+
+// ===========================================
+// METADATA — dataset coverage + capture freshness (Databento parity)
+// ===========================================
+
+const MAX_METADATA_DATASETS = 500
+
+async function fetchMetadataRows(symbol: string | undefined, chain: string | undefined) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions: SQL[] = []
+			if (symbol) conditions.push(eq(marketCandles.symbol, symbol))
+			if (chain) conditions.push(eq(marketCandles.chain, chain))
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							symbol: marketCandles.symbol,
+							chain: marketCandles.chain,
+							timeframe: marketCandles.timeframe,
+							candleCount: sql<number>`cast(count(*) as int)`,
+							startTs: sql<string>`min(${marketCandles.ts})`,
+							endTs: sql<string>`max(${marketCandles.ts})`,
+						})
+						.from(marketCandles)
+						.where(conditions.length > 0 ? and(...conditions) : undefined)
+						.groupBy(marketCandles.symbol, marketCandles.chain, marketCandles.timeframe),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+interface MetadataRow {
+	symbol: string
+	chain: string
+	timeframe: string
+	candleCount: number | string
+	startTs: string | Date
+	endTs: string | Date
+}
+
+function isoOf(v: string | Date): string {
+	return v instanceof Date ? v.toISOString() : new Date(v).toISOString()
+}
+
+// GET /v1/data/metadata?symbol=&chain= — dataset coverage from market_candles,
+// grouped by (symbol, chain, timeframe) in a single aggregation query.
+dataRoutes.get('/metadata', async (c) => {
+	const symbolParam = c.req.query('symbol')?.trim().toUpperCase() || undefined
+	const chainParam = c.req.query('chain')?.trim().toLowerCase() || undefined
+
+	const result = await fetchMetadataRows(symbolParam, chainParam)
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] metadata query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load dataset metadata')
+	}
+
+	const rows = result.right as MetadataRow[]
+
+	const grouped = new Map<
+		string,
+		{ symbol: string; chain: string; timeframes: Record<string, { candles: number; start: string; end: string }> }
+	>()
+	let totalCandles = 0
+
+	for (const row of rows) {
+		const key = `${row.symbol}::${row.chain}`
+		let entry = grouped.get(key)
+		if (!entry) {
+			entry = { symbol: row.symbol, chain: row.chain, timeframes: {} }
+			grouped.set(key, entry)
+		}
+		const candles = Number(row.candleCount)
+		entry.timeframes[row.timeframe] = { candles, start: isoOf(row.startTs), end: isoOf(row.endTs) }
+		totalCandles += candles
+	}
+
+	const allDatasets = [...grouped.values()]
+	const truncated = allDatasets.length > MAX_METADATA_DATASETS
+	const datasets = truncated ? allDatasets.slice(0, MAX_METADATA_DATASETS) : allDatasets
+
+	return c.json({
+		success: true,
+		datasets,
+		total_candles: totalCandles,
+		...(truncated
+			? {
+					truncated: true,
+					note: `Response truncated to ${MAX_METADATA_DATASETS} datasets — refine with ?symbol=&chain= to narrow results.`,
+				}
+			: {}),
+	})
+})
+
+async function fetchStatusRows() {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							timeframe: marketCandles.timeframe,
+							source: marketCandles.source,
+							latestTs: sql<string | null>`max(${marketCandles.ts})`,
+							cnt: sql<number>`cast(count(*) as int)`,
+						})
+						.from(marketCandles)
+						.groupBy(marketCandles.timeframe, marketCandles.source),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+interface StatusRow {
+	timeframe: string
+	source: string
+	latestTs: string | Date | null
+	cnt: number | string
+}
+
+const FRESHNESS_HEALTHY_SECONDS = 300 // 1m data considered healthy under 5 minutes old
+
+// GET /v1/data/status — capture freshness: newest candle per timeframe + its
+// age, plus per-source candle counts across the whole table.
+dataRoutes.get('/status', async (c) => {
+	const result = await fetchStatusRows()
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, '[data] status query failed')
+		return agentError(c, 500, 'INTERNAL', 'Failed to load capture status')
+	}
+
+	const rows = result.right as StatusRow[]
+
+	const sources: Record<string, number> = {}
+	const latestByTimeframe = new Map<string, number>()
+
+	for (const row of rows) {
+		sources[row.source] = (sources[row.source] ?? 0) + Number(row.cnt)
+
+		if (!row.latestTs) continue
+		const d = row.latestTs instanceof Date ? row.latestTs : new Date(row.latestTs)
+		const ms = d.getTime()
+		if (Number.isNaN(ms)) continue
+		const prev = latestByTimeframe.get(row.timeframe)
+		if (prev === undefined || ms > prev) latestByTimeframe.set(row.timeframe, ms)
+	}
+
+	const now = Date.now()
+	const timeframes: Record<string, { latest_ts: string | null; age_seconds: number | null }> = {}
+	for (const tf of VALID_TIMEFRAMES) {
+		const ms = latestByTimeframe.get(tf)
+		timeframes[tf] =
+			ms === undefined
+				? { latest_ts: null, age_seconds: null }
+				: { latest_ts: new Date(ms).toISOString(), age_seconds: Math.max(0, Math.floor((now - ms) / 1000)) }
+	}
+
+	const oneMinAge = timeframes['1m']?.age_seconds ?? null
+	const healthy = oneMinAge !== null && oneMinAge < FRESHNESS_HEALTHY_SECONDS
+
+	return c.json({ success: true, timeframes, sources, healthy })
 })
 
 // ===========================================

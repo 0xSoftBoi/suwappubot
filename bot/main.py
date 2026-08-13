@@ -324,6 +324,7 @@ from bot.handlers.tempo import get_tempo_handlers
 from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.aegis_scan import aegis_scan_update
 from bot.handlers.inline_query import inline_query_handler
+from bot.handlers.chart import chart_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -416,6 +417,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(pos_manage_callback_handler)  # Positions → Manage token
     application.add_handler(pos_sell_callback_handler)  # Positions → Sell %
     application.add_handler(gas_handler)  # /g
+    application.add_handler(chart_handler)  # /chart
     application.add_handler(favorites_handler)  # /f
     application.add_handler(settings_handler)  # /set
     application.add_handler(recovery_handler)  # /recovery
@@ -840,6 +842,7 @@ async def post_init(application) -> None:
             BotCommand("save", "🏦 Earn yield on idle USDC"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
+            BotCommand("chart", "📈 Candlestick chart"),
             BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
