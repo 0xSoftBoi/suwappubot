@@ -1123,19 +1123,35 @@ def test_the_engraving_never_climbs_into_the_masthead():
 
 def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
     """The collection is the most public artefact this project ships; it cannot
-    be the one surface that ignores the brand. Tokens are lifted from
-    showcase/tailwind.config.ts — what www.suwappu.bot actually renders — so a
-    palette change on the site has to be reflected here rather than silently
-    leaving the card behind."""
+    be the one surface that ignores the brand.
+
+    Now reads packages/design-tokens, which became the single canonical source
+    when the repo's two competing design systems were reconciled. This test
+    previously read showcase/tailwind.config.ts — which was itself one of the
+    two competing systems, so the card was aligned by luck rather than decision.
+    The full cross-surface check lives in tests/test_brand_tokens.py.
+    """
     import re
 
     cfg = render.load_config()
-    tw = open(os.path.join(REPO, "showcase", "tailwind.config.ts")).read()
-    block = tw[tw.index("warm: {") : tw.index("},", tw.index("'dark-surface'"))]
-    live = dict(re.findall(r"'?([a-z0-9-]+)'?:\s*'(#[0-9a-fA-F]{6})'", block))
-    assert live, "could not read the Tailwind palette"
+    tokens = open(os.path.join(REPO, "packages", "design-tokens", "src", "tokens.ts")).read()
+    start = tokens.index("  brand: {")
+    block = tokens[start : tokens.index("  colors: {", start)]
+    live = dict(re.findall(r"(\w+):\s*'(#[0-9a-fA-F]{6})'", block))
+    assert live, "could not read the canonical brand"
+    camel = {
+        "surface2": "surface-2",
+        "border2": "border-2",
+        "text2": "text-2",
+        "text3": "text-3",
+        "accentHover": "accent-hover",
+        "accentLight": "accent-light",
+        "greenLight": "green-light",
+        "darkSurface": "dark-surface",
+    }
     for key, value in live.items():
-        assert cfg["brand"].get(key) == value, f"brand token {key} drifted from the site"
+        k = camel.get(key, key)
+        assert cfg["brand"].get(k) == value, f"brand token {k} drifted from the package"
 
 
 def test_the_default_plate_is_light_and_the_dark_one_is_rare():

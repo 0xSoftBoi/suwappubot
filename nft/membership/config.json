@@ -65,7 +65,7 @@
   ]
  },
  "brand": {
-  "_comment": "Lifted verbatim from showcase/tailwind.config.ts (theme.extend.colors.warm). Pinned by tests/test_membership_card.py against the live Tailwind config so this cannot drift.",
+  "_comment": "Lifted from packages/design-tokens/src/tokens.ts -> designTokens.brand, which is now the single canonical source for every Suwappu surface (previously this read showcase/tailwind.config.ts, one of two live and disagreeing systems). tests/test_brand_tokens.py re-reads the package and fails if these drift.",
   "bg": "#faf8f4",
   "surface": "#ffffff",
   "surface-2": "#f5f0ea",

@@ -195,7 +195,7 @@
   "_price_comment": "USD CENTS, not ETH. SuwappuPositions prices in cents (uint96) and converts to wei at mint time through the ETH/USD Chainlink feed, so a card costs the same $20 whether ETH is at $2k or $4k. The previous price_eth fields were the wrong unit: fed to configurePhase() they would truncate to 0 cents, and 0 now reverts with PriceZero. A deliberately free phase (Founder) goes through configureFreePhase() instead."
  },
  "brand": {
-  "_comment": "Lifted verbatim from showcase/tailwind.config.ts (theme.extend.colors.warm), which is what www.suwappu.bot actually renders. The card is the most public artefact this project will ship; it cannot be the one surface that ignores the brand. tests/test_position_cards.py pins these against the Tailwind config so the two cannot drift.",
+  "_comment": "Lifted from packages/design-tokens/src/tokens.ts -> designTokens.brand, which is now the single canonical source for every Suwappu surface (previously this read showcase/tailwind.config.ts, one of two live and disagreeing systems). tests/test_brand_tokens.py re-reads the package and fails if these drift.",
   "bg": "#faf8f4",
   "surface": "#ffffff",
   "surface-2": "#f5f0ea",

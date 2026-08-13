@@ -1,28 +1,15 @@
 import type { Config } from 'tailwindcss';
+import { warmPreset } from '@suwappu/design-tokens';
 
 const config: Config = {
+  presets: [warmPreset],
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
   theme: {
     extend: {
-      colors: {
-        warm: {
-          bg: '#faf8f4',
-          surface: '#ffffff',
-          'surface-2': '#f5f0ea',
-          border: '#e5e0d8',
-          'border-2': '#d4cec4',
-          text: '#1a1a1a',
-          'text-2': '#6b6560',
-          'text-3': '#9a9590',
-          accent: '#f472b6',
-          'accent-hover': '#ec4899',
-          'accent-light': '#fdf2f8',
-          green: '#1a5c38',
-          'green-light': '#e8f5ee',
-          dark: '#1a1a1a',
-          'dark-surface': '#222222',
-        },
-      },
+      // Colours come from @suwappu/design-tokens now. They were defined inline
+      // here, which made the public marketing site the only surface not
+      // consuming the token package — and left the repo with two live design
+      // systems that disagreed. Same values, one definition.
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
