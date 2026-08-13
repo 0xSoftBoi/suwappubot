@@ -232,12 +232,174 @@ describe('GET /v1/data/reference/resolve — known token', () => {
 		expect(body.error_code).toBe('TOKEN_UNKNOWN')
 	})
 
-	it('returns 400 when symbol or chain query params are missing', async () => {
-		const res = await dataRoutes.request('/reference/resolve?symbol=USDC', {
+	it('returns 400 when symbol, symbols, and address are all missing', async () => {
+		const res = await dataRoutes.request('/reference/resolve?chain=base', {
 			headers: AUTH_HEADERS,
 		})
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
 		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+
+	it('a symbol with no chain now resolves across every known chain (Round 2)', async () => {
+		const res = await dataRoutes.request('/reference/resolve?symbol=USDC', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.symbol).toBe('USDC')
+		expect(Array.isArray(body.chains)).toBe(true)
+		expect(body.chains.length).toBeGreaterThan(0)
+	})
+})
+
+describe('GET /v1/data/reference/resolve — batch (symbols=)', () => {
+	it('resolves multiple symbols grouped by symbol', async () => {
+		const res = await dataRoutes.request('/reference/resolve?symbols=USDC,NOTAREALTOKEN&chain=base', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.symbols).toEqual(['USDC', 'NOTAREALTOKEN'])
+		expect(Array.isArray(body.results.USDC)).toBe(true)
+		expect(body.results.USDC.length).toBe(1)
+		expect(body.results.NOTAREALTOKEN).toEqual([])
+	})
+})
+
+describe('GET /v1/data/reference/resolve — reverse (address=)', () => {
+	it('requires chain alongside address', async () => {
+		const res = await dataRoutes.request('/reference/resolve?address=0x1234', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(400)
+	})
+
+	it('resolves a known USDC address back to its symbol on base', async () => {
+		const known = await dataRoutes.request('/reference/resolve?symbol=USDC&chain=base', {
+			headers: AUTH_HEADERS,
+		})
+		const knownBody = (await known.json()) as any
+
+		const res = await dataRoutes.request(`/reference/resolve?address=${knownBody.address}&chain=base`, {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.symbol).toBe('USDC')
+		expect(body.chain).toBe('base')
+	})
+
+	it('returns 404 for an unknown address', async () => {
+		const res = await dataRoutes.request('/reference/resolve?address=0xnotarealaddress&chain=base', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(404)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('TOKEN_UNKNOWN')
+	})
+})
+
+describe('GET /v1/data/history/ohlcv — multi-symbol (symbols=)', () => {
+	it('returns a grouped response keyed by symbol', async () => {
+		mockCandleRows = [
+			{
+				symbol: 'ETH',
+				chain: 'base',
+				timeframe: '1h',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				open: '100',
+				high: '110',
+				low: '90',
+				close: '105',
+				volume: null,
+				source: 'coingecko',
+			},
+		]
+		const res = await dataRoutes.request('/history/ohlcv?symbols=ETH,SOL&chain=base&timeframe=1h', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.success).toBe(true)
+		expect(body.symbols.ETH.source).toBe('db')
+		expect(body.symbols.ETH.candles).toHaveLength(1)
+		expect(body.symbols.SOL.source).toBe('db')
+	})
+})
+
+describe('GET /v1/data/history/ohlcv — format=csv', () => {
+	it('returns a CSV body with the documented header row', async () => {
+		mockCandleRows = [
+			{
+				symbol: 'ETH',
+				chain: 'base',
+				timeframe: '1h',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				open: '100',
+				high: '110',
+				low: '90',
+				close: '105',
+				volume: null,
+				source: 'coingecko',
+			},
+		]
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&timeframe=1h&format=csv', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		expect(res.headers.get('content-type')).toContain('text/csv')
+		const text = await res.text()
+		const lines = text.trim().split('\n')
+		expect(lines[0]).toBe('symbol,chain,timeframe,ts,open,high,low,close,volume,source')
+		expect(lines[1]).toContain('ETH,base,1h,')
+	})
+
+	it('rejects an unknown format', async () => {
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&format=xml', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+})
+
+describe('GET /v1/data/history/ohlcv — cursor pagination', () => {
+	it('rejects a malformed cursor', async () => {
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&cursor=not-valid-base64!!', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as any
+		expect(body.error_code).toBe('VALIDATION_ERROR')
+	})
+
+	it('includes next_cursor when the page is exactly full (more rows may exist)', async () => {
+		mockCandleRows = [
+			{
+				symbol: 'ETH',
+				chain: 'base',
+				timeframe: '1h',
+				ts: new Date('2026-01-01T00:00:00Z'),
+				open: '100',
+				high: '110',
+				low: '90',
+				close: '105',
+				volume: null,
+				source: 'coingecko',
+			},
+		]
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&timeframe=1h&limit=1', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(typeof body.next_cursor).toBe('string')
+
+		const decoded = Buffer.from(body.next_cursor, 'base64').toString('utf8')
+		expect(new Date(decoded).toISOString()).toBe(decoded)
 	})
 })

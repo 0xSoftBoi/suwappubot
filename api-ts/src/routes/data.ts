@@ -145,53 +145,160 @@ dataRoutes.get('/reference/tokens', (c) => {
 	return c.json({ success: true, chains })
 })
 
-// GET /v1/data/reference/resolve?symbol=&chain= — canonical address/decimals/coingecko id
-dataRoutes.get('/reference/resolve', (c) => {
-	const symbolParam = c.req.query('symbol')?.trim()
-	const chainParam = c.req.query('chain')?.toLowerCase().trim()
+interface ResolveEntry {
+	symbol: string
+	chain: string
+	chain_id?: number | 'solana'
+	address: string
+	decimals: number
+	coingecko_id: string | null
+}
 
-	if (!symbolParam || !chainParam) {
-		return agentError(c, 400, 'VALIDATION_ERROR', 'symbol and chain query parameters are required', {
-			hint: 'GET /v1/data/reference/resolve?symbol=ETH&chain=base',
-		})
-	}
-
-	const symbol = symbolParam.toUpperCase()
+/** Resolve one symbol on one specific chain slug ('solana'/'sol' included). Null when unknown. */
+function resolveSymbolOnChain(symbol: string, chainParam: string): ResolveEntry | null {
 	const coingeckoId = COINGECKO_IDS[symbol.toLowerCase()] ?? null
 
 	if (chainParam === 'solana' || chainParam === 'sol') {
 		const info = SOLANA_TOKENS[symbol]
-		if (!info) {
-			return agentError(c, 404, 'TOKEN_UNKNOWN', `Token not found on Solana: ${symbol}`)
-		}
-		return c.json({
-			success: true,
-			symbol,
-			chain: 'solana',
-			address: info.address,
-			decimals: info.decimals,
-			coingecko_id: coingeckoId,
-		})
+		if (!info) return null
+		return { symbol, chain: 'solana', chain_id: 'solana', address: info.address, decimals: info.decimals, coingecko_id: coingeckoId }
 	}
 
 	const chainInfo = CHAINS[chainParam]
-	if (!chainInfo) {
-		return agentError(c, 400, 'CHAIN_UNSUPPORTED', `Unknown chain: ${chainParam}`)
-	}
+	if (!chainInfo) return null
 	const address = COMMON_TOKENS[chainInfo.id]?.[symbol]
-	if (!address) {
-		return agentError(c, 404, 'TOKEN_UNKNOWN', `Token not found: ${symbol} on ${chainInfo.name}`)
-	}
-
-	return c.json({
-		success: true,
+	if (!address) return null
+	return {
 		symbol,
 		chain: chainInfo.key,
 		chain_id: chainInfo.id,
 		address,
 		decimals: decimalsFor(chainInfo.id, symbol),
 		coingecko_id: coingeckoId,
-	})
+	}
+}
+
+/** Resolve a symbol across every chain we know a registry for (no `chain` param given). */
+function resolveSymbolAllChains(symbol: string): ResolveEntry[] {
+	const entries: ResolveEntry[] = []
+	const seenKeys = new Set<string>()
+	for (const chain of Object.values(CHAINS)) {
+		if (seenKeys.has(chain.key)) continue
+		seenKeys.add(chain.key)
+		const entry = resolveSymbolOnChain(symbol, chain.key)
+		if (entry) entries.push(entry)
+	}
+	const solEntry = resolveSymbolOnChain(symbol, 'solana')
+	if (solEntry) entries.push(solEntry)
+	return entries
+}
+
+/** Reverse lookup: canonical address (+ required chain) -> symbol/decimals. */
+function resolveAddressOnChain(address: string, chainParam: string): ResolveEntry | null {
+	const addrLower = address.toLowerCase()
+
+	if (chainParam === 'solana' || chainParam === 'sol') {
+		const found = Object.entries(SOLANA_TOKENS).find(([, info]) => info.address.toLowerCase() === addrLower)
+		if (!found) return null
+		const [symbol, info] = found
+		return {
+			symbol,
+			chain: 'solana',
+			chain_id: 'solana',
+			address: info.address,
+			decimals: info.decimals,
+			coingecko_id: COINGECKO_IDS[symbol.toLowerCase()] ?? null,
+		}
+	}
+
+	const chainInfo = CHAINS[chainParam]
+	if (!chainInfo) return null
+	const chainTokens = COMMON_TOKENS[chainInfo.id] ?? {}
+	const found = Object.entries(chainTokens).find(([, addr]) => addr.toLowerCase() === addrLower)
+	if (!found) return null
+	const [symbol, addr] = found
+	return {
+		symbol,
+		chain: chainInfo.key,
+		chain_id: chainInfo.id,
+		address: addr,
+		decimals: decimalsFor(chainInfo.id, symbol),
+		coingecko_id: COINGECKO_IDS[symbol.toLowerCase()] ?? null,
+	}
+}
+
+// GET /v1/data/reference/resolve
+//   ?symbol=&chain=       — single symbol, single chain (legacy, unchanged shape)
+//   ?symbol=              — single symbol, no chain -> entries across every known chain
+//   ?symbols=A,B[&chain=] — batch resolve, grouped by symbol
+//   ?address=0x..&chain=  — reverse lookup: address -> symbol/decimals
+dataRoutes.get('/reference/resolve', (c) => {
+	const addressParam = c.req.query('address')?.trim()
+	const chainParam = c.req.query('chain')?.toLowerCase().trim()
+
+	if (addressParam) {
+		if (!chainParam) {
+			return agentError(c, 400, 'VALIDATION_ERROR', 'chain query parameter is required with address', {
+				hint: 'GET /v1/data/reference/resolve?address=0x...&chain=base',
+			})
+		}
+		if (!CHAINS[chainParam] && chainParam !== 'solana' && chainParam !== 'sol') {
+			return agentError(c, 400, 'CHAIN_UNSUPPORTED', `Unknown chain: ${chainParam}`)
+		}
+		const resolved = resolveAddressOnChain(addressParam, chainParam)
+		if (!resolved) {
+			return agentError(c, 404, 'TOKEN_UNKNOWN', `No token found for address ${addressParam} on ${chainParam}`)
+		}
+		return c.json({ success: true, ...resolved })
+	}
+
+	const symbolParam = c.req.query('symbol')?.trim()
+	const symbolsParam = c.req.query('symbols')?.trim()
+	const symbols = symbolsParam
+		? [...new Set(symbolsParam.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))]
+		: symbolParam
+			? [symbolParam.toUpperCase()]
+			: []
+
+	if (symbols.length === 0) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'symbol, symbols, or address query parameter is required', {
+			hint: 'GET /v1/data/reference/resolve?symbol=ETH&chain=base | ?symbols=ETH,SOL | ?address=0x...&chain=base',
+		})
+	}
+
+	if (chainParam && !CHAINS[chainParam] && chainParam !== 'solana' && chainParam !== 'sol') {
+		return agentError(c, 400, 'CHAIN_UNSUPPORTED', `Unknown chain: ${chainParam}`)
+	}
+
+	// Batch mode (`symbols=`) — always a grouped response, one entry per symbol.
+	if (symbolsParam) {
+		const results: Record<string, ResolveEntry[]> = {}
+		for (const symbol of symbols) {
+			results[symbol] = chainParam
+				? (() => {
+						const entry = resolveSymbolOnChain(symbol, chainParam)
+						return entry ? [entry] : []
+					})()
+				: resolveSymbolAllChains(symbol)
+		}
+		return c.json({ success: true, symbols, results })
+	}
+
+	// Single `symbol=` — legacy flat shape when chain is given; array-of-chains when it isn't.
+	const symbol = symbols[0] as string
+	if (chainParam) {
+		const entry = resolveSymbolOnChain(symbol, chainParam)
+		if (!entry) {
+			return agentError(c, 404, 'TOKEN_UNKNOWN', `Token not found: ${symbol} on ${chainParam}`)
+		}
+		return c.json({ success: true, ...entry })
+	}
+
+	const entries = resolveSymbolAllChains(symbol)
+	if (entries.length === 0) {
+		return agentError(c, 404, 'TOKEN_UNKNOWN', `Token not found on any known chain: ${symbol}`)
+	}
+	return c.json({ success: true, symbol, chains: entries })
 })
 
 // ===========================================
@@ -318,17 +425,110 @@ async function fetchExternalOhlcvFallback(
 	}
 }
 
-// GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=1h&start=&end=&limit=
+/** Opaque cursor codec — base64 of the last emitted candle's ISO timestamp. */
+function decodeCursor(raw: string | undefined): Date | null {
+	if (!raw) return null
+	try {
+		const decoded = Buffer.from(raw, 'base64').toString('utf8')
+		const d = new Date(decoded)
+		return Number.isNaN(d.getTime()) ? null : d
+	} catch {
+		return null
+	}
+}
+function encodeCursor(ts: Date): string {
+	return Buffer.from(ts.toISOString(), 'utf8').toString('base64')
+}
+
+interface SymbolOhlcvResult {
+	candles: OhlcvCandle[]
+	source: 'db' | 'external_fallback'
+	/** True when the DB page came back exactly `limit` rows — a same-cursor heuristic, not a guaranteed count. */
+	hasMore: boolean
+	lastTs: Date | null
+}
+
+async function fetchDbCandles(
+	symbol: string,
+	chain: string,
+	timeframe: Timeframe,
+	start: Date | null,
+	end: Date | null,
+	limit: number,
+	cursorTs: Date | null,
+) {
+	return runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const conditions = [eq(marketCandles.symbol, symbol), eq(marketCandles.chain, chain), eq(marketCandles.timeframe, timeframe)]
+			if (start) conditions.push(gte(marketCandles.ts, start))
+			if (end) conditions.push(lte(marketCandles.ts, end))
+			if (cursorTs) conditions.push(gt(marketCandles.ts, cursorTs))
+
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(marketCandles)
+						.where(and(...conditions))
+						.orderBy(asc(marketCandles.ts))
+						.limit(limit),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+}
+
+async function resolveSymbolCandles(
+	symbol: string,
+	chain: string,
+	timeframe: Timeframe,
+	start: Date | null,
+	end: Date | null,
+	limit: number,
+	cursorTs: Date | null,
+): Promise<SymbolOhlcvResult> {
+	const dbResult = await fetchDbCandles(symbol, chain, timeframe, start, end, limit, cursorTs)
+	const rows: MarketCandle[] = Either.isRight(dbResult) ? dbResult.right : []
+	if (Either.isLeft(dbResult)) {
+		logger.error({ err: dbResult.left }, '[data] market_candles query failed')
+	}
+
+	if (rows.length > 0) {
+		const lastRow = rows[rows.length - 1] as MarketCandle
+		const lastTs = lastRow.ts instanceof Date ? lastRow.ts : new Date(lastRow.ts as unknown as string)
+		return { candles: rows.map(candleFromRow), source: 'db', hasMore: rows.length === limit, lastTs }
+	}
+
+	const fallbackCandles = await fetchExternalOhlcvFallback(symbol, chain, limit)
+	return { candles: fallbackCandles, source: 'external_fallback', hasMore: false, lastTs: null }
+}
+
+// GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=1h&start=&end=&limit=&format=&cursor=
+//   symbol=ETH               — legacy single-symbol response (flat shape, backward compat)
+//   symbols=ETH,SOL          — grouped multi-symbol response
+//   format=csv               — text/csv instead of JSON (header:
+//                               symbol,chain,timeframe,ts,open,high,low,close,volume,source)
+//   cursor=<base64 last ts>  — pagination; response includes next_cursor when more rows exist
 dataRoutes.get('/history/ohlcv', async (c) => {
-	const symbol = c.req.query('symbol')?.trim().toUpperCase()
 	const chain = c.req.query('chain')?.trim().toLowerCase()
+	const symbolParam = c.req.query('symbol')?.trim().toUpperCase()
+	const symbolsParam = c.req.query('symbols')?.trim()
 	const timeframeParam = (c.req.query('timeframe') ?? '1h').trim().toLowerCase()
 	const startParam = c.req.query('start')
 	const endParam = c.req.query('end')
 	const limitParam = c.req.query('limit')
+	const formatParam = (c.req.query('format') ?? 'json').trim().toLowerCase()
+	const cursorParam = c.req.query('cursor')
 
-	if (!symbol || !chain) {
-		return agentError(c, 400, 'VALIDATION_ERROR', 'symbol and chain query parameters are required', {
+	const symbolList = symbolsParam
+		? [...new Set(symbolsParam.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))]
+		: symbolParam
+			? [symbolParam]
+			: []
+
+	if (symbolList.length === 0 || !chain) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'symbol (or symbols) and chain query parameters are required', {
 			hint: 'GET /v1/data/history/ohlcv?symbol=ETH&chain=base&timeframe=1h',
 		})
 	}
@@ -339,6 +539,10 @@ dataRoutes.get('/history/ohlcv', async (c) => {
 		})
 	}
 	const timeframe = timeframeParam as Timeframe
+
+	if (formatParam !== 'json' && formatParam !== 'csv') {
+		return agentError(c, 400, 'VALIDATION_ERROR', `Invalid format: ${formatParam}`, { supported: ['json', 'csv'] })
+	}
 
 	const start = parseTimestamp(startParam)
 	if (startParam && !start) {
@@ -358,57 +562,72 @@ dataRoutes.get('/history/ohlcv', async (c) => {
 		limit = Math.min(parsed, MAX_LIMIT)
 	}
 
-	const dbResult = await runEffectEither(
-		Effect.gen(function* () {
-			const db = yield* requireDb
-			const conditions = [eq(marketCandles.symbol, symbol), eq(marketCandles.chain, chain), eq(marketCandles.timeframe, timeframe)]
-			if (start) conditions.push(gte(marketCandles.ts, start))
-			if (end) conditions.push(lte(marketCandles.ts, end))
-
-			return yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select()
-						.from(marketCandles)
-						.where(and(...conditions))
-						.orderBy(asc(marketCandles.ts))
-						.limit(limit),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
-		}),
-	)
-
-	// DB unavailable/errored — fall through to the external fallback rather
-	// than 500ing; DATABASE_URL being unset in a dev environment shouldn't
-	// break this read-only surface.
-	const rows: MarketCandle[] = Either.isRight(dbResult) ? dbResult.right : []
-	if (Either.isLeft(dbResult)) {
-		logger.error({ err: dbResult.left }, '[data] market_candles query failed')
+	let cursorTs: Date | null = null
+	if (cursorParam) {
+		cursorTs = decodeCursor(cursorParam)
+		if (!cursorTs) {
+			return agentError(c, 400, 'VALIDATION_ERROR', `Invalid cursor: ${cursorParam}`)
+		}
 	}
 
-	if (rows.length > 0) {
+	const perSymbol = await Promise.all(
+		symbolList.map(
+			async (symbol) => [symbol, await resolveSymbolCandles(symbol, chain, timeframe, start, end, limit, cursorTs)] as const,
+		),
+	)
+
+	// Same cursor applied to every symbol's query — next_cursor is the MIN of
+	// each overflowing symbol's last-returned ts, so re-requesting with it
+	// can't skip a row for any symbol (may re-return a few already-seen rows
+	// for symbols that hadn't overflowed yet, which is a safe trade-off for
+	// a multi-symbol page boundary).
+	const overflowTs = perSymbol.filter(([, r]) => r.hasMore && r.lastTs).map(([, r]) => r.lastTs as Date)
+	const nextCursor = overflowTs.length > 0 ? encodeCursor(overflowTs.reduce((a, b) => (a < b ? a : b))) : null
+
+	if (formatParam === 'csv') {
+		const lines = ['symbol,chain,timeframe,ts,open,high,low,close,volume,source']
+		for (const [symbol, r] of perSymbol) {
+			for (const candle of r.candles) {
+				lines.push(
+					[symbol, chain, timeframe, candle.ts, candle.open, candle.high, candle.low, candle.close, candle.volume ?? '', candle.source].join(','),
+				)
+			}
+		}
+		c.header('Content-Type', 'text/csv; charset=utf-8')
+		if (nextCursor) c.header('X-Next-Cursor', nextCursor)
+		return c.body(lines.join('\n') + '\n')
+	}
+
+	if (symbolsParam) {
+		const symbols: Record<string, { source: string; candles: OhlcvCandle[] }> = {}
+		for (const [symbol, r] of perSymbol) symbols[symbol] = { source: r.source, candles: r.candles }
 		return c.json({
 			success: true,
-			symbol,
 			chain,
 			timeframe,
-			source: 'db',
-			candles: rows.map(candleFromRow),
+			symbols,
+			...(nextCursor ? { next_cursor: nextCursor } : {}),
 		})
 	}
 
-	const fallbackCandles = await fetchExternalOhlcvFallback(symbol, chain, limit)
+	const first = perSymbol[0] as (typeof perSymbol)[number]
+	const only = first[1]
 	return c.json({
 		success: true,
-		symbol,
+		symbol: symbolList[0],
 		chain,
 		timeframe,
-		source: 'external_fallback',
-		candles: fallbackCandles,
-		note:
-			fallbackCandles.length === 0
-				? 'No persisted candles and no external fallback match — this pair may not be tracked yet.'
-				: 'No persisted candles yet; synthesized from live DexScreener price-change data (not exact historical OHLCV).',
+		source: only.source,
+		candles: only.candles,
+		...(nextCursor ? { next_cursor: nextCursor } : {}),
+		...(only.source === 'external_fallback'
+			? {
+					note:
+						only.candles.length === 0
+							? 'No persisted candles and no external fallback match — this pair may not be tracked yet.'
+							: 'No persisted candles yet; synthesized from live DexScreener price-change data (not exact historical OHLCV).',
+				}
+			: {}),
 	})
 })
 
@@ -418,74 +637,191 @@ dataRoutes.get('/history/ohlcv', async (c) => {
 
 interface LiveConnection {
 	ws: WSContext | null
-	symbols: Set<string>
+	/** Plain tick channel — unchanged protocol. */
+	tickSymbols: Set<string>
+	/** ohlcv channel, 1m only for now. */
+	candleSymbols: Set<string>
 }
 
 const liveConnections = new Set<LiveConnection>()
-const LIVE_TICK_INTERVAL_MS = 5_000
-let liveTicker: ReturnType<typeof setInterval> | null = null
 
-function ensureLiveTicker() {
-	if (liveTicker) return
-	liveTicker = setInterval(() => {
-		void broadcastLiveTicks()
-	}, LIVE_TICK_INTERVAL_MS)
+// One shared poller per process. Short poll interval so a real price change
+// (the underlying fetchTokenPrices cache is ~60s TTL) is picked up quickly;
+// KEEPALIVE_MS bounds how long a subscriber can go without ANY message so
+// dead-air doesn't look like a dropped connection.
+const LIVE_POLL_INTERVAL_MS = 2_000
+const LIVE_KEEPALIVE_MS = 30_000
+let livePoller: ReturnType<typeof setInterval> | null = null
+
+// Shared, symbol-keyed state — not per-connection, so "did the price change"
+// is computed once per poll regardless of subscriber count.
+const lastPrice = new Map<string, number>()
+const lastBroadcastAt = new Map<string, number>()
+
+interface InProgressCandle {
+	minuteStart: number
+	open: number
+	high: number
+	low: number
+	close: number
+}
+const candleState = new Map<string, InProgressCandle>()
+
+function ensureLivePoller() {
+	if (livePoller) return
+	livePoller = setInterval(() => {
+		void pollAndBroadcastLive()
+	}, LIVE_POLL_INTERVAL_MS)
 }
 
-async function broadcastLiveTicks() {
+function sendToConn(conn: LiveConnection, payload: unknown) {
+	if (!conn.ws) return
+	try {
+		conn.ws.send(JSON.stringify(payload))
+	} catch (err) {
+		logger.warn({ err }, '[data] live send failed, dropping connection')
+		liveConnections.delete(conn)
+	}
+}
+
+function broadcastTick(symbol: string, payload: unknown) {
+	for (const conn of liveConnections) {
+		if (conn.tickSymbols.has(symbol)) sendToConn(conn, payload)
+	}
+}
+
+function broadcastCandle(symbol: string, payload: unknown) {
+	for (const conn of liveConnections) {
+		if (conn.candleSymbols.has(symbol)) sendToConn(conn, payload)
+	}
+}
+
+function candleFrame(symbol: string, state: InProgressCandle, final: boolean) {
+	return {
+		type: 'candle',
+		channel: 'ohlcv',
+		timeframe: '1m',
+		symbol,
+		final,
+		ts: new Date(state.minuteStart).toISOString(),
+		open: state.open,
+		high: state.high,
+		low: state.low,
+		close: state.close,
+	}
+}
+
+/** Shared poll: fetch prices once for every symbol any connection cares about, then push-on-change (or 30s keepalive) per channel. */
+async function pollAndBroadcastLive() {
 	if (liveConnections.size === 0) return
 
-	const symbols = new Set<string>()
+	const tickSymbols = new Set<string>()
+	const candleSymbols = new Set<string>()
 	for (const conn of liveConnections) {
-		for (const s of conn.symbols) symbols.add(s)
+		for (const s of conn.tickSymbols) tickSymbols.add(s)
+		for (const s of conn.candleSymbols) candleSymbols.add(s)
 	}
-	if (symbols.size === 0) return
+	const allSymbols = new Set([...tickSymbols, ...candleSymbols])
+	if (allSymbols.size === 0) return
 
-	const prices = await fetchTokenPrices([...symbols])
-	const ts = new Date().toISOString()
+	const prices = await fetchTokenPrices([...allSymbols])
+	const now = Date.now()
+	const nowIso = new Date(now).toISOString()
+	const minuteStart = Math.floor(now / 60_000) * 60_000
 
-	for (const conn of liveConnections) {
-		if (!conn.ws) continue
-		for (const symbol of conn.symbols) {
-			const price = prices[symbol]
-			if (!price) continue
-			try {
-				conn.ws.send(JSON.stringify({ type: 'tick', symbol, price_usd: price.usd, ts }))
-			} catch (err) {
-				logger.warn({ err, symbol }, '[data] live tick send failed, dropping connection')
-				liveConnections.delete(conn)
+	for (const symbol of allSymbols) {
+		const price = prices[symbol]
+		if (!price) continue
+
+		const prevPrice = lastPrice.get(symbol)
+		const changed = prevPrice === undefined || prevPrice !== price.usd
+		const lastSent = lastBroadcastAt.get(symbol) ?? 0
+		const dueForKeepalive = now - lastSent >= LIVE_KEEPALIVE_MS
+		let broadcastAny = false
+
+		if (tickSymbols.has(symbol) && (changed || dueForKeepalive)) {
+			broadcastTick(symbol, { type: 'tick', symbol, price_usd: price.usd, ts: nowIso })
+			broadcastAny = true
+		}
+
+		if (candleSymbols.has(symbol)) {
+			let state = candleState.get(symbol)
+			if (!state || state.minuteStart !== minuteStart) {
+				if (state) {
+					// Minute closed — final frame for the candle that just ended.
+					broadcastCandle(symbol, candleFrame(symbol, state, true))
+				}
+				state = { minuteStart, open: price.usd, high: price.usd, low: price.usd, close: price.usd }
+				candleState.set(symbol, state)
+				broadcastCandle(symbol, candleFrame(symbol, state, false))
+				broadcastAny = true
+			} else if (changed) {
+				state.high = Math.max(state.high, price.usd)
+				state.low = Math.min(state.low, price.usd)
+				state.close = price.usd
+				broadcastCandle(symbol, candleFrame(symbol, state, false))
+				broadcastAny = true
+			} else if (dueForKeepalive) {
+				broadcastCandle(symbol, candleFrame(symbol, state, false))
+				broadcastAny = true
 			}
 		}
+
+		lastPrice.set(symbol, price.usd)
+		if (broadcastAny) lastBroadcastAt.set(symbol, now)
 	}
 }
 
 /** Exposed for graceful shutdown (mirrors stopAgentCleanup/stopA2aCleanup in index.ts). */
 export function stopDataLiveTicker() {
-	if (liveTicker) {
-		clearInterval(liveTicker)
-		liveTicker = null
+	if (livePoller) {
+		clearInterval(livePoller)
+		livePoller = null
 	}
 	liveConnections.clear()
+	lastPrice.clear()
+	lastBroadcastAt.clear()
+	candleState.clear()
 }
 
-// GET /v1/data/live — WS. Client: {"action":"subscribe"|"unsubscribe","symbols":["ETH","SOL"]}
-// Server: {"type":"tick","symbol","price_usd","ts"} pushed ~every 5s per subscribed symbol.
+// GET /v1/data/live — WS.
+//
+// Tick channel (default, unchanged protocol):
+//   Client: {"action":"subscribe"|"unsubscribe","symbols":["ETH","SOL"]}
+//   Server: {"type":"tick","symbol","price_usd","ts"} — pushed on price
+//     change, or every ~30s as a keepalive if unchanged.
+//
+// Candle channel (1m OHLCV):
+//   Client: {"action":"subscribe"|"unsubscribe","channel":"ohlcv","timeframe":"1m","symbols":[...]}
+//   Server: {"type":"candle","channel":"ohlcv","timeframe":"1m","symbol","final","ts","open","high","low","close"}
+//     — pushed on price change (final:false, in-progress candle), plus one
+//     final:true frame when the minute closes.
 dataRoutes.get(
 	'/live',
 	upgradeWebSocket(() => {
-		const conn: LiveConnection = { ws: null, symbols: new Set() }
+		const conn: LiveConnection = { ws: null, tickSymbols: new Set(), candleSymbols: new Set() }
 
 		return {
 			onOpen(_evt, ws) {
 				conn.ws = ws
 				liveConnections.add(conn)
-				ensureLiveTicker()
-				ws.send(JSON.stringify({ type: 'connected', hint: 'Send {"action":"subscribe","symbols":["ETH"]}' }))
+				ensureLivePoller()
+				ws.send(
+					JSON.stringify({
+						type: 'connected',
+						hint: 'Send {"action":"subscribe","symbols":["ETH"]} for ticks, or {"action":"subscribe","channel":"ohlcv","timeframe":"1m","symbols":["ETH"]} for 1m candles',
+					}),
+				)
 			},
 			onMessage(evt, ws) {
-				let msg: { action?: string; symbols?: unknown }
+				let msg: { action?: string; symbols?: unknown; channel?: string; timeframe?: string }
 				try {
-					msg = JSON.parse(String(evt.data)) as { action?: string; symbols?: unknown }
+					msg = JSON.parse(String(evt.data)) as {
+						action?: string
+						symbols?: unknown
+						channel?: string
+						timeframe?: string
+					}
 				} catch {
 					ws.send(JSON.stringify({ type: 'error', message: 'Invalid JSON message' }))
 					return
@@ -495,12 +831,33 @@ dataRoutes.get(
 					? msg.symbols.filter((s): s is string => typeof s === 'string').map((s) => s.toUpperCase())
 					: []
 
+				if (msg.channel === 'ohlcv') {
+					if (msg.timeframe !== '1m') {
+						ws.send(JSON.stringify({ type: 'error', message: 'Only timeframe "1m" is supported on the ohlcv channel' }))
+						return
+					}
+					if (msg.action === 'subscribe') {
+						for (const s of symbols) {
+							conn.candleSymbols.add(s)
+							const state = candleState.get(s)
+							if (state) sendToConn(conn, candleFrame(s, state, false))
+						}
+						ws.send(JSON.stringify({ type: 'subscribed', channel: 'ohlcv', timeframe: '1m', symbols: [...conn.candleSymbols] }))
+					} else if (msg.action === 'unsubscribe') {
+						for (const s of symbols) conn.candleSymbols.delete(s)
+						ws.send(JSON.stringify({ type: 'unsubscribed', channel: 'ohlcv', timeframe: '1m', symbols: [...conn.candleSymbols] }))
+					} else {
+						ws.send(JSON.stringify({ type: 'error', message: 'Unknown action — expected "subscribe" or "unsubscribe"' }))
+					}
+					return
+				}
+
 				if (msg.action === 'subscribe') {
-					for (const s of symbols) conn.symbols.add(s)
-					ws.send(JSON.stringify({ type: 'subscribed', symbols: [...conn.symbols] }))
+					for (const s of symbols) conn.tickSymbols.add(s)
+					ws.send(JSON.stringify({ type: 'subscribed', symbols: [...conn.tickSymbols] }))
 				} else if (msg.action === 'unsubscribe') {
-					for (const s of symbols) conn.symbols.delete(s)
-					ws.send(JSON.stringify({ type: 'unsubscribed', symbols: [...conn.symbols] }))
+					for (const s of symbols) conn.tickSymbols.delete(s)
+					ws.send(JSON.stringify({ type: 'unsubscribed', symbols: [...conn.tickSymbols] }))
 				} else {
 					ws.send(
 						JSON.stringify({
@@ -525,9 +882,10 @@ dataRoutes.get(
 // ===========================================
 
 // GET /v1/data/usage — this caller's /v1/data/* request counts (in-memory, per-instance)
-dataRoutes.get('/usage', (c) => {
+dataRoutes.get('/usage', async (c) => {
 	const key = callerKeyOf(c)
-	return c.json({ success: true, ...getDataUsage(key) })
+	const snapshot = await getDataUsage(key)
+	return c.json({ success: true, ...snapshot })
 })
 
 export { dataRoutes }

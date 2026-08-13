@@ -193,6 +193,37 @@ export class Suwappu {
     return (await res.json()) as T;
   }
 
+  /** @internal Like `_request`, but returns the raw response text (used for `format=csv`). */
+  private async _requestText(method: string, path: string, options: RequestOptions = {}): Promise<string> {
+    let url = `${this.baseUrl}${path}`;
+    if (options.params) {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(options.params)) {
+        if (value !== undefined) search.set(key, value);
+      }
+      const qs = search.toString();
+      if (qs) url += `?${qs}`;
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    Object.assign(headers, options.headers);
+
+    const res = await fetch(url, { method, headers });
+    const text = await res.text();
+    if (!res.ok) {
+      let code: string | undefined;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed.error_code === "string") code = parsed.error_code;
+      } catch {
+        // body wasn't JSON — leave code undefined
+      }
+      throw new SuwappuError(res.status, text, code);
+    }
+    return text;
+  }
+
   // --- Swap ---
 
   /**
@@ -498,11 +529,13 @@ export class Suwappu {
   // --- Market data (/v1/data/*) ---
 
   /**
-   * GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=&start=&end=&limit=
+   * GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=&start=&end=&limit=&cursor=
    *
    * Served from persisted candles when available; falls back to a
    * DexScreener-derived synthetic series otherwise (see `source` on the
-   * result).
+   * result). Pass `cursor` (from a previous result's `nextCursor`) to page
+   * forward. `format: "csv"` is passed through to the API — see
+   * `getOhlcvCsv()` for a helper that returns the raw CSV text.
    */
   async getOhlcv(args: GetOhlcvArgs): Promise<OhlcvResult> {
     const data = await this._request<Record<string, any>>("GET", "/v1/data/history/ohlcv", {
@@ -513,6 +546,7 @@ export class Suwappu {
         start: args.start?.toString(),
         end: args.end?.toString(),
         limit: args.limit?.toString(),
+        cursor: args.cursor,
       },
     });
     return {
@@ -522,7 +556,61 @@ export class Suwappu {
       source: String(data.source ?? ""),
       candles: Array.isArray(data.candles) ? (data.candles as OhlcvCandle[]) : [],
       note: data.note,
+      nextCursor: data.next_cursor,
     };
+  }
+
+  /**
+   * GET /v1/data/history/ohlcv?symbols=A,B&chain=&timeframe=&cursor= — the
+   * multi-symbol variant, grouped by symbol in the response.
+   */
+  async getOhlcvMulti(args: GetOhlcvMultiArgs): Promise<OhlcvMultiResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbols: args.symbols.join(","),
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    const symbols: Record<string, { source: string; candles: OhlcvCandle[] }> = {};
+    for (const [symbol, entry] of Object.entries<Record<string, any>>(data.symbols ?? {})) {
+      symbols[symbol] = {
+        source: String(entry.source ?? ""),
+        candles: Array.isArray(entry.candles) ? (entry.candles as OhlcvCandle[]) : [],
+      };
+    }
+    return {
+      chain: String(data.chain ?? args.chain),
+      timeframe: (data.timeframe ?? args.timeframe ?? "1h") as Timeframe,
+      symbols,
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /**
+   * GET /v1/data/history/ohlcv?...&format=csv — returns the raw CSV text
+   * (header: symbol,chain,timeframe,ts,open,high,low,close,volume,source).
+   * Accepts the same args as `getOhlcv`/`getOhlcvMulti` (pass `symbols` for
+   * the multi-symbol grouped CSV).
+   */
+  async getOhlcvCsv(args: GetOhlcvArgs & { symbols?: string[] }): Promise<string> {
+    return this._requestText("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbol: args.symbols ? undefined : args.symbol,
+        symbols: args.symbols?.join(","),
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+        format: "csv",
+      },
+    });
   }
 
   /**
@@ -563,7 +651,16 @@ export class Suwappu {
     }));
   }
 
-  /** GET /v1/data/reference/resolve?symbol=&chain= */
+  /**
+   * GET /v1/data/reference/resolve?symbol=&chain=
+   *
+   * With `chain`, resolves that one pair (unchanged shape). Without `chain`,
+   * the API now returns entries across every known chain — use
+   * `resolveSymbols([symbol])` for that grouped shape; this method still
+   * returns the single-pair shape for backward compatibility (empty address
+   * when `chain` is omitted and the API responds with a `chains` array
+   * instead).
+   */
   async resolveSymbol(symbol: string, chain?: string): Promise<ResolvedSymbol> {
     const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
       params: { symbol, chain },
@@ -573,6 +670,44 @@ export class Suwappu {
       chain: String(data.chain ?? chain ?? ""),
       chainId: data.chain_id,
       address: String(data.address ?? ""),
+      decimals: Number(data.decimals ?? 0),
+      coingeckoId: data.coingecko_id ?? null,
+    };
+  }
+
+  /**
+   * GET /v1/data/reference/resolve?symbols=A,B[&chain=] — batch resolve,
+   * grouped by symbol. Without `chain`, each symbol's array covers every
+   * known chain; with `chain`, each array has 0 or 1 entries.
+   */
+  async resolveSymbols(symbols: string[], chain?: string): Promise<Record<string, ResolvedSymbol[]>> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { symbols: symbols.join(","), chain },
+    });
+    const results: Record<string, ResolvedSymbol[]> = {};
+    for (const [symbol, entries] of Object.entries<any[]>(data.results ?? {})) {
+      results[symbol] = (entries ?? []).map((e: Record<string, any>) => ({
+        symbol: String(e.symbol ?? symbol),
+        chain: String(e.chain ?? ""),
+        chainId: e.chain_id,
+        address: String(e.address ?? ""),
+        decimals: Number(e.decimals ?? 0),
+        coingeckoId: e.coingecko_id ?? null,
+      }));
+    }
+    return results;
+  }
+
+  /** GET /v1/data/reference/resolve?address=0x...&chain= — reverse lookup: address -> symbol/decimals. */
+  async resolveAddress(address: string, chain: string): Promise<ResolvedSymbol> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { address, chain },
+    });
+    return {
+      symbol: String(data.symbol ?? ""),
+      chain: String(data.chain ?? chain),
+      chainId: data.chain_id,
+      address: String(data.address ?? address),
       decimals: Number(data.decimals ?? 0),
       coingeckoId: data.coingecko_id ?? null,
     };

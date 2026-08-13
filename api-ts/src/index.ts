@@ -5,6 +5,7 @@ import { EnvService } from './config/EnvService'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
 import { initSentry } from './lib/sentry'
+import { stopDataUsageFlusher } from './lib/dataUsage'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
@@ -61,6 +62,7 @@ async function main() {
 		stopA2aCleanup()
 		stopAgentCleanup()
 		stopDataLiveTicker()
+		stopDataUsageFlusher()
 		server.stop()
 		await shutdownOtel()
 		await shutdownRuntime()
