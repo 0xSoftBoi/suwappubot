@@ -19,6 +19,8 @@ from suwappu.types import (
     BillingCheckoutResult,
     BillingStatus,
     Chain,
+    DataMetadata,
+    DataStatus,
     DataUsage,
     KillSwitch,
     LendingMarket,
@@ -584,6 +586,28 @@ class SuwappuClient:
         """GET /v1/data/usage — this caller's /v1/data/* request counts."""
         data = await self._request("GET", "/v1/data/usage")
         return DataUsage.model_validate(data)
+
+    async def get_data_metadata(
+        self, *, symbol: str | None = None, chain: str | None = None
+    ) -> DataMetadata:
+        """GET /v1/data/metadata?symbol=&chain= — dataset coverage from
+        `market_candles`, grouped by (symbol, chain, timeframe). Omit both
+        params to list every tracked dataset (capped at 500 — see
+        `.truncated`)."""
+        params: dict[str, str] = {}
+        if symbol:
+            params["symbol"] = symbol
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/metadata", params=params or None)
+        return DataMetadata.model_validate(data)
+
+    async def get_data_status(self) -> DataStatus:
+        """GET /v1/data/status — capture freshness per timeframe (newest
+        candle + age in seconds) plus per-source candle counts. `.healthy`
+        is true when 1m data is fresher than 5 minutes."""
+        data = await self._request("GET", "/v1/data/status")
+        return DataStatus.model_validate(data)
 
     def _ws_url(self, path: str) -> str:
         base = self._base_url.rstrip("/")

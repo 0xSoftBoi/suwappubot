@@ -590,4 +590,61 @@ describe("market data (/v1/data/*)", () => {
       byEndpoint: { "/v1/data/history/ohlcv": 42 },
     });
   });
+
+  it("fetches grouped dataset metadata and passes through total_candles/truncated", async () => {
+    const c = client();
+    nextBody = {
+      success: true,
+      datasets: [
+        {
+          symbol: "ETH",
+          chain: "base",
+          timeframes: { "1h": { candles: 42, start: "2026-01-01T00:00:00Z", end: "2026-01-02T00:00:00Z" } },
+        },
+      ],
+      total_candles: 42,
+    };
+
+    const result = await c.getDataMetadata({ symbol: "eth", chain: "base" });
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/data/metadata?symbol=eth&chain=base",
+      body: null,
+    });
+    expect(result.totalCandles).toBe(42);
+    expect(result.truncated).toBeUndefined();
+    expect(result.datasets[0]?.symbol).toBe("ETH");
+    expect(result.datasets[0]?.timeframes["1h"]?.candles).toBe(42);
+  });
+
+  it("fetches metadata with no filters", async () => {
+    const c = client();
+    nextBody = { success: true, datasets: [], total_candles: 0 };
+
+    await c.getDataMetadata();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/metadata", body: null });
+  });
+
+  it("maps snake_case status fields to camelCase and preserves healthy", async () => {
+    const c = client();
+    nextBody = {
+      success: true,
+      timeframes: {
+        "1m": { latest_ts: "2026-01-01T00:00:00Z", age_seconds: 12 },
+        "5m": { latest_ts: null, age_seconds: null },
+      },
+      sources: { coingecko: 100, geckoterminal: 20 },
+      healthy: true,
+    };
+
+    const status = await c.getDataStatus();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/status", body: null });
+    expect(status.healthy).toBe(true);
+    expect(status.timeframes["1m"]).toEqual({ latestTs: "2026-01-01T00:00:00Z", ageSeconds: 12 });
+    expect(status.timeframes["5m"]).toEqual({ latestTs: null, ageSeconds: null });
+    expect(status.sources).toEqual({ coingecko: 100, geckoterminal: 20 });
+  });
 });

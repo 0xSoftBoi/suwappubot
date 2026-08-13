@@ -177,6 +177,46 @@ class DataUsage(BaseModel):
     by_endpoint: dict[str, int] = Field(default_factory=dict)
 
 
+class DataMetadataTimeframeCoverage(BaseModel):
+    """One (symbol, chain, timeframe) bucket within a DataMetadata dataset."""
+
+    candles: int = 0
+    start: str
+    end: str
+
+
+class DataMetadataDataset(BaseModel):
+    """GET /v1/data/metadata — per-(symbol, chain) dataset coverage, one entry per timeframe."""
+
+    symbol: str
+    chain: str
+    timeframes: dict[str, DataMetadataTimeframeCoverage] = Field(default_factory=dict)
+
+
+class DataMetadata(BaseModel):
+    """GET /v1/data/metadata response."""
+
+    datasets: list[DataMetadataDataset] = Field(default_factory=list)
+    total_candles: int = 0
+    # True when `datasets` was capped (at 500) — narrow with symbol/chain to see more.
+    truncated: bool | None = None
+    note: str | None = None
+
+
+class DataStatusTimeframe(BaseModel):
+    latest_ts: str | None = None
+    age_seconds: int | None = None
+
+
+class DataStatus(BaseModel):
+    """GET /v1/data/status — capture freshness per timeframe + per-source counts."""
+
+    timeframes: dict[str, DataStatusTimeframe] = Field(default_factory=dict)
+    sources: dict[str, int] = Field(default_factory=dict)
+    # True when 1m data is fresher than 5 minutes.
+    healthy: bool = False
+
+
 class LiveTick(BaseModel):
     """Server push from WS /v1/data/live: {"type":"tick","symbol","price_usd","ts"}."""
 

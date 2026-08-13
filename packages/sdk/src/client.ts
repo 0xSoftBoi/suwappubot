@@ -27,6 +27,8 @@ import type {
   BillingStatus,
   Chain,
   CreatePolicyArgs,
+  DataMetadata,
+  DataStatus,
   DataUsage,
   GetOhlcvArgs,
   GetOhlcvMultiArgs,
@@ -724,6 +726,44 @@ export class Suwappu {
       firstSeenAt: data.first_seen_at ?? null,
       lastSeenAt: data.last_seen_at ?? null,
       byEndpoint: data.by_endpoint ?? {},
+    };
+  }
+
+  /**
+   * GET /v1/data/metadata?symbol=&chain= — dataset coverage from
+   * `market_candles`, grouped by (symbol, chain, timeframe). Omit both
+   * params to list every tracked dataset (capped at 500 — see `truncated`).
+   */
+  async getDataMetadata(args?: { symbol?: string; chain?: string }): Promise<DataMetadata> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/metadata", {
+      params: { symbol: args?.symbol, chain: args?.chain },
+    });
+    return {
+      datasets: Array.isArray(data.datasets) ? data.datasets : [],
+      totalCandles: Number(data.total_candles ?? 0),
+      truncated: data.truncated,
+      note: data.note,
+    };
+  }
+
+  /**
+   * GET /v1/data/status — capture freshness per timeframe (newest candle +
+   * age in seconds) plus per-source candle counts. `healthy` is true when 1m
+   * data is fresher than 5 minutes.
+   */
+  async getDataStatus(): Promise<DataStatus> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/status");
+    const timeframes: DataStatus["timeframes"] = {};
+    for (const [tf, entry] of Object.entries<Record<string, any>>(data.timeframes ?? {})) {
+      timeframes[tf] = {
+        latestTs: entry.latest_ts ?? null,
+        ageSeconds: entry.age_seconds ?? null,
+      };
+    }
+    return {
+      timeframes,
+      sources: data.sources ?? {},
+      healthy: Boolean(data.healthy),
     };
   }
 
