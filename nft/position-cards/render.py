@@ -132,6 +132,14 @@ def _small_caps(text, x, y, size, fill, tracking=3.2, weight="normal", family=No
     )
 
 
+def _mix(a: str, b: str, t: float) -> str:
+    """Blend two #rrggbb colours. Used to build a per-card field colour so the
+    collection reads as families in a grid rather than 10,000 black rectangles."""
+    ca = tuple(int(a[i : i + 2], 16) for i in (1, 3, 5))
+    cb = tuple(int(b[i : i + 2], 16) for i in (1, 3, 5))
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
+
+
 def render_card(
     cfg,
     registry,
@@ -142,18 +150,29 @@ def render_card(
     rank: int,
     minted_at: datetime | None = None,
 ) -> str:
-    """Render one position card as an engraved certificate.
+    """Render one position card as an engraved plate.
 
     The form is deliberate. This token is a stamped, immutable record of a call
     someone made at a price that can never be edited — which is what scrip has
     always been. So the card is a plate: engine-turned ground, ruled border,
-    struck serial, a seal. Every ornament is computed from the token's own
-    state, so the engraving is evidence rather than decoration.
+    struck serial, a seal.
 
-    What it still refuses to do is invent history. There is no price chart,
-    because there is no price series — only two real numbers, the basis stamped
-    at mint and the live oracle. The plate shows exactly those two and the
-    distance between them.
+    Every decision below is answerable to the GRID. Almost nobody meets an NFT
+    at full size; they meet 40 of them at 190px in a marketplace wall, and a
+    plate that only works as a hero shot does not get minted. So:
+
+      * the field carries a sector colour, so the collection reads as ten
+        families instead of 10,000 near-black rectangles;
+      * the engraving is stroked heavily enough to survive a 5x downscale
+        (hairlines at 1000px are simply gone at 190px);
+      * the rosette's scale and height move with the return, so a wall of cards
+        has visible rhythm rather than one repeated composition;
+      * the plate is mostly image — four stacked bands of micro-type read as
+        grey mush at thumbnail size, so there is now one.
+
+    What it still refuses to do is invent history. There is no price series,
+    only the basis stamped at mint and the live oracle, and the plate shows
+    exactly those two.
     """
     addr, decimals, company = registry[ticker]
     sector = sector_of(cfg, ticker)
@@ -166,288 +185,253 @@ def render_card(
     disc = cfg["economics"]["hold_discount_bps"]
     seed = _seed(ticker, token_id, entry)
 
-    # Ornament parameters from real state. Petal count is the token's own
-    # fingerprint; the lobe depth OPENS with the size of the move, so a runner
-    # visibly blooms and an underwater plate stays tight and closed. The art
-    # moves with the position because it is drawn from it.
-    petals = 7 + (seed % 12)
+    # ── composition, driven by the position itself ──────────────────────────
+    # A losing plate sits low and closes up; a runner rises and opens out. Two
+    # cards at different returns are laid out differently, not just recoloured,
+    # which is what gives a wall of these any rhythm.
     mag = min(abs(ret_bps) / 20_000.0, 1.0) if priced else 0.0
-    inner = 0.10 + 0.26 * mag
+    lift = (ret_bps / 20_000.0) if priced else 0.0
+    lift = max(-1.0, min(1.0, lift))
+    rad = 200 + int(mag * 82)
+    cy = 672 - int(lift * 52)
+    # A big winner both rises and grows, and unclamped the two compounded until
+    # the rosette climbed through the issuer line (visible on SPCX at +257%).
+    # The engraving may bleed anywhere below the masthead block, never into it.
+    cy = max(cy, 372 + rad)
+    petals = 7 + (seed % 12)
+    inner = 0.12 + 0.26 * mag
     spin = (seed >> 8) % 360
     arms = 5 + (seed >> 16) % 4
 
+    # Field: sector hue sets the family, the grade tints it. Kept dark enough
+    # that white type holds contrast, saturated enough to be sortable by eye.
+    deep = _mix("#07070a", sector_col, 0.13)
+    edge_col = _mix("#050507", accent, 0.10)
+    rim = _mix(sector_col, accent, 0.45)
+
     W_, H_ = W, H
-    PL, PR = 62, W_ - 62  # plate rules
-    PT, PB = 62, H_ - 62
-    IL, IR = 104, W_ - 104  # inner text column
+    PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
+    IL, IR = 96, W_ - 96
 
     p = [
         "<defs>",
-        # Ink, not black: a warm plate reads as printed rather than as a screen.
-        '<linearGradient id="plate" x1="0" y1="0" x2="0.35" y2="1">'
-        '<stop offset="0" stop-color="#12100d"/><stop offset="0.55" stop-color="#0c0b09"/>'
-        '<stop offset="1" stop-color="#080706"/></linearGradient>',
+        f'<linearGradient id="plate" x1="0.1" y1="0" x2="0.85" y2="1">'
+        f'<stop offset="0" stop-color="{deep}"/>'
+        f'<stop offset="0.62" stop-color="{_mix(deep, "#000000", 0.42)}"/>'
+        f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
         f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.20"/>'
-        f'<stop offset="0.65" stop-color="{accent}" stop-opacity="0.05"/>'
-        f'<stop offset="1" stop-color="{accent}" stop-opacity="0"/></radialGradient>',
-        # Intaglio hatch — the fine parallel ruling of engraved printing.
-        '<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" '
-        'patternTransform="rotate(35)">'
-        '<line x1="0" y1="0" x2="0" y2="6" stroke="#ffffff" stroke-opacity="0.035" '
-        'stroke-width="1"/></pattern>',
-        # Fades the ground under the numeral instead of punching a hole in it.
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.34"/>'
+        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="0.15"/>'
+        f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         '<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        '<stop offset="0" stop-color="#0b0a08" stop-opacity="0.94"/>'
-        '<stop offset="0.55" stop-color="#0b0a08" stop-opacity="0.86"/>'
-        '<stop offset="1" stop-color="#0b0a08" stop-opacity="0"/></radialGradient>',
+        '<stop offset="0" stop-color="#040406" stop-opacity="0.90"/>'
+        '<stop offset="0.6" stop-color="#040406" stop-opacity="0.72"/>'
+        '<stop offset="1" stop-color="#040406" stop-opacity="0"/></radialGradient>',
+        '<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
+        'patternTransform="rotate(35)">'
+        '<line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" stroke-opacity="0.030" '
+        'stroke-width="1"/></pattern>',
         f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.06"/>'
-        f'<stop offset="1" stop-color="{accent}" stop-opacity="0.34"/></linearGradient>',
-        # One rosette arm, repeated by rotation below.
-        f'<path id="g1" d="{_guilloche(W_ / 2, 620, 236, petals, inner)}"/>',
-        f'<path id="g2" d="{_guilloche(W_ / 2, 620, 158, petals + 3, inner * 0.7)}"/>',
-        f'<path id="gs" d="{_guilloche(W_ - 214, 1064, 56, petals + 2, inner * 0.8, 160)}"/>',
-        # Left-to-right over the top, so the grade reads the right way up.
-        f'<path id="sealArc" d="M{W_ - 214 - 60} 1064 A60 60 0 0 1 {W_ - 214 + 60} 1064" '
-        f'fill="none"/>',
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.10"/>'
+        f'<stop offset="1" stop-color="{accent}" stop-opacity="0.55"/></linearGradient>',
+        f'<path id="g1" d="{_guilloche(W_ / 2, cy, rad, petals, inner)}"/>',
+        f'<path id="g2" d="{_guilloche(W_ / 2, cy, rad * 0.62, petals + 3, inner * 0.7)}"/>',
+        f'<path id="gs" d="{_guilloche(W_ - 200, 1082, 52, petals + 2, inner * 0.8, 140)}"/>',
+        f'<path id="sealArc" d="M{W_ - 258} 1082 A58 58 0 0 1 {W_ - 142} 1082" fill="none"/>',
         "</defs>",
         f'<rect width="{W_}" height="{H_}" fill="url(#plate)"/>',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
+        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad + 130}" ry="{rad + 120}" fill="url(#bloom)"/>',
     ]
 
     # ── engine-turned ground ────────────────────────────────────────────────
-    p.append(f'<ellipse cx="{W_ / 2}" cy="620" rx="330" ry="330" fill="url(#bloom)"/>')
-    p.append(f'<g stroke="{accent}" fill="none" stroke-width="0.7" opacity="0.5">')
-    for i in range(arms * 4):
-        a = spin + i * (360.0 / (arms * 4))
-        p.append(f'<use href="#g1" transform="rotate({a:.2f} {W_ / 2} 620)" opacity="0.32"/>')
-    p.append("</g>")
-    p.append(f'<g stroke="{sector_col}" fill="none" stroke-width="0.6" opacity="0.42">')
+    # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate the
+    # rosette resolved to 0.13px in a 190px grid cell and simply disappeared;
+    # these survive the downscale and still look engraved at full size.
+    p.append(f'<g stroke="{rim}" fill="none" stroke-width="2.4" opacity="0.55">')
     for i in range(arms * 3):
-        a = -spin + i * (360.0 / (arms * 3))
-        p.append(f'<use href="#g2" transform="rotate({a:.2f} {W_ / 2} 620)" opacity="0.30"/>')
+        p.append(
+            f'<use href="#g1" transform="rotate({spin + i * (120.0 / arms):.2f} '
+            f'{W_ / 2} {cy})" opacity="0.34"/>'
+        )
+    p.append("</g>")
+    p.append(f'<g stroke="{sector_col}" fill="none" stroke-width="1.8" opacity="0.42">')
+    for i in range(arms * 2):
+        p.append(
+            f'<use href="#g2" transform="rotate({-spin + i * (180.0 / arms):.2f} '
+            f'{W_ / 2} {cy})" opacity="0.34"/>'
+        )
     p.append("</g>")
 
-    # ── ruled border, the way scrip is ruled ────────────────────────────────
+    # ── ruled border ────────────────────────────────────────────────────────
     p.append(
         f'<rect x="{PL}" y="{PT}" width="{PR - PL}" height="{PB - PT}" fill="none" '
-        f'stroke="{accent}" stroke-opacity="0.55" stroke-width="2.5"/>'
-        f'<rect x="{PL + 9}" y="{PT + 9}" width="{PR - PL - 18}" height="{PB - PT - 18}" '
-        f'fill="none" stroke="{accent}" stroke-opacity="0.28" stroke-width="0.8"/>'
+        f'stroke="{rim}" stroke-opacity="0.75" stroke-width="3.5"/>'
+        f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
+        f'fill="none" stroke="{rim}" stroke-opacity="0.32" stroke-width="1.2"/>'
     )
-    for cx_, cy_ in ((PL + 9, PT + 9), (PR - 9, PT + 9), (PL + 9, PB - 9), (PR - 9, PB - 9)):
+    for cx_, cy_ in ((PL + 11, PT + 11), (PR - 11, PT + 11), (PL + 11, PB - 11), (PR - 11, PB - 11)):
         p.append(
-            f'<circle cx="{cx_}" cy="{cy_}" r="15" fill="none" stroke="{accent}" '
-            f'stroke-opacity="0.45" stroke-width="0.9"/>'
-            f'<circle cx="{cx_}" cy="{cy_}" r="6.5" fill="none" stroke="{accent}" '
-            f'stroke-opacity="0.7" stroke-width="0.9"/>'
+            f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{rim}" '
+            f'stroke-opacity="0.5" stroke-width="1.6"/>'
+            f'<circle cx="{cx_}" cy="{cy_}" r="7" fill="{rim}" fill-opacity="0.55"/>'
         )
 
     # ── head ────────────────────────────────────────────────────────────────
-    y = 126
-    p.append(_small_caps("Suwappu", IL, y, 17, "#e9e2d4", 7.5, "bold"))
+    p.append(_small_caps("Suwappu", IL, 118, 16, "#efe9dd", 7.0, "bold"))
     p.append(
-        _small_caps("Certificate of Position", W_ / 2, y, 12, "#8a8474", 4.2, anchor="middle")
-    )
-    serial = f"No. {rank:04d}"
-    p.append(
-        f'<text x="{IR}" y="{y}" font-family="{SERIF}" font-size="19" fill="{accent}" '
-        f'fill-opacity="0.92" text-anchor="end" letter-spacing="1.5">{esc(serial)}</text>'
+        _small_caps("Certificate of Position", W_ / 2, 118, 11.5, _mix(rim, "#ffffff", 0.25), 4.0,
+                    anchor="middle")
     )
     p.append(
-        f'<line x1="{IL}" y1="{y + 20}" x2="{IR}" y2="{y + 20}" stroke="{accent}" '
-        f'stroke-opacity="0.35" stroke-width="1"/>'
+        f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{rim}" '
+        f'text-anchor="end" letter-spacing="1.4">{esc(f"No. {rank:04d}")}</text>'
+    )
+    p.append(
+        f'<line x1="{IL}" y1="140" x2="{IR}" y2="140" stroke="{rim}" '
+        f'stroke-opacity="0.45" stroke-width="1.2"/>'
     )
 
-    # ── ticker + issuer ─────────────────────────────────────────────────────
+    # ── ticker: at 190px this and one number ARE the card ───────────────────
+    tsize = 150 if len(ticker) <= 4 else (124 if len(ticker) == 5 else 104)
     p.append(
-        f'<text x="{IL}" y="284" font-family="{SERIF}" font-size="132" font-weight="bold" '
-        f'fill="#f3ece0" letter-spacing="-2">{esc(ticker)}</text>'
+        f'<text x="{IL}" y="290" font-family="{SERIF}" font-size="{tsize}" font-weight="bold" '
+        f'fill="#f6f1e6" letter-spacing="-3">{esc(ticker)}</text>'
     )
-    if len(company) <= 42:
+    if len(company) <= 40:
         name = company
     else:
-        cut = company[:42].rsplit(" ", 1)[0]
-        name = (cut if len(cut) > 20 else company[:41]) + "\u2026"
-    p.append(_small_caps(name, IL, 320, 15, "#9d9585", 3.4))
-    p.append(_small_caps(f"{sector} \u00b7 Robinhood Chain", IL, 348, 11.5, sector_col, 3.0))
+        cut = company[:40].rsplit(" ", 1)[0]
+        name = (cut if len(cut) > 18 else company[:39]) + "\u2026"
+    p.append(_small_caps(name, IL, 330, 14.5, _mix(sector_col, "#ffffff", 0.35), 3.2))
+    p.append(_small_caps(sector, IL, 360, 12, sector_col, 3.4))
     if badge:
         p.append(
-            f'<text x="{IR}" y="284" font-family="{SERIF}" font-size="26" fill="{accent}" '
-            f'fill-opacity="0.8" text-anchor="end" font-style="italic">{esc(badge)}</text>'
+            f'<text x="{IR}" y="290" font-family="{SERIF}" font-size="30" fill="{accent}" '
+            f'text-anchor="end" font-style="italic">{esc(badge)}</text>'
         )
 
-    # ── the two real numbers, and the distance between them ─────────────────
+    # ── the two real numbers ────────────────────────────────────────────────
+    # Proportional to the rosette, not offset from it. At rad+60 x rad-30 a
+    # low-magnitude plate had its entire engraving covered — every losing card
+    # in the grid read as a dark smudge with one faint ring left showing. This
+    # clears the middle band where the numeral sits and leaves the outer rings.
+    p.append(
+        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.5:.0f}" '
+        f'fill="url(#clear)"/>'
+    )
     if priced:
         sign = "+" if ret_bps >= 0 else "\u2212"
         hero = f"{sign}{abs(ret_bps) / 100:,.1f}%"
-        # Knock a clear disc out of the rosette so the number reads. A guilloché
-        # is a ground, not a backdrop for type — laid directly under a 140px
-        # numeral it turned both to mud.
-        p.append(f'<ellipse cx="{W_ / 2}" cy="620" rx="300" ry="212" fill="url(#clear)"/>')
-        p.append(_small_caps("return since entry", W_ / 2, 566, 11.5, "#8a8474", 5.5, anchor="middle"))
-        # Fit to the string: "+257.2%" is two glyphs wider than "-5.7%" and at a
-        # fixed size ran straight through the rosette's outer ring.
-        hsize = 122 if len(hero) <= 6 else (108 if len(hero) <= 7 else 94)
+        hsize = 138 if len(hero) <= 6 else (120 if len(hero) <= 7 else 104)
         p.append(
-            f'<text x="{W_ / 2}" y="666" font-family="{SERIF}" font-size="{hsize}" '
+            f'<text x="{W_ / 2}" y="{cy + 44}" font-family="{SERIF}" font-size="{hsize}" '
             f'font-weight="bold" fill="{accent}" text-anchor="middle" '
             f'letter-spacing="-3">{esc(hero)}</text>'
         )
         p.append(
-            f'<line x1="{W_ / 2 - 92}" y1="700" x2="{W_ / 2 + 92}" y2="700" stroke="{accent}" '
-            f'stroke-opacity="0.4" stroke-width="1"/>'
+            _small_caps("since entry", W_ / 2, cy + 84, 12, _mix(accent, "#ffffff", 0.2), 6.0,
+                        anchor="middle")
+        )
+    else:
+        p.append(
+            f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
+            f'fill="#a09889" text-anchor="middle" font-style="italic" '
+            f'letter-spacing="2">Unpriced</text>'
         )
         p.append(
-            _small_caps(
-                f"{'gain' if ret_bps >= 0 else 'drawdown'} on basis",
-                W_ / 2,
-                726,
-                10.5,
-                "#7b756a",
-                4.0,
-                anchor="middle",
-            )
+            _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
         )
 
-        # An engraved scale, not a fabricated chart. Two marks: where the basis
-        # was struck, where the oracle is now. Nothing between them is known, so
-        # nothing between them is drawn except the span itself.
-        sy = 820
-        p.append(
-            f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="#4a4740" stroke-width="1"/>'
-        )
-        for k in range(1, 24):
-            tx = IL + (IR - IL) * k / 24.0
-            tall = 9 if k % 6 == 0 else 5
+    # ── basis -> now, engraved. One band, not four. ─────────────────────────
+    sy = 952
+    p.append(
+        f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="{_mix(rim, "#000000", 0.45)}" '
+        f'stroke-width="1.4"/>'
+    )
+    if priced:
+        for k in range(1, 20):
+            tx = IL + (IR - IL) * k / 20.0
+            tall = 10 if k % 5 == 0 else 5
             p.append(
                 f'<line x1="{tx:.1f}" y1="{sy - tall}" x2="{tx:.1f}" y2="{sy + tall}" '
-                f'stroke="#4a4740" stroke-width="0.8"/>'
+                f'stroke="{_mix(rim, "#000000", 0.4)}" stroke-width="1.1"/>'
             )
-        span = IR - IL
-        e_x = IL + (0 if price >= entry else span)
-        n_x = IL + (span if price >= entry else 0)
-        # Gradient runs entry -> now, so it always brightens toward the live
-        # price rather than flipping direction on a losing position.
-        flip = " transform=\"rotate(180 500 0)\"" if n_x < e_x else ""
+        e_x = IL if price >= entry else IR
+        n_x = IR if price >= entry else IL
+        flip = ' transform="rotate(180 500 0)"' if n_x < e_x else ""
         p.append(
-            f'<rect x="{min(e_x, n_x)}" y="{sy - 15}" width="{abs(n_x - e_x)}" height="30" '
+            f'<rect x="{min(e_x, n_x)}" y="{sy - 17}" width="{abs(n_x - e_x)}" height="34" '
             f'fill="url(#span)"{flip}/>'
         )
         for xx, lab, val, col in (
-            (e_x, "entry", fmt_px(entry), "#9d9585"),
+            (e_x, "basis", fmt_px(entry), "#a49c8d"),
             (n_x, "now", fmt_px(price), accent),
         ):
             anc = "start" if xx < W_ / 2 else "end"
             p.append(
-                f'<line x1="{xx}" y1="{sy - 22}" x2="{xx}" y2="{sy + 22}" stroke="{col}" '
-                f'stroke-width="2"/>'
+                f'<line x1="{xx}" y1="{sy - 26}" x2="{xx}" y2="{sy + 26}" stroke="{col}" '
+                f'stroke-width="3"/>'
             )
-            p.append(_small_caps(lab, xx, sy - 34, 11, "#8a8474", 4.0, anchor=anc))
+            p.append(_small_caps(lab, xx, sy - 38, 11, "#8f8778", 4.0, anchor=anc))
             p.append(
-                f'<text x="{xx}" y="{sy + 48}" font-family="{SERIF}" font-size="30" '
+                f'<text x="{xx}" y="{sy + 60}" font-family="{SERIF}" font-size="34" '
                 f'fill="{col}" text-anchor="{anc}">${esc(val)}</text>'
             )
-    else:
-        p.append(
-            f'<ellipse cx="{W_ / 2}" cy="620" rx="300" ry="212" fill="url(#clear)"/>'
-        )
-        p.append(
-            f'<text x="{W_ / 2}" y="650" font-family="{SERIF}" font-size="76" '
-            f'fill="#8d8577" text-anchor="middle" font-style="italic" '
-            f'letter-spacing="2">Unpriced</text>'
-        )
-        p.append(
-            _small_caps(
-                "no oracle price at mint \u00b7 no basis stamped",
-                W_ / 2,
-                700,
-                12,
-                "#6f6a5e",
-                4.0,
-                anchor="middle",
-            )
-        )
-        p.append(
-            f'<line x1="{IL + 150}" y1="820" x2="{IR - 150}" y2="820" stroke="#3b3830" '
-            f'stroke-width="1" stroke-dasharray="3 7"/>'
-        )
 
-    # ── the record ──────────────────────────────────────────────────────────
-    ry = 950
+    # ── seal ────────────────────────────────────────────────────────────────
+    scx, scy, sr = W_ - 200, 1082, 72
     p.append(
-        f'<line x1="{IL}" y1="{ry - 34}" x2="{IR}" y2="{ry - 34}" stroke="{accent}" '
-        f'stroke-opacity="0.22" stroke-width="0.8"/>'
-    )
-    held = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
-    facts = [
-        ("Struck", held),
-        ("Rank", f"{rank} of {cfg['collection']['supply']:,}"),
-        ("Basis", f"${fmt_px(entry)}" if priced else "\u2014"),
-    ]
-    for i, (lab, val) in enumerate(facts):
-        fx = IL + i * 196  # left-packed: the seal owns the right of the plate
-        p.append(_small_caps(lab, fx, ry, 10.5, "#7b756a", 3.6))
-        p.append(
-            f'<text x="{fx}" y="{ry + 30}" font-family="{SERIF}" font-size="24" '
-            f'fill="#ddd5c6">{esc(val)}</text>'
-        )
-
-    # ── seal: the grade, struck rather than labelled ────────────────────────
-    # Pulled inside the plate rule (r=86 at x=W-196 crossed it) and moved clear
-    # of the Basis column it was sitting on top of.
-    scx, scy, sr = W_ - 214, 1064, 74
-    p.append(
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="#0b0a08" fill-opacity="0.75"/>'
+        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="#05050a" fill-opacity="0.7"/>'
         f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.55" stroke-width="2"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr - 9}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.28" stroke-width="0.8"/>'
+        f'stroke-opacity="0.7" stroke-width="2.6"/>'
+        f'<circle cx="{scx}" cy="{scy}" r="{sr - 10}" fill="none" stroke="{accent}" '
+        f'stroke-opacity="0.3" stroke-width="1"/>'
     )
-    # A small rosette struck into the seal, same instrument as the ground.
-    p.append(f'<g stroke="{accent}" fill="none" stroke-width="0.5" opacity="0.30">')
-    for i in range(6):
-        p.append(
-            f'<use href="#gs" transform="rotate({spin + i * 60:.1f} {scx} {scy})"/>'
-        )
+    p.append(f'<g stroke="{accent}" fill="none" stroke-width="1" opacity="0.32">')
+    for i in range(5):
+        p.append(f'<use href="#gs" transform="rotate({spin + i * 72:.1f} {scx} {scy})"/>')
     p.append("</g>")
-    # Grade around the top of the seal — the reason a seal is round.
     p.append(
-        f'<text font-family="{MONO}" font-size="11" fill="{accent}" fill-opacity="0.85" '
-        f'letter-spacing="3.6"><textPath href="#sealArc" startOffset="50%" '
+        f'<text font-family="{MONO}" font-size="11" fill="{accent}" fill-opacity="0.9" '
+        f'letter-spacing="3.4"><textPath href="#sealArc" startOffset="50%" '
         f'text-anchor="middle">{esc(grade["name"].upper())}</textPath></text>'
     )
     p.append(
-        f'<text x="{scx}" y="{scy + 10}" font-family="{SERIF}" font-size="30" '
-        f'font-weight="bold" fill="#ede5d7" text-anchor="middle">{esc(ticker[:4])}</text>'
-    )
-    p.append(_small_caps(f"no {rank}", scx, scy + 40, 9, "#7b756a", 2.6, anchor="middle"))
-
-    # ── holder's right, stated plainly ──────────────────────────────────────
-    p.append(
-        f'<text x="{IL}" y="{scy - 24}" font-family="{SERIF}" font-size="27" fill="#ddd5c6">'
-        f'\u2212{disc} bps on every Suwappu swap</text>'
-    )
-    p.append(_small_caps(f"${disc / 10:.2f} back per $1,000 traded", IL, scy + 8, 12, "#8a8474", 3.2))
-    p.append(
-        f'<text x="{IL}" y="{scy + 42}" font-family="{MONO}" font-size="10" fill="#5f5a51" '
-        f'letter-spacing="0.4">{esc(addr)}</text>'
+        f'<text x="{scx}" y="{scy + 12}" font-family="{SERIF}" font-size="30" '
+        f'font-weight="bold" fill="#f2ece0" text-anchor="middle">{esc(ticker[:4])}</text>'
     )
 
-    # ── plate footer ────────────────────────────────────────────────────────
+    # ── one footing band, not four ──────────────────────────────────────────
+    struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
+    p.append(
+        f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="#e6dfd1">'
+        f'\u2212{disc} bps on every swap</text>'
+    )
     p.append(
         _small_caps(
-            "Collectible \u00b7 not equity \u00b7 not a security \u00b7 pays nothing \u00b7 "
+            f"struck {struck} \u00b7 rank {rank} of {cfg['collection']['supply']:,}",
+            IL,
+            1104,
+            11.5,
+            "#8f8778",
+            3.0,
+        )
+    )
+    p.append(
+        _small_caps(
+            "collectible \u00b7 not equity \u00b7 not a security \u00b7 pays nothing \u00b7 "
             "no claim on any issuer",
             IL,
-            PB - 30,
+            PB - 26,
             9.5,
-            "#57534a",
+            "#5f5a51",
             2.2,
         )
     )
-    p.append(_small_caps(f"chain 4663 \u00b7 token {token_id}", IR, PB - 30, 9.5, "#57534a", 2.2, anchor="end"))
+    p.append(
+        _small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, "#5f5a51", 2.2, anchor="end")
+    )
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '

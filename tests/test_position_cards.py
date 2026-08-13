@@ -161,7 +161,14 @@ def test_unpriced_card_claims_no_return():
     assert "RETURN SINCE ENTRY" not in svg, "unpriced card must not show a return figure"
     # No basis was stamped, so the plate must say so rather than imply a flat 0%.
     assert "NO BASIS STAMPED" in svg
-    assert "%" not in svg.split("SUWAPPU")[1].split("STRUCK")[0], "a return figure leaked"
+    # Look for a RENDERED figure, not any '%' anywhere: startOffset="50%" is an
+    # SVG attribute and matched the naive check, which is a false positive, not
+    # a leak. Percentages only ever appear as the hero numeral's text node.
+    import re
+
+    assert not re.search(r">[+\u2212-]?\d+(\.\d+)?%<", svg), "a return figure leaked"
+    priced = render.render_card(cfg, reg, 4, "TSLA", entry=100.0, price=130.0, rank=99)
+    assert re.search(r">[+\u2212-]?\d+(\.\d+)?%<", priced), "the check cannot detect a figure"
     meta = render.build_metadata(cfg, reg, 3, "TSLA", None, None, 99)
     assert meta["name"].endswith("Unpriced")
     assert all(a["trait_type"] != "Return %" for a in meta["attributes"])
@@ -989,3 +996,60 @@ def test_no_external_resources_are_referenced():
     for ref in re.findall(r'href="([^"]+)"', body):
         assert ref.startswith("#"), ref
         assert f'id="{ref[1:]}"' in body, f"dangling ref {ref}"
+
+
+def test_the_engraving_survives_a_thumbnail():
+    """Almost nobody meets an NFT at full size — they meet forty of them at
+    ~190px on a marketplace wall. The first cut stroked the rosette at 0.7px on
+    a 1000px plate, which resolves to 0.13px in a grid cell: the entire
+    engraving vanished and every card read as a black rectangle with a word and
+    a number on it."""
+    import re
+
+    cfg, reg = render.load_config(), render.load_registry()
+    svg = render.render_card(cfg, reg, 1, "NVDA", 100.0, 200.0, 1)
+    widths = [float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg)]
+    engraving = [w for w in widths if w >= 1.5]
+    assert engraving, "no stroke heavy enough to survive a 5x downscale"
+    # a 190px cell is a 5.26x reduction; 1.5px is the floor that stays visible
+    assert max(widths) >= 2.4
+
+
+def test_the_field_colour_comes_from_the_sector():
+    """Ten sectors give the collection ten families, so a wall of 10,000 sorts
+    by eye instead of reading as one repeated black rectangle. Two tickers in
+    different sectors at an IDENTICAL return must not share a plate colour."""
+    cfg, reg = render.load_config(), render.load_registry()
+    a = render.render_card(cfg, reg, 1, "NVDA", 100.0, 130.0, 1)  # Semiconductors
+    b = render.render_card(cfg, reg, 1, "IONQ", 100.0, 130.0, 1)  # Quantum
+    assert cfg["sector_colors"]["Semiconductors"] in a
+    assert cfg["sector_colors"]["Quantum"] in b
+    assert a.split('id="plate"')[1][:200] != b.split('id="plate"')[1][:200]
+
+
+def test_the_composition_moves_with_the_return_not_just_the_colour():
+    """Thirty-two identical layouts in a grid is a template. The rosette's
+    height and scale track the position, so a wall of these has rhythm."""
+    import re
+
+    cfg, reg = render.load_config(), render.load_registry()
+
+    def geom(price):
+        svg = render.render_card(cfg, reg, 5, "NVDA", 100.0, price, 5)
+        d = re.search(r'id="g1" d="M([\d.]+) ([\d.]+)', svg)
+        return float(d.group(1)), float(d.group(2))
+
+    assert geom(40.0) != geom(400.0)
+
+
+def test_the_rosette_never_climbs_into_the_masthead():
+    """A big winner both rises and grows; unclamped the two compounded until the
+    engraving ran through the issuer line."""
+    import re
+
+    cfg, reg = render.load_config(), render.load_registry()
+    for ratio in (0.2, 0.5, 1.0, 1.5, 3, 6, 12, 40):
+        svg = render.render_card(cfg, reg, 1, "SPCX", 100.0, 100.0 * ratio, 1)
+        path = re.search(r'id="g1" d="([^"]+)"', svg).group(1)
+        top = min(float(y) for y in re.findall(r"[ML][\d.]+ ([\d.]+)", path))
+        assert top > 366, f"rosette reached y={top:.0f} at ratio {ratio}, over the sector line"
