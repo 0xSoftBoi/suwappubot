@@ -720,6 +720,9 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- Market data parity Phase 1: normalized OHLCV candles ---
+    _create_market_candles_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -4025,3 +4028,79 @@ def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> Non
         logger.info("Created agent_link_codes table")
     except Exception as e:
         logger.warning(f"Failed to create agent_link_codes table: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Market data parity Phase 1 — normalized OHLCV candles
+# ---------------------------------------------------------------------------
+
+
+def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the market_candles table idempotently.
+
+    Backs the Historical API (GET /v1/data/history/ohlcv) per
+    docs/plans/market-data-parity.md. One row per (symbol, chain, timeframe, ts)
+    candle; populated by bot/services/market_data.py (Phase 2 — not yet
+    implemented as of this migration). open/high/low/close/volume use
+    NUMERIC(38,18) for exact decimal arithmetic across chains with wildly
+    different token decimals.
+
+    Mirrors api-ts's Drizzle schema (marketCandles.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "market_candles" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts DATETIME NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created market_candles table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts DESC)"
+            )
+        )
