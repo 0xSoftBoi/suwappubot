@@ -143,7 +143,7 @@ class SavingsService:
 
         return rpc_manager.get_web3("base")
 
-    def _failover(self, op: Callable[[Web3], T], attempts: int = 4) -> T:
+    def _failover(self, op: Callable[[Web3], T], attempts: int = 4, timeout: int = 15) -> T:
         """Run `op(web3)` against Base RPCs, failing over across endpoints.
 
         Some public Base endpoints reject eth_call or rate-limit (429), and a
@@ -160,7 +160,7 @@ class SavingsService:
 
         last_exc: Optional[Exception] = None
         for url in urls:
-            web3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
+            web3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": timeout}))
             started = time.monotonic()
             try:
                 result = op(web3)
@@ -259,10 +259,14 @@ class SavingsService:
             return cached_value
 
         try:
+            # Read path: short timeout + fewer endpoints so a degraded RPC can't
+            # pin a default-executor thread long past the caller's 5s budget.
             reserve = self._failover(
                 lambda web3: self._pool(web3)
                 .functions.getReserveData(Web3.to_checksum_address(USDC_ADDRESS))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             liquidity_rate = Decimal(reserve[2])  # currentLiquidityRate (ray)
             apr = liquidity_rate / RAY  # fractional APR, e.g. 0.05
@@ -289,7 +293,9 @@ class SavingsService:
             balance_wei = self._failover(
                 lambda web3: self._erc20(web3, ABASUSDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             return self._wei_to_usdc(balance_wei)
         except Exception as e:
@@ -302,7 +308,9 @@ class SavingsService:
             balance_wei = self._failover(
                 lambda web3: self._erc20(web3, USDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             return self._wei_to_usdc(balance_wei)
         except Exception as e:

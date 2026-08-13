@@ -1702,7 +1702,9 @@ async def _execute_earn_redeem_then_swap(
 
     await _log_earn_redeem_event(user_id, wallet_id, redeem_amount, tx_hash)
     swap_data["earn_redeem_done"] = True
-    swap_data["earn_redeem_amount_fmt"] = amount_fmt or f"{shortfall:.2f}"
+    # Report the amount actually redeemed (buffered), matching the
+    # savings_events ledger row — not the pre-buffer shortfall.
+    swap_data["earn_redeem_amount_fmt"] = f"{redeem_amount:.2f}"
 
     # Cross-RPC lag guard: the withdraw confirmed on the endpoint it was sent
     # to, but execute_swap's pre-flight balance read may hit a different,
@@ -1731,7 +1733,20 @@ async def _execute_earn_redeem_then_swap(
         except SwapError:
             try:
                 await edit("⏳ Quote refreshed after Earn redeem…")
+                prev_amount_usd = swap_data.get("amount_usd")
                 await _auto_requote_after_redeem(context, user_id, wallet_id)
+                # The spending-limit/2FA gates ran against the pre-requote
+                # amount_usd. The input amount is unchanged (USDC-on-Base
+                # only), so any material growth means the re-price diverged —
+                # bail out rather than execute past the gated amount.
+                new_amount_usd = swap_data.get("amount_usd")
+                if (
+                    prev_amount_usd is not None
+                    and new_amount_usd is not None
+                    and float(new_amount_usd)
+                    > float(prev_amount_usd) + max(0.01, float(prev_amount_usd) * 0.001)
+                ):
+                    raise SwapError("re-quoted amount_usd drifted above the gated amount")
             except Exception as e:
                 logger.error(
                     f"Auto-requote after earn redeem failed for user {user_id}: {e}",
@@ -2095,6 +2110,8 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     swap_data.pop("earn_redeem_wallet_id", None)
     swap_data.pop("earn_redeem_amount_fmt", None)
     swap_data.pop("earn_redeem_done", None)
+    swap_data.pop("earn_redeem_position", None)
+    swap_data.pop("pending_earn_redeem", None)
 
     # Simulate entering the amount again to get a new quote
     # We need to recreate a message-like update

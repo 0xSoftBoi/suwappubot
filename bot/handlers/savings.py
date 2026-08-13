@@ -613,6 +613,7 @@ async def save_memo_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         savings["pending_memo_event_id"] = event_id  # allow retry
         return SAVE_MEMO_INPUT
 
+    memo_saved = False
     try:
         with get_session() as session:
             # Defense in depth: scope the update to this event AND this user so
@@ -624,10 +625,23 @@ async def save_memo_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             if event:
                 event.memo = memo
+                memo_saved = True
     except Exception as e:
         logger.warning(f"Failed to attach memo to savings event {event_id}: {e}")
         await update.message.reply_text(
             "⚠️ Could not save the memo. Your withdrawal itself was unaffected.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
+            ),
+        )
+        return SAVE_MENU
+
+    if not memo_saved:
+        # The event row wasn't found (stale id, or missing user context) — say
+        # so instead of reporting a save that never happened.
+        await update.message.reply_text(
+            "⚠️ Couldn't find that withdrawal to attach the memo to. "
+            "Your withdrawal itself was unaffected.",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
             ),

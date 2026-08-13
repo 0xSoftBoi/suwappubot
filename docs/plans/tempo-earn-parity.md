@@ -20,8 +20,11 @@ registered at `bot/main.py:521`.
 | Fee sponsorship (platform pays gas) | ➖ users self-pay Base gas from their own wallet; sponsorship needs a paymaster/relayer | not built; flagged for product |
 | Private earning (Tempo Zones) | n/a — chain-level privacy feature of Tempo's own L1 | n/a |
 
-## Money-path review (Opus) — verdict BLOCK, fixes in progress
-Findings on commits 1793904 + cf6ca00 being fixed on this branch before merge:
+## Money-path review (Opus) — initial BLOCK, re-review **PASS**
+All findings below were fixed (commits d3a116b, 8f34b4b + residuals commit) and the
+re-review confirmed each CRITICAL/HIGH as genuinely fixed. Residual non-blocking items
+(read-path RPC timeouts, requote stash keys, post-requote amount guard, ledger/UI amount
+consistency, memo save honesty) were fixed after the PASS as hardening. Original findings:
 - **CRITICAL**: 2FA + spending-limit gates ran *after* the on-chain Earn redeem → gates hoisted ahead of the withdraw; 2FA-required path defers the redeem until after TOTP verification.
 - **HIGH**: redeem stash survived state-preserving paths (replayable callback → double-withdraw) → stash popped before the withdraw + rate limit on the handler.
 - **HIGH**: exact-shortfall redeem + cross-RPC balance lag could leave the swap still failing after funds moved → small over-redeem buffer, round-up wei conversion, post-redeem balance poll.
