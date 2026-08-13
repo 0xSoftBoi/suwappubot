@@ -63,3 +63,17 @@ Additive + idempotent per docs/development/migrations.md.
 Non-goals (explicit scope cuts — surfaced, not silent): no colocation/raw feed
 capture (we have no venue extranet analog beyond RPCs), no C++/Rust SDKs, no
 tick-level trade capture, no paid billing integration (metering counters only).
+
+## Round 2 — closing the parity gaps
+
+1. **Live**: push-on-change ticks (no fixed 5s rebroadcast of stale prices) +
+   streaming 1m candle subscriptions (`{"action":"subscribe","channel":"ohlcv-1m"}`).
+2. **Metering**: DB-backed `api_usage_daily` (api_key_id, route, day, count) in
+   both ORMs; in-memory counter becomes a write-behind buffer flushed to DB.
+3. **Historical**: `format=csv` output, cursor pagination (`next_cursor` on ts),
+   multi-symbol (`symbols=ETH,SOL`), tiered backfill 1y/1d + 30d/1h + 24h/1m.
+4. **Symbology**: batch resolve (`symbols=`), reverse resolve (`address=`),
+   all-chains listing for a symbol.
+5. **Docs**: `docs/api/market-data.md` — full endpoint reference w/ examples.
+6. **E2E gate**: local postgres 16 cluster, real capture cycle against live
+   sources, candles read back through the booted api-ts route + WS.
