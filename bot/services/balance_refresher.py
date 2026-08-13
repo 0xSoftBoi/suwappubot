@@ -11,6 +11,17 @@ from database.db import get_session
 logger = logging.getLogger(__name__)
 
 
+# Whole-pass budget. Must stay BELOW the balance_refresher staleness threshold
+# in api/main.py (300s) so a slow pass can never cost the service a heartbeat.
+_PASS_BUDGET_SECONDS = 240
+# One batch of BATCH_SIZE wallets.
+_BATCH_BUDGET_SECONDS = 30
+# Grace before the first pass, so the loop is not competing with the rest of
+# startup. Must stay well under the staleness threshold: nothing beats until
+# this elapses, so a long warmup would read as a dead service on every boot.
+_WARMUP_SECONDS = 30
+
+
 class BalanceRefresher:
     """Periodically refreshes balance cache for all active wallets.
 
@@ -49,8 +60,10 @@ class BalanceRefresher:
         import time as _time
         from bot.utils.redis_cache import redis_cache
 
-        # Wait for services to fully initialize
-        await asyncio.sleep(30)
+        # Wait for services to fully initialize. Named rather than inline so the
+        # warmup is visible next to the budgets it interacts with, and so a test
+        # can drive the loop without waiting it out.
+        await asyncio.sleep(_WARMUP_SECONDS)
 
         while self._running:
             try:
@@ -66,7 +79,26 @@ class BalanceRefresher:
                 await redis_cache.set(
                     "service:balance_refresher:heartbeat", _time.time(), ttl_seconds=300
                 )
-                await self._refresh_all()
+                # Bounded, and the bound is load-bearing. _refresh_all gathers
+                # batches of wallet-balance RPC calls with no per-call deadline,
+                # so a single provider that accepts a connection and never
+                # answers wedges the gather, wedges the pass, and wedges this
+                # loop permanently. Observed in production: the beat was written
+                # once at boot, expired at its 300s TTL, and was never rewritten
+                # again — /health reported the service as "unknown" for four
+                # days while the task was technically still alive.
+                #
+                # The budget must be under the 300s staleness threshold in
+                # api/main.py, or a slow-but-healthy pass would still be able to
+                # miss a beat and read as dead.
+                try:
+                    await asyncio.wait_for(self._refresh_all(), timeout=_PASS_BUDGET_SECONDS)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Balance refresh pass exceeded %ss and was cancelled; "
+                        "the loop continues and will beat again",
+                        _PASS_BUDGET_SECONDS,
+                    )
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -120,7 +152,17 @@ class BalanceRefresher:
             tasks = []
             for address, chain_type in batch:
                 tasks.append(self._safe_refresh(address, chain_type))
-            await asyncio.gather(*tasks)
+            # Per-batch deadline as well as the whole-pass one: gather waits for
+            # the SLOWEST member, so without this a single unresponsive provider
+            # holds its four batch-mates hostage and burns the entire pass
+            # budget on five wallets.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=_BATCH_BUDGET_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.debug("Balance refresh batch timed out; continuing with the next batch")
             # Pause between batches to yield control to user-facing requests
             await asyncio.sleep(1)
 
