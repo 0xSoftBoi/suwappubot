@@ -5,8 +5,10 @@
 
 import { TTLCache } from './cache'
 
-// CoinGecko ID mapping
-const COINGECKO_IDS: Record<string, string> = {
+// CoinGecko ID mapping. Exported (not just used internally) so routes/data.ts's
+// /v1/data/reference/resolve can surface the coingecko id for a symbol without
+// a second copy of this map.
+export const COINGECKO_IDS: Record<string, string> = {
 	eth: 'ethereum', sol: 'solana', bnb: 'binancecoin', usdc: 'usd-coin',
 	usdt: 'tether', btc: 'bitcoin', dai: 'dai', wbtc: 'wrapped-bitcoin',
 	arb: 'arbitrum', op: 'optimism', avax: 'avalanche-2', matic: 'matic-network',

@@ -35,6 +35,7 @@ import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
@@ -164,77 +165,6 @@ export function resolveSwapExecuteDecimals(cached: {
 	const toDecimals = cached.toDecimals ?? rawToDecimals ?? fromDecimals
 
 	return { fromDecimals, toDecimals }
-}
-
-// CoinGecko ID mapping for token prices
-const COINGECKO_IDS: Record<string, string> = {
-	eth: 'ethereum',
-	sol: 'solana',
-	bnb: 'binancecoin',
-	usdc: 'usd-coin',
-	usdt: 'tether',
-	btc: 'bitcoin',
-	dai: 'dai',
-	wbtc: 'wrapped-bitcoin',
-	arb: 'arbitrum',
-	op: 'optimism',
-	avax: 'avalanche-2',
-	matic: 'matic-network',
-	weth: 'weth',
-	bonk: 'bonk',
-	jup: 'jupiter-exchange-solana',
-	ray: 'raydium',
-}
-
-// Token price cache (60s TTL)
-const tokenPriceCache = new Map<
-	string,
-	{ usd: number; change_24h: number | null; timestamp: number }
->()
-const PRICE_CACHE_TTL = 60_000
-
-async function fetchTokenPrices(
-	symbols: string[],
-): Promise<Record<string, { usd: number; change_24h: number | null }>> {
-	const now = Date.now()
-	const result: Record<string, { usd: number; change_24h: number | null }> = {}
-	const toFetch: string[] = []
-
-	for (const sym of symbols) {
-		const lower = sym.toLowerCase()
-		const cached = tokenPriceCache.get(lower)
-		if (cached && now - cached.timestamp < PRICE_CACHE_TTL) {
-			result[sym.toUpperCase()] = { usd: cached.usd, change_24h: cached.change_24h }
-		} else if (COINGECKO_IDS[lower]) {
-			toFetch.push(lower)
-		}
-	}
-
-	if (toFetch.length > 0) {
-		const ids = toFetch.map((s) => COINGECKO_IDS[s]).join(',')
-		try {
-			const res = await fetch(
-				`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-			)
-			if (res.ok) {
-				const data = (await res.json()) as Record<string, { usd?: number; usd_24h_change?: number }>
-				for (const sym of toFetch) {
-					const cgId = COINGECKO_IDS[sym]
-					if (!cgId) continue
-					const priceData = data[cgId]
-					if (priceData?.usd !== undefined) {
-						const entry = { usd: priceData.usd, change_24h: priceData.usd_24h_change ?? null }
-						tokenPriceCache.set(sym, { ...entry, timestamp: now })
-						result[sym.toUpperCase()] = entry
-					}
-				}
-			}
-		} catch {
-			// CoinGecko unavailable, return what we have from cache
-		}
-	}
-
-	return result
 }
 
 // Chain name/id mapping for token listing
@@ -3064,7 +2994,7 @@ agentRoutes.get('/prices', async (c) => {
 				error: 'Missing required query parameter: symbols',
 				error_code: 'VALIDATION_ERROR',
 				hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
-				supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
+				supported: SUPPORTED_PRICE_SYMBOLS,
 			},
 			400,
 		)
