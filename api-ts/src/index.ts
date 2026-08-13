@@ -5,7 +5,7 @@ import { EnvService } from './config/EnvService'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
 import { initSentry } from './lib/sentry'
-import { stopDataUsageFlusher } from './lib/dataUsage'
+import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
@@ -62,6 +62,10 @@ async function main() {
 		stopA2aCleanup()
 		stopAgentCleanup()
 		stopDataLiveTicker()
+		// Drain the write-behind usage buffer before stopping the flush timer —
+		// otherwise any unflushed /v1/data/* request counts from the last <30s
+		// are silently dropped on every deploy/restart.
+		await flushDataUsage()
 		stopDataUsageFlusher()
 		server.stop()
 		await shutdownOtel()

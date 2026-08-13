@@ -923,7 +923,7 @@ dataRoutes.get(
 						return
 					}
 					if (msg.action === 'subscribe') {
-						for (const s of symbols) {
+						for (const s of acceptableSymbolsFor(conn.candleSymbols, symbols)) {
 							conn.candleSymbols.add(s)
 							const state = candleState.get(s)
 							if (state) sendToConn(conn, candleFrame(s, state, false))
@@ -939,7 +939,7 @@ dataRoutes.get(
 				}
 
 				if (msg.action === 'subscribe') {
-					for (const s of symbols) conn.tickSymbols.add(s)
+					for (const s of acceptableSymbolsFor(conn.tickSymbols, symbols)) conn.tickSymbols.add(s)
 					ws.send(JSON.stringify({ type: 'subscribed', symbols: [...conn.tickSymbols] }))
 				} else if (msg.action === 'unsubscribe') {
 					for (const s of symbols) conn.tickSymbols.delete(s)
@@ -955,9 +955,11 @@ dataRoutes.get(
 			},
 			onClose() {
 				liveConnections.delete(conn)
+				maybeStopLivePoller()
 			},
 			onError() {
 				liveConnections.delete(conn)
+				maybeStopLivePoller()
 			},
 		}
 	}),
