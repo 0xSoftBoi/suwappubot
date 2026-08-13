@@ -65,7 +65,10 @@ export function requireTier(required: 'pro' | 'premium' | 'enterprise') {
 				const sub = rows[0]
 				if (!sub) return 'free'
 				if (sub.expiresAt && new Date(sub.expiresAt).getTime() < Date.now()) return 'free'
-				return sub.tier ?? 'free'
+				// The subscriptions table is shared with the Python bot, which stores
+				// uppercase enum member names ('ENTERPRISE'); normalize before ranking
+				// or those rows rank as free and get 402'd.
+				return (sub.tier ?? 'free').toLowerCase()
 			}),
 		)
 
