@@ -198,6 +198,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     error RefundFailed();
     error BadFeed();
     error PriceZero();
+    error FreePhaseUnbounded();
     error RenounceDisabled();
 
     constructor(
@@ -273,6 +274,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (cfg.walletCap != 0 && mintedInPhase[phase][msg.sender] + quantity > cfg.walletCap) {
             revert WalletLimitExceeded();
         }
+        // Hard backstop across every phase. MAX_PER_WALLET was declared and then
+        // never read by mint(), so it documented a limit the contract did not
+        // have — and `walletCap == 0` means "no cap", so a misconfigured phase
+        // was unbounded per wallet. Now the constant is the floor under any
+        // configuration mistake.
+        if (minted[msg.sender] + quantity > MAX_PER_WALLET) revert WalletLimitExceeded();
         if (cfg.allocation != 0 && phaseMinted[phase] + quantity > cfg.allocation) {
             revert PhaseAllocationExhausted();
         }
@@ -705,12 +712,38 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (phase == Phase.Closed) revert BadPhase();
         // A phase priced at 0 mints its whole allocation for free, with no burn
         // and no claw-back, and `mintState.priceWei` reads 0 so the UI shows
-        // nothing wrong. Free mints are a deliberate act, not a missing argument.
+        // nothing wrong. Free mints are a deliberate act, not a missing
+        // argument — so `configurePhase` still refuses a 0, and an intentional
+        // free phase goes through `configureFreePhase` where the word "free"
+        // appears in the call the owner signs.
         if (price == 0) revert PriceZero();
         phaseConfig[phase] = PhaseConfig(
             merkleRoot, price, walletCap, allocation, startsAt, endsAt
         );
         emit PhaseConfigured(phase, merkleRoot, price, walletCap, allocation, startsAt, endsAt);
+    }
+
+    /// @notice Configure a phase that mints for FREE.
+    ///
+    /// @dev    The Founder phase is free by design — it is the reward for users
+    ///         who already built the product's volume. That intent needs its own
+    ///         door: `configurePhase` rejects a 0 price so a dropped argument
+    ///         cannot silently give away an allocation, and this function makes
+    ///         the giveaway explicit in the transaction the owner signs.
+    function configureFreePhase(
+        Phase phase,
+        bytes32 merkleRoot,
+        uint16 walletCap,
+        uint16 allocation,
+        uint64 startsAt,
+        uint64 endsAt
+    ) external onlyOwner {
+        if (phase == Phase.Closed) revert BadPhase();
+        // A free phase with no allowlist and no wallet cap is an open faucet for
+        // the whole allocation; require at least one of the two.
+        if (merkleRoot == bytes32(0) && walletCap == 0) revert FreePhaseUnbounded();
+        phaseConfig[phase] = PhaseConfig(merkleRoot, 0, walletCap, allocation, startsAt, endsAt);
+        emit PhaseConfigured(phase, merkleRoot, 0, walletCap, allocation, startsAt, endsAt);
     }
 
     /// @notice Renderer base. Cards are live, so metadata is intentionally dynamic

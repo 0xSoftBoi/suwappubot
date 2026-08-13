@@ -346,3 +346,80 @@ def test_a_feed_stamped_in_the_future_is_not_treated_as_fresh(env):
 
     feed.functions.set(ETH_USD, 0).transact({"from": owner})
     assert pos.functions.ethUsd().call()[1] is False, "updatedAt == 0 was accepted"
+
+
+def test_max_per_wallet_is_actually_enforced(env):
+    """It was declared as a public constant and never read by mint(), so the
+    contract documented a limit it did not have — and walletCap == 0 means "no
+    cap", so a misconfigured phase was unbounded per wallet."""
+    w3, pos, feed, owner, alice = env
+    now = w3.eth.get_block("latest").timestamp
+    # a phase with NO wallet cap and no allowlist: previously unbounded
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 0, 0, now - 1, 0).transact(
+        {"from": owner}
+    )
+    cap = pos.functions.MAX_PER_WALLET().call()
+
+    def mint(qty):
+        cost = pos.functions.quote(PUBLIC, qty).call()
+        return w3.eth.wait_for_transaction_receipt(
+            w3.eth.send_transaction(
+                {
+                    "from": alice,
+                    "to": pos.address,
+                    "value": cost,
+                    "gas": 6_000_000,
+                    "data": pos.encode_abi("mint", args=[PUBLIC, 0, qty, 0, []]),
+                }
+            )
+        ).status
+
+    assert mint(cap) == 1, "the cap itself must be reachable"
+    assert mint(1) == 0, f"minted past MAX_PER_WALLET ({cap})"
+
+
+def test_a_free_phase_needs_the_door_marked_free(env):
+    """The Founder phase is free by design, but price == 0 must stay impossible
+    to reach by ACCIDENT — price is the 3rd of 7 positional args. configurePhase
+    refuses a 0; configureFreePhase makes the giveaway explicit in the call the
+    owner signs."""
+    w3, pos, feed, owner, alice = env
+    now = w3.eth.get_block("latest").timestamp
+
+    with pytest.raises(Exception):  # a dropped argument stays loud
+        pos.functions.configurePhase(1, ZERO_ROOT, 0, 3, 1500, now - 1, 0).transact({"from": owner})
+
+    # an unbounded free phase is an open faucet for the whole allocation
+    with pytest.raises(Exception):
+        pos.functions.configureFreePhase(1, ZERO_ROOT, 0, 1500, now - 1, 0).transact(
+            {"from": owner}
+        )
+
+    # bounded by a wallet cap: allowed, and it really does mint for nothing
+    pos.functions.configureFreePhase(1, ZERO_ROOT, 3, 1500, now - 1, 0).transact({"from": owner})
+    assert pos.functions.quote(1, 1).call() == 0
+    rcpt = w3.eth.wait_for_transaction_receipt(
+        w3.eth.send_transaction(
+            {
+                "from": alice,
+                "to": pos.address,
+                "value": 0,
+                "gas": 900_000,
+                "data": pos.encode_abi("mint", args=[1, 0, 3, 0, []]),
+            }
+        )
+    )
+    assert rcpt.status == 1
+    assert pos.functions.minted(alice).call() == 3
+
+
+def test_config_prices_are_in_the_unit_the_contract_charges(env):
+    """config.json said price_eth 0.004/0.008. The contract prices in USD CENTS
+    and converts to wei at mint through the ETH/USD feed — fed to
+    configurePhase() those values truncate to 0 cents, which now reverts."""
+    cfg = json.load(open(os.path.join(REPO, "nft", "position-cards", "config.json")))
+    for name, phase in cfg["mint"]["phases"].items():
+        assert "price_eth" not in phase, f"{name} still priced in the wrong unit"
+        cents = phase["price_usd_cents"]
+        assert isinstance(cents, int), f"{name} price must be whole cents"
+        assert phase["free"] == (cents == 0)

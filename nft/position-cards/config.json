@@ -169,26 +169,30 @@
     "index": 1,
     "allocation": 1500,
     "wallet_cap": 3,
-    "price_eth": 0.0,
     "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
-    "note": "Free. These are the users who already built the product's volume."
+    "note": "Free. These are the users who already built the product's volume.",
+    "price_usd_cents": 0,
+    "free": true
    },
    "Allowlist": {
     "index": 2,
     "allocation": 4000,
     "wallet_cap": 2,
-    "price_eth": 0.004,
-    "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral"
+    "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral",
+    "price_usd_cents": 2000,
+    "free": false
    },
    "Public": {
     "index": 3,
     "allocation": 4300,
     "wallet_cap": 5,
-    "price_eth": 0.008,
-    "who": "Anyone"
+    "who": "Anyone",
+    "price_usd_cents": 4000,
+    "free": false
    }
   },
-  "team_reserve": 200
+  "team_reserve": 200,
+  "_price_comment": "USD CENTS, not ETH. SuwappuPositions prices in cents (uint96) and converts to wei at mint time through the ETH/USD Chainlink feed, so a card costs the same $20 whether ETH is at $2k or $4k. The previous price_eth fields were the wrong unit: fed to configurePhase() they would truncate to 0 cents, and 0 now reverts with PriceZero. A deliberately free phase (Founder) goes through configureFreePhase() instead."
  },
  "brand": {
   "_comment": "Lifted verbatim from showcase/tailwind.config.ts (theme.extend.colors.warm), which is what www.suwappu.bot actually renders. The card is the most public artefact this project will ship; it cannot be the one surface that ignores the brand. tests/test_position_cards.py pins these against the Tailwind config so the two cannot drift.",
