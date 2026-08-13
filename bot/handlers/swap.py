@@ -4,6 +4,8 @@ import asyncio
 import logging
 import secrets
 import time
+from decimal import Decimal
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 from telegram.ext import (
@@ -46,11 +48,18 @@ from bot.services.token_security.token_analyzer import token_analyzer, RiskLevel
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
+from bot.services.savings_service import savings_service, SavingsError
+from bot.models.savings import SavingsEvent
 from bot.utils.quote_validator import quote_validator
 from bot.utils.cache import quote_cache
 from bot.utils.telegram_safe import safe_md
 
 logger = logging.getLogger(__name__)
+
+# ── Spend-while-earning: USDC-on-Base sells may redeem an Aave Earn shortfall
+# instead of failing outright (see docs/plans/tempo-earn-parity.md item 1).
+EARN_REDEEM_CHAIN = "base"
+EARN_REDEEM_TOKEN = "USDC"
 
 # Conversation states
 (
@@ -131,9 +140,22 @@ async def _render_swap_failure(edit, exc_or_message, context: ContextTypes.DEFAU
         ),
     }
     guidance = classify_swap_failure(exc_or_message, ctx)
+    message = guidance.to_message()
+    plain_message = f"{guidance.title}\n\n{guidance.explanation}\n\nNext: {guidance.next_action}"
+    # If we already redeemed USDC out of Earn for this attempt, the redeem tx
+    # landed regardless of what happens to the swap — make sure the user knows
+    # those funds are safe and sitting idle in their wallet, not lost.
+    if swap_data.get("earn_redeem_done"):
+        note = (
+            f"\n\nℹ️ {swap_data.get('earn_redeem_amount_fmt', 'The')} USDC was already "
+            f"redeemed from Earn into your wallet before the swap failed — it's safe "
+            f"and available; no funds were lost."
+        )
+        message += note
+        plain_message += note
     try:
         await edit(
-            guidance.to_message(),
+            message,
             parse_mode="Markdown",
             reply_markup=_guidance_keyboard(guidance),
         )
@@ -141,9 +163,74 @@ async def _render_swap_failure(edit, exc_or_message, context: ContextTypes.DEFAU
         # If Markdown/edit fails, fall back to a plain-text version so the user
         # still gets the diagnosis rather than a silent failure.
         await edit(
-            f"{guidance.title}\n\n{guidance.explanation}\n\nNext: {guidance.next_action}",
+            plain_message,
             reply_markup=_guidance_keyboard(guidance),
         )
+
+
+async def _earn_redeem_shortfall(swap_data: dict, wallet, quote: SwapQuote) -> Optional[Decimal]:
+    """Return the USDC shortfall redeemable from the user's Aave Earn position.
+
+    Only applies to USDC sells on Base. Returns None (not eligible / not
+    needed) unless idle USDC is short of the swap amount AND the shortfall is
+    fully covered by the user's Earn (aBasUSDC) position.
+
+    Buffer choice: we compare the shortfall directly against the live position
+    with NO fudge factor. aBasUSDC is a rebasing token — `get_position` reads
+    the live, current balance (principal + accrued interest), not a stale
+    snapshot, and interest only ever increases it between now and the actual
+    `withdraw()` call. `savings_service.withdraw` also re-reads the live
+    position immediately before submitting, so there is no rounding gap this
+    buffer would need to protect against — a plain `shortfall <= position`
+    comparison is robust.
+    """
+    if swap_data.get("from_chain") != EARN_REDEEM_CHAIN:
+        return None
+    if (swap_data.get("from_token") or "").upper() != EARN_REDEEM_TOKEN:
+        return None
+    try:
+        idle = Decimal(
+            str(await wallet_service.get_evm_token_balance("base", "USDC", wallet.address))
+        )
+        required = Decimal(str(quote.from_amount_human))
+        shortfall = required - idle
+        if shortfall <= 0:
+            return None
+        position = await asyncio.to_thread(savings_service.get_position, wallet.address)
+    except SavingsError as e:
+        logger.debug(f"Earn-redeem eligibility check failed (savings): {e}")
+        return None
+    except Exception as e:
+        logger.debug(f"Earn-redeem eligibility check failed: {e}")
+        return None
+    if shortfall <= position:
+        return shortfall
+    return None
+
+
+async def _log_earn_redeem_event(user_id, wallet_id, amount: Decimal, tx_hash: str) -> None:
+    """Record a spend-while-earning Aave redemption (best-effort).
+
+    Mirrors bot/handlers/savings.py's `_log_event` so this shows up in the
+    same savings_events audit trail as a manual /save withdrawal.
+    """
+    try:
+        with get_session() as session:
+            session.add(
+                SavingsEvent(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain="base",
+                    token="USDC",
+                    action="withdraw",
+                    amount=Decimal(str(amount)),
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log spend-while-earning savings event: {e}")
 
 
 def _prewarm_quote_key(swap_data: dict, wallet_id: int, platform_fee_bps: int) -> str:
@@ -1341,6 +1428,38 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     wallet_service=wallet_service,
                 )
             except SwapError as e:
+                # Spend-while-earning: idle balance alone is short, but a USDC
+                # sell on Base can redeem the shortfall from the user's Aave
+                # Earn position first. Only offered for a single selected
+                # wallet — multi-wallet swaps would need a redeem per wallet,
+                # which is out of scope here. Requires an explicit second tap
+                # (below) before any Earn funds move.
+                shortfall = None
+                if len(selected_wallet_ids) == 1:
+                    shortfall = await _earn_redeem_shortfall(swap_data, wallet, quote)
+                if shortfall is not None:
+                    swap_data["earn_redeem_wallet_id"] = wid
+                    swap_data["earn_redeem_amount"] = shortfall
+                    swap_data["earn_redeem_amount_fmt"] = f"{shortfall:.2f}"
+                    await query.edit_message_text(
+                        f"↩️ *Includes {shortfall:.2f} USDC redeemed from Earn*\n\n"
+                        f"Your idle USDC balance is short by {shortfall:.2f} USDC. "
+                        f"Suwappu can redeem that amount from your Aave Earn position "
+                        f"first, then run this swap.\n\nProceed?",
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "🚀 Redeem & Swap",
+                                        callback_data="swap_confirm_earn_redeem",
+                                    ),
+                                    InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
+                                ]
+                            ]
+                        ),
+                    )
+                    return CONFIRM_SWAP
                 await query.edit_message_text(
                     f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
                     reply_markup=InlineKeyboardMarkup(
@@ -1363,6 +1482,16 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             except SwapError:
                 pass  # Let the provider attempt the swap
 
+    return await _finish_confirm(query.edit_message_text, context, user_id, selected_wallet_ids)
+
+
+async def _finish_confirm(
+    edit, context: ContextTypes.DEFAULT_TYPE, user_id: int, selected_wallet_ids: list
+) -> int:
+    """Spending-limit + 2FA gate, then execute. Shared by the normal confirm
+    path and the post-Earn-redeem confirm path (spend-while-earning)."""
+    swap_data = context.user_data.get("swap") or {}
+
     # Spending-limit pre-check on the TOTAL outflow across selected wallets.
     # The engine re-checks per wallet at execution; this gives the user a
     # friendly early error before anything starts moving.
@@ -1371,7 +1500,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if total_usd is not None:
         limit_ok, limit_reason = spending_limit_service.check(user_id, total_usd)
         if not limit_ok:
-            await query.edit_message_text(
+            await edit(
                 f"🚫 {limit_reason}",
                 reply_markup=InlineKeyboardMarkup(
                     [
@@ -1393,7 +1522,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             and total_usd >= spending_limit_service.effective_2fa_threshold(user_id)
         ):
             swap_data["twofa_attempts"] = 0
-            await query.edit_message_text(
+            await edit(
                 f"🔐 *2FA Required*\n\n"
                 f"This swap moves {format_usd(total_usd)}, which is at or above "
                 f"your 2FA threshold.\n\n"
@@ -1405,7 +1534,66 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             return ENTER_2FA_CODE
 
-    return await _run_confirmed_swap(query.edit_message_text, context)
+    return await _run_confirmed_swap(edit, context)
+
+
+async def swap_confirm_earn_redeem_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Explicit second tap: redeem the Aave Earn shortfall, then continue the
+    normal confirm flow (spending-limit/2FA gate + execution).
+
+    MONEY-PATH: if the redeem fails, the swap must NOT proceed (it would only
+    fail again on the same balance shortfall) — abort with the SavingsError
+    message. If the redeem succeeds but the swap later fails, the redeemed
+    USDC is safely idle in the user's wallet (see `_render_swap_failure`).
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_data = context.user_data.get("swap")
+    if not swap_data or swap_data.get("earn_redeem_amount") is None:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+
+    user_id = context.user_data.get("user_id")
+    wallet_id = swap_data.get("earn_redeem_wallet_id")
+    shortfall: Decimal = swap_data["earn_redeem_amount"]
+
+    with get_session() as session:
+        wallet = (
+            session.query(Wallet).filter(Wallet.id == wallet_id, Wallet.user_id == user_id).first()
+        )
+        if not wallet:
+            await query.edit_message_text("❌ Wallet not found.")
+            return ConversationHandler.END
+        session.expunge(wallet)
+
+    await query.edit_message_text("⏳ Redeeming USDC from Earn…")
+
+    try:
+        tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, shortfall)
+    except SavingsError as e:
+        logger.error(f"Spend-while-earning redeem failed for user {user_id}: {e}", exc_info=True)
+        swap_data.pop("earn_redeem_amount", None)
+        swap_data.pop("earn_redeem_wallet_id", None)
+        swap_data.pop("earn_redeem_amount_fmt", None)
+        await query.edit_message_text(
+            f"❌ Could not redeem from Earn: {e}\n\nThe swap was not submitted — no funds "
+            f"were moved.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+                ]
+            ),
+        )
+        return ConversationHandler.END
+
+    await _log_earn_redeem_event(user_id, wallet_id, shortfall, tx_hash)
+    swap_data["earn_redeem_done"] = True
+
+    return await _finish_confirm(query.edit_message_text, context, user_id, [wallet_id])
 
 
 async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1672,6 +1860,14 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not swap_data or "amount" not in swap_data:
         await query.edit_message_text("❌ Session expired. Please start over.")
         return ConversationHandler.END
+
+    # A re-quote can change the required amount and/or the wallet's idle
+    # balance, so any stale spend-while-earning eligibility must be
+    # re-derived rather than reused.
+    swap_data.pop("earn_redeem_amount", None)
+    swap_data.pop("earn_redeem_wallet_id", None)
+    swap_data.pop("earn_redeem_amount_fmt", None)
+    swap_data.pop("earn_redeem_done", None)
 
     # Simulate entering the amount again to get a new quote
     # We need to recreate a message-like update
@@ -2241,6 +2437,9 @@ swap_conversation_handler = ConversationHandler(
         ],
         CONFIRM_SWAP: [
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
+            CallbackQueryHandler(
+                swap_confirm_earn_redeem_callback, pattern="^swap_confirm_earn_redeem$"
+            ),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
             CallbackQueryHandler(swap_risk_confirm_callback, pattern="^swap_risk_confirm_"),
