@@ -49,7 +49,7 @@ whose product is the NFT.
 
 ### 1. Utility that pays for itself, measurably
 
-A Position card takes 40 bps off every swap. For a trader doing $100k/month that is
+A Position card takes 40% off your swap fee (60 bps on the 100 bps free tier). For a trader doing $100k/month that is
 **$400/month, forever, denominated in a real cost they already pay**. No jpeg can offer
 that, because no jpeg sits in the fee path of something the holder already does daily.
 
@@ -133,7 +133,7 @@ collection has no loop; it has a launch and then a secondary market.
 
 - **Three BLOCK verdicts, three rounds of fixes; the EIP-3009 path and the USD-pricing
   path have had no review at all.** Nothing here ships before a clean pass.
-- The fee discount is a real revenue cut (40 bps against a 100 bps free tier). It is one
+- The fee discount is a real revenue cut (40% of the rate — 40 bps against a 100 bps free tier). It is one
   constant, deliberately material, and it is a pricing decision that is yours.
 - No oracle sequencer feed exists for 4663, so the L2 uptime check is implemented but
   inert until Chainlink publishes one.

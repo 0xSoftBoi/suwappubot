@@ -63,7 +63,7 @@ Because tier → `TIER_FEE_RATES` → every quote, this diff goes through
 3. **Use**: the bot reads the chain. Fees, swap limits, feature gates — all keyed off
    the same `get_tier` they already flow through.
 4. **Flex**: membership + Position Cards sit in the same wallet; Positions grants the
-   flat 40 bps discount, membership sets the tier rate. Both visible in Robinhood
+   proportional 40% discount, membership sets the tier rate. Both visible in Robinhood
    Wallet's collectibles tab.
 
 ## What stays honest

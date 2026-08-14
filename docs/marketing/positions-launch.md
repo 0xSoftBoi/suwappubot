@@ -34,17 +34,19 @@ account attribute are different trust models and should not share one.
 1. **Your entry is yours, permanently.** No reveal, no random ticker, no rarity
    roll — you choose the name, and the price stamps once, immutably, at mint.
 2. **A discount you can check yourself, not a decorative trait.** Every holder
-   gets 40 bps off every Suwappu swap.
+   gets 40% off their Suwappu swap fee.
 3. **First-come by name, not by luck.** Each ticker has its own cap — popular
    names run out first. Scarcity is who got there, not what you rolled.
 
 **The perk, with the arithmetic**
 
-> The FREE-tier swap fee is 100 bps. Holding a Position takes 40 bps off that,
-> flat, per wallet — stacking cards does not stack the discount.
-> 40 bps = 0.40%. On a $1,000 swap: 1,000 × 0.0040 = **$4.00 saved**. On $10,000:
-> **$40.00**. It stacks with tier and points down to a 0.1% floor; it never zeroes
-> your fee.
+> Holding a Position takes **40% off your swap fee**, per wallet — stacking cards
+> does not stack the discount.
+> The FREE-tier fee is 100 bps, so a holder pays 60 bps. On a $1,000 swap that is
+> 1,000 × 0.0040 = **$4.00 saved**. On $10,000: **$40.00**.
+> It is proportional rather than flat so it never collapses the paid tiers into each
+> other: PRO 50 → 30 bps, PREMIUM 30 → 18 bps, ENTERPRISE 10 → 6 bps. It never
+> zeroes your fee.
 > Your breakeven: (mint price in dollars) ÷ 4 × 1,000 = the swap volume that pays
 > the mint back.
 
@@ -137,7 +139,7 @@ friends" — an unverified invite does not count.
 |---|---|---|
 | 10,000 | Positions supply | `contracts/SuwappuPositions.sol` `MAX_SUPPLY` |
 | 35 | Priced tickers of ~96 tokenized equities | `TICKER_COUNT`; `nft/position-cards/README.md` |
-| 40 bps | Flat holder discount | `config.json` `hold_discount_bps` |
+| 40% | Proportional holder discount | `config.json` `hold_discount_fraction` |
 | 100 bps | FREE-tier swap fee | `bot/services/fee_service.py` |
 | 0.1% | Floor after all discounts | `bot/services/fee_service.py` |
 | 1,500 / 3 / free | Founder allocation / cap / price | `config.json` `mint.phases` |

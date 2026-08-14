@@ -67,9 +67,9 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
 
-    bps = await position_cards_service.warm_for_user(user_id)
+    discount_fraction = await position_cards_service.warm_for_user(user_id)
 
-    if bps <= 0:
+    if discount_fraction <= 0:
         al = position_cards_service.allowlist_status(user_id)
         phase = al["phase"]
         if phase == "Founder":
@@ -110,7 +110,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             "price is stamped on-chain at mint and never changes, so the card is a "
             "permanent record of the call you made, and it re-renders against the live "
             "price forever.\n\n"
-            "*Holding one takes 40 bps off every swap* — $4 back per $1,000 traded.\n\n"
+            "*Holding one takes 40% off your swap fee, whatever tier you're on* — "
+            "on Free that's $4 back per $1,000 traded (100 bps → 60 bps).\n\n"
             "_Collectible cards. Not equity, not a security, pays nothing._"
         )
     else:
@@ -122,8 +123,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}")
         if len(cards) > 10:
             lines.append(f"_…and {len(cards) - 10} more_")
-        lines.append(f"\nSwap fee: *−{bps} bps* on every swap (${bps / 10:.2f} per $1k)")
-        lines.append("_Stacks with your tier and points, floored at 0.1%._")
+        lines.append(f"\nSwap fee discount: *−{discount_fraction * 100:.0f}%* on every swap")
+        lines.append("_Stacks with your tier and points — never reaches zero._")
         msg = "\n".join(lines)
 
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)

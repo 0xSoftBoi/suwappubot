@@ -39,14 +39,22 @@ TIER_FEE_RATES = {
 }
 DEFAULT_FEE_RATE = 0.01  # fallback if tier lookup fails
 
-# Floor for the EFFECTIVE fee after a points-based fee_discount is applied.
-# Stacking rule:
-#   effective_fee = max(MIN_EFFECTIVE_FEE_RATE,
-#                       tier_fee − points_discount − positions_nft_discount).
-# We floor at the ENTERPRISE rate (0.1%) rather than 0% so a points discount can
-# match — but never beat — our best paid tier, and the fee can NEVER go negative
-# or to zero (which would also zero the referral fee-share and treasury split).
+# Floor for the EFFECTIVE fee after a points-based fee_discount is applied, BEFORE
+# the position-card discount. Stacking rule (see get_fee_decimal for the full
+# derivation):
+#   tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount)
+#   effective_fee      = tier_after_points * (1 − positions_fraction)
+# We floor the points step at the ENTERPRISE rate (0.1%) so a points discount can
+# match — but never beat — our best paid tier.
 MIN_EFFECTIVE_FEE_RATE = TIER_FEE_RATES[SubscriptionTier.ENTERPRISE]  # 0.001 = 0.1%
+
+# Absolute floor on the FINAL effective fee, after the proportional position-card
+# discount and the referee rebate have both been applied. Its only job is the
+# never-zero/never-negative guard: a zero fee would also zero the referral
+# fee-share and treasury split. Deliberately below the minimum reachable rate
+# (ENTERPRISE + card + referee rebate = 10bps * 0.60 * 0.90 = 5.4bps) so it is
+# never the binding constraint in practice.
+ABSOLUTE_FLOOR = 0.0002  # 0.0002 = 0.02% = 2 bps
 
 # Referral rewards: 30% of fees (aggressive growth)
 REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
@@ -153,27 +161,30 @@ class FeeService:
             logger.warning(f"fee discount lookup failed for user {user_id}: {e}")
             return 0.0
 
-    def _positions_discount_decimal(self, user_id: "Optional[int]") -> float:
-        """Suwappu Position Cards NFT fee discount for a user, as a plain DECIMAL.
+    def _positions_discount_fraction(self, user_id: "Optional[int]") -> float:
+        """Suwappu Position Cards NFT fee discount for a user, as a PROPORTIONAL
+        fraction of whatever rate the user landed on after tier + points
+        (0.40 == 40% off that rate), NOT a flat number of percentage points.
 
-        ``position_cards_service`` stores the discount in BASIS POINTS, so we divide
-        by 10,000 to match the decimal fee rate. This is a
+        Proportional, not flat, so it scales with the tier and can never invert
+        or collapse the tier ladder — a flat bps subtraction floored PRO and
+        PREMIUM to the same rate, because they are only 20bps apart. This is a
         pure in-memory cache read — no RPC, no DB — because it runs on the swap
         pricing path; the cache is warmed from the async swap path via
         ``position_cards_service.warm_for_user``. A cold cache yields 0.0 (no discount).
 
         GUARDRAIL: like the points lookup, this must NEVER break fee calculation,
         so all errors are swallowed and return 0.0. It can only ever REDUCE the
-        fee, and the result is still floored at MIN_EFFECTIVE_FEE_RATE by the
-        caller, so a bad read cannot produce a zero or negative fee.
+        fee, and the caller's final result is still floored at ABSOLUTE_FLOOR, so
+        a bad read cannot produce a zero or negative fee.
         """
         if user_id is None:
             return 0.0
         try:
             from bot.services.position_cards_service import position_cards_service
 
-            bps = position_cards_service.get_cached_discount_bps_for_user(user_id)
-            return max(0.0, float(bps) / 10_000.0)
+            fraction = position_cards_service.get_cached_discount_fraction_for_user(user_id)
+            return max(0.0, float(fraction))
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Position-card discount lookup failed for user {user_id}: {e}")
             return 0.0
@@ -187,21 +198,30 @@ class FeeService:
 
         Stacking rule (single source of truth for the charged rate):
 
-            effective_fee = max(
-                MIN_EFFECTIVE_FEE_RATE,
-                tier_fee − points_discount − positions_discount,
-            )
+            tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount)
+            effective_fee     = tier_after_points * (1.0 − positions_fraction)
+            if referee_rebate_applies: effective_fee *= 0.90
+            effective_fee     = max(ABSOLUTE_FLOOR, effective_fee)
 
         - ``tier_fee`` comes from TIER_FEE_RATES (subscription tier).
-        - ``positions_discount`` is the flat discount granted by holding a
-          Suwappu Positions card (Robinhood Chain, chain 4663). Flat per holder,
-          not per card, so stacking cards cannot compound it. Cache-only read,
-          so it never adds latency to pricing.
         - ``points_discount`` is the best ACTIVE points-redeemed fee_discount for
           this user (read-only, time-bound) — only applied when ``user_id`` is
-          given. A points fee_discount STACKS ON TOP of the tier discount.
-        - The result is FLOORED at MIN_EFFECTIVE_FEE_RATE (ENTERPRISE rate, 0.1%)
-          so the fee can NEVER go negative or to zero.
+          given. It is ABSOLUTE (percentage points) and floored at
+          MIN_EFFECTIVE_FEE_RATE (the ENTERPRISE rate) so a points redemption can
+          match — but never beat — our best paid tier.
+        - ``positions_fraction`` is the PROPORTIONAL discount granted by holding a
+          Suwappu Positions card (Robinhood Chain, chain 4663) — e.g. 0.40 means
+          "40% off whatever rate the user landed on after tier + points", not a
+          flat number of percentage points. Flat per holder, not per card, so
+          stacking cards cannot compound it. Cache-only read, so it never adds
+          latency to pricing. PROPORTIONAL rather than absolute is deliberate: a
+          flat bps subtraction from unevenly-spaced tiers (FREE 100 / PRO 50 /
+          PREMIUM 30 / ENTERPRISE 10) collapsed PRO and PREMIUM to the same
+          floored rate, making PREMIUM worthless to a card holder. Multiplying
+          instead preserves the ladder for every tier.
+        - The final result is FLOORED at ABSOLUTE_FLOOR (2 bps) so the fee can
+          NEVER go negative or to zero — that would also zero the referral
+          fee-share and treasury split.
 
         Because the on-chain bps, the displayed quote, and the recorded fee all
         derive from this method, the discount applies consistently everywhere and
@@ -212,8 +232,14 @@ class FeeService:
         else:
             base = DEFAULT_FEE_RATE
         discount = self._active_fee_discount_decimal(user_id)
-        positions = self._positions_discount_decimal(user_id)
-        effective = max(MIN_EFFECTIVE_FEE_RATE, base - discount - positions)
+        positions_fraction = self._positions_discount_fraction(user_id)
+
+        # Absolute: floored at the ENTERPRISE rate so a points redemption can
+        # match, but never beat, our best paid tier.
+        tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, base - discount)
+        # Proportional: multiplies the post-points rate, so it scales with tier
+        # and can never invert the ladder.
+        effective = tier_after_points * (1.0 - positions_fraction)
 
         # Referral v2 — referee first-5-swaps rebate: 10% off the effective rate.
         # READ-ONLY: this never decrements referee_swap_rebate_remaining.
@@ -224,9 +250,9 @@ class FeeService:
         # (recorded fee), and the displayed quote, so the referee genuinely pays
         # 10% less for their first 5 swaps everywhere.
         if self._active_referee_rebate_applies(user_id):
-            effective = max(MIN_EFFECTIVE_FEE_RATE, effective * 0.90)
+            effective = effective * 0.90
 
-        return effective
+        return max(ABSOLUTE_FLOOR, effective)
 
     def get_fee_bps(
         self,

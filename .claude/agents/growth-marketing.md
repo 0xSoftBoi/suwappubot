@@ -22,7 +22,7 @@ Infrastructure-grade and restrained: *"The execution layer between intent and ma
 
 - **A reason to mint NOW rather than later**, that is structural and not a countdown. Suwappu Positions has a real one: your entry basis is stamped on-chain at mint and never changes, so in a rising market waiting costs you permanently.
 - **Status that is earned, not rolled.** Allowlist from real product usage — swaps, volume, referrals — beats a retweet campaign, and it is defensible when someone asks why they were excluded.
-- **A perk with arithmetic a trader can check.** −40 bps is $4.00 back per $1,000 traded, recouped in ~$4k of volume. Show the division.
+- **A perk with arithmetic a trader can check.** 40% off the free tier's 100 bps is $4.00 back per $1,000 traded, recouped in ~$4k of volume. Show the division.
 - **An allowlist that is not larger than its allocation.** A "guaranteed" list that is really a race is the classic 2021-22 own-goal; the build script refuses to emit one.
 
 ## Hard compliance rails — these outrank every marketing instinct

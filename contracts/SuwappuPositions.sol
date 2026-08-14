@@ -62,12 +62,17 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     uint256 public constant TICKER_COUNT = 35;
     uint256 public constant MAX_PER_WALLET = 50;
 
-    /// @notice Swap-fee discount in bps granted by holding any Position.
-    ///         Deliberately material — mirrors economics.hold_discount_bps in
-    ///         nft/position-cards/config.json. Bounded by MAX_HOLD_DISCOUNT_BPS so a
-    ///         future owner cannot turn this into an unbounded fee giveaway.
-    uint16 public holdDiscountBps = 40;
-    uint16 public constant MAX_HOLD_DISCOUNT_BPS = 100;
+    /// @notice Swap-fee discount granted by holding any Position, expressed in
+    ///         basis points OF THE TIER RATE the holder is already on (10000 =
+    ///         100% off), NOT basis points of the swap itself. e.g. 4000 means
+    ///         "40% off whatever rate you're on" — a FREE-tier holder (100 bps)
+    ///         pays 60 bps, an ENTERPRISE holder (10 bps) pays 6 bps. Deliberately
+    ///         material — mirrors economics.hold_discount_fraction in
+    ///         nft/position-cards/config.json. Bounded by
+    ///         MAX_HOLD_DISCOUNT_FRACTION_BPS so a future owner cannot turn this
+    ///         into an unbounded fee giveaway.
+    uint16 public holdDiscountFractionBps = 4000;
+    uint16 public constant MAX_HOLD_DISCOUNT_FRACTION_BPS = 6000;
 
     struct Position {
         uint8 tickerIndex; // index into the sorted ROBINHOOD_EQUITIES registry
@@ -683,18 +688,19 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     // ─── Fee perk ─────────────────────────────────────────────────────────────
 
-    /// @notice Discount in bps for an address, given candidate token ids.
-    ///         Ownership is re-checked here, so ids sourced from an indexer can
-    ///         only ever be ignored — never inflate the discount. Flat per holder
-    ///         (not per card) so stacking cards cannot compound the giveaway.
-    function discountBpsFor(address owner, uint256[] calldata tokenIds)
+    /// @notice Discount in basis points OF THE TIER RATE (10000 = 100% off) for
+    ///         an address, given candidate token ids. Ownership is re-checked
+    ///         here, so ids sourced from an indexer can only ever be ignored —
+    ///         never inflate the discount. Flat per holder (not per card) so
+    ///         stacking cards cannot compound the giveaway.
+    function discountFractionBpsFor(address owner, uint256[] calldata tokenIds)
         external
         view
         returns (uint16)
     {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             if (_ownerOf(tokenIds[i]) == owner && owner != address(0)) {
-                return holdDiscountBps;
+                return holdDiscountFractionBps;
             }
         }
         return 0;
@@ -795,9 +801,11 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         emit OracleSet(o);
     }
 
+    /// @param bps Basis points OF THE TIER RATE (10000 = 100% off), not basis
+    ///        points of the swap. Bounded by MAX_HOLD_DISCOUNT_FRACTION_BPS.
     function setHoldDiscountBps(uint16 bps) external onlyOwner {
-        if (bps > MAX_HOLD_DISCOUNT_BPS) revert DiscountTooHigh();
-        holdDiscountBps = bps;
+        if (bps > MAX_HOLD_DISCOUNT_FRACTION_BPS) revert DiscountTooHigh();
+        holdDiscountFractionBps = bps;
         emit HoldDiscountSet(bps);
     }
 

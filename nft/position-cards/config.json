@@ -16,9 +16,9 @@
   "compliance": "Collectible position card. It records a price observed on a DEX at mint time and displays a notional return against it. It is NOT equity, NOT a security, NOT a derivative or a claim of any kind, confers no shareholder or voting rights, pays nothing out, and gives no economic exposure to any issuer or to the referenced ERC-20."
  },
  "economics": {
-  "_comment": "Fee discount for holding any Position. Set against a FREE tier of 100 bps with a 10 bps floor. 40 bps = $4 saved per $1,000 swapped, so an active trader recoups a mint in ~$4k of volume. REVENUE TRADEOFF: this is deliberately material \u2014 a 5 bps token is not worth minting. Tune here, it is the single source for the perk.",
-  "hold_discount_bps": 40,
-  "max_discount_bps": 40,
+  "_comment": "Fee discount for holding any Position, PROPORTIONAL to whatever rate the holder is already on — not a flat number of bps off the swap. 0.40 = 40% off your rate. A flat bps subtraction was tried first and collapsed the tier ladder: 40 bps off unevenly-spaced tiers (FREE 100 / PRO 50 / PREMIUM 30 / ENTERPRISE 10) floored PRO and PREMIUM to the same rate as ENTERPRISE, so PREMIUM bought a card holder nothing. 0.40 is calibrated so the FREE tier is unchanged from that original design: 100 bps -> 60 bps, $4 saved per $1,000 swapped, recouping a mint in ~$4k of volume. REVENUE TRADEOFF: deliberately material — a token worth a rounding error is not worth minting. Mirrored on-chain by holdDiscountFractionBps in SuwappuPositions.sol as BASIS POINTS OF THE TIER RATE (4000 = this 0.40), read and divided by 10,000 in bot/services/position_cards_service.py and clamped by MAX_CARD_DISCOUNT_FRACTION; tests/test_position_cards.py pins config, contract and clamp together so they cannot drift.",
+  "hold_discount_fraction": 0.4,
+  "max_discount_fraction": 0.4,
   "early_mint_badge_ranks": {
    "Founder": 500,
    "Early": 2000
@@ -163,7 +163,7 @@
   }
  ],
  "mint": {
-  "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it \u2014 the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
+  "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it — the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
   "phases": {
    "Founder": {
     "index": 1,

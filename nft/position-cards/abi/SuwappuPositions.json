@@ -224,6 +224,11 @@
  },
  {
   "inputs": [],
+  "name": "FreePhaseUnbounded",
+  "type": "error"
+ },
+ {
+  "inputs": [],
   "name": "InvalidEndTime",
   "type": "error"
  },
@@ -353,6 +358,11 @@
  {
   "inputs": [],
   "name": "UnknownToken",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "UnpricedAtMint",
   "type": "error"
  },
  {
@@ -714,7 +724,7 @@
  },
  {
   "inputs": [],
-  "name": "MAX_HOLD_DISCOUNT_BPS",
+  "name": "MAX_HOLD_DISCOUNT_FRACTION_BPS",
   "outputs": [
    {
     "internalType": "uint16",
@@ -813,6 +823,25 @@
  {
   "inputs": [
    {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "adjustedEntry",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
     "internalType": "uint64",
     "name": "endTime",
     "type": "uint64"
@@ -880,6 +909,44 @@
     "type": "bytes32"
    },
    {
+    "internalType": "uint16",
+    "name": "walletCap",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint16",
+    "name": "allocation",
+    "type": "uint16"
+   },
+   {
+    "internalType": "uint64",
+    "name": "startsAt",
+    "type": "uint64"
+   },
+   {
+    "internalType": "uint64",
+    "name": "endsAt",
+    "type": "uint64"
+   }
+  ],
+  "name": "configureFreePhase",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "enum SuwappuPositions.Phase",
+    "name": "phase",
+    "type": "uint8"
+   },
+   {
+    "internalType": "bytes32",
+    "name": "merkleRoot",
+    "type": "bytes32"
+   },
+   {
     "internalType": "uint96",
     "name": "price",
     "type": "uint96"
@@ -918,6 +985,35 @@
     "type": "uint256"
    }
   ],
+  "name": "corporateAction",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "survived",
+    "type": "bool"
+   },
+   {
+    "internalType": "uint96",
+    "name": "atMint",
+    "type": "uint96"
+   },
+   {
+    "internalType": "uint96",
+    "name": "current",
+    "type": "uint96"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
   "name": "currentPrice",
   "outputs": [
    {
@@ -942,7 +1038,7 @@
     "type": "uint256[]"
    }
   ],
-  "name": "discountBpsFor",
+  "name": "discountFractionBpsFor",
   "outputs": [
    {
     "internalType": "uint16",
@@ -1068,7 +1164,7 @@
  },
  {
   "inputs": [],
-  "name": "holdDiscountBps",
+  "name": "holdDiscountFractionBps",
   "outputs": [
    {
     "internalType": "uint16",
@@ -1184,6 +1280,11 @@
     "internalType": "bytes32[]",
     "name": "proof",
     "type": "bytes32[]"
+   },
+   {
+    "internalType": "bool",
+    "name": "allowUnpriced",
+    "type": "bool"
    }
   ],
   "name": "mint",
@@ -1593,9 +1694,9 @@
       "type": "uint8"
      },
      {
-      "internalType": "uint128",
+      "internalType": "uint96",
       "name": "entryPrice",
-      "type": "uint128"
+      "type": "uint96"
      },
      {
       "internalType": "uint40",
@@ -1606,6 +1707,11 @@
       "internalType": "uint16",
       "name": "mintRank",
       "type": "uint16"
+     },
+     {
+      "internalType": "uint96",
+      "name": "entryMultiplier",
+      "type": "uint96"
      }
     ],
     "internalType": "struct SuwappuPositions.Position",

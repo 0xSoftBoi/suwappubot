@@ -399,7 +399,7 @@ def render_card(
     grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
     accent = grade["accent"]
     badge = badge_for(cfg, rank)
-    disc = cfg["economics"]["hold_discount_bps"]
+    disc_pct = int(round(cfg["economics"]["hold_discount_fraction"] * 100))
     seed = _seed(ticker, token_id, entry)
 
     # ── STRUCTURAL modes, not parameter jitter ──────────────────────────────
@@ -697,7 +697,7 @@ def render_card(
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
     p.append(
         f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="{body_col}">'
-        f"\u2212{disc} bps on every swap</text>"
+        f"\u2212{disc_pct}% off every swap</text>"
     )
     p.append(
         _small_caps(
@@ -776,7 +776,8 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
             f"The entry price was stamped on-chain at mint and can never change; the "
             f"card re-renders against the live price, so what you see is the call you "
             f"actually made. Holding it takes "
-            f"{cfg['economics']['hold_discount_bps']} bps off every Suwappu swap.\n\n"
+            f"{int(round(cfg['economics']['hold_discount_fraction'] * 100))}% off every "
+            f"Suwappu swap fee, whatever tier you're on.\n\n"
             f"{col['compliance']}"
         )
     else:

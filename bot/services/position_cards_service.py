@@ -8,7 +8,7 @@ Trust model
 -----------
 Token ids come from an indexer (Blockscout), which is convenient but NOT
 authoritative. The discount's VALUE is always resolved by an ``eth_call``
-against ``discountBpsFor``, which re-checks ownership on-chain and ignores ids
+against ``discountFractionBpsFor``, which re-checks ownership on-chain and ignores ids
 the address does not own. A stale or hostile indexer can therefore only ever
 produce a SMALLER discount, never a larger one. The discount is flat per
 holder, not per card, so stacking cards cannot compound the giveaway.
@@ -35,11 +35,24 @@ logger = logging.getLogger(__name__)
 CHAIN = "robinhood"
 CHAIN_ID = 4663
 
-# Hard backstop on the discount this module can return, independent of whatever
-# the deployed contract reports. Mirrors MAX_HOLD_DISCOUNT_BPS in
-# SuwappuPositions.sol. A larger value means a wrong contract or a bad read, and
-# we clamp rather than hand out an unbounded fee cut.
-MAX_CARD_DISCOUNT_BPS = 100
+# The contract reports the discount in BASIS POINTS OF THE TIER RATE
+# (holdDiscountFractionBps in SuwappuPositions.sol; 4000 == 40% off), so we divide
+# by 10,000 to get the fraction fee_service multiplies by. Note the unit: these are
+# bps OF THE RATE, not bps OF THE SWAP. That distinction is the whole point — a flat
+# bps-of-the-swap subtraction from unevenly-spaced tiers (FREE 100 / PRO 50 /
+# PREMIUM 30 / ENTERPRISE 10) floored PRO and PREMIUM to the same rate, making
+# PREMIUM worthless to a card holder. See fee_service.get_fee_decimal.
+#
+# The contract default of 4000 yields the 0.40 fraction documented as
+# economics.hold_discount_fraction in nft/position-cards/config.json — pinned equal
+# in tests/test_position_cards.py so the two cannot drift.
+#
+# Hard backstop on the FRACTION this module can return, independent of whatever the
+# deployed contract reports. It mirrors MAX_HOLD_DISCOUNT_FRACTION_BPS (6000) so the
+# on-chain cap and this one agree; a reading of 10000 would divide out to 1.0 (a free
+# swap), and we clamp well below that so a wrong contract or a bad read can never
+# zero out the fee.
+MAX_CARD_DISCOUNT_FRACTION = 0.60
 
 _CACHE_TTL = 300  # seconds
 _MAX_TOKEN_IDS = 200  # cap the eth_call payload for whales / spam wallets
@@ -119,7 +132,7 @@ PRICED_TICKERS = [
 
 _ABI = [
     {
-        "name": "discountBpsFor",
+        "name": "discountFractionBpsFor",
         "type": "function",
         "stateMutability": "view",
         "inputs": [
@@ -171,8 +184,9 @@ class PositionCardsService:
 
     def __init__(self) -> None:
         self._holdings: dict[str, tuple[float, list[int]]] = {}
-        self._discount: dict[str, tuple[float, int]] = {}
-        self._user_discount: dict[int, tuple[float, int]] = {}
+        # (t, fraction) — fraction, not raw bps; see MAX_CARD_DISCOUNT_FRACTION.
+        self._discount: dict[str, tuple[float, float]] = {}
+        self._user_discount: dict[int, tuple[float, float]] = {}
         # (address, ticker index) -> (t, bps). Without this a bulk swap did one
         # uncached holdsTicker eth_call per leg, per side.
         self._ticker_boost: dict[tuple[str, int], tuple[float, int]] = {}
@@ -280,10 +294,12 @@ class PositionCardsService:
         finally:
             _INFLIGHT.release()
 
-    async def get_discount_bps(self, address: Optional[str]) -> int:
-        """Swap-fee discount in bps for an address. 0 on any failure."""
+    async def get_discount_fraction(self, address: Optional[str]) -> float:
+        """Swap-fee discount for an address, as a PROPORTIONAL fraction of the
+        tier rate (0.40 == 40% off). 0.0 on any failure.
+        """
         if not address or not self.enabled:
-            return 0
+            return 0.0
         key = address.lower()
         hit = self._discount.get(key)
         if hit and time.time() - hit[0] < _CACHE_TTL:
@@ -291,24 +307,24 @@ class PositionCardsService:
         try:
             ids = await self._token_ids(address)
             if not ids:
-                self._discount[key] = (time.time(), 0)
-                return 0
+                self._discount[key] = (time.time(), 0.0)
+                return 0.0
 
             def _read():
                 contract = self._contract()
-                return contract.functions.discountBpsFor(
+                return contract.functions.discountFractionBpsFor(
                     contract.w3.to_checksum_address(address), ids
                 ).call()
 
             raw = await self._offload(_read)
             if raw is None:
-                return 0
-            bps = max(0, min(int(raw), MAX_CARD_DISCOUNT_BPS))
+                return 0.0
+            fraction = max(0.0, min(int(raw) / 10_000.0, MAX_CARD_DISCOUNT_FRACTION))
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Positions: discount lookup failed for %s: %s", address, e)
-            return 0
-        self._discount[key] = (time.time(), bps)
-        return bps
+            return 0.0
+        self._discount[key] = (time.time(), fraction)
+        return fraction
 
     async def get_positions(self, address: Optional[str]) -> list[dict]:
         """Live state for each card an address holds. Empty on any failure."""
@@ -547,38 +563,41 @@ class PositionCardsService:
             logger.debug("Positions: wallet lookup failed for user %s: %s", user_id, e)
             return None
 
-    async def warm_for_user(self, user_id: Optional[int]) -> int:
+    async def warm_for_user(self, user_id: Optional[int]) -> float:
         """Resolve the user's EVM address, refresh its perk, cache it by user_id.
+
+        Returns the discount as a PROPORTIONAL FRACTION (0.40 == 40% off), not bps.
 
         Call from an ASYNC swap path shortly before pricing. The fee path is
         sync and must never do I/O, so it reads only the cache this populates.
         """
         if user_id is None or not self.enabled:
-            return 0
+            return 0.0
         try:
             address = self.evm_address_for_user(user_id)
             if not address:
-                self._user_discount[user_id] = (time.time(), 0)
-                return 0
-            bps = await self.get_discount_bps(address)
+                self._user_discount[user_id] = (time.time(), 0.0)
+                return 0.0
+            fraction = await self.get_discount_fraction(address)
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("Positions: warm failed for user %s: %s", user_id, e)
-            return 0
-        self._user_discount[user_id] = (time.time(), bps)
-        return bps
+            return 0.0
+        self._user_discount[user_id] = (time.time(), fraction)
+        return fraction
 
-    def get_cached_discount_bps_for_user(self, user_id: Optional[int]) -> int:
-        """Cached discount for a user. NEVER does I/O — cold cache means 0 bps.
+    def get_cached_discount_fraction_for_user(self, user_id: Optional[int]) -> float:
+        """Cached discount for a user, as a PROPORTIONAL FRACTION (0.40 == 40% off
+        the tier rate). NEVER does I/O — cold cache means 0.0 (no discount).
 
         A cold read costs the user a discount on that one quote rather than
         adding a network round-trip to pricing. It can never overstate.
         """
         if user_id is None or not self.enabled:
-            return 0
+            return 0.0
         hit = self._user_discount.get(user_id)
         if not hit or time.time() - hit[0] >= _CACHE_TTL:
-            return 0
-        return max(0, min(hit[1], MAX_CARD_DISCOUNT_BPS))
+            return 0.0
+        return max(0.0, min(hit[1], MAX_CARD_DISCOUNT_FRACTION))
 
     def invalidate(self, address: str, user_id: Optional[int] = None) -> None:
         """Drop every cached perk derived from `address`.

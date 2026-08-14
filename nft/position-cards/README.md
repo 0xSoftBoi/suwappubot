@@ -9,7 +9,7 @@ This replaces "Suwappu Fills", which nobody would have minted:
 
 | Problem | Fix |
 |---|---|
-| −5 bps is a **$0.50 coupon** per $1k swapped; you'd need ~$60k of volume to recoup a mint | Flat **−40 bps** for any holder — **$4.00 per $1k**, recouped in ~$4k of volume |
+| −5 bps is a **$0.50 coupon** per $1k swapped; you'd need ~$60k of volume to recoup a mint | **40% off your swap fee** for any holder — on the free tier that is **$4.00 per $1k**, recouped in ~$4k of volume, and it scales with whatever tier you are on |
 | The ticker — the only emotional hook — was **randomly assigned** | **You choose your ticker.** No lottery, no "I got XNDU" |
 | Rarity was a **trait roll** | Status is **earned**: grade follows your actual return, rank follows how early you minted |
 | The art was a **fake random-walk chart** of a trade that never happened, frozen forever | The card draws **only real numbers** — your stamped entry vs the live oracle price |
@@ -118,14 +118,18 @@ they've earned and, if they haven't, exactly what's missing.
   inventing a basis — the mint can't be bricked by an oracle outage.
 - **Grades** track live return: Underwater → Flat → In Profit → Runner → Multiple → Moonshot.
 - **Badges** for mint rank: `Founder` (first 500), `Early` (first 2,000).
-- **Perk:** −40 bps on every Suwappu swap, flat **per holder, not per card**, so stacking
-  cards can't compound it. Stacks with tier and points, floored at `MIN_EFFECTIVE_FEE_RATE`
-  (0.1%). Plus +25% XP on swaps of a ticker you hold a position on.
+- **Perk:** −40% off your swap fee, whatever tier you're on, flat **per holder, not per
+  card**, so stacking cards can't compound it. Proportional, not a flat number of bps —
+  on FREE (100 bps) that's 60 bps ($4 back per $1,000, unchanged from the original flat
+  design); on PRO (50 bps) it's 30 bps; PREMIUM (30 bps) is 18 bps; ENTERPRISE (10 bps) is
+  6 bps. The ladder is preserved because the discount multiplies, not subtracts. Plus +25%
+  XP on swaps of a ticker you hold a position on.
 
-> **Revenue tradeoff, flagged deliberately:** 40 bps is a real cut against a 100 bps FREE
-> tier — that is the point, since a 5 bps token is not worth minting. It is a single
-> constant (`economics.hold_discount_bps`, mirrored by `holdDiscountBps` on-chain and
-> capped at `MAX_HOLD_DISCOUNT_BPS = 100`). **This is a pricing decision — tune or veto it.**
+> **Revenue tradeoff, flagged deliberately:** 40% is a real cut — that is the point, since
+> a 5% token is not worth minting. It is a single constant
+> (`economics.hold_discount_fraction`, mirrored on-chain as `holdDiscountFractionBps` and
+> capped at `MAX_HOLD_DISCOUNT_FRACTION_BPS = 6000` / `MAX_CARD_DISCOUNT_FRACTION = 0.60` on
+> the bot side). **This is a pricing decision — tune or veto it.**
 
 ## Compliance
 

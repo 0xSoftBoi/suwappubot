@@ -1315,8 +1315,8 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "SuwappuPositions ERC-721 address on Robinhood Chain (chain 4663). When set, "
-            "holding a Position takes a flat discount off the swap fee (see "
-            "nft/position-cards/config.json economics.hold_discount_bps) via "
+            "holding a Position takes a proportional discount off the swap fee (see "
+            "nft/position-cards/config.json economics.hold_discount_fraction) via "
             "fee_service.get_fee_decimal, plus an XP boost on the position's own ticker. "
             "Unset disables the perk entirely."
         ),
