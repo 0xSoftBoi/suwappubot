@@ -93,39 +93,66 @@ def test_the_oracle_reports_the_multiplier_and_never_reverts(env):
     assert oracle.functions.multiplierOf(stock.address).call() == ONE
 
 
-def test_a_split_does_not_fabricate_a_catastrophic_loss(env):
-    """The bug this exists to prevent. Mint at $100, the equity does a 10:1
-    split, the feed now quotes $10 on the new basis. Naively that is -90%; the
-    holder did nothing but hold."""
+def test_a_split_does_not_move_the_return_at_all(env):
+    """A split must be a non-event for return, because the feed is already
+    multiplier-adjusted.
+
+    Robinhood's integration guide: "The Chainlink price already includes the
+    corporate-action multiplier (dividends, splits) ... don't apply the
+    multiplier yourself." So after a 10:1 split the per-SHARE price falls
+    tenfold while shares-per-token rises tenfold, and the TOKEN price the feed
+    publishes is unchanged. The earlier version of this test re-quoted the feed
+    to $10, which models a raw share-price feed Robinhood does not publish, and
+    it pinned a basis adjustment that fabricated a +900% return.
+    """
     w3, pos, oracle, stock, ef, owner, alice = env
     tid = _mint(w3, pos, alice)
 
     bps, priced = pos.functions.returnBps(tid).call()
     assert priced and abs(bps) < 50, f"flat position should read ~0, got {bps}"
-    assert pos.functions.adjustedEntry(tid).call() == 100 * ONE
+    assert pos.functions.entryBasis(tid).call() == 100 * ONE
+    assert pos.functions.sharesPerToken(tid).call() == ONE
 
-    # 10:1 split — multiplier moves, and the feed re-quotes on the new basis
+    # 10:1 split. Multiplier moves; the multiplier-adjusted feed does NOT.
     stock.functions.split(10).transact({"from": owner})
-    ef.functions.set(10_00000000, w3.eth.get_block("latest").timestamp).transact({"from": owner})
 
     bps_after, priced_after = pos.functions.returnBps(tid).call()
     assert priced_after
     assert abs(bps_after) < 50, f"split fabricated a {bps_after / 100:.1f}% move"
-    # the basis travelled with the price rather than staying on the old one
-    assert pos.functions.adjustedEntry(tid).call() == 10 * ONE
+    # The stamped basis is used as-is — no rebasing, in either direction.
+    assert pos.functions.entryBasis(tid).call() == 100 * ONE
+    # The quantity change is where the multiplier belongs: 1 token now backs 10x.
+    assert pos.functions.sharesPerToken(tid).call() == 10 * ONE
 
 
 def test_a_real_gain_still_reads_as_a_gain_through_a_split(env):
-    """The adjustment must not flatten genuine performance — only remove the
-    part that is an artefact of the basis changing."""
+    """A corporate action must not mask genuine performance."""
     w3, pos, oracle, stock, ef, owner, alice = env
     tid = _mint(w3, pos, alice)
-    # 10:1 split, and the shares are ALSO up 50% on the new basis ($15 vs $10)
+    # 10:1 split AND the position is genuinely up 50%: per-share is $15 against
+    # a post-split $10, so the multiplier-adjusted token price is $150.
     stock.functions.split(10).transact({"from": owner})
-    ef.functions.set(15_00000000, w3.eth.get_block("latest").timestamp).transact({"from": owner})
+    ef.functions.set(150_00000000, w3.eth.get_block("latest").timestamp).transact({"from": owner})
     bps, priced = pos.functions.returnBps(tid).call()
     assert priced
     assert 4_900 < bps < 5_100, f"expected ~+50%, got {bps / 100:.1f}%"
+
+
+def test_a_reinvested_dividend_reads_as_a_gain_not_a_wash(env):
+    """Cash dividends on chain 4663 are reinvested by raising the multiplier —
+    AAPL sits at 1.000566 and ORCL at 1.002210 live today. The token is worth
+    more because it backs more shares, so the holder is genuinely up and the
+    feed says so. Dividing the basis by the multiplier would have erased exactly
+    that gain.
+    """
+    w3, pos, oracle, stock, ef, owner, alice = env
+    tid = _mint(w3, pos, alice)
+    # multiplier 1.0 -> 1.05 (a 5% reinvestment), token price up the same 5%
+    stock.functions.setMultiplier(ONE * 105 // 100).transact({"from": owner})
+    ef.functions.set(105_00000000, w3.eth.get_block("latest").timestamp).transact({"from": owner})
+    bps, priced = pos.functions.returnBps(tid).call()
+    assert priced
+    assert 490 < bps < 510, f"reinvested dividend should read ~+5%, got {bps / 100:.1f}%"
 
 
 def test_surviving_a_corporate_action_is_status_that_cannot_be_bought(env):

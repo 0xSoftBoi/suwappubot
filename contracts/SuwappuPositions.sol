@@ -376,7 +376,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // than silently recording a wrapped value forever.
         uint96 entryPrice = SafeCast.toUint96(entry);
         // Stamped alongside the price, because the two are only comparable on
-        // the same basis. See adjustedEntry().
+        // the same basis. See entryBasis().
         uint96 entryMul = _oracleMultiplier(tickerIndex);
         for (uint256 i = 0; i < quantity;) {
             uint256 tokenId = supply + i + 1;
@@ -617,25 +617,52 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     ///         ticker that has never had a corporate action has a ratio of
     ///         exactly 1 and is unaffected.
     ///
-    /// @dev    DIRECTION, stated plainly because it matters and cannot yet be
-    ///         observed: `uiMultiplier` scales the DISPLAYED quantity, so a
-    ///         10:1 split takes it 1e18 -> 10e18 while the price per unit falls
-    ///         tenfold. The adjustment is therefore INVERSE — multiply the old
-    ///         basis by then/now. Every licensed token on chain 4663 currently
-    ///         reports exactly 1e18 (NVDA, AAPL, TSLA and GME all verified
-    ///         live), so no real corporate action has happened yet to confirm
-    ///         this against. `corporateAction()` returns both raw multipliers
-    ///         precisely so an operator can check the direction the first time
-    ///         one lands; if it is backwards, this is a one-line flip and the
-    ///         tests here pin the intended behaviour either way. Do not deploy
-    ///         to mainnet without that confirmation.
-    function adjustedEntry(uint256 tokenId) public view returns (uint256) {
+    /// @dev    NO ADJUSTMENT IS APPLIED, and that is the correct behaviour —
+    ///         this function returns the stamped entry unchanged. Robinhood's
+    ///         integration guide is explicit: "The Chainlink price already
+    ///         includes the corporate-action multiplier (dividends, splits), so
+    ///         the value you read is the token's full price — don't apply the
+    ///         multiplier yourself."
+    ///
+    ///         Both sides of the comparison come from that same feed, so both
+    ///         are TOKEN prices and both are already multiplier-adjusted. They
+    ///         are directly comparable and a corporate action does not move
+    ///         them relative to each other: a 4:1 split takes shares-per-token
+    ///         to 4 while the per-share price quarters, leaving the token price
+    ///         continuous.
+    ///
+    ///         An earlier version of this scaled the basis by then/now, which
+    ///         double-applied the multiplier and fabricated a return out of a
+    ///         corporate action. Against CRWD — live at exactly 4e18 after a
+    ///         4:1 split — it would have reported +300% on a position that had
+    ///         not moved. Six of this collection's own 35 tickers already carry
+    ///         a multiplier above 1e18 today (SGOV, ORCL, AAPL, ASML, MU,
+    ///         DELL), so the error was live from the first mint, not theoretical.
+    ///
+    ///         `entryMultiplier` is still stamped, and is still worth stamping:
+    ///         it is what makes `corporateAction()` and `sharesPerToken()`
+    ///         expressible. It just has no place in a price comparison.
+    ///
+    ///         Direction, now confirmed rather than assumed: the multiplier only
+    ///         ever RISES, for both splits and reinvested dividends, because
+    ///         underlying shares = raw amount * uiMultiplier / 1e18 (ERC-8056).
+    function entryBasis(uint256 tokenId) public view returns (uint256) {
+        return uint256(positionOf(tokenId).entryPrice);
+    }
+
+    /// @notice How many shares one token represents now, versus at mint.
+    ///
+    /// @dev    18-dp fixed point: 4e18 means one token backs four times the
+    ///         shares it did at mint. THIS is what the stamped multiplier is
+    ///         for — a quantity change, never a price adjustment. Returns 1e18
+    ///         when the oracle has no multiplier, so callers degrade to "no
+    ///         change" rather than to zero.
+    function sharesPerToken(uint256 tokenId) external view returns (uint256) {
         Position memory p = positionOf(tokenId);
-        if (p.entryPrice == 0) return 0;
         uint96 then_ = p.entryMultiplier == 0 ? uint96(1e18) : p.entryMultiplier;
         uint96 nowMul = _oracleMultiplier(p.tickerIndex);
-        if (nowMul == 0 || nowMul == then_) return uint256(p.entryPrice);
-        return (uint256(p.entryPrice) * uint256(then_)) / uint256(nowMul);
+        if (nowMul == 0 || then_ == 0) return 1e18;
+        return (uint256(nowMul) * 1e18) / uint256(then_);
     }
 
     /// @notice Has this position lived through a corporate action?
@@ -665,9 +692,10 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (p.entryPrice == 0) return (0, false);
         uint256 cur = _oraclePrice(p.tickerIndex);
         if (cur == 0) return (0, false);
-        // Both sides on today's basis. Using the raw stamp here was the bug: a
-        // split would have made every pre-split card read as a catastrophe.
-        uint256 basis = adjustedEntry(tokenId);
+        // Both sides come from the same multiplier-adjusted Chainlink feed, so
+        // the stamped entry is used as-is. Scaling it by the multiplier here was
+        // the bug — see entryBasis().
+        uint256 basis = entryBasis(tokenId);
         if (basis == 0) return (0, false);
         int256 diff = int256(cur) - int256(basis);
         return ((diff * 10_000) / int256(basis), true);

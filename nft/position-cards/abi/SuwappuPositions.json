@@ -823,25 +823,6 @@
  {
   "inputs": [
    {
-    "internalType": "uint256",
-    "name": "tokenId",
-    "type": "uint256"
-   }
-  ],
-  "name": "adjustedEntry",
-  "outputs": [
-   {
-    "internalType": "uint256",
-    "name": "",
-    "type": "uint256"
-   }
-  ],
-  "stateMutability": "view",
-  "type": "function"
- },
- {
-  "inputs": [
-   {
     "internalType": "uint64",
     "name": "endTime",
     "type": "uint64"
@@ -1062,6 +1043,25 @@
     "internalType": "uint8",
     "name": "source",
     "type": "uint8"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "entryBasis",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
    }
   ],
   "stateMutability": "view",
@@ -2050,6 +2050,25 @@
   "name": "setPaused",
   "outputs": [],
   "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "sharesPerToken",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
   "type": "function"
  },
  {
