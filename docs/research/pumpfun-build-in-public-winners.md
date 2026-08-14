@@ -1,0 +1,87 @@
+# Pump.fun "Build in Public" Hackathon — All 12 Winners
+
+**Research date:** 2026-08-14
+**Source of the question:** [@pumpspotlight, Jun 26 2026](https://x.com/pumpspotlight/status/2070590353103618521) — announcing the close of the hackathon. The 12 winner names are in the attached video, not the post text; this list was reconstructed from the individual per-winner announcements.
+
+> **Caveat on all market data below:** prices/market caps are a single snapshot taken 2026-08-14. Several contract addresses could not be verified against a primary source because DexScreener and GeckoTerminal returned 403, and x.com returns 402 to automated fetches. Items marked ⚠️ UNVERIFIED should be confirmed from the teams' own channels before being relied on.
+
+---
+
+## The program
+
+Pump.fun's new investment arm, **Pump Fund**, put up **$3M across 12 teams — $250,000 each at a $10M valuation**, structured as **token-based deals, not equity**.
+
+- **Terms:** teams had to launch a token on Pump.fun, retain a meaningful share of supply (recommended 20–50%, minimum 10%), post daily public progress updates, and stream major milestones live.
+- **Selection:** by *market traction* — token performance, community engagement, public building — rather than a judging panel.
+- **Advisors:** Polymarket, Delphi Digital, Pantera Capital, Kraken, Jump Crypto, Manifold Ventures, Arca, Draper Investments, Helius, Privy, 6th Man Ventures. Notably, advisors engaged publicly and gave feedback but **did not score applications or select winners**.
+- **Timeline:** applications opened Jan 19 2026, closed Feb 18 2026; winners announced on a rolling basis through Jun 26 2026.
+
+Sources: [crypto.news](https://crypto.news/pump-fun-polymarket-pantera-founder-hackathon-2026/), [hackathon.pump.fun](https://hackathon.pump.fun/), [Bitget](https://www.bitget.com/amp/news/detail/12560605480110)
+
+---
+
+## Summary table
+
+| # | Company | Sector | Token | Mcap (Aug 14 2026) | vs ATH | Team named? | Public code? |
+|---|---------|--------|-------|--------------------|--------|-------------|--------------|
+| 1 | **Zauth** | AI agent security / x402 | ZAUTH | ~$1.5–1.8M | -76% | ✖ "Dylan" only | ✖ |
+| 2 | **Opal** | AI gaming companion | ⚠️ unidentifiable | — | — | ✖ "Josh" only | ✖ |
+| 3 | **Pumpcade** | Prediction markets | PUMPCADE | ~$14–30M | -71% | ✖ pseudonymous | ✖ |
+| 4 | **BloxAPI** | Roblox × on-chain gamedev | BLOXX | ~$127K | **-91% (at ATL)** | ✖ anon LLC | ✖ |
+| 5 | **ClawPump** | AI agent financial layer | CLAW | ~$2.2–2.6M | -65% (**+1055% from ATL**) | ✔ Mauricio Trujillo | ✖ |
+| 6 | **CodecFlow** | Robotics / autonomous operators | CODEC | ~$2.3M | **-93%** (pre-hackathon ATH) | ✖ @s1lent4gnt | ✔ MIT, active |
+| 7 | **Dexter** | Agent payments / x402 | DEXTER ⚠️ | ⚠️ unverified | — | ✖ @BranchM only | ✔ 10 repos, active |
+| 8 | **Clude** | AI memory layer | CLUDE | ~$445K | -89% | ✔ **Sebastien Sim** (ex-Binance) | ✖ |
+| 9 | **SolScanner** | On-chain wallet intelligence | SCAN | ~$280–500K | — | ✖ fully anon | ✖ |
+| 10 | **Collector Group** | Digital card collection | ⚠️ none found | ⚠️ none found | — | ✖ none found | ✖ |
+| 11 | **Daydreams** | AI agent business suite | DREAMS | ~$1.48M | **-95%** (pre-hackathon ATH) | ✖ "loaf" | ✔ open source |
+| 12 | **AgenC** | AI agent job marketplace | AGENC | ~$708K | -80% | ~ Tetsuo team | ✔ partial (core private) |
+
+---
+
+## Cross-cutting findings
+
+**1. Every single token is down heavily from its all-time high.** The range is -65% to -95%, with a median around -85%. The shape is identical across the cohort: a sharp pump on the win announcement, then sustained decay. BLOXX was sitting at its all-time low on the day of research.
+
+**2. Two "winners" had already peaked before the hackathon existed.** CodecFlow's ATH was Sept 2025 and Daydreams' was Nov 2025 — both months before applications opened in Jan 2026. For these, the $250k looks less like seed funding for a new build and more like a re-funding of a fading project, with the win reviving a dead chart.
+
+**3. Only 4 of 12 have meaningful public code**, despite "Build in Public" branding — Dexter, CodecFlow, Daydreams, and AgenC (whose core runtime repo is private). The other eight ship no auditable code at all.
+
+**4. Team anonymity is the norm, not the exception.** Only two founders are identifiable by full name: **Sebastien Sim** of Clude (5 years at Binance building Binance Card and Binance Pay, prior AI work at ByteDance) and **Mauricio Trujillo** of ClawPump. The rest are first-name-only, pseudonymous handles, or entirely undisclosed.
+
+**5. Traction numbers are almost universally self-reported.** Zauth's 90k RepoScan users, ClawPump's 2,700 agents, Clude's 1.3M memories, SolScanner's 125k wallets — none independently verified. The one falsifiable claim in the cohort is AgenC's dated mainnet program with a specific instruction count.
+
+**6. Duplicate-ticker collisions are a recurring hazard.** Opal's token could not be identified at all against two unrelated "OPAL" tokens; Daydreams has a near-identical second listing; Dexter collides with several unrelated projects. This alone makes several of these hard to actually invest in or integrate with safely.
+
+---
+
+## Ranked read
+
+**Genuinely worth watching (3):**
+- **Pumpcade** — the only unambiguous success. Verified **$6M raised in 12 days** across two rounds: $1M pre-seed led by Pump.fun (~Apr 2), then **$5M seed co-led by Jump Crypto and Foundation Capital** (~Apr 14), at an implied ~$44M valuation. Corroborated by five independent outlets. Caveat: the product was still "open beta coming soon" at the time of the raise, and the token is -71%.
+- **Dexter** — the strongest engineering signal: 10 active public repos, a live product surface, an **IETF Internet-Draft**. Undermined by an anon team and a token that third parties describe as having "little utility."
+- **AgenC** — a dated, live Solana mainnet escrow program and a functioning reference marketplace, backed by the existing Tetsuo team rather than a fresh anon shell.
+
+**Real product, weak token (3):** Zauth (live paid security scanner, real terminal integrations with Axiom/GMGN), ClawPump (working agent marketplace, the only token trending *up*), CodecFlow (real MIT-licensed robotics code, but modest GitHub traction and a pre-crashed token).
+
+**Credible founder, thin evidence (1):** Clude — the best resume in the cohort, but no public GitHub, self-reported metrics, -89% token, and a team-supply lock extension framed as a response to unspecified "recent events" that could not be identified.
+
+**High risk (5):**
+- **SolScanner** — anon team, token **flagged by Solflare's risk scanner**, not on Solana's token registry, ~$1.9K daily volume on one snapshot.
+- **BloxAPI** — anon "SoulSeed, LLC," no docs, no traction metrics, -91% and at all-time low.
+- **Opal** — ~3k followers, no follow-on funding, no demos, token unidentifiable.
+- **Daydreams** — real code, but -95% from a pre-hackathon peak and its core protocol proposals are unshipped drafts.
+- **Collector Group** — ⚠️ **could not be confirmed to exist as a coherent entity.** No dedicated announcement, no team, no token, no site. Either an uncovered early-stage project or a name being conflated in secondary round-up articles. Nothing about it should be stated as fact.
+
+**Bottom line:** one clear breakout (Pumpcade), three or four legitimate engineering efforts, and a long tail of tokens that pumped on the announcement and bled out. As a market-selection experiment the hackathon mostly demonstrated that token price at announcement is a poor predictor of anything — the two projects with the most real code (Dexter, CodecFlow) have unremarkable tokens, while the biggest token by market cap was still pre-beta at its raise.
+
+---
+
+## Detailed per-company profiles
+
+Full profiles — product detail, team, token/contract, traction, funding, links, and a skeptical read for each — are in the batch files alongside this document:
+
+- Winners 1–3 (Zauth, Opal, Pumpcade): `batches/batch1.md`
+- Winners 4–6 (BloxAPI, ClawPump, CodecFlow): `batches/batch2.md`
+- Winners 7–9 (Dexter, Clude, SolScanner): `batches/batch3.md`
+- Winners 10–12 (Collector Group, Daydreams, AgenC): `batches/batch4.md`
