@@ -1355,6 +1355,19 @@ class PointsService:
                 if not existing:
                     reward = Reward(**r)
                     session.add(reward)
+                elif existing.description != r["description"]:
+                    # Seeding is insert-only, so a corrected DESCRIPTION would
+                    # never reach a row that already exists — every production
+                    # user would keep reading the old copy forever. That bit us:
+                    # "0.5% fee for 24 hours" described a discount that is now
+                    # proportional, and was already wrong for anyone on PREMIUM
+                    # (0.3%), for whom "0.5% fee" reads as an increase.
+                    #
+                    # Deliberately description ONLY. points_cost and
+                    # reward_value are economics — silently repricing a live
+                    # reward on every boot is exactly the kind of change that
+                    # should require a migration and a decision, not a redeploy.
+                    existing.description = r["description"]
 
         logger.info("Seeded default milestones and rewards")
 

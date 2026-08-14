@@ -56,6 +56,11 @@ MIN_EFFECTIVE_FEE_RATE = TIER_FEE_RATES[SubscriptionTier.ENTERPRISE]  # 0.001 = 
 # never the binding constraint in practice.
 ABSOLUTE_FLOOR = 0.0002  # 0.0002 = 0.02% = 2 bps
 
+# Backstop on the points fee-discount, as a fraction of the tier rate. The
+# catalogue ships 0.5pp (== 0.50 here); this bounds a mis-seeded or hand-edited
+# reward row so it can never approach a free swap.
+MAX_POINTS_DISCOUNT_FRACTION = 0.60
+
 # Referral rewards: 30% of fees (aggressive growth)
 REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
 REFERRAL_REWARD_DECIMAL = REFERRAL_REWARD_PERCENTAGE / Decimal("100")  # 0.30
@@ -141,11 +146,28 @@ class FeeService:
             logger.warning(f"Referee rebate lookup failed for user {user_id}: {e}")
             return False
 
-    def _active_fee_discount_decimal(self, user_id: "Optional[int]") -> float:
-        """Active points fee-discount for a user, as a plain DECIMAL (0.005 = 0.5%).
+    def _active_fee_discount_fraction(self, user_id: "Optional[int]") -> float:
+        """Active points fee-discount, as a PROPORTIONAL fraction of the tier rate.
 
         ``points_service.get_active_fee_discount`` returns PERCENTAGE POINTS
-        (e.g. 0.5 == 0.5%), so we divide by 100 to match the decimal fee rate.
+        (the catalogue ships "0.5"), which used to be SUBTRACTED from the tier
+        rate. That is the same defect the Position-card discount had, and worse:
+        the only reward on offer is 0.5pp == 50bps, which is larger than the
+        entire PRO rate (50bps) and 20bps larger than PREMIUM's. Subtracting it
+        drove PRO, PREMIUM and ENTERPRISE all onto the same floor, so 500 points
+        bought any paid tier the contracted ENTERPRISE rate for 24 hours. The
+        reward's own copy ("0.5% fee") was a fee INCREASE for a PREMIUM user
+        already paying 0.3%.
+
+        So the percentage-point value is read as what it was actually calibrated
+        against — the FREE rate — and converted to a proportion of whatever rate
+        the user is on. 0.5pp of FREE's 100bps is 50%, so a FREE user's discount
+        is bit-for-bit what it was before this change, and every paid tier now
+        gets a discount that scales instead of one that flattens the ladder.
+
+        Clamped: a catalogue row larger than the FREE rate would otherwise mean a
+        fraction above 1.0 and a negative fee.
+
         Read-only + time-bound (never consumed here). GUARDRAIL: a points lookup
         failure must NEVER break fee calculation, so this swallows all errors and
         returns 0.0 (no discount). Returns 0.0 when ``user_id`` is None.
@@ -156,7 +178,8 @@ class FeeService:
             from bot.services.points_service import points_service
 
             pct = points_service.get_active_fee_discount(user_id)
-            return max(0.0, float(pct) / 100.0)
+            fraction = (float(pct) / 100.0) / TIER_FEE_RATES[SubscriptionTier.FREE]
+            return max(0.0, min(fraction, MAX_POINTS_DISCOUNT_FRACTION))
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"fee discount lookup failed for user {user_id}: {e}")
             return 0.0
@@ -233,24 +256,25 @@ class FeeService:
             base = TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE)
         else:
             base = DEFAULT_FEE_RATE
-        discount = self._active_fee_discount_decimal(user_id)
         # ENTERPRISE is contracted pricing, negotiated per customer — it is not
-        # something a consumer NFT is allowed to move. A card bought on the open
-        # market must never discount a rate that was agreed in a contract, so the
-        # perk stops at PREMIUM. This is a commercial rule, not a math one: the
-        # proportional discount would order fine at ENTERPRISE (10 -> 6bps), it
-        # simply is not on offer there.
+        # something a consumer perk is allowed to move. A Position card can be
+        # bought by anyone on the secondary market and points are earned in-app;
+        # neither may discount a rate that was agreed in a contract, so both
+        # perks stop at PREMIUM. This is a commercial rule, not a math one: both
+        # discounts would order fine at ENTERPRISE, they are simply not on offer
+        # there.
         if tier is SubscriptionTier.ENTERPRISE:
+            points_fraction = 0.0
             positions_fraction = 0.0
         else:
+            points_fraction = self._active_fee_discount_fraction(user_id)
             positions_fraction = self._positions_discount_fraction(user_id)
 
-        # Absolute: floored at the ENTERPRISE rate so a points redemption can
-        # match, but never beat, our best paid tier.
-        tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, base - discount)
-        # Proportional: multiplies the post-points rate, so it scales with tier
-        # and can never invert the ladder.
-        effective = tier_after_points * (1.0 - positions_fraction)
+        # Both perks are PROPORTIONAL, so they compose without either one being
+        # able to invert the ladder. They multiply rather than sum: two 50%-ish
+        # discounts take 70% off, not 100% off, which is also why no combination
+        # can reach a zero fee.
+        effective = base * (1.0 - points_fraction) * (1.0 - positions_fraction)
         # Consumer perks may MATCH contracted pricing but never beat it. Without
         # this, excluding ENTERPRISE from the card inverts the ladder: a PREMIUM
         # holder stacking a points redemption with a card lands under the

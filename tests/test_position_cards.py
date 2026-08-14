@@ -201,7 +201,7 @@ def test_positions_discount_stacks_and_respects_the_floor(monkeypatch):
     from bot.services.fee_service import ABSOLUTE_FLOOR, MIN_EFFECTIVE_FEE_RATE, FeeService
 
     svc = FeeService()
-    monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_active_fee_discount_fraction", lambda uid: 0.0)
     monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: False)
 
     monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 0.0)
@@ -570,7 +570,7 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
     from bot.services.fee_service import MIN_EFFECTIVE_FEE_RATE, FeeService
 
     svc = FeeService()
-    monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_active_fee_discount_fraction", lambda uid: 0.0)
     monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: False)
 
     monkeypatch.setattr(
@@ -591,7 +591,7 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
 
     # unpatch the resolver so the cache is genuinely consulted
     svc2 = FeeService()
-    monkeypatch.setattr(svc2, "_active_fee_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc2, "_active_fee_discount_fraction", lambda uid: 0.0)
     monkeypatch.setattr(svc2, "_active_referee_rebate_applies", lambda uid: False)
     real_bps = svc2.get_fee_bps(SubscriptionTier.FREE, user_id=321)
     assert real_bps == base_bps - 40, f"card discount did not reach the charged bps: {real_bps}"

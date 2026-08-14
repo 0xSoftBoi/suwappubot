@@ -393,7 +393,7 @@ DEFAULT_MILESTONES = [
 DEFAULT_REWARDS = [
     {
         "name": "Fee Discount 24h",
-        "description": "0.5% fee for 24 hours",
+        "description": "50% off your swap fee for 24 hours",
         "points_cost": 500,
         "reward_type": "fee_discount",
         "reward_value": "0.5",
@@ -402,7 +402,7 @@ DEFAULT_REWARDS = [
     },
     {
         "name": "Fee Discount 7d",
-        "description": "0.5% fee for 7 days",
+        "description": "50% off your swap fee for 7 days",
         "points_cost": 2500,
         "reward_type": "fee_discount",
         "reward_value": "0.5",

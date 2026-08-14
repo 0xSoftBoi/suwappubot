@@ -17,6 +17,7 @@ from bot.services.fee_service import (
     FeeService,
     TIER_FEE_RATES,
     DEFAULT_FEE_RATE,
+    MAX_POINTS_DISCOUNT_FRACTION,
     MIN_EFFECTIVE_FEE_RATE,
     ABSOLUTE_FLOOR,
 )
@@ -118,7 +119,9 @@ def test_allocation_reconciles_across_tiers_with_referrer(svc, tier):
 
 
 def _patch_discounts(monkeypatch, svc, *, points=0.0, card=0.0, referee=False):
-    monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: points)
+    """``points`` and ``card`` are both FRACTIONS of the tier rate now
+    (0.50 == 50% off), not percentage points subtracted from it."""
+    monkeypatch.setattr(svc, "_active_fee_discount_fraction", lambda uid: points)
     monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: card)
     monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: referee)
 
@@ -146,7 +149,7 @@ def test_exact_fee_bps_table_card_vs_no_card(svc, monkeypatch, tier, no_card_bps
 
 
 @pytest.mark.parametrize("card_fraction", [0.0, 0.40])
-@pytest.mark.parametrize("points_discount", [0.0, 0.0015])
+@pytest.mark.parametrize("points_discount", [0.0, 0.50])
 @pytest.mark.parametrize("referee_rebate", [False, True])
 def test_ladder_is_never_inverted_across_every_stacking_combination(
     svc, monkeypatch, card_fraction, points_discount, referee_rebate
@@ -183,32 +186,83 @@ def test_ladder_is_never_inverted_across_every_stacking_combination(
 
 
 @pytest.mark.parametrize("referee_rebate", [False, True])
-def test_card_alone_keeps_every_self_serve_tier_distinct(svc, monkeypatch, referee_rebate):
-    """THE regression lock for the flat-40bps bug.
+@pytest.mark.parametrize("points_fraction", [0.0, 0.50])
+@pytest.mark.parametrize("card_fraction", [0.0, 0.40])
+def test_perks_never_make_two_self_serve_tiers_cost_the_same(
+    svc, monkeypatch, card_fraction, points_fraction, referee_rebate
+):
+    """THE regression lock. No stack of consumer perks may flatten FREE, PRO and
+    PREMIUM into each other.
 
-    Holding a card must never make two subscription tiers cost the same. Under
-    the old flat subtraction, PRO ($9.99) and PREMIUM ($29.99) both landed on
-    10bps — identical to ENTERPRISE ($99.99) — so PREMIUM was worth nothing to a
-    card holder. Strict, with no points discount, because this is about the card
-    on its own.
+    Both perks used to be absolute subtractions off unevenly-spaced tiers, and
+    both were sized against the FREE rate, so both collapsed the ladder on their
+    own. The card took 40bps off tiers 20bps apart. The points reward was worse:
+    the only one in the catalogue is 0.5pp == 50bps, larger than the whole PRO
+    rate, so 500 points bought PRO, PREMIUM and ENTERPRISE the identical floored
+    rate. Now both are proportional and both compose multiplicatively, so the
+    self-serve tiers stay strictly ordered under every combination.
 
-    Known gap, deliberately not asserted here: a points redemption large enough
-    to drive both PRO and PREMIUM onto the floor can still tie them. That is the
-    points discount being absolute rather than proportional — a pre-existing
-    defect in a different perk, tracked separately, and not something this test
-    should pretend to cover.
+    ENTERPRISE is excluded from the comparison on purpose: it takes no perks, so
+    a heavily-discounted PREMIUM legitimately TIES it at the contracted-pricing
+    floor. That tie is asserted as a non-inversion by the test above.
     """
-    _patch_discounts(monkeypatch, svc, points=0.0, card=0.40, referee=referee_rebate)
-    bps = [svc.get_fee_bps(tier, user_id=1) for tier in _TIER_LADDER]
-    assert bps[0] > bps[1] > bps[2] > bps[3], (
-        f"card collapsed the ladder: FREE={bps[0]} PRO={bps[1]} "
-        f"PREMIUM={bps[2]} ENTERPRISE={bps[3]}"
+    _patch_discounts(
+        monkeypatch, svc, points=points_fraction, card=card_fraction, referee=referee_rebate
     )
+    free, pro, premium = (
+        svc.get_fee_bps(t, user_id=1)
+        for t in (SubscriptionTier.FREE, SubscriptionTier.PRO, SubscriptionTier.PREMIUM)
+    )
+    assert free > pro > premium, (
+        f"perks collapsed the self-serve ladder: FREE={free} PRO={pro} PREMIUM={premium} "
+        f"(card={card_fraction}, points={points_fraction}, referee_rebate={referee_rebate})"
+    )
+
+
+def test_points_reward_value_converts_to_a_fraction_of_the_free_rate(svc, monkeypatch):
+    """The catalogue ships percentage POINTS ("0.5"); the fee path needs a
+    fraction. Pin the conversion, and pin that it leaves a FREE user's charged
+    rate bit-for-bit unchanged — that calibration is the whole reason 0.5pp maps
+    to 50% and not to some rounder number.
+    """
+    monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: False)
+
+    class _FakePoints:
+        @staticmethod
+        def get_active_fee_discount(_uid):
+            return 0.5  # the ONLY fee_discount reward_value in DEFAULT_REWARDS
+
+    import bot.services.points_service as ps
+
+    monkeypatch.setattr(ps, "points_service", _FakePoints)
+    assert svc._active_fee_discount_fraction(1) == pytest.approx(0.50)
+    # 100bps -> 50bps: identical to the old absolute "subtract 0.5pp" on FREE.
+    assert svc.get_fee_bps(SubscriptionTier.FREE, user_id=1) == 50
+    # ...and the paid tiers now scale instead of all landing on the floor.
+    assert svc.get_fee_bps(SubscriptionTier.PRO, user_id=1) == 25
+    assert svc.get_fee_bps(SubscriptionTier.PREMIUM, user_id=1) == 15
+    assert svc.get_fee_bps(SubscriptionTier.ENTERPRISE, user_id=1) == 10
+
+
+def test_points_fraction_is_clamped(svc, monkeypatch):
+    """A mis-seeded catalogue row (say 5pp, larger than the whole FREE rate)
+    would otherwise produce a fraction above 1.0 and a negative fee."""
+
+    class _AbsurdPoints:
+        @staticmethod
+        def get_active_fee_discount(_uid):
+            return 5.0
+
+    import bot.services.points_service as ps
+
+    monkeypatch.setattr(ps, "points_service", _AbsurdPoints)
+    assert svc._active_fee_discount_fraction(1) == MAX_POINTS_DISCOUNT_FRACTION
 
 
 @pytest.mark.parametrize("tier", _TIER_LADDER)
 @pytest.mark.parametrize("card_fraction", [0.0, 0.40])
-@pytest.mark.parametrize("points_discount", [0.0, 0.0015])
+@pytest.mark.parametrize("points_discount", [0.0, 0.50])
 @pytest.mark.parametrize("referee_rebate", [False, True])
 def test_effective_fee_never_reaches_zero_or_negative(
     svc, monkeypatch, tier, card_fraction, points_discount, referee_rebate
