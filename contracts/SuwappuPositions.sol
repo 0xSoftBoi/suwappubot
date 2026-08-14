@@ -187,7 +187,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     event MintingClosedForever(uint256 finalSupply);
     event PausedSet(bool paused);
     event PhaseConfigured(Phase indexed phase, bytes32 merkleRoot, uint96 price, uint16 walletCap, uint16 allocation, uint64 startsAt, uint64 endsAt);
-    event HoldDiscountSet(uint16 bps);
+    event HoldDiscountSet(uint16 fractionBps);
     event BaseURISet(string baseURI);
 
     error PhaseNotOpen();
@@ -801,12 +801,16 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         emit OracleSet(o);
     }
 
-    /// @param bps Basis points OF THE TIER RATE (10000 = 100% off), not basis
-    ///        points of the swap. Bounded by MAX_HOLD_DISCOUNT_FRACTION_BPS.
-    function setHoldDiscountBps(uint16 bps) external onlyOwner {
-        if (bps > MAX_HOLD_DISCOUNT_FRACTION_BPS) revert DiscountTooHigh();
-        holdDiscountFractionBps = bps;
-        emit HoldDiscountSet(bps);
+    /// @param fractionBps Basis points OF THE TIER RATE (10000 = 100% off), NOT
+    ///        basis points of the swap. 4000 means "40% off whatever rate the
+    ///        holder is already on". Named for the unit on purpose: the previous
+    ///        `bps` spelling read as basis-points-of-the-swap, and an owner acting
+    ///        on that reading would set a discount two orders of magnitude from
+    ///        the one they intended. Bounded by MAX_HOLD_DISCOUNT_FRACTION_BPS.
+    function setHoldDiscountFractionBps(uint16 fractionBps) external onlyOwner {
+        if (fractionBps > MAX_HOLD_DISCOUNT_FRACTION_BPS) revert DiscountTooHigh();
+        holdDiscountFractionBps = fractionBps;
+        emit HoldDiscountSet(fractionBps);
     }
 
     /// @notice Configure a phase. Set `merkleRoot` to 0 for an open phase.

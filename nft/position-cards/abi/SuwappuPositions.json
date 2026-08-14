@@ -488,7 +488,7 @@
    {
     "indexed": false,
     "internalType": "uint16",
-    "name": "bps",
+    "name": "fractionBps",
     "type": "uint16"
    }
   ],
@@ -2017,11 +2017,11 @@
   "inputs": [
    {
     "internalType": "uint16",
-    "name": "bps",
+    "name": "fractionBps",
     "type": "uint16"
    }
   ],
-  "name": "setHoldDiscountBps",
+  "name": "setHoldDiscountFractionBps",
   "outputs": [],
   "stateMutability": "nonpayable",
   "type": "function"
