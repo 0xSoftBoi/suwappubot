@@ -110,7 +110,7 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             "price is stamped on-chain at mint and never changes, so the card is a "
             "permanent record of the call you made, and it re-renders against the live "
             "price forever.\n\n"
-            "*Holding one takes 40% off your swap fee, whatever tier you're on* — "
+            "*Holding one takes 40% off your swap fee on Free, Pro and Premium* — "
             "on Free that's $4 back per $1,000 traded (100 bps → 60 bps).\n\n"
             "_Collectible cards. Not equity, not a security, pays nothing._"
         )

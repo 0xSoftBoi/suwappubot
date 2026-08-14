@@ -218,7 +218,9 @@ class FeeService:
           flat bps subtraction from unevenly-spaced tiers (FREE 100 / PRO 50 /
           PREMIUM 30 / ENTERPRISE 10) collapsed PRO and PREMIUM to the same
           floored rate, making PREMIUM worthless to a card holder. Multiplying
-          instead preserves the ladder for every tier.
+          instead preserves the ladder for every tier. NOT offered on
+          ENTERPRISE: that tier is contracted pricing and is deliberately out of
+          reach of a tradeable NFT.
         - The final result is FLOORED at ABSOLUTE_FLOOR (2 bps) so the fee can
           NEVER go negative or to zero — that would also zero the referral
           fee-share and treasury split.
@@ -232,7 +234,16 @@ class FeeService:
         else:
             base = DEFAULT_FEE_RATE
         discount = self._active_fee_discount_decimal(user_id)
-        positions_fraction = self._positions_discount_fraction(user_id)
+        # ENTERPRISE is contracted pricing, negotiated per customer — it is not
+        # something a consumer NFT is allowed to move. A card bought on the open
+        # market must never discount a rate that was agreed in a contract, so the
+        # perk stops at PREMIUM. This is a commercial rule, not a math one: the
+        # proportional discount would order fine at ENTERPRISE (10 -> 6bps), it
+        # simply is not on offer there.
+        if tier is SubscriptionTier.ENTERPRISE:
+            positions_fraction = 0.0
+        else:
+            positions_fraction = self._positions_discount_fraction(user_id)
 
         # Absolute: floored at the ENTERPRISE rate so a points redemption can
         # match, but never beat, our best paid tier.
@@ -240,6 +251,16 @@ class FeeService:
         # Proportional: multiplies the post-points rate, so it scales with tier
         # and can never invert the ladder.
         effective = tier_after_points * (1.0 - positions_fraction)
+        # Consumer perks may MATCH contracted pricing but never beat it. Without
+        # this, excluding ENTERPRISE from the card inverts the ladder: a PREMIUM
+        # holder stacking a points redemption with a card lands under the
+        # ENTERPRISE rate, so the tier nobody negotiated undercuts the one that
+        # was negotiated. Same floor and same reasoning as the points step above;
+        # it has to be re-applied here because the card is multiplicative and
+        # therefore lands BELOW a floor that was only checked before it.
+        # ENTERPRISE is exempt so its own referee rebate can still bite.
+        if tier is not SubscriptionTier.ENTERPRISE:
+            effective = max(MIN_EFFECTIVE_FEE_RATE, effective)
 
         # Referral v2 — referee first-5-swaps rebate: 10% off the effective rate.
         # READ-ONLY: this never decrements referee_swap_rebate_remaining.

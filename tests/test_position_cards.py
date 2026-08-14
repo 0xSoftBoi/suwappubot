@@ -198,7 +198,7 @@ def test_early_mint_badges_are_rank_ordered():
 
 def test_positions_discount_stacks_and_respects_the_floor(monkeypatch):
     from bot.models.subscription import SubscriptionTier
-    from bot.services.fee_service import ABSOLUTE_FLOOR, FeeService
+    from bot.services.fee_service import ABSOLUTE_FLOOR, MIN_EFFECTIVE_FEE_RATE, FeeService
 
     svc = FeeService()
     monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: 0.0)
@@ -213,11 +213,23 @@ def test_positions_discount_stacks_and_respects_the_floor(monkeypatch):
     assert discounted == pytest.approx(base * 0.60)
     assert discounted > 0
 
-    # an absurd fraction must still floor, never zero or go negative
+    # An absurd fraction must still floor. FREE is a self-serve tier, so it
+    # floors at the contracted-pricing floor (the ENTERPRISE rate) — a consumer
+    # perk may match what an ENTERPRISE customer negotiated but never beat it.
     monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 99.0)
     floored = svc.get_fee_decimal(SubscriptionTier.FREE, user_id=1)
-    assert floored == ABSOLUTE_FLOOR
+    assert floored == MIN_EFFECTIVE_FEE_RATE
     assert svc.get_fee_bps(SubscriptionTier.FREE, user_id=1) > 0
+
+    # ABSOLUTE_FLOOR sits below that and is, by design, currently UNREACHABLE:
+    # every self-serve path stops at MIN_EFFECTIVE_FEE_RATE, and the only route
+    # under it (ENTERPRISE + referee rebate) lands at 9bps. It is kept as
+    # defence-in-depth — the guarantee that no future multiplicative perk, or
+    # corrupt cached value, can drive the charged fee to zero and silently zero
+    # the referral fee-share and treasury split with it. Asserted as an ordering
+    # invariant rather than a reachable value, so it cannot rot into a lie.
+    assert ABSOLUTE_FLOOR < MIN_EFFECTIVE_FEE_RATE
+    assert floored > ABSOLUTE_FLOOR
 
 
 def test_discount_is_zero_when_unconfigured(monkeypatch):
@@ -597,7 +609,9 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
     pro_bps = svc2.get_fee_bps(SubscriptionTier.PRO, user_id=321)
     premium_bps = svc2.get_fee_bps(SubscriptionTier.PREMIUM, user_id=321)
     ent_bps = svc2.get_fee_bps(SubscriptionTier.ENTERPRISE, user_id=321)
-    assert (pro_bps, premium_bps, ent_bps) == (30, 18, 6)
+    # ENTERPRISE is 10, NOT 6 — the card perk is not offered on contracted
+    # pricing, so the cached discount must not touch it.
+    assert (pro_bps, premium_bps, ent_bps) == (30, 18, 10)
     assert real_bps > pro_bps > premium_bps > ent_bps > 0
 
 

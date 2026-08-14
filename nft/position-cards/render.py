@@ -776,8 +776,9 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
             f"The entry price was stamped on-chain at mint and can never change; the "
             f"card re-renders against the live price, so what you see is the call you "
             f"actually made. Holding it takes "
-            f"{int(round(cfg['economics']['hold_discount_fraction'] * 100))}% off every "
-            f"Suwappu swap fee, whatever tier you're on.\n\n"
+            f"{int(round(cfg['economics']['hold_discount_fraction'] * 100))}% off your "
+            f"Suwappu swap fee on the Free, Pro and Premium plans (Enterprise pricing "
+            f"is contracted separately).\n\n"
             f"{col['compliance']}"
         )
     else:

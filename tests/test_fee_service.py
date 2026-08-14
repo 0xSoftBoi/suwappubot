@@ -129,12 +129,15 @@ def _patch_discounts(monkeypatch, svc, *, points=0.0, card=0.0, referee=False):
         (SubscriptionTier.FREE, 100, 60),
         (SubscriptionTier.PRO, 50, 30),
         (SubscriptionTier.PREMIUM, 30, 18),
-        (SubscriptionTier.ENTERPRISE, 10, 6),
+        # ENTERPRISE is unchanged BY DESIGN — the card perk is not offered on
+        # contracted pricing. See get_fee_decimal.
+        (SubscriptionTier.ENTERPRISE, 10, 10),
     ],
 )
 def test_exact_fee_bps_table_card_vs_no_card(svc, monkeypatch, tier, no_card_bps, with_card_bps):
     """Pinned table: a 40% proportional card discount off each tier's own rate,
-    not a flat 40bps subtraction off all of them."""
+    not a flat 40bps subtraction off all of them — and not offered at all on
+    ENTERPRISE."""
     _patch_discounts(monkeypatch, svc, card=0.0)
     assert svc.get_fee_bps(tier, user_id=1) == no_card_bps
 
@@ -145,23 +148,61 @@ def test_exact_fee_bps_table_card_vs_no_card(svc, monkeypatch, tier, no_card_bps
 @pytest.mark.parametrize("card_fraction", [0.0, 0.40])
 @pytest.mark.parametrize("points_discount", [0.0, 0.0015])
 @pytest.mark.parametrize("referee_rebate", [False, True])
-def test_ladder_is_strictly_monotonic_across_every_stacking_combination(
+def test_ladder_is_never_inverted_across_every_stacking_combination(
     svc, monkeypatch, card_fraction, points_discount, referee_rebate
 ):
-    """The regression lock for the flat-40bps bug. With a card held and a points
-    discount that binds the ENTERPRISE floor (0.0015 leaves headroom on every
-    other tier but always floors ENTERPRISE, since its base rate == the floor),
-    the OLD formula (base - points - flat 40bps, floored) collapsed PRO and
-    PREMIUM to the same rate as ENTERPRISE. Every combination of the three
-    stackable discounts must preserve FREE > PRO > PREMIUM > ENTERPRISE."""
+    """No stack of consumer perks may reorder the tiers or undercut contracted
+    pricing.
+
+    Non-strict at the bottom on purpose. The card is not offered on ENTERPRISE
+    (contracted pricing), so a PREMIUM holder stacking points + card is floored
+    at the ENTERPRISE base rather than allowed to dive under it — that floor
+    produces a legitimate TIE, not a collapse. What must never happen is an
+    INVERSION: a cheaper subscription charging less than a dearer one.
+    points_discount=0.0015 is chosen because it binds that floor (ENTERPRISE's
+    base rate IS the floor), which is exactly where inversion would appear.
+
+    Strict separation of the self-serve tiers is asserted by the test below,
+    which is the real regression lock for the flat-40bps bug.
+    """
     _patch_discounts(
         monkeypatch, svc, points=points_discount, card=card_fraction, referee=referee_rebate
     )
 
     bps = [svc.get_fee_bps(tier, user_id=1) for tier in _TIER_LADDER]
-    assert bps[0] > bps[1] > bps[2] > bps[3], (
-        f"ladder collapsed: FREE={bps[0]} PRO={bps[1]} PREMIUM={bps[2]} ENTERPRISE={bps[3]} "
+    ctx = (
+        f"FREE={bps[0]} PRO={bps[1]} PREMIUM={bps[2]} ENTERPRISE={bps[3]} "
         f"(card={card_fraction}, points={points_discount}, referee_rebate={referee_rebate})"
+    )
+    assert bps[0] >= bps[1] >= bps[2] >= bps[3], f"ladder inverted: {ctx}"
+    # ...and nothing self-serve may end up under contracted pricing. The referee
+    # rebate is the one thing that legitimately takes ENTERPRISE below its base,
+    # and it applies to every tier equally, so compare against the same floor.
+    floor_bps = round(MIN_EFFECTIVE_FEE_RATE * 10_000 * (0.90 if referee_rebate else 1.0))
+    assert min(bps) >= floor_bps, f"a perk beat contracted pricing: {ctx}"
+
+
+@pytest.mark.parametrize("referee_rebate", [False, True])
+def test_card_alone_keeps_every_self_serve_tier_distinct(svc, monkeypatch, referee_rebate):
+    """THE regression lock for the flat-40bps bug.
+
+    Holding a card must never make two subscription tiers cost the same. Under
+    the old flat subtraction, PRO ($9.99) and PREMIUM ($29.99) both landed on
+    10bps — identical to ENTERPRISE ($99.99) — so PREMIUM was worth nothing to a
+    card holder. Strict, with no points discount, because this is about the card
+    on its own.
+
+    Known gap, deliberately not asserted here: a points redemption large enough
+    to drive both PRO and PREMIUM onto the floor can still tie them. That is the
+    points discount being absolute rather than proportional — a pre-existing
+    defect in a different perk, tracked separately, and not something this test
+    should pretend to cover.
+    """
+    _patch_discounts(monkeypatch, svc, points=0.0, card=0.40, referee=referee_rebate)
+    bps = [svc.get_fee_bps(tier, user_id=1) for tier in _TIER_LADDER]
+    assert bps[0] > bps[1] > bps[2] > bps[3], (
+        f"card collapsed the ladder: FREE={bps[0]} PRO={bps[1]} "
+        f"PREMIUM={bps[2]} ENTERPRISE={bps[3]}"
     )
 
 
@@ -204,3 +245,20 @@ def test_points_discount_alone_cannot_beat_enterprise_base_rate(
     _patch_discounts(monkeypatch, svc, points=points_discount, card=0.0, referee=False)
     rate = svc.get_fee_decimal(tier, user_id=1)
     assert rate >= MIN_EFFECTIVE_FEE_RATE - 1e-12
+
+
+@pytest.mark.parametrize("card_fraction", [0.40, 0.60, 1.0])
+def test_position_card_never_discounts_enterprise(svc, monkeypatch, card_fraction):
+    """ENTERPRISE is contracted pricing and a tradeable NFT must not move it.
+
+    Anyone can buy a Position card on the secondary market. If the perk applied
+    at ENTERPRISE, a card bought for the price of a JPEG would cut a rate that
+    was agreed in a contract — so the perk stops at PREMIUM. Parametrised past
+    the 0.60 service clamp because the exclusion has to hold on the value the
+    resolver ACTUALLY returns, not merely on the value we expect it to return.
+    """
+    _patch_discounts(monkeypatch, svc, card=card_fraction)
+    assert svc.get_fee_bps(SubscriptionTier.ENTERPRISE, user_id=1) == 10
+    # ...and the tier below it still gets the perk, so this is an exclusion and
+    # not an accidental global disable.
+    assert svc.get_fee_bps(SubscriptionTier.PREMIUM, user_id=1) < 30
