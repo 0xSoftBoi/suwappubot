@@ -335,6 +335,29 @@ async def lifespan(app: FastAPI):
                 "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
             )
             logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+
+            # ...and keep republishing it. Writing this ONCE at startup meant a
+            # 24h TTL could only answer the question for the first 24h of a
+            # deploy. Observed in production: the worker last deployed 04 Aug,
+            # the key expired on the 5th, and /health reported
+            # worker_fingerprint "unknown" for ten days on a worker that was
+            # demonstrably alive and logging — which is precisely the ambiguity
+            # the comment above says this exists to remove. A stable worker does
+            # not restart for weeks, so "outlive a quiet period" needed a
+            # refresh, not a longer TTL.
+            async def _republish_fingerprint():
+                while True:
+                    await asyncio.sleep(3600)
+                    try:
+                        await redis_cache.set(
+                            "service:worker:fingerprint",
+                            SOURCE_FINGERPRINT,
+                            ttl_seconds=86400,
+                        )
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+
+            asyncio.create_task(_republish_fingerprint())
         except Exception as e:
             logger.warning(f"Could not publish worker fingerprint: {e}")
 
@@ -1023,6 +1046,13 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
 }
 DEFAULT_STALENESS_SECONDS = 90
 
+# When this process came up. Needed to distinguish a service that has NOT YET
+# written its first heartbeat (normal, for a few seconds after boot) from one
+# that never will. Without it both read "unknown", and "unknown" was excluded
+# from `degraded` — so a wedged balance_refresher sat invisible in production
+# for four days behind ready:true and degraded:[].
+_PROCESS_STARTED_AT = time.time()
+
 
 # ---------------------------------------------------------------------------
 # Build fingerprint
@@ -1155,12 +1185,24 @@ async def health_ready():
         settings, "hl_whale_alerts_enabled", False
     ):
         watched_services.append("hl_ws_alerts")
+    never_beat: list[str] = []
+    uptime = now - _PROCESS_STARTED_AT
     for svc in watched_services:
+        threshold = SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS)
         last = await redis_cache.get(f"service:{svc}:heartbeat")
         if last is None:
-            svc_heartbeats[svc] = "unknown"
-        elif now - float(last) > SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS):
+            # A missing key past the service's own threshold is not "unknown",
+            # it is dead: the loop has had a full window to beat and has not.
+            # Reporting it as unknown made a service that never started look
+            # exactly like a healthy one.
+            if uptime > threshold:
+                svc_heartbeats[svc] = "dead"
+                never_beat.append(svc)
+            else:
+                svc_heartbeats[svc] = "starting"
+        elif now - float(last) > threshold:
             svc_heartbeats[svc] = "dead"
+            never_beat.append(svc)
         else:
             svc_heartbeats[svc] = "alive"
 
@@ -1198,8 +1240,13 @@ async def health_ready():
             # Optional non-critical services that failed to start (or, for
             # periodic tasks, most recently failed) — never affects
             # ready/status_code, purely visibility. Empty when all healthy.
-            "degraded": [
-                {"service": name, "error": err} for name, err in DEGRADED_SERVICES.items()
+            "degraded": [{"service": name, "error": err} for name, err in DEGRADED_SERVICES.items()]
+            # A watched background loop that is not beating belongs here. It was
+            # previously visible ONLY as a word inside checks.background_services
+            # that nothing alerted on.
+            + [
+                {"service": name, "error": "no heartbeat past staleness threshold"}
+                for name in never_beat
             ],
         },
     )

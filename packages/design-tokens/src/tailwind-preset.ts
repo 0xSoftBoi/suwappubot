@@ -161,6 +161,56 @@ const sharedBoxShadow = {
  *   import { suwappuPreset } from '@suwappu/design-tokens/tailwind'
  *   export default { presets: [suwappuPreset], ... }
  */
+/**
+ * warmPreset — the CANONICAL Suwappu brand as a Tailwind preset.
+ *
+ * `showcase/` previously defined these values inline in its own tailwind config,
+ * which made the public marketing site the only surface not consuming the token
+ * package. Exported here so there is exactly one definition, and a test in
+ * tests/test_brand_tokens.py fails if any surface drifts from it.
+ *
+ * suwappuPreset and professionalPreset below are the LEGACY identity, still
+ * consumed by webapp/mobile/terminal. They are kept so that migration is a
+ * visible, reviewable diff rather than a silent repaint of the product.
+ */
+export const warmPreset = {
+  theme: {
+    extend: {
+      colors: {
+        warm: {
+          bg: designTokens.brand.bg,
+          surface: designTokens.brand.surface,
+          'surface-2': designTokens.brand.surface2,
+          border: designTokens.brand.border,
+          'border-2': designTokens.brand.border2,
+          text: designTokens.brand.text,
+          'text-2': designTokens.brand.text2,
+          'text-3': designTokens.brand.text3,
+          accent: designTokens.brand.accent,
+          'accent-hover': designTokens.brand.accentHover,
+          'accent-light': designTokens.brand.accentLight,
+          green: designTokens.brand.green,
+          'green-light': designTokens.brand.greenLight,
+          dark: designTokens.brand.dark,
+          'dark-surface': designTokens.brand.darkSurface,
+        },
+      },
+      fontFamily: {
+        display: ['var(--font-display)', 'Geist', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-sans)', 'Geist', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'Geist Mono', 'monospace'],
+      },
+      borderRadius: { pill: '50px', xl: '20px', '2xl': '24px' },
+      boxShadow: {
+        card: '0 1px 3px rgba(0,0,0,0.04), 0 4px 20px rgba(0,0,0,0.03)',
+        'card-hover': '0 4px 12px rgba(0,0,0,0.06), 0 12px 40px rgba(0,0,0,0.04)',
+        button: '0 2px 8px rgba(244,114,182,0.25)',
+        'button-hover': '0 4px 16px rgba(244,114,182,0.35)',
+      },
+    },
+  },
+}
+
 export const suwappuPreset = {
   theme: {
     extend: {

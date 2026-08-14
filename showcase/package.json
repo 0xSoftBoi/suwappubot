@@ -25,7 +25,8 @@
     "next": "^15.5.21",
     "next-intl": "^4.13.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "@suwappu/design-tokens": "file:../packages/design-tokens"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

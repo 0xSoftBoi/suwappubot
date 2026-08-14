@@ -9,6 +9,44 @@ export const designTokens = {
   name: 'Suwappu UI',
   version: '2.0.0',
 
+  /**
+   * CANONICAL BRAND — the values www.suwappu.bot actually renders.
+   *
+   * This repo carried TWO fully-realised design systems that disagreed: this
+   * package (persimmon/sakura, Pacifico/Quicksand/Nunito, consumed by terminal,
+   * webapp and mobile) and a standalone palette in showcase/tailwind.config.ts
+   * (warm cream, pink, Geist, consumed by the public marketing site). Both were
+   * live. New surfaces picked whichever they happened to copy from, and the NFT
+   * collection was built against one of them by luck rather than decision.
+   *
+   * Reconciled in favour of the MARKETING values, because the product's own
+   * positioning is "the execution layer between intent and markets" and a
+   * cursive display face contradicts it — while keeping THIS package as the
+   * single source, because it is the one with the architecture (tailwind preset,
+   * react-native theme, css vars, terminal ANSI) that every surface can consume.
+   *
+   * `legacySakura` below is the previous identity, kept only so the migration of
+   * webapp/mobile/terminal is a visible, reviewable diff rather than a silent
+   * repaint. Do not build anything new against it.
+   */
+  brand: {
+    bg: '#faf8f4',
+    surface: '#ffffff',
+    surface2: '#f5f0ea',
+    border: '#e5e0d8',
+    border2: '#d4cec4',
+    text: '#1a1a1a',
+    text2: '#6b6560',
+    text3: '#9a9590',
+    accent: '#f472b6',
+    accentHover: '#ec4899',
+    accentLight: '#fdf2f8',
+    green: '#1a5c38',
+    greenLight: '#e8f5ee',
+    dark: '#1a1a1a',
+    darkSurface: '#222222',
+  },
+
   colors: {
     brand: {
       persimmonCream: '#FFF8EE',
@@ -244,7 +282,20 @@ export const designTokens = {
   },
 
   typography: {
+    /**
+     * Canonical: Geist, matching the marketing site. A cursive display face
+     * contradicts "execution infrastructure", which is what the product says
+     * it is — so the previous stack is retained as `legacyFontFamilies` for the
+     * surfaces not yet migrated, and is not to be used by anything new.
+     */
     fontFamilies: {
+      display: 'Geist, "Inter", system-ui, -apple-system, sans-serif',
+      heading: 'Geist, "Inter", system-ui, -apple-system, sans-serif',
+      body: 'Geist, "Inter", system-ui, -apple-system, sans-serif',
+      ui: 'Geist, "Inter", system-ui, -apple-system, sans-serif',
+      mono: '"Geist Mono", "SFMono-Regular", Menlo, Consolas, monospace',
+    },
+    legacyFontFamilies: {
       display: '"Pacifico", "Dancing Script", "Satisfy", cursive',
       heading: '"Quicksand", "Nunito", "Poppins", sans-serif',
       body: '"Nunito", "Open Sans", "Lato", sans-serif',

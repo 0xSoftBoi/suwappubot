@@ -447,6 +447,59 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
+    # --- users: signature-proved membership binding address (additive) ---
+    if "users" in tables:
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "membership_address" not in user_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN membership_address VARCHAR(64)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_address VARCHAR(64)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # --- users.membership_address: one wallet backs at most one account ---
+    # Without this a single paid membership NFT could be signed for unlimited
+    # accounts (the signature proves key possession, not identity), handing every
+    # one of them ENTERPRISE fee rates off one purchase.
+    if "users" in tables:
+        idx_names = {i["name"] for i in inspector.get_indexes("users")}
+        # Indexed on lower(...), not the raw column. A plain unique index is
+        # CASE-SENSITIVE, so 0xab..ab and 0xAB..AB both insert and two accounts
+        # share one wallet — the exact thing this index exists to stop. It held
+        # only because bindwallet.py lowercases before writing, i.e. one caller
+        # remembering. Any other writer (admin tool, API route, import) that
+        # forgets reopens the vector silently. Enforce it in the database.
+        if "ux_users_membership_address_lower" not in idx_names:
+            with db_engine.begin() as conn:
+                # Normalise first: a pre-existing mixed-case row would fail the
+                # index creation below and block startup.
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = lower(membership_address) "
+                        "WHERE membership_address IS NOT NULL "
+                        "AND membership_address <> lower(membership_address)"
+                    )
+                )
+                # Clear any duplicates created before the constraint existed —
+                # keep the lowest user id, unbind the rest (they can re-bind).
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = NULL "
+                        "WHERE membership_address IS NOT NULL AND id NOT IN ("
+                        "  SELECT MIN(id) FROM users WHERE membership_address IS NOT NULL"
+                        "  GROUP BY lower(membership_address))"
+                    )
+                )
+                conn.execute(text("DROP INDEX IF EXISTS ux_users_membership_address"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_users_membership_address_lower "
+                        "ON users (lower(membership_address))"
+                    )
+                )
+
     # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = (
         "agents"

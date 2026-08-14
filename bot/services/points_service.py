@@ -210,12 +210,19 @@ class PointsService:
 
         return points, new_level
 
+    # Ceiling on the Position-card XP multiplier, as a hard backstop independent
+    # of whatever the contract reports. House desk is 3500 bps (+35%); anything
+    # above means a bad read or a wrong contract, and XP feeds season standings,
+    # so it is clamped rather than trusted.
+    MAX_TICKER_BOOST_BPS = 3500
+
     def award_swap_points(
         self,
         user_id: int,
         swap_amount_usd: float,
         swap_id: int,
         fee_usd: Optional[float] = None,
+        ticker_boost_bps: int = 0,
     ) -> Tuple[int, bool, Optional[str]]:
         """
         Award points for completing a swap.
@@ -225,6 +232,14 @@ class PointsService:
         denominated in fees paid (wash-proof), not raw volume. Default None
         keeps the legacy volume-based behavior.
 
+        ``ticker_boost_bps`` is the Suwappu Position-card bonus for swapping a
+        ticker the user holds a card on (see position_cards_service). It is
+        resolved by the ASYNC caller and passed in, because this method must not
+        do I/O — the same split the fee path uses. It multiplies the BASE volume
+        points only, never the daily-streak bonus, so the boost scales with
+        trading rather than with logging in. Clamped to MAX_TICKER_BOOST_BPS and
+        floored at 0, so a bad read can never mint XP.
+
         Returns:
             Tuple of (points_awarded, is_first_swap_today, new_level)
         """
@@ -232,6 +247,11 @@ class PointsService:
         base_points = int(swap_amount_usd / 10)
         if base_points < 1:
             base_points = 1  # Minimum 1 point
+
+        # Position-card ticker boost applies to the volume component only.
+        boost = max(0, min(int(ticker_boost_bps or 0), self.MAX_TICKER_BOOST_BPS))
+        if boost:
+            base_points += (base_points * boost) // 10_000
 
         total_points = base_points
         is_first_today = False
@@ -267,6 +287,7 @@ class PointsService:
                 "amount_usd": swap_amount_usd,
                 "first_today": is_first_today,
                 "fee_usd": fee_usd,
+                "ticker_boost_bps": boost,
             },
         )
 

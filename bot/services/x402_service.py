@@ -54,6 +54,28 @@ BETA_PASSWORDS = _load_beta_passwords()
 # (TIER_FEE_RATES) — the single source of truth for what's actually charged
 # on-chain. Do NOT hardcode the fee here: it would let this copy drift from the
 # fee the swap engine collects. Update fee_service.TIER_FEE_RATES instead.
+# EIP-712 domains for the x402 `exact` (EIP-3009) scheme, keyed by chain.
+#
+# MIRRORS api-ts/src/config/x402Networks.ts. That file is the authority; this is
+# the Python-side copy so the bot can build a signable authorization without
+# calling into the TS stack. tests/test_membership.py asserts the two agree,
+# because a wrong domain does not fail loudly — it produces a signature that
+# recovers to the wrong address and silently fails settlement.
+#
+# USDG's `version()` REVERTS, so its version was recovered by brute-forcing the
+# domain against the on-chain DOMAIN_SEPARATOR
+# (0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036).
+# Do not "fix" this by calling version().
+X402_EIP712_DOMAINS = {
+    "base": {"name": "USD Coin", "version": "2", "chain_id": 8453, "symbol": "USDC"},
+    "robinhood": {
+        "name": "Global Dollar",
+        "version": "1",
+        "chain_id": 4663,
+        "symbol": "USDG",
+    },
+}
+
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
         "daily_swaps": None,  # Unlimited — revenue comes from swap fee
@@ -245,7 +267,16 @@ class X402Service:
             return sub
 
     async def get_tier(self, user_id: int) -> SubscriptionTier:
-        """Get user's current subscription tier."""
+        """User's current tier: max(database subscription, on-chain membership).
+
+        The SuwappuMembership NFT on Robinhood Chain is an additional way to hold
+        a paid tier (docs/plans/robinhood-membership-integration.md). The max()
+        rule keeps the two systems composable: Stripe/x402 subscriptions work
+        exactly as before, and the chain can only ever RAISE the tier. The
+        on-chain lookup is TTL-cached and fail-open — any failure returns None
+        and the DB tier stands, so an RPC outage can never strip a paying
+        subscriber mid-swap.
+        """
         sub = await self.get_subscription(user_id)
 
         # Subscription.expires_at is a timestamp-without-time-zone column, so
@@ -255,10 +286,18 @@ class X402Service:
         expires_at = sub.expires_at
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
+        db_tier = sub.tier
         if expires_at is not None and expires_at < datetime.now(timezone.utc):
-            return SubscriptionTier.FREE
+            db_tier = SubscriptionTier.FREE
 
-        return sub.tier
+        try:
+            from bot.services.membership_service import membership_service
+
+            onchain = await membership_service.get_onchain_tier(user_id)
+            return membership_service.best_tier(db_tier, onchain)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Membership tier lookup failed for user {user_id}: {e}")
+            return db_tier
 
     async def upgrade_subscription(
         self,

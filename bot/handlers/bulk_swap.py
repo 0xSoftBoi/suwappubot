@@ -36,6 +36,7 @@ from bot.models.user import User, Wallet
 from bot.services.fee_service import fee_service
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
+from bot.services.position_cards_service import position_cards_service
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
 from bot.services.wallet import WalletService
@@ -946,11 +947,18 @@ async def _run_bulk_swap(edit, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
         # XP points
         swap_usd = fee_usd / (fee_pct / 100) if fee_pct > 0 else 0
+        # Position-card ticker boost, resolved here because the points service is
+        # sync and must not do I/O. Wired on the bulk path too — a perk that only
+        # fires on single swaps is a perk users will report as broken.
+        ticker_boost = await position_cards_service.swap_xp_boost_bps(
+            user_id, leg.get("from_token"), leg.get("to_token")
+        )
         pts, _, _ = points_service.award_swap_points(
             user_id=user_id,
             swap_amount_usd=swap_usd,
             swap_id=swap_tx.id,
             fee_usd=fee_usd,
+            ticker_boost_bps=ticker_boost,
         )
         total_points += pts
 
