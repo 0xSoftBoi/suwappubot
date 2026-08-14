@@ -62,22 +62,19 @@ def _median(values: list[float]) -> Optional[float]:
 class ExecutionBenchmark:
     """Cohort execution statistics with a hard k-anonymity floor."""
 
-    def cohort_stats(
-        self,
-        from_token: str,
-        to_token: str,
-        window_days: int = DEFAULT_WINDOW_DAYS,
-    ) -> dict[str, Any]:
-        """Aggregate realized-vs-quoted for one trade shape.
+    def _cohort_rows(self, from_token: str, to_token: str, window_days: int) -> list[tuple]:
+        """Every (user_id, bps) pair for one trade shape in the window.
 
-        Returns ``{"suppressed": True, ...}`` when the cohort is too small,
-        never partial statistics.
+        The ONLY place this join is issued. ``cohort_stats`` and
+        ``user_percentile`` both derive from a single call's rows — an earlier
+        attempt at this had ``user_percentile`` call ``cohort_stats`` and then
+        re-fetch, which deduplicated the SQL text while still running the scan
+        twice. Keep the fetch and the aggregate separable (see
+        ``_stats_from_rows``) or that regression comes straight back.
         """
-        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
         cutoff = datetime.utcnow() - timedelta(days=window_days)
-
         with get_session() as session:
-            rows = session.execute(
+            return session.execute(
                 text("""
                     SELECT s.user_id, m.realized_vs_quoted_bps
                     FROM swap_execution_marks m
@@ -91,6 +88,34 @@ class ExecutionBenchmark:
                 {"from_token": from_token, "to_token": to_token, "cutoff": cutoff},
             ).fetchall()
 
+    def cohort_stats(
+        self,
+        from_token: str,
+        to_token: str,
+        window_days: int = DEFAULT_WINDOW_DAYS,
+    ) -> dict[str, Any]:
+        """Aggregate quoted round-trip cost for one trade shape.
+
+        NOTE the column ``realized_vs_quoted_bps`` queried below is misnamed —
+        it holds quoted cost (spread + impact + fees), not fill accuracy. See
+        ``execution_scorer``'s module docstring. So these percentiles rank how
+        expensive a user's trades were to cross, NOT how well we executed them.
+
+        Returns ``{"suppressed": True, ...}`` when the cohort is too small,
+        never partial statistics.
+        """
+        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
+        rows = self._cohort_rows(from_token, to_token, window_days)
+        return self._stats_from_rows(rows, from_token, to_token, window_days)
+
+    def _stats_from_rows(
+        self, rows: list[tuple], from_token: str, to_token: str, window_days: int
+    ) -> dict[str, Any]:
+        """The aggregate, computed from rows already fetched.
+
+        Pure — takes no session — so a caller holding the rows can reuse them
+        instead of paying for the join again.
+        """
         distinct_users = {r[0] for r in rows if r[0] is not None}
 
         # THE FLOOR. Below this a "cohort statistic" identifies individuals.
@@ -129,12 +154,17 @@ class ExecutionBenchmark:
         says "you underperformed" gives the user a reason to leave and no way
         to act.
         """
-        stats = self.cohort_stats(from_token, to_token, window_days)
+        window_days = max(1, min(window_days, MAX_WINDOW_DAYS))
+
+        # ONE fetch, feeding both the aggregate and the percentile population.
+        # Calling cohort_stats() here instead would re-run this join.
+        rows = self._cohort_rows(from_token, to_token, window_days)
+        stats = self._stats_from_rows(rows, from_token, to_token, window_days)
         if stats.get("suppressed"):
             return stats
 
-        window_days = stats["window_days"]
         cutoff = datetime.utcnow() - timedelta(days=window_days)
+        population = [float(r[1]) for r in rows]
 
         with get_session() as session:
             mine = session.execute(
@@ -157,20 +187,6 @@ class ExecutionBenchmark:
                 },
             ).fetchall()
 
-            population = session.execute(
-                text("""
-                    SELECT m.realized_vs_quoted_bps
-                    FROM swap_execution_marks m
-                    JOIN swap_transactions s ON s.id = m.swap_id
-                    WHERE m.horizon = '5m'
-                      AND m.realized_vs_quoted_bps IS NOT NULL
-                      AND s.from_token = :from_token
-                      AND s.to_token = :to_token
-                      AND m.scored_at >= :cutoff
-                    """),
-                {"from_token": from_token, "to_token": to_token, "cutoff": cutoff},
-            ).fetchall()
-
         my_values = [float(r[0]) for r in mine]
         if not my_values:
             return {
@@ -180,10 +196,9 @@ class ExecutionBenchmark:
             }
 
         my_median = _median(my_values)
-        pop = [float(r[0]) for r in population]
         # Less value lost is better, so a higher (less negative) bps figure
         # ranks better.
-        percentile = _pct_rank(my_median, pop, higher_is_better=True)
+        percentile = _pct_rank(my_median, population, higher_is_better=True)
 
         return {
             "suppressed": False,

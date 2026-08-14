@@ -5158,3 +5158,40 @@ async def get_execution_benchmark(
     except Exception as e:
         logger.error(f"[execution_benchmark] failed: {e}")
         raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable")
+
+
+@router.get("/execution/receipt/{swap_id}")
+async def get_execution_receipt(
+    swap_id: int,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """What actually happened to one fill, and whether it was us or the market.
+
+    EXECUTION INTELLIGENCE (phase 4). The scoring pipeline has been marking
+    every completed swap in production since phase 2; this is the first surface
+    that shows a user their own numbers.
+
+    OWNERSHIP: the swap lookup is scoped by user_id inside the service, and a
+    swap belonging to someone else returns the same 404 as one that does not
+    exist — a distinguishable response would let a caller enumerate swap ids.
+
+    PRIVACY: the cohort percentile is delegated to ExecutionBenchmark, which
+    enforces the k-anonymity floor in its query layer. This route never touches
+    cohort rows directly and so cannot bypass it.
+    """
+    from bot.services.execution_receipt import execution_receipt
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        receipt = execution_receipt.build(user_id=user.id, swap_id=swap_id)
+    except Exception as e:
+        logger.error(f"[execution_receipt] failed for swap {swap_id}: {e}")
+        raise HTTPException(status_code=503, detail="Receipt temporarily unavailable")
+
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Swap not found")
+    return receipt
