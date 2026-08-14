@@ -29,7 +29,7 @@
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@sentry/node": "^10.68.0",
     "@turnkey/api-key-stamper": "^0.6.1",
-    "@turnkey/sdk-server": "^6.1.1",
+    "@turnkey/sdk-server": "^8.1.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@x402/core": "^2.16.0",
     "drizzle-orm": "^0.45.1",
