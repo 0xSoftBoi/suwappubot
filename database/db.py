@@ -521,6 +521,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
+        _add_swap_realized_output_columns(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -2119,6 +2120,37 @@ def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
                 ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_swap_realized_output_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add realized (post-fill) output columns to swap_transactions.
+
+    Everything else on the row is the quote's projection, written before the
+    transaction was broadcast. These record what actually settled, which is the
+    prerequisite for measuring fill-vs-quote accuracy at all.
+
+    Additive and idempotent, per the runtime-migration contract in
+    docs/development/migrations.md — existing rows keep NULL, which reads as
+    "not observed" rather than "received nothing".
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("realized_to_amount", "VARCHAR(78)"),
+        ("realized_to_amount_usd", "FLOAT"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = (
+                    f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}"
+                )
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 

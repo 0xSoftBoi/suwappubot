@@ -41,7 +41,29 @@ class LiFiStatus:
     receiving_tx_hash: Optional[str]
     sending_tx_hash: Optional[str]
     tool: Optional[str]
+    # What the user ACTUALLY received, as reported by Li.Fi once the
+    # destination leg settles. This is the only realized-output figure we get
+    # without parsing destination-chain logs ourselves, and it is what makes
+    # fill-vs-quote measurable at all — every other amount on a swap record is
+    # the quote's estimate. Smallest-unit string, mirroring `to_amount`.
+    receiving_amount: Optional[str]
+    receiving_amount_usd: Optional[float]
     raw_response: dict
+
+
+def _opt_str(value) -> Optional[str]:
+    """Smallest-unit amounts arrive as str or int depending on the bridge."""
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
+def _opt_float(value) -> Optional[float]:
+    """A malformed amountUSD must not sink a status poll."""
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 class LiFiAPI:
@@ -227,13 +249,16 @@ class LiFiAPI:
 
         data = await self._request("GET", "/status", params=params)
 
+        receiving = data.get("receiving") or {}
         return LiFiStatus(
             status=data.get("status", "PENDING"),
             substatus=data.get("substatus"),
-            receiving_chain_id=data.get("receiving", {}).get("chainId"),
-            receiving_tx_hash=data.get("receiving", {}).get("txHash"),
+            receiving_chain_id=receiving.get("chainId"),
+            receiving_tx_hash=receiving.get("txHash"),
             sending_tx_hash=data.get("sending", {}).get("txHash"),
             tool=data.get("tool"),
+            receiving_amount=_opt_str(receiving.get("amount")),
+            receiving_amount_usd=_opt_float(receiving.get("amountUSD")),
             raw_response=data,
         )
 

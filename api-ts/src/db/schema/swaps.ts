@@ -19,6 +19,11 @@ export const swapTransactions = pgTable('swap_transactions', {
 	toToken: varchar('to_token', { length: 64 }).notNull(),
 	toAmount: varchar('to_amount', { length: 78 }),
 	toAmountUsd: real('to_amount_usd'),
+	// Realized (post-fill) output. Every other amount here is the quote's
+	// projection, written before broadcast; these record what actually settled.
+	// NULL means "not observed" — never "received nothing". Do not coalesce.
+	realizedToAmount: varchar('realized_to_amount', { length: 78 }),
+	realizedToAmountUsd: real('realized_to_amount_usd'),
 
 	// Transaction details
 	status: varchar('status', { length: 30 }).default('pending'),
