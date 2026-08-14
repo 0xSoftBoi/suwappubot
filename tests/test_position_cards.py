@@ -198,25 +198,25 @@ def test_early_mint_badges_are_rank_ordered():
 
 def test_positions_discount_stacks_and_respects_the_floor(monkeypatch):
     from bot.models.subscription import SubscriptionTier
-    from bot.services.fee_service import MIN_EFFECTIVE_FEE_RATE, FeeService
+    from bot.services.fee_service import ABSOLUTE_FLOOR, FeeService
 
     svc = FeeService()
     monkeypatch.setattr(svc, "_active_fee_discount_decimal", lambda uid: 0.0)
     monkeypatch.setattr(svc, "_active_referee_rebate_applies", lambda uid: False)
 
-    monkeypatch.setattr(svc, "_positions_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 0.0)
     base = svc.get_fee_decimal(SubscriptionTier.FREE, user_id=1)
 
-    # 40 bps = 0.004
-    monkeypatch.setattr(svc, "_positions_discount_decimal", lambda uid: 0.004)
+    # 40% proportional discount off the FREE rate (100bps -> 60bps)
+    monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 0.40)
     discounted = svc.get_fee_decimal(SubscriptionTier.FREE, user_id=1)
-    assert discounted == pytest.approx(base - 0.004)
+    assert discounted == pytest.approx(base * 0.60)
     assert discounted > 0
 
-    # an absurd discount must still floor, never zero or go negative
-    monkeypatch.setattr(svc, "_positions_discount_decimal", lambda uid: 99.0)
+    # an absurd fraction must still floor, never zero or go negative
+    monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 99.0)
     floored = svc.get_fee_decimal(SubscriptionTier.FREE, user_id=1)
-    assert floored == MIN_EFFECTIVE_FEE_RATE
+    assert floored == ABSOLUTE_FLOOR
     assert svc.get_fee_bps(SubscriptionTier.FREE, user_id=1) > 0
 
 
@@ -227,7 +227,7 @@ def test_discount_is_zero_when_unconfigured(monkeypatch):
         type(position_cards_service), "contract_address", property(lambda self: None)
     )
     assert position_cards_service.enabled is False
-    assert position_cards_service.get_cached_discount_bps_for_user(1) == 0
+    assert position_cards_service.get_cached_discount_fraction_for_user(1) == 0.0
 
 
 def test_cached_discount_is_clamped_and_expires(monkeypatch):
@@ -237,19 +237,54 @@ def test_cached_discount_is_clamped_and_expires(monkeypatch):
 
     svc = mod.PositionCardsService()
     monkeypatch.setattr(type(svc), "contract_address", property(lambda self: "0x" + "11" * 20))
-    svc._user_discount[7] = (_t.time(), 9_999)
-    assert svc.get_cached_discount_bps_for_user(7) == mod.MAX_CARD_DISCOUNT_BPS
+    # A absurd cached fraction (a free swap) must be clamped, not honoured.
+    svc._user_discount[7] = (_t.time(), 9.99)
+    assert svc.get_cached_discount_fraction_for_user(7) == mod.MAX_CARD_DISCOUNT_FRACTION
 
-    svc._user_discount[8] = (_t.time() - 10_000, 40)  # expired
-    assert svc.get_cached_discount_bps_for_user(8) == 0
+    svc._user_discount[8] = (_t.time() - 10_000, 0.40)  # expired
+    assert svc.get_cached_discount_fraction_for_user(8) == 0.0
 
 
-def test_config_discount_matches_service_backstop():
-    """config.json is the source of truth; the service backstop must not be below it."""
-    from bot.services.position_cards_service import MAX_CARD_DISCOUNT_BPS
+def _positions_src():
+    return open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
 
-    cfg = render.load_config()
-    assert cfg["economics"]["hold_discount_bps"] <= MAX_CARD_DISCOUNT_BPS
+
+def test_config_contract_and_backstop_all_agree_on_the_discount():
+    """config.json, the contract default, and the service clamp must not drift.
+
+    Three files independently encode this one number and each is easy to edit
+    alone: nft/position-cards/config.json (the documented perk), the on-chain
+    default in SuwappuPositions.sol, and the Python clamp that bounds whatever
+    the contract reports. Editing any one without the others silently changes
+    what holders are charged, so pin them together here.
+
+    Note the on-chain unit: holdDiscountFractionBps is basis points OF THE TIER
+    RATE (4000 == 40% off the rate), NOT basis points of the swap. That
+    distinction is the bug this whole change fixed — see
+    fee_service.get_fee_decimal.
+    """
+    import re
+
+    from bot.services.position_cards_service import MAX_CARD_DISCOUNT_FRACTION
+
+    cfg_fraction = render.load_config()["economics"]["hold_discount_fraction"]
+
+    src = _positions_src()
+    m = re.search(r"uint16\s+public\s+holdDiscountFractionBps\s*=\s*(\d+)\s*;", src)
+    assert m, "holdDiscountFractionBps default not found in SuwappuPositions.sol"
+    on_chain_fraction = int(m.group(1)) / 10_000.0
+
+    cap = re.search(
+        r"uint16\s+public\s+constant\s+MAX_HOLD_DISCOUNT_FRACTION_BPS\s*=\s*(\d+)\s*;", src
+    )
+    assert cap, "MAX_HOLD_DISCOUNT_FRACTION_BPS not found in SuwappuPositions.sol"
+    on_chain_cap = int(cap.group(1)) / 10_000.0
+
+    assert cfg_fraction == on_chain_fraction == 0.40
+    # The clamp must bound the perk, and must agree with the on-chain cap — if the
+    # two caps diverge, one of them is silently doing nothing.
+    assert cfg_fraction <= MAX_CARD_DISCOUNT_FRACTION
+    assert on_chain_cap == MAX_CARD_DISCOUNT_FRACTION
 
 
 # ── 5. the oracle ─────────────────────────────────────────────────────────────
@@ -531,10 +566,11 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
         "contract_address",
         property(lambda self: "0x" + "11" * 20),
     )
-    mod.position_cards_service._user_discount[321] = (_t.time(), 40)
+    # 0.40 == 40% off the tier rate (a FRACTION, not bps of the swap).
+    mod.position_cards_service._user_discount[321] = (_t.time(), 0.40)
 
     base_bps = 0
-    monkeypatch.setattr(svc, "_positions_discount_decimal", lambda uid: 0.0)
+    monkeypatch.setattr(svc, "_positions_discount_fraction", lambda uid: 0.0)
     base_bps = svc.get_fee_bps(SubscriptionTier.FREE, user_id=321)
 
     # now with the real cached value flowing through the real resolver
@@ -554,6 +590,15 @@ def test_fee_discount_reaches_the_charged_bps_end_to_end(monkeypatch):
 
     # $10,000 swap: 100 bps -> 60 bps is $40 of real money
     assert (base_bps - real_bps) / 10_000 * 10_000 == 40
+
+    # And the same cached perk must NOT flatten a paid tier onto the ENTERPRISE
+    # rate — that collapse (PRO and PREMIUM both landing on 10 bps, identical to
+    # a $99.99/mo ENTERPRISE seat) is the bug this discount was reshaped to fix.
+    pro_bps = svc2.get_fee_bps(SubscriptionTier.PRO, user_id=321)
+    premium_bps = svc2.get_fee_bps(SubscriptionTier.PREMIUM, user_id=321)
+    ent_bps = svc2.get_fee_bps(SubscriptionTier.ENTERPRISE, user_id=321)
+    assert (pro_bps, premium_bps, ent_bps) == (30, 18, 6)
+    assert real_bps > pro_bps > premium_bps > ent_bps > 0
 
 
 # ── perks come from wallets the user actually controls ───────────────────────
