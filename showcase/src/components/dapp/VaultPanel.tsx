@@ -88,7 +88,7 @@ function LendForm() {
   const { account } = useWallet();
   const { data: acct } = useAccountData(account);
   const { data: vault } = useVault();
-  const { send, busy } = useTx();
+  const { send, sendBatch, busy } = useTx();
   const [supplyIn, setSupplyIn] = useState('');
   const [withdrawIn, setWithdrawIn] = useState('');
 
@@ -115,39 +115,36 @@ function LendForm() {
           disabled={busy}
         />
         <div className="mt-3">
-          {needsApproval ? (
-            <Button
-              disabled={busy}
-              onClick={() =>
-                send({
-                  label: 'Approve USDC for vault',
-                  address: CONTRACTS.reserveAsset,
-                  abi: erc20Abi,
-                  functionName: 'approve',
-                  args: [CONTRACTS.amortizingVault, maxUint256],
-                })
+          <Button
+            disabled={busy || supplyAmt === null}
+            onClick={async () => {
+              if (supplyAmt === null) return;
+              const supplyCall = {
+                label: `Supply ${supplyIn} USDC`,
+                address: CONTRACTS.amortizingVault,
+                abi: vaultAbi,
+                functionName: 'supply',
+                args: [supplyAmt],
+              };
+              if (needsApproval) {
+                await sendBatch(`Approve & supply ${supplyIn} USDC`, [
+                  {
+                    label: 'Approve USDC for vault',
+                    address: CONTRACTS.reserveAsset,
+                    abi: erc20Abi,
+                    functionName: 'approve',
+                    args: [CONTRACTS.amortizingVault, maxUint256],
+                  },
+                  supplyCall,
+                ]);
+              } else {
+                await send(supplyCall);
               }
-            >
-              Approve USDC
-            </Button>
-          ) : (
-            <Button
-              disabled={busy || supplyAmt === null}
-              onClick={async () => {
-                if (supplyAmt === null) return;
-                await send({
-                  label: `Supply ${supplyIn} USDC`,
-                  address: CONTRACTS.amortizingVault,
-                  abi: vaultAbi,
-                  functionName: 'supply',
-                  args: [supplyAmt],
-                });
-                setSupplyIn('');
-              }}
-            >
-              Supply
-            </Button>
-          )}
+              setSupplyIn('');
+            }}
+          >
+            {needsApproval ? 'Approve & supply' : 'Supply'}
+          </Button>
         </div>
       </div>
 
@@ -293,7 +290,7 @@ function BorrowForm() {
 function MintCollateralButton() {
   const { account } = useWallet();
   const { data: acct } = useAccountData(account);
-  const { send, busy } = useTx();
+  const { sendBatch, busy } = useTx();
   const [amount, setAmount] = useState('1000');
   const amt = parseAmount(amount);
 
@@ -308,20 +305,22 @@ function MintCollateralButton() {
         onClick={async () => {
           if (amt === null || !account) return;
           // Approve the 4626 to pull USDC, then deposit to mint collateral shares.
-          await send({
-            label: 'Approve USDC for yield vault',
-            address: CONTRACTS.reserveAsset,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [CONTRACTS.collateralVault, maxUint256],
-          });
-          await send({
-            label: `Deposit ${amount} USDC into yield vault`,
-            address: CONTRACTS.collateralVault,
-            abi: erc4626Abi,
-            functionName: 'deposit',
-            args: [amt, account],
-          });
+          await sendBatch(`Deposit ${amount} USDC into yield vault`, [
+            {
+              label: 'Approve USDC for yield vault',
+              address: CONTRACTS.reserveAsset,
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [CONTRACTS.collateralVault, maxUint256],
+            },
+            {
+              label: `Deposit ${amount} USDC`,
+              address: CONTRACTS.collateralVault,
+              abi: erc4626Abi,
+              functionName: 'deposit',
+              args: [amt, account],
+            },
+          ]);
         }}
       >
         Get collateral shares
@@ -463,29 +462,34 @@ function PositionsTable({
 function RepayButton({ id, debt }: { id: bigint; debt: bigint }) {
   const { account } = useWallet();
   const { data: acct } = useAccountData(account);
-  const { send, busy } = useTx();
+  const { send, sendBatch, busy } = useTx();
   const needsApproval = (acct?.usdcAllowanceVault ?? 0n) < debt;
   return (
     <button
       type="button"
       disabled={busy}
       onClick={async () => {
-        if (needsApproval) {
-          await send({
-            label: 'Approve USDC for vault',
-            address: CONTRACTS.reserveAsset,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [CONTRACTS.amortizingVault, maxUint256],
-          });
-        }
-        await send({
+        const repayCall = {
           label: `Repay position ${id}`,
           address: CONTRACTS.amortizingVault,
           abi: vaultAbi,
           functionName: 'repay',
           args: [id, debt],
-        });
+        };
+        if (needsApproval) {
+          await sendBatch(`Approve & repay position ${id}`, [
+            {
+              label: 'Approve USDC for vault',
+              address: CONTRACTS.reserveAsset,
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [CONTRACTS.amortizingVault, maxUint256],
+            },
+            repayCall,
+          ]);
+        } else {
+          await send(repayCall);
+        }
       }}
       className="rounded-suwappu-pill bg-suwappu-magenta px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
     >

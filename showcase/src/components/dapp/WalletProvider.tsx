@@ -10,7 +10,8 @@ import {
   useState,
 } from 'react';
 import { type Address, type WalletClient, createWalletClient, custom, getAddress } from 'viem';
-import { CHAIN, CHAIN_ID_HEX, RPC_URLS } from '@/lib/dapp/config';
+import { CHAIN, CHAIN_ID_HEX, RPC_URLS, setWalletTransport } from '@/lib/dapp/config';
+import { supportsAtomicBatch } from '@/lib/dapp/eip5792';
 
 /** EIP-1193 */
 export interface Eip1193Provider {
@@ -32,10 +33,13 @@ interface WalletState {
   connecting: boolean;
   activeRdns: string | null;
   isWrongNetwork: boolean;
+  /** Wallet supports EIP-5792 atomic batching (approve + action in one signature). */
+  atomicBatch: boolean;
   connect: (w: WalletDetail) => Promise<void>;
   disconnect: () => void;
   switchNetwork: () => Promise<void>;
   getWalletClient: () => WalletClient;
+  getProvider: () => Eip1193Provider | null;
 }
 
 const Ctx = createContext<WalletState | null>(null);
@@ -47,6 +51,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [chainId, setChainId] = useState<number | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [activeRdns, setActiveRdns] = useState<string | null>(null);
+  const [atomicBatch, setAtomicBatch] = useState(false);
   const providerRef = useRef<Eip1193Provider | null>(null);
 
   // ── EIP-6963 discovery ────────────────────────────────────────────────────
@@ -115,10 +120,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       })) as string[];
       if (!accounts?.length) return false;
       const id = (await p.request({ method: 'eth_chainId' })) as string;
+      const addr = getAddress(accounts[0]);
       providerRef.current = p;
-      setAccount(getAddress(accounts[0]));
+      setAccount(addr);
       setChainId(Number.parseInt(id, 16));
       setActiveRdns(w.info.rdns);
+      // Read through the wallet from here on — no RPC infrastructure needed.
+      setWalletTransport(p);
+      // Feature-detect atomic batching (EIP-5792).
+      void supportsAtomicBatch(p, addr)
+        .then(setAtomicBatch)
+        .catch(() => setAtomicBatch(false));
       try {
         localStorage.setItem(LAST_WALLET_KEY, w.info.rdns);
       } catch {}
@@ -155,7 +167,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const disconnect = useCallback(() => {
     setAccount(null);
     setActiveRdns(null);
+    setAtomicBatch(false);
     providerRef.current = null;
+    setWalletTransport(undefined); // back to the public endpoints
     try {
       localStorage.removeItem(LAST_WALLET_KEY);
     } catch {}
@@ -193,6 +207,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return createWalletClient({ account, chain: CHAIN, transport: custom(p as any) });
   }, [account]);
 
+  const getProvider = useCallback(() => providerRef.current, []);
+
   const value = useMemo<WalletState>(
     () => ({
       wallets,
@@ -200,13 +216,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       chainId,
       connecting,
       activeRdns,
+      atomicBatch,
       isWrongNetwork: account !== null && chainId !== null && chainId !== CHAIN.id,
       connect,
       disconnect,
       switchNetwork,
       getWalletClient,
+      getProvider,
     }),
-    [wallets, account, chainId, connecting, activeRdns, connect, disconnect, switchNetwork, getWalletClient],
+    [
+      wallets, account, chainId, connecting, activeRdns, atomicBatch,
+      connect, disconnect, switchNetwork, getWalletClient, getProvider,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

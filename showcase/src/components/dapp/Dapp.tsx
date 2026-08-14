@@ -45,6 +45,7 @@ export function Dapp() {
             <span className="rounded-suwappu-pill bg-suwappu-warning/50 px-3 py-1 text-xs font-semibold text-suwappu-magenta-mid">
               ⚠ Testnet · unaudited immutable contracts · not for real funds
             </span>
+            <ConnectionBadges />
             <Faucet />
           </div>
 
@@ -97,6 +98,34 @@ export function Dapp() {
         </footer>
       </div>
     </main>
+  );
+}
+
+/**
+ * Surfaces two properties users can't otherwise see: whether reads are going
+ * through their own wallet (no third-party RPC), and whether the wallet can
+ * batch approve+action into one signature.
+ */
+function ConnectionBadges() {
+  const { account, atomicBatch } = useWallet();
+  if (!account) return null;
+  return (
+    <>
+      <span
+        className="rounded-suwappu-pill bg-suwappu-cyan/50 px-3 py-1 text-xs font-semibold text-suwappu-navy"
+        title="Reads go through your wallet's own RPC — this page depends on no third-party node."
+      >
+        ⛓ wallet RPC
+      </span>
+      {atomicBatch && (
+        <span
+          className="rounded-suwappu-pill bg-suwappu-success/50 px-3 py-1 text-xs font-semibold"
+          title="EIP-5792: approve + action settle atomically in one signature."
+        >
+          ⚡ 1-signature batching
+        </span>
+      )}
+    </>
   );
 }
 

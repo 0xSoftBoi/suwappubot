@@ -15,7 +15,8 @@ export function CurvePanel() {
   const { account } = useWallet();
   const { data: curve, isLoading } = useCurve();
   const { data: acct } = useAccountData(account);
-  const { send, busy } = useTx();
+  const { send, sendBatch, busy } = useTx();
+  const { atomicBatch } = useWallet();
   const { slippageBps, deadlineMinutes } = useSettings();
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
@@ -32,27 +33,34 @@ export function CurvePanel() {
 
   const validationError = input && amount === null ? 'Enter a valid amount' : insufficient ? `Not enough ${curve?.symbol ?? 'tokens'}` : null;
 
-  async function approve() {
-    await send({
-      label: 'Approve USDC for curve',
-      address: CONTRACTS.reserveAsset,
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [CONTRACTS.timeCurve, maxUint256],
-    });
-  }
 
   async function trade() {
     if (amount === null || quote === undefined) return;
     const deadline = deadlineFromNow(deadlineMinutes);
     if (side === 'buy') {
-      await send({
+      const maxIn = applySlippage(quote, slippageBps, 'up');
+      const buyCall = {
         label: `Buy ${input} ${curve?.symbol ?? ''}`.trim(),
         address: CONTRACTS.timeCurve,
         abi: curveAbi,
         functionName: 'buy',
-        args: [amount, applySlippage(quote, slippageBps, 'up'), deadline],
-      });
+        args: [amount, maxIn, deadline],
+      };
+      // On an EIP-5792 wallet, approve + buy settle in one signature.
+      if (needsApproval) {
+        await sendBatch(`Approve & buy ${input} ${curve?.symbol ?? ''}`.trim(), [
+          {
+            label: 'Approve USDC',
+            address: CONTRACTS.reserveAsset,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [CONTRACTS.timeCurve, maxUint256],
+          },
+          buyCall,
+        ]);
+      } else {
+        await send(buyCall);
+      }
     } else {
       await send({
         label: `Sell ${input} ${curve?.symbol ?? ''}`.trim(),
@@ -146,17 +154,23 @@ export function CurvePanel() {
         <div className="mt-4 flex flex-wrap gap-2">
           {!account ? (
             <p className="text-sm text-suwappu-text-secondary">Connect a wallet to trade.</p>
-          ) : needsApproval ? (
-            <Button onClick={approve} disabled={busy}>
-              Approve USDC
-            </Button>
           ) : (
-            <Button
-              onClick={trade}
-              disabled={busy || amount === null || quote === undefined || !!validationError}
-            >
-              {side === 'buy' ? 'Buy' : 'Sell'} {curve?.symbol ?? ''}
-            </Button>
+            <>
+              <Button
+                onClick={trade}
+                disabled={busy || amount === null || quote === undefined || !!validationError}
+              >
+                {needsApproval ? 'Approve & ' : ''}
+                {side === 'buy' ? 'Buy' : 'Sell'} {curve?.symbol ?? ''}
+              </Button>
+              {needsApproval && (
+                <span className="self-center text-xs text-suwappu-text-secondary">
+                  {atomicBatch
+                    ? '· one signature (batched)'
+                    : '· two signatures (wallet lacks batching)'}
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -13,7 +13,7 @@ import { useWallet } from './WalletProvider';
 export function CreditPanel() {
   const { account } = useWallet();
   const { data: acct } = useAccountData(account);
-  const { send, busy } = useTx();
+  const { send, sendBatch, busy } = useTx();
   const [them, setThem] = useState('');
   const { data: line, isLoading, error } = useCreditLine(account, them);
 
@@ -257,22 +257,27 @@ export function CreditPanel() {
                       onClick={async () => {
                         const a = parseAmount(settleAmt);
                         if (a === null) return;
-                        if ((acct?.usdcAllowanceCredit ?? 0n) < a) {
-                          await send({
-                            label: 'Approve USDC for settlement',
-                            address: CONTRACTS.reserveAsset,
-                            abi: erc20Abi,
-                            functionName: 'approve',
-                            args: [CONTRACTS.mutualCredit, maxUint256],
-                          });
-                        }
-                        await send({
+                        const settleCall = {
                           label: `Settle ${settleAmt} USDC`,
                           address: CONTRACTS.mutualCredit,
                           abi: creditAbi,
                           functionName: 'settle',
                           args: [them as `0x${string}`, token, a],
-                        });
+                        };
+                        if ((acct?.usdcAllowanceCredit ?? 0n) < a) {
+                          await sendBatch(`Approve & settle ${settleAmt} USDC`, [
+                            {
+                              label: 'Approve USDC for settlement',
+                              address: CONTRACTS.reserveAsset,
+                              abi: erc20Abi,
+                              functionName: 'approve',
+                              args: [CONTRACTS.mutualCredit, maxUint256],
+                            },
+                            settleCall,
+                          ]);
+                        } else {
+                          await send(settleCall);
+                        }
                         setSettleAmt('');
                       }}
                     >

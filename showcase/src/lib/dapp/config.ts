@@ -1,4 +1,4 @@
-import { http, type Address, createPublicClient, fallback } from 'viem';
+import { http, type Address, createPublicClient, custom, fallback } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
 export const CHAIN = baseSepolia;
@@ -26,12 +26,44 @@ export const RPC_URLS = [
 /** Optional api-ts read layer; UI falls back to chain-direct when absent. */
 export const API_BASE = process.env.NEXT_PUBLIC_PRIMITIVES_API ?? '';
 
-export const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: fallback(RPC_URLS.map((u) => http(u, { batch: true, retryCount: 2 }))),
-  // Batch same-block eth_calls into multicall3 automatically.
-  batch: { multicall: { wait: 16 } },
-});
+const httpTransports = RPC_URLS.map((u) => http(u, { batch: true, retryCount: 2 }));
+
+function build(walletProvider?: { request: (a: any) => Promise<unknown> }) {
+  return createPublicClient({
+    chain: CHAIN,
+    // Wallet-as-RPC: when a wallet is connected we read through *its* provider
+    // first, so the app needs no RPC infrastructure of its own. viem's fallback
+    // transport drops to the public endpoints if the wallet errors or is slow.
+    transport: walletProvider
+      ? fallback([custom(walletProvider), ...httpTransports], { retryCount: 0 })
+      : fallback(httpTransports),
+    // Batch same-block eth_calls into multicall3 automatically.
+    batch: { multicall: { wait: 16 } },
+  });
+}
+
+let active = build();
+const listeners = new Set<() => void>();
+
+/** The read client in use right now (wallet-backed when connected). */
+export function getPublicClient() {
+  return active;
+}
+
+/**
+ * Swap the read transport when a wallet connects/disconnects. Pass `undefined`
+ * to fall back to the public endpoints.
+ */
+export function setWalletTransport(walletProvider?: { request: (a: any) => Promise<unknown> }) {
+  active = build(walletProvider);
+  for (const l of listeners) l();
+}
+
+/** Subscribe to transport changes (used to refetch reads on switch). */
+export function onTransportChange(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 export const EXPLORER = CHAIN.blockExplorers?.default.url ?? 'https://sepolia.basescan.org';
 export const addressUrl = (a: string) => `${EXPLORER}/address/${a}`;

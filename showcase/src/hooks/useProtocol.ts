@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import type { Address } from 'viem';
 import { creditAbi, curveAbi, erc20Abi, erc4626Abi, vaultAbi } from '@/lib/dapp/abis';
-import { CONTRACTS, publicClient } from '@/lib/dapp/config';
+import { CONTRACTS, getPublicClient, onTransportChange } from '@/lib/dapp/config';
 
 const STALE = 10_000;
 
@@ -15,15 +15,29 @@ const STALE = 10_000;
 export function useBlockSync() {
   const qc = useQueryClient();
   useEffect(() => {
-    const unwatch = publicClient.watchBlockNumber({
-      emitOnBegin: false,
-      poll: true,
-      pollingInterval: 6_000,
-      onBlockNumber: () => {
-        qc.invalidateQueries({ queryKey: ['chain'] });
-      },
+    let unwatch: (() => void) | undefined;
+
+    const subscribe = () => {
+      unwatch?.();
+      unwatch = getPublicClient().watchBlockNumber({
+        emitOnBegin: false,
+        poll: true,
+        pollingInterval: 6_000,
+        onBlockNumber: () => qc.invalidateQueries({ queryKey: ['chain'] }),
+      });
+    };
+
+    subscribe();
+    // Re-subscribe (and refetch) when we switch between wallet-RPC and public RPC.
+    const off = onTransportChange(() => {
+      subscribe();
+      qc.invalidateQueries({ queryKey: ['chain'] });
     });
-    return () => unwatch();
+
+    return () => {
+      off();
+      unwatch?.();
+    };
   }, [qc]);
 }
 
@@ -48,7 +62,7 @@ export function useCurve() {
     staleTime: STALE,
     queryFn: async (): Promise<CurveData> => {
       const c = { address: CONTRACTS.timeCurve, abi: curveAbi } as const;
-      const r = await publicClient.multicall({
+      const r = await getPublicClient().multicall({
         allowFailure: false,
         contracts: [
           { ...c, functionName: 'name' },
@@ -89,7 +103,7 @@ export function useCurveQuote(side: 'buy' | 'sell', amount: bigint | null) {
     staleTime: 5_000,
     retry: false,
     queryFn: async () =>
-      (await publicClient.readContract({
+      (await getPublicClient().readContract({
         address: CONTRACTS.timeCurve,
         abi: curveAbi,
         functionName: side === 'buy' ? 'quoteBuy' : 'quoteSell',
@@ -117,7 +131,7 @@ export function useVault() {
     staleTime: STALE,
     queryFn: async (): Promise<VaultData> => {
       const v = { address: CONTRACTS.amortizingVault, abi: vaultAbi } as const;
-      const r = await publicClient.multicall({
+      const r = await getPublicClient().multicall({
         allowFailure: false,
         contracts: [
           { ...v, functionName: 'cash' },
@@ -171,7 +185,7 @@ export function usePositions(nextPositionId: bigint | undefined) {
         { ...v, functionName: 'debtOf' as const, args: [id] as const },
         { ...v, functionName: 'pendingYield' as const, args: [id] as const },
       ]);
-      const res = await publicClient.multicall({ allowFailure: false, contracts: calls as never });
+      const res = await getPublicClient().multicall({ allowFailure: false, contracts: calls as never });
 
       const rows: PositionRow[] = ids.map((id, i) => {
         const [owner, shares, baselineAssets] = res[i * 3] as readonly [
@@ -194,7 +208,7 @@ export function usePositions(nextPositionId: bigint | undefined) {
       // Collateral value needs the 4626's share price — one extra batched pass.
       const withShares = rows.filter((r) => r.shares > 0n);
       if (withShares.length) {
-        const vals = await publicClient.multicall({
+        const vals = await getPublicClient().multicall({
           allowFailure: false,
           contracts: withShares.map((r) => ({
             address: CONTRACTS.collateralVault,
@@ -235,7 +249,7 @@ export function useAccountData(account: Address | null | undefined) {
       const usd = { address: CONTRACTS.reserveAsset, abi: erc20Abi } as const;
       const col = { address: CONTRACTS.collateralVault, abi: erc4626Abi } as const;
       const [r, eth] = await Promise.all([
-        publicClient.multicall({
+        getPublicClient().multicall({
           allowFailure: false,
           contracts: [
             { ...usd, functionName: 'balanceOf', args: [a] },
@@ -253,7 +267,7 @@ export function useAccountData(account: Address | null | undefined) {
             { ...col, functionName: 'allowance', args: [a, CONTRACTS.amortizingVault] },
           ] as never,
         }),
-        publicClient.getBalance({ address: a }),
+        getPublicClient().getBalance({ address: a }),
       ]);
       return {
         usdc: r[0] as bigint,
@@ -297,12 +311,12 @@ export function useCreditLine(me: Address | null | undefined, them: string) {
       const a = me as Address;
       const b = them.trim() as Address;
       const c = { address: CONTRACTS.mutualCredit, abi: creditAbi } as const;
-      const key = (await publicClient.readContract({
+      const key = (await getPublicClient().readContract({
         ...c,
         functionName: 'lineKey',
         args: [a, b, CONTRACTS.reserveAsset],
       })) as `0x${string}`;
-      const r = await publicClient.multicall({
+      const r = await getPublicClient().multicall({
         allowFailure: false,
         contracts: [
           { ...c, functionName: 'lines', args: [key] },

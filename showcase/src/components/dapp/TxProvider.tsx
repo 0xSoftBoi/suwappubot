@@ -2,8 +2,9 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { Abi, Address } from 'viem';
-import { publicClient, txUrl } from '@/lib/dapp/config';
+import { type Abi, type Address, encodeFunctionData } from 'viem';
+import { getPublicClient, txUrl } from '@/lib/dapp/config';
+import { sendCalls, waitForCalls } from '@/lib/dapp/eip5792';
 import { decodeError } from '@/lib/dapp/errors';
 import { useWallet } from './WalletProvider';
 
@@ -32,6 +33,12 @@ interface TxState {
   dismiss: (id: string) => void;
   /** Simulate → sign → wait. Returns the receipt's hash on success, null otherwise. */
   send: (opts: SendOpts) => Promise<`0x${string}` | null>;
+  /**
+   * Run several calls as one user action. On EIP-5792 wallets this is a single
+   * atomic signature (e.g. approve + swap); elsewhere it degrades to sequential
+   * transactions. Returns true when every call succeeded.
+   */
+  sendBatch: (label: string, calls: SendOpts[]) => Promise<boolean>;
   busy: boolean;
 }
 
@@ -39,7 +46,8 @@ const Ctx = createContext<TxState | null>(null);
 let seq = 0;
 
 export function TxProvider({ children }: { children: React.ReactNode }) {
-  const { account, getWalletClient, isWrongNetwork, switchNetwork } = useWallet();
+  const { account, getWalletClient, isWrongNetwork, switchNetwork, atomicBatch, getProvider } =
+    useWallet();
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
@@ -65,7 +73,7 @@ export function TxProvider({ children }: { children: React.ReactNode }) {
 
         // 1) Simulate first — this is what turns an opaque on-chain revert into a
         //    decoded custom error *before* the user is asked to sign or pay gas.
-        const { request } = await publicClient.simulateContract({
+        const { request } = await getPublicClient().simulateContract({
           account,
           address: opts.address,
           abi: opts.abi as Abi,
@@ -81,7 +89,7 @@ export function TxProvider({ children }: { children: React.ReactNode }) {
 
         // 3) Wait for inclusion
         update(id, { stage: 'pending', hash });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await getPublicClient().waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status !== 'success') {
           update(id, { stage: 'error', hash, message: 'Transaction reverted on-chain.' });
           return null;
@@ -107,7 +115,74 @@ export function TxProvider({ children }: { children: React.ReactNode }) {
     [account, isWrongNetwork, switchNetwork, getWalletClient, update, dismiss, qc],
   );
 
-  const value = useMemo<TxState>(() => ({ txs, dismiss, send, busy }), [txs, dismiss, send, busy]);
+  const sendBatch = useCallback(
+    async (label: string, calls: SendOpts[]): Promise<boolean> => {
+      if (!calls.length) return true;
+      if (calls.length === 1) return (await send(calls[0])) !== null;
+
+      const provider = getProvider();
+      // No 5792 support → run them in order, each with its own signature.
+      if (!atomicBatch || !provider || !account) {
+        for (const c of calls) {
+          if ((await send(c)) === null) return false;
+        }
+        return true;
+      }
+
+      const id = `tx-${++seq}`;
+      setTxs((prev) => [...prev, { id, label, stage: 'signing' }]);
+      setBusy(true);
+      try {
+        if (isWrongNetwork) await switchNetwork();
+
+        // NOTE: we don't pre-simulate a batch — a later call typically depends on
+        // an earlier one (e.g. the approve that makes the swap valid), so
+        // simulating it standalone would spuriously fail. 5792 wallets simulate
+        // the bundle themselves, and any revert is decoded below.
+        const bundleId = await sendCalls(
+          provider,
+          account,
+          calls.map((c) => ({
+            to: c.address,
+            data: encodeFunctionData({
+              abi: c.abi as Abi,
+              functionName: c.functionName,
+              args: c.args as never,
+            }),
+            value: c.value,
+          })),
+        );
+
+        update(id, { stage: 'pending', message: 'Bundle submitted…' });
+        const status = await waitForCalls(provider, bundleId);
+        if (!status.done) {
+          update(id, { stage: 'error', message: 'Timed out waiting for the bundle.', hash: status.txHash });
+          return false;
+        }
+        if (!status.success) {
+          update(id, { stage: 'error', message: 'The batched transaction reverted.', hash: status.txHash });
+          return false;
+        }
+        update(id, { stage: 'success', message: 'Confirmed', hash: status.txHash });
+        await qc.invalidateQueries();
+        setTimeout(() => dismiss(id), 8000);
+        return true;
+      } catch (err) {
+        const d = decodeError(err);
+        if (d.rejected) dismiss(id);
+        else update(id, { stage: 'error', message: d.message, detail: d.detail });
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [send, atomicBatch, getProvider, account, isWrongNetwork, switchNetwork, update, dismiss, qc],
+  );
+
+  const value = useMemo<TxState>(
+    () => ({ txs, dismiss, send, sendBatch, busy }),
+    [txs, dismiss, send, sendBatch, busy],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
