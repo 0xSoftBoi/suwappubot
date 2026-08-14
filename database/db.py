@@ -1365,6 +1365,21 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
 
+    # --- savings_events.memo (optional withdrawal reconciliation memo) ---
+    try:
+        if inspector.has_table("savings_events"):
+            cols = {c["name"] for c in inspector.get_columns("savings_events")}
+            if "memo" not in cols:
+                if is_sqlite:
+                    ddl = "ALTER TABLE savings_events ADD COLUMN memo VARCHAR(256)"
+                else:
+                    ddl = "ALTER TABLE savings_events ADD COLUMN IF NOT EXISTS memo VARCHAR(256)"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info("Added savings_events.memo")
+    except Exception as e:
+        logger.warning(f"Could not add savings_events.memo: {e}")
+
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the btc_swaps table (Atomiq BTC bridge swaps) idempotently."""

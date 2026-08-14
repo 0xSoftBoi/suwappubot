@@ -10,7 +10,9 @@ those calls with asyncio.to_thread so the event loop stays responsive.
 
 import asyncio
 import logging
+import re
 from decimal import Decimal
+from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -48,13 +50,20 @@ logger = logging.getLogger(__name__)
     SAVE_MORPHO_MENU,
     SAVE_MORPHO_AMOUNT,
     SAVE_MORPHO_CONFIRM,
-) = range(11)
+    SAVE_MEMO_INPUT,
+) = range(12)
 
 wallet_service = WalletService()
 
 # Anchored venue callback pattern built from the canonical venue keys —
 # unknown keys can never enter the conversation state.
 _SAVE_BTC_VENUE_PATTERN = "^save_btc_v_(?:" + "|".join(_BTC_VENUES) + ")$"
+
+# Anchored callback pattern for "Add memo" — the event id is embedded in the
+# callback data (save_add_memo_{event_id}) so tapping an older withdrawal's
+# button always attaches the memo to THAT event, not whichever one finished
+# most recently. Only integer ids match.
+_SAVE_ADD_MEMO_PATTERN = re.compile(r"^save_add_memo_(\d+)$")
 
 # Recovery keyboard for error screens — "save_menu" is a registered entry
 # point, so this works even after the conversation has ended.
@@ -73,25 +82,25 @@ def _basescan_tx(tx_hash: str) -> str:
     return format_tx_link(tx_hash, "base")
 
 
-async def _log_event(user_id, wallet_id, action, amount, tx_hash):
-    """Record a savings deposit/withdraw (best-effort)."""
+async def _log_event(user_id, wallet_id, action, amount, tx_hash) -> Optional[int]:
+    """Record a savings deposit/withdraw (best-effort). Returns the new event id, or None."""
     try:
         with get_session() as session:
-            session.add(
-                SavingsEvent(
-                    user_id=user_id,
-                    wallet_id=wallet_id,
-                    chain="base",
-                    token="USDC",
-                    action=action,
-                    amount=(Decimal(str(amount)) if amount is not None else None),
-                    tx_hash=(
-                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
-                    ),
-                )
+            event = SavingsEvent(
+                user_id=user_id,
+                wallet_id=wallet_id,
+                chain="base",
+                token="USDC",
+                action=action,
+                amount=(Decimal(str(amount)) if amount is not None else None),
+                tx_hash=(("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash),
             )
+            session.add(event)
+            session.flush()
+            return event.id
     except Exception as e:
         logger.warning(f"Failed to log savings event: {e}")
+        return None
 
 
 def _evm_wallets(user_id: int) -> list:
@@ -509,18 +518,25 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             amount_dec = None if amount is None else Decimal(str(amount))
             tx_hash = await asyncio.to_thread(savings_service.withdraw, wallet, amount_dec)
-            await _log_event(user_id, wallet_id, "withdraw", amount, tx_hash)
+            event_id = await _log_event(user_id, wallet_id, "withdraw", amount, tx_hash)
             amount_text = "all funds" if amount is None else f"{amount:.2f} USDC"
             text = (
                 f"✅ *Withdrawal submitted!*\n\n"
                 f"Withdrew *{amount_text}* from Savings.\n\n"
                 f"*Transaction:*\n{_basescan_tx(tx_hash)}"
             )
+            if event_id:
+                text += "\n\n_Want to tag this for reconciliation? Add a memo below._"
 
         keyboard = [
             [InlineKeyboardButton("🏦 Back to Savings", callback_data="save_refresh")],
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
+        if action == "withdraw" and event_id:
+            keyboard.insert(
+                0,
+                [InlineKeyboardButton("📝 Add memo", callback_data=f"save_add_memo_{event_id}")],
+            )
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
@@ -544,6 +560,105 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
             ),
         )
 
+    return SAVE_MENU
+
+
+async def save_add_memo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Prompt for a memo to attach to the withdrawal whose "Add memo" button was tapped.
+
+    The target event id travels in the callback data (save_add_memo_{event_id}),
+    not a single user_data slot, so tapping an older message's memo button can
+    never write onto a newer withdrawal.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    match = _SAVE_ADD_MEMO_PATTERN.match(query.data or "")
+    if not match:
+        await query.edit_message_text(
+            "❌ No recent withdrawal to attach a memo to.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
+            ),
+        )
+        return SAVE_MENU
+
+    event_id = int(match.group(1))
+    savings = context.user_data.setdefault("savings", {})
+    savings["pending_memo_event_id"] = event_id
+
+    await query.edit_message_text(
+        "📝 Send a short memo (max 256 characters) to attach to this withdrawal, "
+        'e.g. "payroll june":'
+    )
+    return SAVE_MEMO_INPUT
+
+
+async def save_memo_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Capture the typed memo text and attach it to the specific withdrawal event
+    the user tapped "Add memo" on."""
+    savings = context.user_data.get("savings") or {}
+    event_id = savings.pop("pending_memo_event_id", None)
+    user_id = context.user_data.get("user_id")
+
+    if not event_id:
+        await update.message.reply_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    memo = (update.message.text or "").strip()[:256]
+    if not memo:
+        await update.message.reply_text("❌ Empty memo. Try again, or /cancel:")
+        savings["pending_memo_event_id"] = event_id  # allow retry
+        return SAVE_MEMO_INPUT
+
+    memo_saved = False
+    try:
+        with get_session() as session:
+            # Defense in depth: scope the update to this event AND this user so
+            # a crafted callback id can never touch someone else's event.
+            event = (
+                session.query(SavingsEvent)
+                .filter(SavingsEvent.id == event_id, SavingsEvent.user_id == user_id)
+                .first()
+            )
+            if event:
+                event.memo = memo
+                memo_saved = True
+    except Exception as e:
+        logger.warning(f"Failed to attach memo to savings event {event_id}: {e}")
+        await update.message.reply_text(
+            "⚠️ Could not save the memo. Your withdrawal itself was unaffected.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
+            ),
+        )
+        return SAVE_MENU
+
+    if not memo_saved:
+        # The event row wasn't found (stale id, or missing user context) — say
+        # so instead of reporting a save that never happened.
+        await update.message.reply_text(
+            "⚠️ Couldn't find that withdrawal to attach the memo to. "
+            "Your withdrawal itself was unaffected.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back to Savings", callback_data="save_refresh")]]
+            ),
+        )
+        return SAVE_MENU
+
+    # Plain-text reply (no parse_mode) — do not escape_markdown here, that would
+    # leave literal backslashes in the memo since there's no Markdown rendering.
+    await update.message.reply_text(
+        f'✅ Memo saved: "{memo}"',
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🏦 Back to Savings", callback_data="save_refresh")],
+                [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+            ]
+        ),
+    )
     return SAVE_MENU
 
 
@@ -1321,6 +1436,7 @@ savings_conversation_handler = ConversationHandler(
     persistent=True,
     entry_points=[
         CommandHandler("save", save_command),
+        CommandHandler("earn", save_command),  # /earn — same conversation as /save
         CallbackQueryHandler(save_refresh_callback, pattern="^save_menu$"),
         CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
         CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
@@ -1333,6 +1449,7 @@ savings_conversation_handler = ConversationHandler(
             CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
             CallbackQueryHandler(save_close_callback, pattern="^save_close$"),
+            CallbackQueryHandler(save_add_memo_callback, pattern=_SAVE_ADD_MEMO_PATTERN),
         ],
         SAVE_BTC_MENU: [
             CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
@@ -1388,6 +1505,10 @@ savings_conversation_handler = ConversationHandler(
         SAVE_CONFIRM: [
             CallbackQueryHandler(save_execute_callback, pattern="^save_exec$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+        ],
+        SAVE_MEMO_INPUT: [
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, save_memo_enter),
         ],
     },
     fallbacks=[

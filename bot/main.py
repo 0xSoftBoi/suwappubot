@@ -849,6 +849,7 @@ async def post_init(application) -> None:
             BotCommand("pos", "💼 Positions & PnL"),
             BotCommand("w", "👛 Wallets"),
             BotCommand("save", "🏦 Earn yield on idle USDC"),
+            BotCommand("earn", "🌱 Earn yield on idle USDC (alias of /save)"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
             BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),

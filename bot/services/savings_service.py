@@ -36,6 +36,14 @@ MAX_UINT256 = 2**256 - 1
 RAY = Decimal(10**27)
 SECONDS_PER_YEAR = Decimal(31_536_000)
 
+# APY is chain-global (not per-user), so it's cheap to cache briefly. A plain
+# module-level (value, fetched_at) tuple is "thread-safe enough": reads/writes
+# of a tuple reference are atomic under the GIL, and a rare duplicate fetch
+# from a race between two threads is harmless (both just re-read the same
+# on-chain value). No lock needed for a read-mostly, idempotent value like this.
+_APY_CACHE_TTL_SECONDS = 300
+_apy_cache: tuple[Optional[float], float] = (None, 0.0)
+
 # ── Minimal ABIs ─────────────────────────────────────────────────────────────
 ERC20_ABI = [
     {
@@ -135,7 +143,7 @@ class SavingsService:
 
         return rpc_manager.get_web3("base")
 
-    def _failover(self, op: Callable[[Web3], T], attempts: int = 4) -> T:
+    def _failover(self, op: Callable[[Web3], T], attempts: int = 4, timeout: int = 15) -> T:
         """Run `op(web3)` against Base RPCs, failing over across endpoints.
 
         Some public Base endpoints reject eth_call or rate-limit (429), and a
@@ -152,7 +160,7 @@ class SavingsService:
 
         last_exc: Optional[Exception] = None
         for url in urls:
-            web3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
+            web3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": timeout}))
             started = time.monotonic()
             try:
                 result = op(web3)
@@ -239,21 +247,41 @@ class SavingsService:
         currentLiquidityRate is the supply APR in ray (1e27). We compound it to an
         APY-approx; small differences from Aave's exact second-by-second compounding
         are immaterial for display.
+
+        Cached for _APY_CACHE_TTL_SECONDS since the rate is chain-global (not
+        per-user) and barely moves minute to minute — this avoids a second
+        sequential RPC failover on every /b, /p, and /save render.
         """
+        global _apy_cache
+        cached_value, fetched_at = _apy_cache
+        now = time.monotonic()
+        if cached_value is not None and (now - fetched_at) < _APY_CACHE_TTL_SECONDS:
+            return cached_value
+
         try:
+            # Read path: short timeout + fewer endpoints so a degraded RPC can't
+            # pin a default-executor thread long past the caller's 5s budget.
             reserve = self._failover(
                 lambda web3: self._pool(web3)
                 .functions.getReserveData(Web3.to_checksum_address(USDC_ADDRESS))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             liquidity_rate = Decimal(reserve[2])  # currentLiquidityRate (ray)
             apr = liquidity_rate / RAY  # fractional APR, e.g. 0.05
             # Per-second compounding → APY.
             per_second = apr / SECONDS_PER_YEAR
             apy = (Decimal(1) + per_second) ** SECONDS_PER_YEAR - Decimal(1)
-            return float(apy * Decimal(100))
+            apy_float = float(apy * Decimal(100))
+            _apy_cache = (apy_float, now)
+            return apy_float
         except Exception as e:
             logger.warning(f"Failed to read Aave USDC APY: {e}")
+            if cached_value is not None:
+                # Serve stale-but-known rather than erroring out a whole /b or /p.
+                logger.debug("Serving stale cached APY after a failed refresh.")
+                return cached_value
             raise SavingsError("Could not fetch the current savings rate. Try again shortly.")
 
     def get_position(self, wallet_address: str) -> Decimal:
@@ -265,7 +293,9 @@ class SavingsService:
             balance_wei = self._failover(
                 lambda web3: self._erc20(web3, ABASUSDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             return self._wei_to_usdc(balance_wei)
         except Exception as e:
@@ -278,7 +308,9 @@ class SavingsService:
             balance_wei = self._failover(
                 lambda web3: self._erc20(web3, USDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
-                .call()
+                .call(),
+                attempts=2,
+                timeout=4,
             )
             return self._wei_to_usdc(balance_wei)
         except Exception as e:

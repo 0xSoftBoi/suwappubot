@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from decimal import Decimal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -9,6 +10,7 @@ from bot.models.user import User, Wallet
 from bot.models.predict import PredictionPosition
 from bot.services.wallet import WalletService
 from bot.services.price_service import PriceService
+from bot.services.savings_service import savings_service
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
 from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
@@ -145,6 +147,33 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
                 total_usd += hl["total_usd"]
         except Exception as e:
             logger.debug(f"Could not load HyperLiquid holdings: {e}")
+
+    # Aave Earn position (idle USDC yield) — best-effort, never breaks /p.
+    try:
+        earn_addrs = [addr for _, addr, chain_type, _ in wallet_infos if chain_type == "evm"]
+        if earn_addrs:
+
+            async def _fetch_earn():
+                positions = await asyncio.gather(
+                    *[asyncio.to_thread(savings_service.get_position, addr) for addr in earn_addrs],
+                    return_exceptions=True,
+                )
+                total_earn = sum(
+                    (p for p in positions if not isinstance(p, BaseException)), Decimal("0")
+                )
+                if total_earn <= 0:
+                    return None
+                apy = await asyncio.to_thread(savings_service.get_apy)
+                return total_earn, apy
+
+            # Hard cap: a slow Base RPC must never hold up /p.
+            result = await asyncio.wait_for(_fetch_earn(), timeout=5)
+            if result:
+                total_earn, apy = result
+                lines.append(f"\n🌱 Earn: {total_earn:.2f} USDC ({apy:.2f}% APY) — /earn")
+                total_usd += float(total_earn)
+    except Exception as e:
+        logger.debug(f"Could not load Earn position: {e}")
 
     lines.append(f"\n\U0001f4b0 *Total Value:* {format_usd(total_usd)}")
 
