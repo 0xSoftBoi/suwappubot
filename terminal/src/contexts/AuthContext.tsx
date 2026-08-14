@@ -14,6 +14,12 @@ import '@rainbow-me/rainbowkit/styles.css'
 import bs58 from 'bs58'
 import { config as wagmiConfig } from '../lib/wagmi'
 import { setAuthToken, getAuthToken, clearAuthToken, setAuthMethod } from '../lib/auth'
+import { isRetryableAuthError, shouldClearSession } from '../lib/authFailure'
+
+// Bounded retry for the boot session probe so one flaky response doesn't leave
+// a valid session looking signed out. 3 attempts total: ~0.4s + ~0.8s of wait.
+const SESSION_PROBE_RETRIES = 2
+const SESSION_PROBE_BACKOFF_MS = 400
 import { getPhantom, isPhantomAvailable, siwsInputFromChallenge } from '../lib/phantom'
 import { api } from '../lib/api'
 import { hasTradingProof } from '../lib/sessionProof'
@@ -205,14 +211,36 @@ function AuthInner({ children }: { children: ReactNode }) {
       }
 
       try {
-        const me = await api.getMe()
-        setUserId(me.userId)
-        setWalletAddress(me.walletAddress)
-        setWalletProvider(me.walletProvider)
-        setSessionSource(me.sessionSource)
-        setIsAuthenticated(true)
-      } catch {
-        if (token) clearAuthToken()
+        // A transient failure here must not sign the user out. Retry the probe
+        // for network drops / 5xx (the upstream Python API hiccuping), then
+        // clear the stored session ONLY on an explicit 401. See lib/authFailure.
+        let me: Awaited<ReturnType<typeof api.getMe>> | null = null
+        let lastErr: unknown = null
+        for (let attempt = 0; attempt <= SESSION_PROBE_RETRIES; attempt++) {
+          try {
+            me = await api.getMe()
+            lastErr = null
+            break
+          } catch (err: unknown) {
+            lastErr = err
+            if (attempt === SESSION_PROBE_RETRIES || !isRetryableAuthError(err)) break
+            await new Promise((resolve) => setTimeout(resolve, SESSION_PROBE_BACKOFF_MS * 2 ** attempt))
+          }
+        }
+
+        if (me) {
+          setUserId(me.userId)
+          setWalletAddress(me.walletAddress)
+          setWalletProvider(me.walletProvider)
+          setSessionSource(me.sessionSource)
+          setIsAuthenticated(true)
+        } else if (shouldClearSession(lastErr)) {
+          if (token) clearAuthToken()
+        } else if (lastErr) {
+          // Session preserved — surface why the terminal looks signed out so a
+          // reload (or the next probe) can resume it.
+          setError(errorDetail(lastErr))
+        }
       } finally {
         // Strip the one-time ?auth=success&provider=… params after handling.
         if (returningFromOAuth && typeof window !== 'undefined') {
