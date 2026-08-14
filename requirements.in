@@ -17,7 +17,7 @@ uvicorn[standard]>=0.52.1,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
-sentry-sdk[fastapi]==2.66.1
+sentry-sdk[fastapi]==2.67.1
 
 # ---- Telegram bot ----
 python-telegram-bot[rate-limiter]==22.8
@@ -53,7 +53,7 @@ psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
 
 # ---- Pydantic / settings ----
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 # Security floor: PYSEC-2026-2270 is fixed in python-dotenv 1.2.2.
 python-dotenv>=1.2.2
 
