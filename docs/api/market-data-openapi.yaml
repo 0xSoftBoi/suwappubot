@@ -149,6 +149,18 @@ components:
         count: { type: integer }
         start: { type: string, format: date-time, nullable: true }
         end: { type: string, format: date-time, nullable: true }
+    TimeframeFreshness:
+      type: object
+      description: >
+        Per-timeframe entry under status.timeframes. Same four fields as
+        VenueDatasetFreshness so clients can render one uniform tile per dataset.
+        healthy uses a staleness budget scaled to the interval (1m 5min, 5m 15min,
+        1h 3h, 1d 48h) and is trivially true when count is 0.
+      properties:
+        count: { type: integer }
+        latest_ts: { type: string, format: date-time, nullable: true }
+        age_seconds: { type: integer, nullable: true }
+        healthy: { type: boolean }
     VenueDatasetFreshness:
       type: object
       description: Round 5 — freshness, reported under status.venue_datasets. healthy is trivially true when count is 0.

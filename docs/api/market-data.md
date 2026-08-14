@@ -369,20 +369,27 @@ No params. Groups `market_candles` by `(timeframe, source)` in one query
 per timeframe (across all sources) + its age in seconds, and total candle
 counts per `source` across the whole table.
 
-`healthy` is `true` only when the `1m` timeframe's newest candle is less than
-**5 minutes** old (`FRESHNESS_HEALTHY_SECONDS = 300`) — a proxy for "is the
-Python capture service still writing". Null-safe: an empty table (or a
-timeframe with zero rows) reports `latest_ts: null, age_seconds: null` for
-that timeframe and `healthy: false`, never throws.
+The top-level `healthy` is `true` only when the `1m` timeframe's newest candle
+is less than **5 minutes** old (`FRESHNESS_HEALTHY_SECONDS = 300`) — a proxy
+for "is the Python capture service still writing". Null-safe: an empty table
+(or a timeframe with zero rows) reports `latest_ts: null, age_seconds: null`
+for that timeframe, never throws.
+
+Each timeframe entry carries the same four fields as a `venue_datasets` entry —
+`count`, `latest_ts`, `age_seconds`, `healthy` — so a client can render one
+uniform tile per dataset. Per-timeframe `healthy` uses a staleness budget scaled
+to the interval (`1m` 5min, `5m` 15min, `1h` 3h, `1d` 48h), and, matching the
+`venue_datasets` convention, an empty dataset is `healthy: true` (nothing
+captured yet) rather than a failure.
 
 ```json
 {
   "success": true,
   "timeframes": {
-    "1m": { "latest_ts": "2026-08-13T10:04:32.000Z", "age_seconds": 28 },
-    "5m": { "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 300 },
-    "1h": { "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 300 },
-    "1d": { "latest_ts": "2026-08-13T00:00:00.000Z", "age_seconds": 36300 }
+    "1m": { "count": 326, "latest_ts": "2026-08-13T10:04:32.000Z", "age_seconds": 28, "healthy": true },
+    "5m": { "count": 0, "latest_ts": null, "age_seconds": null, "healthy": true },
+    "1h": { "count": 2645, "latest_ts": "2026-08-13T10:00:00.000Z", "age_seconds": 300, "healthy": true },
+    "1d": { "count": 1173, "latest_ts": "2026-08-13T00:00:00.000Z", "age_seconds": 36300, "healthy": true }
   },
   "sources": {
     "coingecko": 812345,

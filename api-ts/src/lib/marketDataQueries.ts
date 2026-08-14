@@ -979,7 +979,10 @@ async function fetchStatusRows() {
 export async function getStatusSummary(): Promise<
 	Either.Either<
 		{
-			timeframes: Record<string, { latest_ts: string | null; age_seconds: number | null }>
+			timeframes: Record<
+				string,
+				{ count: number; latest_ts: string | null; age_seconds: number | null; healthy: boolean }
+			>
 			sources: Record<string, number>
 			healthy: boolean
 			venue_datasets: Record<string, { count: number; latest_ts: string | null; age_seconds: number | null; healthy: boolean }>
@@ -994,9 +997,11 @@ export async function getStatusSummary(): Promise<
 
 	const sources: Record<string, number> = {}
 	const latestByTimeframe = new Map<string, number>()
+	const countByTimeframe = new Map<string, number>()
 
 	for (const row of rows) {
 		sources[row.source] = (sources[row.source] ?? 0) + Number(row.cnt)
+		countByTimeframe.set(row.timeframe, (countByTimeframe.get(row.timeframe) ?? 0) + Number(row.cnt))
 
 		if (!row.latestTs) continue
 		const d = row.latestTs instanceof Date ? row.latestTs : new Date(row.latestTs)
@@ -1007,13 +1012,29 @@ export async function getStatusSummary(): Promise<
 	}
 
 	const now = Date.now()
-	const timeframes: Record<string, { latest_ts: string | null; age_seconds: number | null }> = {}
+	// Staleness budget per timeframe: a 1d candle being an hour old is fine, a
+	// 1m candle being an hour old is not.
+	const STALE_AFTER_SECONDS: Record<string, number> = { '1m': 300, '5m': 900, '1h': 10_800, '1d': 172_800 }
+	const timeframes: Record<
+		string,
+		{ count: number; latest_ts: string | null; age_seconds: number | null; healthy: boolean }
+	> = {}
 	for (const tf of VALID_TIMEFRAMES) {
 		const ms = latestByTimeframe.get(tf)
-		timeframes[tf] =
-			ms === undefined
-				? { latest_ts: null, age_seconds: null }
-				: { latest_ts: new Date(ms).toISOString(), age_seconds: Math.max(0, Math.floor((now - ms) / 1000)) }
+		const count = countByTimeframe.get(tf) ?? 0
+		if (ms === undefined) {
+			// Same convention as venue_datasets: an empty dataset is "healthy"
+			// (nothing captured yet), not a failure.
+			timeframes[tf] = { count, latest_ts: null, age_seconds: null, healthy: count === 0 }
+			continue
+		}
+		const ageSeconds = Math.max(0, Math.floor((now - ms) / 1000))
+		timeframes[tf] = {
+			count,
+			latest_ts: new Date(ms).toISOString(),
+			age_seconds: ageSeconds,
+			healthy: count === 0 || ageSeconds <= (STALE_AFTER_SECONDS[tf] ?? 10_800),
+		}
 	}
 
 	const oneMinAge = timeframes['1m']?.age_seconds ?? null
