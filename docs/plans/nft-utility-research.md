@@ -1,121 +1,142 @@
-# Giving the Position card real utility
+# Past token gating: the card as a position, not a key
 
-Research question: how to make the card worth holding, for someone who is not
-already a Suwappu user. Today its only utility is a discount on Suwappu swap
-fees — a product cold Robinhood traffic has never used. The utility has to be
-reachable on day one or it is not utility, it is a coupon for a shop they have
-not visited.
+Previous version of this doc proposed tiers, access and creator perks. That is
+token gating with extra steps — hold the thing, unlock the thing. It is binary,
+it is flippable, every competitor ships it in a week, and it uses none of what
+makes this collection unusual.
 
-## The finding that should drive the design
+Restating what we actually built, because the design follows from it:
 
-There is a hard line running through every model below, and it is legal, not
-product:
+**A Position card is not a membership badge. It is a permanent, corporate-action-
+adjusted record of a trade someone actually made, on the only chain where that
+record can be trusted.** It has an entry price, a live oracle price, a return, and
+a grade that moves with the market. That is a live financial object. We have been
+designing it as a coupon.
 
-| | mechanism | exposure |
-|---|---|---|
-| **Consumption** | pay less for a service you use | low |
-| **Investment** | receive a share of what the platform earns | high |
+## Why token gating is the wrong shape
 
-A fee discount is consumption. You buy a thing more cheaply. There is no
-expectation of profit derived from the efforts of others, so the fourth Howey
-prong is simply absent.
+| gating property | consequence |
+|---|---|
+| binary (hold / don't) | no depth — a whale and a first-timer get the identical perk |
+| transferable in full | buyable, therefore mercenary; price decays as supply saturates |
+| static | nothing accrues; day 1,000 identical to day 1 |
+| private | the perk is invisible to everyone else, so it generates no pull |
+| no sink | supply only ever grows against fixed demand |
 
-A revenue share is an investment contract in all but name. The SEC's practical
-posture has collapsed toward finding an investment contract wherever there is
-(1) an investment of money and (2) profits that depend on a promoter's efforts,
-and NFTs specifically structured to distribute profits are the most exposed
-shape there is.
+Every one of those is fixable with what is already on-chain.
 
-**This is why we should not copy StonkFun's headline mechanic.** Paying holders
-85% of category trading fees is the single most attractive thing on their page
-and the single worst thing for us to imitate. They are distributing fees on
-Solana meme pairs. We would be distributing fees on **licensed equities**, from a
-product whose entire compliance posture rests on the sentence "this is NOT equity,
-NOT a security, and confers no claim on any issuer." A revenue share aimed at
-holders undercuts that in a way no disclaimer repairs — and the disclaimer is
-load-bearing, it is in the contract, the metadata, and the card art.
+## The design: three layers, none of them "hold to unlock"
 
-Take their structure. Do not take their distribution.
+### Layer 1 — PROOF: the card is an unfakeable call
 
-## What to give instead
+The card stamps entry price *and* the `uiMultiplier` live at that moment.
+`adjustedEntry()` already reconstructs a split-adjusted entry. So for any card we
+can compute a **verified return** that no screenshot can fake and no split can
+distort.
 
-Four utilities that are all consumption-side, and all reachable before the holder
-has any Suwappu history.
+This matters more than it sounds. A competitor stamping raw entry price shows a
+10-for-1 split as a 900% gain. Ours is adjusted. **After the first corporate
+action, we are the only leaderboard on the internet that is not lying** — and
+that is a moat made of code we have already written and tested.
 
-### 1. The card sets a fee TIER, not a fee discount
-Hyperliquid's model is instructive: tiers derive from both staking and 30-day
-volume, and maker rebates settle in USDC as usable margin rather than as points.
-Two properties worth copying:
+### Layer 2 — PRICE: fee tier is a function of proven skill, not holdings
 
-- **Tier is reachable two ways.** Volume alone gets you there; the card
-  accelerates it. A cold user gets value on trade one, and the card is a
-  shortcut rather than a gate. Our current design is a gate.
-- **The benefit is denominated in something spendable**, not in a promise.
+This is the actual break from token gating.
 
-Concretely: the card should map to a tier in the same table subscriptions map to,
-not apply a separate multiplier bolted onto the side. That also removes the class
-of bug we spent today fixing — one ladder, one resolver, no stacking of
-independently-calibrated perks.
+Your fee tier is not "do you hold a card." It is a function of **the
+corporate-action-adjusted performance of every card you have ever minted.** You
+cannot buy the top tier. You have to have been right.
 
-### 2. Creator-side utility, which works on day one
-The pump.fun fee redesign ties creator fees to market cap — 0.3% for small
-tokens down to 0.05% above ~98k SOL — explicitly rewarding staying power over
-pump-and-dump.
+It stays consumption utility — a discount on a service, no expectation of profit
+from the efforts of others — so it does not drift toward an investment contract.
+And the industry is already moving here: the exchangeable layer of a token pricing
+a service by the **proficiency of the holder** is the direction dynamic-NFT and
+on-chain reputation design has been converging on.
 
-If we build the launchpad, the card's most valuable perk is not a trading
-discount at all: it is **a better creator split or reduced launch cost**. That is
-utility for someone who has never swapped once, which is precisely the audience
-we cannot currently serve. It is also consumption, not profit-sharing.
+Properties this buys that gating cannot:
+- **Continuous, not binary.** A score, not a flag.
+- **Compounding.** Every mint adds to a record that cannot be reset by selling.
+- **Unbuyable.** Capital gets you a card; it does not get you a tier.
 
-### 3. Priority access, not profit
-Early access to new launches, first claim on a phase, higher wallet caps. Access
-is the most legally boring utility that people actually value, and it is what
-membership NFTs have converged on — roughly 80% of NFT volume is now attached to
-memberships, yield rights, or tokenized access rather than pure speculation.
+### Layer 3 — PRODUCTION: cards are consumed, not merely held
 
-### 4. The card as a portable credential — the genuinely novel one
-Every other item on this list is copyable by any competitor in a week. This one
-is not, and it is already built.
+If the launchpad happens, a card is the **raw material**, not the ticket:
+to open a pair quoted against NVDAX you burn a card that references NVDA.
 
-The card stamps **an entry price on-chain, permanently, with the corporate-action
-multiplier that was live at that moment**. That is a verifiable, tamper-proof
-track record of a call someone actually made — not a screenshot, not a claim.
-Nobody else can issue that, because nobody else is on a chain with natively
-licensed equities and a working `uiMultiplier()` path, and we have already
-written and tested the adjustment machinery.
+That converts the card from a permanent key into a consumable input with a real
+sink — the pivot the sustainable end of the market has already made, toward
+"utility-backed sinks: upgrades, burn-for-experience, reconfiguration" instead of
+passes that only ever accumulate. Demand becomes a function of launch activity
+rather than of how many people want in.
 
-Reputation is a utility. "I minted NVDA at $118 and the chain says so" is worth
-more to a trader's identity than four basis points, and it costs us nothing per
-holder. It is also the only utility here that appreciates with the holder's own
-skill rather than with our revenue — which keeps it firmly outside investment-
-contract territory while being the most emotionally valuable thing we can offer.
+## The mechanism problem this creates, and the fix
 
-## The hybrid, stated plainly
+**If the track record is transferable, it is buyable, and we are straight back to
+token gating.** Buy the wallet with the good record, inherit the tier.
 
-**The card is a tier key, not a coupon.** One card, recognised across every
-surface: cheaper swaps in the bot, a better creator split on the launchpad,
-priority in launch phases, and a permanent on-chain record of the position it
-was minted against.
+Fix — separate the two objects:
 
-What makes people hold rather than flip is that the tier persists only while they
-hold it, and that the credential is theirs specifically. Neither requires paying
-anyone a share of revenue.
+- **The card is transferable.** It is art, it has a floor, it has a secondary
+  market. Baseline fee tier travels with it.
+- **The record is soulbound to the minter.** Sell the card and you keep the art's
+  buyer happy but forfeit the history. Reputation is non-transferable by
+  construction, which is the entire reason SBT-style records are worth anything.
 
-## What I would not do
+That tension is a feature: **selling becomes a decision with a cost**, not a
+default. It produces holding pressure without paying anyone a share of revenue.
 
-- **No revenue share, no fee distribution to holders, no "yield".** Covered above.
-- **No points-for-airdrop scheme.** It buys mercenary volume that leaves the day
-  the airdrop lands, and it implies a future token, which drags the whole
-  structure back toward the investment side of the table.
-- **No utility that only exists after they are already a customer.** That is the
-  present design and it is the thing being fixed.
+### Closing a position — the decision that makes it a game
+
+Let a holder **seal** a card: freeze its return permanently into their record and
+retire it from live scoring.
+
+That is a genuine game-theoretic choice, and it is the mechanic I would build
+first. Hold and your score rides the market — it can still improve, it can also
+give everything back. Seal and you bank it forever at today's number. Every
+holder faces the same decision every trader faces, and the chain adjudicates it.
+No other membership NFT has a decision in it at all.
+
+## Adversarial analysis (the part that decides whether this works)
+
+| attack | mitigation |
+|---|---|
+| **Cherry-picking** — mint 30 cards, surface only the winners | Score over the **whole portfolio**, count-normalised. A losing card cannot be hidden; it can only be sealed at a loss. |
+| **Spam minting** for lottery tickets | `MAX_PER_WALLET` and mint cost already bound this; per-ticker caps already exist in config. |
+| **Sybil across wallets** | Same as cherry-picking, one layer out. Cost per wallet is the mint price; score is normalised, so 10 wallets of 1 card each beat nothing. |
+| **Oracle manipulation at mint** — stamp a fake-low entry | The real exposure. `UnpricedAtMint` already refuses a mint with no price; this needs a deviation bound or short TWAP at stamp time before any of the above is safe. **Open item, and it gates Layer 2.** |
+| **Buying a good record** | Structurally impossible — the record is soulbound; only the card moves. |
+| **Minting at a local bottom** | Not an attack. That is the skill. |
+
+## What this unlocks that gating never could
+
+A public leaderboard of **verified, split-adjusted calls** is a product, not a
+perk. Crypto's most abundant commodity is the unfalsifiable claim to have called
+something. We can settle it on-chain, for licensed equities, adjusted for
+corporate actions.
+
+Non-holders can read it. That is the acquisition funnel the journey analysis said
+was missing — content that markets itself, with a mint button attached to every
+row, aimed at exactly the Robinhood-app audience who already care about these 35
+tickers and have no reason to care about a swap-fee discount.
 
 ## Sequencing
 
-1. Collapse the card into the tier table (removes the stacking-bug class, and is
-   a prerequisite for everything else).
-2. Ship the credential surface — a public page rendering a card and its
-   on-chain entry price. Cheap, needs no launchpad, and is the differentiated
-   story.
-3. Creator-side perks land with the launchpad, if the AMM question in
-   `stonkfun-analog.md` comes back favourably.
+1. **Deviation bound / TWAP at mint.** Nothing above is safe until entry price
+   cannot be manipulated. Blocks Layer 2.
+2. **Score service** — portfolio-wide, count-normalised, split-adjusted, soulbound
+   to the minter. Read-only, no contract changes.
+3. **Public leaderboard + card page.** The credential surface and the funnel. No
+   launchpad required.
+4. **Seal.** One contract function, and the mechanic that makes it a game.
+5. **Fee tier from score.** Replaces the flat card discount entirely — one
+   ladder, one resolver, and the stacking-bug class we spent today fixing stops
+   being possible by construction.
+6. **Burn-to-launch**, if the AMM question in `stonkfun-analog.md` lands well.
+
+## Still not doing
+
+Revenue share, fee distribution to holders, or anything denominated as yield.
+Reasoning unchanged and it is the strongest constraint on this whole design: we
+would be distributing income from **licensed equities**, against a product whose
+compliance rests on "NOT equity, NOT a security, no claim on any issuer." Every
+mechanic above is deliberately consumption-side or reputational for that reason.
