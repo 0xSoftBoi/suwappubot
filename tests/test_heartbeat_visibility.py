@@ -141,3 +141,25 @@ def test_every_watched_service_has_a_threshold_under_its_writer_ttl():
     assert (
         ttl >= threshold
     ), f"TTL {ttl}s < threshold {threshold}s — the key evicts before it is stale"
+
+
+def test_the_worker_fingerprint_is_refreshed_not_written_once():
+    """Observed in production: the worker last deployed 04 Aug, its fingerprint
+    key carried a 24h TTL and was written only at startup, so it expired on the
+    5th and /health reported `worker_fingerprint: unknown` for ten days on a
+    worker that was alive and logging.
+
+    The code's own comment says a short TTL would 'expire on a perfectly healthy
+    worker and report unknown, recreating exactly the ambiguity this is meant to
+    remove'. 24h was still short, because a stable worker does not restart for
+    weeks — the answer is to refresh it, not to lengthen it further."""
+    src = _src("api/main.py")
+    block = src[src.index("service:worker:fingerprint") : src.index("Could not publish worker")]
+    assert "_republish_fingerprint" in block, "the fingerprint is still written only at startup"
+    assert "asyncio.create_task" in block
+    # refresh interval must be comfortably under the TTL it is refreshing
+    import re
+
+    ttl = int(re.search(r"ttl_seconds=(\d+)", block).group(1))
+    sleep = int(re.search(r"asyncio\.sleep\((\d+)\)", block).group(1))
+    assert sleep < ttl / 2, f"refresh every {sleep}s against a {ttl}s TTL leaves no margin"

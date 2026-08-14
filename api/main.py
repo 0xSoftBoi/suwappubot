@@ -335,6 +335,29 @@ async def lifespan(app: FastAPI):
                 "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
             )
             logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+
+            # ...and keep republishing it. Writing this ONCE at startup meant a
+            # 24h TTL could only answer the question for the first 24h of a
+            # deploy. Observed in production: the worker last deployed 04 Aug,
+            # the key expired on the 5th, and /health reported
+            # worker_fingerprint "unknown" for ten days on a worker that was
+            # demonstrably alive and logging — which is precisely the ambiguity
+            # the comment above says this exists to remove. A stable worker does
+            # not restart for weeks, so "outlive a quiet period" needed a
+            # refresh, not a longer TTL.
+            async def _republish_fingerprint():
+                while True:
+                    await asyncio.sleep(3600)
+                    try:
+                        await redis_cache.set(
+                            "service:worker:fingerprint",
+                            SOURCE_FINGERPRINT,
+                            ttl_seconds=86400,
+                        )
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+
+            asyncio.create_task(_republish_fingerprint())
         except Exception as e:
             logger.warning(f"Could not publish worker fingerprint: {e}")
 
