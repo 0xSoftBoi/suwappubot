@@ -109,6 +109,43 @@ never a silent bad fill.
   at build time) — searcher/solver pattern, out of scope for the bot.
 - Maker-side (`/ws/sendquoteupdate`) is API-key gated and irrelevant to us.
 
+## Measured numbers (2026-08-15, live)
+
+**Pricing** (`titan_getPammQuote` vs competitors, gross vs gross):
+
+| case | vs KyberSwap | vs Li.Fi (our default venue) |
+|------|-------------:|------------------------------:|
+| 1 WETH→USDC | −0.62 bps | **+25.1 bps** |
+| 10 WETH→USDC | −0.39 bps | **+25.6 bps** |
+| 10k USDC→WETH | +0.26 bps | **+25.3 bps** |
+| 100k USDC→WETH | −0.01 bps | **+25.1 bps** |
+| 10k USDC→USDT | −0.02 bps | **+25.0 bps** |
+
+Takeaway: pAMM pricing matches the best CFMM aggregator within ±0.6 bps and
+beats the Li.Fi default route by ~25 bps — that spread is the commercial case
+for the venue. Depth is snapshot-limited: 50 WETH (~$94k) returned no quote
+(engine skips the venue cleanly), and per-pair availability varies (WBTC was
+intermittently unquoted). Price impact within quoted sizes is near zero
+(100k USDC→WETH within 0.3 bps of 10k).
+
+**Gas** (150 recent router txs on mainnet):
+
+| entrypoint | n | p50 | p90 | max | our limit |
+|------------|--:|----:|----:|----:|----------:|
+| `swapViaVenueV1` (pinned) | 84 | 216k | 271k | 384k | 550k |
+| `swapViaVenueWithFeeV1` | 13 | 233k | 233k | 396k | 550k |
+| `swapV1` (all venues) | 23 | 441k | 619k | 690k | 900k |
+
+We pin the venue from our own fresh execution-time re-quote (`pamm` field)
+and use the `ViaVenue` entrypoints — half the gas of the all-venues requote,
+with the Uniswap V3 fallback (and therefore minOut protection) unchanged.
+The quote's USD gas figure uses expected usage (250k, ~p50 of the pinned
+path), matching the estimated-usage semantics of other venues' gasUsd.
+
+**Latency** (from US infra): `us.rpc.titanbuilder.xyz` ~0.26–0.34s round
+trip vs ~0.58–0.75s for the bare host and ~0.7–0.8s for `ap.` — the `us.`
+host is the default (`TITAN_RPC_URL` overrides per region).
+
 ## Our wiring
 
 - `bot/services/propamm_api.py` — `PropAMMAPI.get_quote()` → `titan_getPammQuote`;

@@ -143,11 +143,18 @@ RESET_REQUIRED_TOKENS = {
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
 }
 
-# Hardcoded gas limit for PropAMMRouter swaps. The router re-quotes every
-# whitelisted venue plus the Uniswap V3 fallback inside the swap tx, so the
-# executed branch can be heavier than the estimated one; the official propamm
-# SDK uses ~800k for this path and skips estimation entirely.
+# Hardcoded gas limits for PropAMMRouter swaps — estimation is only a
+# pre-flight check because the executed branch can be heavier than the
+# estimated one (in-tx re-quote + possible Uniswap V3 fallback). Tiers are
+# set from measured mainnet usage of the router (150 recent txs, 2026-08-15):
+#   swapV1 (all venues):        p50 441k / p90 619k / max 690k -> 900k limit
+#   swapViaVenue(WithFee)V1:    p50 216k / p90 271k / max 396k -> 550k limit
 PROPAMM_SWAP_GAS_LIMIT = 900_000
+PROPAMM_PINNED_SWAP_GAS_LIMIT = 550_000
+# Expected (p50) usage of the pinned-venue path we execute by default — used
+# for the quote's USD gas figure so the race compares expected cost, matching
+# the semantics of KyberSwap/0x's gasUsd (estimated usage, not the limit).
+PROPAMM_EXPECTED_SWAP_GAS = 250_000
 
 # Minimal inline ABI for the Titan Builder PropAMMRouter proxy (verified
 # on-chain — see bot/services/propamm_api.py module docstring). No calldata
@@ -193,6 +200,47 @@ PROPAMM_ROUTER_ABI = [
             {"name": "amountOut", "type": "uint256"},
             {"name": "executedVenue", "type": "address"},
         ],
+        "type": "function",
+        "stateMutability": "payable",
+    },
+    {
+        "inputs": [
+            {"name": "venue", "type": "address"},
+            {"name": "tokenIn", "type": "address"},
+            {"name": "tokenOut", "type": "address"},
+            {"name": "amountIn", "type": "uint256"},
+            {"name": "amountOutMin", "type": "uint256"},
+            {"name": "recipient", "type": "address"},
+            {"name": "deadline", "type": "uint256"},
+        ],
+        "name": "swapViaVenueV1",
+        "outputs": [
+            {"name": "amountOut", "type": "uint256"},
+            {"name": "executedVenue", "type": "address"},
+        ],
+        "type": "function",
+        "stateMutability": "payable",
+    },
+    {
+        "inputs": [
+            {"name": "venue", "type": "address"},
+            {"name": "tokenIn", "type": "address"},
+            {"name": "tokenOut", "type": "address"},
+            {"name": "amountIn", "type": "uint256"},
+            {"name": "amountOutMin", "type": "uint256"},
+            {"name": "recipient", "type": "address"},
+            {"name": "deadline", "type": "uint256"},
+            {
+                "name": "fee",
+                "type": "tuple",
+                "components": [
+                    {"name": "bps", "type": "uint16"},
+                    {"name": "recipient", "type": "address"},
+                ],
+            },
+        ],
+        "name": "swapViaVenueWithFeeV1",
+        "outputs": [{"name": "amountOut", "type": "uint256"}],
         "type": "function",
         "stateMutability": "payable",
     },
@@ -3247,13 +3295,16 @@ class SwapEngine:
         # round the minimum UP, the unsafe direction for the user.
         min_out = net_to_amount * (10_000 - slippage_bps) // 10_000
 
-        # No gas figure comes back from titan_getPammQuote, but the gas
-        # reservation is knowable: the tx is sent with the hardcoded
-        # PROPAMM_SWAP_GAS_LIMIT, so price exactly that. `trusted` is True
-        # only when gas price and native price were both live — otherwise
-        # (0.0, False) keeps this quote out of net-of-gas ranking.
+        # No gas figure comes back from titan_getPammQuote. Price the
+        # EXPECTED usage of the pinned-venue path we execute by default
+        # (measured mainnet p50 — see PROPAMM_EXPECTED_SWAP_GAS), matching
+        # the estimated-usage semantics of KyberSwap/0x's gasUsd so the race
+        # compares like with like; the tx itself reserves the tiered hard
+        # limit. `trusted` is True only when gas price and native price were
+        # both live — otherwise (0.0, False) keeps this quote out of
+        # net-of-gas ranking.
         gas_cost_usd, gas_trusted = await self._real_gas_cost_usd(
-            from_chain, PROPAMM_SWAP_GAS_LIMIT
+            from_chain, PROPAMM_EXPECTED_SWAP_GAS
         )
 
         return SwapQuote(
@@ -7586,13 +7637,54 @@ class SwapEngine:
         deadline = int(datetime.now(timezone.utc).timestamp()) + 300
         amount_out_min = int(fresh_min_out)
 
-        # Platform fee: swapWithFeeV1 when a fee is configured AND collectable
-        # (mirrors the KyberSwap/0x fee gate — fee bps AND a real collector
-        # address must both be set), otherwise the plain swapV1. The
-        # effective bps (clamped to the router's 100 bps FrontendFee cap) was
-        # computed up front so the fresh minimum-out above already reflects
-        # the same fee the contract will charge.
-        if use_fee:
+        # Pin the venue from OUR OWN fresh re-quote when Titan reported one:
+        # the pinned entrypoints cost roughly half the gas of the all-venues
+        # requote (measured on mainnet: p50 216k vs 441k) and the Uniswap V3
+        # fallback still applies if the pinned venue can't fill, so minOut
+        # protection is unchanged. fresh_quote comes from our server-side
+        # Titan call above — never from caller-supplied raw_quote — and a
+        # stale/bogus venue can only revert UnknownVenue or fill via the
+        # fallback, both bounded by amountOutMin.
+        pinned_venue = None
+        if fresh_quote.pamm:
+            try:
+                pinned_venue = Web3.to_checksum_address(fresh_quote.pamm)
+            except (TypeError, ValueError):
+                pinned_venue = None
+
+        # Platform fee: the WithFee entrypoints when a fee is configured AND
+        # collectable (mirrors the KyberSwap/0x fee gate — fee bps AND a real
+        # collector address must both be set). The effective bps (clamped to
+        # the router's 100 bps FrontendFee cap) was computed up front so the
+        # fresh minimum-out above already reflects the same fee the contract
+        # will charge.
+        fee_tuple = (
+            (effective_fee_bps, Web3.to_checksum_address(settings.fee_collector_address))
+            if use_fee
+            else None
+        )
+        if pinned_venue and use_fee:
+            build_fn = router_contract.functions.swapViaVenueWithFeeV1(
+                pinned_venue,
+                swap_token_in,
+                swap_token_out,
+                amount_in,
+                amount_out_min,
+                sender,
+                deadline,
+                fee_tuple,
+            )
+        elif pinned_venue:
+            build_fn = router_contract.functions.swapViaVenueV1(
+                pinned_venue,
+                swap_token_in,
+                swap_token_out,
+                amount_in,
+                amount_out_min,
+                sender,
+                deadline,
+            )
+        elif use_fee:
             build_fn = router_contract.functions.swapWithFeeV1(
                 swap_token_in,
                 swap_token_out,
@@ -7600,7 +7692,7 @@ class SwapEngine:
                 amount_out_min,
                 sender,
                 deadline,
-                (effective_fee_bps, Web3.to_checksum_address(settings.fee_collector_address)),
+                fee_tuple,
             )
         else:
             build_fn = router_contract.functions.swapV1(
@@ -7620,20 +7712,20 @@ class SwapEngine:
         }
 
         # Do NOT trust node gas estimation for the gas limit: the router
-        # re-quotes every venue in-tx and can take a heavier branch at
-        # execution than at estimation time (e.g. dropping into the Uniswap V3
+        # re-quotes venues in-tx and can take a heavier branch at execution
+        # than at estimation time (e.g. dropping into the Uniswap V3
         # fallback), so an estimate under-shoots and the swap runs out of gas.
-        # The official propamm SDK hardcodes per-function limits (~800k for the
-        # all-venues swapV1 path); we still run estimate_gas as a pre-flight
-        # revert check, but floor the limit at PROPAMM_SWAP_GAS_LIMIT.
-        gas_limit = PROPAMM_SWAP_GAS_LIMIT
+        # The official propamm SDK hardcodes per-function limits; ours are
+        # tiered by entrypoint from measured mainnet usage (see constants).
+        # estimate_gas still runs as a pre-flight revert check.
+        floor = PROPAMM_PINNED_SWAP_GAS_LIMIT if pinned_venue else PROPAMM_SWAP_GAS_LIMIT
+        gas_limit = floor
         try:
             gas_estimate = await asyncio.to_thread(lambda: build_fn.estimate_gas(tx_params))
-            gas_limit = max(int(gas_estimate * 1.3), PROPAMM_SWAP_GAS_LIMIT)
+            gas_limit = max(int(gas_estimate * 1.3), floor)
         except Exception as e:
             logger.warning(
-                f"PropAMM (Titan) pre-flight gas estimate failed, "
-                f"using hardcoded {PROPAMM_SWAP_GAS_LIMIT}: {e}"
+                f"PropAMM (Titan) pre-flight gas estimate failed, using hardcoded {floor}: {e}"
             )
 
         tx = build_fn.build_transaction({**tx_params, "gas": gas_limit})

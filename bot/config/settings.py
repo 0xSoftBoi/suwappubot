@@ -935,8 +935,13 @@ class Settings(BaseSettings):
         description="Enable PropAMM (Titan Builder) in the best-price race (Ethereum mainnet only, no API key needed)",
     )
     titan_rpc_url: str = Field(
-        default="https://rpc.titanbuilder.xyz",
-        description="Titan Builder JSON-RPC base URL for titan_getPammQuote (regional: eu/ap/us.rpc.titanbuilder.xyz)",
+        default="https://us.rpc.titanbuilder.xyz",
+        description=(
+            "Titan Builder JSON-RPC base URL for titan_getPammQuote. Regional hosts: "
+            "us/eu/ap.rpc.titanbuilder.xyz — us default measured 2-3x faster than the "
+            "bare host from Railway US infra (0.26s vs 0.75s round trip), which matters "
+            "inside the quote race's fast window"
+        ),
     )
     propamm_router_address: str = Field(
         default="0x4DdF368080CD7946db5b459aD591c350158175e1",
