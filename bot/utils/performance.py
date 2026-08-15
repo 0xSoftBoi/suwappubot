@@ -235,5 +235,6 @@ class MetricNames:
     API_1INCH = "api_1inch"
     API_0X = "api_0x"
     API_KYBERSWAP = "api_kyberswap"
+    API_PROPAMM = "api_propamm"
     HANDLER_COMMAND = "handler_command"
     HANDLER_CALLBACK = "handler_callback"
