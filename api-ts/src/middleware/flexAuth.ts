@@ -81,10 +81,6 @@ declare module 'hono' {
 			scopes: string[]
 			keyId: string
 			rateLimitPerMin: number
-			/** Lifetime spend cap in credits for this key. NULL = unlimited. */
-			spendLimitCredits: number | null
-			/** Lifetime credits spent so far against spendLimitCredits. */
-			spentCredits: number
 		} | undefined
 	}
 }

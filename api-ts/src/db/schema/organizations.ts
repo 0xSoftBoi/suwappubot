@@ -57,19 +57,6 @@ export const apiKeys = pgTable('api_keys', {
 	keyPrefix: varchar('key_prefix', { length: 16 }).notNull(),
 	scopes: text('scopes').array().default([]).notNull(),
 	rateLimitPerMin: integer('rate_limit_per_min').default(100),
-	// Per-key spend cap in credits (1 credit ≈ $0.001 USD, see x402Payment.ts).
-	// Bounds the blast radius of a leaked/buggy key against the shared
-	// agentCredits balance — rateLimitPerMin only bounds calls/min, not $.
-	//
-	// NULL = unlimited (default; existing keys are unaffected until an operator
-	// opts a key in). This is a LIFETIME cap on the key, NOT a rolling/monthly
-	// window — it is a security control on one credential's blast radius, not a
-	// billing period (billing already lives on the subscription). There is
-	// deliberately no window rollover, so there is no rollover race condition.
-	// Rotating the key (new key, spentCredits starts at 0) is the reset
-	// mechanism. Do NOT "fix" this into a monthly window later.
-	spendLimitCredits: integer('spend_limit_credits'),
-	spentCredits: integer('spent_credits').default(0).notNull(),
 	lastUsedAt: timestamp('last_used_at'),
 	expiresAt: timestamp('expires_at'),
 	revokedAt: timestamp('revoked_at'),

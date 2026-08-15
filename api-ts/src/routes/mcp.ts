@@ -1694,7 +1694,6 @@ mcpRoutes.post('/', async (c) => {
 								agentId: callAgent.id,
 								cost: charge.cost,
 								reason: `no handler for tool ${name}`,
-								apiKeyId: charge.apiKeyId,
 							})
 						}
 						return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
@@ -1705,7 +1704,6 @@ mcpRoutes.post('/', async (c) => {
 						agentId: callAgent.id,
 						cost: charge.cost,
 						reason: `tool ${name} threw: ${e instanceof Error ? e.message : String(e)}`,
-						apiKeyId: charge.apiKeyId,
 					})
 				}
 				return c.json(
@@ -1719,7 +1717,6 @@ mcpRoutes.post('/', async (c) => {
 					agentId: callAgent.id,
 					cost: charge.cost,
 					reason: `tool ${name} returned isError`,
-					apiKeyId: charge.apiKeyId,
 				})
 			}
 

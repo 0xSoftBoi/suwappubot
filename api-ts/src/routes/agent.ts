@@ -2541,7 +2541,7 @@ agentRoutes.post('/wallets', async (c) => {
 async function refundSwapExecuteCharge(c: Context<AgentContext>, agent: Agent, reason: string): Promise<void> {
 	const charge = c.get('meterCharge')
 	if (charge?.kind === 'ok') {
-		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason, apiKeyId: charge.apiKeyId })
+		await refundChargedCall({ agentId: agent.id, cost: charge.cost, reason })
 	}
 }
 
