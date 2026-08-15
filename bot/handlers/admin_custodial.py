@@ -47,6 +47,31 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Admin access required.")
         return
 
+    # /hw new <label> [evm|solana] — provision an inert wallet for internal use.
+    args = context.args or []
+    if args and args[0].lower() == "new":
+        label = args[1] if len(args) > 1 else ""
+        chain = args[2].lower() if len(args) > 2 else "evm"
+        try:
+            wallet = await hot_wallet_service.provision_internal_wallet(label, chain)
+        except ValueError as e:
+            await update.message.reply_text(
+                f"❌ {e}\n\nUsage: `/hw new <label> [evm|solana]`", parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logger.error(f"provision_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+        await update.message.reply_text(
+            f"✅ *Provisioned* `{wallet.name}`\n\n"
+            f"`{wallet.address}`\n\n"
+            "_Turnkey holds the key. No deposit or gas-payer role — nothing "
+            "routes here, so it is safe to fund._",
+            parse_mode="Markdown",
+        )
+        return
+
     with get_session() as session:
         wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
 
@@ -62,6 +87,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             for w in wallets
         ]
 
+    internal = hot_wallet_service.list_internal_wallets()
     lines = ["🔑 *Hot Wallet Management*\n"]
 
     if wallet_data:
@@ -80,10 +106,21 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         lines.append("_No hot wallets configured._\n")
 
+    if internal:
+        lines.append("\n*Internal (no roles, nothing routes here)*")
+        for w in internal:
+            lines.append(f"`{w['name']}` ({w['chain_type']})\n`{w['address']}`")
+    lines.append("\n_Provision one:_ `/hw new <label> [evm|solana]`")
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Create EVM Wallet", callback_data="admin_create_evm"),
             InlineKeyboardButton("➕ Create SOL Wallet", callback_data="admin_create_sol"),
+        ],
+        [
+            InlineKeyboardButton(
+                "🚀 Create Deployer (no roles)", callback_data="admin_create_deploy"
+            )
         ],
         # NOTE: "Import Wallet" button removed — no admin_import_wallet handler/conversation
         # was ever implemented in this module (dead button, eternal spinner on tap).
@@ -126,6 +163,54 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
     except Exception as e:
         logger.error(f"Error in create_evm_wallet: {e}", exc_info=True)
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+
+
+async def create_deploy_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Create a Turnkey EVM wallet with NO operational roles.
+
+    Distinct from `create_evm_wallet` on purpose. That one hardcodes
+    is_deposit_wallet=True and is_gas_payer=True, so the wallet it makes starts
+    receiving user deposits and paying gas the moment it exists. That is right
+    for a hot wallet and actively wrong for anything else — a contract-deployer
+    key used for a testnet experiment must never end up in the deposit rotation.
+
+    Both flags are False here, so this wallet is inert: Turnkey holds the key,
+    nothing routes to it, and it does nothing until someone signs with it
+    deliberately.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    if not is_admin(user.id):
+        await query.edit_message_text("❌ Admin access required.")
+        return
+
+    try:
+        wallet = await hot_wallet_service.create_hot_wallet(
+            name="Deployer (no roles)",
+            chain_type="evm",
+            is_deposit_wallet=False,
+            is_gas_payer=False,
+        )
+
+        # Full address in a code block — a truncated one cannot be funded, and
+        # the list view above deliberately truncates.
+        await query.edit_message_text(
+            "✅ *Deployer wallet created*\n\n"
+            f"`{wallet.address}`\n\n"
+            "Key is held by Turnkey — it was never exported and there is no "
+            "private key to copy\.\n\n"
+            "⚠️ No deposit or gas\-payer role\. Nothing routes here; it is safe "
+            "to fund for a deploy\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back", callback_data="admin_wallets")]]
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Error in create_deploy_wallet: {e}", exc_info=True)
         await query.edit_message_text(f"❌ Error: {str(e)}")
 
 
@@ -285,6 +370,11 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
         [
             InlineKeyboardButton("➕ Create EVM", callback_data="admin_create_evm"),
             InlineKeyboardButton("➕ Create SOL", callback_data="admin_create_sol"),
+        ],
+        [
+            InlineKeyboardButton(
+                "🚀 Create Deployer (no roles)", callback_data="admin_create_deploy"
+            )
         ],
         [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
     ]

@@ -563,3 +563,355 @@ export interface SetKillSwitchArgs {
   active: boolean;
   reason?: string;
 }
+
+// --- Market data (/v1/data/*, docs/plans/market-data-parity.md Phase 4) ---
+
+export interface ReferenceChain {
+  slug: string;
+  chainId: number | string;
+  name: string;
+  nativeToken: string;
+  type: string;
+}
+
+export interface ReferenceToken {
+  symbol: string;
+  address: string;
+  decimals: number;
+  name?: string;
+}
+
+/** GET /v1/data/reference/tokens?chain=... — shape when a single chain is requested. */
+export interface ReferenceTokensForChain {
+  chain: string;
+  chainId?: number | string;
+  tokens: ReferenceToken[];
+}
+
+/** GET /v1/data/reference/tokens (no chain param) — every chain's registry. */
+export interface ReferenceTokensAllChains {
+  chains: Array<{ chainId: number | string; tokens: ReferenceToken[] }>;
+}
+
+export type ReferenceTokensResult = ReferenceTokensForChain | ReferenceTokensAllChains;
+
+export interface ResolvedSymbol {
+  symbol: string;
+  chain: string;
+  chainId?: number | string;
+  address: string;
+  decimals: number;
+  coingeckoId: string | null;
+}
+
+export type Timeframe = "1m" | "5m" | "1h" | "1d";
+
+export interface GetOhlcvArgs {
+  symbol: string;
+  chain: string;
+  timeframe?: Timeframe;
+  /** ISO 8601 string or unix seconds. */
+  start?: string | number;
+  /** ISO 8601 string or unix seconds. */
+  end?: string | number;
+  limit?: number;
+  /** Opaque cursor from a previous result's `nextCursor` — pages forward. */
+  cursor?: string;
+}
+
+/** GET /v1/data/history/ohlcv?symbols=A,B — multi-symbol variant of GetOhlcvArgs. */
+export interface GetOhlcvMultiArgs {
+  symbols: string[];
+  chain: string;
+  timeframe?: Timeframe;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface OhlcvCandle {
+  ts: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string | null;
+  source: string;
+}
+
+export interface OhlcvResult {
+  symbol: string;
+  chain: string;
+  timeframe: Timeframe;
+  /** "db" when served from persisted candles, "external_fallback" otherwise. */
+  source: string;
+  candles: OhlcvCandle[];
+  note?: string;
+  /** Present when more rows may exist — pass back into `cursor` to page forward. */
+  nextCursor?: string;
+}
+
+/** Grouped response shape for `getOhlcvMulti` (`symbols=A,B`). */
+export interface OhlcvMultiResult {
+  chain: string;
+  timeframe: Timeframe;
+  symbols: Record<string, { source: string; candles: OhlcvCandle[] }>;
+  nextCursor?: string;
+}
+
+export interface DataUsage {
+  totalRequests: number;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  byEndpoint: Record<string, number>;
+}
+
+/** GET /v1/data/metadata — per-(symbol, chain) dataset coverage, one entry per timeframe. */
+export interface DataMetadataDataset {
+  symbol: string;
+  chain: string;
+  timeframes: Record<string, { candles: number; start: string; end: string }>;
+}
+
+export interface DataMetadata {
+  datasets: DataMetadataDataset[];
+  totalCandles: number;
+  /** True when `datasets` was capped (at 500) — narrow with `symbol`/`chain` to see more. */
+  truncated?: boolean;
+  note?: string;
+  /** Round 5 — counts/ranges for perp_metrics/prediction_snapshots/lend_metrics. */
+  venueDatasets?: {
+    perps: VenueDatasetCoverage;
+    predictions: VenueDatasetCoverage;
+    lend: VenueDatasetCoverage;
+  };
+}
+
+/** GET /v1/data/status — capture freshness, one entry per timeframe, plus per-source counts. */
+export interface DataStatusTimeframe {
+  latestTs: string | null;
+  ageSeconds: number | null;
+}
+
+/** Round 5 — per-dataset coverage reported under `venue_datasets` on `getDataMetadata`. */
+export interface VenueDatasetCoverage {
+  count: number;
+  start: string | null;
+  end: string | null;
+}
+
+/** Round 5 — per-dataset freshness reported under `venue_datasets` on `getDataStatus`. */
+export interface VenueDatasetFreshness {
+  count: number;
+  latestTs: string | null;
+  ageSeconds: number | null;
+  /** Trivially true when `count` is 0 — an empty (not-yet-capturing) dataset never drags down overall `healthy`. */
+  healthy: boolean;
+}
+
+export interface DataStatus {
+  timeframes: Record<string, DataStatusTimeframe>;
+  sources: Record<string, number>;
+  /** True when 1m data is fresher than 5 minutes AND every non-empty Round 5 venue dataset is fresh. */
+  healthy: boolean;
+  /** Round 5 — freshness for perp_metrics/prediction_snapshots/lend_metrics. */
+  venueDatasets?: {
+    perps: VenueDatasetFreshness;
+    predictions: VenueDatasetFreshness;
+    lend: VenueDatasetFreshness;
+  };
+}
+
+// ===========================================
+// Round 5 — perps / predictions / lend (docs/plans/market-data-parity.md)
+// ===========================================
+
+/** GET /v1/data/perps/markets — one entry per (venue, symbol), latest snapshot. */
+export interface PerpMarketSnapshot {
+  venue: string;
+  symbol: string;
+  ts: string;
+  fundingRate: string | null;
+  openInterest: string | null;
+  markPrice: string | null;
+  indexPrice: string | null;
+  volume24h: string | null;
+}
+
+export interface PerpsMarketsResult {
+  venues: string[];
+  markets: PerpMarketSnapshot[];
+}
+
+export interface GetPerpsHistoryArgs {
+  symbol: string;
+  /** Defaults to "hyperliquid" server-side when omitted. */
+  venue?: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PerpHistoryPoint {
+  ts: string;
+  fundingRate: string | null;
+  openInterest: string | null;
+  markPrice: string | null;
+  indexPrice: string | null;
+  volume24h: string | null;
+}
+
+export interface PerpsHistoryResult {
+  symbol: string;
+  venue: string;
+  metrics: PerpHistoryPoint[];
+  nextCursor?: string;
+}
+
+/** GET /v1/data/predictions/markets — one entry per (market_id, outcome), latest snapshot. */
+export interface PredictionMarketSnapshot {
+  venue: string;
+  marketId: string;
+  conditionId: string | null;
+  question: string | null;
+  outcome: string;
+  ts: string;
+  price: string | null;
+  volume: string | null;
+  liquidity: string | null;
+  endDate: string | null;
+}
+
+export interface GetPredictionMarketsArgs {
+  /** Case-insensitive substring filter on `question`. */
+  q?: string;
+  /** Default 50, capped at 200. */
+  limit?: number;
+}
+
+export interface PredictionMarketsResult {
+  markets: PredictionMarketSnapshot[];
+}
+
+export interface GetPredictionHistoryArgs {
+  marketId: string;
+  /** Omit to get every outcome, grouped — see `PredictionHistoryResult.outcomes`. */
+  outcome?: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PredictionHistoryPoint {
+  ts: string;
+  price: string | null;
+  volume: string | null;
+  liquidity: string | null;
+}
+
+/** `history` is set when `outcome` was passed; `outcomes` (grouped) otherwise. */
+export interface PredictionHistoryResult {
+  marketId: string;
+  outcome?: string;
+  history?: PredictionHistoryPoint[];
+  outcomes?: Record<string, PredictionHistoryPoint[]>;
+  nextCursor?: string;
+}
+
+/** GET /v1/data/lend/markets — one entry per market_id, latest snapshot. */
+export interface LendMarketSnapshot {
+  venue: string;
+  marketId: string;
+  chainId: number | null;
+  loanSymbol: string | null;
+  collateralSymbol: string | null;
+  ts: string;
+  supplyApy: string | null;
+  borrowApy: string | null;
+  tvl: string | null;
+  utilization: string | null;
+}
+
+export interface GetLendMarketsArgs {
+  chainId?: number;
+}
+
+export interface LendMarketsResult {
+  markets: LendMarketSnapshot[];
+}
+
+export interface GetLendHistoryArgs {
+  marketId: string;
+  start?: string | number;
+  end?: string | number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface LendHistoryPoint {
+  ts: string;
+  supplyApy: string | null;
+  borrowApy: string | null;
+  tvl: string | null;
+  utilization: string | null;
+}
+
+export interface LendHistoryResult {
+  marketId: string;
+  metrics: LendHistoryPoint[];
+  nextCursor?: string;
+}
+
+/** GET /v1/data/live server push: {"type":"tick","symbol","price_usd","ts"}. */
+export interface LiveTick {
+  type: "tick";
+  symbol: string;
+  priceUsd: number;
+  ts: string;
+}
+
+/**
+ * GET /v1/data/live server push on the `ohlcv` channel: the current
+ * in-progress 1m candle, pushed on price change; `final: true` once when the
+ * minute closes.
+ */
+export interface LiveCandle {
+  type: "candle";
+  channel: "ohlcv";
+  timeframe: "1m";
+  symbol: string;
+  final: boolean;
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface SubscribeLiveArgs {
+  /** Symbols to subscribe to on connect, e.g. ["ETH", "SOL"]. */
+  symbols: string[];
+  onTick: (tick: LiveTick) => void;
+  /** Symbols to also subscribe to the 1m OHLCV candle channel on connect. */
+  candleSymbols?: string[];
+  onCandle?: (candle: LiveCandle) => void;
+  onOpen?: () => void;
+  onClose?: (event: { code: number; reason: string }) => void;
+  onError?: (err: unknown) => void;
+}
+
+export interface LiveSubscription {
+  /** Add symbols to the live tick subscription. */
+  subscribe(symbols: string[]): void;
+  /** Remove symbols from the live tick subscription. */
+  unsubscribe(symbols: string[]): void;
+  /** Add symbols to the 1m OHLCV candle subscription. */
+  subscribeCandles(symbols: string[]): void;
+  /** Remove symbols from the 1m OHLCV candle subscription. */
+  unsubscribeCandles(symbols: string[]): void;
+  /** Close the WebSocket connection. */
+  close(): void;
+}

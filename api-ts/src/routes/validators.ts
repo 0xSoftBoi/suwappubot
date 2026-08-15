@@ -250,3 +250,72 @@ export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	}
 	return fields
 }
+
+// ---------------------------------------------------------------
+// MCP tool argument schemas
+// ---------------------------------------------------------------
+//
+// These back the MCP `inputSchema` for read tools (see mcpTools.ts) so the
+// constraints we advertise to agents are the ones the handlers apply.
+//
+// IMPORTANT on `limit`/`offset`: the handlers CLAMP out-of-range values rather
+// than rejecting them (Math.min(Math.max(...))), and that behaviour is
+// deliberately preserved — turning a clamp into a 400 would break agents that
+// currently pass limit=100 and quietly receive the maximum. The bounds below
+// therefore describe the EFFECTIVE range; values outside it are clamped, and
+// each description says so, so an agent is never misled into believing it
+// received more rows than the cap allows.
+
+/** Wallet address in either EVM or Solana form. Exported for MCP schema derivation. */
+export const anyWalletAddressSchema = walletAddressSchema
+
+export const McpGetPortfolioSchema = z.object({
+	wallet_address: walletAddressSchema,
+	chain: z.string().optional(),
+})
+
+export const McpGetPricesSchema = z.object({
+	symbols: z.string().min(1),
+})
+
+export const McpPerpsPositionsSchema = z.object({
+	address: evmAddressSchema,
+})
+
+export const McpLendMarketsSchema = z.object({
+	chain_id: z.number().int().positive().optional(),
+})
+
+export const McpLendMarketSchema = z.object({
+	market_id: z.string().min(1),
+	chain_id: z.number().int().positive().optional(),
+})
+
+export const McpPredictMarketsSchema = z.object({
+	query: z.string().optional(),
+	limit: z.number().int().min(1).max(50).optional(),
+})
+
+/** predict_market/_book/_price all take the same single market id. */
+export const McpPredictMarketIdSchema = z.object({
+	market_id: z.string().min(1),
+})
+
+export const McpPredictTradesSchema = z.object({
+	market_id: z.string().min(1),
+	limit: z.number().int().min(1).max(100).optional(),
+})
+
+export const McpGetSwapStatusSchema = z.object({
+	swap_id: z.string().min(1),
+})
+
+export const McpGetSwapHistorySchema = z.object({
+	status: z.string().optional(),
+	limit: z.number().int().min(1).max(100).optional(),
+	offset: z.number().int().min(0).optional(),
+})
+
+export const McpListWalletPoliciesSchema = z.object({
+	wallet_address: walletAddressSchema.optional(),
+})

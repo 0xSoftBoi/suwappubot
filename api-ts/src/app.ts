@@ -15,6 +15,7 @@ import {
 	adminRoutes,
 	agentRoutes,
 	billingRoutes,
+	dataRoutes,
 	enterpriseRoutes,
 	healthRoutes,
 	internalRoutes,
@@ -32,6 +33,7 @@ import {
 	stakingRoutes,
 	swapRoutes,
 	tokenRoutes,
+	webappDataRoutes,
 	webappRoutes,
 	webappStubs,
 } from './routes'
@@ -166,6 +168,11 @@ export function createApp(config: AppConfig) {
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
 
+	// Read-only market-data platform for our own front-ends (Mini App +
+	// Terminal dashboard) — flexAuth() accepts either credential. Same JSON
+	// shapes as /v1/data/*, no metering (see routes/webappData.ts).
+	app.route('/webapp/data', webappDataRoutes)
+
 	// Webapp feature stubs - intentional placeholders for in-development features
 	app.route('/webapp', webappStubs)
 
@@ -195,6 +202,11 @@ export function createApp(config: AppConfig) {
 	app.route('/v1/agent/perps', perpsRoutes)
 	app.route('/v1/agent/predict', predictRoutes)
 	app.route('/v1/agent/lend', lendRoutes)
+
+	// Market data distribution layer (Databento-parity, Phase 3) — reference,
+	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
+	// key or agent bearer token via agentFlexAuth), enforced inside dataRoutes.
+	app.route('/v1/data', dataRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)

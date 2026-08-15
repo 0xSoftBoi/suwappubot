@@ -8,7 +8,22 @@
  */
 import { z } from 'zod'
 import { mcpInputSchema, toOutputJsonSchema } from '../lib/zodJsonSchema'
-import { PerpsQuoteSchema, QuoteRequestSchema, SimulateSwapSchema } from './validators'
+import {
+	McpGetPortfolioSchema,
+	McpGetPricesSchema,
+	McpGetSwapHistorySchema,
+	McpGetSwapStatusSchema,
+	McpLendMarketSchema,
+	McpLendMarketsSchema,
+	McpListWalletPoliciesSchema,
+	McpPerpsPositionsSchema,
+	McpPredictMarketIdSchema,
+	McpPredictMarketsSchema,
+	McpPredictTradesSchema,
+	PerpsQuoteSchema,
+	QuoteRequestSchema,
+	SimulateSwapSchema,
+} from './validators'
 
 // ---------------------------------------------------------------
 // Tool definitions (MCP tool schema)
@@ -75,6 +90,64 @@ const PERPS_QUOTE_INPUT = mcpInputSchema(PerpsQuoteSchema, {
 		'Leverage multiplier (e.g. 10). Use the market maxLeverage returned by perps_markets; current Suwappu ceiling is 20.',
 })
 
+const GET_PORTFOLIO_INPUT = mcpInputSchema(McpGetPortfolioSchema, {
+	"wallet_address": "Wallet address (0x... for EVM, base58 for Solana)",
+	"chain": "Filter to specific chain (optional)",
+})
+
+const GET_PRICES_INPUT = mcpInputSchema(McpGetPricesSchema, {
+	"symbols": "Comma-separated token symbols (e.g. \"ETH,SOL,USDC\"). Between 1 and 20 symbols.",
+})
+
+const PERPS_POSITIONS_INPUT = mcpInputSchema(McpPerpsPositionsSchema, {
+	"address": "Wallet address to inspect. Must be your managed wallet.",
+})
+
+const LEND_MARKETS_INPUT = mcpInputSchema(McpLendMarketsSchema, {
+	"chain_id": "Positive EVM chain ID (default 8453 = Base)",
+})
+
+const LEND_MARKET_INPUT = mcpInputSchema(McpLendMarketSchema, {
+	"market_id": "Morpho market unique ID (from lend_markets results)",
+	"chain_id": "Positive EVM chain ID (default 8453 = Base)",
+})
+
+const PREDICT_MARKETS_INPUT = mcpInputSchema(McpPredictMarketsSchema, {
+	"query": "Search query or category tag (e.g. \"bitcoin\", \"crypto\", \"politics\")",
+	"limit": "Max results (default 10). Values above 50 are clamped to 50.",
+})
+
+const PREDICT_MARKET_INPUT = mcpInputSchema(McpPredictMarketIdSchema, {
+	"market_id": "Market ID (the `id` field from predict_markets; not `conditionId`)",
+})
+
+const PREDICT_BOOK_INPUT = mcpInputSchema(McpPredictMarketIdSchema, {
+	"market_id": "Market ID (the `id` field from predict_markets; not `conditionId`)",
+})
+
+const PREDICT_PRICE_INPUT = mcpInputSchema(McpPredictMarketIdSchema, {
+	"market_id": "Market ID (the `id` field from predict_markets; not `conditionId`)",
+})
+
+const PREDICT_TRADES_INPUT = mcpInputSchema(McpPredictTradesSchema, {
+	"market_id": "Market ID (the `id` field from predict_markets; not `conditionId`)",
+	"limit": "Max trades to return (default 20). Values above 100 are clamped to 100.",
+})
+
+const GET_SWAP_STATUS_INPUT = mcpInputSchema(McpGetSwapStatusSchema, {
+	"swap_id": "Managed swap ID returned by POST /v1/agent/swap/execute",
+})
+
+const GET_SWAP_HISTORY_INPUT = mcpInputSchema(McpGetSwapHistorySchema, {
+	"status": "Filter by swap status (e.g. \"pending\", \"completed\", \"failed\"). Optional.",
+	"limit": "Max results (default 20). Values above 100 are clamped to 100.",
+	"offset": "Pagination offset (default 0)",
+})
+
+const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
+	"wallet_address": "Wallet address (optional — defaults to the authenticated agent's managed wallet).",
+})
+
 const TOOLS = [
 	{
 		name: 'get_quote',
@@ -84,25 +157,12 @@ const TOOLS = [
 	{
 		name: 'get_portfolio',
 		description: 'Get token balances and portfolio value for a wallet address across all supported chains.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				wallet_address: { type: 'string', description: 'Wallet address (0x... for EVM, base58 for Solana)' },
-				chain: { type: 'string', description: 'Filter to specific chain (optional)' },
-			},
-			required: ['wallet_address'],
-		},
+		inputSchema: GET_PORTFOLIO_INPUT,
 	},
 	{
 		name: 'get_prices',
 		description: 'Get current token prices in USD with 24h change. Supported: ETH, SOL, BNB, USDC, USDT, BTC, DAI, WBTC, ARB, OP, AVAX, MATIC, WETH, BONK, JUP, RAY.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				symbols: { type: 'string', description: 'Comma-separated token symbols (e.g. "ETH,SOL,USDC"). Max 20.' },
-			},
-			required: ['symbols'],
-		},
+		inputSchema: GET_PRICES_INPUT,
 	},
 	{
 		name: 'list_chains',
@@ -162,24 +222,12 @@ const TOOLS = [
 	{
 		name: 'predict_markets',
 		description: 'Search and browse prediction markets on Polymarket. Returns active markets with live prices, volumes, and CLOB token IDs.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				query: { type: 'string', description: 'Search query or category tag (e.g. "bitcoin", "crypto", "politics")' },
-				limit: { type: 'number', description: 'Max results (default 10, max 50)' },
-			},
-		},
+		inputSchema: PREDICT_MARKETS_INPUT,
 	},
 	{
 		name: 'predict_market',
 		description: 'Get detailed prediction market info including live CLOB midpoint prices for each outcome. Requires a market condition ID.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
-			},
-			required: ['market_id'],
-		},
+		inputSchema: PREDICT_MARKET_INPUT,
 	},
 	{
 		name: 'perps_markets',
@@ -194,104 +242,49 @@ const TOOLS = [
 	{
 		name: 'perps_positions',
 		description: 'List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, and liquidation price.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				address: { type: 'string', description: 'Wallet address to inspect' },
-			},
-			required: ['address'],
-		},
+		inputSchema: PERPS_POSITIONS_INPUT,
 	},
 	{
 		name: 'lend_markets',
 		description:
 			'List Morpho lending markets on a chain with current APY/utilization, explicit USD supply/borrow/liquidity, listing status, and Morpho warnings. Read-only.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
-			},
-		},
+		inputSchema: LEND_MARKETS_INPUT,
 	},
 	{
 		name: 'lend_market',
 		description:
 			'Get current read-only detail for a Morpho lending market by market ID and chain, including USD liquidity, listing status, warnings, oracle, and IRM.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Morpho market unique ID (from lend_markets results)' },
-				chain_id: { type: 'number', minimum: 1, description: 'Positive EVM chain ID (default 8453 = Base)' },
-			},
-			required: ['market_id'],
-		},
+		inputSchema: LEND_MARKET_INPUT,
 	},
 	{
 		name: 'get_swap_status',
 		description: 'Get the status of a managed swap created by POST /v1/agent/swap/execute (pending, completed, failed), with tx hash and amounts. MCP execute_swap only prepares an unsigned transaction and does not create this managed swap record.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				swap_id: { type: 'string', description: 'Managed swap ID returned by POST /v1/agent/swap/execute' },
-			},
-			required: ['swap_id'],
-		},
+		inputSchema: GET_SWAP_STATUS_INPUT,
 	},
 	{
 		name: 'get_swap_history',
 		description: 'List paginated managed-swap history for the authenticated agent, optionally filtered by status. Self-custody transactions prepared by MCP execute_swap are not managed swap records.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				status: { type: 'string', description: 'Filter by swap status (e.g. "pending", "completed", "failed"). Optional.' },
-				limit: { type: 'number', description: 'Max results (default 20, max 100)' },
-				offset: { type: 'number', description: 'Pagination offset (default 0)' },
-			},
-		},
+		inputSchema: GET_SWAP_HISTORY_INPUT,
 	},
 	{
 		name: 'predict_book',
 		description: 'Get the live CLOB order book for every outcome of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
-			},
-			required: ['market_id'],
-		},
+		inputSchema: PREDICT_BOOK_INPUT,
 	},
 	{
 		name: 'predict_price',
 		description: 'Get live CLOB midpoint prices for every outcome of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
-			},
-			required: ['market_id'],
-		},
+		inputSchema: PREDICT_PRICE_INPUT,
 	},
 	{
 		name: 'predict_trades',
 		description: 'Get recent trades across all outcomes of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market ID (the `id` field from predict_markets; not `conditionId`)' },
-				limit: { type: 'number', description: 'Max trades to return (default 20)' },
-			},
-			required: ['market_id'],
-		},
+		inputSchema: PREDICT_TRADES_INPUT,
 	},
 	{
 		name: 'list_wallet_policies',
 		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				wallet_address: { type: 'string', description: 'Wallet address (optional — defaults to the authenticated agent\'s managed wallet).' },
-			},
-		},
+		inputSchema: LIST_WALLET_POLICIES_INPUT,
 	},
 ]
 

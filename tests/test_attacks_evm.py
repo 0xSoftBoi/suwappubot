@@ -48,140 +48,107 @@ def pos_env():
     pos = deploy("SuwappuPositions", args["caps"], args["tokens"], "https://x/", owner)
     feed = deploy("MockEthUsdFeed", ETH_USD)
     pos.functions.sealRegistry().transact({"from": owner})
-    pos.functions.setEthUsdFeed(feed.address).transact({"from": owner})
+    from positions_helpers import wire_payments
+
+    usdg = wire_payments(w3, art, pos, owner, owner, alice, deploy)
     now = w3.eth.get_block("latest").timestamp
     # wallet cap 2 — the attacker's goal is to exceed it
     pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 2, 0, now - 1, 0).transact(
         {"from": owner}
     )
-    return w3, pos, feed, owner, alice, art
+    return w3, pos, feed, owner, alice, art, usdg
 
 
-# ── attack 1: reentrancy through the two windows in mint() ───────────────────
+# ── attacks on the EIP-3009 mint path ────────────────────────────────────────
+#
+# The ETH attack surface is GONE, not merely untested. `mint()` no longer takes
+# `msg.value` and no longer refunds with a raw call, so the refund-reentrancy
+# window, the underpay-by-one-wei case and the feed-band pricing edges are not
+# reachable — they were tests of machinery this contract no longer contains.
+# Deleting them is the honest move; what replaces them attacks the new path.
+#
+# Note the shape change: a contract CANNOT be the payer any more, because it
+# cannot produce an EIP-712 signature. A hostile contract can only be the
+# SUBMITTER, which is exactly the role we are handing to strangers on purpose.
 
 
-def _deploy_attacker(w3, art, pos, owner):
-    c = w3.eth.contract(
-        abi=art["MaliciousMinter"]["abi"], bytecode=art["MaliciousMinter"]["bytecode"]
-    )
-    r = w3.eth.wait_for_transaction_receipt(c.constructor(pos.address).transact({"from": owner}))
-    return w3.eth.contract(address=r.contractAddress, abi=art["MaliciousMinter"]["abi"])
+def test_the_submitter_cannot_redirect_a_paid_card_to_itself(pos_env):
+    """The relayer pays the gas and touches the payer's money. If it could take
+    the card, the whole gasless design would be a theft primitive."""
+    from eth_account import Account
+
+    from positions_helpers import authorized_mint, wire_payments
+
+    w3, pos, feed, owner, alice, art, usdg = pos_env
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1000 * 10**6).transact({"from": owner})
+
+    authorized_mint(w3, pos, usdg, payer, PUBLIC, 0, 1, submitter=alice)
+
+    assert pos.functions.balanceOf(payer.address).call() == 1
+    assert pos.functions.balanceOf(alice).call() == 0, "the relayer took the card"
 
 
-@pytest.mark.parametrize(
-    "on_receive,on_erc721,label",
-    [(True, False, "refund call"), (False, True, "onERC721Received"), (True, True, "both")],
-)
-def test_reentrancy_cannot_exceed_the_wallet_cap(pos_env, on_receive, on_erc721, label):
-    """mint() refunds with a raw call AFTER _safeMint hands control to the
-    receiver, so there are two reentrancy windows. Neither may mint past the cap."""
-    w3, pos, feed, owner, alice, art = pos_env
-    atk = _deploy_attacker(w3, art, pos, owner)
-    atk.functions.arm(PUBLIC, 0, on_receive, on_erc721).transact({"from": owner})
+def test_an_authorization_cannot_be_settled_twice(pos_env):
+    """Replay is the classic signed-payment failure: settle once, keep the
+    signature, settle again."""
+    from eth_account import Account
 
-    cost = pos.functions.quote(PUBLIC, 2).call()
-    # fund it generously so a successful reentry would actually be affordable
-    w3.eth.send_transaction({"from": alice, "to": atk.address, "value": cost * 5})
+    from positions_helpers import authorized_mint, sign_authorization
 
-    rcpt = w3.eth.wait_for_transaction_receipt(
-        atk.functions.attack(2).transact({"from": alice, "value": cost, "gas": 3_000_000})
-    )
-    assert rcpt.status == 1, f"the honest mint itself failed ({label})"
-
-    minted = pos.functions.balanceOf(atk.address).call()
-    assert minted == 2, f"reentrancy via {label} minted {minted}, cap is 2"
-    assert atk.functions.reentrySuccesses().call() == 0, f"reentry succeeded via {label}"
-    assert pos.functions.totalSupply().call() == 2
-
-
-def test_refund_cannot_drain_more_than_was_overpaid(pos_env):
-    w3, pos, feed, owner, alice, art = pos_env
-    atk = _deploy_attacker(w3, art, pos, owner)
-    atk.functions.arm(PUBLIC, 0, True, True).transact({"from": owner})
+    w3, pos, feed, owner, alice, art, usdg = pos_env
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1000 * 10**6).transact({"from": owner})
 
     cost = pos.functions.quote(PUBLIC, 1).call()
-    seed = cost * 4
-    w3.eth.send_transaction({"from": alice, "to": atk.address, "value": seed})
-    before_contract = w3.eth.get_balance(pos.address)
+    seq = pos.functions.mintSeq(payer.address).call()
+    nonce = pos.functions.mintNonce(payer.address, PUBLIC, 0, 1, seq).call()
+    va, vb, v, r, s_ = sign_authorization(w3, usdg, payer, pos.address, cost, nonce)
+    auth = (payer.address, cost, va, vb, nonce, v, r, s_)
 
-    # overpay 3x on a 1-card mint. NOTE both the seed AND this msg.value are
-    # inflow to the attacker contract — the conservation check below accounts
-    # for both, which is what makes it exact rather than approximate.
-    sent = cost * 3
-    atk.functions.attack(1).transact({"from": alice, "value": sent, "gas": 3_000_000})
-
-    # the collection keeps exactly the cost of what was actually minted
-    minted = pos.functions.balanceOf(atk.address).call()
-    assert w3.eth.get_balance(pos.address) == before_contract + cost * minted
-
-    # exact conservation: every wei in is accounted for. A refund bug in either
-    # direction (over-refunding, or pocketing the excess) breaks this equality.
-    assert w3.eth.get_balance(atk.address) == seed + sent - cost * minted
-
-
-# ── attack 2: payment/cap ordering — no free cards ───────────────────────────
-
-
-def test_cap_rejection_never_keeps_the_money(pos_env):
-    """Cost is computed before the cap checks. A mint that busts the cap must
-    revert entirely, not take payment and mint nothing."""
-    w3, pos, feed, owner, alice, art = pos_env
-    cost = pos.functions.quote(PUBLIC, 3).call()
-    before = w3.eth.get_balance(pos.address)
-    rcpt = w3.eth.wait_for_transaction_receipt(
-        w3.eth.send_transaction(
-            {
-                "from": alice,
-                "to": pos.address,
-                "value": cost,
-                "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 3, 0, NO_PROOF, True]),
-            }
-        )
+    ok = pos.functions.mintWithAuthorization(PUBLIC, 0, 1, 0, [], True, auth).transact(
+        {"from": alice, "gas": 4_000_000}
     )
-    assert rcpt.status == 0, "minting past the wallet cap must revert"
-    assert w3.eth.get_balance(pos.address) == before, "kept payment on a reverted mint"
-    assert pos.functions.totalSupply().call() == 0
+    assert w3.eth.wait_for_transaction_receipt(ok).status == 1
 
-
-def test_underpay_by_one_wei_is_rejected(pos_env):
-    w3, pos, feed, owner, alice, art = pos_env
-    cost = pos.functions.quote(PUBLIC, 1).call()
-    rcpt = w3.eth.wait_for_transaction_receipt(
-        w3.eth.send_transaction(
-            {
-                "from": alice,
-                "to": pos.address,
-                "value": cost - 1,
-                "gas": 900_000,
-                "data": pos.encode_abi("mint", args=[PUBLIC, 0, 1, 0, NO_PROOF, True]),
-            }
-        )
+    replay = pos.functions.mintWithAuthorization(PUBLIC, 0, 1, 0, [], True, auth).transact(
+        {"from": alice, "gas": 4_000_000}
     )
-    assert rcpt.status == 0
+    assert w3.eth.wait_for_transaction_receipt(replay).status == 0, "authorization replayed"
+    assert pos.functions.balanceOf(payer.address).call() == 1
+
+
+def test_a_signature_for_one_order_cannot_settle_a_bigger_one(pos_env):
+    """The nonce binds quantity. Without that, a signature for one card could be
+    presented as an order for five and the payer would be charged for one."""
+    from eth_account import Account
+
+    from positions_helpers import sign_authorization
+
+    w3, pos, feed, owner, alice, art, usdg = pos_env
+    payer = Account.create()
+    usdg.functions.mint(payer.address, 1000 * 10**6).transact({"from": owner})
+
+    cost1 = pos.functions.quote(PUBLIC, 1).call()
+    seq = pos.functions.mintSeq(payer.address).call()
+    nonce = pos.functions.mintNonce(payer.address, PUBLIC, 0, 1, seq).call()
+    va, vb, v, r, s_ = sign_authorization(w3, usdg, payer, pos.address, cost1, nonce)
+    auth = (payer.address, cost1, va, vb, nonce, v, r, s_)
+
+    bad = pos.functions.mintWithAuthorization(PUBLIC, 0, 5, 0, [], True, auth).transact(
+        {"from": alice, "gas": 4_000_000}
+    )
+    assert w3.eth.wait_for_transaction_receipt(bad).status == 0
+    assert pos.functions.balanceOf(payer.address).call() == 0
+
+
+def test_a_priced_phase_cannot_be_minted_for_free(pos_env):
+    """mint() is the free door. If it accepted a priced phase the payment path
+    would be bypassable outright."""
+    w3, pos, feed, owner, alice, art, usdg = pos_env
+    r = pos.functions.mint(PUBLIC, 0, 1, 0, [], True).transact({"from": alice, "gas": 2_000_000})
+    assert w3.eth.wait_for_transaction_receipt(r).status == 0
     assert pos.functions.totalSupply().call() == 0
-
-
-# ── attack 3: pricing at the feed band edges ─────────────────────────────────
-
-
-def test_pricing_is_correct_at_both_band_edges(pos_env):
-    """Inside the band the USD price must hold exactly; the band only bounds how
-    far a compromised feed can move it."""
-    w3, pos, feed, owner, alice, art = pos_env
-    now = w3.eth.get_block("latest").timestamp
-
-    for eth_usd in (100_00000000, 100_000_00000000):  # $100 and $100,000 — the edges
-        feed.functions.set(eth_usd, w3.eth.get_block("latest").timestamp).transact({"from": owner})
-        wei = pos.functions.quote(PUBLIC, 1).call()
-        usd_paid = wei * (eth_usd / 1e8) / 1e18
-        assert abs(usd_paid - 20.0) < 0.01, f"${usd_paid} at ETH=${eth_usd/1e8}"
-
-    # one wei outside the band on either side -> fallback, never a free card
-    feed.functions.set(99_99999999, now).transact({"from": owner})
-    assert pos.functions.ethUsd().call()[1] is False
-    feed.functions.set(100_000_00000001, now).transact({"from": owner})
-    assert pos.functions.ethUsd().call()[1] is False
 
 
 # ── attack 4: membership authorization abuse ─────────────────────────────────

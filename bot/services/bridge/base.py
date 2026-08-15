@@ -52,7 +52,17 @@ class BridgeQuote:
     # "liquidity" = pooled-liquidity bridge (e.g. Allbridge, Stargate).
     # "canonical" = official rollup bridge, no third-party trust.
     # "solver" = intent/solver-filled (e.g. NEAR Intents, Symbiosis relayers).
+    # "attested" = cryptographic attestation (e.g. Suwappu Lattice Bridge's
+    #   post-quantum ML-DSA-65 signature chain over the LTP gateway) rather
+    #   than pooled-liquidity or solver trust. See docs/pq-settlement-profile.md.
     trust_model: str = "liquidity"
+
+    # Machine-readable settlement-security capability, e.g.
+    # "pq-mldsa65-attested" for the Suwappu Lattice Bridge. None for legacy
+    # providers that don't report one. Never expose raw PQ keys/signatures
+    # here -- this is a capability label only (docs/pq-settlement-profile.md
+    # "Route contract").
+    settlement_security: Optional[str] = None
 
 
 class BridgeError(Exception):

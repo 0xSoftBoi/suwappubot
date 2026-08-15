@@ -421,6 +421,27 @@ class Settings(BaseSettings):
         description="Enable the USDT0 (LayerZero OFT) bridge provider. Default OFF until a "
         "live small-amount transfer is verified in both directions.",
     )
+    # Suwappu Lattice Bridge (post-quantum settlement, LTP gateway). Quote-only
+    # scaffold per docs/pq-settlement-profile.md -- stays False (dark) until
+    # every activation gate in that doc passes, including a verified live
+    # small-amount testnet transfer. Never add "lattice" to
+    # SwapEngine.EXECUTABLE_PROVIDERS while this is the case.
+    lattice_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Suwappu Lattice (post-quantum settlement) bridge provider. "
+        "Default OFF until the activation gates in docs/pq-settlement-profile.md pass, "
+        "including a verified live small-amount testnet transfer.",
+    )
+    lattice_gateway_url: Optional[str] = Field(
+        default=None,
+        description="Base URL of the LTP gateway VM (Suwappu Lattice Bridge). Required, "
+        "together with lattice_bridge_enabled, for the provider to activate.",
+    )
+    lattice_supported_routes: str = Field(
+        default="",
+        description="Comma-separated 'from_chain:to_chain' pairs the Lattice corridor "
+        "supports (e.g. 'ethereum:arbitrum,arbitrum:ethereum'). Empty = no routes.",
+    )
     allbridge_api_url: str = Field(
         default="https://core.api.allbridgecoreapi.net",
         description="Allbridge Core API base URL (public, no key required).",
@@ -755,6 +776,24 @@ class Settings(BaseSettings):
     hl_whale_alert_coins: str = Field(
         default="BTC,ETH,SOL,HYPE",
         description="Comma-separated coins to watch for HyperLiquid whale trades.",
+    )
+
+    # Market data capture (docs/plans/market-data-parity.md Phase 2): polls
+    # tracked-token USD prices every 60s and persists 1m/5m/1h/1d OHLCV candles
+    # to market_candles, plus a one-time 30d GeckoTerminal backfill on startup.
+    # On by default — read-only capture, no funds/keys involved.
+    market_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the market data capture/rollup/backfill background service.",
+    )
+
+    # Venue data capture (docs/plans/market-data-parity.md Round 5): captures
+    # perps (Hyperliquid), prediction odds (Polymarket), and lending rates
+    # (Morpho) into perp_metrics/prediction_snapshots/lend_metrics. Read-only
+    # capture, no funds/keys involved. On by default.
+    venue_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the venue data capture background service (perps/predictions/lend).",
     )
 
     # Infura network name mappings

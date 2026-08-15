@@ -1,0 +1,352 @@
+openapi: 3.0.3
+info:
+  title: Suwappu Market Data API
+  description: >
+    Databento-style market data API: reference (symbology), historical OHLCV,
+    live WebSocket streams, dataset metadata, and usage metering.
+    Human-readable reference with worked examples: docs/api/market-data.md.
+    The live stream (WS /v1/data/live) is not expressible in OpenAPI; see the
+    markdown reference for its message protocol.
+  version: 1.0.0
+servers:
+  - url: https://api.suwappu.bot
+security:
+  - ApiKeyHeader: []
+  - BearerKey: []
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Org key `sk_live_<32-hex>` (enterprise subscription required)
+    BearerKey:
+      type: http
+      scheme: bearer
+      description: Org key `sk_live_...` or agent token `suwappu_sk_...`
+  parameters:
+    chain:
+      name: chain
+      in: query
+      schema: { type: string }
+      description: Lowercased chain slug (e.g. ethereum, base, solana)
+    timeframe:
+      name: timeframe
+      in: query
+      schema: { type: string, enum: [1m, 5m, 1h, 1d], default: 1h }
+    start:
+      name: start
+      in: query
+      schema: { type: string }
+      description: ISO 8601 or unix ts
+    end:
+      name: end
+      in: query
+      schema: { type: string }
+    historyLimit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 500, maximum: 1000 }
+    cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: Opaque; from next_cursor
+  schemas:
+    Candle:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        open: { type: string }
+        high: { type: string }
+        low: { type: string }
+        close: { type: string }
+        volume: { type: string, nullable: true }
+        source: { type: string, enum: [coingecko, geckoterminal, external_fallback] }
+    ResolveEntry:
+      type: object
+      properties:
+        symbol: { type: string }
+        chain: { type: string }
+        chain_id: {}
+        address: { type: string }
+        decimals: { type: integer }
+        coingecko_id: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        success: { type: boolean }
+        error: { type: string }
+        error_code: { type: string }
+    PerpMarket:
+      type: object
+      description: Round 5 — latest perp_metrics row per (venue, symbol).
+      properties:
+        venue: { type: string }
+        symbol: { type: string }
+        ts: { type: string, format: date-time }
+        funding_rate: { type: string, nullable: true }
+        open_interest: { type: string, nullable: true }
+        mark_price: { type: string, nullable: true }
+        index_price: { type: string, nullable: true }
+        volume_24h: { type: string, nullable: true }
+    PerpHistoryPoint:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        funding_rate: { type: string, nullable: true }
+        open_interest: { type: string, nullable: true }
+        mark_price: { type: string, nullable: true }
+        index_price: { type: string, nullable: true }
+        volume_24h: { type: string, nullable: true }
+    PredictionMarketSnapshot:
+      type: object
+      description: Round 5 — latest prediction_snapshots row per (market_id, outcome).
+      properties:
+        venue: { type: string }
+        market_id: { type: string }
+        condition_id: { type: string, nullable: true }
+        question: { type: string, nullable: true }
+        outcome: { type: string }
+        ts: { type: string, format: date-time }
+        price: { type: string, nullable: true }
+        volume: { type: string, nullable: true }
+        liquidity: { type: string, nullable: true }
+        end_date: { type: string, format: date-time, nullable: true }
+    PredictionHistoryPoint:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        price: { type: string, nullable: true }
+        volume: { type: string, nullable: true }
+        liquidity: { type: string, nullable: true }
+    LendMarket:
+      type: object
+      description: Round 5 — latest lend_metrics row per market_id.
+      properties:
+        venue: { type: string }
+        market_id: { type: string }
+        chain_id: { type: integer, nullable: true }
+        loan_symbol: { type: string, nullable: true }
+        collateral_symbol: { type: string, nullable: true }
+        ts: { type: string, format: date-time }
+        supply_apy: { type: string, nullable: true }
+        borrow_apy: { type: string, nullable: true }
+        tvl: { type: string, nullable: true }
+        utilization: { type: string, nullable: true }
+    LendHistoryPoint:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        supply_apy: { type: string, nullable: true }
+        borrow_apy: { type: string, nullable: true }
+        tvl: { type: string, nullable: true }
+        utilization: { type: string, nullable: true }
+    VenueDatasetCoverage:
+      type: object
+      description: Round 5 — whole-table count/min(ts)/max(ts), reported under metadata.venue_datasets.
+      properties:
+        count: { type: integer }
+        start: { type: string, format: date-time, nullable: true }
+        end: { type: string, format: date-time, nullable: true }
+    TimeframeFreshness:
+      type: object
+      description: >
+        Per-timeframe entry under status.timeframes. Same four fields as
+        VenueDatasetFreshness so clients can render one uniform tile per dataset.
+        healthy uses a staleness budget scaled to the interval (1m 5min, 5m 15min,
+        1h 3h, 1d 48h) and is trivially true when count is 0.
+      properties:
+        count: { type: integer }
+        latest_ts: { type: string, format: date-time, nullable: true }
+        age_seconds: { type: integer, nullable: true }
+        healthy: { type: boolean }
+    VenueDatasetFreshness:
+      type: object
+      description: Round 5 — freshness, reported under status.venue_datasets. healthy is trivially true when count is 0.
+      properties:
+        count: { type: integer }
+        latest_ts: { type: string, format: date-time, nullable: true }
+        age_seconds: { type: integer, nullable: true }
+        healthy: { type: boolean }
+paths:
+  /v1/data/reference/chains:
+    get:
+      summary: List supported chains
+      responses:
+        "200":
+          description: Chain list
+  /v1/data/reference/tokens:
+    get:
+      summary: Token registry per chain (or all chains)
+      parameters:
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: Token list }
+        "400": { description: CHAIN_UNSUPPORTED, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /v1/data/reference/resolve:
+    get:
+      summary: Symbol/address resolution (single, batch, reverse, all-chains)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - { name: symbols, in: query, schema: { type: string }, description: Comma-separated batch }
+        - { name: address, in: query, schema: { type: string }, description: Reverse lookup (requires chain) }
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: ResolveEntry (flat, grouped, or batch shape) }
+        "404": { description: TOKEN_UNKNOWN }
+  /v1/data/history/ohlcv:
+    get:
+      summary: Historical OHLCV candles (DB-backed, external fallback)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - { name: symbols, in: query, schema: { type: string }, description: Comma-separated; grouped response }
+        - $ref: "#/components/parameters/chain"
+        - $ref: "#/components/parameters/timeframe"
+        - { name: start, in: query, schema: { type: string }, description: ISO 8601 or unix ts }
+        - { name: end, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 500, maximum: 1000 } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque; from next_cursor }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: Candle page (JSON body or text/csv with X-Next-Cursor header)
+  /v1/data/metadata:
+    get:
+      summary: Dataset coverage (per symbol/chain/timeframe row counts + ranges)
+      parameters:
+        - { name: symbol, in: query, schema: { type: string } }
+        - $ref: "#/components/parameters/chain"
+      responses:
+        "200": { description: Coverage datasets (capped at 500, truncation noted) }
+  /v1/data/status:
+    get:
+      summary: Capture freshness per timeframe + per-source counts
+      responses:
+        "200": { description: Freshness report; healthy=true when 1m data < 5 min old }
+  /v1/data/usage:
+    get:
+      summary: Calling key's cumulative /v1/data request counts
+      responses:
+        "200": { description: Usage totals (DB-backed daily rows + unflushed buffer) }
+  /v1/data/perps/markets:
+    get:
+      summary: Round 5 — latest perp_metrics row per (venue, symbol)
+      parameters:
+        - { name: venue, in: query, schema: { type: string }, description: Lowercased; omit for every venue }
+      responses:
+        "200":
+          description: Latest perp markets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  venues: { type: array, items: { type: string } }
+                  markets: { type: array, items: { $ref: "#/components/schemas/PerpMarket" } }
+  /v1/data/perps/history:
+    get:
+      summary: Round 5 — funding/OI/mark/index price time series for one symbol
+      parameters:
+        - { name: symbol, in: query, required: true, schema: { type: string } }
+        - { name: venue, in: query, schema: { type: string, default: hyperliquid } }
+        - $ref: "#/components/parameters/start"
+        - $ref: "#/components/parameters/end"
+        - $ref: "#/components/parameters/historyLimit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Perp metrics time series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  symbol: { type: string }
+                  venue: { type: string }
+                  metrics: { type: array, items: { $ref: "#/components/schemas/PerpHistoryPoint" } }
+                  next_cursor: { type: string, nullable: true }
+        "400": { description: VALIDATION_ERROR (missing symbol), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /v1/data/predictions/markets:
+    get:
+      summary: Round 5 — latest prediction_snapshots row per (market_id, outcome), sorted by volume desc
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Case-insensitive substring match on question }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: Latest prediction markets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  markets: { type: array, items: { $ref: "#/components/schemas/PredictionMarketSnapshot" } }
+  /v1/data/predictions/history:
+    get:
+      summary: Round 5 — odds time series for one market (single outcome, or every outcome grouped)
+      parameters:
+        - { name: market_id, in: query, required: true, schema: { type: string } }
+        - { name: outcome, in: query, schema: { type: string }, description: Omit to get every outcome, grouped under `outcomes` }
+        - $ref: "#/components/parameters/start"
+        - $ref: "#/components/parameters/end"
+        - $ref: "#/components/parameters/historyLimit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Prediction odds time series (history when outcome given, else outcomes)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  market_id: { type: string }
+                  outcome: { type: string }
+                  history: { type: array, items: { $ref: "#/components/schemas/PredictionHistoryPoint" } }
+                  outcomes:
+                    type: object
+                    additionalProperties: { type: array, items: { $ref: "#/components/schemas/PredictionHistoryPoint" } }
+                  next_cursor: { type: string, nullable: true }
+        "400": { description: VALIDATION_ERROR (missing market_id), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /v1/data/lend/markets:
+    get:
+      summary: Round 5 — latest lend_metrics row per market_id
+      parameters:
+        - { name: chain_id, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Latest lend markets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  markets: { type: array, items: { $ref: "#/components/schemas/LendMarket" } }
+        "400": { description: VALIDATION_ERROR (bad chain_id), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /v1/data/lend/history:
+    get:
+      summary: Round 5 — supply/borrow APY, TVL, utilization time series for one market
+      parameters:
+        - { name: market_id, in: query, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/start"
+        - $ref: "#/components/parameters/end"
+        - $ref: "#/components/parameters/historyLimit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Lend metrics time series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  market_id: { type: string }
+                  metrics: { type: array, items: { $ref: "#/components/schemas/LendHistoryPoint" } }
+                  next_cursor: { type: string, nullable: true }
+        "400": { description: VALIDATION_ERROR (missing market_id), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }

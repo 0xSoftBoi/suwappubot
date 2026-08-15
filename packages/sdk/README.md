@@ -59,6 +59,26 @@ await client.listChains();
 await client.listTokens(chain, search?);
 ```
 
+### Market data (`/v1/data/*`)
+
+Historical OHLCV, a consolidated token/chain reference registry, symbol
+resolution, live price ticks over WebSocket, and per-key usage counters.
+
+```ts
+await client.getOhlcv({ symbol: "ETH", chain: "base", timeframe: "1h" });
+await client.getReferenceChains();
+await client.getReferenceTokens("base"); // omit chain for every chain's registry
+await client.resolveSymbol("ETH", "base");
+await client.getDataUsage();
+
+const live = client.subscribeLive({
+  symbols: ["ETH", "SOL"],
+  onTick: (tick) => console.log(tick.symbol, tick.priceUsd, tick.ts),
+});
+live.subscribe(["BTC"]);
+live.close();
+```
+
 A wallet-bound quote is useful when you intend to simulate or prepare that
 specific route. The SDK has two deliberately separate transaction paths:
 

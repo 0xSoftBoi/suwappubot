@@ -414,12 +414,25 @@ def test_keccak_and_leaf_encoding_are_pinned():
     assert "0x" + pair.hex() == "0x35e58ada13797da3efb195f169aae08513a8df0a33e9d9cfd2c143d2832abaea"
 
 
-def test_contract_rebuilds_the_leaf_from_msg_sender():
+def test_contract_rebuilds_the_leaf_from_the_authenticated_minter():
     """The one rule that makes an allowlist safe: a proof must be useless to
-    anyone but its owner, so the leaf cannot come from calldata."""
+    anyone but its owner, so the leaf cannot be built from attacker calldata.
+
+    The leaf is built from `minter`, which is `msg.sender` on the free path and
+    `auth.from` on the paid one. `auth.from` LOOKS like calldata and is not: USDG
+    recovers the EIP-712 signature inside `receiveWithAuthorization` and reverts
+    unless it was signed by that exact address, and the USDG is debited from that
+    address's balance. A relayer therefore cannot name a victim as the minter.
+
+    Nor can it escalate an honest payer's grant: the leaf commits to (minter,
+    maxQty) together, so presenting a larger `maxQty` needs a valid proof for
+    that larger grant, which exists only if the allowlist actually issued it.
+    """
     sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
-    assert "keccak256(bytes.concat(keccak256(abi.encode(msg.sender, maxQty))))" in sol
+    assert "keccak256(bytes.concat(keccak256(abi.encode(minter, maxQty))))" in sol
     assert "MerkleProof.verify(proof, cfg.merkleRoot, leaf)" in sol
+    # the payer, never the submitter, is the minter on the paid path
+    assert "_mintChecked(auth.from," in sol
 
 
 def test_proofs_verify_and_do_not_transfer_between_wallets():

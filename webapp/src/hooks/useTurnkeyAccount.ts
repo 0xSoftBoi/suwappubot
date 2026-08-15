@@ -47,7 +47,10 @@ export function useTurnkeyAccount() {
       // Create viem account with Turnkey as signer
       // Use createAccountWithAddress since we already know the address
       const account = createAccountWithAddress({
-        client: passkeyClient,
+        // Turnkey package drift: TurnkeyPasskeyClient satisfies the client
+        // contract at runtime but isn't in this version's declared union.
+        // Type-only cast — no behavior change.
+        client: passkeyClient as never,
         organizationId: session.organizationId,
         signWith: evmWallet.address,
         ethereumAddress: evmWallet.address,

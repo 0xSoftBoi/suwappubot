@@ -34,6 +34,7 @@ from .intel import (
     intel_refresh_handler,
     intel_watch_handler,
 )
+from .chart import chart_handler
 
 __all__ = [
     # Core handlers
@@ -90,4 +91,6 @@ __all__ = [
     "devwatch_handler",
     "intel_refresh_handler",
     "intel_watch_handler",
+    # Chart
+    "chart_handler",
 ]
