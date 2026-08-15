@@ -96,6 +96,9 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏦 Borrow", callback_data="borrow_menu"),
             InlineKeyboardButton("🔥 Trending", callback_data="trending_open"),
         ],
+        [
+            InlineKeyboardButton("📰 Trade Feed", callback_data="feed_page_0"),
+        ],
         [InlineKeyboardButton("📖 Help", callback_data="help")],
         [InlineKeyboardButton("« Back to Main", callback_data="main_menu")],
     ]

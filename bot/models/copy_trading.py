@@ -35,6 +35,12 @@ class TraderProfile(Base):
 
     # Profile settings
     is_public = Column(Boolean, default=False)  # Must opt-in to be visible
+    # Narrower opt-out: even a public/followable trader can hide their
+    # individual fills from the /feed social feed (bot/services/feed_service.py)
+    # without losing followability. Added via database/db.py::
+    # _add_trader_profiles_feed_opt_out_column — see that migration for the
+    # default-TRUE rationale.
+    show_in_feed = Column(Boolean, default=True)
     display_name = Column(String(50), nullable=True)  # Public name
     bio = Column(String(255), nullable=True)  # Short bio
     avatar_emoji = Column(String(10), default="🦊")  # Profile emoji

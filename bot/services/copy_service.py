@@ -166,6 +166,27 @@ class CopyService:
         else:
             return False, "Profile is now private. You won't appear in trader lists."
 
+    def toggle_feed_visibility(self, user_id: int) -> Tuple[bool, str]:
+        """Toggle whether a (public) trader's fills appear in the /feed
+        verified-trade feed — see bot/services/feed_service.py. Narrower than
+        `is_public`: a trader can stay followable/listed while opting their
+        individual trades out of the feed surface."""
+        with get_session() as session:
+            profile = session.query(TraderProfile).filter(TraderProfile.user_id == user_id).first()
+
+            if not profile:
+                profile = TraderProfile(user_id=user_id, show_in_feed=True)
+                session.add(profile)
+                return True, "Your trades will appear in /feed once your profile is public."
+
+            profile.show_in_feed = not profile.show_in_feed
+            new_status = profile.show_in_feed
+
+        if new_status:
+            return True, "Your trades will now appear in /feed (once your profile is public)."
+        else:
+            return False, "Your trades are now hidden from /feed."
+
     # ==================== Following ====================
 
     def follow_trader(

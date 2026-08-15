@@ -785,6 +785,18 @@ def _ensure_schema(db_engine) -> None:
     _create_prediction_snapshots_table(db_engine, inspector, is_sqlite)
     _create_lend_metrics_table(db_engine, inspector, is_sqlite)
 
+    # --- markets.xyz parity GAP 3: verified trade feed (/feed) ---
+    if "trader_profiles" in tables:
+        _add_trader_profiles_feed_opt_out_column(db_engine, inspector, is_sqlite)
+    if "trader_trades" in tables:
+        _add_trader_trades_created_at_index(db_engine, inspector, is_sqlite)
+
+    # --- markets.xyz parity GAP 1/2: HIP-3 builder-dex perp positions/orders ---
+    if "perp_positions" in tables:
+        _add_perp_positions_dex_column(db_engine, inspector, is_sqlite)
+    if "perp_orders" in tables:
+        _add_perp_orders_dex_column(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -4456,3 +4468,83 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                 "ON lend_metrics(venue, market_id, ts DESC)"
             )
         )
+
+
+def _add_trader_profiles_feed_opt_out_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add trader_profiles.show_in_feed — a per-trader opt-out for the /feed
+    verified-trade feed (markets.xyz parity GAP 3).
+
+    `is_public` (existing column) remains the single source of truth for
+    "discoverable at all" (leaderboard, /traders search, copy-follow). A
+    trader who is public may still not want their individual fills broadcast
+    into the social feed, so this is a second, narrower gate: /feed only
+    shows a trader's trades when BOTH `is_public` AND `show_in_feed` are true.
+    Defaults to TRUE (matches existing public traders' expectations — going
+    public already means "my trades are visible"); traders can opt out via
+    /profile without giving up followability.
+    """
+    cols = {c["name"] for c in inspector.get_columns("trader_profiles")}
+
+    if "show_in_feed" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE trader_profiles ADD COLUMN show_in_feed BOOLEAN DEFAULT TRUE"
+        else:
+            ddl = (
+                "ALTER TABLE trader_profiles "
+                "ADD COLUMN IF NOT EXISTS show_in_feed BOOLEAN DEFAULT TRUE"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
+def _add_trader_trades_created_at_index(db_engine, inspector, is_sqlite: bool) -> None:
+    """Index trader_trades(created_at) for the /feed GLOBAL feed query, which
+    orders across ALL opted-in traders by recency (the existing
+    ix_trader_trades_trader_date index is scoped to a single trader_id and
+    doesn't help a cross-trader ORDER BY created_at DESC scan)."""
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_trader_trades_created_at "
+                "ON trader_trades(created_at DESC)"
+            )
+        )
+
+
+def _add_perp_positions_dex_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add perp_positions.dex — the HyperLiquid perp dex a position lives on
+    (markets.xyz parity GAP 1: HIP-3 builder-deployed perp dexs).
+
+    Empty string ("") means the native HyperLiquid dex (today's only dex,
+    matching HL's own ``dex=""`` convention on /info + /exchange). A non-empty
+    value is a builder-deployed dex name (e.g. equities/FX/commodities/bonds),
+    required so closes/TP-SL/cancels on a HIP-3 position resolve the correct
+    (offset) asset id rather than falling back to the native dex's asset table.
+    Additive + idempotent; defaults to "" so every pre-existing row (all native
+    positions) keeps working unchanged.
+    """
+    cols = {c["name"] for c in inspector.get_columns("perp_positions")}
+    if "dex" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE perp_positions ADD COLUMN dex VARCHAR(50) DEFAULT ''"
+        else:
+            ddl = "ALTER TABLE perp_positions ADD COLUMN IF NOT EXISTS dex VARCHAR(50) DEFAULT ''"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+            conn.execute(text("UPDATE perp_positions SET dex = '' WHERE dex IS NULL"))
+
+
+def _add_perp_orders_dex_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add perp_orders.dex — mirrors perp_positions.dex (see above) so scale-order
+    legs, TWAPs, and TP/SL orders on a HIP-3 market carry their dex too.
+    Additive + idempotent; defaults to "" (native dex).
+    """
+    cols = {c["name"] for c in inspector.get_columns("perp_orders")}
+    if "dex" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE perp_orders ADD COLUMN dex VARCHAR(50) DEFAULT ''"
+        else:
+            ddl = "ALTER TABLE perp_orders ADD COLUMN IF NOT EXISTS dex VARCHAR(50) DEFAULT ''"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+            conn.execute(text("UPDATE perp_orders SET dex = '' WHERE dex IS NULL"))

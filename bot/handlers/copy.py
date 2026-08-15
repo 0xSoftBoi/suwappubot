@@ -387,6 +387,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     toggle_text = "🔴 Go Private" if profile.is_public else "🌐 Publish on Web"
+    feed_toggle_text = "🙈 Hide from /feed" if profile.show_in_feed else "📰 Show in /feed"
 
     buttons = [
         [
@@ -396,6 +397,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🎭 Change Emoji", callback_data="copy_edit_emoji"),
             InlineKeyboardButton(toggle_text, callback_data="copy_toggle_public"),
+        ],
+        [
+            InlineKeyboardButton(feed_toggle_text, callback_data="copy_toggle_feed"),
         ],
         [
             InlineKeyboardButton("👥 My Followers", callback_data="copy_myfollowers"),
@@ -448,6 +452,7 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     toggle_text = "🔴 Go Private" if profile.is_public else "🌐 Publish on Web"
+    feed_toggle_text = "🙈 Hide from /feed" if profile.show_in_feed else "📰 Show in /feed"
 
     buttons = [
         [
@@ -457,6 +462,9 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🎭 Change Emoji", callback_data="copy_edit_emoji"),
             InlineKeyboardButton(toggle_text, callback_data="copy_toggle_public"),
+        ],
+        [
+            InlineKeyboardButton(feed_toggle_text, callback_data="copy_toggle_feed"),
         ],
         [
             InlineKeyboardButton("👥 My Followers", callback_data="copy_myfollowers"),
@@ -485,6 +493,24 @@ async def toggle_public_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     is_public, message = copy_service.toggle_public(user_id)
+
+    await query.answer(message, show_alert=True)
+
+    # Refresh profile view
+    await profile_callback(update, context)
+
+
+@enforce_tos
+async def toggle_feed_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle whether this trader's fills appear in the /feed social feed."""
+    query = update.callback_query
+
+    user_id = get_user_db_id(update.effective_user.id)
+    if not user_id:
+        await query.answer("Please /start first!", show_alert=True)
+        return
+
+    _, message = copy_service.toggle_feed_visibility(user_id)
 
     await query.answer(message, show_alert=True)
 
@@ -964,6 +990,9 @@ following_callback_handler = CallbackQueryHandler(following_callback, pattern="^
 profile_callback_handler = CallbackQueryHandler(profile_callback, pattern="^copy_profile$")
 toggle_public_callback_handler = CallbackQueryHandler(
     toggle_public_callback, pattern="^copy_toggle_public$"
+)
+toggle_feed_callback_handler = CallbackQueryHandler(
+    toggle_feed_callback, pattern="^copy_toggle_feed$"
 )
 edit_name_callback_handler = CallbackQueryHandler(edit_name_callback, pattern="^copy_edit_name$")
 edit_bio_callback_handler = CallbackQueryHandler(edit_bio_callback, pattern="^copy_edit_bio$")

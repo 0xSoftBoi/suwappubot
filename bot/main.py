@@ -71,6 +71,11 @@ from bot.handlers.trending import (
     trending_open_callback,
     trending_buy_callback,
 )
+from bot.handlers.feed import (
+    feed_command,
+    feed_page_callback,
+    feed_buy_callback,
+)
 from bot.handlers.twofa import twofa_conversation
 from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
 from bot.handlers.recovery import recover_handler, recover_cancel_handler
@@ -262,6 +267,7 @@ from bot.handlers.copy import (
     following_callback_handler,
     profile_callback_handler,
     toggle_public_callback_handler,
+    toggle_feed_callback_handler,
     edit_emoji_callback_handler,
     set_emoji_callback_handler,
     my_followers_callback_handler,
@@ -573,6 +579,14 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(trending_open_callback, pattern="^trending_open$"))
     application.add_handler(CallbackQueryHandler(trending_buy_callback, pattern="^tbuy_"))
 
+    # Verified trade feed (markets.xyz parity GAP 3): /feed + pagination +
+    # token-view-to-buy. "Copy trader" buttons reuse the existing
+    # copy_view_<id> handler (registered below with Copy Trading). Only
+    # opted-in traders' real fills appear (bot/services/feed_service.py).
+    application.add_handler(CommandHandler("feed", feed_command))
+    application.add_handler(CallbackQueryHandler(feed_page_callback, pattern=r"^feed_page_\d+$"))
+    application.add_handler(CallbackQueryHandler(feed_buy_callback, pattern=r"^fbuy_\d+$"))
+
     # xStocks — tokenized equities (Backed Finance / Jupiter, Solana). Geo-gated
     # (US/GB/CA/AU + unknown blocked). Buy buttons reuse the swap "^pbuy_" entry.
     application.add_handler(stocks_command_handler)  # /stocks
@@ -762,6 +776,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(following_callback_handler)
     application.add_handler(profile_callback_handler)
     application.add_handler(toggle_public_callback_handler)
+    application.add_handler(toggle_feed_callback_handler)
     application.add_handler(edit_emoji_callback_handler)
     application.add_handler(set_emoji_callback_handler)
     application.add_handler(my_followers_callback_handler)
